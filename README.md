@@ -75,3 +75,9 @@ Detta repository innehåller inte upphovsrättsskyddade logotyper eller specifik
 - ## 🤝 Bidra
 Bidrag är välkomna. Se [CONTRIBUTING.md](CONTRIBUTING.md) för riktlinjer.
 
+## 🌿 Branch-struktur
+
+- **`main`** – Stabil tävlingsversion (används på tävling)
+- **`dev`** – Aktiv utveckling
+
+All utveckling sker i `dev`. Endast testad och fungerande kod mergas till `main`.
