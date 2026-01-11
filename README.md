@@ -35,7 +35,7 @@ Systemet är **Cloud-First**. Det innebär att:
 
 ### Offline (Säkerhetsläge)
 Om nätverket går ner under en tävling:
-1. **APPEN FORTSÄTTER FUNGERA:** Du kan fortsätta klicka i resultat, starta klockor etc.
+1. **APPEN FORTSÄTTER FUNGERA:** All funktionalitet körs lokalt i webbläsaren via cache och IndexedDB.
 2. **Lokal lagring:** Data sparas tillfälligt i webbläsaren.
 3. **VARNING:** Stäng INTE webbläsaren.
 4. **Synkronisering:** Så fort nätverket kommer tillbaka försöker systemet skicka upp all data automatiskt.
@@ -56,7 +56,7 @@ Kort guide till projektets mappar för dig som vill utveckla vidare:
     - **`utils/`** – Hjälpfunktioner för tidsberäkning, validering och formatering.
 - **`css/`** – Styling.
     - **`index.css`** – Tailwind-direktiv och globala stilar.
-- **`assets/`** – Bilder och ikoner.
+- **`assets/`** – Bilder och ikoner som är fria att distribuera.
     - **`logos/`** – *Obs! Vissa logotyper är borttagna från detta repo pga upphovsrätt.* Placeras här lokalt.
 - **`lib/`** – Externa bibliotek (t.ex. `jspdf` för PDF-generering, `qrcode` etc).
 
@@ -71,4 +71,7 @@ Detta repository innehåller inte upphovsrättsskyddade logotyper eller specifik
 - **Frontend:** Vanilla JavaScript (ES6 Modules) + Tailwind CSS (via CDN för enkelhet).
 - **Backend:** Firebase (Firestore, Auth, Functions).
 - **Bygge:** Inget byggsteg krävs! (No-build). "What you see is what you run".
+
+- ## 🤝 Bidra
+Bidrag är välkomna. Se [CONTRIBUTING.md](CONTRIBUTING.md) för riktlinjer.
 
