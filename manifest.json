@@ -1,0 +1,12 @@
+{
+  "name": "DriveLive",
+  "short_name": "Körning",
+  "start_url": "/index.html",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0A1F37",
+  "icons": [
+    { "src": "/icons/DriveLive_192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icons/DriveLive_512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

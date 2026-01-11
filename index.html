@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="sv">
+
+<head>
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#0A1F37">
+
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tävlingssystem Sportkörning</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            'brand-darkblue': '#0A1F37',
+            'brand-gold': '#C2A145',
+            'brand-lightblue': '#69C9D6',
+          }
+        }
+      }
+    }
+  </script>
+
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+
+  <link rel="apple-touch-icon" sizes="180x180" href="./apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
+
+  <link rel="stylesheet" href="css/style.css">
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
+  <style>
+    #controlsContainer button span {
+      display: block !important;
+      color: white !important;
+      background-color: transparent !important;
+      opacity: 0.9 !important;
+      font-weight: 500 !important;
+      font-size: 11px !important;
+      margin-top: 2px !important;
+    }
+
+    /* 🆕 Gråa ut kontroller som kräver nät */
+    html[data-offline="true"] .needs-online {
+      opacity: .5;
+      pointer-events: none;
+    }
+  </style>
+</head>
+
+<body class="bg-gray-100 text-sm md:text-base">
+
+  <!-- Global Offline Banner -->
+  <div id="offline-banner"
+    class="hidden bg-yellow-500 text-white text-center py-2 px-4 shadow-md sticky top-0 z-[60] font-bold">
+    ⚠️ Du är offline. Ändringar sparas lokalt och synkas när anslutningen återkommer.
+  </div>
+
+  <nav class="bg-white shadow-md sticky top-0 z-50">
+    <div class="container mx-auto px-4">
+      <div class="flex items-center justify-between h-16 relative">
+        <div>
+          <span class="font-bold text-lg md:text-xl text-brand-lightblue leading-tight block">DriveLive</span>
+          <div id="competition-nav-info" class="text-xs text-gray-500 hidden xl:block leading-tight">
+            <span id="active-comp-name" class="font-semibold">Ingen tävling vald</span>
+          </div>
+        </div>
+        <div class="flex items-center">
+          <div id="userInfo" class="hidden items-center mr-2 text-sm font-semibold capitalize text-blue-700">
+            <span id="userRole"></span>
+          </div>
+          <button id="loginButton"
+            class="hidden bg-blue-500 hover:bg-brand-darkblue text-white text-sm font-bold py-1 px-3 rounded-md">Logga
+            in</button>
+          <button id="logoutButton"
+            class="hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md">Logga
+            ut</button>
+          <!-- Offline-badge -->
+          <span id="net-badge"
+            style="display:none; padding:2px 6px; border-radius:6px; background:#444; color:#fff; font-size:12px; margin-left:8px;">
+            Offline
+          </span>
+          <div class="xl:hidden ml-2">
+            <button id="menu-toggle" class="text-gray-600 hover:text-gray-800 focus:outline-none">
+              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                xmlns="http://www.w3.org/2000/svg">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16">
+                </path>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div id="nav-links"
+          class="hidden absolute top-16 right-0 w-auto bg-white shadow-lg xl:static xl:flex xl:w-auto xl:shadow-none xl:bg-transparent">
+          <div class="flex flex-col md:flex-row md:flex-wrap md:space-x-1 xl:space-x-2 text-sm">
+            <a href="#hub" class="nav-link px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+              data-role-required="publik,funktionar,domare,admin">Hub</a>
+            <a href="#portal" class="nav-link px-4 py-3 md:px-2 md:py-2 rounded-md font-medium text-blue-700 font-bold"
+              data-role-required="publik,funktionar,domare,admin">Min Portal</a>
+
+            <div class="relative dropdown-container">
+              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin">Deltagare ▼</button>
+              <div class="dropdown-menu hidden md:absolute bg-white md:shadow-lg rounded-md md:mt-2 z-30">
+                <a href="#deltagare" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Deltagarlista</a>
+                <a href="#hastar" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Hästlista</a>
+                <a href="#reports" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin">Rapportcenter</a>
+              </div>
+            </div>
+
+            <a href="#starttider" class="nav-link px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+              data-role-required="publik,funktionar,domare,admin">Starttider</a>
+
+            <div class="relative dropdown-container">
+              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin">Dressyr ▼</button>
+              <div class="dropdown-menu hidden md:absolute bg-white md:shadow-lg rounded-md md:mt-2 z-30">
+                <a href="#dressyr-monitor" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Live Monitor</a>
+                <a href="#dressyr-input" class="nav-link block px-4 py-2" data-role-required="domare,admin">Inmatning
+                  Dressyr</a>
+                <a href="#dressyr-results" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Resultat Dressyr</a>
+              </div>
+            </div>
+
+            <div class="relative dropdown-container">
+              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin">Maraton ▼</button>
+              <div class="dropdown-menu hidden md:absolute bg-white md:shadow-lg rounded-md md:mt-2 z-30">
+                <a href="#maraton-monitor" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Live Monitor</a>
+                <a href="#maraton-input" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin">Inmatning Hinder</a>
+                <a href="#maraton-tider" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Maratontider</a>
+                <a href="#maraton-stages" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin">Maraton – Etapper</a>
+                <a href="#observator-input" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin">Observatör</a>
+                <a href="#maraton-results" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Resultat Maraton</a>
+              </div>
+            </div>
+
+            <div class="relative dropdown-container">
+              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin">Precision ▼</button>
+              <div class="dropdown-menu hidden md:absolute bg-white md:shadow-lg rounded-md md:mt-2 z-30">
+                <a href="#precision-monitor" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Live Monitor</a>
+                <a href="#precision-input" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin">Inmatning Precision</a>
+                <a href="#precision-results" class="nav-link block px-4 py-2"
+                  data-role-required="publik,funktionar,domare,admin">Resultat Precision</a>
+              </div>
+            </div>
+
+            <div class="relative dropdown-container">
+              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+                data-role-required="admin">Admin ▼</button>
+              <div class="dropdown-menu hidden md:absolute bg-white md:shadow-lg rounded-md md:mt-2 z-30">
+                <a href="#admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin</a>
+                <a href="#ekipage" class="nav-link block px-4 py-2" data-role-required="admin">Hantera Ekipage</a>
+                <a href="#vet-check" class="nav-link block px-4 py-2"
+                  data-role-required="admin,funktionar">Veterinär</a>
+                <a href="#vagnbredd" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin">Mätning Vagnbredd</a>
+                <a href="#dressyr-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin Dressyr</a>
+                <a href="#maraton-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin Maraton</a>
+                <a href="#precision-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin
+                  Precision</a>
+                <a href="#speaker" class="nav-link block px-4 py-2" data-role-required="funktionar,domare,admin">Speaker
+                  Dashboard</a>
+                <a href="#prize-giving" class="nav-link block px-4 py-2"
+                  data-role-required="funktionar,domare,admin,speaker">Prisutdelning 🏆</a>
+
+              </div>
+            </div>
+
+            <a href="#total-results" class="nav-link px-4 py-3 md:px-2 md:py-2 rounded-md font-medium"
+              data-role-required="publik,funktionar,domare,admin">Totalresultat</a>
+
+            <a href="#manual"
+              class="nav-link px-4 py-3 md:px-2 md:py-2 rounded-md font-medium text-gray-500 hover:text-gray-900"
+              data-role-required="publik,funktionar,domare,admin">Hjälp / Manual</a>
+
+
+          </div>
+        </div>
+      </div>
+    </div>
+  </nav>
+
+  <main>
+    <div id="page-hub" class="page active"></div>
+    <div id="page-portal" class="page"></div> <!-- Min Portal -->
+    <div id="page-admin" class="page"></div>
+    <div id="page-ekipage" class="page"></div>
+    <div id="page-vet-check" class="page"></div>
+    <div id="page-deltagare" class="page"></div>
+    <div id="page-hastar" class="page"></div>
+    <div id="page-reports" class="page hidden"></div>
+
+    <!-- PAGE: PRIZE GIVING (PRISUTDELNING) -->
+    <div id="page-prize-giving" class="page hidden"></div>
+
+    <div id="page-starttider" class="page"></div>
+
+    <div id="page-maraton-tider" class="page"></div>
+    <div id="page-dressyr-input" class="page"></div>
+    <div id="page-dressyr-results" class="page"></div>
+    <div id="page-dressyr-admin" class="page"></div>
+    <div id="page-maraton-input" class="page"></div>
+    <div id="page-maraton-results" class="page"></div>
+    <div id="page-maraton-stages" class="page"></div>
+    <div id="page-observator-input" class="page"></div>
+    <div id="page-vagnbredd" class="page"></div>
+    <div id="page-precision-input" class="page"></div>
+    <div id="page-precision-results" class="page"></div>
+    <div id="page-maraton-admin" class="page"></div>
+    <div id="page-precision-admin" class="page"></div>
+    <div id="page-total-results" class="page"></div>
+    <div id="page-maraton-monitor" class="page"></div>
+    <div id="page-precision-monitor" class="page"></div>
+    <div id="page-dressyr-monitor" class="page"></div>
+    <div id="page-manual" class="page"></div>
+    <div id="page-speaker" class="page"></div>
+  </main>
+
+  <div id="loginModal"
+    class="fixed inset-0 bg-gray-800 bg-opacity-75 h-full w-full z-50 flex items-center justify-center">
+    <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg relative">
+      <button id="closeLoginModal"
+        class="absolute top-4 right-4 text-3xl font-light text-gray-400 hover:text-gray-800">&times;</button>
+      <h2 class="text-3xl font-bold text-center text-gray-900">Logga in</h2>
+      <p class="text-center text-gray-600">Du måste logga in för att se denna sida.</p>
+      <form id="loginForm" class="space-y-6">
+        <div>
+          <label for="email" class="text-sm font-bold text-gray-600 block">E-postadress</label>
+          <input type="email" id="email" required
+            class="w-full p-3 mt-1 text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <label for="password" class="text-sm font-bold text-gray-600 block">Lösenord</label>
+          <input type="password" id="password" required
+            class="w-full p-3 mt-1 text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+        </div>
+        <div>
+          <button type="submit"
+            class="w-full py-3 font-semibold text-white bg-brand-darkblue rounded-md hover:bg-brand-gold hover:text-brand-darkblue focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Logga
+            in</button>
+        </div>
+        <p id="loginError" class="text-sm text-center text-red-600"></p>
+        <p id="forgotPasswordLink" class="text-center text-xs text-gray-500 cursor-pointer hover:underline mt-2">
+          Glömt lösenordet?
+        </p>
+        <p id="toggleAuthMode" class="text-center text-sm text-blue-600 cursor-pointer hover:underline mt-4">
+          Har du inget konto? Registrera dig här.
+        </p>
+      </form>
+    </div>
+  </div>
+
+  <div id="detailsModal" class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50">
+    <div class="relative top-10 mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white">
+      <div class="flex justify-between items-center pb-3 border-b">
+        <h3 id="modalTitle" class="text-2xl font-bold">Detaljer</h3>
+        <button id="closeModal" class="text-3xl font-light text-gray-400 hover:text-gray-800">&times;</button>
+      </div>
+      <div id="modalTabs" class="border-b border-gray-200 mt-4"></div>
+      <div id="modalContent" class="mt-4 max-h-[70vh] overflow-y-auto"></div>
+    </div>
+  </div>
+
+  <div id="alertModal"
+    class="fixed inset-0 bg-gray-600 bg-opacity-50 h-full w-full z-50 flex items-center justify-center">
+    <div class="relative mx-auto p-5 border w-96 shadow-lg rounded-md bg-white">
+      <div class="mt-3 text-center">
+        <div id="alertModalIcon" class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100">
+        </div>
+        <h3 id="alertModalTitle" class="text-lg leading-6 font-medium text-gray-900 mt-2">Klart!</h3>
+        <div class="mt-2 px-7 py-3">
+          <p class="text-sm text-gray-500" id="alertModalMessage">Aktionen har utförts.</p>
+        </div>
+        <div class="items-center px-4 py-3">
+          <button id="closeAlertModal"
+            class="px-4 py-2 bg-green-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
+            OK
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- PDF.js (self-hostad, ESM) -->
+  <script type="module">
+    import * as pdfjsLib from './lib/pdfjs/build/pdf.mjs';
+    // Gör biblioteket globalt för sidor som behöver det (t.ex. dressyr-admin):
+    window.pdfjsLib = pdfjsLib;
+
+    // SÄTT WORKERN (mjs). Två fungerande varianter – välj EN:
+
+    // 1) Enkel: låt PDF.js hämta worker via URL till .mjs
+    pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdfjs/build/pdf.worker.min.mjs';
+
+    // -- eller --
+
+    // 2) Explicit module worker (om du vill skapa workern själv):
+    // pdfjsLib.GlobalWorkerOptions.workerPort =
+    //   new Worker('./lib/pdfjs/build/pdf.worker.min.mjs', { type: 'module' });
+  </script>
+
+  <script type="module" src="js/main.js"></script>
+
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        // Vi kör enbart service-worker.js (som är mer omfattande)
+        navigator.serviceWorker.register('./service-worker.js', { scope: './' })
+          .then(registration => {
+            console.log('ServiceWorker (DriveLive) registrerad:', registration.scope);
+          })
+          .catch(error => {
+            console.warn('ServiceWorker-registrering misslyckades:', error);
+          });
+      });
+    }
+  </script>
+
+</body>
+
+</html>

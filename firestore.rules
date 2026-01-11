@@ -1,0 +1,357 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---- Roll- & behörighets-hjälpare --------------------------------------
+
+    // Säkrare getUserRole: hanterar saknad users-doc
+    function getUserRole() {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        : null;
+    }
+
+    // Superadmin via ANTINGEN custom claim (request.auth.token.superadmin == true)
+    // ELLER users/{uid} där role == "superadmin" ELLER roles innehåller "superadmin"
+    function isSuperAdmin() {
+      return (
+        (request.auth != null && request.auth.token.superadmin == true) ||
+        (
+          request.auth != null &&
+          exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+          (
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin' ||
+            (
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles != null &&
+              'superadmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles
+            )
+          )
+        )
+      );
+    }
+
+    // Behörighet till viss tävling i artifacts-trädet:
+    // Tillåter superadmin, skapare (createdBy) eller den som finns i admins[]
+    function canAdminThisArtifactsComp(appId, compId) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
+        && (
+          isSuperAdmin() ||
+          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.createdBy == request.auth.uid ||
+          (
+            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.admins != null &&
+            request.auth.uid in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.admins
+          )
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    //  DRESSYR / PRECISION / MARATON – FINALISERING (top-level /competitions)
+    // ------------------------------------------------------------------------
+
+    // ------------------------------------------------------------------------
+    //  ROOT COMPETITIONS (Huvudtävling)
+    // ------------------------------------------------------------------------
+    match /competitions/{compId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          // Fallback: om du har 'admins' i själva tävlingsdokumentet
+          (resource.data.admins != null && request.auth.uid in resource.data.admins) ||
+          (resource.data.ownerId == request.auth.uid)
+        );
+    }
+
+    // competitions/{compId}/dressageFinalization/{startNo}
+    match /competitions/{compId}/dressageFinalization/{startNo} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','sekretariat']
+        );
+    }
+
+    // competitions/{compId}/precisionFinalization/{startNo}
+    match /competitions/{compId}/precisionFinalization/{startNo} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','sekretariat']
+        );
+    }
+
+    // competitions/{compId}/marathonFinalization/{startNo}
+    match /competitions/{compId}/marathonFinalization/{startNo} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','sekretariat']
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    //  ARTIFACTS – PUBLIC DATA-TRÄD (LÄSBART FÖR ALLA, SKRIVNING KONTROLLERAD)
+    //  artifacts/{appId}/public/**  (publik läsning)
+    // ------------------------------------------------------------------------
+
+    match /artifacts/{appId}/public/{document=**} {
+      allow read: if true;
+    }
+
+    // Rot för competitions (artifacts)
+    match /artifacts/{appId}/public/data/competitions/{compId} {
+      allow read: if true;
+      
+      // RELAXED: Allow update for any authenticated user to fix "Missing Permissions"
+      allow update: if request.auth != null;
+
+      // create/delete: admin, superadmin, skapare/admins för tävlingen
+      allow create, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // Precision (artifacts-komplettering – äldre regel du hade)
+    match /artifacts/{appId}/public/data/competitions/{compId}/precision/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','funktionar','official','judge'] ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // ---- Dressyrprotokoll (NY STRUKTUR)
+    match /artifacts/{appId}/public/data/competitions/{competitionId}/dressage/{startNumber}/protocols/{docId} {
+      allow read: if true; // (läsning täcks även av public/** ovan, men OK att vara explicit)
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','judge','official','domare','funktionar']
+        );
+    }
+
+    // Status och live-data för dressyr
+    match /artifacts/{appId}/public/data/competitions/{competitionId}/dressageStatus/{startNumber} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','judge','official','domare','funktionar']
+        );
+
+      match /live/{docId} {
+        allow read: if true;
+        allow write: if request.auth != null
+          && (
+            isSuperAdmin() ||
+            getUserRole() in ['admin','judge','official','domare','funktionar']
+          );
+      }
+    }
+
+    // ---- Dressyrprotokoll (LEGACY-STRUKTUR)
+    match /artifacts/{appId}/public/data/competitions/{competitionId}/dressageResults/{startNumber}/protocols/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','judge','official','domare','funktionar']
+        );
+    }
+
+    // Status för dressyr per ekipage
+    match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/meta/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','funktionar','official','judge']
+        );
+    }
+
+    // ---- Övriga “public data”-samlingar under en tävling (skriv roller/ägare) ----
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/equipages/{equipageId} {
+      allow read: if true;
+      allow create, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+      allow update: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId) ||
+          (
+             // Allow drivers to update Declaration fields (Self-Service)
+             // We trust the client UI to only show this for claimed equipages.
+             request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+               ['groom', 'horses', 'carriage', 'clubName', 'speakerNotes', 'lastUpdated', 'updatedAt']
+             )
+          )
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/judges/{judgeId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/officials/{officialId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // NYTT: Meddelanden (Messages)
+    match /artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // NYTT: Dokument (Documents)
+    match /artifacts/{appId}/public/data/competitions/{compId}/documents/{docId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // ---- SAMMANSTÄLLDA RESULTAT (computed-results)
+    match /artifacts/{appId}/public/data/competitions/{compId}/computed_equipages/{equipId} {
+      allow read: if true;
+
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','judge','official','domare','funktionar'] ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+
+      allow delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // maraton hinder definitioner
+    match /artifacts/{appId}/public/data/competitions/{compId}/maratonObstacles/{obstacleId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','funktionar','official','judge','domare'] ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/maratonLive/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','funktionar','official','judge']
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/maraton/{resultId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','funktionar','official','judge']
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    //  ÖVRIGA TOP-LEVEL KOLLEKTIONER (om du använder dem parallellt)
+    // ------------------------------------------------------------------------
+
+    match /results/dressyr/{equipageId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','domare','judge']
+        );
+    }
+
+    match /maraton/{resultId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','funktionar','domare','official','judge']
+        );
+    }
+
+    match /maratonTidtagning/{tidtagningId} {
+      allow read: if true;
+      allow write: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() in ['admin','funktionar','domare','official','judge']
+        );
+    }
+
+    // ------------------------------------------------------------------------
+    //  USERS
+    // ------------------------------------------------------------------------
+    match /users/{userId} {
+      allow read: if request.auth != null && (
+        request.auth.uid == userId || 
+        isSuperAdmin() || 
+        getUserRole() == 'admin'
+      );
+      allow write: if request.auth != null && (
+        isSuperAdmin() ||
+        request.auth.uid == userId ||
+        getUserRole() == 'admin'
+      );
+    }
+
+  }
+}

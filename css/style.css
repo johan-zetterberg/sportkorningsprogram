@@ -1,0 +1,139 @@
+/* css/style.css */
+body { 
+    font-family: 'Inter', sans-serif; 
+}
+
+.page { 
+    display: none; 
+}
+
+.page.active { 
+    display: block; 
+}
+
+.nav-link { 
+    transition: all 0.2s; 
+}
+
+.nav-link.active { 
+    background-color: #3b82f6; 
+    color: white; 
+}
+
+.nav-link[data-role-required] { 
+    display: none; /* Dölj roll-specifika länkar som default */ 
+}
+
+.clickable-row:hover { 
+    background-color: #eff6ff; 
+    cursor: pointer; 
+}
+
+.sortable-header { 
+    cursor: pointer; 
+    user-select: none; 
+}
+
+.sortable-header:hover { 
+    background-color: #f3f4f6; 
+}
+
+.coeff-display { 
+    font-size: 0.8rem; 
+    color: #6b7280; 
+}
+
+.comment-input { 
+    resize: none; 
+    overflow-y: hidden; 
+    min-height: 38px; 
+}
+
+/* Modal Styles */
+#detailsModal, #alertModal, #loginModal { 
+    display: none; 
+}
+
+.tab-btn { 
+    padding: 8px 16px; 
+    cursor: pointer; 
+    border-bottom: 2px solid transparent; 
+    transition: all 0.2s ease-in-out; 
+}
+
+.tab-btn.active { 
+    border-bottom-color: #4f46e5; 
+    color: #4f46e5; 
+    font-weight: 600; 
+}
+
+.tab-content { 
+    display: none; 
+}
+
+.tab-content.active { 
+    display: block; 
+}
+
+.time-input { 
+    padding: 0.5rem; 
+    border: 1px solid #d1d5db; 
+    border-radius: 0.375rem; 
+    width: 10rem; 
+}
+
+/* Marathon/Precision Styles */
+.best-score { 
+    font-weight: 700; 
+    color: #059669; /* green-600 */ 
+}
+
+/* --- START: KOD FÖR RESPONSIVA TABELLER --- */
+@media (max-width: 768px) {
+    .responsive-table thead {
+        display: none;
+    }
+
+    .responsive-table tr {
+        display: block;
+        border: 1px solid #e5e7eb;
+        border-radius: 0.5rem;
+        margin-bottom: 1rem;
+        box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+    }
+    
+    /* Gäller ej klassrubriker i resultatlistor */
+    .responsive-table tr:has(td[colspan]) {
+        border: none;
+        box-shadow: none;
+        margin-bottom: 0;
+        background-color: transparent !important;
+    }
+
+    .responsive-table td {
+        display: flex;
+        align-items: center;
+        padding: 0.75rem 1rem;
+        text-align: right;
+        border-bottom: 1px solid #f3f4f6;
+    }
+    
+    .responsive-table td:last-child {
+        border-bottom: 0;
+    }
+
+    .responsive-table td::before {
+        content: attr(data-label);
+        font-weight: 600;
+        text-align: left;
+        margin-right: 1rem;
+    }
+    
+    /* Specialanpassning för celler med två rader (kusk/häst) i mobilvy */
+    .responsive-table td.stacked-cell-content {
+        /* Vi styr flexbox-riktningen för just dessa celler */
+        flex-direction: column;
+        align-items: flex-start; /* Justera innehållet till vänster */
+    }
+}
+

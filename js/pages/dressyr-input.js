@@ -1,0 +1,1200 @@
+import { getGlobalState } from '../main.js';
+import { getCurrentUserRole } from '../services/authService.js';
+import {
+  getEquipages,
+  getConfig,
+  saveConfig,
+  listenForJudges,
+  saveDressageJudgeProtocol,
+  saveDressageGeneralData,
+  setDressageStatus,
+  getDressageResultsForEquipage
+} from '../services/firestoreService.js';
+
+// NYTT: Importera det vi behöver från Firebase för att prata direkt med databasen
+import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { db, appId } from '../config/firebase-config.js';
+
+import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '../utils/dressageUtils.js';
+import { klassProgramMapping } from '../data/competitionData.js';
+import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../ui/components.js';
+import { downloadJson } from '../utils/sharedUtils.js';
+
+let competitionId = null;
+let currentDressageTest = null;
+let activeDressageJudge = null;
+let sortedEquipages = [];
+let equipageSearchDropdown = null;
+let allJudges = [];
+let liveUpdateTimer = null; // Timer för att undvika för många anrop
+let manualTestOverride = false;   // användaren har valt program manuellt
+let programmaticChange = false;   // vi byter värde i koden (ska inte sätta override)
+let lastStartNumber = null;
+
+// ---- Program helpers ----
+function programKeyExists(key) {
+  const all = getPrograms();
+  return !!(key && all && all[key]);
+}
+
+// Översätt äldre kortnycklar (SvLB, SvLA, SvMsvB, SvMsv4) → nyckel i dina importerade program
+function resolveLegacyProgramKey(legacyKey) {
+  if (!legacyKey) return null;
+  const all = getPrograms();
+  const entries = Object.entries(all);
+  const map = {
+    'svlb': [/l[äa]tt/i, /\bB\b/i],
+    'svla': [/l[äa]tt/i, /\bA\b/i],
+    'svmsvb': [/msv/i, /(3|iii)/i],          // “MSV 3 / Msv B (äldre benämning)”
+    'svmsv4': [/msv|medelsv/i, /(4|iv)/i]    // ← Viktigt: tillåt både “MSV 4” och “Medelsvårt 4”
+  };
+  const hints = map[String(legacyKey).toLowerCase()];
+  if (!hints) return null;
+
+  let best = null, scoreBest = -1;
+  for (const [key, p] of entries) {
+    const name = String(p?.name || key);
+    let s = 0;
+    for (const rx of hints) if (rx.test(name)) s++;
+    if (/Svenskt/i.test(p?.category || '')) s += 0.5; // prioritera svenska program
+    if (/FEI/i.test(p?.category || '')) s -= 0.25;
+    if (s > scoreBest) { scoreBest = s; best = key; }
+  }
+  return scoreBest > 0 ? best : null;
+}
+
+// ---- Heuristik flyttad till dressageUtils.js ----
+
+// Mirror data to localStorage for redundancy
+function mirrorToLocal(sn, data) {
+  if (!sn || !data || !competitionId) return;
+  try {
+    const key = `bkp_${competitionId}_dre_${sn}`;
+    localStorage.setItem(key, JSON.stringify({
+      ts: Date.now(),
+      data
+    }));
+  } catch (e) {
+    console.warn('Could not mirror to localStorage', e);
+  }
+}
+
+// 1) Hjälpfunktioner för debounce & retry
+function __debounce(fn, wait = 200) {
+  let t = null;
+  return function (...args) {
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), wait);
+  };
+}
+
+
+async function __withRetry(asyncFn, { tries = 3, baseDelay = 250 } = {}) {
+  let lastErr;
+  for (let i = 0; i < tries; i++) {
+    try { return await asyncFn(); } catch (e) {
+      lastErr = e;
+      await new Promise(r => setTimeout(r, baseDelay * (i + 1)));
+    }
+  }
+  throw lastErr;
+}
+
+// Visar en mjuk varning högst upp (återanvänder alert/baner om du har)
+function softWarnUnknownProgram(className, key) {
+  try {
+    const banner = document.getElementById('programAuditBanner');
+    if (!banner) return;
+    const msg = `Mapping för klassen "${className}" pekar på okänt program "${key}". Välj program manuellt.`;
+    const box = document.createElement('div');
+    box.className = 'my-2 p-3 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-200';
+    box.textContent = msg;
+    // Ta bort tidigare engångsvarningar för tydlighet
+    [...banner.querySelectorAll('.unknown-prog-warn')].forEach(n => n.remove());
+    box.classList.add('unknown-prog-warn');
+    banner.appendChild(box);
+  } catch { }
+}
+
+function findProgramKeyForClass(className) {
+  if (!className) return null;
+
+  const allProgs = getPrograms(); // alltid säker källa
+  const map = (typeof window !== 'undefined' && window.klassProgramMapping)
+    ? window.klassProgramMapping
+    : (typeof klassProgramMapping !== 'undefined' ? klassProgramMapping : {});
+  const clean = String(className).trim().toLowerCase();
+
+  const programKeyExistsSafe = (k) => !!(k && allProgs && allProgs[k]);
+  const isVerified = (k) => !!(allProgs[k] && allProgs[k].verified);
+  const isNonParaClass = !/para/i.test(clean);
+
+  const isParaish = (key) => {
+    const p = allProgs[key];
+    const name = String(p?.name || key);
+    const cat = String(p?.category || '');
+    return /para/i.test(name) || /para/i.test(cat) || /^fei/i.test(key) || /fei/i.test(name) || /fei/i.test(cat);
+  };
+
+  // 1) Exakt mappning (case-sensitiv & case-insensitiv)
+  const directKey =
+    map[className] ??
+    (() => {
+      const hit = Object.keys(map).find(k => k.trim().toLowerCase() === clean);
+      return hit ? map[hit] : null;
+    })();
+
+  if (directKey) {
+    // tillåt inte FEI/Para om klassen inte är para
+    if (programKeyExistsSafe(directKey) && !(isNonParaClass && isParaish(directKey))) return directKey;
+    const legacy = resolveLegacyProgramKey(directKey);
+    if (programKeyExistsSafe(legacy) && !(isNonParaClass && isParaish(legacy))) return legacy;
+  }
+
+  // 2) “Innehåller”-match i mapping (case-insensitiv)
+  for (const mk in map) {
+    const keyLC = mk.trim().toLowerCase();
+    if (keyLC && clean.includes(keyLC)) {
+      const mapped = map[mk];
+      if (programKeyExistsSafe(mapped) && !(isNonParaClass && isParaish(mapped))) return mapped;
+      const legacy = resolveLegacyProgramKey(mapped);
+      if (programKeyExistsSafe(legacy) && !(isNonParaClass && isParaish(legacy))) return legacy;
+    }
+  }
+
+  // 3) Fuzzy-gissning från klassnamn
+  const guess = guessProgramKeyFromClass(className);
+  if (programKeyExistsSafe(guess)) return guess;
+
+  // 4) Sista chansen: prioritera verifierad kandidat bland de vi testat
+  const candidates = [directKey, resolveLegacyProgramKey(directKey), guess].filter(Boolean);
+  const verifiedFirst = candidates.find(isVerified);
+  return programKeyExistsSafe(verifiedFirst) ? verifiedFirst : null;
+}
+
+
+function getProgramMeta(key) {
+  const p = getPrograms()[key] || null;
+  return p ? {
+    name: p.name || key,
+    version: p.version || '',
+    source: p.source || '',
+    verified: !!p.verified
+  } : null;
+}
+
+function handleSelectionChange() {
+  const testSelector = document.getElementById('testSelector');
+  const judgeSelector = document.getElementById('judgeSelector');
+  const startNumber = equipageSearchDropdown.getValue();
+  const judgeId = judgeSelector.value;
+
+  if (startNumber !== lastStartNumber) {
+    manualTestOverride = false;
+    lastStartNumber = startNumber;
+  }
+
+  // Auto-välj program när E-K-I-P-A-G-E väljs
+  if (startNumber) {
+    const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
+    const mapped = equipage ? findProgramKeyForClass(equipage.className) : null;
+
+    if (mapped && !manualTestOverride && (testSelector.value !== mapped || !currentDressageTest)) {
+      programmaticChange = true;
+      testSelector.value = mapped;
+      renderProtocol(mapped);
+      programmaticChange = false;
+    } else if (!mapped && equipage) {
+      // mjuk varning – mapping saknas
+      softWarnUnknownProgram(equipage.className, '(saknas)');
+    }
+
+    // NYTT: Auto-välj domare om ingen är vald, baserat på mapping
+    if (equipage && !judgeId && window.dressageJudgeMapping) {
+      const assigned = window.dressageJudgeMapping[equipage.className];
+      if (assigned) {
+        // assigned = { C: 'id', E: 'id' }
+        // Om bara en, välj den. Annars prioritera C.
+        const keys = Object.keys(assigned);
+        if (keys.length === 1) {
+          judgeSelector.value = assigned[keys[0]];
+          activeDressageJudge = allJudges.find(j => j.id === assigned[keys[0]]) || null;
+        } else if (assigned['C']) {
+          judgeSelector.value = assigned['C'];
+          activeDressageJudge = allJudges.find(j => j.id === assigned['C']) || null;
+        }
+      }
+    }
+  }
+
+  // Ladda ev. sparat protokoll endast för data — ändra inte program här
+  if (startNumber && judgeId) {
+    loadExistingProtocol(startNumber, judgeId, { allowTestChange: false });
+  } else {
+    calculateTotals();
+  }
+}
+
+// --- Global dressyr-straffkoefficient (programnivå) ---
+async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
+  const allowTestChange = opts.allowTestChange !== false; // default = true
+  clearForm();
+  if (!startNumber || !judgeId || !competitionId) return;
+
+  try {
+    const raw = await getDressageResultsForEquipage(competitionId, startNumber);
+    const results = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    const jid = String(judgeId);
+    const protocolData =
+      results.find(r => r.id === `judge_${jid}`) ||
+      results.find(r => r.id === jid);
+
+    const generalData = results.find(r => r.id === "general");
+    if (generalData) {
+      document.getElementById('errorPointsInput').value = generalData.errorPoints ?? 0;
+      document.getElementById('errorCommentInput').value = generalData.errorComment ?? '';
+    }
+
+    if (protocolData) {
+      const testKey = protocolData.testKey || protocolData.programKey || protocolData.testId;
+      if (!testKey) {
+        showAlert("Protokollet saknar testKey/programKey – kan inte rendera.", false);
+        return;
+      }
+      programmaticChange = true;
+      const testSelector = document.getElementById('testSelector');
+      if (allowTestChange && testKey && testSelector && testSelector.value !== testKey && !manualTestOverride) {
+        testSelector.value = testKey;
+        renderProtocol(testKey);
+        manualTestOverride = true;     // lås valet så det inte skrivs över
+      } else {
+        if (typeof updateProgramMeta === 'function') {
+          updateProgramMeta((testSelector && testSelector.value) || testKey);
+        }
+      }
+      programmaticChange = false;
+      document.getElementById('dressageEliminated').checked = !!protocolData.eliminated;
+      const movements = Array.isArray(protocolData.movements) ? protocolData.movements : [];
+      const cards = document.querySelectorAll('#protocolBody .movement-card');
+      cards.forEach((card, index) => {
+        const programMovementNo = (getPrograms()[testKey]?.movements?.[index]?.no);
+        const md = movements.find(m => m.momentNo === programMovementNo)
+          || movements.find(m => m.movementNo === programMovementNo)
+          || movements[index];
+        if (md) {
+          const scoreEl = card.querySelector('.score-input');
+          const commentEl = card.querySelector('.comment-input');
+          if (scoreEl) scoreEl.value = (typeof md.score === 'number' ? md.score : Number(md.score || 0));
+          if (commentEl) commentEl.value = md.comment || '';
+        }
+      });
+    } else {
+      const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
+      // FIX: Använder den nya, smartare sökfunktionen även här
+      const classKey = equipage ? findProgramKeyForClass(equipage.className) : null;
+      const testSelector = document.getElementById('testSelector');
+      if (classKey && testSelector && !manualTestOverride && testSelector.value !== classKey) {
+        programmaticChange = true;
+        testSelector.value = classKey;
+        renderProtocol(classKey);
+        programmaticChange = false;
+      }
+      if (protocolData) {
+        mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
+      }
+    }
+    calculateTotals();
+  } catch (error) {
+    console.error("Kunde inte ladda befintligt protokoll:", error);
+    showAlert("Ett kritiskt fel uppstod vid laddning av sparat protokoll.", false);
+  }
+}
+
+function populateSelectors() {
+  const testSelector = document.getElementById('testSelector');
+  const judgeSelector = document.getElementById('judgeSelector');
+  if (!testSelector || !judgeSelector) return;
+
+  const src = getPrograms();
+  testSelector.innerHTML = '';
+  const categories = {};
+  Object.keys(src).forEach(key => {
+    const p = src[key] || {};
+    const cat = p.category || 'Övrigt';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push({ key, name: p.name || key });
+  });
+
+  const preferred = ['Svenskt', 'FEI', 'Övrigt'];
+  Object.keys(categories)
+    .sort((a, b) => (preferred.indexOf(a) === -1 ? 99 : preferred.indexOf(a)) - (preferred.indexOf(b) === -1 ? 99 : preferred.indexOf(b)))
+    .forEach(cat => {
+      const group = document.createElement('optgroup');
+      group.label = cat;
+      categories[cat]
+        .sort((a, b) => a.name.localeCompare(b.name, 'sv'))
+        .forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.key;
+          opt.textContent = p.name;
+          group.appendChild(opt);
+        });
+      testSelector.appendChild(group);
+    });
+
+  judgeSelector.innerHTML = '<option value="">Välj domare…</option>';
+  const order = { C: 0, E: 1, B: 2, H: 3, M: 4 };
+
+  const expandDressageRole = (j) => {
+    if (Array.isArray(j.roles)) {
+      const withPos = j.roles.find(r => r && r.discipline === 'dressage' && r.position);
+      if (withPos) return String(withPos.position).toUpperCase();
+      const anyDress = j.roles.find(r => r && r.discipline === 'dressage');
+      if (anyDress && anyDress.position != null) return String(anyDress.position).toUpperCase();
+    }
+    if (j.position) return String(j.position).toUpperCase();
+    if (j.disciplines && typeof j.disciplines.dressage === 'string') return String(j.disciplines.dressage).toUpperCase();
+    return '';
+  };
+
+  // NYTT: Beräkna och spara positionen (_pos) på varje domarobjekt direkt.
+  allJudges.forEach(j => {
+    j._pos = (expandDressageRole(j) || '').toUpperCase();
+  });
+
+  const dressageJudges = allJudges
+    .filter(j => j._pos !== '') // Filtrera bort de som inte är dressyrdomare
+    .sort((a, b) => {
+      const oa = order[a._pos] ?? 99;
+      const ob = order[b._pos] ?? 99;
+      if (oa !== ob) return oa - ob;
+      return (a.name || '').localeCompare(b.name || '', 'sv');
+    });
+
+  dressageJudges.forEach(j => {
+    const opt = document.createElement('option');
+    opt.value = j.id;
+    const posLabel = j._pos || '–';
+    opt.textContent = `${posLabel} – ${j.name}${j.isOverJudge ? ' (ÖD)' : ''}`;
+    judgeSelector.appendChild(opt);
+  });
+}
+
+function clearForm() {
+  document.querySelectorAll('.score-input, .comment-input').forEach(i => i.value = '');
+  document.getElementById('dressageEliminated').checked = false;
+  document.getElementById('errorPointsInput').value = 0;
+  document.getElementById('errorCommentInput').value = '';
+  calculateTotals();
+}
+
+function updateProgramMeta(key) {
+  const host = document.getElementById('programMeta');
+  if (!host) return;
+  const meta = getProgramMeta(key);
+  if (!meta) { host.innerHTML = ''; return; }
+  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'} mr-2">${meta.verified ? 'Verifierat' : 'Ej verifierat'}</span>`;
+  const ver = meta.version ? ` • v${meta.version}` : '';
+  const src = meta.source ? ` • ${meta.source}` : '';
+  const coeff = getDressagePenaltyCoeff(key);
+  const coeffLabel = /fei/i.test((getPrograms()[key]?.name || '') + ' ' + (getPrograms()[key]?.category || '')) ? 'Coefficient' : 'Koeff';
+  host.innerHTML = `${badge}${meta.name}${ver}${src} • <span class="ml-1">${coeffLabel}: <strong>${coeff.toFixed(3)}</strong></span>`;
+}
+
+function renderProtocol(testKey) {
+  currentDressageTest = getPrograms()[testKey];
+  updateProgramMeta(testKey);
+  const protocolBody = document.getElementById('protocolBody');
+  if (!currentDressageTest || !protocolBody) {
+    if (protocolBody) protocolBody.innerHTML = '';
+    return;
+  };
+  protocolBody.innerHTML = '';
+  currentDressageTest.movements.forEach((moment, index) => {
+    const card = document.createElement('div');
+    card.className = 'movement-card border rounded-lg p-2 bg-gray-50';
+    card.innerHTML = `
+            <div class="flex justify-between items-center gap-2"> <div class="flex-shrink-0 font-medium">
+                    <span class="font-bold">${moment.no}.</span>
+                    <span class="text-blue-800 text-sm ml-1 mr-2">${moment.letters || ''}</span>
+                    ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs">x${moment.coeff}</span>` : ''}
+                </div>
+                
+                <div class="flex-grow" style="max-width: 90px;"> <input type="tel" min="0" max="10" step="0.5" 
+                           class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                           data-coeff="${moment.coeff}" 
+                           data-moment-index="${index}"
+                           pattern="[0-9.,]*" 
+                           inputmode="decimal"
+                           placeholder="-"
+                           style="min-height: 50px;">
+                </div>
+
+                <div class_alias="flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700">0.0</span>
+                </div>
+
+                <div class="flex-shrink-0 flex flex-col sm:flex-row gap-1">
+                    <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬 Kom.</button>
+                    <button type="button" class="toggle-btn" data-target="details">ℹ️ Info</button>
+                </div>
+            </div>
+
+            <div class="comment-wrapper">
+                <textarea rows="1" placeholder="Lägg till kommentar..." class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md"></textarea>
+            </div>
+            <div class="movement-details text-sm text-gray-600 mt-2 border-l-2 border-gray-200 pl-2">
+                <p class="font-medium">${moment.text}</p>
+                <p class="text-sm text-gray-500 mt-1">${moment.judge || ''}</p>
+            </div>
+        `;
+    protocolBody.appendChild(card);
+  });
+  calculateTotals();
+}
+
+function calculateTotals() {
+  if (!currentDressageTest) {
+    document.getElementById('percentage').textContent = `0.00 %`;
+    document.getElementById('penaltyPoints').textContent = `0.0`;
+    document.getElementById('extraPenaltyDisplay').textContent = `0.0`;
+    document.getElementById('totalPenaltyDisplay').textContent = `0.0`;
+    return;
+  }
+  let maxScore = 0;
+  currentDressageTest.movements.forEach(moment => { maxScore += 10 * moment.coeff; });
+
+  let currentTotalScore = 0;
+  document.querySelectorAll('#protocolBody .movement-card').forEach(card => {
+    const input = card.querySelector('.score-input');
+    const score = parseFloat(input.value) || 0;
+    const coeff = parseFloat(input.dataset.coeff);
+    currentTotalScore += score * coeff;
+    card.querySelector('.movement-score').textContent = (score * coeff).toFixed(1);
+  });
+
+  const filledMovements = Array.from(document.querySelectorAll('#protocolBody .movement-card .score-input')).filter(i => i.value.trim() !== '');
+  const maxScoreSoFar = filledMovements.reduce((sum, input) => sum + (10 * parseFloat(input.dataset.coeff)), 0);
+  const currentScoreSoFar = filledMovements.reduce((sum, input) => sum + (parseFloat(input.value) * parseFloat(input.dataset.coeff)), 0);
+
+  const percentage = maxScoreSoFar > 0 ? (currentScoreSoFar / maxScoreSoFar) * 100 : 0;
+  const judgePenalty = maxScore > 0 ? maxScore - currentTotalScore : 0;
+  const errorPoints = parseFloat(document.getElementById('errorPointsInput').value) || 0;
+  const totalPenalty = judgePenalty + errorPoints;
+
+  document.getElementById('totalPointsDisplay').textContent = currentTotalScore.toFixed(1); // <-- LÄGG TILL DENNA RAD
+  document.getElementById('percentage').textContent = `${percentage.toFixed(2)} %`;
+  document.getElementById('penaltyPoints').textContent = judgePenalty.toFixed(1);
+  document.getElementById('extraPenaltyDisplay').textContent = errorPoints.toFixed(1);
+  document.getElementById('totalPenaltyDisplay').textContent = totalPenalty.toFixed(1);
+}
+
+// ERSÄTT DENNA FUNKTION i dressyr-input.js
+async function updateLiveStatus(lastUpdatedElement = null) {
+  const startNumber = equipageSearchDropdown.getValue();
+  const testSelector = document.getElementById('testSelector');
+  const eliminatedCheckbox = document.getElementById('dressageEliminated');
+
+  if (!startNumber || !activeDressageJudge || !currentDressageTest || !testSelector || !eliminatedCheckbox || !competitionId || !appId) {
+    return;
+  }
+
+  try {
+    const movementsData = Array.from(document.querySelectorAll('#protocolBody .movement-card')).map((card, index) => {
+      const scoreInput = card.querySelector('.score-input');
+      const scoreValue = scoreInput ? scoreInput.value : '';
+      return {
+        momentNo: currentDressageTest.movements[index].no,
+        score: scoreValue.trim() !== '' ? parseFloat(scoreValue) : null,
+        comment: card.querySelector('.comment-input')?.value || ''
+      };
+    });
+
+    const liveProtocolData = {
+      judgeId: activeDressageJudge.id,
+      judgeName: activeDressageJudge.name,
+      judgePosition: activeDressageJudge._pos || '',
+      testKey: testSelector.value,
+      eliminated: eliminatedCheckbox.checked,
+      movements: movementsData
+    };
+
+    let lastUpdatePayload = { heartbeat: true };
+    if (lastUpdatedElement && lastUpdatedElement.classList.contains('score-input')) {
+      const momentIndex = parseInt(lastUpdatedElement.dataset.momentIndex, 10);
+      const moment = currentDressageTest.movements[momentIndex];
+      if (moment && activeDressageJudge) {
+        lastUpdatePayload = {
+          momentNo: moment.no,
+          momentText: moment.text,
+          score: lastUpdatedElement.value.trim() !== '' ? parseFloat(lastUpdatedElement.value) : null,
+          judgeId: activeDressageJudge.id,
+          judgeName: activeDressageJudge.name,
+          judgePosition: activeDressageJudge._pos || ''
+        };
+      }
+    }
+
+    const liveDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'dressageStatus', String(startNumber), 'live', 'data');
+    const payload = {
+      state: 'ongoing',
+      protocol: liveProtocolData,
+      lastUpdate: lastUpdatePayload,
+      updatedAt: new Date().toISOString()
+    };
+
+    // Skriv med enkel retry/backoff för att undvika tappade pulser på nätverksglitch
+    for (let i = 0; i < 3; i++) {
+      try {
+        await setDoc(liveDocRef, payload, { merge: true });
+        // Mirror live state locally too!
+        mirrorToLocal(startNumber, { live: payload });
+        break; // klart
+      } catch (err) {
+        if (i === 2) throw err; // ge upp efter 3 försök
+        await new Promise(r => setTimeout(r, 300 * (i + 1))); // 300ms, 600ms
+      }
+    }
+
+  } catch (err) {
+    console.error('Kunde inte skicka live-uppdatering:', err);
+  }
+}
+
+async function saveProtocol() {
+  const startNumber = equipageSearchDropdown.getValue();
+  if (!startNumber) { showAlert('Välj ett ekipage först!', false); return; }
+  if (!activeDressageJudge) { showAlert('Välj en aktiv domare först!', false); return; }
+  if (!currentDressageTest) { showAlert('Välj ett dressyrprogram!', false); return; }
+
+  try {
+    const testKey = document.getElementById('testSelector').value;
+    const eliminated = document.getElementById('dressageEliminated').checked;
+    const movementsData = Array.from(document.querySelectorAll('#protocolBody .movement-card')).map((card, index) => ({
+      momentNo: currentDressageTest.movements[index].no,
+      score: parseFloat(card.querySelector('.score-input').value) || 0,
+      comment: card.querySelector('.comment-input').value || ''
+    }));
+
+    // KORRIGERING: Lägger till 'testKey' i dokumentet som sparas.
+    const protocolData = {
+      judgeId: activeDressageJudge.id,
+      judgeName: activeDressageJudge.name,
+      judgePosition: activeDressageJudge._pos || '',
+      testKey, // <--- DENNA VAR DEN KRITISKA DELEN SOM SAKNADES
+      eliminated,
+      movements: movementsData
+    };
+    await saveDressageJudgeProtocol(competitionId, startNumber, activeDressageJudge.id, protocolData);
+
+    const generalData = {
+      errorPoints: parseFloat(document.getElementById('errorPointsInput').value) || 0,
+      errorComment: document.getElementById('errorCommentInput').value || ''
+    };
+    await saveDressageGeneralData(competitionId, startNumber, generalData);
+
+    const program = getPrograms()[testKey];
+    const maxScore = program.movements.reduce((s, m) => s + 10 * m.coeff, 0);
+    const totalScore = movementsData.reduce((s, m) => {
+      const pm = program.movements.find(x => x.no === m.momentNo);
+      return s + (m.score * (pm?.coeff || 1));
+    }, 0);
+    const finalPenalty = eliminated ? maxScore : (maxScore - totalScore);
+    const finalPercent = eliminated ? 0 : (maxScore > 0 ? (totalScore / maxScore) * 100 : 0);
+
+    const finalJudgeScorePayload = {
+      judgeId: activeDressageJudge.id,
+      judgePosition: activeDressageJudge._pos || '',
+      totalPoints: totalScore,
+      penalty: finalPenalty,
+      percent: finalPercent,
+      eliminated: eliminated,
+    };
+
+    await setDressageStatus(competitionId, startNumber, {
+      state: 'finished',
+      protocol: null,
+      lastUpdate: null,
+      finalJudgeScore: finalJudgeScorePayload
+    });
+
+    if (!navigator.onLine) {
+      showAlert(`Protokoll för ekipage #${startNumber} har lagts i kön (Offline).`, 'offline');
+    } else {
+      showAlert(`Protokoll för ekipage #${startNumber} har sparats!`);
+    }
+    clearForm();
+    equipageSearchDropdown.setValue(null);
+  } catch (error) {
+    console.error("Kunde inte spara protokoll: ", error);
+    showAlert("Ett fel uppstod. Protokollet kunde inte sparas.", false);
+  }
+}
+
+function setupEventListeners() {
+  console.log("Sätter upp event-lyssnare...");
+
+  const testSelector = document.getElementById('testSelector');
+  const judgeSelector = document.getElementById('judgeSelector');
+  const protocolBody = document.getElementById('protocolBody');
+  const errorPointsInput = document.getElementById('errorPointsInput');
+  const eliminatedCheckbox = document.getElementById('dressageEliminated');
+  const saveButton = document.getElementById('saveProtocol');
+  const prevButton = document.getElementById('prevEquipage');
+  const nextButton = document.getElementById('nextEquipage');
+
+  if (!testSelector || !judgeSelector || !protocolBody || !saveButton) {
+    console.error("Kritiska element för event-lyssnare saknas i DOM. Avbryter setup.");
+    return;
+  }
+
+  judgeSelector.addEventListener('change', (e) => {
+    activeDressageJudge = allJudges.find(j => j.id === e.target.value) || null;
+    const startNumber = equipageSearchDropdown.getValue();
+    if (startNumber && activeDressageJudge) {
+      loadExistingProtocol(startNumber, activeDressageJudge.id, { allowTestChange: false });
+    }
+  });
+
+  testSelector.addEventListener('change', (e) => {
+    if (!programmaticChange) manualTestOverride = true;
+    renderProtocol(e.target.value);
+    setTimeout(handleSelectionChange, 50);
+  });
+
+  // --- NYTT: Hanterare för poängformatering (55 -> 5.5) ---
+  const formatScoreInput = (input) => {
+    if (!input) return;
+    // Tillåt , och . som decimaltecken vid manuell inmatning
+    let valStr = input.value.trim().replace(',', '.');
+
+    // Om användaren skrev en giltig decimal (t.ex. 5.5), behåll den
+    if (/^[0-9](\.[05])?$|^10(\.0)?$/.test(valStr)) {
+      if (valStr.endsWith('.5') || valStr.endsWith('.0')) {
+        input.value = valStr; // Redan perfekt
+      } else if (valStr === '10') {
+        input.value = '10.0';
+      } else if (/^[0-9]$/.test(valStr)) {
+        input.value = valStr + '.0'; // t.ex. 5 -> 5.0
+      }
+      return;
+    }
+
+    // Om vi är här, anta snabbinmatning (endast siffror)
+    let val = valStr.replace(/[^0-9]/g, ''); // Ta bort allt utom siffror
+
+    if (val === '') {
+      input.value = ''; // Låt fältet vara tomt
+      return;
+    }
+
+    // Hantera specialfall "10" och "100" -> 10.0
+    if (val === '10' || val === '100') {
+      input.value = '10.0';
+      return;
+    }
+
+    // Hantera ensam siffra (t.ex. "5" -> "5.0")
+    if (val.length === 1) {
+      input.value = val + '.0';
+      return;
+    }
+
+    // Hantera två siffror (t.ex. "55" -> "5.5", "60" -> "6.0")
+    if (val.length === 2) {
+      // "05" -> "0.5"
+      if (val.startsWith('0')) {
+        input.value = '0.' + val[1];
+      } else {
+        input.value = val[0] + '.' + val[1];
+      }
+      return;
+    }
+    // Om numret är för långt, använd bara de två första (t.ex. 555 -> 5.5)
+    input.value = val[0] + '.' + val[1];
+  };
+
+
+  // --- UPPDATERAD: Lyssnare för live-uppdateringar ---
+  const handleScoreFieldExit = (event) => {
+    // Skicka bara om fältet är ett poängfält
+    if (event.target.classList.contains('score-input')) {
+      console.log("Poängfält lämnat, formaterar och skickar live-uppdatering...");
+
+      // 1. Formatera poängen (55 -> 5.5)
+      formatScoreInput(event.target);
+
+      // 2. Kör befintlig logik
+      calculateTotals();
+      updateLiveStatus(event.target);
+    }
+  };
+
+  const handleGenericInput = () => {
+    calculateTotals();
+    clearTimeout(liveUpdateTimer);
+    liveUpdateTimer = setTimeout(() => {
+      console.log("Generell input (kommentar/straff), skickar heartbeat...");
+      updateLiveStatus(null);
+    }, 750);
+  }
+
+  // Använd 'focusout' för poängformatering & sändning
+  protocolBody.addEventListener('focusout', handleScoreFieldExit);
+
+  // Använd 'input' för live-uppdatering av totals och kommentar-knapp
+  protocolBody.addEventListener('input', (e) => {
+    const target = e.target;
+    if (target.classList.contains('score-input')) {
+      // Uppdatera totals live
+      calculateTotals();
+      // Debounce:a live-skrivning
+      clearTimeout(liveUpdateTimer);
+      liveUpdateTimer = setTimeout(() => {
+        updateLiveStatus(target);
+      }, 250);
+
+    } else if (target.classList.contains('comment-input')) {
+      // Uppdatera knappens utseende om kommentar finns
+      const btn = target.closest('.movement-card').querySelector('.comment-toggle-btn');
+      if (btn) {
+        btn.classList.toggle('has-comment', target.value.trim() !== '');
+      }
+      // Spara (heartbeat)
+      handleGenericInput();
+    }
+  });
+
+  if (errorPointsInput) errorPointsInput.addEventListener('input', handleGenericInput);
+  if (eliminatedCheckbox) eliminatedCheckbox.addEventListener('change', handleGenericInput);
+
+  // NYTT: Snabbknappar för felridning
+  document.getElementById('btnErr1')?.addEventListener('click', () => {
+    const rule = window.dressageRules?.error1 || 2; // Default 2 straff
+    const current = parseFloat(errorPointsInput.value) || 0;
+    // Om redan satt, toggla av? Nej, lägg till. Eller uteslutande? 
+    // Vanligtvis: 0 -> 2 -> 6 (2+4).
+    // Enklast: Sätt till Regel 1 värde om 0.
+    errorPointsInput.value = rule;
+    handleGenericInput();
+  });
+  document.getElementById('btnErr2')?.addEventListener('click', () => {
+    const rule1 = window.dressageRules?.error1 || 2;
+    const rule2 = window.dressageRules?.error2 || 4;
+    // Totalt straff vid 2:a felridning är ofta (rule1 + rule2) eller rule2 totalt?
+    // TR säger: 1:a vägfel = 2 straff. 2:a vägfel = 4 straff (dvs +4 till, totalt 6? Eller totalt 4?).
+    // TR V (2023):
+    // 1:a gången: 2 poäng
+    // 2:a gången: 4 poäng (dvs totalt avdrag? Nej, "Andra gången = 4 straffpoäng" brukar betyda ackumulerat i vissa system, men här sätter vi totalen)
+    // Om vi antar att input är TOTALT straff:
+    // 1 fel = 2. 
+    // 2 fel = 2 + 4 = 6? Eller bara 4?
+    // Låt oss anta att knappen sätter VÄRDET till X.
+    // Om användaren klickar "Fel 2" sätter vi rule2.
+    errorPointsInput.value = rule2;
+    handleGenericInput();
+  });
+
+
+  // --- NYTT/MODIFIERAT: Hantera Enter/Tab-tangent för navigering ---
+  protocolBody.addEventListener('keydown', (e) => {
+    const target = e.target;
+    const allInputs = Array.from(protocolBody.querySelectorAll('.score-input'));
+    const card = target.closest('.movement-card');
+
+    // --- Logik för POÄNGFÄLT ---
+    if (target.classList.contains('score-input')) {
+      const currentIndex = allInputs.indexOf(target);
+
+      if (e.key === 'Enter') {
+        e.preventDefault(); // Förhindra standard-submit
+        const nextIndex = currentIndex + 1;
+
+        if (nextIndex < allInputs.length) {
+          allInputs[nextIndex].focus();
+          allInputs[nextIndex].select(); // Markera texten
+        } else {
+          // Hoppa till "Extra straff"
+          document.getElementById('errorPointsInput').focus();
+        }
+      } else if (e.key === 'Tab' && !e.shiftKey) { // Bara Tab, inte Shift+Tab
+        e.preventDefault(); // Stoppa standard Tab-beteende
+
+        if (card) {
+          const commentInput = card.querySelector('.comment-input');
+          if (commentInput) {
+            // Visa kommentarsfältet och fokusera
+            card.classList.add('comment-visible');
+            commentInput.focus();
+          }
+        }
+      }
+    }
+    // --- Logik för KOMMENTARSFÄLT ---
+    else if (target.classList.contains('comment-input')) {
+      // Om man trycker Enter ELLER Tab i en kommentar...
+      if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey)) {
+        e.preventDefault(); // Stoppa standardbeteende
+
+        // Hitta nuvarande poängfält för att veta var vi är
+        const scoreInput = card.querySelector('.score-input');
+        const currentIndex = allInputs.indexOf(scoreInput);
+        const nextIndex = currentIndex + 1;
+
+        if (nextIndex < allInputs.length) {
+          allInputs[nextIndex].focus();
+          allInputs[nextIndex].select();
+        } else {
+          // Hoppa till "Extra straff"
+          document.getElementById('errorPointsInput').focus();
+        }
+      }
+    }
+  });
+
+  // --- NYTT: Hantera klick på Info/Kommentar-knappar ---
+  protocolBody.addEventListener('click', (e) => {
+    const btn = e.target.closest('.toggle-btn');
+    if (!btn) return;
+
+    const card = btn.closest('.movement-card');
+    const targetType = btn.dataset.target; // 'details' eller 'comment'
+
+    if (targetType === 'details') {
+      card.classList.toggle('details-visible');
+    } else if (targetType === 'comment') {
+      card.classList.toggle('comment-visible');
+      if (card.classList.contains('comment-visible')) {
+        // Fokusera på textrutan när den öppnas
+        card.querySelector('.comment-input').focus();
+      }
+    }
+  });
+
+
+  // --- Lyssnare för knappar (Inga ändringar här) ---
+  saveButton.addEventListener('click', saveProtocol);
+
+  document.getElementById('btnBackupDreJson')?.addEventListener('click', () => {
+    const backup = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key.startsWith(`bkp_${competitionId}_dre_`)) {
+        backup[key] = JSON.parse(localStorage.getItem(key));
+      }
+    }
+    const filename = `backup_dressyr_${competitionId}_${new Date().toISOString().split('T')[0]}.json`;
+    downloadJson(filename, backup);
+  });
+
+  if (prevButton) {
+    prevButton.addEventListener('click', () => {
+      const currentValue = equipageSearchDropdown.getValue();
+      const currentIndex = sortedEquipages.findIndex(e => e.startNumber == currentValue);
+      if (currentIndex > 0) {
+        equipageSearchDropdown.setValue(sortedEquipages[currentIndex - 1].startNumber);
+      }
+    });
+  }
+
+  if (nextButton) {
+    nextButton.addEventListener('click', () => {
+      const currentValue = equipageSearchDropdown.getValue();
+      const currentIndex = sortedEquipages.findIndex(e => e.startNumber == currentValue);
+      if (currentIndex < sortedEquipages.length - 1) {
+        equipageSearchDropdown.setValue(sortedEquipages[currentIndex + 1].startNumber);
+      }
+    });
+  }
+
+  console.log("Event-lyssnare uppsatta.");
+}
+
+function auditProgramsAndMapping(equipages) {
+  const issues = [];
+  const prog = getPrograms();
+  const raw = (window.klassProgramMapping || klassProgramMapping || {});
+  const mapping = (raw && typeof raw.mapping === 'object') ? raw.mapping : raw;
+
+  const progKeys = Object.keys(prog);
+
+  // 1) Program-validering (låt stå – hjälper oss hitta trasiga program)
+  progKeys.forEach(k => {
+    const p = prog[k];
+    if (!p || typeof p !== 'object') { issues.push(`Program "${k}" saknar data.`); return; }
+    if (!p.name) issues.push(`Program "${k}" saknar namn.`);
+    if (!p.category) issues.push(`Program "${k}" saknar kategori.`);
+    if (!Array.isArray(p.movements) || !p.movements.length) {
+      issues.push(`Program "${k}" saknar moment-lista.`);
+    } else {
+      p.movements.forEach((m, idx) => {
+        if (typeof m?.no !== 'number') issues.push(`Program "${k}": moment #${idx + 1} saknar giltigt "no".`);
+        if (!m?.text || !String(m.text).trim()) issues.push(`Program "${k}": moment ${m?.no ?? idx + 1} saknar text.`);
+        if (m?.coeff == null || !(m.coeff > 0)) m.coeff = 1; // auto-fix coeff
+      });
+    }
+  });
+
+  // 2) Klasser utan fungerande mapping
+  // OBS: Vi använder nu samma logik som när man väljer ekipage (findProgramKeyForClass).
+  // Det eliminerar "falska larm" där bannern klagar men programmet faktiskt dyker upp ändå.
+
+  const classesInUse = [...new Set((equipages || []).map(e => (e.className || e.klass || '').trim()).filter(Boolean))];
+
+  const checkedKeys = new Set();
+
+  classesInUse.forEach(cls => {
+    // Använd systemets riktiga resolution-logik
+    const resolvedKey = findProgramKeyForClass(cls);
+
+    if (!resolvedKey) {
+      issues.push(`Klass "${cls}" saknar mapping till dressyrprogram.`);
+    } else {
+      // Validera att det resolva programmet faktiskt finns och är helt
+      if (!prog[resolvedKey]) {
+        issues.push(`Klass "${cls}" pekar på program "${resolvedKey}" som saknas.`);
+      } else if (!checkedKeys.has(resolvedKey)) {
+        // Kanske kolla om programmet är markerat som verifierat?
+        // (Valfritt: p.verified)
+        checkedKeys.add(resolvedKey);
+      }
+    }
+  });
+
+  return issues;
+}
+
+
+function showProgramAuditBanner(equipages) {
+  const host = document.getElementById('programAuditBanner');
+  if (!host) return;
+  const issues = auditProgramsAndMapping(equipages);
+
+  if (!issues.length) {
+    host.innerHTML = `
+      <div class="p-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+        ✔️ Alla dressyrprogram och mapping ser kompletta ut.
+      </div>`;
+    return;
+  }
+  host.innerHTML = `
+    <div class="p-3 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm">
+      <div class="font-semibold mb-1">Kontroll av dressyrprogram: ${issues.length} sak(er) att åtgärda</div>
+      <ul class="list-disc pl-5 space-y-1">
+        ${issues.map(i => `<li>${i}</li>`).join('')}
+      </ul>
+      <div class="mt-2 text-gray-700">Uppdatera <code>data/dressagePrograms.js</code> och/eller <code>data/competitionData.js</code> (klassProgramMapping).</div>
+    </div>`;
+}
+
+// RAD FÖRE (ca 1202): }
+
+export function load() {
+  const competition = getGlobalState('currentCompetition');
+  const page = document.getElementById('page-dressyr-input');
+  if (!competition) {
+    page.innerHTML = `<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>`;
+    return;
+  }
+  competitionId = competition.id;
+  page.innerHTML = `
+  <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+    ${getCompetitionHeader(competition, 'Inmatning Dressyr - Digitalt Domarprotokoll')}
+<style>
+        /* Dölj detaljer och kommentarsfält som standard */
+        .movement-details,
+        .comment-wrapper {
+            display: none;
+            margin-top: 8px;
+        }
+        /* Visa dem när 'details-visible' är satt på kortet */
+        .movement-card.details-visible .movement-details {
+            display: block;
+        }
+        /* Visa kommentaren när 'comment-visible' är satt */
+        .movement-card.comment-visible .comment-wrapper {
+            display: block;
+        }
+
+        /* Stil för våra nya små-knappar */
+        .toggle-btn {
+            background: none;
+            border: 1px solid #cbd5e1; /* gray-300 */
+            border-radius: 99px; /* rounded-full */
+            padding: 4px 8px;
+            font-size: 11px;
+            line-height: 1.2;
+            color: #475569; /* gray-600 */
+            cursor: pointer;
+            white-space: nowrap;
+        }
+        .toggle-btn:hover {
+            background: #f1f5f9; /* gray-100 */
+        }
+        /* Gör knappen blå om en kommentar finns */
+        .toggle-btn.has-comment {
+            border-color: #2563eb; /* blue-600 */
+            color: #2563eb;
+            font-weight: 600;
+        }
+
+        /* NYTT: Tvinga protokollkroppen att scrolla, inte hela sidan */
+        #protocolBodyWrapper {
+            max-height: 65vh; /* Justera denna höjd efter behov */
+            overflow-y: auto;
+            padding-right: 8px; /* Lite utrymme för scroll-listen */
+        }
+    </style>
+    
+    <div id="programAuditBanner" class="my-3"></div>
+
+    <div class="bg-white p-6 rounded-xl shadow-md">
+      
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 pb-4 border-b">
+        <div class="md:col-span-1">
+          <label for="testSelector" class="block text-sm font-medium text-gray-700">1. Program</label>
+          <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md"></select>
+          <div id="programMeta" class="text-xs text-gray-600 mt-1 truncate"></div>
+        </div>
+        <div class="md:col-span-1">
+          <label for="judgeSelector" class="block text-sm font-medium text-gray-700">2. Domare</label>
+          <select id="judgeSelector" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md"></select>
+        </div>
+        <div class="md:col-span-2">
+          <label class="block text-sm font-medium text-gray-700">3. Ekipage</label>
+          <div class="flex items-center space-x-2">
+            <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100">«</button>
+            <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-50"></div>
+            <button id="nextEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100">»</button>
+          </div>
+        </div>
+      </div>
+      
+      <div id="dressage-summary-bar" class="sticky top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg">
+          <div class="grid grid-cols-5 gap-2 text-center"> <div>
+                  <p class="text-xs font-medium text-gray-700">Totalpoäng</p>
+                  <p id="totalPointsDisplay" class="text-xl font-bold text-gray-900">0.0</p>
+              </div>
+              <div>
+                  <p class="text-xs font-medium text-green-700">Procent</p>
+                  <p id="percentage" class="text-xl font-bold text-green-900">0.00 %</p>
+              </div>
+              <div>
+                  <p class="text-xs font-medium text-red-700">Domarstraff</p>
+                  <p id="penaltyPoints" class="text-xl font-bold text-red-900">0.0</p>
+              </div>
+              <div class="bg-orange-100 rounded-md p-1">
+                  <p class="text-xs font-medium text-orange-700">Extra straff</p>
+                  <p id="extraPenaltyDisplay" class="text-xl font-bold text-orange-900">0.0</p>
+              </div>
+              <div>
+                  <p class="text-xs font-medium text-blue-700">Total</p>
+                  <p id="totalPenaltyDisplay" class="text-xl font-bold text-blue-900">0.0</p>
+              </div>
+          </div>
+      </div>
+
+      <div id="protocolBodyWrapper">
+        <div id="protocolBody" class="grid grid-cols-1 md:grid-cols-2 gap-2">
+        </div>
+      </div>
+
+      <div class="sticky bottom-0 z-10 bg-white p-4 border-t mt-6">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+          
+          <div class="md:col-span-3">
+            <label for="errorPointsInput" class="block text-xs font-medium text-gray-700">Felkörning (Straff)</label>
+            <div class="flex gap-1 mt-1">
+               <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold">
+               <button type="button" id="btnErr1" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded">Fel 1</button>
+               <button type="button" id="btnErr2" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded">Fel 2</button>
+            </div>
+          </div>
+          
+          <div class="md:col-span-4">
+            <label for="errorCommentInput" class="block text-xs font-medium text-gray-700">Kommentar till felkörning</label>
+            <textarea id="errorCommentInput" rows="1" class="mt-1 block w-full p-2 border rounded-md text-base"></textarea>
+          </div>
+
+          <div class="md:col-span-2 flex items-center h-full pt-5">
+            <input type="checkbox" id="dressageEliminated" class="h-5 w-5 rounded border-gray-300">
+            <label for="dressageEliminated" class="ml-2 block text-sm font-medium">Eliminerad</label>
+          </div>
+          
+            <button id="saveProtocol" class="w-full bg-brand-darkblue text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-lg">
+              Spara Protokoll
+            </button>
+          </div>
+
+        </div>
+        <div class="mt-4 pt-3 border-t flex justify-end">
+          <button id="btnBackupDreJson" type="button" class="text-xs text-blue-600 hover:underline flex items-center gap-1">
+            <i class="fas fa-file-download"></i> Ladda ner säkerhetskopia (JSON)
+          </button>
+        </div>
+      </div>
+    </div></div>`;
+
+  // SPARA UNSUBSCRIBE
+  const unsubscribeJudges = listenForJudges(competitionId, async (judges) => {
+    allJudges = judges;
+    try {
+      if (!document.getElementById('page-dressyr-input')) return; // Skydd om vi lämnat
+
+      const [equipages, startTimes, mappingCfg, overrides, judgeMapCfg, rulesCfg] = await Promise.all([
+        getEquipages(competitionId),
+        getConfig(competitionId, 'startTimes'),
+        getConfig(competitionId, 'dressyrProgramMapping'),
+        getConfig(competitionId, 'dressagePrograms'),
+        getConfig(competitionId, 'dressageJudgeMapping'),
+        getConfig(competitionId, 'dressageRules')
+      ]);
+
+      // Gör mapping + ev. overrides tillgängliga globalt
+      const rawMap = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
+      window.klassProgramMapping = (rawMap && typeof rawMap.mapping === 'object') ? rawMap.mapping : rawMap;
+      window.dressageJudgeMapping = judgeMapCfg || {};
+      window.dressageRules = rulesCfg || {};
+
+      if (overrides && typeof overrides === 'object' && Object.keys(overrides).length) {
+        const base = getPrograms();
+        window.dressagePrograms = { ...base, ...(window.dressagePrograms || {}), ...overrides };
+      }
+
+      // Bygg selecterna när allt finns
+      populateSelectors();
+
+      // Bygg sök/dropdown för ekipage
+      const equipageSearchContainer = document.getElementById('equipageSearchContainer');
+      if (equipageSearchContainer) { // Dubbelkoll
+        sortedEquipages = (equipages || []).slice().sort((a, b) => Number(a.startNumber) - Number(b.startNumber));
+        // Städa gammal om den finns
+        if (equipageSearchDropdown && typeof equipageSearchDropdown.destroy === 'function') {
+          equipageSearchDropdown.destroy();
+        }
+        equipageSearchDropdown = createSearchableDropdown(equipageSearchContainer, sortedEquipages, handleSelectionChange);
+      }
+
+      setupEventListeners();
+      showProgramAuditBanner(sortedEquipages);
+    } catch (e) {
+      console.error('Kunde inte ladda grunddata för dressyr-input:', e);
+    }
+  });
+
+  // Haka på unsubscribe till modulen (för att kunna städa i __unload)
+  window.__dressageInputUnsub = unsubscribeJudges;
+}
+
+export function __unload() {
+  console.log("Städar dressyr-input...");
+  if (window.__dressageInputUnsub) {
+    window.__dressageInputUnsub();
+    window.__dressageInputUnsub = null;
+  }
+  clearTimeout(liveUpdateTimer);
+
+  if (equipageSearchDropdown && typeof equipageSearchDropdown.destroy === 'function') {
+    equipageSearchDropdown.destroy();
+  }
+  equipageSearchDropdown = null;
+}
