@@ -67,3 +67,12 @@ node_modules/
 
 # dataconnect generated files
 .dataconnect
+
+# Licensed PDFs and federation material
+assets/**/*.pdf
+
+# Logos and trademarked assets (kept outside repo)
+assets/logos/
+assets/dressage/
+assets/dressyrprogram/
+assets/fei/
