@@ -1,35 +1,14 @@
-// functions/src/logic/precision.js
-import { standardPortAllowance } from '../data/competitionData.js';
-import { round2, isNum } from './sharedUtils.js';
+// js/core-engine/precision.js
+import { PRECISION_TIME_PENALTY_RATE, PRECISION_KNOCKDOWN_PENALTY, round2, isNum } from './rules-ledger.js';
 
-// Normalisera klassnamn
 const _norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 
-function resolveStandardPortAllowanceInternal(className) {
-    if (!className) return isNum(standardPortAllowance['*']) ? standardPortAllowance['*'] : null;
-    const normalizedClassName = _norm(className);
-    const keys = Object.keys(standardPortAllowance || {}).filter((k) => k !== '*');
-
-    // logic same as client
-    const exactKey = keys.find((key) => _norm(key) === normalizedClassName);
-    if (exactKey) return standardPortAllowance[exactKey];
-
-    const prefixKey = keys.filter((key) => normalizedClassName.startsWith(_norm(key)))
-        .sort((a, b) => _norm(b).length - _norm(a).length)[0];
-    if (prefixKey) return standardPortAllowance[prefixKey];
-
-    return standardPortAllowance['*'] || 35;
-}
-
 export function computeMaxSecondsForClass(cls, config) {
-    // 1. Direct from config (admin override)
     const direct = config?.maxTimeByClass?.[cls] || config?.maxTimeByClass?.[_norm(cls)];
     if (direct) {
-        // ... handle time string or number
         const n = Number(direct);
         if (Number.isFinite(n) && n > 0) return n;
     }
-    // 2. Calculated from course
     const course = config?.courses?.[cls];
     if (course) {
         const len = Number(course.trackLength || course.length);
@@ -39,7 +18,7 @@ export function computeMaxSecondsForClass(cls, config) {
     return null;
 }
 
-export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, rate = 0.5) {
+export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, rate = PRECISION_TIME_PENALTY_RATE) {
     if (!Number.isFinite(timeMs) || !Number.isFinite(maxTimeSec) || maxTimeSec <= 0) return 0;
     const maxMs = maxTimeSec * 1000;
     if (timeMs <= maxMs) return 0;
@@ -47,24 +26,23 @@ export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, rate = 0.5) {
     return Math.ceil(diff / 1000) * rate;
 }
 
-export function calculatePrecisionResult(data, equipage, config = {}) {
-    const d = data || {};
+export function calculatePrecisionResult(state) {
+    const { equipage, precision, config } = state;
+    const d = precision.resultDoc || {};
+    const precConfig = config.precisionConfig || {};
 
     const finalized = d.finalized === true;
     const eliminated = !!d.eliminated;
     const timeMs = finalized ? d.timeMs : (d.liveTimeMs || null);
 
-    // Krockar
     const knocksCount = (Array.isArray(d.knocks) ? d.knocks.length : 0);
-    const kp = config.knockdownPenalty != null ? Number(config.knockdownPenalty) : 3;
+    const kp = precConfig.knockdownPenalty != null ? Number(precConfig.knockdownPenalty) : PRECISION_KNOCKDOWN_PENALTY;
 
-    // Priority: Explicit -> Calculated -> Live
     const obstaclePenalty = isNum(d.obstaclePenalty) ? d.obstaclePenalty
         : (knocksCount > 0 ? knocksCount * kp : (d.liveObstaclePenalty || 0));
 
-    // Time
-    const maxSec = computeMaxSecondsForClass(equipage?.className, config);
-    const rate = Number.isFinite(config.timePenaltyRate) ? Number(config.timePenaltyRate) : 0.5;
+    const maxSec = computeMaxSecondsForClass(equipage?.className, precConfig);
+    const rate = Number.isFinite(precConfig.timePenaltyRate) ? Number(precConfig.timePenaltyRate) : PRECISION_TIME_PENALTY_RATE;
     const calcTimePen = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
 
     const timePenalty = isNum(d.timePenalty) ? d.timePenalty

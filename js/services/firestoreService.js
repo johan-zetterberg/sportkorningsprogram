@@ -693,32 +693,45 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
   if (obstacleNumber == null) throw new Error("saveMarathonObstacleResult: obstacleNumber saknas");
 
   const eid = String(equipageId).trim();
-  const on = String(obstacleNumber).trim();
+  const on = Number(obstacleNumber);
 
-  const payload = {
-    equipageId: eid,
-    obstacleNumber: Number(on),
-    timeInSeconds: Number(data?.timeInSeconds || 0),
-    penalty: Number(data?.penalty || 0),
+  // Modern structure format:
+  // Note: seed_test passes 'timeSeconds', but the function previously expected 'data.timeInSeconds'. We support both.
+  const timeInSec = Number(data?.timeInSeconds || data?.timeSeconds || 0);
+  
+  const resultData = {
+    number: on,
+    timeInSeconds: timeInSec,
+    timeMs: timeInSec * 1000,
+    timePenalty: 0, // Ignored by calculation engine anyway since it recalculates it
+    knockdowns: 0, 
+    knockdownPenalty: 0, 
+    otherPenalty: Number(data?.penalty || 0),
+    penalty: 0, // recalculated
+    comment: data?.comment || '', 
     eliminated: !!data?.eliminated,
-    comment: data?.comment || '',
     routeString: data?.routeString || '',
-    updatedAt: serverTimestamp()
+    gateSplits: [],
+    enteredAt: new Date().toISOString()
   };
 
-  // Skriv till: /maratonResults/{equipageId}/obstacles/{obstacleNumber}
-  const ref = doc(db,
-    `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults/${eid}/obstacles`,
-    on
-  );
+  const summaryDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`, eid);
 
   return trackWrite(`Sparar hinderresultat #${eid} Hinder ${on}`, (async () => {
     await runTransaction(db, async (transaction) => {
-      // eslint-disable-next-line no-unused-vars
-      const _ignored = await transaction.get(ref);
-      transaction.set(ref, payload, { merge: true });
+      const snap = await transaction.get(summaryDocRef);
+      const existingData = snap.exists() ? snap.data() : {};
+      const obstacles = (existingData.obstacles || []).filter(o => o.number !== on);
+      obstacles.push(resultData);
+      obstacles.sort((a, b) => a.number - b.number);
+
+      transaction.set(summaryDocRef, {
+        ...existingData,
+        obstacles,
+        updatedAt: serverTimestamp()
+      }, { merge: true });
     });
-    return { ok: true, path: ref.path };
+    return { ok: true, path: summaryDocRef.path };
   })());
 }
 

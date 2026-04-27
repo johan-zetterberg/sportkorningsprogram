@@ -7,6 +7,9 @@
         {
             "source": "functions",
             "codebase": "default",
+            "predeploy": [
+                "node scripts/copy-core-engine.js"
+            ],
             "ignore": [
                 "node_modules",
                 ".git",

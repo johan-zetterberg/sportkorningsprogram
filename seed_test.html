@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seed Test Competition</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="bg-gray-100 text-gray-900 font-sans h-screen flex flex-col">
+  <header class="bg-brand-darkblue text-white p-4 shadow-md">
+    <h1 class="text-2xl font-bold text-center">Core Engine Test Seeder</h1>
+  </header>
+
+  <main class="flex-grow flex flex-col items-center justify-center p-6 space-y-6 max-w-2xl mx-auto w-full">
+    <div class="bg-white rounded-xl shadow-lg p-8 w-full text-center">
+      <h2 class="text-xl font-bold mb-4">Skapa testtävling i databasen</h2>
+      <p class="text-gray-600 mb-8">Detta skript kommer att logga in med din nuvarande session, skapa en tävling med 4 ekipage (Msv, LA, LB, Para) och lägga till fiktiva resultat i Dressyr, Maraton och Precision.</p>
+      
+      <button id="seedBtn" class="bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-8 rounded-lg shadow transition-colors text-lg">
+        Kör Seeder Script
+      </button>
+
+      <div id="status" class="mt-8 text-left text-sm font-mono text-gray-700 h-64 overflow-y-auto bg-gray-50 p-4 rounded border whitespace-pre-wrap">Redo...</div>
+
+      <div id="linkContainer" class="mt-6 hidden">
+        <a id="portalLink" href="#" target="_blank" class="text-blue-600 hover:text-blue-800 font-bold text-lg underline">
+          Gå till den nya tävlingen &rarr;
+        </a>
+      </div>
+    </div>
+  </main>
+
+  <!-- Load Firebase and the seeder script -->
+  <script type="module" src="js/seed_test.js"></script>
+</body>
+</html>

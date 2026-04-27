@@ -16,6 +16,7 @@ import {
     fmt2
 } from './sharedUtils.js';
 import { getGlobalState } from '../main.js';
+import { calculatePrecisionTimePenalty as _coreCalcTime, computeMaxSecondsForClass as _coreMaxSec } from '../core-engine/precision.js';
 
 const _norm = (s) => String(s || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 
@@ -45,19 +46,7 @@ export function trackWidthFromEq(eq) {
 // Straffberäkning (Tid)
 // -------------------------------------------------------------
 export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = 0.5) {
-    if (!Number.isFinite(timeMs) || !Number.isFinite(maxTimeSec) || maxTimeSec <= 0) return 0;
-
-    // Convert maxTime to ms
-    const maxMs = maxTimeSec * 1000;
-
-    // If under max time, 0 penalty
-    if (timeMs <= maxMs) return 0;
-
-    const diffMs = timeMs - maxMs;
-    // 0.5 (or config) penalty per commenced second
-    // ceil(diff / 1000) * rate
-    const secondsOver = Math.ceil(diffMs / 1000);
-    return secondsOver * timePenaltyRate;
+    return _coreCalcTime(timeMs, maxTimeSec, timePenaltyRate);
 }
 
 // -------------------------------------------------------------
@@ -175,22 +164,7 @@ export function getClassTempoMpm(cls, config) {
 }
 
 export function computeMaxSecondsForClass(cls, config) {
-    // 1) direkt maxtid i precisionConfig
-    const direct = config?.maxTimeByClass?.[cls]
-        ?? config?.maxTimeByClass?.[_norm(cls)];
-    if (direct) {
-        const m = String(direct).match(/^(\d{1,2}):(\d{2})$/);
-        if (m) return Number(m[1]) * 60 + Number(m[2]);
-        const n = Number(direct);
-        if (Number.isFinite(n) && n > 0) return n;
-    }
-    // 2) räkna från banlängd & tempo (m/min)
-    const len = getTrackLengthMeters(cls, config);
-    const tempo = getClassTempoMpm(cls, config);
-    if (Number.isFinite(len) && Number.isFinite(tempo) && tempo > 0) {
-        return Math.round((len / tempo) * 60);
-    }
-    return null;
+    return _coreMaxSec(cls, config);
 }
 
 export function startTimeFor(startNumber, startTimes) {
