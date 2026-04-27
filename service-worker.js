@@ -1,5 +1,5 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'tavlingsappen-cache-v26'; // bumpa vid ändring
+const CACHE_NAME = 'driving-app-v30'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
@@ -8,20 +8,23 @@ const abs = (p) => (SCOPE_PATH === '/' ? p : (SCOPE_PATH + (p.startsWith('/') ? 
 // === Precache ===
 // Minsta nödvändiga + alla filer som monitor-sidan (och resultat) importerar
 const urlsToCache = [
-  // Bas
-  abs('/'),
   abs('/index.html'),
   abs('/manifest.json'),
-  abs('/css/style.css'),
-  abs('/js/main.js'),
-
-  // Config & Data
+  abs('/favicon.ico'),
+  abs('/favicon-16x16.png'),
+  abs('/favicon-32x32.png'),
+  abs('/icons/DriveLive_192.png'),
+  abs('/icons/DriveLive_512.png'),
   abs('/js/config/firebase-config.js'),
   abs('/js/data/competitionData.js'),
   abs('/js/data/dressagePrograms.js'),
-
-  // Pages
+  abs('/js/main.js'),
+  abs('/js/pages/admin-clubs.js'),
   abs('/js/pages/admin-communication.js'),
+  abs('/js/pages/admin-officials.js'),
+  abs('/js/pages/admin-participants.js'),
+  abs('/js/pages/admin-settings.js'),
+  abs('/js/pages/admin-teams.js'),
   abs('/js/pages/admin.js'),
   abs('/js/pages/deltagare.js'),
   abs('/js/pages/dressyr-admin.js'),
@@ -31,69 +34,131 @@ const urlsToCache = [
   abs('/js/pages/ekipage.js'),
   abs('/js/pages/hastar.js'),
   abs('/js/pages/hub.js'),
+  abs('/js/pages/manual.js'),
   abs('/js/pages/maraton-admin.js'),
   abs('/js/pages/maraton-input.js'),
+  abs('/js/pages/maraton-monitor-map.js'),
   abs('/js/pages/maraton-monitor.js'),
+  abs('/js/pages/maraton-resultat-chips-full.js'),
+  abs('/js/pages/maraton-resultat-chips.js'),
+  abs('/js/pages/maraton-resultat-helpers.js'),
   abs('/js/pages/maraton-resultat.js'),
   abs('/js/pages/maraton-stages-input.js'),
   abs('/js/pages/maraton-tider.js'),
-
   abs('/js/pages/observator-input.js'),
+  abs('/js/pages/official.js'),
   abs('/js/pages/portal.js'),
   abs('/js/pages/precision-admin.js'),
   abs('/js/pages/precision-input.js'),
   abs('/js/pages/precision-monitor.js'),
   abs('/js/pages/precision-resultat.js'),
+  abs('/js/pages/prize-giving.js'),
   abs('/js/pages/reports.js'),
   abs('/js/pages/speaker.js'),
   abs('/js/pages/starttider.js'),
   abs('/js/pages/total-resultat.js'),
   abs('/js/pages/vagnbredd.js'),
-
-  // PDF Modules
-  abs('/js/pdf/common-header.js'),
-  abs('/js/pdf/core.js'),
+  abs('/js/pages/vet-check.js'),
+  abs('/js/pages/volunteer-signup.js'),
+  abs('/js/pdf/pdfBase.js'),
   abs('/js/pdf/dressagePdf.js'),
   abs('/js/pdf/marathonPdf.js'),
+  abs('/js/pdf/officialsReports.js'),
   abs('/js/pdf/precisionPdf.js'),
   abs('/js/pdf/startListPdf.js'),
+  abs('/js/pdf/timecardsPdf.js'),
   abs('/js/pdf/totalResultsPdf.js'),
-
-  // PDF.js (self-hostad)
-  abs('/lib/pdfjs/build/pdf.mjs'),
-  abs('/lib/pdfjs/build/pdf.worker.min.mjs'),
-
-  // Services
+  abs('/js/pdf/teamResultsPdf.js'),
   abs('/js/services/aggregateService.js'),
-  abs('/js/services/resultAggregationService.js'),
+  abs('/js/services/archivingService.js'),
   abs('/js/services/authService.js'),
-  // abs('/js/services/calculationService.js'), // Removed
-  abs('/js/services/finalizeService.js'),
+  abs('/js/services/calculationService.js'),
   abs('/js/services/firestoreService.js'),
   abs('/js/services/flagsService.js'),
   abs('/js/services/logosService.js'),
   abs('/js/services/navigationService.js'),
+  abs('/js/services/officialsService.js'),
+  abs('/js/services/resultAggregationService.js'),
   abs('/js/services/storageService.js'),
-
-  // UI & Utils
+  abs('/js/services/syncService.js'),
+  abs('/js/services/teamCalculationService.js'),
+  abs('/js/services/themeService.js'),
   abs('/js/ui/components.js'),
   abs('/js/ui/dressageModal.js'),
   abs('/js/ui/equipage-modal.js'),
+  abs('/js/ui/languageToggle.js'),
   abs('/js/ui/marathonModal.js'),
   abs('/js/ui/precisionModal.js'),
   abs('/js/ui/scrollHelper.js'),
+  abs('/js/ui/syncQueue.js'),
   abs('/js/utils/dressageUtils.js'),
+  abs('/js/utils/i18n.js'),
   abs('/js/utils/marathonUtils.js'),
   abs('/js/utils/precisionUtils.js'),
   abs('/js/utils/sharedUtils.js'),
-
-  // Assets
-  abs('/icons/DriveLive_192.png'),
-  abs('/icons/DriveLive_512.png'),
-  abs('/favicon.ico'),
+  abs('/js/utils/simulator.js'),
+  abs('/js/utils/wakeLock.js'),
+  abs('/css/style.css'),
+  abs('/assets/config/club-logos.json'),
+  abs('/assets/dressage/501_Sv_l-tt_nr1_inomhus.pdf'),
+  abs('/assets/dressage/503-_Svenskt_l-tt_nr_2_-ridhus-.pdf'),
+  abs('/assets/dressage/505-_Svenskt_Msv_nr_1_-ridhus-.pdf'),
+  abs('/assets/dressage/507-_Svenskt_sv-rt_nr_1_-ridhus-.pdf'),
+  abs('/assets/dressage/509. FU FEI Dressage Test nr 4 (Test PE A).pdf'),
+  abs('/assets/dressage/510. JYD FEI Dressage Test 4A (Test J_YD).pdf'),
+  abs('/assets/dressage/518. FEI Dressage Senior 3 B HP4 40x100 20240209.pdf'),
+  abs('/assets/dressage/518. FEI Dressage Senior 3 B HP4 40x80 20240315.pdf'),
+  abs('/assets/dressage/522. Svenskt Lätt B (2020)  40x80m.pdf'),
+  abs('/assets/dressage/523. Svenskt Lätt A (2020)  40x80m.pdf'),
+  abs('/assets/dressage/524. Svenskt Msv  nr 3 (2020)  40x80m.pdf'),
+  abs('/assets/dressage/527.FEI_Senior_Test__CAI2_HP2_HP4_80x40_2022.pdf'),
+  abs('/assets/dressage/528.FEI_Senior_Test_CAI3_HP2_P4_80x40_2023.vers.16 juli 2023.pdf'),
+  abs('/assets/dressage/529. FEI_Test__CAI1_and_Para_2022.pdf'),
+  abs('/assets/dressage/530. Medelsvårt nr 4. 20250122.pdf'),
+  abs('/assets/dressage/531. Junior Test 2025.doc.pdf'),
+  abs('/assets/dressage/532. Test 3 H2-P2. 2025.pdf'),
+  abs('/assets/dressage/533. Children Test 2025.pdf'),
+  abs('/assets/dressage/534. Test 3 H4-P4.pdf'),
+  abs('/assets/dressage/CAI1&CPEAI_21.12.2023.pdf'),
+  abs('/assets/dressage/CAI2HP2_05.04.pdf'),
+  abs('/assets/dressage/CAI2HP4_05.04.pdf'),
+  abs('/assets/dressage/CAI3HP2_FINAL_0.pdf'),
+  abs('/assets/dressage/CAI3HP4_05.04.pdf'),
+  abs('/assets/dressage/Children Test_FINAL.pdf'),
+  abs('/assets/dressage/Dressyrprogram översikt.pdf'),
+  abs('/assets/dressage/Junior Test_FINAL.pdf'),
+  abs('/assets/logos/Anebyortens_Ridklubb.png'),
+  abs('/assets/logos/asbopk.png'),
+  abs('/assets/logos/Blekinge_korsallskap.png'),
+  abs('/assets/logos/Flyings_logo.svg'),
+  abs('/assets/logos/Krika_HS.png'),
+  abs('/assets/logos/KS_Nordhallaningarna.jpg'),
+  abs('/assets/logos/KS_Nordhallaningarna.png'),
+  abs('/assets/logos/Laholms_RF.svg'),
+  abs('/assets/logos/Lenhovda_hastsportklubb.png'),
+  abs('/assets/logos/markaryd_RF.png'),
+  abs('/assets/logos/morrums_rf.png'),
+  abs('/assets/logos/Naas_HS.png'),
+  abs('/assets/logos/ostra_goinge_RF.png'),
+  abs('/assets/logos/sigtuna.webp'),
+  abs('/assets/logos/Skogsborgs.jpg'),
+  abs('/assets/logos/SKS_logo.svg'),
   abs('/assets/logos/SRF.png'),
-
-  // Externa bibliotek (Firebase & PDF & Excel & Tailwind)
+  abs('/assets/logos/SRF_logo_white.svg'),
+  abs('/assets/logos/Suderbys_ridklubb.png'),
+  abs('/assets/logos/Suderbys_ridklubb_2.png'),
+  abs('/assets/logos/TIR_K_k.jpg'),
+  abs('/assets/logos/Trolleholms_RF.png'),
+  abs('/assets/logos/vfk-logotype-sv.svg'),
+  abs('/lib/pdfjs/build/pdf.js'),
+  abs('/lib/pdfjs/build/pdf.min.js'),
+  abs('/lib/pdfjs/build/pdf.min.mjs'),
+  abs('/lib/pdfjs/build/pdf.mjs'),
+  abs('/lib/pdfjs/build/pdf.sandbox.min.mjs'),
+  abs('/lib/pdfjs/build/pdf.sandbox.mjs'),
+  abs('/lib/pdfjs/build/pdf.worker.min.js'),
+  abs('/lib/pdfjs/build/pdf.worker.min.mjs'),
+  abs('/lib/pdfjs/build/pdf.worker.mjs'),
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js',
@@ -101,7 +166,7 @@ const urlsToCache = [
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js',
-  'https://cdn.tailwindcss.com',
+  'https://cdn.tailwindcss.com'
 ];
 
 
@@ -257,9 +322,20 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(req);
-      const fetchAndPut = fetch(req).then(r => { cache.put(req, r.clone()).catch(() => { }); return r; });
-      if (cached) return cached;
-      return fetchAndPut;
+
+      const fetchPromise = fetch(req)
+        .then(r => { cache.put(req, r.clone()).catch(() => { }); return r; })
+        .catch(e => {
+          console.warn('[SW][CSS] fetch misslyckades', e);
+          return new Response('', { status: 503, statusText: 'Offline' });
+        });
+
+      if (cached) {
+        // stale-while-revalidate i bakgrunden (låt den misslyckas tyst)
+        fetchPromise.catch(() => { });
+        return cached;
+      }
+      return fetchPromise;
     })());
     return;
   }
@@ -268,7 +344,7 @@ self.addEventListener('fetch', (event) => {
     url.hostname.includes('firebasestorage.googleapis.com') ||
     url.hostname.includes('storage.googleapis.com');
 
-  if (isExternalImage) {
+  if (isExternalImage && req.method === 'GET') {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(req);

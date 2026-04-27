@@ -2,6 +2,7 @@
 // En "kontrollrums"-vy som visar alla ekipage som just nu är aktiva på dressyrbanan.
 
 import { getGlobalState } from '../main.js';
+import { t } from '../utils/i18n.js';
 import {
   getEquipages,
   getConfig,
@@ -20,13 +21,12 @@ import { dressagePrograms as globalDressagePrograms } from '../data/dressageProg
 
 import {
   getDressagePenaltyCoeff,
-  computeFinalFromSaved,
   normalizeMovements,
   deduplicateAndFilterProtocols,
   guessProgramKeyFromClass,
-  calculateAggregateDressagePenalty,
   normJudgeId
 } from '../utils/dressageUtils.js';
+import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
 
 import { setupDressageModalOnce, openDetails as openDetailsModal } from '../ui/dressageModal.js';
 
@@ -49,6 +49,9 @@ let leaderInClass = null;
 const recentResults = [];
 
 let unsubscribes = [];
+let lastRenderedUpcomingHash = null;
+let lastRenderedResultsHash = null;
+let lastRiderSn = "";
 
 // Merge-logik
 let monitor_displayConfig = {};
@@ -139,58 +142,7 @@ function expandDressagePosition(j) {
 }
 
 // ================= BERÄKNING (Använder utils) =================
-function calcLiveJudgeProjection(liveProtocol, programsDict, equipage) {
-  if (!liveProtocol) return null;
-  let testKey = liveProtocol.testKey || liveProtocol.programKey;
-  const allPrograms = programsDict || {};
-
-  if ((!testKey || !allPrograms[testKey]) && equipage && window.klassProgramMapping) {
-    testKey = window.klassProgramMapping[equipage.className] || window.klassProgramMapping[equipage._mergedLabel];
-  }
-
-  // Fuzzy Match (Name or Guess)
-  let program = allPrograms[testKey];
-  if (!program && equipage && equipage.className) {
-    // 1. Try helper heuristic
-    const guessed = guessProgramKeyFromClass(equipage.className, allPrograms);
-    if (guessed && allPrograms[guessed]) {
-      program = allPrograms[guessed];
-    }
-
-    // 2. Simple Name Match (fallback)
-    if (!program) {
-      const cls = String(equipage.className).trim();
-      program = Object.values(allPrograms).find(p => p.name === cls || p.title === cls || p.id === cls);
-    }
-  }
-
-  if (!program) return null;
-
-  // Ensure we pass the key we FOUND so computeFinalFromSaved can resolve it
-  const effectiveKey = program.id || program.code || testKey;
-
-  const movements = normalizeMovements(liveProtocol.movements || []);
-
-  // computeFinalFromSaved tar (eq, savedArr, program)
-  const computed = computeFinalFromSaved({}, [{ movements, programKey: effectiveKey }], program);
-
-  if (!computed) return null;
-
-  let totalPointsNow = 0;
-  movements.forEach(m => {
-    const pm = program.movements.find(x => x.no === m.momentNo);
-    if (pm && m.score != null) {
-      totalPointsNow += m.score * (pm.coeff || 1);
-    }
-  });
-
-  return {
-    percent: computed.percent,
-    points: computed.points, // Total poäng (projicerad)
-    penalty: computed.penalty,
-    pointsNow: totalPointsNow
-  };
-}
+// function calcLiveJudgeProjection moved to utils
 
 // Helper to merge saved and live protocols consistently
 // Helper to merge saved and live protocols consistently
@@ -247,11 +199,11 @@ function renderLayout() {
   if (!root) return;
   root.innerHTML = `
     <div class="container mx-auto p-4 md:p-8">
-      ${getCompetitionHeader(comp, 'Dressyr – Live Monitor')}
-      <div id="current-rider-panel" class="bg-white p-6 rounded-xl shadow-lg mb-8 min-h-[320px]"></div>
+      ${getCompetitionHeader(comp, t('dressage_title'))}
+      <div id="dressage-current-rider-panel" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg mb-8 min-h-[320px]"></div>
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div id="upcoming-panel" class="bg-white p-4 rounded-lg shadow xl:col-span-1"></div>
-        <div id="results-panel" class="bg-white p-4 rounded-lg shadow xl:col-span-2"></div>
+        <div id="dressage-upcoming-panel" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow xl:col-span-1"></div>
+        <div id="dressage-results-panel" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow xl:col-span-2"></div>
       </div>
     </div>
   `;
@@ -296,9 +248,9 @@ function getLastByJudge(protocol, lastUpdate) {
 // (renderJudgeGrid moved below)
 
 function renderCurrentRider() {
-  const panel = document.getElementById('current-rider-panel');
+  const panel = document.getElementById('dressage-current-rider-panel');
   if (!panel) return;
-  if (!currentRider) { panel.innerHTML = `<div class="text-center p-8 text-gray-500 text-xl">Väntar på nästa ekipage.</div>`; return; }
+  if (!currentRider) { panel.innerHTML = `<div class="text-center p-8 text-gray-500 dark:text-gray-400 text-xl">${t('dressage_monitor_waiting')}</div>`; return; }
 
   const { eq, liveData } = currentRider;
   // liveData is now Map<jid, proto>
@@ -357,52 +309,65 @@ function renderCurrentRider() {
   const flagImg = getFlagHtml(eq);
 
   // Live Aggregate Prognosis
-  // Use shared helper!
-  const allProgs = mergedPrograms || {};
-  const currentPenalty = calculateAggregateDressagePenalty(liveProtoArray, allProgs);
+  const programs = getPrograms();
+  const result = calculateDressageResult(eq, liveProtoArray, allJudges, programs);
+  const currentPenalty = (result && result.projectedPenalty != null) ? result.projectedPenalty : ((result && result.penalty != null) ? result.penalty : null);
 
-  // Calculate percent/points manually for display if needed, or derived?
-  // Actually calculateAggregateDressagePenalty only returns penalty.
-  // We can do a quick calc for percent/points if we want those bars.
-  // Reuse existing logic or simple average of averages.
+  let avgPercent = (result && result.projectedPercent != null) ? result.projectedPercent : (result ? result.percent : null);
+  let avgPoints = (result && result.pointsNow) ? result.pointsNow : null;
 
-  let avgPercent = null;
-  let avgPoints = null;
+  const isSameRider = lastRiderSn === String(eq.startNumber);
+  lastRiderSn = String(eq.startNumber);
 
-  const validForAvg = liveProtoArray.filter(p => {
-    // Only count if it has active movements with scores
-    return p.movements && p.movements.length > 0 && p.movements.some(m => m.score !== null && m.score !== '');
-  });
-
-  if (validForAvg.length) {
-    const projs = validForAvg.map(p => calcLiveJudgeProjection(p, allProgs, eq)).filter(x => x);
-    if (projs.length) {
-      avgPercent = projs.reduce((s, v) => s + v.percent, 0) / projs.length;
-      avgPoints = projs.reduce((s, v) => s + v.pointsNow, 0) / projs.length; // Use pointsNow or points? points is projected total.
-    }
-  }
-
-  panel.innerHTML = `
-    <div class="flex items-start gap-6">
-      <div class="flex-1">
-        <div class="flex items-center gap-3 mb-1">${clubImg}<div class="text-2xl font-bold">#${eq.startNumber} ${eq.driverName || ''}</div>${flagImg}</div>
-        <div class="text-sm text-gray-600 mb-3">${eq._mergedLabel || eq.className || ''}${eq.clubName ? ' • ' + eq.clubName : ''}</div>
-        <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
-          <div class="p-3 rounded bg-gray-50 md:col-span-4">
-            <div class="text-[10px] uppercase tracking-wide text-gray-500">Live Moment (Synkroniserat)</div>
-            <div class="font-semibold leading-snug text-lg">${lastMomentTxt}</div>
-            <div class="mt-1 text-[12px] text-gray-700">Visar senaste bedömda moment för <b>alla</b> aktiva domare.</div>
+  if (!isSameRider) {
+    panel.innerHTML = `
+      <div class="flex items-start gap-6">
+        <div class="flex-1">
+          <div class="flex items-center gap-3 mb-1 dark:text-gray-100">
+            ${clubImg}<div class="text-2xl font-bold">#${eq.startNumber} ${eq.driverName || ''}</div>${flagImg}
           </div>
-          <div class="p-3 rounded bg-gray-50 md:col-span-2">
-            <div class="text-[10px] uppercase tracking-wide text-gray-500">Prognos</div>
-            <div class="font-semibold text-2xl">${Number.isFinite(avgPercent) ? avgPercent.toFixed(1) + ' %' : '—'}</div>
-            ${percentBar(avgPercent)}
-            <div class="mt-1 text-[11px] text-gray-600">Poäng (nu): <span class="font-semibold">${Number.isFinite(avgPoints) ? avgPoints.toFixed(1) : '–'}</span> • Straff: <span class="font-semibold text-blue-700 text-lg">${Number.isFinite(currentPenalty) ? currentPenalty.toFixed(2) : '–'}</span></div>
+          <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+            ${eq._mergedLabel || eq.className || ''}${eq.clubName ? ' • ' + eq.clubName : ''}
           </div>
+          <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
+            <div class="p-3 rounded bg-gray-50 dark:bg-gray-700 md:col-span-4">
+              <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${t('dressage_live_moment_label')}</div>
+              <div id="live-moment-text" class="font-semibold leading-snug text-lg dark:text-gray-200">${lastMomentTxt}</div>
+              <div class="mt-1 text-[12px] text-gray-700 dark:text-gray-300">${t('dressage_live_moment_desc')}</div>
+            </div>
+            <div class="p-3 rounded bg-gray-50 dark:bg-gray-700 md:col-span-2">
+              <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${t('dressage_prognosis')}</div>
+              <div id="live-prognosis-percent" class="font-semibold text-2xl dark:text-white">${Number.isFinite(avgPercent) ? avgPercent.toFixed(1) + ' %' : '—'}</div>
+              <div id="live-prognosis-bar">${percentBar(avgPercent)}</div>
+              <div class="mt-1 text-[11px] text-gray-600 dark:text-gray-300">
+                ${t('dressage_points_now')}: <span id="live-points-now" class="font-semibold">${Number.isFinite(avgPoints) ? avgPoints.toFixed(1) : '–'}</span> •
+                ${t('dressage_penalty_header')}: <span id="live-penalty-now" class="font-semibold text-blue-700 dark:text-blue-400 text-lg">${Number.isFinite(currentPenalty) ? currentPenalty.toFixed(2) : '–'}</span>
+              </div>
+            </div>
+          </div>
+          <div id="judge-grid-container">${renderJudgeGrid(liveProtoArray, currentMomentIdx, eq.startNumber)}</div>
         </div>
-        ${renderJudgeGrid(liveProtoArray, currentMomentIdx, eq.startNumber)}
-      </div>
-    </div>`;
+      </div>`;
+  } else {
+    // Atomic updates
+    const momentTextEl = document.getElementById('live-moment-text');
+    if (momentTextEl && momentTextEl.textContent !== lastMomentTxt) momentTextEl.textContent = lastMomentTxt;
+
+    const progPctEl = document.getElementById('live-prognosis-percent');
+    if (progPctEl) progPctEl.textContent = Number.isFinite(avgPercent) ? avgPercent.toFixed(1) + ' %' : '—';
+
+    const progBarEl = document.getElementById('live-prognosis-bar');
+    if (progBarEl) progBarEl.innerHTML = percentBar(avgPercent);
+
+    const ptsNowEl = document.getElementById('live-points-now');
+    if (ptsNowEl) ptsNowEl.textContent = Number.isFinite(avgPoints) ? avgPoints.toFixed(1) : '–';
+
+    const penNowEl = document.getElementById('live-penalty-now');
+    if (penNowEl) penNowEl.textContent = Number.isFinite(currentPenalty) ? currentPenalty.toFixed(2) : '–';
+
+    const gridEl = document.getElementById('judge-grid-container');
+    if (gridEl) gridEl.innerHTML = renderJudgeGrid(liveProtoArray, currentMomentIdx, eq.startNumber);
+  }
 }
 
 function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
@@ -432,33 +397,44 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
     const nameHtml = judgeName ? `<div class="text-[10px] text-gray-400 truncate -mt-0.5 mb-1">${judgeName}</div>` : '';
 
     // Calculate projection for this specific judge
-    const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber));
-    const proj = calcLiveJudgeProjection(d, mergedPrograms, eq);
+    const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber)) || {};
+    const programs = getPrograms();
+    const testKey = d.testKey || d.programKey || eq?.testKey;
+    const pObj = programs[testKey] || (eq?.className ? programs[guessProgramKeyFromClass(eq.className, programs)] : null);
 
-    const pTxt = proj && Number.isFinite(proj.percent) ? `${proj.percent.toFixed(1)}%` : '–';
-    const ptsTxt = proj && Number.isFinite(proj.pointsNow) ? proj.pointsNow.toFixed(1) : '–';
-    const penTxt = proj && Number.isFinite(proj.penalty) ? `${proj.penalty.toFixed(1)} p` : '';
+    const jr = calculateSingleJudgeDressageResult(d, pObj, eq);
+
+    const pTxt = jr && Number.isFinite(jr.projectedPercent) ? `${jr.projectedPercent.toFixed(1)}%` : (jr && Number.isFinite(jr.percent) ? `${jr.percent.toFixed(1)}%` : '–');
+    const ptsTxt = jr && Number.isFinite(jr.pointsNow) ? jr.pointsNow.toFixed(1) : '–';
+    const penTxt = jr && Number.isFinite(jr.projectedPenalty) ? `${jr.projectedPenalty.toFixed(1)} p` : (jr && Number.isFinite(jr.penalty) ? `${jr.penalty.toFixed(1)} p` : '');
 
     // Get Score for "Current Moment" if active
     let lastTxt = '—', lastScoreTxt = '';
     if (currentMomentIdx >= 0 && d.movements && d.movements[currentMomentIdx]) {
       const m = d.movements[currentMomentIdx];
-      lastTxt = m.momentText || `M${m.momentNo}`;
+
+      let pText = '';
+      if (pObj && pObj.movements) {
+        const pm = pObj.movements.find(mov => mov.no === m.momentNo);
+        if (pm) pText = pm.text || pm.description || pm.movement || '';
+      }
+
+      lastTxt = pText || m.momentText || `M${m.momentNo}`;
       if (Number.isFinite(m.score)) lastScoreTxt = ` (${Number(m.score).toFixed(1)})`;
     }
 
     return `
-      <div class="p-2.5 rounded-lg bg-gray-50 border">
+      <div class="p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border dark:border-gray-600">
         <div class="flex flex-col items-center">
-             <div class="text-[10px] uppercase tracking-wide text-gray-500 mb-0.5">Domare ${pos}</div>
+             <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-0.5">${t('judge')} ${pos}</div>
              ${nameHtml}
         </div>
-        <div class="grid grid-cols-3 gap-1.5 text-center mt-1">
-          <div><div class="text-[10px] text-gray-500">%</div><div class="text-sm font-bold tabular-nums">${pTxt}</div></div>
-          <div><div class="text-[10px] text-gray-500">Poäng</div><div class="text-sm font-bold tabular-nums">${ptsTxt}</div></div>
-          <div><div class="text-[10px] text-gray-500">Straff</div><div class="text-sm font-semibold tabular-nums text-blue-700">${penTxt || '–'}</div></div>
+        <div class="grid grid-cols-3 gap-1.5 text-center mt-1 dark:text-gray-200">
+          <div><div class="text-[10px] text-gray-500 dark:text-gray-400">%</div><div class="text-sm font-bold tabular-nums">${pTxt}</div></div>
+          <div><div class="text-[10px] text-gray-500 dark:text-gray-400">${t('dressage_points')}</div><div class="text-sm font-bold tabular-nums">${ptsTxt}</div></div>
+          <div><div class="text-[10px] text-gray-500 dark:text-gray-400">${t('dressage_penalty_header')}</div><div class="text-sm font-semibold tabular-nums text-blue-700 dark:text-blue-400">${penTxt || '–'}</div></div>
         </div>
-        <div class="mt-1.5 text-[10.5px] text-gray-700 truncate" title="${lastTxt}${lastScoreTxt}"><span class="text-gray-500">Moment:</span> ${lastScoreTxt ? '<b>' + lastScoreTxt + '</b>' : ''}</div>
+        <div class="mt-1.5 text-[10.5px] text-gray-700 dark:text-gray-300 truncate" title="${lastTxt}${lastScoreTxt}"><span class="text-gray-500 dark:text-gray-400">${t('dressage_monitor_moment_label')}:</span> ${lastScoreTxt ? '<b>' + lastScoreTxt + '</b>' : ''}</div>
       </div>`;
   }).join('');
 
@@ -467,34 +443,67 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
 
 function renderUpcomingPanel() {
   try {
-    const el = document.getElementById('upcoming-panel');
+    const el = document.getElementById('dressage-upcoming-panel');
     if (!el) return;
     const upcoming = allEquipages.filter(eq => {
       const sn = String(eq.startNumber);
       const st = dressageStatusMap.get(sn) || {};
-      const state = st.state || eq.status || 'not-started';
-      return String(state).toLowerCase() !== 'finished' && !isWithdrawnOrExcluded(state, { ...eq, ...st });
+      const stateStr = String(st.state || eq.status || 'not-started').toLowerCase();
+
+      if (stateStr === 'finished') return false;
+      if (isWithdrawnOrExcluded(stateStr, { ...eq, ...st })) return false;
+
+      // Check if all expected judges have submitted protocols (isDone logic)
+      let isDone = false;
+      if (window.currentJudgesPresent && window.currentJudgesPresent.length > 0) {
+        const merged = getMergedProtocols(sn);
+        const uniquePos = new Set(merged.map(p => (p.position || p.judgePosition || '').toUpperCase()).filter(x => x));
+
+        let expectedPos = new Set(window.currentJudgesPresent.map(j => (j.position || '').toUpperCase()));
+
+        // Try class specific override
+        if (window.dressageJudgeMapping) {
+          const className = eq._mergedLabel || eq.className;
+          const assigned = window.dressageJudgeMapping[className] || window.dressageJudgeMapping[eq.className];
+          if (assigned) {
+            const clsPos = Object.keys(assigned).filter(p => assigned[p] && String(assigned[p]).trim() !== '');
+            if (clsPos.length > 0) {
+              expectedPos = new Set(clsPos.map(p => p.toUpperCase()));
+            }
+          }
+        }
+
+        if (uniquePos.size >= expectedPos.size && uniquePos.size > 0) {
+          isDone = true;
+        }
+      }
+
+      return !isDone;
     }).sort((a, b) => new Date(startTimes[String(a.startNumber)]?.dressage || 0).getTime() - new Date(startTimes[String(b.startNumber)]?.dressage || 0).getTime()).slice(0, 8);
 
-    let html = '<h3 class="text-lg font-bold mb-2">Kommande</h3>';
-    if (!upcoming.length) { html += '<p class="text-sm text-gray-500">Alla ekipage har startat.</p>'; } else {
+    const currentHash = upcoming.map(eq => `${eq.startNumber}:${startTimes[String(eq.startNumber)]?.dressage}`).join('|');
+    if (currentHash === lastRenderedUpcomingHash) return;
+    lastRenderedUpcomingHash = currentHash;
+
+    let html = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('dressage_upcoming_title')}</h3>`;
+    if (!upcoming.length) { html += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('dressage_all_started')}</p>`; } else {
       html += upcoming.map(eq => `
-      <div class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b last:border-0 rounded px-1">
-        <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0">#${eq.startNumber}</span><span class="truncate">${eq.driverName}</span></div>
-        <div class="flex items-center gap-2 shrink-0">${getFlagHtml(eq)}${getClubLogoHtml(eq)}<span class="font-semibold text-gray-800 w-12 text-right tabular-nums">${formatTime(startTimes[String(eq.startNumber)]?.dressage)}</span></div>
+      <div class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1">
+        <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${eq.startNumber}</span><span class="truncate dark:text-gray-300">${eq.driverName}</span></div>
+        <div class="flex items-center gap-2 shrink-0">${getFlagHtml(eq)}${getClubLogoHtml(eq)}<span class="font-semibold text-gray-800 dark:text-gray-200 w-12 text-right tabular-nums">${formatTime(startTimes[String(eq.startNumber)]?.dressage)}</span></div>
       </div>`).join('');
     }
     el.innerHTML = html;
   } catch (err) {
     console.error('Error rendering upcoming panel:', err);
-    const el = document.getElementById('upcoming-panel');
+    const el = document.getElementById('dressage-upcoming-panel');
     if (el) el.innerHTML = '<p class="text-xs text-red-500">Fel vid rendering av kommande.</p>';
   }
 }
 
 function renderResultsPanel() {
   try {
-    const el = document.getElementById('results-panel');
+    const el = document.getElementById('dressage-results-panel');
     if (!el) return;
     const activeClass = currentRider?.eq?._mergedLabel || currentRider?.eq?.className || null;
 
@@ -507,18 +516,22 @@ function renderResultsPanel() {
     if (activeClass) list = list.filter(r => r.className === activeClass);
     list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    let html = '<div class="flex items-baseline justify-between mb-2"><h3 class="text-lg font-bold">Senaste Resultat</h3></div>';
-    if (!list.length) { html += '<p class="text-sm text-gray-500">Inga resultat rapporterade ännu.</p>'; el.innerHTML = html; return; }
+    const currentHash = list.map(r => `${r.sn}:${r.finalPenalty}:${r.finalPercent}`).join('|');
+    if (currentHash === lastRenderedResultsHash) return;
+    lastRenderedResultsHash = currentHash;
 
-    html += `<div class="flex items-center justify-end text-xs font-medium text-gray-500 uppercase pr-1" style="padding-right: 0.25rem;"><span class="w-16 text-right">Snitt %</span><span class="w-16 text-right ml-3">Poäng</span><span class="w-18 text-right ml-3">Straff</span></div>`;
+    let html = `<div class="flex items-baseline justify-between mb-2"><h3 class="text-lg font-bold dark:text-white">${t('dressage_recent_results_title')}</h3></div>`;
+    if (!list.length) { html += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('dressage_no_results')}</p>`; el.innerHTML = html; return; }
+
+    html += `<div class="flex items-center justify-end text-xs font-medium text-gray-500 dark:text-gray-400 uppercase pr-1" style="padding-right: 0.25rem;"><span class="w-16 text-right">${t('dressage_avg_percent')}</span><span class="w-16 text-right ml-3">${t('dressage_points')}</span><span class="w-18 text-right ml-3">${t('dressage_penalty_header')}</span></div>`;
     html += list.map(res => `
-    <div class="result-row-interactive hover:bg-gray-50 cursor-pointer w-full text-left flex items-center justify-between text-sm py-1.5 border-b last:border-0 rounded px-1" data-sn="${res.sn}">
-      <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0">#${res.sn}</span><span class="truncate max-w-[22ch]">${res.name || ''}</span><span class="text-gray-400 shrink-0">•</span><span class="hidden sm:inline text-gray-600 truncate max-w-[20ch]">${res.className || ''}</span></div>
+    <div class="result-row-interactive hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1" data-sn="${res.sn}">
+      <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${res.sn}</span><span class="truncate max-w-[22ch] dark:text-gray-300">${res.name || ''}</span><span class="text-gray-400 shrink-0">•</span><span class="hidden sm:inline text-gray-600 dark:text-gray-400 truncate max-w-[20ch]">${res.className || ''}</span></div>
       <div class="flex items-center gap-3 shrink-0">
         <div class="hidden md:flex items-center gap-1" title="${res.clubName || ''}">${getFlagHtml({ country: res.country })}${getClubLogoHtml({ clubName: res.clubName })}</div>
-        <span class="w-16 text-right text-gray-600 tabular-nums">${Number.isFinite(res.finalPercent) ? res.finalPercent.toFixed(1) + ' %' : '—'}</span>
-        <span class="w-16 text-right text-gray-600 tabular-nums">${Number.isFinite(res.finalPoints) ? res.finalPoints.toFixed(1) + ' p' : '—'}</span>
-        <span class="font-bold text-blue-700 w-18 text-right tabular-nums">${Number.isFinite(res.finalPenalty) ? res.finalPenalty.toFixed(2) + ' p' : '—'}</span>
+        <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${Number.isFinite(res.finalPercent) ? res.finalPercent.toFixed(1) + ' %' : '—'}</span>
+        <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${Number.isFinite(res.finalPoints) ? res.finalPoints.toFixed(1) + ' p' : '—'}</span>
+        <span class="font-bold text-blue-700 dark:text-blue-400 w-18 text-right tabular-nums">${Number.isFinite(res.finalPenalty) ? res.finalPenalty.toFixed(2) + ' p' : '—'}</span>
       </div>
     </div>`).join('');
     const container = el;
@@ -610,36 +623,56 @@ function maybePushRecent(sn) {
     return false;
   }
 
-  const finished = stateStr === 'finished';
+  let finished = stateStr === 'finished';
 
   // 1. Get ALL available protocols (Saved + Live)
   const merged = getMergedProtocols(S);
+
+  // Auto-detect finished status if we have enough judges
+  if (!finished && window.currentJudgesPresent && window.currentJudgesPresent.length > 0) {
+    // Logic: count unique positions in merged protocols
+    const uniquePos = new Set(merged.map(p => (p.position || p.judgePosition || '').toUpperCase()).filter(x => x));
+    // Compare against expected unique positions
+    const expectedPos = new Set(window.currentJudgesPresent.map(j => (j.position || '').toUpperCase()));
+
+    // If we have protocols for all expected positions, treat as finished
+    if (uniquePos.size >= expectedPos.size && uniquePos.size > 0) {
+      finished = true;
+    }
+  }
 
   // 2. Attempt calculation if we have ANY data
   let computed = null;
   if (merged.length > 0) {
     const programKey = st?.testKey || st?.programKey || eq?.testKey || (window.klassProgramMapping?.[eq?.className] ?? null);
-    const programObj = programKey ? (mergedPrograms?.[programKey] || null) : null;
+    // Use robust guesser if missing
+    const programs = mergedPrograms || getGlobalState('dressagePrograms') || globalDressagePrograms || {};
+    let programObj = programKey ? programs[programKey] : null;
+
+    if (!programObj && eq?.className) {
+      const g = guessProgramKeyFromClass(eq.className, programs);
+      if (g) programObj = programs[g];
+    }
 
     if (programObj) {
-      computed = computeFinalFromSaved(eq, merged, programObj);
+      const result = calculateDressageResult(eq, merged, window.currentJudgesPresent || [], programs);
+      if (result) {
+        st.finalJudgeScore = { percent: result.percent, points: result.points, penalty: result.judgePenalty };
+        st.finalPercent = result.percent;
+        st.finalPoints = result.points;
+        st.finalPenalty = result.penalty;
+        st.errorPoints = result.errorPoints;
+        st.errorPenalty = result.errorPenalty;
+        dressageStatusMap.set(S, st);
+        computed = result; // For the check below
+      }
     }
-  }
-
-  // 3. Update status map if we calculated valid scores
-  if (computed && (computed.percent > 0 || computed.points > 0 || computed.penalty > 0)) {
-    // Only update if values actually changed to avoid unnecessary churn (though Object.assign is cheap)
-    st.finalJudgeScore = { percent: computed.percent, points: computed.points, penalty: computed.penalty };
-    st.finalPercent = computed.percent;
-    st.finalPoints = computed.points;
-    st.finalPenalty = computed.penalty;
-    // We don't save back to DB here, just local state for rendering
-    dressageStatusMap.set(S, st);
   }
 
   // 4. Check if we have meaningful data to show
   let hasMeaningfulData = false;
   if (finished) {
+    // If finished (explicit or detected), we show it if we have ANY score
     hasMeaningfulData = (st.finalPercent != null || st.finalPoints != null || st.finalPenalty != null);
   } else {
     // For ongoing, we only show if we have actual scores > 0
@@ -695,10 +728,26 @@ function maybePushRecent(sn) {
   return changed;
 }
 
+// ================= Listeners =================
 function setupAllListeners() {
   unsubscribes.forEach(u => { try { u(); } catch { } });
   unsubscribes = [];
-  window.currentJudgesPresent = allJudges.map(j => ({ id: j.id, name: j.name || j.id, position: (expandDressagePosition(j) || j.position || '').toUpperCase() })).filter(j => /^[CEBHM]$/.test(j.position)).sort((a, b) => ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[a.position] - ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[b.position])));
+
+  // 0) Judges Listener (Non-blocking)
+  const unJudges = listenForJudges(competitionId, (judges) => {
+    allJudges = Array.isArray(judges) ? judges : [];
+    window.currentJudgesPresent = allJudges.map(j => ({
+      id: j.id,
+      name: j.name || j.id,
+      position: (expandDressagePosition(j) || j.position || '').toUpperCase()
+    }))
+      .filter(j => /^[CEBHM]$/.test(j.position))
+      .sort((a, b) => ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[a.position] - ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[b.position])));
+
+    // Refresh protocols / lists when judges update (to re-filter/deduplicate)
+    triggerRender();
+  });
+  unsubscribes.push(unJudges);
 
   {
     let changed = false;
@@ -793,7 +842,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = document.getElementById('page-dressyr-monitor');
   if (!competitionId) {
-    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+    if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600">${t('no_competition_selected')}</p>`;
     return;
   }
   renderLayout();
@@ -801,18 +850,20 @@ export async function load() {
   try {
     setupDressageModalOnce(); // Ensure modal CSS/HTML is present
 
-    const [equipagesRaw, startTimesData, judgesRaw, mappingCfg, overrides, displayCfg] = await Promise.all([
+    const [equipagesRaw, startTimesData, mappingCfg, overrides, displayCfg, judgeMappingCfg] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'startTimes').catch(() => ({})),
-      new Promise(res => listenForJudges(competitionId, res)),
       getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
       getConfig(competitionId, 'dressagePrograms').catch(() => ({})),
-      getConfig(competitionId, 'display').catch(() => ({}))
+      getConfig(competitionId, 'display').catch(() => ({})),
+      getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
 
     const cfgData = (displayCfg && typeof displayCfg === 'object') ? (displayCfg.value ?? displayCfg) : {};
     monitor_displayConfig = cfgData || {};
     monitor_buildMergeMap(monitor_displayConfig);
+
+    window.dressageJudgeMapping = (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? (judgeMappingCfg.value ?? judgeMappingCfg) : {};
 
     allEquipages = (equipagesRaw || []).filter(e => e && e.startNumber != null).map(e => {
       const g = monitor_resolveMergeGrouping(e);
@@ -831,21 +882,40 @@ export async function load() {
         _mergedKey: g.key,
         _mergedLabel: g.label,
         email: e.email,
-        driverEmail: e.driverEmail
+        driverEmail: e.driverEmail,
+        horses: e.horses || [],
+        horseNames: e.horseNames || e.horse || '',
+        momentHorses: e.momentHorses || {}
       };
     });
-    startTimes = (startTimesData?.times) || (startTimesData?.value?.times) || {};
-    allJudges = Array.isArray(judgesRaw) ? judgesRaw : [];
+
+    // Robust startTimes parsing
+    const stVal = startTimesData?.value ?? startTimesData;
+    startTimes = stVal?.times ?? stVal ?? {};
+
     const base = (typeof globalDressagePrograms !== 'undefined' ? globalDressagePrograms : {});
     mergedPrograms = { ...base, ...(window.dressagePrograms || {}), ...(overrides || {}) };
+
+    setupAllListeners();
+
     window.klassProgramMapping = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
     window.dressagePrograms = mergedPrograms;
 
+    // Remove redundant call, ensure logos loaded then trigger render
     await ensureClubLogosLoaded().catch(() => { });
-    setupAllListeners();
+
+    // Check if we found any equipages
+    if (allEquipages.length === 0) {
+      console.warn('DressyrMonitor: Inga ekipage hittades.');
+      if (document.getElementById('dressage-current-rider-panel')) {
+        document.getElementById('dressage-current-rider-panel').innerHTML = `<div class="p-8 text-center text-gray-500">${t('no_equipages_found_for_competition')}</div>`;
+      }
+    }
+
+    triggerRender();
   } catch (err) {
     console.error('Kunde inte ladda data för dressyr-monitor:', err);
-    if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">Kunde inte ladda nödvändig data.</p>`;
+    if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">Kunde inte ladda nödvändig data: ${err.message}</p>`;
   }
 }
 
@@ -859,5 +929,8 @@ export function __unload() {
   recentResults.length = 0;
   monitor_displayConfig = {};
   monitor_MERGE_MAP.clear();
+  lastRenderedUpcomingHash = null;
+  lastRenderedResultsHash = null;
+  lastRiderSn = "";
 }
 export default { load };

@@ -14,9 +14,49 @@ import {
   deleteDoc,
 
   collectionGroup,
-  limit
+  limit,
+  runTransaction,
+  writeBatch,
+  where,
+  waitForPendingWrites
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { auth } from '../config/firebase-config.js';
+import { syncService } from './syncService.js';
+
+// === GLOBAL SYNC LISTENER ===
+// Lyssna på när vi får tillbaka nätverket.
+// Då väntar vi på att Firestore synkar allt, och rensar sedan kön.
+window.addEventListener('online', async () => {
+  console.log('Nätverk återställt. Väntar på Firestore-synk...');
+  try {
+    // waitForPendingWrites commitar lokala ändringar till servern
+    await waitForPendingWrites(db);
+    console.log('Firestore synkad. Rensar kö.');
+    syncService.clearAll();
+  } catch (e) {
+    console.warn('Fel vid återsynk:', e);
+  }
+});
+
+// === HJÄLPFUNKTION FÖR ATT WRAPPA SKRIVNINGAR ===
+export async function trackWrite(description, promise) {
+  const id = Date.now().toString() + Math.random().toString().slice(2, 6);
+  syncService.add(id, description);
+  try {
+    const res = await promise;
+
+    // Om vi är online: operationen är klar och synkad -> ta bort direkt.
+    // Om vi är offline: operationen är "klar" lokalt, men inte synkad -> behåll i listan.
+    if (navigator.onLine) {
+      syncService.remove(id);
+    }
+    return res;
+  } catch (err) {
+    // Om det felar på riktigt (undantag), ta bort den så den inte ligger kvar och ser "pending" ut för alltid.
+    syncService.remove(id);
+    throw err;
+  }
+}
 
 
 
@@ -32,21 +72,66 @@ const getCompDocRef = (competitionId, collectionName, docId) => {
 // TÄVLINGSFUNKTIONER
 // =================================================================
 
+/**
+ * Generic helper to get data from a document in the public artifacts tree.
+ * @param {string} collectionName - e.g. 'config', 'competitions'
+ * @param {string} docId 
+ * @returns {Promise<Object|null>}
+ */
+export async function getDocData(collectionName, docId) {
+  if (!collectionName || !docId) return null;
+  const ref = doc(db, `artifacts/${appId}/public/data/${collectionName}/${docId}`);
+  const snap = await getDoc(ref);
+  return snap.exists() ? snap.data() : null;
+}
+
+/**
+ * Generic helper to set data to a document in the public artifacts tree.
+ * @param {string} collectionName 
+ * @param {string} docId 
+ * @param {Object} data 
+ * @param {boolean} merge 
+ */
+export async function setDocData(collectionName, docId, data, merge = true) {
+  if (!collectionName || !docId) return;
+  return trackWrite(`Sätter data ${collectionName}/${docId}`, (async () => {
+    const p = `artifacts/${appId}/public/data/${collectionName}/${docId}`;
+    const ref = doc(db, p);
+    try {
+      await setDoc(ref, data, { merge });
+    } catch (e) {
+      throw new Error(`Failed to write to [${p}]: ${e.message} (${e.code})`);
+    }
+    return { ok: true, path: ref.path };
+  })());
+}
+
 // Status-dokument per ekipage (globalt, inte per domare), men med fält som anger vem som påbörjade.
 export async function setDressageStatus(competitionId, startNumber, { state, judgeId, judgeName }) {
   const ref = doc(db,
     `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${String(startNumber)}/meta`,
     'status'
   );
-  const payload = {
-    state,               // 'ongoing' | 'finished'
-    judgeId: judgeId || null,
-    judgeName: judgeName || null,
-    updatedAt: serverTimestamp(),
-  };
-  if (state === 'ongoing') payload.startedAt = serverTimestamp();
-  if (state === 'finished') payload.finishedAt = serverTimestamp();
-  await setDoc(ref, payload, { merge: true });
+
+  return trackWrite(`Ändrar dressyrstatus #${startNumber}`, (async () => {
+    await runTransaction(db, async (transaction) => {
+      // Vi läser dokumentet (behövs egentligen inte för merge, men bra sed i transaktion om vi vill validera)
+      // Här kör vi direct set med merge, men inom transaktionen garanteras ordningen
+      // eslint-disable-next-line no-unused-vars
+      const sfDoc = await transaction.get(ref);
+
+      const payload = {
+        state,               // 'ongoing' | 'finished'
+        judgeId: judgeId || null,
+        judgeName: judgeName || null,
+        updatedAt: serverTimestamp(),
+      };
+      if (state === 'ongoing') payload.startedAt = serverTimestamp();
+      if (state === 'finished') payload.finishedAt = serverTimestamp();
+
+      transaction.set(ref, payload, { merge: true });
+    });
+  })());
 }
 /**
  * Lyssnar i realtid på status-dokumentet för ett specifikt ekipage i dressyren.
@@ -84,12 +169,102 @@ export async function createCompetition(data) {
     club: data.club?.trim() || '',
     createdAt: serverTimestamp(),
     createdBy: user ? user.uid : null,
+    published: false, // Default to unpublished (Draft)
+    ruleSettings: {
+      marathonObstaclePenaltyRate: 0.25,
+      precisionTimePenaltyRate: 0.5
+    }
   };
 
-  // Pathen matchar dina regler:
-  // match /artifacts/{appId}/public/data/competitions/{compId} { allow create if admin ... }
-  const colRef = collection(db, `artifacts/${appId}/public/data/competitions`);
-  await addDoc(colRef, comp);
+  return trackWrite(`Skapar tävling ${comp.name}`, (async () => {
+    // Pathen matchar dina regler:
+    // match /artifacts/{appId}/public/data/competitions/{compId} { allow create if admin ... }
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions`);
+    const docRef = await addDoc(colRef, comp);
+    const newId = docRef.id;
+
+    // --- IMPORT SETTINGS LOGIC ---
+    if (data.importFrom) {
+      const sourceId = data.importFrom;
+      console.log(`[createCompetition] Importing settings from ${sourceId} to ${newId}...`);
+
+      try {
+        // List of configs to copy
+        const configsToCopy = [
+          'maratonConfig',
+          'precisionConfig',
+          'competitionMeta',
+          'map' // Includes coordinates/bounds but NOT the image itself if hosted externally, but URL is in maratonConfig usually? 
+          // Wait, admin-settings.js saves map bounds/image in 'maratonConfig' OR 'map'?
+          // 'maratonConfig' has 'mapSettings' (image, bounds).
+          // 'map' has 'coordinates' (GPS).
+          // We copy both.
+        ];
+
+        // Helper to read-then-write
+        const copyConfig = async (cfgName) => {
+          try {
+            // We can use the exported getConfig/saveConfig but they use cache/trackWrite which is fine.
+            // But let's do direct Firestore to be robust in this specialized flow?
+            // Actually, verify getConfig export execution.
+            // getConfig uses cache. We definitely want to force refresh or just direct read.
+            const srcRef = doc(db, `artifacts/${appId}/public/data/competitions/${sourceId}/config`, cfgName);
+            const snap = await getDoc(srcRef);
+            if (snap.exists()) {
+              const cfgData = snap.data();
+              const destRef = doc(db, `artifacts/${appId}/public/data/competitions/${newId}/config`, cfgName);
+              await setDoc(destRef, cfgData); // Direct set to avoid 'trackWrite' spam for background ops? Or use saveConfig?
+              // existing saveConfig uses setDoc with merge: true.
+              // We can use setDoc directly.
+            }
+          } catch (err) {
+            console.warn(`Failed to copy config ${cfgName} from ${sourceId}`, err);
+          }
+        };
+
+        // Helper to copy a collection (e.g. maratonObstacles)
+        const copyCollection = async (colName) => {
+          try {
+            const srcColRef = collection(db, `artifacts/${appId}/public/data/competitions/${sourceId}/${colName}`);
+            const snap = await getDocs(srcColRef);
+            if (snap.empty) return;
+
+            const destColPath = `artifacts/${appId}/public/data/competitions/${newId}/${colName}`;
+            const batch = writeBatch(db); // Use batch for atomicity (limit 500 ops)
+
+            let count = 0;
+            for (const d of snap.docs) {
+              const destRef = doc(db, destColPath, d.id);
+              // We copy the exact data, including IDs
+              batch.set(destRef, d.data());
+              count++;
+              if (count >= 490) { // Safety margin for batch limit
+                await batch.commit();
+                count = 0;
+              }
+            }
+            if (count > 0) await batch.commit();
+            console.log(`Copied ${snap.size} documents from ${colName}.`);
+          } catch (err) {
+            console.warn(`Failed to copy collection ${colName} from ${sourceId}`, err);
+          }
+        };
+
+        // Run configs in parallel
+        await Promise.all([
+          ...configsToCopy.map(name => copyConfig(name)),
+          copyCollection('maratonObstacles') // <-- Copy obstacles
+        ]);
+        console.log('[createCompetition] Import complete.');
+
+      } catch (importErr) {
+        console.error('[createCompetition] Generic import error:', importErr);
+        // We do NOT fail the creation itself, just the import.
+      }
+    }
+
+    return docRef;
+  })());
 }
 
 /**
@@ -99,18 +274,11 @@ export async function createCompetition(data) {
 export function listenForCompetitions(callback) {
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions`);
 
-  // NOTE: Vi tar bort orderBy/limit tillfälligt för att fixa "permission-denied".
-  // Om reglerna kräver exakt matchning (t.ex. ingen sort/limit) så måste vi köra "ren" collection query.
-  const q = query(colRef);
+  // Restored efficient query with orderBy and limit
+  const q = query(colRef, orderBy('createdAt', 'desc'), limit(50));
 
   return onSnapshot(q, (snap) => {
-    // Sortera klient-side istället tills vi fixat index/regler
     const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    items.sort((a, b) => {
-      const aT = a.createdAt?.seconds || 0;
-      const bT = b.createdAt?.seconds || 0;
-      return bT - aT;
-    });
     callback(items);
   }, (err) => {
     console.error('listenForCompetitions error:', err);
@@ -121,6 +289,24 @@ export async function getCompetitionById(competitionId) {
   const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
   const snap = await getDoc(ref);
   return snap.exists() ? { id: competitionId, ...snap.data() } : null;
+}
+
+export function listenForCompetition(competitionId, callback) {
+  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
+  return onSnapshot(ref, (snap) => {
+    callback(snap.exists() ? { id: snap.id, ...snap.data() } : null);
+  });
+}
+
+// NYTT: Uppdatera tävlingens root-dokument (t.ex. published-status)
+export async function updateCompetition(competitionId, data) {
+  return trackWrite(`Uppdaterar tävling ${competitionId}`, (async () => {
+    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
+    await updateDoc(ref, {
+      ...data,
+      updatedAt: serverTimestamp()
+    });
+  })());
 }
 
 // =================================================================
@@ -146,13 +332,25 @@ export function listenForEquipages(competitionId, callback) {
   });
 }
 export async function updateEquipage(competitionId, equipageId, data) {
-  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/equipages/${equipageId}`);
-  await updateDoc(ref, data);
+  return trackWrite(`Uppdaterar ekipage ${equipageId}`, (async () => {
+    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/equipages/${equipageId}`);
+    await runTransaction(db, async (transaction) => {
+      const fresh = await transaction.get(ref);
+      if (!fresh.exists()) throw new Error("Equipage does not exist!");
+      transaction.update(ref, data);
+    });
+  })());
 }
 
 export async function saveEquipage(competitionId, startNumber, equipageData) {
-  const equipageRef = getCompDocRef(competitionId, 'equipages', startNumber.toString());
-  await setDoc(equipageRef, equipageData, { merge: true });
+  return trackWrite(`Sparar ekipage #${startNumber}`, (async () => {
+    const equipageRef = getCompDocRef(competitionId, 'equipages', startNumber.toString());
+    await runTransaction(db, async (transaction) => {
+      // eslint-disable-next-line no-unused-vars
+      const _ignored = await transaction.get(equipageRef);
+      transaction.set(equipageRef, equipageData, { merge: true });
+    });
+  })());
 }
 /**
  * Raderar ett specifikt ekipage från en tävling.
@@ -163,22 +361,26 @@ export async function deleteEquipage(competitionId, equipageId) {
   if (!competitionId || !equipageId) {
     throw new Error("Competition ID och Equipage ID krävs för att kunna radera.");
   }
-  // VIKTIGT: använd samma baspath som övrigt (helpers)
-  const equipageRef = getCompDocRef(competitionId, 'equipages', String(equipageId));
-  await deleteDoc(equipageRef);
+  return trackWrite(`Raderar ekipage ${equipageId}`, (async () => {
+    // VIKTIGT: använd samma baspath som övrigt (helpers)
+    const equipageRef = getCompDocRef(competitionId, 'equipages', String(equipageId));
+    await deleteDoc(equipageRef);
+  })());
 }
 
 export async function clearAllEquipages(competitionId) {
-  const colRef = getCompCollectionRef(competitionId, 'equipages');
-  const snap = await getDocs(colRef);
-  if (snap.empty) return 0;
+  return trackWrite(`Rensar alla ekipage`, (async () => {
+    const colRef = getCompCollectionRef(competitionId, 'equipages');
+    const snap = await getDocs(colRef);
+    if (snap.empty) return 0;
 
-  // batch-radering
-  const { writeBatch } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
-  const batch = writeBatch(db);
-  snap.forEach(d => batch.delete(d.ref));
-  await batch.commit();
-  return snap.size;
+    // batch-radering
+    const { writeBatch } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
+    const batch = writeBatch(db);
+    snap.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+    return snap.size;
+  })());
 }
 
 // =================================================================
@@ -223,8 +425,16 @@ export async function getConfig(competitionId, configName, forceRefresh = false)
   return data;
 }
 export async function saveConfig(competitionId, configName, data) {
-  const configRef = getCompDocRef(competitionId, 'config', configName);
-  await setDoc(configRef, data, { merge: true }); // Använd merge:true för att inte skriva över hela objektet
+  return trackWrite(`Sparar config ${configName}`, (async () => {
+    const configRef = getCompDocRef(competitionId, 'config', configName);
+    await setDoc(configRef, data, { merge: true });
+
+    // Invalidate cache so next read fetches fresh data
+    try {
+      const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;
+      localStorage.removeItem(cacheKey);
+    } catch (e) { /* ignore */ }
+  })());
 }
 
 export function listenForConfig(competitionId, configName, callback) {
@@ -243,8 +453,10 @@ export function listenForJudges(competitionId, callback) {
   });
 }
 export async function saveJudge(competitionId, judgeId, data) {
-  const judgeRef = getCompDocRef(competitionId, 'judges', judgeId);
-  await setDoc(judgeRef, data);
+  return trackWrite(`Sparar domare ${data.name || judgeId}`, (async () => {
+    const judgeRef = getCompDocRef(competitionId, 'judges', judgeId);
+    await setDoc(judgeRef, data);
+  })());
 }
 /**
  * Tar bort en specifik domare.
@@ -252,8 +464,10 @@ export async function saveJudge(competitionId, judgeId, data) {
  * @param {string} judgeId - ID på domaren som ska tas bort.
  */
 export async function deleteJudge(competitionId, judgeId) {
-  const judgeRef = getCompDocRef(competitionId, 'judges', judgeId);
-  await deleteDoc(judgeRef);
+  return trackWrite(`Tar bort domare ${judgeId}`, (async () => {
+    const judgeRef = getCompDocRef(competitionId, 'judges', judgeId);
+    await deleteDoc(judgeRef);
+  })());
 }
 /**
  * Sätter upp en realtids-lyssnare för FUNKTIONÄRS-LISTAN.
@@ -285,8 +499,10 @@ export async function getJudges(competitionId) {
  * Sparar en NY funktionär i listan med ett auto-genererat ID.
  */
 export async function saveOfficial(competitionId, data) {
-  const officialsRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/officials`);
-  await addDoc(officialsRef, data);
+  return trackWrite(`Sparar funktionär ${data.name}`, (async () => {
+    const officialsRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/officials`);
+    await addDoc(officialsRef, data);
+  })());
 }
 
 /**
@@ -295,8 +511,10 @@ export async function saveOfficial(competitionId, data) {
  * @param {string} officialId - ID på funktionären som ska tas bort.
  */
 export async function deleteOfficial(competitionId, officialId) {
-  const officialRef = getCompDocRef(competitionId, 'officials', officialId);
-  await deleteDoc(officialRef);
+  return trackWrite(`Tar bort funktionär ${officialId}`, (async () => {
+    const officialRef = getCompDocRef(competitionId, 'officials', officialId);
+    await deleteDoc(officialRef);
+  })());
 }
 
 // --- Maratonhinder ---
@@ -307,8 +525,10 @@ export function listenForMarathonObstacles(competitionId, callback) {
   });
 }
 export async function saveMarathonObstacle(competitionId, number, data) {
-  const obstacleRef = getCompDocRef(competitionId, 'maratonObstacles', number.toString());
-  await setDoc(obstacleRef, data);
+  return trackWrite(`Sparar maratonhinder ${number}`, (async () => {
+    const obstacleRef = getCompDocRef(competitionId, 'maratonObstacles', number.toString());
+    await setDoc(obstacleRef, data);
+  })());
 }
 /**
  * Tar bort ett specifikt maratonhinder från en tävling.
@@ -319,8 +539,10 @@ export async function deleteMarathonObstacle(competitionId, obstacleNumber) {
   if (!competitionId || obstacleNumber == null) {
     throw new Error("Competition ID och hindernummer krävs för att kunna radera.");
   }
-  const obstacleRef = getCompDocRef(competitionId, 'maratonObstacles', String(obstacleNumber));
-  await deleteDoc(obstacleRef);
+  return trackWrite(`Tar bort maratonhinder ${obstacleNumber}`, (async () => {
+    const obstacleRef = getCompDocRef(competitionId, 'maratonObstacles', String(obstacleNumber));
+    await deleteDoc(obstacleRef);
+  })());
 }
 export async function getDressageResultsForEquipage(competitionId, startNumber) {
   if (!competitionId) throw new Error("getDressageResultsForEquipage: competitionId saknas");
@@ -373,10 +595,11 @@ export async function saveDressageJudgeProtocol(competitionId, startNumber, judg
     updatedAt: serverTimestamp()
   };
 
-  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${sn}/protocols`, docId);
-
-  await setDoc(ref, safePayload, { merge: true });
-  return { ok: true, path: ref.path };
+  return trackWrite(`Sparar dressyrprotokoll #${startNumber} (${judgeId})`, (async () => {
+    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${sn}/protocols`, docId);
+    await setDoc(ref, safePayload, { merge: true });
+    return { ok: true, path: ref.path };
+  })());
 }
 
 export async function getMarathonObstacleResults(competitionId, equipageId) {
@@ -488,25 +711,18 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
     `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults/${eid}/obstacles`,
     on
   );
-  await setDoc(ref, payload, { merge: true });
 
-  return { ok: true, path: ref.path };
+  return trackWrite(`Sparar hinderresultat #${eid} Hinder ${on}`, (async () => {
+    await runTransaction(db, async (transaction) => {
+      // eslint-disable-next-line no-unused-vars
+      const _ignored = await transaction.get(ref);
+      transaction.set(ref, payload, { merge: true });
+    });
+    return { ok: true, path: ref.path };
+  })());
 }
 
-export async function getMarathonTimingData(competitionId) {
-  if (!competitionId) return new Map();
-
-  // Standardiserad path: /maraton-timing/{startNumber}
-  try {
-    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton-timing`);
-    const snap = await getDocs(colRef);
-    const map = new Map();
-    snap.forEach(d => map.set(String(d.id), d.data() || {}));
-    return map;
-  } catch (_) {
-    return new Map();
-  }
-}
+// (Removed redundant getMarathonTimingData - moved/unified above)
 
 export async function getMarathonTimingForEquipage(competitionId, startNumber) {
   if (!competitionId || !startNumber) return null;
@@ -557,9 +773,11 @@ export async function saveMarathonTimingData(competitionId, equipageId, data) {
     updatedAt: serverTimestamp()
   });
 
-  const ref = getCompDocRef(competitionId, 'maraton-timing', id);
-  await setDoc(ref, payload, { merge: true });
-  return { ok: true, path: ref.path, id };
+  return trackWrite(`Sparar maratontid #${id}`, (async () => {
+    const ref = getCompDocRef(competitionId, 'maraton-timing', id);
+    await setDoc(ref, payload, { merge: true });
+    return { ok: true, path: ref.path, id };
+  })());
 }
 
 export function listenForPrecisionResults(competitionId, callback) {
@@ -621,8 +839,14 @@ export async function savePrecisionResult(competitionId, equipageId, data) {
     updatedAt: serverTimestamp(),
   };
 
-  await setDoc(ref, payload, { merge: true });
-  return { ok: true, path: ref.path };
+  return trackWrite(`Sparar precisionsresultat #${equipageId}`, (async () => {
+    await runTransaction(db, async (transaction) => {
+      // eslint-disable-next-line no-unused-vars
+      const _ignored = await transaction.get(ref);
+      transaction.set(ref, payload, { merge: true });
+    });
+    return { ok: true, path: ref.path };
+  })());
 }
 
 export async function getPrecisionResultForEquipage(competitionId, equipageId) {
@@ -666,39 +890,61 @@ export async function debugListDressageDocIds(competitionId, startNumber) {
 }
 
 /**
- * Hämtar maraton-timtagningsdokument för en specifik tävling.
- * Returnerar Firestore-dokument (med .id och .data()) så att
- * maraton-resultat.js kan göra doc.id och doc.data().
+ * HÄMTAR TIMING-DATA (STANDARD)
+ * Returnerar Map<startNumber, data>
  */
-export async function getMaratonTimingData(competitionId) {
-  if (!competitionId) return [];
-  const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton-timing`);
-  const snap = await getDocs(colRef);
-  return snap.docs; // innehåller { id, data() }
+export async function getMarathonTimingData(competitionId) {
+  if (!competitionId) return new Map();
+  try {
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton-timing`);
+    const snap = await getDocs(colRef);
+    const map = new Map();
+    snap.forEach(d => map.set(String(d.id), d.data() || {}));
+    return map;
+  } catch (e) {
+    console.warn('Error fetching marathon timing:', e);
+    return new Map();
+  }
+}
+
+/**
+ * HÄMTAR MARATON-DOKUMENT (MANUELLA TIDER OSV)
+ * Returnerar Map<startNumber, data>
+ */
+export async function getMarathonStateDocuments(competitionId) {
+  if (!competitionId) return new Map();
+  try {
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
+    const snap = await getDocs(colRef);
+    const map = new Map();
+    snap.forEach(d => map.set(String(d.id), d.data() || {}));
+    return map;
+  } catch (e) {
+    console.warn('Error fetching marathon state docs:', e);
+    return new Map();
+  }
 }
 
 // Realtidslyssnare för maraton-tidtagning (samling: /maraton-timing)
-export function listenForMaratonTimingUpdates(competitionId, callback) {
-  if (!competitionId) throw new Error("listenForMaratonTimingUpdates: competitionId saknas");
+// Realtidslyssnare för maraton-tidtagning (samling: /maraton-timing)
+export function listenForMarathonTimingUpdates(competitionId, callback) {
+  if (!competitionId) throw new Error("listenForMarathonTimingUpdates: competitionId saknas");
 
   const colRef = collection(
     db,
     `artifacts/${appId}/public/data/competitions/${competitionId}/maraton-timing`
   );
 
-  // Lägg till orderBy om du vill sortera (ex 'startNumber'), annars lämna bara query(colRef)
   const qRef = query(colRef /*, orderBy('startNumber', 'asc') */);
 
   return onSnapshot(
     qRef,
     (snap) => {
-      // För kompatibilitet med getMaratonTimingData (som returnerar snap.docs)
-      try { callback(snap.docs); } catch (e) { console.error("listenForMaratonTimingUpdates callback error:", e); }
+      // Returnera docs array för lyssnare, de kan hantera det
+      try { callback(snap.docs); } catch (e) { console.error("listenForMarathonTimingUpdates callback error:", e); }
     },
     (err) => {
-      console.error("listenForMaratonTimingUpdates error:", err);
-      try { callback([]); } catch (_) { }
-      console.error("listenForMaratonTimingUpdates error:", err);
+      console.error("listenForMarathonTimingUpdates error:", err);
       try { callback([]); } catch (_) { }
     }
   );
@@ -988,5 +1234,237 @@ export function listenForDressageProtocolsCollectionGroup(competitionId, equipag
   return () => {
     cleanup();
   };
+  return () => {
+    cleanup();
+  };
 }
 
+export async function getAllDressageProtocols(competitionId, equipages) {
+  if (!competitionId) throw new Error("getAllDressageProtocols: competitionId saknas");
+
+  const snList = (Array.isArray(equipages) ? equipages : [])
+    .map(e => e.startNumber)
+    .filter(n => n != null);
+
+  // Use a Map to store results: startNumber (string) -> protocols[]
+  const results = new Map();
+
+  // Fetch in parallel (could be throttled if >100, but usually fine)
+  const promises = snList.map(async (sn) => {
+    const snStr = String(sn);
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${snStr}/protocols`);
+    const snap = await getDocs(colRef);
+
+    const protos = snap.docs.map(d => asPlainDressageProtocol(d.data(), d.id, sn));
+    if (protos.length > 0) {
+      results.set(snStr, protos);
+    }
+  });
+
+  await Promise.all(promises);
+  return results;
+}
+
+// =================================================================
+// DELETION LOGIC (DANGER ZONE)
+// =================================================================
+
+/**
+ * Raderar en hel tävling rekursivt (inklusive underkollektioner).
+ * Detta är en destruktiv operation och bör bekräftas noga!
+ * 
+ * @param {string} competitionId 
+ */
+export async function deleteCompetition(competitionId) {
+  if (!competitionId) throw new Error("deleteCompetition: competitionId saknas");
+
+  console.log(`Börjar radera tävling ${competitionId}...`);
+
+  // Helper för att radera i batchar
+  const deleteQueryBatch = async (queryRef) => {
+    const snapshot = await getDocs(queryRef);
+    if (snapshot.empty) return 0;
+
+    // Använd writeBatch från import
+    const batch = writeBatch(db);
+    snapshot.docs.forEach((d) => batch.delete(d.ref));
+    await batch.commit();
+    return snapshot.size;
+  };
+
+  // 1. Enkla underkollektioner (platta)
+  const simpleCollections = [
+    'equipages',
+    'judges',
+    'officials',
+    'maratonObstacles',
+    'config',
+    'maraton-timing',
+    'precision',
+    'dressageStatus',
+    'messages',
+    'documents',
+    'computed_equipages'
+  ];
+
+  for (const colName of simpleCollections) {
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/${colName}`);
+    await deleteQueryBatch(query(colRef));
+  }
+
+  // 2. Nestade kollektioner: Maratonresultat
+  // maratonResults/{sn}/obstacles
+  const marResCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults`);
+  const marResSnap = await getDocs(marResCol);
+  for (const d of marResSnap.docs) {
+    const obsCol = collection(db, `${marResCol.path}/${d.id}/obstacles`);
+    await deleteQueryBatch(query(obsCol)); // Radera obstacles
+    await deleteDoc(d.ref); // Radera själva resultatdokumentet
+  }
+
+  // 3. Nestade kollektioner: Dressyrprotokoll
+  // dressage/{sn}/protocols
+  const dressCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage`);
+  const dressSnap = await getDocs(dressCol);
+  for (const d of dressSnap.docs) {
+    const protCol = collection(db, `${dressCol.path}/${d.id}/protocols`);
+    await deleteQueryBatch(query(protCol));
+    await deleteDoc(d.ref);
+  }
+
+  // 4. Nestade kollektioner: Legacy Dressyrresultat
+  // dressageResults/{sn}/protocols
+  const dressResCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageResults`);
+  const dressResSnap = await getDocs(dressResCol);
+  for (const d of dressResSnap.docs) {
+    const protCol = collection(db, `${dressResCol.path}/${d.id}/protocols`);
+    await deleteQueryBatch(query(protCol));
+    await deleteDoc(d.ref);
+  }
+
+  // 5. Maraton input (live-dokument) - en kollektion av dokument med obstacles-array
+  const marLiveCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
+  await deleteQueryBatch(query(marLiveCol));
+
+  // 6. Till sist: Radera själva tävlingsdokumentet
+  const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
+  await deleteDoc(compRef);
+
+  console.log(`Tävling ${competitionId} raderad.`);
+}
+
+
+export async function getCompetitionStatistics(competitionId) {
+  if (!competitionId) return { dressage: 0, marathon: 0, precision: 0 };
+
+  // 1. DRESSYR: Hitta alla som har någon status (ej strikt 'finished'), kolla sedan 'finalization' sub-doc
+  let dressagePending = 0;
+  try {
+    const statusCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus`);
+    const statusSnap = await getDocs(statusCol);
+
+    const checks = statusSnap.docs.map(async (d) => {
+      const sn = d.id;
+      const data = d.data();
+
+      // Ignorera de som är helt nya/ospårade (state='upcoming' och ingen starttid/domare)
+      if (data.state === 'upcoming' && !data.startedAt && !data.judgeId) return 0;
+
+      const metaRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus/${sn}/meta/finalization`);
+      const metaSnap = await getDoc(metaRef);
+      const isFinal = metaSnap.exists() && metaSnap.data().finalized === true;
+      return isFinal ? 0 : 1;
+    });
+
+    const results = await Promise.all(checks);
+    dressagePending = results.reduce((a, b) => a + b, 0);
+
+  } catch (e) {
+    console.warn('Error fetching dressage stats:', e);
+  }
+
+  // 2. MARATON: Kolla 'maraton-timing' collection
+  let marathonPending = 0;
+  try {
+    const marCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton-timing`);
+    const marSnap = await getDocs(marCol);
+    marSnap.forEach(d => {
+      const data = d.data();
+      // Om de har data som tyder på att de startat/är klara
+      const hasData = data.currentPhase || data.startTime || (data.times && Object.keys(data.times).length > 0) || data.totalPenalty || data.status === 'finished';
+      if (hasData && !data.finalized) {
+        marathonPending++;
+      }
+    });
+  } catch (e) { console.warn('Error fetching marathon stats:', e); }
+
+  // 3. PRECISION: Kolla 'precision' collection
+  let precisionPending = 0;
+  try {
+    const precCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
+    const precSnap = await getDocs(precCol);
+    precSnap.forEach(d => {
+      const data = d.data();
+      // Om de har data
+      const hasData = data.running || data.timeMs || data.knocks || data.eliminated || data.status === 'finished';
+      if (hasData && !data.finalized) {
+        precisionPending++;
+      }
+    });
+  } catch (e) { console.warn('Error fetching precision stats:', e); }
+
+  return {
+    dressage: dressagePending,
+    marathon: marathonPending,
+    precision: precisionPending
+  };
+}
+
+// =================================================================
+// LAGTÄVLING (TEAMS)
+// =================================================================
+export function listenForTeams(competitionId, callback) {
+  const teamsRef = getCompCollectionRef(competitionId, 'teams');
+  return onSnapshot(query(teamsRef), (snapshot) => {
+    const teams = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    callback(teams);
+  });
+}
+
+export async function getTeams(competitionId) {
+  const teamsRef = getCompCollectionRef(competitionId, 'teams');
+  const snapshot = await getDocs(query(teamsRef));
+  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+}
+
+export async function saveTeam(competitionId, teamData) {
+  // Om ID saknas, skapa nytt (addDoc), annars spara (setDoc)
+  const isNew = !teamData.id;
+  const description = isNew ? `Skapar lag ${teamData.name}` : `Sparar lag ${teamData.name}`;
+
+  return trackWrite(description, (async () => {
+    if (isNew) {
+      const colRef = getCompCollectionRef(competitionId, 'teams');
+      await addDoc(colRef, teamData);
+    } else {
+      const docRef = getCompDocRef(competitionId, 'teams', teamData.id);
+      await setDoc(docRef, teamData, { merge: true });
+    }
+  })());
+}
+
+export async function deleteTeam(competitionId, teamId) {
+  return trackWrite(`Tar bort lag ${teamId}`, (async () => {
+    const docRef = getCompDocRef(competitionId, 'teams', teamId);
+    await deleteDoc(docRef);
+  })());
+}
+
+export function listenForMarathonConfig(competitionId, callback) {
+  const docRef = getCompDocRef(competitionId, 'config', 'maratonConfig');
+  return onSnapshot(docRef, (snapshot) => {
+    if (snapshot.exists()) {
+      callback(snapshot.data());
+    }
+  });
+}

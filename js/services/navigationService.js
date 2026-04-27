@@ -25,13 +25,14 @@ const pagePermissions = {
   'page-precision-admin': ['admin'],
   'page-maraton-admin': ['admin'],
   'page-vagnbredd': ['funktionar', 'domare', 'admin'],
-  'page-total-results': ['publik', 'funktionar', 'domare', 'admin'],
+  'page-total-resultat': ['publik', 'funktionar', 'domare', 'admin'],
   'page-portal': ['publik', 'funktionar', 'domare', 'admin'], // Tillåt publik, men sidan kollar inloggningsstatus
   'page-speaker': ['funktionar', 'domare', 'admin', 'speaker'],
   'page-prize-giving': ['funktionar', 'domare', 'admin', 'speaker'],
   'page-reports': ['funktionar', 'domare', 'admin'],
   'page-vet-check': ['funktionar', 'domare', 'admin'],
   'page-manual': ['publik', 'funktionar', 'domare', 'admin'],
+  'page-official': ['funktionar', 'domare', 'admin'],
 
 };
 
@@ -59,13 +60,14 @@ const pageLoaders = {
   'precision-admin': () => import('../pages/precision-admin.js'),
   'dressyr-monitor': () => import('../pages/dressyr-monitor.js'),
   'vagnbredd': () => import('../pages/vagnbredd.js'),
-  'total-results': () => import('../pages/total-resultat.js'),
+  'total-resultat': () => import('../pages/total-resultat.js'),
   'portal': () => import('../pages/portal.js'),
   'speaker': () => import('../pages/speaker.js'),
   'prize-giving': () => import('../pages/prize-giving.js'),
   'reports': () => import('../pages/reports.js'),
   'vet-check': () => import('../pages/vet-check.js'),
   'manual': () => import('../pages/manual.js'),
+  'official': () => import('../pages/official.js'),
 
 };
 
@@ -80,7 +82,9 @@ export async function navigateTo(hash) {
 
   const userRole = getGlobalState('currentUser')?.role || 'publik';
   const requiredRoles = pagePermissions[pageId] || [];
-  if (!requiredRoles.includes(userRole)) {
+
+  // Om superadmin -> Släpp igenom allt
+  if (userRole !== 'superadmin' && !requiredRoles.includes(userRole)) {
     document.getElementById('loginModal').style.display = 'flex';
     if (window.location.hash !== '' && window.location.hash !== '#hub') {
       window.location.hash = '#hub';
@@ -90,7 +94,6 @@ export async function navigateTo(hash) {
   document.getElementById('loginModal').style.display = 'none';
 
   if (pageKey === 'hub') {
-    setGlobalState({ key: 'currentCompetition', value: null });
     pageInitializers = {};
   }
 

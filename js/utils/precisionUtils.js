@@ -11,11 +11,13 @@ import {
     horseLabel,
     horseLabelStacked,
     stackName,
-    round2
+    round2,
+    computeTotalPenalty,
+    fmt2
 } from './sharedUtils.js';
+import { getGlobalState } from '../main.js';
 
-// Normalisera klassnamn för jämförelser (samma som i admin)
-const _norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
+const _norm = (s) => String(s || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 
 // -------------------------------------------------------------
 // Status-badge
@@ -23,16 +25,13 @@ const _norm = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9åäö]/g, '
 export function statusClass(status) {
     if (status) {
         const s = status.toLowerCase();
-        if (s.includes('utesluten') || s.includes('elim')) return 'bg-red-600 text-white border-red-700 font-bold';
-        if (s.includes('klar')) return 'bg-green-100 text-green-800 border-green-200';
-        if (s.includes('pågår')) return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+        if (s.includes('utesluten') || s.includes('elim')) return 'bg-red-600 text-white border-red-700 dark:bg-red-900/50 dark:text-red-300 dark:border-red-800 font-bold';
+        if (s.includes('klar')) return 'bg-green-100 text-green-800 border-green-200 dark:bg-green-900/30 dark:text-green-300 dark:border-green-800';
+        if (s.includes('pågår')) return 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/30 dark:text-yellow-300 dark:border-yellow-800';
     }
-    return 'bg-gray-100 text-gray-700 border-gray-200';
+    return 'bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-700/50 dark:text-gray-300 dark:border-gray-600';
 }
 
-// -------------------------------------------------------------
-// Vagnbredd (spårvidd)
-// -------------------------------------------------------------
 // -------------------------------------------------------------
 // Vagnbredd (spårvidd)
 // -------------------------------------------------------------
@@ -45,7 +44,7 @@ export function trackWidthFromEq(eq) {
 // -------------------------------------------------------------
 // Straffberäkning (Tid)
 // -------------------------------------------------------------
-export function calculatePrecisionTimePenalty(timeMs, maxTimeSec) {
+export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = 0.5) {
     if (!Number.isFinite(timeMs) || !Number.isFinite(maxTimeSec) || maxTimeSec <= 0) return 0;
 
     // Convert maxTime to ms
@@ -55,10 +54,10 @@ export function calculatePrecisionTimePenalty(timeMs, maxTimeSec) {
     if (timeMs <= maxMs) return 0;
 
     const diffMs = timeMs - maxMs;
-    // 0.5 penalty per commenced second
-    // ceil(diff / 1000) * 0.5
+    // 0.5 (or config) penalty per commenced second
+    // ceil(diff / 1000) * rate
     const secondsOver = Math.ceil(diffMs / 1000);
-    return secondsOver * 0.5;
+    return secondsOver * timePenaltyRate;
 }
 
 // -------------------------------------------------------------
@@ -234,51 +233,96 @@ export function calculatePrecisionResult(data, equipage, config = {}) {
     const knocksCount = knocksArr.length;
 
     // Obstacle Penalty
-    // Priority: 1. Explicit obstaclePenalty, 2. Calculated from knocks (3 pts/knock), 3. Live value
-    const inferredObstacle = knocksCount > 0 ? knocksCount * 3 : null;
+    // Priority: 1. Explicit obstaclePenalty, 2. Calculated from knocks (config pts/knock), 3. Live value
+    const kp = (config.knockdownPenalty != null) ? Number(config.knockdownPenalty) : 3;
+    const inferredObstacle = knocksCount > 0 ? knocksCount * kp : null;
     const obstaclePenalty = isNum(d.obstaclePenalty) ? d.obstaclePenalty
         : (isNum(inferredObstacle) ? inferredObstacle
             : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
 
     // Time Penalty
-    const timePenalty = isNum(d.timePenalty) ? d.timePenalty
-        : (isNum(d.liveTimePenalty) ? d.liveTimePenalty : null);
+    // Always recalculate from timeMs so a stale stored 0 can't suppress a real penalty.
+    // We then take the MAX of the calculated value and whatever is stored (so manually
+    // added admin penalties above the calculated value are preserved).
+    const maxSec = computeMaxSecondsForClass(equipage?.className, config);
+    
+    // Future-Proofing: Priority -> 1. Admin config, 2. Rule Settings, 3. TR Default
+    const comp = getGlobalState ? getGlobalState('currentCompetition') : null;
+    let rate = 0.5; // TR default
+    if (Number.isFinite(config?.timePenaltyRate)) {
+        rate = config.timePenaltyRate;
+    } else if (Number.isFinite(comp?.ruleSettings?.precisionTimePenaltyRate)) {
+        rate = comp.ruleSettings.precisionTimePenaltyRate;
+    }
+    
+    const calculatedTimePenalty = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
+
+    const storedTimePenalty = isNum(d.timePenalty) ? d.timePenalty
+        : (isNum(d.liveTimePenalty) ? d.liveTimePenalty : 0);
+    const timePenalty = Math.max(storedTimePenalty, calculatedTimePenalty) || null;
 
     // Extra Penalty
-    const extraPenalty = isNum(d.extraPenalty) ? d.extraPenalty : 0;
+    const extraPenalty = isNum(d.extraPenalty) ? d.extraPenalty : null;
 
     // Total Penalty
-    // If finalized: use explicit totalPenalty if available, else sum parts.
-    // If not finalized: use liveTotalPenalty if available, else sum parts.
-    const sumParts = (isNum(obstaclePenalty) || isNum(timePenalty))
-        ? ((obstaclePenalty || 0) + (timePenalty || 0) + extraPenalty)
+    // We only calculate a numeric total if we have evidence of actual performance
+    // or if the result is explicitly finalized, eliminated, or currently running.
+    // (A default extraPenalty: 0 or obstaclePenalty: 0 without time is NOT enough).
+    const hasPerformance = (isNum(timeMs) && timeMs > 0) || (isNum(obstaclePenalty) && obstaclePenalty > 0) || (isNum(extraPenalty) && extraPenalty !== 0);
+    const hasValidResult = hasPerformance || finalized || eliminated || running;
+    
+    const sumParts = hasValidResult
+        ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
         : null;
 
-    let totalPenalty = null;
-    if (finalized) {
-        totalPenalty = isNum(d.totalPenalty) ? d.totalPenalty : sumParts;
-    } else {
-        totalPenalty = isNum(d.liveTotalPenalty) ? d.liveTotalPenalty : sumParts;
+    // We prioritize sumParts to ensure correctness if data just changed,
+    // but we fall back to stored values for finalized results if sumParts is somehow null.
+    let totalPenalty = sumParts;
+    if (totalPenalty === null) {
+        if (finalized) {
+            totalPenalty = isNum(d.totalPenalty) ? d.totalPenalty : null;
+        } else if (running) {
+            totalPenalty = isNum(d.liveTotalPenalty) ? d.liveTotalPenalty : null;
+        }
     }
 
     // Status string (UI helper, but logic related)
     let status = 'Ej startat';
+
+    // TR: Auto-elimination if time exceeds 2x allowed time
+    let autoEliminated = false;
+    if (isNum(timeMs) && isNum(maxSec) && timeMs > (maxSec * 2 * 1000)) {
+        autoEliminated = true;
+    }
+
+    const isInitiallyEliminated = eliminated || autoEliminated;
+
     if (equipage?.status === 'struken') status = 'Struken';
     else if (running) status = 'Pågår';
-    else if (finalized || (isNum(timeMs) && timeMs > 0)) status = 'Klar';
+    else if (finalized || (isNum(timeMs) && timeMs > 0)) {
+        status = isInitiallyEliminated ? 'Utesluten' : 'Klar';
+    }
+
+    // Tie-breaker: Time closest to allowed time
+    const timeDiffFromAllowed = (isNum(timeMs) && isNum(maxSec)) 
+        ? Math.abs(timeMs - (maxSec * 1000)) 
+        : Infinity;
 
     return {
         finalized,
-        eliminated,
+        eliminated: isInitiallyEliminated,
+        autoEliminated,
         running,
         status,
 
         timeMs,
         liveMs,
         finalMs,
+        timeDiffFromAllowed,
 
         knocks: knocksArr,
-        knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / 3) : 0),
+        knockDownTimes: d.knockDownTimes || {},
+        knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / ((config.knockdownPenalty != null) ? Number(config.knockdownPenalty) : 3)) : 0),
 
         obstaclePenalty: isNum(obstaclePenalty) ? round2(obstaclePenalty) : null,
         timePenalty: isNum(timePenalty) ? round2(timePenalty) : null,
@@ -294,10 +338,6 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
 
     // Central beräkning
     const calc = calculatePrecisionResult(d, eq, config) || {};
-    // Exportera den också så att andra kan använda den via denna modul
-    // (Men jag måste deklarera den som export function överst, eller assigna till export)
-    // Vänta, jag kan inte exportera inuti funktion.
-    // Jag lägger den utanför.
 
     // Bana/klassdata
     const cls = eq?.className || '';
@@ -314,16 +354,22 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
     const isElim = d.eliminated === true;
     const timeLabel = isElim ? 'ELIM' : ((timeMs != null && timeMs > 0) ? msToLabel(timeMs) : '–');
 
-    const obstaclePenalty = isNum(calc.obstaclePenalty) ? calc.obstaclePenalty : 0;
-    const timePenalty = isNum(calc.timePenalty) ? calc.timePenalty : 0;
-    const extraPenalty = isNum(calc.extraPenalty) ? calc.extraPenalty : 0;
+    const obstaclePenalty = isNum(calc.obstaclePenalty) ? calc.obstaclePenalty : null;
+    const timePenalty = isNum(calc.timePenalty) ? calc.timePenalty : null;
+    const extraPenalty = isNum(calc.extraPenalty) ? calc.extraPenalty : null;
 
     // Om eliminerad, sätt totalt till Infinity
-    const totalPenalty = isElim
+    const totalPenalty = (isElim || calc.autoEliminated)
         ? Infinity
-        : (isNum(calc.totalPenalty) ? calc.totalPenalty : obstaclePenalty + timePenalty + extraPenalty);
+        : (isNum(calc.totalPenalty) 
+            ? calc.totalPenalty 
+            : (obstaclePenalty !== null || timePenalty !== null || extraPenalty !== null 
+                ? (obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0) 
+                : null)
+          );
 
     const knocks = Array.isArray(calc.knocks) ? calc.knocks : [];
+    const knockDownTimes = calc.knockDownTimes || {};
     const knocksCount = knocks.length;
 
     // Rivningar grupperade per port (för PDF-tabell)
@@ -354,17 +400,25 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
     const place = placeMap?.get(snStr) ?? null;
     const startT = startTimeFor(eq?.startNumber, startTimes);
 
+    // Formatera rivningar med tidsstämplar om möjligt
+    const formattedKnocks = knocks
+        .map((p) => {
+            const portStr = String(p);
+            const ts = knockDownTimes[portStr];
+            if (isNum(ts)) {
+                return `${portStr} (${msToLabel(ts)})`;
+            }
+            return portStr;
+        })
+        .join(', ');
+
     const display = {
         timeLabel,
         trackLenLabel: isNum(trackLength) ? `${trackLength} m` : '—',
         tempoLabel: isNum(tempo) ? `${tempo} m/min` : '—',
         maxTimeLabel: isNum(maxSec) ? msToLabel(maxSec * 1000) : '—',
-        knocksText: knocksCount
-            ? knocks
-                .map((p) => String(p))
-                .sort((a, b) => Number(a) - Number(b))
-                .join(', ')
-            : '–',
+        knocksText: formattedKnocks || '–',
+        knocksSimple: (knocks.length > 0) ? knocks.join(', ') : '–',
         portWidth: isNum(portW) ? portW : null,
         allowLabel: isNum(allowanceCm) ? `${allowanceCm} cm` : '—'
     };
@@ -382,11 +436,13 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
         clubName: eq?.clubName || '',
         flagHtml: getFlagHtml(eq),
         timeMs,
+        timeDiffFromAllowed: calc.timeDiffFromAllowed,
         timePenalty,
         obstaclePenalty,
         extraPenalty,
         totalPenalty,
         knocks,
+        knockDownTimes,
         knocksCount,
         knockStats,
         place,
@@ -398,10 +454,90 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
     };
 }
 
+// Overall Standings & "To Beat"
 // -------------------------------------------------------------
-// Placering per klass
-// -------------------------------------------------------------
-export function buildPlaceMap(rows, precisionMap) {
+/**
+ * Beräknar totalställning (Dressyr + Maraton + Precision) för en lista med ekipage.
+ * @param {Array} entries - En lista av { eq, dressagePenalty, marathonPenalty, isElim }
+ * @param {Map} precisionMap - Map med precisionsresultat
+ * @param {Object} config - Precisionskonfiguration
+ */
+export function buildOverallStanding(entries, precisionMap, config) {
+    const list = entries.map(entry => {
+        const { eq, dressagePenalty, marathonPenalty, isElim: phaseElim } = entry;
+        const sn = String(eq.startNumber);
+        
+        const dScore = isNum(dressagePenalty) ? dressagePenalty : 0;
+        const mScore = isNum(marathonPenalty) ? marathonPenalty : 0;
+        
+        const pRes = precisionMap.get(sn);
+        const pData = calculatePrecisionResult(pRes || {}, eq, config); // Corrected order of args
+        const pScore = isNum(pData.totalPenalty) ? pData.totalPenalty : 0;
+        
+        const isElim = phaseElim || !!pData.eliminated;
+        const total = isElim ? Infinity : (dScore + mScore + pScore);
+        
+        return {
+            sn,
+            name: eq.driverName,
+            total,
+            sortTotal: total === null ? Infinity : total,
+            pScore,
+            isElim
+        };
+    });
+
+    const results = [...list].sort((a, b) => {
+        if (a.isElim !== b.isElim) return a.isElim ? 1 : -1;
+        if (a.sortTotal !== b.sortTotal) return a.sortTotal - b.sortTotal;
+        return a.sn.localeCompare(b.sn, undefined, { numeric: true });
+    });
+
+    const map = new Map();
+    results.forEach((r, idx) => {
+        map.set(r.sn, { ...r, rank: r.isElim ? null : (idx + 1) });
+    });
+    return { results, map };
+}
+
+/**
+ * Calculates what score is needed to reach a certain rank or beat the person above.
+ */
+export function getToBeatInfo(sn, standings) {
+    const myRes = standings.map.get(sn);
+    if (!myRes || myRes.rank === null || myRes.rank === 1) return null;
+
+    // Person strictly above me (rank - 1)
+    const sorted = standings.results.filter(r => !r.isElim && r.total !== null);
+    const myIndex = sorted.findIndex(r => r.sn === sn);
+    if (myIndex <= 0) return null;
+
+    const above = sorted[myIndex - 1];
+    
+    // totalAbove = dScore + mScore + pScoreAbove
+    // totalMeTarget = dScore + mScore + pScoreMeTarget <= totalAbove
+    // pScoreMeTarget <= totalAbove - (dScore + mScore)
+    
+    // However, if we are in the middle of precision, pScore is already partial.
+    // If I have pScore 5.0 and the above person has total 100.0, and my D+M is 90.0, 
+    // then I need pScore < 10.0 total.
+    
+    // Let's refine: myTotalPenalty_without_precision = myRes.total - (myRes.pScore || 0)
+    // we use a targetTotal = above.total (to tie)
+    // targetP = above.total - (myRes.total - (myRes.pScore || 0))
+    
+    const currentBase = myRes.total - (myRes.pScore || 0);
+    const targetP = above.total - currentBase;
+    
+    return {
+        targetP,
+        aboveName: above.name, // Need to add name to standings for this
+        aboveSn: above.sn,
+        aboveTotal: above.total
+    };
+}
+
+export function buildPlaceMap(rows, precisionMap, config = {}) {
     const placeMap = new Map();
     const byClass = new Map();
 
@@ -429,7 +565,22 @@ export function buildPlaceMap(rows, precisionMap) {
             if (a.penalty === null && b.penalty === null) return 0;
             if (a.penalty === null) return 1;
             if (b.penalty === null) return -1;
-            return a.penalty - b.penalty;
+            
+            if (Math.abs(a.penalty - b.penalty) > 1e-6) {
+                return a.penalty - b.penalty;
+            }
+
+            // TR Tie-breaker: Time closest to allowed time
+            const d1 = precisionMap.get(a.sn) || {};
+            const d2 = precisionMap.get(b.sn) || {};
+            const eq1 = rows.find(r => String(r.startNumber) === a.sn);
+            const eq2 = rows.find(r => String(r.startNumber) === b.sn);
+            
+            // Re-calculate to get timeDiffFromAllowed which is robust
+            const c1 = calculatePrecisionResult(d1, eq1, config);
+            const c2 = calculatePrecisionResult(d2, eq2, config);
+            
+            return (c1.timeDiffFromAllowed || Infinity) - (c2.timeDiffFromAllowed || Infinity);
         });
 
         let place = 0;
@@ -451,9 +602,15 @@ export function buildPlaceMap(rows, precisionMap) {
 }
 
 // -------------------------------------------------------------
-// Ranking (Live & Final)
-// -------------------------------------------------------------
-export function getPrecisionRanking(allEquipages, precisionStatusMap, className, liveRiderInjection = null) {
+/**
+ * Ranking (Live & Final)
+ * @param {Array} allEquipages 
+ * @param {Map} precisionStatusMap 
+ * @param {string} className 
+ * @param {Object} liveRiderInjection 
+ * @param {Object} config - Optional. If provided, used to RECALCULATE penalties for correctness.
+ */
+export function getPrecisionRanking(allEquipages, precisionStatusMap, className, liveRiderInjection = null, config = null) {
     if (!className) return [];
 
     // 1. Gather all candidates
@@ -461,10 +618,24 @@ export function getPrecisionRanking(allEquipages, precisionStatusMap, className,
 
     // Helper to add/parse
     const addFn = (eq, st, isLiveInjection = false) => {
-        // Must have totalPenalty OR be the live injection
-        if ((st && st.totalPenalty != null) || isLiveInjection) {
-            const pen = st.totalPenalty != null ? st.totalPenalty : (isLiveInjection ? st.liveTotalPenalty : 0);
-            const tm = st.timeMs || (isLiveInjection ? st.liveTimeMs : 0);
+        // Must have data OR be the live injection
+        if (st || isLiveInjection) {
+            let pen = 0;
+            let tm = 0;
+            let timeLabel = '—';
+
+            if (config && eq && (st || isLiveInjection)) {
+                // RECALCULATE for maximum accuracy (avoids stale Firestore data issues)
+                const calc = calculatePrecisionResult(st, eq, config);
+                pen = calc.totalPenalty ?? 0;
+                tm = calc.timeMs ?? 0;
+                timeLabel = calc.timeLabel ?? (tm > 0 ? msToLabel(tm) : '—');
+            } else {
+                // Fallback to stored values
+                pen = st?.totalPenalty != null ? st.totalPenalty : (isLiveInjection ? st?.liveTotalPenalty : 0);
+                tm = st?.timeMs || (isLiveInjection ? st?.liveTimeMs : 0);
+                timeLabel = st?.time || '—';
+            }
 
             results.push({
                 sn: eq.startNumber,
@@ -472,9 +643,9 @@ export function getPrecisionRanking(allEquipages, precisionStatusMap, className,
                 club: eq.clubName,
                 eq: eq, // Keep full ref
                 penalty: pen,
-                time: st.time || '—', // String label
+                time: timeLabel,
                 timeMs: tm,
-                finished: !!st.finalized,
+                finished: !!st?.finalized,
                 isLive: isLiveInjection
             });
         }
@@ -498,19 +669,20 @@ export function getPrecisionRanking(allEquipages, precisionStatusMap, className,
         const fakeSt = {
             totalPenalty: liveRiderInjection.totalPenalty,
             timeMs: liveRiderInjection.timeMs,
-            time: liveRiderInjection.timeLabel, // e.g. from msToLabel
+            timeLabel: liveRiderInjection.timeLabel,
             liveTotalPenalty: liveRiderInjection.totalPenalty,
             liveTimeMs: liveRiderInjection.timeMs,
-            finalized: false
+            finalized: false,
+            // also include the raw fields for calculatePrecisionResult if we have them
+            ...liveRiderInjection.d
         };
         addFn(liveRiderInjection.eq, fakeSt, true);
     }
 
     // 4. Sort
     return results.sort((a, b) => {
-        // Eliminated always last? (Here assuming penalty is Infinity if elim)
-        // If penalty is equal, lower time is better?
-        if (Math.abs(a.penalty - b.penalty) > 0.01) return a.penalty - b.penalty;
+        // Eliminated (Infinity) always last
+        if (Math.abs(a.penalty - b.penalty) > 0.001) return a.penalty - b.penalty;
         return a.timeMs - b.timeMs;
     });
 }

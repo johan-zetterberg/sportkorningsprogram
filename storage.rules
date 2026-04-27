@@ -1,0 +1,36 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    
+    function isAdmin() {
+      return request.auth != null && (
+        request.auth.token.superadmin == true ||
+        (
+          firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) && (
+            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'superadmin'] ||
+            'superadmin' in (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.roles || []) ||
+            'admin' in (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.roles || [])
+          )
+        )
+      );
+    }
+
+    // Explicit rule for competition assets
+    match /competitions/{competitionId}/assets/club-logos/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin(); 
+    }
+
+    // Explicit rule for general competition documents (like maps, PDFs etc.)
+    match /competitions/{competitionId}/documents/{allPaths=**} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // Default catch-all (Secure: no writes allowed outside explicit paths)
+    match /{allPaths=**} {
+      allow read: if true;
+      allow write: if false; 
+    }
+  }
+}

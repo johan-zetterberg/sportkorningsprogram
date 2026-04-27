@@ -8,7 +8,9 @@ import {
   saveDressageJudgeProtocol,
   saveDressageGeneralData,
   setDressageStatus,
-  getDressageResultsForEquipage
+  getDressageResultsForEquipage,
+  getDressageStatusCollection,
+  listenForDressageStatusCollection
 } from '../services/firestoreService.js';
 
 // NYTT: Importera det vi behöver från Firebase för att prata direkt med databasen
@@ -16,9 +18,12 @@ import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-
 import { db, appId } from '../config/firebase-config.js';
 
 import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '../utils/dressageUtils.js';
+import { calculateSingleJudgeDressageResult } from '../services/calculationService.js';
 import { klassProgramMapping } from '../data/competitionData.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../ui/components.js';
+
 import { downloadJson } from '../utils/sharedUtils.js';
+import { requestWakeLock } from '../utils/wakeLock.js';
 
 let competitionId = null;
 let currentDressageTest = null;
@@ -107,7 +112,7 @@ function softWarnUnknownProgram(className, key) {
     if (!banner) return;
     const msg = `Mapping för klassen "${className}" pekar på okänt program "${key}". Välj program manuellt.`;
     const box = document.createElement('div');
-    box.className = 'my-2 p-3 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-200';
+    box.className = 'my-2 p-3 rounded-md bg-yellow-50 text-yellow-800 border border-yellow-200 dark:bg-yellow-900/20 dark:text-yellow-200 dark:border-yellow-700';
     box.textContent = msg;
     // Ta bort tidigare engångsvarningar för tydlighet
     [...banner.querySelectorAll('.unknown-prog-warn')].forEach(n => n.remove());
@@ -227,9 +232,12 @@ function handleSelectionChange() {
     }
   }
 
+  // FIX: Läs om judgeId eftersom den kan ha satts automatiskt ovan
+  const finalJudgeId = judgeSelector.value;
+
   // Ladda ev. sparat protokoll endast för data — ändra inte program här
-  if (startNumber && judgeId) {
-    loadExistingProtocol(startNumber, judgeId, { allowTestChange: false });
+  if (startNumber && finalJudgeId) {
+    loadExistingProtocol(startNumber, finalJudgeId, { allowTestChange: false });
   } else {
     calculateTotals();
   }
@@ -263,21 +271,39 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
       }
       programmaticChange = true;
       const testSelector = document.getElementById('testSelector');
-      if (allowTestChange && testKey && testSelector && testSelector.value !== testKey && !manualTestOverride) {
+      // FIX: Lägg till check för !currentDressageTest eller om det laddade programmet inte matchar det som är renderat
+      const needsRender = !currentDressageTest || (currentDressageTest.key !== testKey && currentDressageTest.name !== testKey);
+
+      if (allowTestChange && testKey && testSelector && (testSelector.value !== testKey || needsRender) && !manualTestOverride) {
         testSelector.value = testKey;
         renderProtocol(testKey);
         manualTestOverride = true;     // lås valet så det inte skrivs över
+      } else if (needsRender && testSelector.value === testKey) {
+        // Specialfall: Värdet är rätt men vi har inte renderat än (t.ex. första laddningen)
+        renderProtocol(testKey);
       } else {
         if (typeof updateProgramMeta === 'function') {
           updateProgramMeta((testSelector && testSelector.value) || testKey);
         }
       }
       programmaticChange = false;
+
+      // FIX: Om vi INTE fick byta program (allowTestChange=false), men det sparade programmet (testKey)
+      // skiljer sig från det som faktiskt visas i dropdownen (testSelector.value), då ska vi INTE
+      // försöka fylla i siffrorna. Det blir bara fel (Issue 2).
+      const currentSelectorValue = document.getElementById('testSelector')?.value;
+      if (!allowTestChange && currentSelectorValue && testKey !== currentSelectorValue) {
+        // Avbryt populering för att undvika att "Lätt A"-siffror hamnar i "Svår B"-protokollet
+        console.warn(`Saved protocol is for ${testKey} but view is ${currentSelectorValue}. Skipping population.`);
+        calculateTotals();
+        return;
+      }
+
       document.getElementById('dressageEliminated').checked = !!protocolData.eliminated;
       const movements = Array.isArray(protocolData.movements) ? protocolData.movements : [];
       const cards = document.querySelectorAll('#protocolBody .movement-card');
       cards.forEach((card, index) => {
-        const programMovementNo = (getPrograms()[testKey]?.movements?.[index]?.no);
+        const programMovementNo = (getPrograms()[testSelector.value]?.movements?.[index]?.no); // Använd selector value för säkerhets skull
         const md = movements.find(m => m.momentNo === programMovementNo)
           || movements.find(m => m.movementNo === programMovementNo)
           || movements[index];
@@ -293,7 +319,8 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
       // FIX: Använder den nya, smartare sökfunktionen även här
       const classKey = equipage ? findProgramKeyForClass(equipage.className) : null;
       const testSelector = document.getElementById('testSelector');
-      if (classKey && testSelector && !manualTestOverride && testSelector.value !== classKey) {
+      // FIX: Tvinga render om inget är renderat än
+      if (classKey && testSelector && !manualTestOverride && (testSelector.value !== classKey || !currentDressageTest)) {
         programmaticChange = true;
         testSelector.value = classKey;
         renderProtocol(classKey);
@@ -393,7 +420,7 @@ function updateProgramMeta(key) {
   if (!host) return;
   const meta = getProgramMeta(key);
   if (!meta) { host.innerHTML = ''; return; }
-  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'} mr-2">${meta.verified ? 'Verifierat' : 'Ej verifierat'}</span>`;
+  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${meta.verified ? 'Verifierat' : 'Ej verifierat'}</span>`;
   const ver = meta.version ? ` • v${meta.version}` : '';
   const src = meta.source ? ` • ${meta.source}` : '';
   const coeff = getDressagePenaltyCoeff(key);
@@ -412,16 +439,16 @@ function renderProtocol(testKey) {
   protocolBody.innerHTML = '';
   currentDressageTest.movements.forEach((moment, index) => {
     const card = document.createElement('div');
-    card.className = 'movement-card border rounded-lg p-2 bg-gray-50';
+    card.className = 'movement-card border rounded-lg p-2 bg-gray-50 dark:bg-gray-800 dark:border-gray-700';
     card.innerHTML = `
             <div class="flex justify-between items-center gap-2"> <div class="flex-shrink-0 font-medium">
-                    <span class="font-bold">${moment.no}.</span>
-                    <span class="text-blue-800 text-sm ml-1 mr-2">${moment.letters || ''}</span>
-                    ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs">x${moment.coeff}</span>` : ''}
+                    <span class="font-bold dark:text-gray-200">${moment.no}.</span>
+                    <span class="text-blue-800 text-sm ml-1 mr-2 dark:text-blue-300">${moment.letters || ''}</span>
+                    ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs dark:bg-blue-900/40 dark:text-blue-100">x${moment.coeff}</span>` : ''}
                 </div>
                 
                 <div class="flex-grow" style="max-width: 90px;"> <input type="tel" min="0" max="10" step="0.5" 
-                           class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500" 
+                           class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
                            data-coeff="${moment.coeff}" 
                            data-moment-index="${index}"
                            pattern="[0-9.,]*" 
@@ -430,7 +457,7 @@ function renderProtocol(testKey) {
                            style="min-height: 50px;">
                 </div>
 
-                <div class_alias="flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700">0.0</span>
+                <div class_alias="flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700 dark:text-blue-400">0.0</span>
                 </div>
 
                 <div class="flex-shrink-0 flex flex-col sm:flex-row gap-1">
@@ -440,11 +467,11 @@ function renderProtocol(testKey) {
             </div>
 
             <div class="comment-wrapper">
-                <textarea rows="1" placeholder="Lägg till kommentar..." class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md"></textarea>
+                <textarea rows="1" placeholder="Lägg till kommentar..." class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
             </div>
-            <div class="movement-details text-sm text-gray-600 mt-2 border-l-2 border-gray-200 pl-2">
-                <p class="font-medium">${moment.text}</p>
-                <p class="text-sm text-gray-500 mt-1">${moment.judge || ''}</p>
+            <div class="movement-details text-sm text-gray-600 mt-2 border-l-2 border-gray-200 pl-2 dark:text-gray-400 dark:border-gray-700">
+                <p class="font-medium dark:text-gray-300">${moment.text}</p>
+                <p class="text-sm text-gray-500 mt-1 dark:text-gray-500">${moment.judge || ''}</p>
             </div>
         `;
     protocolBody.appendChild(card);
@@ -458,34 +485,82 @@ function calculateTotals() {
     document.getElementById('penaltyPoints').textContent = `0.0`;
     document.getElementById('extraPenaltyDisplay').textContent = `0.0`;
     document.getElementById('totalPenaltyDisplay').textContent = `0.0`;
+    document.getElementById('totalPointsDisplay').textContent = `0.0`;
     return;
   }
-  let maxScore = 0;
-  currentDressageTest.movements.forEach(moment => { maxScore += 10 * moment.coeff; });
 
-  let currentTotalScore = 0;
-  document.querySelectorAll('#protocolBody .movement-card').forEach(card => {
+  // 1. Gather current inputs into a protocol-like object
+  const movementsData = [];
+  document.querySelectorAll('#protocolBody .movement-card').forEach((card, index) => {
     const input = card.querySelector('.score-input');
-    const score = parseFloat(input.value) || 0;
-    const coeff = parseFloat(input.dataset.coeff);
-    currentTotalScore += score * coeff;
-    card.querySelector('.movement-score').textContent = (score * coeff).toFixed(1);
+    const scoreVal = input.value.trim();
+    const score = scoreVal !== '' ? parseFloat(scoreVal) : null;
+    const coeff = parseFloat(input.dataset.coeff) || 1;
+
+    // Update individual card display
+    const cardScore = (score !== null ? score * coeff : 0).toFixed(1);
+    card.querySelector('.movement-score').textContent = cardScore;
+
+    movementsData.push({
+      momentNo: currentDressageTest.movements[index].no,
+      score: score
+    });
   });
 
-  const filledMovements = Array.from(document.querySelectorAll('#protocolBody .movement-card .score-input')).filter(i => i.value.trim() !== '');
-  const maxScoreSoFar = filledMovements.reduce((sum, input) => sum + (10 * parseFloat(input.dataset.coeff)), 0);
-  const currentScoreSoFar = filledMovements.reduce((sum, input) => sum + (parseFloat(input.value) * parseFloat(input.dataset.coeff)), 0);
+  const eliminated = document.getElementById('dressageEliminated').checked;
+  const errorPointsInput = document.getElementById('errorPointsInput');
+  const errorPoints = parseFloat(errorPointsInput ? errorPointsInput.value : 0) || 0;
 
-  const percentage = maxScoreSoFar > 0 ? (currentScoreSoFar / maxScoreSoFar) * 100 : 0;
-  const judgePenalty = maxScore > 0 ? maxScore - currentTotalScore : 0;
-  const errorPoints = parseFloat(document.getElementById('errorPointsInput').value) || 0;
-  const totalPenalty = judgePenalty + errorPoints;
+  // 2. Use Calculation Service
+  // Construct a temporary protocol object
+  // Must provide a judgeId so deduplicateAndFilterProtocols doesn't filter it out if we were to check that.
+  // Also provide testKey just in case.
+  const tempProtocol = {
+    judgeId: 'manual_input',
+    testKey: currentDressageTest.id || currentDressageTest.key || 'unknown',
+    movements: movementsData,
+    eliminated: eliminated
+  };
 
-  document.getElementById('totalPointsDisplay').textContent = currentTotalScore.toFixed(1); // <-- LÄGG TILL DENNA RAD
-  document.getElementById('percentage').textContent = `${percentage.toFixed(2)} %`;
-  document.getElementById('penaltyPoints').textContent = judgePenalty.toFixed(1);
-  document.getElementById('extraPenaltyDisplay').textContent = errorPoints.toFixed(1);
-  document.getElementById('totalPenaltyDisplay').textContent = totalPenalty.toFixed(1);
+  // We need a dummy equipage with errorPoints for the full calculation, 
+  // but calculateSingleJudgeDressageResult ignores global error points by default.
+  // However, for the INPUT view, we want to show the specific judge's contribution + the global error points locally input.
+
+  // DEBUG LOGGING
+  console.log('calculateTotals Debug:', {
+    protocol: tempProtocol,
+    program: currentDressageTest,
+    hasMovements: tempProtocol.movements.length,
+    sampleMove: tempProtocol.movements[0]
+  });
+
+  const result = calculateSingleJudgeDressageResult(tempProtocol, currentDressageTest, { errorPoints: 0 });
+  console.log('Calculation Result:', result);
+
+  if (result) {
+    const points = result.points || 0;
+
+    // For Input View: We want the "Running Total" (Projected), not the absolute total.
+    // calculateDressageResult returns projectedPercent/projectedPenalty which are based on the average of RIDDEN movements.
+    const percent = result.projectedPercent != null ? result.projectedPercent : (result.percent || 0);
+    const judgePenalty = result.projectedPenalty != null ? result.projectedPenalty : (result.penalty || 0);
+
+    // Calculate total including local error points
+    // Note: getDressagePenaltyCoeff is used inside service, but we might need it here for the error penalty if not returned
+    const coeff = getDressagePenaltyCoeff(currentDressageTest);
+    const errorPenalty = errorPoints * coeff;
+    const totalPenalty = judgePenalty + errorPenalty;
+
+    document.getElementById('totalPointsDisplay').textContent = points.toFixed(1);
+    document.getElementById('percentage').textContent = `${percent.toFixed(2)} %`;
+    document.getElementById('penaltyPoints').textContent = judgePenalty.toFixed(1);
+    document.getElementById('extraPenaltyDisplay').textContent = errorPenalty.toFixed(1); // Show penalty, not points
+    document.getElementById('totalPenaltyDisplay').textContent = totalPenalty.toFixed(1);
+  } else {
+    // Fallback if service returns null (should verify why)
+    document.getElementById('totalPointsDisplay').textContent = "0.0";
+    document.getElementById('percentage').textContent = "0.00 %";
+  }
 }
 
 // ERSÄTT DENNA FUNKTION i dressyr-input.js
@@ -610,8 +685,33 @@ async function saveProtocol() {
       eliminated: eliminated,
     };
 
+    // Calculate if ALL expected judges have finished
+    const savedPositions = new Set();
+    const allProtocols = await getDressageResultsForEquipage(competitionId, startNumber);
+    allProtocols.forEach(p => {
+      if (p.id !== 'general' && p.judgePosition) {
+        savedPositions.add(p.judgePosition.toUpperCase());
+      }
+    });
+    if (activeDressageJudge._pos) {
+      savedPositions.add(activeDressageJudge._pos.toUpperCase());
+    }
+
+    const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
+    let expectedPositions = [];
+    if (equipage && window.dressageJudgeMapping && window.dressageJudgeMapping[equipage.className]) {
+      const mapped = window.dressageJudgeMapping[equipage.className];
+      expectedPositions = Object.keys(mapped).filter(k => mapped[k] && String(mapped[k]).trim() !== '').map(k => k.toUpperCase());
+    } else {
+      expectedPositions = window.allJudges.map(j => (j._pos || '').toUpperCase()).filter(p => p !== '');
+    }
+
+    const expectedCount = new Set(expectedPositions).size;
+    const isFullyFinished = savedPositions.size >= expectedCount || expectedCount === 0;
+    const finalState = isFullyFinished ? 'finished' : 'ongoing';
+
     await setDressageStatus(competitionId, startNumber, {
-      state: 'finished',
+      state: finalState,
       protocol: null,
       lastUpdate: null,
       finalJudgeScore: finalJudgeScorePayload
@@ -623,15 +723,23 @@ async function saveProtocol() {
       showAlert(`Protokoll för ekipage #${startNumber} har sparats!`);
     }
     clearForm();
-    equipageSearchDropdown.setValue(null);
+
+    // Auto-advance to the next equipage according to the start list
+    const currentIndex = sortedEquipages.findIndex(e => String(e.startNumber) === String(startNumber));
+    if (currentIndex >= 0 && currentIndex < sortedEquipages.length - 1) {
+      const nextSn = sortedEquipages[currentIndex + 1].startNumber;
+      equipageSearchDropdown.setValue(nextSn);
+    } else {
+      equipageSearchDropdown.setValue(null);
+    }
   } catch (error) {
     console.error("Kunde inte spara protokoll: ", error);
+    // Kunde inte spara protokoll: 
     showAlert("Ett fel uppstod. Protokollet kunde inte sparas.", false);
   }
 }
 
 function setupEventListeners() {
-  console.log("Sätter upp event-lyssnare...");
 
   const testSelector = document.getElementById('testSelector');
   const judgeSelector = document.getElementById('judgeSelector');
@@ -643,7 +751,7 @@ function setupEventListeners() {
   const nextButton = document.getElementById('nextEquipage');
 
   if (!testSelector || !judgeSelector || !protocolBody || !saveButton) {
-    console.error("Kritiska element för event-lyssnare saknas i DOM. Avbryter setup.");
+    // Kritiska element för event-lyssnare saknas i DOM. Avbryter setup.
     return;
   }
 
@@ -718,7 +826,7 @@ function setupEventListeners() {
   const handleScoreFieldExit = (event) => {
     // Skicka bara om fältet är ett poängfält
     if (event.target.classList.contains('score-input')) {
-      console.log("Poängfält lämnat, formaterar och skickar live-uppdatering...");
+      // Poängfält lämnat, formaterar och skickar live-uppdatering...
 
       // 1. Formatera poängen (55 -> 5.5)
       formatScoreInput(event.target);
@@ -733,7 +841,7 @@ function setupEventListeners() {
     calculateTotals();
     clearTimeout(liveUpdateTimer);
     liveUpdateTimer = setTimeout(() => {
-      console.log("Generell input (kommentar/straff), skickar heartbeat...");
+
       updateLiveStatus(null);
     }, 750);
   }
@@ -798,8 +906,15 @@ function setupEventListeners() {
   // --- NYTT/MODIFIERAT: Hantera Enter/Tab-tangent för navigering ---
   protocolBody.addEventListener('keydown', (e) => {
     const target = e.target;
+    // Refresh DOM query natively in case items were re-rendered
     const allInputs = Array.from(protocolBody.querySelectorAll('.score-input'));
     const card = target.closest('.movement-card');
+
+    const scrollIntoCenter = (element) => {
+      if (element) {
+        element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    };
 
     // --- Logik för POÄNGFÄLT ---
     if (target.classList.contains('score-input')) {
@@ -812,9 +927,12 @@ function setupEventListeners() {
         if (nextIndex < allInputs.length) {
           allInputs[nextIndex].focus();
           allInputs[nextIndex].select(); // Markera texten
+          scrollIntoCenter(allInputs[nextIndex]);
         } else {
           // Hoppa till "Extra straff"
-          document.getElementById('errorPointsInput').focus();
+          const errInput = document.getElementById('errorPointsInput');
+          errInput.focus();
+          scrollIntoCenter(errInput);
         }
       } else if (e.key === 'Tab' && !e.shiftKey) { // Bara Tab, inte Shift+Tab
         e.preventDefault(); // Stoppa standard Tab-beteende
@@ -825,6 +943,7 @@ function setupEventListeners() {
             // Visa kommentarsfältet och fokusera
             card.classList.add('comment-visible');
             commentInput.focus();
+            scrollIntoCenter(commentInput);
           }
         }
       }
@@ -843,9 +962,12 @@ function setupEventListeners() {
         if (nextIndex < allInputs.length) {
           allInputs[nextIndex].focus();
           allInputs[nextIndex].select();
+          scrollIntoCenter(allInputs[nextIndex]);
         } else {
           // Hoppa till "Extra straff"
-          document.getElementById('errorPointsInput').focus();
+          const errInput = document.getElementById('errorPointsInput');
+          errInput.focus();
+          scrollIntoCenter(errInput);
         }
       }
     }
@@ -906,7 +1028,7 @@ function setupEventListeners() {
     });
   }
 
-  console.log("Event-lyssnare uppsatta.");
+
 }
 
 function auditProgramsAndMapping(equipages) {
@@ -971,18 +1093,18 @@ function showProgramAuditBanner(equipages) {
 
   if (!issues.length) {
     host.innerHTML = `
-      <div class="p-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm">
+      <div class="p-3 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-800 text-sm dark:bg-emerald-900/20 dark:text-emerald-200 dark:border-emerald-700">
         ✔️ Alla dressyrprogram och mapping ser kompletta ut.
       </div>`;
     return;
   }
   host.innerHTML = `
-    <div class="p-3 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm">
+    <div class="p-3 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm dark:bg-red-900/20 dark:text-red-200 dark:border-red-700">
       <div class="font-semibold mb-1">Kontroll av dressyrprogram: ${issues.length} sak(er) att åtgärda</div>
       <ul class="list-disc pl-5 space-y-1">
         ${issues.map(i => `<li>${i}</li>`).join('')}
       </ul>
-      <div class="mt-2 text-gray-700">Uppdatera <code>data/dressagePrograms.js</code> och/eller <code>data/competitionData.js</code> (klassProgramMapping).</div>
+      <div class="mt-2 text-gray-700 dark:text-gray-300">Uppdatera <code>data/dressagePrograms.js</code> och/eller <code>data/competitionData.js</code> (klassProgramMapping).</div>
     </div>`;
 }
 
@@ -1036,59 +1158,74 @@ export function load() {
             color: #2563eb;
             font-weight: 600;
         }
+        
+        /***** DARK MODE STYLES *****/
+        .dark .toggle-btn {
+            border-color: #4b5563; /* gray-600 */
+            color: #9ca3af; /* gray-400 */
+        }
+        .dark .toggle-btn:hover {
+            background: #374151; /* gray-700 */
+        }
+        .dark .toggle-btn.has-comment {
+            border-color: #60a5fa; /* blue-400 */
+            color: #60a5fa;
+        }
 
-        /* NYTT: Tvinga protokollkroppen att scrolla, inte hela sidan */
-        #protocolBodyWrapper {
-            max-height: 65vh; /* Justera denna höjd efter behov */
-            overflow-y: auto;
-            padding-right: 8px; /* Lite utrymme för scroll-listen */
+        /* NYTT: Tvinga protokollkroppen att scrolla, inte hela sidan - ENDAST Desktop */
+        @media (min-width: 768px) {
+            #protocolBodyWrapper {
+                max-height: 65vh; /* Justera denna höjd efter behov */
+                overflow-y: auto;
+                padding-right: 8px; /* Lite utrymme för scroll-listen */
+            }
         }
     </style>
     
     <div id="programAuditBanner" class="my-3"></div>
 
-    <div class="bg-white p-6 rounded-xl shadow-md">
+    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
       
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 pb-4 border-b">
+      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
         <div class="md:col-span-1">
-          <label for="testSelector" class="block text-sm font-medium text-gray-700">1. Program</label>
-          <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md"></select>
-          <div id="programMeta" class="text-xs text-gray-600 mt-1 truncate"></div>
+          <label for="testSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">1. Program</label>
+          <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
+          <div id="programMeta" class="text-xs text-gray-600 mt-1 truncate dark:text-gray-400"></div>
         </div>
         <div class="md:col-span-1">
-          <label for="judgeSelector" class="block text-sm font-medium text-gray-700">2. Domare</label>
-          <select id="judgeSelector" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md"></select>
+          <label for="judgeSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">2. Domare</label>
+          <select id="judgeSelector" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-gray-700">3. Ekipage</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">3. Ekipage</label>
           <div class="flex items-center space-x-2">
-            <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100">«</button>
-            <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-50"></div>
-            <button id="nextEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100">»</button>
+            <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
+            <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-30"></div>
+            <button id="nextEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
           </div>
         </div>
       </div>
       
-      <div id="dressage-summary-bar" class="sticky top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg">
+      <div id="dressage-summary-bar" class="relative md:sticky md:top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg dark:bg-gray-800 dark:border dark:border-gray-700">
           <div class="grid grid-cols-5 gap-2 text-center"> <div>
-                  <p class="text-xs font-medium text-gray-700">Totalpoäng</p>
-                  <p id="totalPointsDisplay" class="text-xl font-bold text-gray-900">0.0</p>
+                  <p class="text-xs font-medium text-gray-700 dark:text-gray-400">Totalpoäng</p>
+                  <p id="totalPointsDisplay" class="text-xl font-bold text-gray-900 dark:text-white">0.0</p>
               </div>
               <div>
-                  <p class="text-xs font-medium text-green-700">Procent</p>
-                  <p id="percentage" class="text-xl font-bold text-green-900">0.00 %</p>
+                  <p class="text-xs font-medium text-green-700 dark:text-green-400">Procent</p>
+                  <p id="percentage" class="text-xl font-bold text-green-900 dark:text-green-300">0.00 %</p>
               </div>
               <div>
-                  <p class="text-xs font-medium text-red-700">Domarstraff</p>
-                  <p id="penaltyPoints" class="text-xl font-bold text-red-900">0.0</p>
+                  <p class="text-xs font-medium text-red-700 dark:text-red-400">Domarstraff</p>
+                  <p id="penaltyPoints" class="text-xl font-bold text-red-900 dark:text-red-300">0.0</p>
               </div>
-              <div class="bg-orange-100 rounded-md p-1">
-                  <p class="text-xs font-medium text-orange-700">Extra straff</p>
-                  <p id="extraPenaltyDisplay" class="text-xl font-bold text-orange-900">0.0</p>
+              <div class="bg-orange-100 rounded-md p-1 dark:bg-orange-900/30">
+                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">Extra straff</p>
+                  <p id="extraPenaltyDisplay" class="text-xl font-bold text-orange-900 dark:text-orange-200">0.0</p>
               </div>
               <div>
-                  <p class="text-xs font-medium text-blue-700">Total</p>
-                  <p id="totalPenaltyDisplay" class="text-xl font-bold text-blue-900">0.0</p>
+                  <p class="text-xs font-medium text-blue-700 dark:text-blue-400">Total</p>
+                  <p id="totalPenaltyDisplay" class="text-xl font-bold text-blue-900 dark:text-blue-300">0.0</p>
               </div>
           </div>
       </div>
@@ -1098,36 +1235,39 @@ export function load() {
         </div>
       </div>
 
-      <div class="sticky bottom-0 z-10 bg-white p-4 border-t mt-6">
+      <div class="relative md:sticky md:bottom-0 z-10 bg-white p-4 border-t mt-6 dark:bg-gray-800 dark:border-gray-700">
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
           
           <div class="md:col-span-3">
-            <label for="errorPointsInput" class="block text-xs font-medium text-gray-700">Felkörning (Straff)</label>
+            <label for="errorPointsInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Felkörning (Straff)</label>
             <div class="flex gap-1 mt-1">
-               <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold">
-               <button type="button" id="btnErr1" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded">Fel 1</button>
-               <button type="button" id="btnErr2" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded">Fel 2</button>
+               <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+               <button type="button" id="btnErr1" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">Fel 1</button>
+               <button type="button" id="btnErr2" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">Fel 2</button>
             </div>
           </div>
           
           <div class="md:col-span-4">
-            <label for="errorCommentInput" class="block text-xs font-medium text-gray-700">Kommentar till felkörning</label>
-            <textarea id="errorCommentInput" rows="1" class="mt-1 block w-full p-2 border rounded-md text-base"></textarea>
+            <label for="errorCommentInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Kommentar till felkörning</label>
+            <textarea id="errorCommentInput" rows="1" class="mt-1 block w-full p-2 border rounded-md text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
           </div>
 
           <div class="md:col-span-2 flex items-center h-full pt-5">
-            <input type="checkbox" id="dressageEliminated" class="h-5 w-5 rounded border-gray-300">
-            <label for="dressageEliminated" class="ml-2 block text-sm font-medium">Eliminerad</label>
+            <input type="checkbox" id="dressageEliminated" class="h-5 w-5 rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 focus:ring-red-500">
+            <label for="dressageEliminated" class="ml-2 block text-sm font-medium dark:text-gray-300">Eliminerad</label>
           </div>
           
-            <button id="saveProtocol" class="w-full bg-brand-darkblue text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-lg">
+          <div class="md:col-span-3">
+            <label class="block text-xs font-medium text-transparent select-none">Spara</label>
+            <button id="saveProtocol" class="w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
               Spara Protokoll
             </button>
           </div>
+          </div>
 
         </div>
-        <div class="mt-4 pt-3 border-t flex justify-end">
-          <button id="btnBackupDreJson" type="button" class="text-xs text-blue-600 hover:underline flex items-center gap-1">
+        <div class="mt-4 pt-3 border-t flex justify-end dark:border-gray-700">
+          <button id="btnBackupDreJson" type="button" class="text-xs text-blue-600 hover:underline flex items-center gap-1 dark:text-blue-400">
             <i class="fas fa-file-download"></i> Ladda ner säkerhetskopia (JSON)
           </button>
         </div>
@@ -1140,13 +1280,17 @@ export function load() {
     try {
       if (!document.getElementById('page-dressyr-input')) return; // Skydd om vi lämnat
 
-      const [equipages, startTimes, mappingCfg, overrides, judgeMapCfg, rulesCfg] = await Promise.all([
-        getEquipages(competitionId),
-        getConfig(competitionId, 'startTimes'),
-        getConfig(competitionId, 'dressyrProgramMapping'),
-        getConfig(competitionId, 'dressagePrograms'),
-        getConfig(competitionId, 'dressageJudgeMapping'),
-        getConfig(competitionId, 'dressageRules')
+      const [equipages, startTimes, mappingCfg, overrides, judgeMapCfg, rulesCfg, statusDocs] = await Promise.race([
+        Promise.all([
+          getEquipages(competitionId),
+          getConfig(competitionId, 'startTimes'),
+          getConfig(competitionId, 'dressyrProgramMapping'),
+          getConfig(competitionId, 'dressagePrograms'),
+          getConfig(competitionId, 'dressageJudgeMapping'),
+          getConfig(competitionId, 'dressageRules'),
+          getDressageStatusCollection(competitionId)
+        ]),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout loading dressage data')), 5000))
       ]);
 
       // Gör mapping + ev. overrides tillgängliga globalt
@@ -1163,30 +1307,73 @@ export function load() {
       // Bygg selecterna när allt finns
       populateSelectors();
 
-      // Bygg sök/dropdown för ekipage
-      const equipageSearchContainer = document.getElementById('equipageSearchContainer');
-      if (equipageSearchContainer) { // Dubbelkoll
-        sortedEquipages = (equipages || []).slice().sort((a, b) => Number(a.startNumber) - Number(b.startNumber));
-        // Städa gammal om den finns
-        if (equipageSearchDropdown && typeof equipageSearchDropdown.destroy === 'function') {
-          equipageSearchDropdown.destroy();
+      // Städa gammal status-lyssnare
+      if (unsubStatus) unsubStatus();
+
+      const rebuild = (statusDocs) => {
+        const equipageSearchContainer = document.getElementById('equipageSearchContainer');
+        if (!equipageSearchContainer) return;
+
+        const statusMap = new Map();
+        (statusDocs || []).forEach(s => statusMap.set(String(s.id), s));
+
+        sortedEquipages = [...(equipages || [])].sort((a, b) => {
+          const statusA = statusMap.get(String(a.startNumber));
+          const statusB = statusMap.get(String(b.startNumber));
+          
+          const doneA = statusA?.state === 'finished';
+          const doneB = statusB?.state === 'finished';
+
+          if (doneA !== doneB) return doneA ? 1 : -1;
+
+          const timeA = startTimes?.times?.[String(a.startNumber)]?.dressage;
+          const timeB = startTimes?.times?.[String(b.startNumber)]?.dressage;
+
+          if (timeA && timeB) {
+            const tsA = new Date(timeA).getTime();
+            const tsB = new Date(timeB).getTime();
+            if (tsA !== tsB && !isNaN(tsA) && !isNaN(tsB)) return tsA - tsB;
+          } else if (timeA) {
+            return -1;
+          } else if (timeB) {
+            return 1;
+          }
+          return Number(a.startNumber) - Number(b.startNumber);
+        });
+
+        if (equipageSearchDropdown) {
+          equipageSearchDropdown.updateData(sortedEquipages);
+        } else {
+          equipageSearchDropdown = createSearchableDropdown(equipageSearchContainer, sortedEquipages, handleSelectionChange);
         }
-        equipageSearchDropdown = createSearchableDropdown(equipageSearchContainer, sortedEquipages, handleSelectionChange);
-      }
+      };
+
+      // Starta realtids-lyssnare för statusar
+      unsubStatus = listenForDressageStatusCollection(competitionId, (statusDocs) => {
+        rebuild(statusDocs);
+      });
+
+      // Request Wake Lock
+      await requestWakeLock();
 
       setupEventListeners();
       showProgramAuditBanner(sortedEquipages);
     } catch (e) {
-      console.error('Kunde inte ladda grunddata för dressyr-input:', e);
+      // Kunde inte ladda grunddata för dressyr-input:
     }
   });
 
   // Haka på unsubscribe till modulen (för att kunna städa i __unload)
-  window.__dressageInputUnsub = unsubscribeJudges;
+  window.__dressageInputUnsub = () => {
+    unsubscribeJudges();
+    if (unsubStatus) unsubStatus();
+  };
 }
 
+let unsubStatus = null;
+
 export function __unload() {
-  console.log("Städar dressyr-input...");
+  // Städar dressyr-input...
   if (window.__dressageInputUnsub) {
     window.__dressageInputUnsub();
     window.__dressageInputUnsub = null;

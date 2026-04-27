@@ -5,7 +5,7 @@ import {
   listenForPrecisionResults,
   getMarathonTimingForEquipage
 } from '../services/firestoreService.js';
-import { getCompetitionHeader } from '../ui/components.js';
+import { getCompetitionHeader, renderResponsiveClassFilter } from '../ui/components.js';
 import { getGlobalState, setGlobalState } from '../main.js';
 import { db, appId } from '../config/firebase-config.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
@@ -19,6 +19,7 @@ import {
   sanitizeForFilename
 } from '../utils/sharedUtils.js';
 import { generateStartListPdf } from '../pdf/startListPdf.js';
+import { t } from '../utils/i18n.js';
 
 // --- NYTT: Mobil-detektering (ändrad för att lyssna på orientering) ---
 const MOBILE_BP = 600; // Vi kan behålla denna för CSS-fallback om vi vill, men isMobile använder den inte
@@ -155,6 +156,7 @@ function renderModalStructure() {
       max-height:70vh; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,.1);
       transform:scale(.97); transition:transform .18s ease;
     }
+    .dark .modal-content { background: #1f2937; color: #f3f4f6; }
     .modal-overlay.visible .modal-content { transform: scale(1); }
   `;
     document.head.appendChild(style);
@@ -200,8 +202,8 @@ function exists(v) { return v !== undefined && v !== null && v !== '' && !(Array
 function kv(label, value) {
   if (!exists(value)) return '';
   return `<div class="flex gap-2 py-1 text-sm">
-    <dt class="font-medium text-gray-800 shrink-0">${label}</dt>
-    <dd class="text-gray-700 break-words font-normal">${value}</dd>
+    <dt class="font-medium text-gray-800 dark:text-gray-300 shrink-0">${label}</dt>
+    <dd class="text-gray-700 dark:text-gray-200 break-words font-normal">${value}</dd>
   </div>`;
 }
 function yesno(v) {
@@ -295,11 +297,11 @@ function renderMobile() {
   if (!container) return;
 
   const sorted = getSortedEquipages();
-  const canViewDetails = ['admin', 'domare', 'funktionar', 'official', 'judge'].includes(getGlobalState('currentUser')?.role || '');
+  const canViewDetails = ['admin', 'superadmin', 'domare', 'funktionar', 'official', 'judge', 'sekretariat'].includes(getGlobalState('currentUser')?.role || '');
   let lastClass = null;
 
   if (sorted.length === 0) {
-    container.innerHTML = '<div class="p-6 text-center text-gray-500">Inga deltagare matchar din sökning.</div>';
+    container.innerHTML = `<div class="p-6 text-center text-gray-500">${t('no_participants_found')}</div>`;
     return;
   }
 
@@ -307,7 +309,7 @@ function renderMobile() {
   const renderCard = (e) => {
     let classHeader = '';
     // === ÄNDRING: Använd _mergedLabel ===
-    const currentClassLabel = e._mergedLabel || e.className || 'Okänd Klass';
+    const currentClassLabel = e._mergedLabel || e.className || t('okand_klass');
 
     if (viewMode === 'class' && currentClassLabel !== lastClass) {
       lastClass = currentClassLabel;
@@ -316,24 +318,24 @@ function renderMobile() {
 
     return `
             ${classHeader}
-            <div class="m-2 rounded-xl border shadow-sm bg-white overflow-hidden ${canViewDetails ? 'cursor-pointer hover:bg-blue-50' : ''}" data-equipage-id="${e.startNumber}" ${canViewDetails ? 'role="button" tabindex="0"' : ''}>
-                <div class="px-4 py-3 border-b bg-gray-50 flex items-start justify-between gap-4">
+            <div class="mx-1 mb-2 rounded-xl border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden ${canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : ''}" data-equipage-id="${e.startNumber}" ${canViewDetails ? 'role="button" tabindex="0"' : ''}>
+                <div class="px-3 py-2 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-start justify-between gap-3">
                     <div>
-                        <div class="font-semibold text-lg">${e.driverName || 'Namn saknas'}</div>
-                        <div class="text-sm text-gray-500">${horseLabel(e)}</div>
+                        <div class="font-semibold text-base dark:text-white">${e.driverName || t('namn_saknas')}</div>
+                        <div class="text-xs text-gray-500 dark:text-gray-400">${horseLabel(e)}</div>
                     </div>
                     <div class="text-center flex-shrink-0">
-                        <div class="text-xs text-gray-500">Startnr</div>
-                        <div class="text-2xl font-bold">${e.startNumber || '?'}</div>
+                        <div class="text-[10px] text-gray-500 dark:text-gray-400 uppercase tracking-wide leading-none mb-0.5">${t('startnr')}</div>
+                        <div class="text-lg font-bold text-gray-900 dark:text-gray-200 leading-none">${e.startNumber || '?'}</div>
                     </div>
                 </div>
-                <div class="p-4 grid grid-cols-1 gap-y-2 text-sm">
-                    <div class="flex justify-between"><span class="text-gray-500">Klass:</span> <span class="font-medium text-right">${currentClassLabel}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-gray-500">Klubb:</span>
-                        <span class="font-medium flex items-center gap-2 text-right">
+                <div class="px-3 py-2 grid grid-cols-1 gap-y-1 text-xs dark:text-gray-300">
+                    <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">${t('klass')}:</span> <span class="font-medium text-right text-gray-900 dark:text-gray-200">${currentClassLabel}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">${t('klubb')}:</span>
+                        <span class="font-medium flex items-center gap-1.5 text-right text-gray-900 dark:text-gray-200">
                             ${getFlagHtml(e)}
                             ${getClubLogoHtml(e)}
-                            <span class="truncate">${e.clubName || '—'}</span>
+                            <span class="truncate max-w-[150px]">${e.clubName || '—'}</span>
                         </span>
                     </div>
                 </div>
@@ -342,7 +344,7 @@ function renderMobile() {
   };
 
   const cardsHtml = sorted.map(renderCard).join('');
-  container.innerHTML = `<div class="bg-gray-50 py-1">${cardsHtml}</div>`;
+  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${cardsHtml}</div>`;
 
   // Koppla klick-lyssnare (om användaren har behörighet)
   if (canViewDetails) {
@@ -374,7 +376,7 @@ async function printParticipantPdf(eq) {
   const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
   const flagDataUrl = await fetchFlagDataUrl(cc);
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
-  const clubLogo = await fetchImageDataUrl(clubLogoUrl);
+  const clubLogo = await _fetchImage(clubLogoUrl);
 
   const driver = eq.driverName || '';
   const cls = eq.className || '';
@@ -500,17 +502,17 @@ function renderDressageStatus(startNo) {
   // 1. Har resultat?
   if (status && (status.score || status.percent)) {
     // "Klar (65.50%)" eller "Klar (45.5 straff)"
-    if (status.percent) return `<span class="text-green-700 font-bold">Klar (${parseFloat(status.percent).toFixed(2)}%)</span>`;
-    if (status.score) return `<span class="text-green-700 font-bold">Klar (${parseFloat(status.score).toFixed(2)} p)</span>`;
+    if (status.percent) return `<span class="text-green-700 dark:text-green-400 font-bold">Klar (${parseFloat(status.percent).toFixed(2)}%)</span>`;
+    if (status.score) return `<span class="text-green-700 dark:text-green-400 font-bold">Klar (${parseFloat(status.score).toFixed(2)} p)</span>`;
   }
 
   // 2. Pågår?
-  if (status?.state === 'active') return `<span class="text-blue-600 animate-pulse font-semibold">På banan</span>`;
+  if (status?.state === 'active') return `<span class="text-blue-600 dark:text-blue-400 animate-pulse font-semibold">På banan</span>`;
 
   // 3. Starttid?
-  if (st) return `<span class="text-gray-900">Start: ${formatStatusTime(st)}</span>`;
+  if (st) return `<span class="text-gray-900 dark:text-gray-300">Start: ${formatStatusTime(st)}</span>`;
 
-  return '<span class="text-gray-400 italic">Ej startat</span>';
+  return '<span class="text-gray-400 dark:text-gray-500 italic">Ej startat</span>';
 }
 
 function renderPrecisionStatus(startNo) {
@@ -521,16 +523,16 @@ function renderPrecisionStatus(startNo) {
   // 1. Resultat?
   if (res && res.finalized) {
     const pen = res.totalPenalty ?? ((res.knocks || 0) * 3 + (res.timePenalty || 0));
-    return `<span class="text-green-700 font-bold">Klar (${pen} straff)</span>`;
+    return `<span class="text-green-700 dark:text-green-400 font-bold">Klar (${pen} straff)</span>`;
   }
 
   // 2. Pågår?
-  if (res?.running) return `<span class="text-blue-600 animate-pulse font-semibold">På banan</span>`;
+  if (res?.running) return `<span class="text-blue-600 dark:text-blue-400 animate-pulse font-semibold">På banan</span>`;
 
   // 3. Starttid?
-  if (st) return `<span class="text-gray-900">Start: ${formatStatusTime(st)}</span>`;
+  if (st) return `<span class="text-gray-900 dark:text-gray-300">Start: ${formatStatusTime(st)}</span>`;
 
-  return '<span class="text-gray-400 italic">Ej startat</span>';
+  return '<span class="text-gray-400 dark:text-gray-500 italic">Ej startat</span>';
 }
 
 async function updateMarathonStatus(compId, startNo) {
@@ -542,16 +544,16 @@ async function updateMarathonStatus(compId, startNo) {
     const timing = await getMarathonTimingForEquipage(compId, startNo);
     const st = startTimesMap[String(startNo)]?.marathon;
 
-    let html = '<span class="text-gray-400 italic">Ej startat</span>';
+    let html = '<span class="text-gray-400 dark:text-gray-500 italic">Ej startat</span>';
 
     if (timing?.finish_B) {
       // Målgång i hinderfasen -> antagligen klar
-      html = `<span class="text-green-700 font-bold">Målgång (tid togs)</span> <br><a href="#maraton-resultat" class="text-xs text-blue-500 underline">Se resultat</a>`;
+      html = `<span class="text-green-700 dark:text-green-400 font-bold">Målgång (tid togs)</span> <br><a href="#maraton-resultat" class="text-xs text-blue-500 dark:text-blue-400 underline">Se resultat</a>`;
     } else if (timing?.start_A) {
       // Startat A-fasen
-      html = `<span class="text-blue-600 animate-pulse font-semibold">På banan</span>`;
+      html = `<span class="text-blue-600 dark:text-blue-400 animate-pulse font-semibold">På banan</span>`;
     } else if (st) {
-      html = `<span class="text-gray-900">Start: ${formatStatusTime(st)}</span>`;
+      html = `<span class="text-gray-900 dark:text-gray-300">Start: ${formatStatusTime(st)}</span>`;
     }
 
     el.innerHTML = html;
@@ -575,6 +577,13 @@ function renderAndShowDetailsModal(equipage) {
   const className = valOrDash(equipage._mergedLabel || equipage.className); // <-- ANVÄND _mergedLabel HÄR
   const startNo = valOrDash(equipage.startNumber);
   // === SLUT ÄNDRING ===
+
+
+  // Visa overlay först
+  modal.classList.remove('hidden');
+  modal.offsetHeight; // force reflow
+  modal.classList.add('visible');
+
 
   const twPrec = exists(equipage.trackWidth) ? `${equipage.trackWidth} cm` : 'Ej angivet';
   const twMar = exists(equipage.marathonTrackWidth) ? `${equipage.marathonTrackWidth} cm` : 'Ej angivet';
@@ -601,17 +610,17 @@ function renderAndShowDetailsModal(equipage) {
   const headerHtml = `
   <div class="flex justify-between items-start gap-3">
     <div>
-      <h3 class="text-xl font-bold">#${startNo} ${driverName}</h3>
-      <div class="text-sm text-gray-500 italic">${horseLabel(equipage)}</div>
-      <div class="text-gray-600 flex items-center gap-2 mt-1">
+      <h3 class="text-xl font-bold dark:text-white">#${startNo} ${driverName}</h3>
+      <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel(equipage)}</div>
+      <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
         ${getFlagHtml(equipage)}
         ${getClubLogoHtml(equipage)}
         <span>${className} • ${clubName}</span>
       </div>
     </div>
     <div class="flex items-center gap-2">
-      <button id="printPdfBtn" class="needs-online px-3 py-1 rounded bg-gray-900 text-white text-sm">Skriv ut PDF</button>
-      <button id="modal-close-btn" class="px-2 py-1 text-2xl leading-none" aria-label="Stäng">&times;</button>
+      <button id="printPdfBtn" class="needs-online px-3 py-1 rounded bg-gray-900 dark:bg-gray-700 text-white text-sm">Skriv ut PDF</button>
+      <button id="modal-close-btn" class="px-2 py-1 text-2xl leading-none dark:text-gray-300" aria-label="Stäng">&times;</button>
     </div>
   </div>
 `;
@@ -619,18 +628,28 @@ function renderAndShowDetailsModal(equipage) {
   // ... (resten av horsesHtml och momentHorsesHtml är ok) ...
   const horsesHtml = (horses.length
     ? horses.map((h, idx) => `
-        <dd class="mt-3 pl-4 border-l-2 ml-1">
-          <div class="font-bold text-gray-900 mb-1 text-sm">Häst ${idx + 1}: ${h.name || h.horseName || '—'}</div>
+          <div class="p-3 rounded border bg-white dark:bg-gray-800 dark:border-gray-700">
+            <div class="font-bold text-gray-900 dark:text-white mb-1 text-sm">${t('hast_ponny')} ${idx + 1}: ${h.name || h.horseName || '—'}</div>
           <div class="space-y-1 text-sm">
+             <div class="grid grid-cols-2 gap-x-4 mb-2">
+                ${kv(t('ras'), h.breed || '')}
+                ${kv(t('farg'), h.color || '')}
+                ${kv(t('kon'), h.gender || h.sex || '')}
+                ${kv(t('alder'), h.age ? `${h.age} ${t('ar')}` : (h.bornYear ? `${new Date().getFullYear() - h.bornYear} ${t('ar')}` : ''))}
+             </div>
+            ${kv(t('harstamning'), h.lineage || '')}
             ${kv('Reg.nummer', h.regNo || '')}
             ${kv('Häst-ID (tävling)', h.horseId || '')}
             ${kv('Licensnr', h.license || '')}
             ${kv('Chipnr', h.chip || h.chipNo || '')}
             ${kv('UELN/Passnr', h.ueln || '')}
-            ${kv('Ägare', h.owner || h.horseOwner || '')}
+            ${kv(t('stambok'), h.studbook || '')}
+            ${kv(t('agare'), h.owner || h.horseOwner || '')}
+            ${kv(t('uppfodare'), h.breeder || '')}
+            ${h.vaccinationDate ? kv(t('vaccination'), h.vaccinationDate) : ''}
           </div>
         </dd>`).join('')
-    : '<dd class="text-gray-500 text-sm">Inga hästar registrerade.</dd>'
+    : `<dd class="text-gray-500 text-sm">${t('inga_hastar')}</dd>`
   );
   const cls = (equipage.className || '').toLowerCase();
   let horseLimit = 1;
@@ -646,31 +665,31 @@ function renderAndShowDetailsModal(equipage) {
 
     const getHorseNames = (key) => {
       const ids = selections[key] || [];
-      if (ids.length === 0) return '<span class="italic text-gray-500">Ej valt</span>';
+      if (ids.length === 0) return `<span class="italic text-gray-500">${t('ej_valt')}</span>`;
       return ids.map(id => horseMap.get(id) || id).join(', ');
     };
 
     momentHorsesHtml = `
             <div class="mt-3 pl-4 border-l-2 ml-1 border-blue-300 bg-blue-50 p-2 rounded-r-md">
-                <div class="font-bold text-blue-800 mb-2 text-sm">Valda för moment:</div>
+                <div class="font-bold text-blue-800 mb-2 text-sm">${t('valda_for_moment')}</div>
                 <div class="space-y-1 text-sm">
-                    ${kv('Dressyr', getHorseNames('dressage'))}
-                    ${kv('Maraton', getHorseNames('marathon'))}
-                    ${kv('Precision', getHorseNames('precision'))}
+                    ${kv(t('dressyr'), getHorseNames('dressage'))}
+                    ${kv(t('maraton'), getHorseNames('marathon'))}
+                    ${kv(t('precision'), getHorseNames('precision'))}
                 </div>
             </div>
         `;
   }
   const groomsHtml = (Array.isArray(grooms) && grooms.length)
-    ? `<dd class="mt-3 pl-4 border-l-2 ml-1"><ul class="list-disc pl-5 text-gray-700 text-sm">${grooms.map((g) => `<li>${(g?.name) || g}</li>`).join('')}</ul></dd>` : '';
+    ? `<dd class="mt-3 pl-6 border-l-2 ml-1"><ul class="list-disc pl-5 text-gray-700 text-sm">${grooms.map((g) => `<li>${(g?.name) || g}</li>`).join('')}</ul></dd>` : '';
 
   contentWrap.innerHTML = `
-    <div class="p-4 md:p-6">
+    <div class="p-6 md:p-10">
       ${headerHtml}
       <div class="mt-4 border-t pt-4 space-y-6 text-sm">
       
         <!-- TÄVLINGSSTATUS -->
-        <section class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+        <section class="bg-slate-50 dark:bg-gray-800 p-3 rounded-lg border border-slate-200 dark:border-gray-700">
           <h4 class="font-bold text-base mb-2 flex items-center gap-2">
             🏆 Tävlingsstatus
             <span class="text-xs font-normal text-gray-500">(Live)</span>
@@ -679,19 +698,19 @@ function renderAndShowDetailsModal(equipage) {
             
             <!-- DRESSYR -->
             <div class="space-y-1">
-              <div class="font-semibold text-gray-700">Dressyr</div>
+              <div class="font-semibold text-gray-700 dark:text-gray-300">Dressyr</div>
               ${renderDressageStatus(startNo)}
             </div>
 
             <!-- MARATON -->
             <div class="space-y-1">
-              <div class="font-semibold text-gray-700">Maraton</div>
-              <div id="marathon-status-placeholder" class="text-gray-600">Laddar...</div>
+              <div class="font-semibold text-gray-700 dark:text-gray-300">Maraton</div>
+              <div id="marathon-status-placeholder" class="text-gray-600 dark:text-gray-400">Laddar...</div>
             </div>
 
             <!-- PRECISION -->
             <div class="space-y-1">
-              <div class="font-semibold text-gray-700">Precision</div>
+              <div class="font-semibold text-gray-700 dark:text-gray-300">Precision</div>
               ${renderPrecisionStatus(startNo)}
             </div>
 
@@ -699,7 +718,7 @@ function renderAndShowDetailsModal(equipage) {
         </section>
 
         <section>
-          <h4 class="font-bold text-base mb-2">Ekipage</h4>
+          <h4 class="font-bold text-base mb-2 dark:text-white">Ekipage</h4>
           <div class="space-y-1">
             ${kv('Kusk', driverName)}
             ${kv('Klubb', clubName)}
@@ -711,35 +730,39 @@ function renderAndShowDetailsModal(equipage) {
     Number.isFinite(portW) ? `${equipage.trackWidth} + ${portAllowance} = ${portW} cm` : '—')}
             </div>
         </section>
-        <section class="border-t pt-4">
-          <h4 class="font-bold text-base mb-2">Kontakt & behörigheter</h4>
+        <section class="border-t dark:border-gray-700 pt-4">
+          <h4 class="font-bold text-base mb-2 dark:text-white">Kontakt & behörigheter</h4>
           <div class="space-y-1">
             ${kv('Telefon', phone)}
             ${kv('E-post', email)}
             ${kv('Adress', fullAddress)}
+            ${kv('Land', equipage.country || '')}
             ${kv('Personnummer', personnr)}
-            ${kv('Licensnr', license)}
+            ${kv('Födelseår', equipage.bornYear || '')}
+            ${kv('Kön', equipage.gender || '')}
+            ${kv('Licensnr', license + (equipage.licenseYear ? ` (${equipage.licenseYear})` : ''))}
             ${kv('Klubb-ID', clubId)}
+            ${kv('Företag', equipage.company || '')}
           </div>
         </section>
-        <section class="border-t pt-4">
-          <h4 class="font-bold text-base mb-2">Betalning & avgifter</h4>
+        <section class="border-t dark:border-gray-700 pt-4">
+          <h4 class="font-bold text-base mb-2 dark:text-white">Betalning & avgifter</h4>
           <div class="space-y-1">
             ${kv('Status', payTxt)}
             ${kv('Summa', fmtMoney(payAmount))}
             ${kv('Övriga avgifter', fmtList(otherFees))}
           </div>
         </section>
-        <section class="border-t pt-4">
-          <h4 class="font-bold text-base mb-2">Hästar</h4>
+        <section class="border-t dark:border-gray-700 pt-4">
+          <h4 class="font-bold text-base mb-2 dark:text-white">Hästar</h4>
           <dl>
             ${horsesHtml}
             ${momentHorsesHtml}
           </dl>
         </section>
         ${groomsHtml ? `
-        <section class="border-t pt-4">
-          <h4 class="font-bold text-base mb-2">Groom(s)</h4>
+        <section class="border-t dark:border-gray-700 pt-4">
+          <h4 class="font-bold text-base mb-2 dark:text-white">Groom(s)</h4>
           <dl>
             ${groomsHtml}
           </dl>
@@ -772,23 +795,23 @@ function renderDesktop() {
 
   const sortedEquipages = getSortedEquipages();
   const headers = [
-    { key: 'className', label: 'Klass' }, { key: 'startNumber', label: 'Startnr' },
-    { key: 'driverName', label: 'Kusk' }, { key: 'clubName', label: 'Klubb' },
-    { key: 'horseName', label: 'Häst/Ponny' }
+    { key: 'className', label: t('klass') }, { key: 'startNumber', label: '#' },
+    { key: 'driverName', label: t('kusk') }, { key: 'clubName', label: t('klubb') },
+    { key: 'horseName', label: t('hast_ponny') }
   ];
   // === ÄNDRING: Lade till canViewDetails-kontroll ===
-  const canViewDetails = ['admin', 'domare', 'funktionar', 'official', 'judge'].includes(getGlobalState('currentUser')?.role || '');
+  const canViewDetails = ['admin', 'superadmin', 'domare', 'funktionar', 'official', 'judge', 'sekretariat'].includes(getGlobalState('currentUser')?.role || '');
 
   let tableHtml = `
       <div id="participant-x-host" class="x-scroll-wrap">
-        <table class="min-w-full divide-y divide-gray-200 participants-table"> <thead class="bg-gray-50 sticky top-0">
+        <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 participants-table"> <thead class="bg-gray-50 dark:bg-gray-700 sticky top-0">
                 <tr>${headers.map(h => {
     const isSorted = sortConfig.key === h.key;
     const sortArrow = isSorted ? (sortConfig.direction === 'asc' ? ' ▲' : ' ▼') : '';
-    return `<th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider sortable-header" data-sort-key="${h.key}">${h.label}${sortArrow}</th>`;
+    return `<th class="px-2 py-2 lg:px-4 lg:py-3 text-left text-[11px] lg:text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider sortable-header whitespace-nowrap" data-sort-key="${h.key}">${h.label}${sortArrow}</th>`;
   }).join('')}</tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
     `;
 
   if (sortedEquipages.length === 0) {
@@ -797,18 +820,18 @@ function renderDesktop() {
     sortedEquipages.forEach(e => {
       // === ÄNDRING: Lade till cursor-pointer om canViewDetails ===
       tableHtml += `
-                <tr class="${canViewDetails ? 'cursor-pointer hover:bg-blue-50' : ''}" data-equipage-id="${e.startNumber}">
-                    <td class="px-4 py-4 text-sm text-gray-700 align-top">${e._mergedLabel || e.className || ''}</td>
-                    <td class="px-4 py-4 whitespace-nowrap font-bold align-top">${e.startNumber || ''}</td>
-                    <td class="px-4 py-4 font-medium text-gray-900 align-top">${e.driverName || ''}</td>
-                    <td class="px-4 py-4 text-sm text-gray-700 align-top">
-                        <span class="inline-flex items-center gap-1 flex-wrap"> 
+                <tr class="${canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : ''} border-b dark:border-gray-700 last:border-0" data-equipage-id="${e.startNumber}">
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="xl:max-w-none max-w-[80px] md:max-w-[140px] truncate" title="${e._mergedLabel || e.className || ''}">${e._mergedLabel || e.className || ''}</div></td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 whitespace-nowrap font-bold text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle text-center">${e.startNumber || ''}</td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 font-medium text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle whitespace-nowrap">${e.driverName || ''}</td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle whitespace-nowrap">
+                        <span class="inline-flex items-center gap-1.5 whitespace-nowrap"> 
                             ${getFlagHtml(e)}
                             ${getClubLogoHtml(e)}
-                            <span class="inline-block">${e.clubName || ''}</span>
+                            <span class="inline-block truncate max-w-[100px] md:max-w-[160px] xl:max-w-none" title="${e.clubName || ''}">${e.clubName || ''}</span>
                         </span>
                     </td>
-                    <td class="px-4 py-4 text-sm text-gray-700 align-top">${horseLabel(e)}</td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="whitespace-nowrap" title="${horseLabel(e)}">${horseLabel(e)}</div></td>
                 </tr>
             `;
     });
@@ -833,25 +856,18 @@ function renderDeltagareClassChips() {
   const chipHost = document.getElementById('deltagareClassChips');
   if (!chipHost) return;
 
-  // Använd allEquipages som redan har _mergedLabel
   const labels = [...new Set(allEquipages.map(e => e._mergedLabel || e.className || '—'))]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'sv'));
 
-  const base = "px-2 py-1 rounded border text-sm cursor-pointer";
-  const on = "bg-gray-800 text-white border-gray-800";
-  const off = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50";
-
-  // Vi behöver 'escapeHtml' från precision-resultat.js
-  const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-  chipHost.innerHTML = labels.map(lbl => {
-    // Använd den nya state-variabeln
-    const active = deltagare_activeClassFilters.has(lbl); //
-    return `<button type="button" data-class="${escapeHtml(lbl)}" class="${base} ${active ? on : off}">${escapeHtml(lbl)}</button>`;
-  }).join('');
-
-  // Lyssnaren är redan kopplad i load()
+  renderResponsiveClassFilter(chipHost, labels, deltagare_activeClassFilters, (lbl) => {
+    if (deltagare_activeClassFilters.has(lbl)) {
+      deltagare_activeClassFilters.delete(lbl);
+    } else {
+      deltagare_activeClassFilters.add(lbl);
+    }
+    render();
+  });
 }
 
 // ===== NYTT: render() router =====
@@ -884,32 +900,32 @@ export async function load() {
   // === KORRIGERING: HTML-strukturen är nu korrekt ===
   page.innerHTML = `
     <div class="container mx-auto p-4 md:p-8">
-        ${getCompetitionHeader(competition, 'Deltagarlista')}
-        <div class="bg-white p-4 md:p-6 rounded-xl shadow-md">
-            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
-                <div class="flex flex-col sm:flex-row gap-3 items-center">
-                    <input id="participantSearch" type="text" placeholder="Sök: startnr, kusk, häst..." class="w-64 max-w-full rounded-md border px-3 py-1.5 text-sm" autocomplete="off">
-                    
-                    <div class="inline-flex rounded-md shadow-sm" role="group">
-                        <button id="viewByClassBtn" type="button" class="px-4 py-2 text-sm font-medium border border-gray-300 rounded-l-lg hover:bg-gray-100 focus:z-10 focus:ring-2 focus:ring-blue-500 focus:text-blue-700 bg-gray-900 text-white">Per klass</button>
-                        <button id="viewByStartBtn" type="button" class="px-4 py-2 text-sm font-medium border-t border-b border-r border-gray-300 rounded-r-lg hover:bg-gray-100 focus:z-10 focus:ring-2 focus:ring-blue-500 focus:text-blue-700 bg-white text-gray-900">Per startnr</button>
-                    </div>
+        ${getCompetitionHeader(competition, t('deltagarlista'))}
+        <div class="bg-white dark:bg-gray-800 p-2 lg:p-4 rounded-xl shadow-md border dark:border-gray-700">
+            <div class="flex flex-wrap items-center gap-2 mb-3 bg-white dark:bg-gray-800">
+                <div class="search-input-wrap flex-1 min-w-[200px] relative">
+                    <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
+                    <input id="participantSearch" type="search" placeholder="${t('search_participant_placeholder')}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" autocomplete="off">
                 </div>
+                    
+                <select id="viewModeSelect" class="border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+                    <option value="class">${t('view_by_class')}</option>
+                    <option value="start">${t('view_by_startno')}</option>
+                </select>
 
-                <div class="flex items-center gap-2">
-                    <button id="btnExportDeltagareCsv" type="button" class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">
-                      <i class="fas fa-file-csv mr-2 -ml-1 text-gray-500"></i> CSV
+                <div class="flex items-center gap-1.5 ml-auto">
+                    <button id="btnExportDeltagareCsv" type="button" title="Exportera CSV" class="inline-flex items-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                      <i class="fas fa-file-csv mr-1 text-gray-500 dark:text-gray-400"></i> CSV
                     </button>
-                    <button id="btnExportDeltagarePdf" type="button" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500">
-                      <i class="fas fa-file-pdf mr-2 -ml-1"></i> Deltagarlista PDF
+                    <button id="btnExportDeltagarePdf" type="button" class="inline-flex items-center px-2 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-gray-600 hover:bg-gray-700 transition-colors">
+                      <svg class="mr-1 h-3.5 w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> PDF
                     </button>
                 </div>
             </div>
             
-            <div id="deltagareClassChips" class="my-2 flex flex-wrap gap-2">
-            </div>
+            <div id="deltagareClassChips" class="mb-2 flex flex-wrap gap-1"></div>
 
-            <div id="participantListContainer"><p class="text-center text-gray-500">Laddar deltagare...</p></div>
+            <div id="participantListContainer"><p class="text-center text-gray-500 dark:text-gray-400">${t('loading_participants')}</p></div>
         </div>
     </div>
   `;
@@ -965,7 +981,7 @@ export async function load() {
     const pageContent = document.getElementById('page-deltagare');
     if (pageContent) {
       pageContent.addEventListener('click', (e) => {
-        const canViewDetails = ['admin', 'domare', 'funktionar', 'official', 'judge'].includes(getGlobalState('currentUser')?.role || '');
+        const canViewDetails = ['admin', 'superadmin', 'domare', 'funktionar', 'official', 'judge', 'sekretariat'].includes(getGlobalState('currentUser')?.role || '');
         const row = e.target.closest('[data-equipage-id]');
         const header = e.target.closest('.sortable-header');
 
@@ -986,15 +1002,16 @@ export async function load() {
       render();
     });
 
-    const btnClass = document.getElementById('viewByClassBtn');
-    const btnStart = document.getElementById('viewByStartBtn');
-    const updateViewButtons = () => {
-      btnClass?.classList.toggle('bg-gray-900', viewMode === 'class'); btnClass?.classList.toggle('text-white', viewMode === 'class'); btnClass?.classList.toggle('bg-white', viewMode !== 'class');
-      btnStart?.classList.toggle('bg-gray-900', viewMode === 'start'); btnStart?.classList.toggle('text-white', viewMode === 'start'); btnStart?.classList.toggle('bg-white', viewMode !== 'start');
-    };
-    btnClass?.addEventListener('click', () => { viewMode = 'class'; sortConfig = { key: 'className', direction: 'asc' }; updateViewButtons(); render(); });
-    btnStart?.addEventListener('click', () => { viewMode = 'start'; sortConfig = { key: 'startNumber', direction: 'asc' }; updateViewButtons(); render(); });
-    updateViewButtons();
+    const modeSel = document.getElementById('viewModeSelect');
+    if (modeSel) {
+      modeSel.value = viewMode;
+      modeSel.addEventListener('change', (e) => {
+        viewMode = e.target.value;
+        if (viewMode === 'class') sortConfig = { key: 'className', direction: 'asc' };
+        else sortConfig = { key: 'startNumber', direction: 'asc' };
+        render();
+      });
+    }
 
     const chipHost = document.getElementById('deltagareClassChips');
     if (chipHost) {
@@ -1093,20 +1110,19 @@ export async function load() {
 }
 
 export function __unload() {
-  console.log("[Deltagare Unload] Startar städning...");
 
   // 1) Ta bort resize-lyssnare
   if (window.__participantsResizeHandler) {
     try { window.removeEventListener('resize', window.__participantsResizeHandler); } catch { }
     window.__participantsResizeHandler = null;
-    console.log("[Deltagare Unload] Resize listener borttagen.");
+
   }
 
   // 2) Ta bort ESC-keydown för modalen
   if (window.__participantsKeydownHandler) {
     try { document.removeEventListener('keydown', window.__participantsKeydownHandler); } catch { }
     window.__participantsKeydownHandler = null;
-    console.log("[Deltagare Unload] Keydown listener borttagen.");
+
   }
 
   // 3) Teardown fast x-scrollbar + body-klass
@@ -1141,5 +1157,5 @@ export function __unload() {
   window.__teardownXbarSync = undefined;
   window.__setupXbarSync = undefined;
 
-  console.log("[Deltagare Unload] Klar.");
+
 }

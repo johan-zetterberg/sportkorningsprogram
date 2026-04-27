@@ -3,6 +3,7 @@ import { getGlobalState } from '../main.js';
 import { getMarathonObstacleResults } from '../services/firestoreService.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
+import { t } from '../utils/i18n.js';
 
 // Importera helpers
 import {
@@ -17,7 +18,8 @@ import {
   toTimeLabel,
   getObstacleArray,
   obstacleValues,
-  getObstacleCoefficient // Ny import för dynamisk straffberäkning
+  getObstacleCoefficient,
+  calculateMarathonResult
 } from '../utils/marathonUtils.js';
 
 // Importera PDF-funktionen från din nya plats
@@ -51,7 +53,8 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
     const exitAt = times.exitAtClient || times.exitAt || o.exitAtClient || o.exitAt || null;
 
     // Hämta gateSplits (kan ligga på objektet eller i times, beroende på hur det sparades)
-    const splits = o.gateSplits || times.gateSplits || [];
+    // Prioritera times.gateSplits (live/nytt) om det finns
+    const splits = times.gateSplits || o.gateSplits || [];
 
     // Recalculate Time Penalty if time is available
     let calculatedTimePenalty = penalty || 0;
@@ -99,7 +102,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
             const diff = ts - startTs;
             return { char: s.char, diff };
           })
-          .filter(x => x && /^[A-Z]$/.test(x.char)); // Endast versaler (rätt håll)
+          .filter(x => x && /^[A-Z]$/.test(x.char) && x.diff >= 0); // Endast versaler och positva diffar
 
         // Deduplicera: Behåll bara första passagen per bokstav
         const uniqueSplits = [];
@@ -118,9 +121,9 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
         if (uniqueSplits.length > 0) {
           const items = uniqueSplits.map(s => `<span>${s.char}: <span class="font-mono">${(s.diff / 1000).toFixed(1)}s</span></span>`).join('');
           splitRows = `
-                  <div class="mt-2 text-xs border-t pt-1 border-gray-200">
-                    <span class="text-gray-500 mr-2">Mellantider:</span>
-                    <div class="inline-flex flex-wrap gap-x-3 gap-y-1 text-gray-700">
+                  <div class="mt-2 text-xs border-t pt-1 border-gray-200 dark:border-gray-700">
+                    <span class="text-gray-500 dark:text-gray-400 mr-2">${t('splits_label')}:</span>
+                    <div class="inline-flex flex-wrap gap-x-3 gap-y-1 text-gray-700 dark:text-gray-300">
                       ${items}
                     </div>
                   </div>
@@ -130,17 +133,18 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
     }
 
     return `
-          <div class="p-3 rounded-lg border bg-gray-50">
-            <h5 class="font-semibold">Hinder ${obs.number} ${obs.eliminated ? '<span class="text-red-600 ml-2">ELIM</span>' : ''}</h5>
+          <div class="p-3 rounded-lg border bg-gray-50 dark:bg-gray-700/50 dark:border-gray-600">
+            <h5 class="font-semibold text-gray-900 dark:text-gray-100">${t('obstacle')} ${obs.number} ${obs.eliminated ? '<span class="text-red-600 dark:text-red-400 ml-2">ELIM</span>' : ''}</h5>
             <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              <div><span class="text-gray-500">Tid:</span> ${formatMsLive(obs.timeMs)}</div>
-              <div><span class="text-gray-500">Straff:</span> ${obs.timePenalty.toFixed(2)}</div>
-              <div><span class="text-gray-500">Rivn:</span> ${obs.knockdowns} (${obs.knockdownPenalty.toFixed(2)})</div>
+              <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('time')}:</span> ${formatMsLive(obs.timeMs)}</div>
+              <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('penalty')}:</span> ${obs.timePenalty.toFixed(2)}</div>
+              <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('knockdowns')}:</span> ${obs.knockdowns} (${obs.knockdownPenalty.toFixed(2)})</div>
+              ${obs.otherPenalty > 0 ? `<div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400 font-bold text-amber-600 dark:text-amber-500">Övrigt straff:</span> <span class="font-bold text-amber-600 dark:text-amber-500">${obs.otherPenalty.toFixed(2)}</span></div>` : '<div></div>'}
             </div>
-            <div class="mt-2 text-xs text-gray-500">
-                In: ${toTimeLabel(obs.enteredAtServer)} | Ut: ${toTimeLabel(obs.exitAtServer)}
+            <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                ${t('in_label')}: ${toTimeLabel(obs.enteredAtServer)} | ${t('out_label')}: ${toTimeLabel(obs.exitAtServer)}
             </div>
-             ${obs.routeString ? `<div class="mt-1 text-xs"><span class="text-gray-500">Väg:</span> ${obs.routeString}</div>` : ''}
+             ${obs.routeString ? `<div class="mt-1 text-xs text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('route_label')}:</span> ${obs.routeString}</div>` : ''}
              ${splitRows}
           </div>
         `;
@@ -162,6 +166,13 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
     const sp = Number.isFinite(dur) ? stagePenaltyFromMs(dur, eq, stage) : { points: null, elim: false };
 
     const limits = limitsFor(eq, stage);
+    let stageLabel = stage === 'transport' ? t('transport') : t('stage') + ' ' + stage;
+
+    // Detect Warm-up (Fixed Time A)
+    if (stage === 'A' && limits && limits.ideal > 0 && limits.max === limits.ideal && limits.min === 0) {
+      stageLabel = 'Warm-up';
+    }
+
     let etaLabel = '—';
     const isRunning = start && !stop;
 
@@ -177,62 +188,40 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
     if (limits) {
       const minStr = formatSec(limits.min);
       const maxStr = formatSec(limits.max);
-      limitsInfo = `(Tillåtet: ${minStr} – ${maxStr})`;
+      limitsInfo = `(${t('allowed_span')}: ${minStr} – ${maxStr})`;
     }
 
     if (!start && !stop && !Number.isFinite(dur)) return '';
 
     return `
-          <div class="border-b py-2">
-            <p class="font-semibold">${stage === 'transport' ? 'Transport' : 'Etapp ' + stage}</p>
-            <div class="text-sm grid grid-cols-4 gap-2">
-               <div>Start: ${toTimeLabel(start)}</div>
-               <div>Mål: ${toTimeLabel(stop)}</div>
-               <div>Tid: ${Number.isFinite(dur) ? formatMsLive(dur) : '—'}</div>
-               <div>Straff: <b>${sp.elim ? 'ELIM' : (sp.points ?? '—')}</b></div>
+          <div class="border-b dark:border-gray-700 py-2">
+            <p class="font-semibold text-gray-900 dark:text-white">${stageLabel}</p>
+            <div class="text-sm grid grid-cols-4 gap-2 text-gray-700 dark:text-gray-300">
+               <div>${t('start_label')}: ${toTimeLabel(start)}</div>
+               <div>${t('goal_label')}: ${toTimeLabel(stop)}</div>
+               <div>${t('time')}: ${Number.isFinite(dur) ? formatMsLive(dur) : '—'}</div>
+               <div>${t('penalty')}: <b>${sp.elim ? 'ELIM' : (sp.points ?? '—')}</b></div>
             </div>
-            <div class="text-xs text-gray-500 mt-1 flex gap-4">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 flex gap-4">
                 ${limitsInfo ? `<span>${limitsInfo}</span>` : ''}
-                ${isRunning ? `<span>ETA: ${etaLabel}</span>` : ''}
+                ${isRunning ? `<span>${t('eta_label')}: ${etaLabel}</span>` : ''}
             </div>
           </div>
         `;
   };
 
-  // --- Totalberäkning (flyttas internt för modalen) ---
-  let totalStagePenalty = 0;
-  let totalObstaclePenalty = 0;
-  let isEliminated = false;
+  // --- Data Beräkning (TR-kompatibel) ---
+  const res = calculateMarathonResult(eq, marathonData, marathonData);
+  const totalStagePenalty = (res.stages.A.timePenalty || 0) + (res.stages.B.timePenalty || 0);
+  const totalObstaclePenalty = res.obstacles.sum;
+  const isEliminated = res.eliminated;
+  const globalOtherPenalty = res.otherPenalty;
 
-  // 1. Summera Hinder
-  obstaclesForView.forEach(o => {
-    if (o.eliminated) isEliminated = true;
-    totalObstaclePenalty += (o.timePenalty || 0) + (o.knockdownPenalty || 0) + (o.otherPenalty || 0);
-  });
+  // Calculate aggregated display penalty for "Other" (matches Övr column in table)
+  const displayOtherPenalty = (globalOtherPenalty || 0) + (res.wgPenalty || 0) + (res.obstacles?.items || []).reduce((acc, o) => acc + (Number(o.otherPenalty) || 0), 0);
 
-  // 2. Summera Etapper
-  ['A', 'B'].forEach(stageKey => {
-    const dur = stageDurationMsSaved(marathonData, stageKey);
-    // För modalens totalberäkning använder vi samma logik som för visning
-    let effectiveDur = dur;
-    if (!Number.isFinite(dur)) {
-      const s = stageStartTS(marathonData, stageKey);
-      const e = stageStopTS(marathonData, stageKey);
-      if (s && e) effectiveDur = (e - s) - pausedMsSince(s);
-    }
-
-    if (Number.isFinite(effectiveDur)) {
-      const res = stagePenaltyFromMs(effectiveDur, eq, stageKey);
-      if (res.elim) isEliminated = true;
-      else if (Number.isFinite(res.points)) totalStagePenalty += res.points;
-    }
-  });
-
-  // Lägg till eventuella "otherPenalty" som ligger på maraton-dokumentet root
-  const globalOtherPenalty = Number(marathonData.otherPenalty || 0);
-
-  const grandTotal = totalStagePenalty + totalObstaclePenalty + globalOtherPenalty;
-  const totalLabel = isEliminated ? 'ELIM' : grandTotal.toFixed(2);
+  const grandTotal = res.totalPenalty;
+  const totalLabel = isEliminated ? 'ELIM' : (Number.isFinite(grandTotal) ? grandTotal.toFixed(2) : '0.00');
 
   // Observer data
   const obsLog = marathonData.observerLog || {};
@@ -246,15 +235,22 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
   // OBS: Vi har tagit bort den interna headern härifrån för att undvika dubbla headers i modalen.
   containerElement.innerHTML = `
         <div class="p-4 md:p-6">
+          ${isEliminated || (eq && ['utgått', 'utesluten', 'retired', 'eliminated', 'elim', 'ute', 'utg'].some(s => String(eq.status || '').toLowerCase().includes(s))) ? `
+            <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+              <strong class="font-bold">Eliminerad i maraton. </strong>
+              <span class="block sm:inline">Ekipaget har status eliminerad (ELIM) i denna gren.</span>
+            </div>
+          ` : ''}
+
           <div class="mb-4">
-            <h4 class="font-bold border-b mb-2">Etapper</h4>
+            <h4 class="font-bold border-b dark:border-gray-700 mb-2 text-gray-900 dark:text-white">${t('stage')} (s)</h4>
             ${['A', 'transport', 'B'].map(renderStage).join('')}
           </div>
 
           <div>
-            <h4 class="font-bold border-b mb-2">Hinder</h4>
+            <h4 class="font-bold border-b dark:border-gray-700 mb-2 text-gray-900 dark:text-white">${t('obstacle')}</h4>
             <div class="space-y-2">
-                ${obstaclesForView.length ? obstaclesForView.map(renderObstacle).join('') : '<p class="text-sm italic">Inga hinderresultat.</p>'}
+                ${obstaclesForView.length ? obstaclesForView.map(renderObstacle).join('') : `<p class="text-sm italic">${t('no_data')}</p>`}
             </div>
           </div>
           
@@ -269,32 +265,32 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
             </div>
           ` : ''}
           
-          <div class="mt-6 bg-slate-50 p-4 rounded-lg border border-slate-200">
-             <h4 class="font-bold mb-2 text-slate-800">Summering</h4>
-             <div class="grid grid-cols-4 gap-4 text-sm">
+          <div class="mt-6 bg-slate-50 dark:bg-slate-800/50 p-4 rounded-lg border border-slate-200 dark:border-slate-700">
+             <h4 class="font-bold mb-2 text-slate-800 dark:text-slate-200">${t('summary')}</h4>
+             <div class="grid grid-cols-4 gap-4 text-sm text-gray-700 dark:text-gray-300">
                 <div>
-                   <span class="block text-gray-500 text-xs">Straff (Etapper)</span>
+                   <span class="block text-gray-500 dark:text-gray-400 text-xs">${t('penalty')} (${t('stage')})</span>
                    <span class="font-semibold text-lg">${totalStagePenalty.toFixed(2)}</span>
                 </div>
                  <div>
-                   <span class="block text-gray-500 text-xs">Straff (Hinder)</span>
+                   <span class="block text-gray-500 dark:text-gray-400 text-xs">${t('penalty')} (${t('obstacle')})</span>
                    <span class="font-semibold text-lg">${totalObstaclePenalty.toFixed(2)}</span>
                 </div>
                 <div>
-                   <span class="block text-gray-500 text-xs">Övrigt</span>
-                   <span class="font-semibold text-lg">${globalOtherPenalty.toFixed(2)}</span>
+                   <span class="block text-gray-500 dark:text-gray-400 text-xs">${t('other_penalty')}</span>
+                   <span class="font-semibold text-lg">${displayOtherPenalty.toFixed(2)}</span>
                 </div>
                  <div class="text-right">
-                   <span class="block text-gray-500 text-xs">Totalt</span>
-                   <span class="font-bold text-xl ${isEliminated ? 'text-red-600' : 'text-slate-900'}">${totalLabel}</span>
+                   <span class="block text-gray-500 dark:text-gray-400 text-xs">${t('tab_total')}</span>
+                   <span class="font-bold text-xl ${isEliminated ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-white'}">${totalLabel}</span>
                 </div>
              </div>
           </div>
 
-          <div class="mt-4 pt-4 border-t flex justify-end">
-             <button id="printPdfBtn" class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 flex items-center gap-2">
+          <div class="mt-4 pt-4 border-t dark:border-gray-700 flex justify-end">
+             <button id="printPdfBtn" class="px-4 py-2 bg-gray-900 dark:bg-gray-800 text-white rounded hover:bg-gray-800 dark:hover:bg-gray-700 flex items-center gap-2 transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                Skriv ut Protokoll
+                ${t('print_pdf')}
              </button>
           </div>
         </div>
@@ -305,7 +301,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
   if (pdfBtn) {
     pdfBtn.onclick = async () => {
       const originalContent = pdfBtn.innerHTML;
-      pdfBtn.textContent = "Skapar PDF...";
+      pdfBtn.textContent = `${t('generating_pdf')}...`;
       pdfBtn.disabled = true;
       try {
         await printMarathonPdf(eq, marathonData);
@@ -334,8 +330,18 @@ export function renderTimeCard(container, eq, marathonData) {
 
   const stages = ['A', 'transport', 'B'].map(key => {
     const d = getStageData(key);
+    let name = key === 'transport' ? t('transport') : t('stage') + ' ' + key;
+
+    // Check Warmup fix
+    if (key === 'A') {
+      const lim = limitsFor(eq, 'A');
+      if (lim && lim.ideal > 0 && lim.max === lim.ideal && lim.min === 0) {
+        name = 'Warm-up';
+      }
+    }
+
     return {
-      name: key === 'transport' ? 'Transport' : 'Etapp ' + key,
+      name,
       ...d
     };
   });
@@ -363,11 +369,12 @@ export function renderTimeCard(container, eq, marathonData) {
     }
 
     return {
-      name: 'Hinder ' + num,
+      name: t('obstacle') + ' ' + num,
       start, stop,
       dur: (timeSec && Number.isFinite(timeSec)) ? timeSec * 1000 : (o.timeMs || 0),
       fee: { points: totalPenaltyForObs },
-      splits: o.gateSplits || times.gateSplits || []
+      otherPenalty: Number(o.otherPenalty || 0),
+      splits: times.gateSplits || o.gateSplits || []
     };
   }).sort((a, b) => {
     const nA = parseInt(a.name.replace(/\D/g, '')) || 0;
@@ -402,7 +409,7 @@ export function renderTimeCard(container, eq, marathonData) {
           if (!ts || !startTs) return null;
           return { char: s.char, diff: ts - startTs, ts };
         })
-        .filter(x => x && /^[A-Z]$/.test(x.char)) // Endast versaler (rätt håll) och icke-null
+        .filter(x => x && /^[A-Z]$/.test(x.char) && x.diff >= 0) // Endast versaler och positva diffar
         .sort((a, b) => a.ts - b.ts); // Sortera i tidsordning
 
       // Deduplicera: Behåll bara första passagen per bokstav
@@ -419,12 +426,14 @@ export function renderTimeCard(container, eq, marathonData) {
 
       if (finals.length > 0) {
         const items = finals.map(s => `<span class="mr-2">${s.char}: ${(s.diff / 1000).toFixed(1)}</span>`).join('');
-        splitsHtml = `<div class="text-xs text-gray-500 mt-1 font-normal">${items}</div>`;
+        splitsHtml = `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1 font-normal">${items}</div>`;
       }
     }
 
+    const otherPenaltyHtml = d.otherPenalty > 0 ? `<div class="text-xs text-amber-600 dark:text-amber-500 mt-1">Övrigt: ${d.otherPenalty.toFixed(2)}</div>` : '';
+
     return `
-        <tr class="border-b ${isBold ? 'font-semibold bg-gray-50' : ''}">
+        <tr class="border-b ${isBold ? 'font-semibold bg-gray-50 dark:bg-gray-700' : 'dark:border-gray-700'}">
             <td class="p-2 border-r">
                 ${label}
             </td>
@@ -434,32 +443,35 @@ export function renderTimeCard(container, eq, marathonData) {
                 ${timeStr}
                 ${splitsHtml}
             </td>
-            <td class="p-2 text-right tabular-nums">${penaltyStr}</td>
+            <td class="p-2 text-right tabular-nums">
+                <div>${penaltyStr}</div>
+                ${otherPenaltyHtml}
+            </td>
         </tr>`;
   };
 
   container.innerHTML = `
     <div class="p-4 md:p-6 overflow-x-auto">
-        <h4 class="font-bold mb-4 text-center uppercase tracking-widest text-gray-500">Digitalt Tidkort</h4>
-        <div class="border rounded-lg overflow-hidden shadow-sm">
+        <h4 class="font-bold mb-4 text-center uppercase tracking-widest text-gray-500 dark:text-gray-400">${t('digital_timecard')}</h4>
+        <div class="border dark:border-gray-700 rounded-lg overflow-hidden shadow-sm">
             <table class="w-full text-sm text-left whitespace-nowrap">
-                <thead class="bg-gray-800 text-white">
+                <thead class="bg-gray-900 dark:bg-gray-700 text-white">
                     <tr>
                         <th class="p-2 font-semibold">Moment</th>
-                        <th class="p-2 font-semibold text-center">Starttid</th>
-                        <th class="p-2 font-semibold text-center">Måltid</th>
-                        <th class="p-2 font-semibold text-right">Tid</th>
-                        <th class="p-2 font-semibold text-right">Straff</th>
+                        <th class="p-2 font-semibold text-center">${t('start_time')}</th>
+                        <th class="p-2 font-semibold text-center">${t('goal_label')}</th>
+                        <th class="p-2 font-semibold text-right">${t('time')}</th>
+                        <th class="p-2 font-semibold text-right">${t('penalty')}</th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-200">
+                <tbody class="divide-y divide-gray-200 dark:divide-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
                     ${stages.map(s => renderRow(s.name, s, true)).join('')}
-                    <tr class="bg-gray-100"><td colspan="5" class="p-1"></td></tr>
-                    ${obstacles.length ? obstacles.map(o => renderRow(o.name, o)).join('') : '<tr><td colspan="5" class="p-4 text-center italic text-gray-500">Inga hinderresultat</td></tr>'}
+                    <tr class="bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-gray-100"><td colspan="5" class="p-1"></td></tr>
+                    ${obstacles.length ? obstacles.map(o => renderRow(o.name, o)).join('') : `<tr><td colspan="5" class="p-4 text-center italic text-gray-500 dark:text-gray-400">${t('no_data')}</td></tr>`}
                 </tbody>
             </table>
         </div>
-        <p class="mt-4 text-xs text-center text-gray-400">Automatgenererat från systemets loggar.</p>
+        <p class="mt-4 text-xs text-center text-gray-400">${t('auto_generated_log')}</p>
     </div>
     `;
 }
@@ -493,13 +505,13 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
       <div class="p-4 md:p-6 pb-0">
         <div class="flex justify-between items-start mb-4">
           <div>
-            <h3 class="text-xl font-bold">#${eq.startNumber} ${eq.driverName}</h3>
-            <div class="text-sm text-gray-600 flex items-center gap-2 mt-1">
-               ${getFlagHtml(eq)} ${eq.className} • ${eq.clubName || ''}
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+            <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
+               ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${eq.className} • ${eq.clubName || ''}
             </div>
-            <div class="text-xs italic text-gray-500">${getMomentHorseLabel(eq)}</div>
+            <div class="text-xs italic text-gray-500 dark:text-gray-400">${getMomentHorseLabel(eq)}</div>
           </div>
-          <button id="closeMarathonModalBtn" class="text-2xl leading-none">&times;</button>
+          <button id="closeMarathonModalBtn" class="text-2xl leading-none text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" aria-label="Stäng">&times;</button>
         </div>
       </div>
       <div id="marathon-content-container"></div>
@@ -510,9 +522,9 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
     const toggleBtnWrapper = document.createElement('div');
     toggleBtnWrapper.className = 'flex justify-end px-4 md:px-6 mb-2';
     toggleBtnWrapper.innerHTML = `
-        <button id="toggleTimeCardBtn" class="text-sm font-semibold text-blue-700 hover:underline flex items-center gap-1">
+        <button id="toggleTimeCardBtn" class="text-sm font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
-            Visa Tidkort
+            ${t('view_timecard')}
         </button>
     `;
     inner.querySelector('.pb-0').appendChild(toggleBtnWrapper); // Insert after header
@@ -523,10 +535,10 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
       const btn = inner.querySelector('#toggleTimeCardBtn');
       if (isTimeCard) {
         renderTimeCard(contentContainer, eq, d);
-        btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg> Visa Detaljer`;
+        btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg> ${t('view_details')}`;
       } else {
         renderMarathonContent(contentContainer, eq, d);
-        btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg> Visa Tidkort`;
+        btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg> ${t('view_timecard')}`;
       }
     };
 
@@ -566,6 +578,9 @@ function ensureModalExists() {
         .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: none; justify-content: center; align-items: center; z-index: 9999; }
         .modal-overlay.visible { display: flex !important; }
         .modal-content { background: white; border-radius: 8px; max-width: 900px; width: 95%; max-height: 90vh; overflow-y: auto; position: relative; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1); }
+        /* Dark Mode Support */
+        html.dark .modal-content { background: #1f2937; color: #f3f4f6; border: 1px solid #374151; }
+        html.dark .modal-overlay { background: rgba(0,0,0,0.7); }
       `;
     document.head.appendChild(s);
   }

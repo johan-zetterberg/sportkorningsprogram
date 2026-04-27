@@ -2,16 +2,8 @@
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { getClubLogoUrl, fetchImageDataUrl } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
-import { getCalculatedRowData, buildPlaceMap } from '../utils/precisionUtils.js';
-
-// === HJÄLPFUNKTIONER (Samma som i marathonPdf.js) ===
-
-async function loadPdfLibs() {
-  if (window.jspdf && window.jspdf.jsPDF) return;
-  // Fallback om de inte finns laddade globalt
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
-}
+import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq } from '../utils/precisionUtils.js';
+import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
 
 // === HUVUDFUNKTION ===
 
@@ -25,9 +17,9 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
 
   // 1. FÖRBERED DATA
   const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
-  const flagDataUrl = await fetchFlagDataUrl(cc);
+  const flagDataUrl = (await loadImg(await fetchFlagDataUrl(cc)))?.dataUrl;
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
-  const clubLogo = await fetchImageDataUrl(clubLogoUrl); // {dataUrl, w, h}
+  const clubLogo = await loadImg(clubLogoUrl); // {dataUrl, w, h}
 
   // Hämta beräknad data
   const data = getCalculatedRowData(String(eq.startNumber), new Map(), equipages, precisionMap, config, startTimes);
@@ -120,9 +112,7 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
       ['Maxtid', data.display.maxTimeLabel],
       ['Banlängd', data.display.trackLenLabel],
       ['Tempo (klass)', data.display.tempoLabel],
-      ['Rivningar (port nr)', (data.knocks && data.knocks.length)
-        ? [...new Set(data.knocks.map(p => String(p)).sort((a, b) => Number(a) - Number(b)))].join(', ')
-        : '—'],
+      ['Rivningar (port nr)', data.display.knocksText || '—'],
       ['Kommentar', (d.comment || '').trim() || 'Inga.'],
     ],
     ...commonTableOpts
@@ -163,23 +153,6 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // -- ASSETS --
-  // Helper to load image
-  const loadImg = async (path) => {
-    try {
-      const img = new Image();
-      img.src = path;
-      img.crossOrigin = 'Anonymous';
-      await new Promise((r, e) => { img.onload = r; img.onerror = r; }); // Resolve even on error
-      if (!img.naturalWidth) return null;
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      return { data: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-    } catch { return null; }
-  };
-
-  // Load Logo (SRF default)
   const srfLogo = await loadImg('/assets/logos/SRF.png');
 
   // -- PRE-LOAD ASSETS FOR EQUIPAGES --
@@ -202,55 +175,13 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   // Club Logos
   for (const club of neededClubs) {
     const url = getClubLogoUrl(club);
-    promises.push(fetchImageDataUrl(url).then(res => {
+    promises.push(loadImg(url).then(res => {
       if (res?.dataUrl) assetMap.set(`club_${club}`, res.dataUrl);
     }));
   }
   await Promise.all(promises);
 
-  // -- HEADER LAYOUT --
-  let y = 30;
-
-  // 1. Logos
-  if (srfLogo) {
-    const h = 50;
-    const w = h * (srfLogo.w / srfLogo.h);
-    doc.addImage(srfLogo.data, 'PNG', 40, y, w, h);
-  }
-
-  // 2. Centered Title Block
-  const compName = competition?.name || 'Tävling';
-  const compDate = competition?.date || new Date().toLocaleDateString('sv-SE');
-
-  const locationPart = competition?.place || competition?.city || competition?.location || '';
-  const organizerPart = competition?.club || competition?.organizerName || competition?.organizer || '';
-
-  const parts = [locationPart, organizerPart].filter(p => p && p.trim());
-
-  const locationLine = parts.length > 0 ? parts.join(' • ') : '';
-
-  doc.setFontSize(20);
-  doc.setFont(undefined, 'bold');
-  doc.text(compName, pageWidth / 2, y + 15, { align: 'center' });
-
-  doc.setFontSize(12);
-  doc.setFont(undefined, 'normal');
-  // Print location line above date, or just date if no location
-  if (locationLine) {
-    doc.text(locationLine, pageWidth / 2, y + 32, { align: 'center' });
-    doc.text(compDate, pageWidth / 2, y + 44, { align: 'center' });
-    y += 12; // Adjust Y for the extra line
-  } else {
-    doc.text(compDate, pageWidth / 2, y + 32, { align: 'center' });
-  }
-
-  // Grey Bar "Results Cones"
-  y += 55;
-  doc.setFillColor(230, 230, 230);
-  doc.rect(40, y, pageWidth - 80, 20, 'F');
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.text("PRECISION – RESULTATLISTA", pageWidth / 2, y + 14, { align: 'center' });
+  let y = drawStandardHeader(doc, competition, "PRECISION – RESULTATLISTA", srfLogo, 30, 40);
 
   // Officials / Judges (Below grey bar, Left aligned)
   y += 35;
@@ -268,7 +199,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   const head = [['Plac', '#', 'Kusk / Häst', 'Klass', 'Land/Klubb', 'Start', 'Tid', 'Hinder', 'Tidfel', 'Totalt']];
 
   // Calculate placements
-  const placeMap = buildPlaceMap(equipages, precisionMap);
+  const placeMap = buildPlaceMap(equipages, precisionMap, config);
 
   const body = equipages.map(eq => {
     const sn = String(eq.startNumber);
@@ -337,4 +268,218 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   });
 
   doc.save('precision_resultatlista.pdf');
+}
+
+export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, startTimes, competition) {
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
+
+  // Filtrera bort strukna
+  const activeEquipages = equipages.filter(e => e.status !== 'struken');
+
+  const srfLogo = await loadImg('/assets/logos/SRF.png');
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA – PRECISION", srfLogo, 30, 40);
+  y += 5;
+
+  // -- DATA --
+  const rows = [...activeEquipages].sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
+
+  const head = [['Start', '#', 'Kusk / Häst', 'Kat', 'Vagn', 'Tillägg', 'Port', 'Maxtid']];
+
+  const body = rows.map(eq => {
+    // Starttid
+    const stdStart = startTimeFor(eq.startNumber, startTimes);
+
+    // Maxtid
+    const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
+    const maxTimeLabel = maxSec ? `${Math.floor(maxSec / 60)}:${String(maxSec % 60).padStart(2, '0')}` : '-';
+
+    // Bredder
+    const trackW = trackWidthFromEq(eq);
+    const portW = computePortWidth(eq, precisionConfig);
+    const allowW = portW && trackW ? (portW - trackW) : null;
+
+    // Kategori
+    let cat = '-';
+    if (eq.horses && eq.horses.length > 0) {
+      const types = [...new Set(eq.horses.map(h => h.type).filter(Boolean))];
+      if (types.length > 0) {
+        cat = types.join(', ');
+      }
+    }
+
+    return [
+      stdStart,
+      eq.startNumber,
+      `${eq.driverName}\n${eq.clubName || ''}`,
+      cat,
+      trackW ? `${trackW} cm` : '-',
+      allowW ? `+${allowW} cm` : '-',
+      portW ? `${portW} cm` : '-',
+      maxTimeLabel
+    ];
+  });
+
+  doc.autoTable({
+    startY: y,
+    head: head,
+    body: body,
+    theme: 'grid',
+    styles: { fontSize: 10, cellPadding: 4 },
+    headStyles: { fillColor: [50, 50, 50], textColor: 255 },
+    columnStyles: {
+      0: { fontStyle: 'bold', halign: 'center', cellWidth: 40 }, // Start
+      1: { halign: 'center', cellWidth: 30 }, // #
+      2: { cellWidth: 160 }, // Kusk
+      3: { halign: 'center', cellWidth: 50 }, // Kat
+      4: { halign: 'center' }, // Vagn
+      5: { halign: 'center' }, // Tillägg
+      6: { halign: 'center', fontStyle: 'bold', fillColor: [240, 240, 240] }, // Port
+      7: { halign: 'center' }  // Maxtid
+    }
+  });
+
+  const filename = `funktionarslista_precision.pdf`;
+  doc.save(filename);
+}
+
+// Helper for formatting seconds to MM:SS
+function secondsToMMSS(seconds) {
+  if (isNaN(seconds) || seconds < 0) return "--:--";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+}
+
+/**
+ * Generates a PDF listing all classes with their obstacles and the effective
+ * gate width (standard allowance ± per-obstacle delta) for each obstacle.
+ * Used on the precision-admin page.
+ */
+export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages, competition) {
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
+
+  const srfLogo = await loadImg('/assets/logos/SRF.png');
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const pageW = doc.internal.pageSize.getWidth();
+  const mx = 40;
+  
+  let y = drawStandardHeader(doc, competition, "PRECISION – BANA & PORTAR PER KLASS", srfLogo, 30, 40);
+  y += 5;
+
+  // Derive allClasses from equipages
+  const allClasses = [...new Set(equipages.map(e => {
+    if (e.useMergedTestForDisplay && e.mergedTestLabel) {
+      return e.mergedTestLabel;
+    }
+    return e.className;
+  }).filter(Boolean))].sort();
+
+  // --- ONE SECTION PER CLASS ---
+  for (const className of allClasses) {
+    const courseData = precisionConfig?.courses?.[className] || {};
+    const labels = courseData.obstacleLabels || [];
+    const specialPortAllowance = courseData.specialPortAllowance || {};
+    const trackLength = courseData.trackLengthMeters || null;
+
+    // Standard gate allowance for this class (manual override or TR default)
+    const { getPortAllowanceCm } = await import('../utils/precisionUtils.js');
+    const baseAllowanceCm = Number(precisionConfig?.portAllowanceByClass?.[className] ?? getPortAllowanceCm(className, precisionConfig) ?? 35);
+
+    // Maxtid
+    const { computeMaxSecondsForClass } = await import('../utils/precisionUtils.js');
+    const maxSec = computeMaxSecondsForClass(className, precisionConfig);
+    const maxTimeLabel = maxSec ? secondsToMMSS(maxSec) : '–';
+
+    // Section heading
+    if (y > doc.internal.pageSize.getHeight() - 80) { doc.addPage(); y = 40; }
+
+    doc.setFontSize(12);
+    doc.setFont(undefined, 'bold');
+    doc.text(className, mx, y);
+    y += 4;
+
+    // Small info line below heading
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(90, 90, 90);
+    const infoLine = [
+      trackLength ? `Banlängd: ${trackLength} m` : null,
+      `Standardtillägg: +${baseAllowanceCm} cm`,
+      maxTimeLabel !== '–' ? `Maxtid: ${maxTimeLabel}` : null
+    ].filter(Boolean).join('   |   ');
+    doc.text(infoLine, mx, y + 10);
+    doc.setTextColor(0, 0, 0);
+    y += 18;
+
+    if (labels.length === 0) {
+      doc.setFontSize(9);
+      doc.setFont(undefined, 'italic');
+      doc.setTextColor(130, 130, 130);
+      doc.text('Inga hinder angivna för denna klass.', mx, y + 10);
+      doc.setTextColor(0, 0, 0);
+      y += 22;
+    } else {
+      // Build table rows
+      const rows = labels.map((label, idx) => {
+        const delta = specialPortAllowance[label];
+        const hasDelta = Number.isFinite(Number(delta)) && Number(delta) !== 0;
+        const effectiveAllowance = hasDelta ? baseAllowanceCm + Number(delta) : baseAllowanceCm;
+        const deltaStr = hasDelta ? (Number(delta) > 0 ? `+${Number(delta)} cm` : `${Number(delta)} cm`) : '–';
+        return [
+          String(idx + 1),
+          String(label),
+          `+${baseAllowanceCm} cm`,
+          deltaStr,
+          { content: `+${effectiveAllowance} cm`, styles: { fontStyle: 'bold' } }
+        ];
+      });
+
+      doc.autoTable({
+        startY: y,
+        head: [['Nr', 'Hinder', 'Standard', '± Avvikelse', 'Effektivt tillägg']],
+        body: rows,
+        theme: 'grid',
+        styles: { fontSize: 9, cellPadding: 3 },
+        headStyles: { fillColor: [220, 220, 220], textColor: [30, 30, 30], fontStyle: 'bold' },
+        columnStyles: {
+          0: { halign: 'center', cellWidth: 35 },
+          1: { cellWidth: 'auto' }, // Allow obstacle label to scale
+          2: { halign: 'center', cellWidth: 80 },
+          3: { halign: 'center', cellWidth: 90 },
+          4: { halign: 'center', cellWidth: 100 }
+        },
+        margin: { left: mx, right: mx },
+        didParseCell: (data) => {
+          // Highlight rows where the effective allowance differs from standard
+          if (data.section === 'body' && data.column.index === 3 && data.cell.raw !== '–') {
+            data.cell.styles.fillColor = [255, 252, 220]; // light yellow
+          }
+          if (data.section === 'body' && data.column.index === 4) {
+            const label = labels[data.row.index];
+            const delta = specialPortAllowance[label];
+            if (Number.isFinite(Number(delta)) && Number(delta) !== 0) {
+              data.cell.styles.fillColor = [220, 240, 255]; // light blue for changed ones
+            }
+          }
+        }
+      });
+      y = doc.lastAutoTable.finalY + 16;
+    }
+  }
+
+  const generated = `Genererad: ${new Date().toLocaleString('sv-SE')}`;
+  doc.setFontSize(8);
+  doc.setTextColor(140, 140, 140);
+  doc.text(generated, pageW - mx, doc.internal.pageSize.getHeight() - 15, { align: 'right' });
+
+  doc.save('precision_bana_portar.pdf');
 }

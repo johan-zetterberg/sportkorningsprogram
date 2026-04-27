@@ -40,7 +40,12 @@ function updateUIVisibility() {
 
     navLinks.forEach(link => {
         const requiredRoles = (link.dataset.roleRequired || 'publik,funktionar,domare,admin').split(',');
-        link.style.display = requiredRoles.includes(currentUserRole) ? 'block' : 'none';
+        // OM superadmin -> Visa allt
+        if (currentUserRole === 'superadmin') {
+            link.style.display = 'block';
+        } else {
+            link.style.display = requiredRoles.includes(currentUserRole) ? 'block' : 'none';
+        }
     });
 
     if (menuToggle) {
@@ -218,26 +223,34 @@ export function initAuth(callback) {
 
             // 2. Hämta riktig roll asynkront med retry-logik
             let userRole = 'publik';
-            let retries = 3;
-            while (retries > 0) {
-                try {
-                    const userDocRef = doc(db, "users", user.uid);
-                    const userDoc = await getDoc(userDocRef);
-                    if (userDoc.exists()) {
-                        userRole = userDoc.data().role;
-                    }
-                    // Om vi lyckas, bryt loopen
-                    break;
-                } catch (err) {
-                    console.warn(`Försök att hämta användarroll misslyckades (${4 - retries}/3):`, err);
-                    retries--;
-                    if (retries === 0) {
-                        console.error('Kunde inte hämta användarroll efter flera försök:', err);
-                        // Visa ett felmeddelande eller notifiering om att behörigheter kan saknas
-                        alert("Kunde inte ladda din profil fullständigt. Vissa funktioner kanske inte fungerar. Prova att ladda om sidan.");
-                    } else {
-                        // Vänta lite innan nästa försök (exponential backoff eller fast tid)
-                        await new Promise(res => setTimeout(res, 500));
+
+            // --- SUPERADMIN OVERRIDE ---
+            const SUPER_ADMIN_EMAILS = ['admin@demo.se', 'johan.zetterberg@gmail.com'];
+            if (user.email && SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+                console.log("Superadmin detected via hardcoded list.");
+                userRole = 'superadmin';
+            } else {
+                let retries = 3;
+                while (retries > 0) {
+                    try {
+                        const userDocRef = doc(db, "users", user.uid);
+                        const userDoc = await getDoc(userDocRef);
+                        if (userDoc.exists()) {
+                            userRole = userDoc.data().role;
+                        }
+                        // Om vi lyckas, bryt loopen
+                        break;
+                    } catch (err) {
+                        console.warn(`Försök att hämta användarroll misslyckades (${4 - retries}/3):`, err);
+                        retries--;
+                        if (retries === 0) {
+                            console.error('Kunde inte hämta användarroll efter flera försök:', err);
+                            // Visa ett felmeddelande eller notifiering om att behörigheter kan saknas
+                            alert("Kunde inte ladda din profil fullständigt. Vissa funktioner kanske inte fungerar. Prova att ladda om sidan.");
+                        } else {
+                            // Vänta lite innan nästa försök (exponential backoff eller fast tid)
+                            await new Promise(res => setTimeout(res, 500));
+                        }
                     }
                 }
             }

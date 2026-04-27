@@ -7,7 +7,10 @@ import { getEquipages } from '../services/firestoreService.js';
 import {
   doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
 import { getCompetitionHeader } from '../ui/components.js';
+import { requestWakeLock } from '../utils/wakeLock.js';
+
 // ---------- State ----------
 let competitionId = null;
 let allEquipages = [];
@@ -90,11 +93,13 @@ function listenForGlobalPause() {
     const data = docSnap.exists() ? docSnap.data() : {};
     const isPaused = data.isPaused === true;
 
-    pauseBtn.classList.toggle('hidden', isPaused);
-    resumeBtn.classList.toggle('hidden', !isPaused);
+    if (pauseBtn) pauseBtn.classList.toggle('hidden', isPaused);
+    if (resumeBtn) resumeBtn.classList.toggle('hidden', !isPaused);
 
-    statusTextEl.textContent = isPaused ? (data.statusText || 'Tävlingen är pausad.') : '';
-    statusTextEl.className = isPaused ? 'text-sm font-semibold mt-2 text-red-800' : '';
+    if (statusTextEl) {
+      statusTextEl.textContent = isPaused ? (data.statusText || 'Tävlingen är pausad.') : '';
+      statusTextEl.className = isPaused ? 'text-sm font-semibold mt-2 text-red-800' : '';
+    }
 
     // Rendera historiken
     if (logContainer && Array.isArray(data.pauseLog)) {
@@ -103,8 +108,8 @@ function listenForGlobalPause() {
         const endTime = p.end ? new Date(p.end).toLocaleTimeString('sv-SE') : 'Pågår...';
         const duration = p.durationSec ? `${p.durationSec} sek` : '-';
         return `
-          <div class="text-xs text-gray-700">
-            <strong>Paus ${i + 1}:</strong> Start: ${startTime} | Stopp: ${endTime} | Längd: ${duration}
+          <div class="text-[10px] text-gray-500 font-medium">
+            Paus ${i + 1}: ${startTime} - ${endTime} (${duration})
           </div>
         `;
       }).join('');
@@ -140,7 +145,8 @@ function normalizeEquipage(e) {
   const driverName = e?.driverName ?? e?.driver ?? e?.kusk ?? e?.name ?? '';
   const className = e?.className ?? e?.class ?? e?.klass ?? '';
   const clubName = e?.clubName ?? e?.club ?? e?.association ?? '';
-  return { ...e, startNumber, driverName, className, clubName };
+  const horse = e?.horseName || e?.horse || '';
+  return { ...e, startNumber, driverName, className, clubName, horse };
 }
 
 function resolveCompetitionId() {
@@ -163,7 +169,6 @@ async function readObserverLog(sn) {
   return snap.data().observerLog || { wrongGaitSeconds: 0, halts: [], notes: "" };
 }
 async function writeObserverLog(sn, log) {
-  // Ensure log structure is sound to prevent Firestore 400 errors
   const safeLog = {
     wrongGaitSeconds: Math.max(0, Math.round(toInt(log?.wrongGaitSeconds))),
     halts: (Array.isArray(log?.halts) ? log.halts : []).map(h => ({
@@ -175,7 +180,7 @@ async function writeObserverLog(sn, log) {
 
   await setDoc(summaryDocRef(sn), {
     observerLog: safeLog,
-    updatedAt: Timestamp.now() // Use client-side timestamp to avoid potential sentinel issues
+    updatedAt: Timestamp.now()
   }, { merge: true });
 }
 
@@ -202,13 +207,13 @@ function rebuildComboList(container) {
   const list = qs('#eqComboList', container);
   if (!list) return;
   if (!Array.isArray(filtered)) filtered = [];
-  // Max 30 träffar för mobil
   const items = filtered.slice(0, 30).map((e, i) => `
-    <div class="eq-option px-3 py-2 ${i === comboActiveIndex ? 'bg-gray-100' : ''}" role="option" data-sn="${e.startNumber}" data-i="${i}">
-      ${comboFormatLabel(e)}
+    <div class="eq-option px-4 py-3 border-b dark:border-gray-700 last:border-0 ${i === comboActiveIndex ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'dark:text-gray-200'} cursor-pointer" role="option" data-sn="${e.startNumber}" data-i="${i}">
+      <div class="font-bold">#${e.startNumber} ${e.driverName}</div>
+      <div class="text-[10px] text-gray-500 uppercase tracking-tighter">${e.className || ''}</div>
     </div>
   `).join('');
-  list.innerHTML = items || `<div class="px-3 py-2 text-gray-500">Inga träffar</div>`;
+  list.innerHTML = items || `<div class="px-4 py-3 text-gray-500 dark:text-gray-400">Inga träffar</div>`;
 }
 function filterEquipages(term) {
   const q = safeLower(term);
@@ -219,8 +224,19 @@ function filterEquipages(term) {
     safeLower(e.className).includes(q)
   );
 }
+
 async function onEquipageSelected(sn, container) {
   currentSn = sn ? String(sn) : null;
+  const eq = findEquipageBySn(currentSn);
+
+  // Sticky header updates
+  const stickySn = qs('#stickySn', container);
+  const stickyName = qs('#stickyName', container);
+  const stickyHeader = qs('#stickyHeader', container);
+
+  if (stickySn) stickySn.textContent = currentSn ? `#${currentSn}` : '#--';
+  if (stickyName) stickyName.textContent = eq ? eq.driverName : 'Välj ekipage';
+  if (stickyHeader) stickyHeader.classList.toggle('hidden', !currentSn);
 
   // nollställ lokalt
   wrongGaitRunning = false; wrongGaitStartTs = 0; wrongGaitAccum = 0;
@@ -260,156 +276,265 @@ async function onEquipageSelected(sn, container) {
   }
 }
 
+// ---------- Styles ----------
+function injectObserverStyles() {
+  if (document.getElementById('observer-styles')) return;
+  const s = document.createElement('style');
+  s.id = 'observer-styles';
+  s.textContent = `
+    .obs-card {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      overflow: hidden;
+    }
+    .obs-card.active-timer {
+      border-color: #10b981;
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+    .obs-card.active-halt {
+      border-color: #f43f5e;
+      box-shadow: 0 0 15px rgba(244, 63, 94, 0.2);
+    }
+    .pulse-glow {
+      animation: pulse-glow 2s infinite;
+    }
+    @keyframes pulse-glow {
+      0% { opacity: 0.1; transform: scale(0.95); }
+      50% { opacity: 0.3; transform: scale(1.05); }
+      100% { opacity: 0.1; transform: scale(0.95); }
+    }
+    .sticky-obs-header {
+      position: sticky;
+      top: 0;
+      z-index: 30;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+      transition: all 0.3s ease;
+    }
+    .obs-touch-btn {
+      min-height: 48px;
+    }
+    @media (min-width: 640px) and (orientation: landscape) {
+      .obs-main-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1rem;
+      }
+      .obs-side-panel {
+        display: grid;
+        grid-template-rows: auto 1fr;
+      }
+    }
+    .manual-overlay {
+      background: rgba(255, 255, 255, 0.9);
+      backdrop-filter: blur(4px);
+    }
+    html.dark .manual-overlay {
+      background: rgba(31, 41, 55, 0.9);
+    }
+    .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+  `;
+  document.head.appendChild(s);
+}
+
 // ---------- UI ----------
 function render(container) {
   const comp = getGlobalState('currentCompetition');
+  injectObserverStyles();
 
   container.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8 max-w-2xl">
-      ${getCompetitionHeader(comp, 'Observatör – Maraton')}
-
-      <div class="bg-white rounded-xl border p-4 md:p-6 shadow-sm">
-        <h1 class="text-xl font-bold mb-4">Observatör – Maraton</h1>
-
-        <details class="mb-6 group">
-          <summary class="cursor-pointer text-red-700 font-semibold border-2 border-red-100 bg-red-50 rounded-lg p-3 select-none flex items-center justify-between">
-            <span>⚠️ Nödfunktion / Paus</span>
-            <span class="text-xs text-red-500 font-normal group-open:hidden">Klicka för att visa</span>
-          </summary>
-          <div id="emergency-pause-container" class="mt-2 p-3 border-2 border-red-500 rounded-lg bg-red-50 animate-in fade-in slide-in-from-top-2">
-            <h3 class="font-bold text-red-800">Nödfunktion: Pausa Tävlingen</h3>
-            <p class="text-xs text-red-700 mt-1">Pausar ALLA pågående tidtagare (etapper och hinder) om en olycka inträffar. Använd med försiktighet.</p>
-            <div class="mt-3 flex gap-2">
-              <button id="btnEmergencyPause" class="px-4 py-2 rounded bg-red-600 text-white font-semibold hover:bg-red-700 transition-colors shadow-sm">PAUSA ALLT</button>
-              <button id="btnEmergencyResume" class="px-4 py-2 rounded bg-green-600 text-white font-semibold hidden hover:bg-green-700 transition-colors shadow-sm">ÅTERUPPTA ALLT</button>
-            </div>
-            <div id="pause-status-text" class="text-sm font-semibold mt-2"></div>
-            <div id="pause-log-container" class="mt-2 space-y-1 border-t border-red-200 pt-2"></div>
+    <div class="min-h-screen bg-gray-50 dark:bg-gray-950 pb-20">
+      
+      <!-- Sticky Header for Mobil -->
+      <div id="stickyHeader" class="sticky-obs-header bg-white/80 dark:bg-gray-900/80 border-b dark:border-gray-800 px-4 py-2 hidden shadow-sm">
+        <div class="container mx-auto max-w-2xl flex items-center justify-between">
+          <div class="flex items-center gap-2">
+            <span id="stickySn" class="bg-blue-600 text-white font-black px-2 py-0.5 rounded text-sm">#--</span>
+            <span id="stickyName" class="font-bold text-gray-900 dark:text-white text-sm truncate max-w-[150px]">Välj ekipage</span>
           </div>
-        </details>
+          <div id="stickyStatus" class="flex gap-2"></div>
+        </div>
+      </div>
 
-        <p class="text-xs md:text-sm text-gray-600 mb-4">Notera fel gångart, halter och anteckningar.</p>
-        <div id="statusMsg" class="mb-3 text-sm text-amber-700 h-5"></div>
-
-        <!-- Combobox -->
+      <div class="container mx-auto p-4 md:p-8 max-w-4xl">
         <div class="mb-6">
-          <label class="block text-sm font-medium mb-1 text-gray-700">Ekipage</label>
-          <div class="relative" role="combobox" aria-expanded="false" aria-owns="eqComboList" aria-haspopup="listbox">
-            <div class="flex gap-2">
-              <button id="prevEqBtn" aria-label="Föregående ekipage" class="px-4 py-3 rounded border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors">⟨</button>
-              <input id="eqComboInput" type="text"
-                    class="flex-1 w-full border border-gray-300 rounded px-3 py-3 text-base shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                    autocomplete="off" autocapitalize="none" autocorrect="off"
-                    placeholder="Sök startnr eller namn..." />
-              <button id="nextEqBtn" aria-label="Nästa ekipage" class="px-4 py-3 rounded border border-gray-300 bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors">⟩</button>
-            </div>
-            <div id="eqComboList"
-                class="absolute mt-1 left-0 right-0 bg-white border border-gray-200 rounded-md shadow-lg max-h-80 overflow-auto hidden z-20">
-              <!-- byggs dynamiskt -->
-            </div>
+          ${getCompetitionHeader(comp, 'Observatör')}
+        </div>
+
+        <!-- Emergency Pause (Compact/Premium) -->
+        <div class="mb-6">
+          <button id="toggleEmergency" class="w-full flex items-center justify-between p-3 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30 text-red-700 dark:text-red-400 font-bold transition-all hover:bg-red-100/50">
+            <span class="flex items-center gap-2 text-sm text-red-800 dark:text-red-300">
+              <i class="fas fa-exclamation-triangle"></i>
+              NÖD-PAUS / TÄVLINGSSTATUS
+            </span>
+            <i class="fas fa-chevron-down transition-transform"></i>
+          </button>
+          
+          <div id="emergency-panel" class="hidden mt-2 p-4 bg-white dark:bg-gray-900 rounded-2xl border-2 border-red-500 shadow-xl overflow-hidden">
+             <div class="flex flex-col md:flex-row gap-4">
+                <div class="flex-1">
+                   <h3 class="font-black text-red-600 uppercase text-[10px] tracking-widest mb-1">Pausa tävlingen vid olycka</h3>
+                   <p class="text-[10px] text-gray-500 mb-4">Stoppar ALLA klockor i hela systemet omedelbart.</p>
+                   <div class="flex gap-2">
+                      <button id="btnEmergencyPause" class="flex-1 obs-touch-btn rounded-xl bg-red-600 text-white font-black hover:bg-red-700 transition-all shadow-lg active:scale-95 text-xs">STOPPA ALLT</button>
+                      <button id="btnEmergencyResume" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hidden hover:bg-emerald-700 transition-all shadow-lg active:scale-95 text-xs">ÅTERUPPTA</button>
+                   </div>
+                </div>
+                <div class="flex-1 border-t md:border-t-0 md:border-l dark:border-gray-800 pt-4 md:pt-0 md:pl-4">
+                   <div id="pause-status-text" class="text-sm font-bold mb-2"></div>
+                   <div id="pause-log-container" class="space-y-1 max-h-32 overflow-auto custom-scrollbar"></div>
+                </div>
+             </div>
           </div>
         </div>
 
-        <!-- Fel gångart & Halt -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-          <!-- Fel Gångart Kort -->
-          <div class="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
-            <div class="flex items-center justify-between mb-3">
-              <h3 class="font-semibold text-gray-800">Fel gångart</h3>
-              <div class="flex gap-2 basis-5/12">
-                <button id="btnWgStart" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm touch-manipulation active:scale-95">Start</button>
-                <button id="btnWgStop"  class="flex-1 py-2 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-50 transition-colors shadow-sm touch-manipulation active:scale-95">Stop</button>
-              </div>
-            </div>
-            <div class="relative">
-              <div id="wgVal" class="text-3xl font-bold tabular-nums text-gray-900 cursor-pointer hover:text-blue-600 transition-colors" title="Klicka för manuell inmating">00:00</div>
-              
-              <!-- Manuell inmatning Fel Gångart -->
-              <div id="wgManual" class="hidden absolute top-0 left-0 right-0 z-10 bg-white p-3 rounded-lg border shadow-lg">
-                <label class="block text-xs font-semibold uppercase text-gray-500 mb-1">Manuell tid</label>
-                <input id="wgManualInput" class="w-full border rounded px-2 py-1.5 mb-2 text-sm" placeholder="t.ex. 90 eller 01:30" />
+        <div class="obs-main-grid space-y-6 sm:space-y-0">
+          
+          <!-- Column 1: Selector & Timing -->
+          <div class="space-y-6">
+            <!-- Search & Selector -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
+              <label class="block text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest mb-2">Välj Startnummer</label>
+              <div class="relative" role="combobox" aria-expanded="false">
                 <div class="flex gap-2">
-                  <button id="wgManualApply"  class="flex-1 py-1 rounded bg-emerald-600 text-white text-xs font-medium">OK</button>
-                  <button id="wgManualCancel" class="flex-1 py-1 rounded bg-gray-200 text-gray-700 text-xs font-medium">Avbryt</button>
+                  <button id="prevEqBtn" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
+                    <i class="fas fa-chevron-left text-gray-500"></i>
+                  </button>
+                  <div class="relative flex-1">
+                    <input id="eqComboInput" type="text"
+                      class="w-full border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 rounded-xl px-4 h-12 text-base font-bold dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
+                      placeholder="Startnr / Namn..." />
+                    <div id="eqComboList" class="absolute mt-2 left-0 right-0 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-2xl shadow-2xl max-h-80 overflow-auto hidden z-50 overflow-hidden"></div>
+                  </div>
+                  <button id="nextEqBtn" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
+                    <i class="fas fa-chevron-right text-gray-500"></i>
+                  </button>
+                </div>
+              </div>
+              <div id="statusMsg" class="mt-2 text-[11px] font-bold text-amber-600 text-center min-h-[1rem]"></div>
+            </div>
+
+            <!-- Reglage Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <!-- Wrong Gait -->
+              <div id="wgCard" class="obs-card bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">Fel gångart</span>
+                  <i class="fas fa-running text-gray-200 dark:text-gray-700"></i>
+                </div>
+                <div id="wgVal" class="text-4xl font-black tabular-nums dark:text-white mb-6 text-center cursor-pointer hover:text-blue-500 transition-colors">00:00</div>
+                <div class="flex gap-2">
+                  <button id="btnWgStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">START</button>
+                  <button id="btnWgStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">STOPP</button>
+                </div>
+                
+                <!-- Manual Overlay -->
+                <div id="wgManual" class="manual-overlay hidden absolute inset-0 z-10 p-5 flex flex-col justify-center items-center">
+                   <h4 class="text-xs font-black uppercase text-gray-500 dark:text-gray-400 mb-2">Ändra tid</h4>
+                   <input id="wgManualInput" class="w-full h-12 text-center text-xl font-bold bg-white dark:bg-gray-801 border-2 border-blue-500 rounded-xl mb-4 dark:text-white" placeholder="mm:ss" />
+                   <div class="flex gap-2 w-full">
+                      <button id="wgManualApply" class="flex-1 h-10 rounded-lg bg-blue-600 text-white font-bold">OK</button>
+                      <button id="wgManualCancel" class="flex-1 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-bold">Avbryt</button>
+                   </div>
+                </div>
+              </div>
+
+              <!-- Halt -->
+              <div id="haltCard" class="obs-card bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
+                <div class="flex items-center justify-between mb-4">
+                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">Halt</span>
+                  <i class="fas fa-hand-paper text-gray-200 dark:text-gray-700"></i>
+                </div>
+                <div id="haltLive" class="text-4xl font-black tabular-nums text-gray-900 dark:text-white mb-6 text-center">—</div>
+                <div class="flex gap-2">
+                  <button id="btnHaltStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">START</button>
+                  <button id="btnHaltStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">STOPP</button>
                 </div>
               </div>
             </div>
-            <p class="mt-1 text-xs text-gray-500">Klicka på tiden för att ändra.</p>
           </div>
 
-          <!-- Halt Kort -->
-          <div class="border border-gray-200 rounded-xl p-4 bg-gray-50/50">
-            <div class="flex items-center justify-between mb-3">
-              <h3 class="font-semibold text-gray-800">Halt</h3>
-              <div class="flex gap-2 basis-5/12">
-                <button id="btnHaltStart" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 disabled:opacity-50 transition-colors shadow-sm touch-manipulation active:scale-95">Start</button>
-                <button id="btnHaltStop"  class="flex-1 py-2 rounded-lg bg-rose-600 text-white font-bold hover:bg-rose-700 disabled:opacity-50 transition-colors shadow-sm touch-manipulation active:scale-95">Stop</button>
-              </div>
-            </div>
-            
-            <div class="mb-3">
-              <div id="haltLive" class="font-bold tabular-nums text-2xl text-rose-600 min-h-[2rem]">—</div>
-            </div>
-
-            <!-- Manuell Halt Toggle -->
-            <div class="mb-3">
-               <button id="btnHaltManualOpen" class="text-xs font-medium text-blue-600 hover:text-blue-800 underline disabled:opacity-50 outline-none" disabled>
-                 + Lägg till halt manuellt
-               </button>
+          <!-- Column 2: Halts & Notes -->
+          <div class="space-y-6 obs-side-panel">
+            <!-- Halt Lista -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm h-fit">
+               <div class="flex justify-between items-center mb-4">
+                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">Halt-logg</span>
+                  <button id="btnHaltManualOpen" class="text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase disabled:opacity-20" disabled>+ Manuel</button>
+               </div>
                
-               <!-- Manuell inmatning Halt -->
-               <div id="haltManualWrapper" class="hidden mt-2 p-3 bg-white border rounded-lg shadow-sm">
-                  <label class="block text-xs font-semibold uppercase text-gray-500 mb-1">Haltlängd</label>
-                  <input id="haltManualInput" class="w-full border rounded px-2 py-1.5 mb-2 text-sm" placeholder="t.ex. 15 eller 00:15" />
+               <div id="haltList" class="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
+                  <div class="text-gray-400 text-xs italic text-center py-4">Inga halter ännu.</div>
+               </div>
+
+               <!-- Manual Halt Input Tray -->
+               <div id="haltManualWrapper" class="hidden mt-3 p-4 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl space-y-3">
+                  <input id="haltManualInput" class="w-full h-10 text-center font-bold rounded-lg border dark:border-gray-600 dark:bg-gray-800 dark:text-white" placeholder="mm:ss eller sek" />
                   <div class="flex gap-2">
-                    <button id="haltManualApply" class="flex-1 py-1 rounded bg-emerald-600 text-white text-xs font-medium">Lägg till</button>
-                    <button id="haltManualCancel" class="flex-1 py-1 rounded bg-gray-200 text-gray-700 text-xs font-medium">Avbryt</button>
+                    <button id="haltManualApply" class="flex-1 h-10 bg-blue-600 text-white rounded-lg font-bold text-xs uppercase">Lägg till</button>
+                    <button id="haltManualCancel" class="flex-1 h-10 bg-white dark:bg-gray-800 text-gray-500 rounded-lg font-bold text-xs uppercase">Stäng</button>
                   </div>
                </div>
             </div>
 
-            <div id="haltList" class="text-sm space-y-2 border-t pt-2 max-h-40 overflow-y-auto"></div>
+            <!-- Anteckningar -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
+               <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest block mb-4">Anteckningar</span>
+               <textarea id="notesField" rows="4" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="Skriv iakttagelser..."></textarea>
+               <div id="notesSaveStatus" class="flex items-center justify-end gap-1 mt-2 text-[10px] font-bold text-gray-400"></div>
+            </div>
+
+            <!-- Manual Save (Backup) -->
+            <div class="flex gap-4">
+               <button id="btnSave" class="flex-1 h-12 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-xs uppercase tracking-widest hover:bg-gray-300 transition-all disabled:opacity-20" disabled>Spara manuellt</button>
+               <div id="saveMsg" class="flex items-center text-xs font-bold text-emerald-600"></div>
+            </div>
           </div>
-        </div>
 
-        <div class="mb-6">
-          <label class="block text-sm font-medium mb-1 text-gray-700">Anteckningar <span class="text-xs font-normal text-gray-500">(sparas automatiskt)</span></label>
-          <textarea id="notesField" rows="3" class="w-full border border-gray-300 rounded pointer-events-auto px-3 py-2 text-sm shadow-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" placeholder="Skriv iakttagelser..."></textarea>
-           <!-- Sparas-indikator -->
-          <div id="notesSaveStatus" class="text-xs text-gray-400 mt-1 min-h-[1.2em]"></div>
-        </div>
-
-        <!-- Spara-knapp (mest för att tvinga spara eller känna sig trygg) -->
-        <div class="flex items-center gap-3 border-t pt-4">
-          <button id="btnSave" class="px-6 py-2 rounded bg-gray-200 text-gray-700 font-semibold hover:bg-gray-300 transition-colors disabled:opacity-50" disabled>Spara manuellt</button>
-          <span id="saveMsg" class="text-sm font-medium text-emerald-600"></span>
         </div>
       </div>
     </div>
   `;
 }
 
-
 function renderHalts(container) {
   const list = qs('#haltList', container);
   const live = qs('#haltLive', container);
+  const card = qs('#haltCard', container);
+  const stickyStatus = qs('#stickyStatus', container);
+
   if (!list || !live) return;
 
+  if (haltRunning) {
+    card?.classList.add('active-halt', 'border-rose-500');
+    live.classList.add('text-rose-600');
+    live.textContent = fmtMMSS(nowSec() - haltStartTs);
+    if (stickyStatus) stickyStatus.innerHTML = `<span class="bg-rose-600 text-white text-[10px] px-1.5 rounded font-black animate-pulse">HALT</span>`;
+  } else {
+    card?.classList.remove('active-halt', 'border-rose-500');
+    live.classList.remove('text-rose-600');
+    live.textContent = '—';
+    if (stickyStatus && !wrongGaitRunning) stickyStatus.innerHTML = '';
+  }
+
   if (halts.length === 0) {
-    list.innerHTML = `<div class="text-gray-400 text-xs italic">Inga halter noterade.</div>`;
+    list.innerHTML = `<div class="text-gray-400 text-xs italic text-center py-4">Inga halter ännu.</div>`;
   } else {
     list.innerHTML = halts.map((h, i) => `
-        <div class="flex items-center justify-between bg-gray-50 p-2 rounded border border-gray-100 group">
-          <span class="font-medium tabular-nums text-gray-700">Halt ${i + 1}: <span class="text-black font-bold">${fmtMMSS(h.durSec)}</span> <span class="text-gray-400 text-xs font-normal">(kl. ${fmtTime(h.atSec)})</span></span>
-          <div class="flex gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-            <button class="btnEditHalt text-xs font-medium text-blue-600 hover:text-blue-800 hover:underline" data-i="${i}">Ändra</button>
-            <button class="btnDelHalt text-xs font-medium text-rose-600 hover:text-rose-800 hover:underline" data-i="${i}">Ta bort</button>
+        <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 p-2.5 rounded-xl border dark:border-gray-800 shadow-xs group">
+          <div class="min-w-0">
+             <div class="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-tighter">Halt ${i + 1}</div>
+             <div class="font-bold tabular-nums text-gray-900 dark:text-white">${fmtMMSS(h.durSec)} <span class="text-xs text-gray-400 font-medium ml-1">${fmtTime(h.atSec)}</span></div>
+          </div>
+          <div class="flex gap-2 shrink-0">
+            <button class="btnEditHalt w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 flex items-center justify-center" data-i="${i}"><i class="fas fa-edit text-[10px]"></i></button>
+            <button class="btnDelHalt w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center" data-i="${i}"><i class="fas fa-trash text-[10px]"></i></button>
           </div>
         </div>
       `).join('');
   }
-
-  live.textContent = haltRunning ? `Pågår: ${fmtMMSS(nowSec() - haltStartTs)}` : '—';
 }
 
 function fmtTime(sec) {
@@ -426,10 +551,28 @@ function setButtonsEnabled(container, enabled) {
 
 function updateWrongGaitUI(container) {
   const el = qs('#wgVal', container);
+  const card = qs('#wgCard', container);
+  const stickyStatus = qs('#stickyStatus', container);
   if (!el) return;
+
   const base = wrongGaitAccum;
   const extra = wrongGaitRunning ? (nowSec() - wrongGaitStartTs) : 0;
-  el.textContent = fmtMMSS(base + extra);
+  const total = base + extra;
+
+  el.textContent = fmtMMSS(total);
+
+  if (wrongGaitRunning) {
+    card?.classList.add('active-timer', 'border-emerald-500');
+    el.classList.add('text-emerald-600');
+    if (stickyStatus) {
+      const haltHtml = haltRunning ? `<span class="bg-rose-600 text-white text-[10px] px-1.5 rounded font-black mr-1">HALT</span>` : '';
+      stickyStatus.innerHTML = `${haltHtml}<span class="bg-emerald-600 text-white text-[10px] px-1.5 rounded font-black animate-pulse">GÅNGART</span>`;
+    }
+  } else {
+    card?.classList.remove('active-timer', 'border-emerald-500');
+    el.classList.remove('text-emerald-600');
+    if (stickyStatus && !haltRunning) stickyStatus.innerHTML = '';
+  }
 }
 
 function ensureTicker(container) {
@@ -460,6 +603,32 @@ function wire(container) {
     onEquipageSelected(e.startNumber, container);
   }
 
+  // === Toggle Emergency Panel ===
+  const btnToggleEmergency = qs('#toggleEmergency', container);
+  const emergencyPanel = qs('#emergency-panel', container);
+  if (btnToggleEmergency && emergencyPanel) {
+    btnToggleEmergency.addEventListener('click', () => {
+      const isHidden = emergencyPanel.classList.toggle('hidden');
+      if (btnToggleEmergency.querySelector('.fa-chevron-down')) {
+         btnToggleEmergency.querySelector('.fa-chevron-down').classList.toggle('rotate-180', !isHidden);
+      }
+    });
+  }
+
+  // === Sticky Header Scroll Behavior ===
+  const stickyHeader = qs('#stickyHeader', container);
+  window.addEventListener('scroll', () => {
+    if (stickyHeader && currentSn) {
+      if (window.scrollY > 150) {
+        stickyHeader.classList.add('py-3', 'shadow-md');
+        stickyHeader.querySelector('div').classList.add('scale-105');
+      } else {
+        stickyHeader.classList.remove('py-3', 'shadow-md');
+        stickyHeader.querySelector('div').classList.remove('scale-105');
+      }
+    }
+  });
+
   // === Helper: Auto-Save ===
   async function autoSave() {
     if (!currentSn) return;
@@ -467,7 +636,6 @@ function wire(container) {
     const msg = qs('#saveMsg', container);
     const notesStatus = qs('#notesSaveStatus', container);
 
-    // Feedback "Sparar..."
     if (notesStatus) notesStatus.textContent = "Sparar...";
 
     try {
@@ -476,11 +644,8 @@ function wire(container) {
         halts,
         notes: notesEl ? notesEl.value : notes
       });
-      console.log(`Auto-saved for #${currentSn}`);
-
       if (msg) {
         msg.textContent = 'Sparat ✔';
-        msg.className = 'text-sm font-medium text-emerald-600 animate-in fade-in';
         setTimeout(() => msg.textContent = '', 2000);
       }
       if (notesStatus) {
@@ -489,10 +654,7 @@ function wire(container) {
       }
     } catch (e) {
       console.error('Auto-save failed', e);
-      if (msg) {
-        msg.textContent = 'Fel vid sparande!';
-        msg.className = 'text-sm font-bold text-rose-600';
-      }
+      if (msg) msg.textContent = 'Fel vid sparande!';
     }
   }
 
@@ -500,7 +662,6 @@ function wire(container) {
   const inp = qs('#eqComboInput', container);
   const list = qs('#eqComboList', container);
 
-  // Knappar ⟨ / ⟩
   qs('#prevEqBtn', container)?.addEventListener('click', () => selectPrevNext(-1));
   qs('#nextEqBtn', container)?.addEventListener('click', () => selectPrevNext(1));
 
@@ -519,230 +680,125 @@ function wire(container) {
     onEquipageSelected(e.startNumber, container);
   }
 
-  function handleInput() {
-    filterEquipages(inp.value);
-    openAndRender();
-  }
-
   if (inp) {
     inp.addEventListener('focus', () => { filterEquipages(inp.value); openAndRender(); });
-    inp.addEventListener('input', handleInput);
+    inp.addEventListener('input', () => { filterEquipages(inp.value); openAndRender(); });
     inp.addEventListener('keydown', (e) => {
       if (!comboOpen && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
         filterEquipages(inp.value); openAndRender(); e.preventDefault(); return;
       }
       if (!comboOpen) return;
-
       if (e.key === 'ArrowDown') {
         comboActiveIndex = Math.min(filtered.length - 1, comboActiveIndex + 1);
-        rebuildComboList(container);
-        e.preventDefault();
+        rebuildComboList(container); e.preventDefault();
       } else if (e.key === 'ArrowUp') {
         comboActiveIndex = Math.max(0, comboActiveIndex - 1);
-        rebuildComboList(container);
-        e.preventDefault();
+        rebuildComboList(container); e.preventDefault();
       } else if (e.key === 'Enter') {
         if (comboActiveIndex >= 0) { selectByIndex(comboActiveIndex); e.preventDefault(); }
       } else if (e.key === 'Escape') {
         closeCombo(container); e.preventDefault();
-      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && (e.altKey || e.ctrlKey || e.metaKey)) {
-        selectPrevNext(e.key === 'ArrowRight' ? 1 : -1); e.preventDefault();
       }
     });
-    inp.addEventListener('blur', () => { setTimeout(() => closeCombo(container), 150); });
+    inp.addEventListener('blur', () => { setTimeout(() => closeCombo(container), 200); });
   }
 
   if (list) {
     list.addEventListener('mousedown', (e) => {
       const row = e.target.closest('.eq-option');
-      if (!row) return;
-      selectByIndex(+row.dataset.i);
-      e.preventDefault();
+      if (row) { selectByIndex(+row.dataset.i); e.preventDefault(); }
     });
-    list.addEventListener('mouseenter', () => { });
   }
 
   // === Buttons & logic ===
-
-  // Fel gångart – Start
-  const btnWgStart = qs('#btnWgStart', container);
-  btnWgStart && btnWgStart.addEventListener('click', () => {
-    if (!currentSn) return;
-    if (!wrongGaitRunning) {
-      wrongGaitRunning = true;
-      wrongGaitStartTs = nowSec();
-      ensureTicker(container);
-      updateWrongGaitUI(container);
-    }
+  qs('#btnWgStart', container)?.addEventListener('click', () => {
+    if (!currentSn || wrongGaitRunning) return;
+    wrongGaitRunning = true; wrongGaitStartTs = nowSec();
+    ensureTicker(container); updateWrongGaitUI(container);
+  });
+  qs('#btnWgStop', container)?.addEventListener('click', () => {
+    if (!currentSn || !wrongGaitRunning) return;
+    wrongGaitAccum += (nowSec() - wrongGaitStartTs);
+    wrongGaitRunning = false; wrongGaitStartTs = 0;
+    updateWrongGaitUI(container); autoSave();
   });
 
-  // Fel gångart – Stop -> AutoSave
-  const btnWgStop = qs('#btnWgStop', container);
-  btnWgStop && btnWgStop.addEventListener('click', () => {
-    if (!currentSn) return;
-    if (wrongGaitRunning) {
-      wrongGaitAccum += (nowSec() - wrongGaitStartTs);
-      wrongGaitRunning = false;
-      wrongGaitStartTs = 0;
-      updateWrongGaitUI(container);
-      autoSave(); // <<-- AUTO SAVE
-    }
-  });
-
-  // Manuell gångartstid
   const wgVal = qs('#wgVal', container);
   const wgWrap = qs('#wgManual', container);
   const wgInp = qs('#wgManualInput', container);
-  const wgApply = qs('#wgManualApply', container);
-  const wgCancel = qs('#wgManualCancel', container);
-  const openWg = () => { wgWrap?.classList.remove('hidden'); wgInp && (wgInp.value = ''); setTimeout(() => wgInp?.focus(), 0); };
-  const closeWg = () => { wgWrap?.classList.add('hidden'); };
-
-  wgVal && wgVal.addEventListener('click', () => { if (currentSn) openWg(); });
-  wgCancel && wgCancel.addEventListener('click', closeWg);
-
-  wgApply && wgApply.addEventListener('click', () => {
+  wgVal?.addEventListener('click', () => { if (currentSn) { wgWrap?.classList.remove('hidden'); wgInp?.focus(); } });
+  qs('#wgManualCancel', container)?.addEventListener('click', () => wgWrap?.classList.add('hidden'));
+  qs('#wgManualApply', container)?.addEventListener('click', () => {
     const secs = parseMMSSorSeconds(wgInp?.value || '');
-    if (secs == null) { alert('Ogiltigt format. Ange mm:ss eller sekunder.'); return; }
-    wrongGaitRunning = false;
-    wrongGaitStartTs = 0;
-    wrongGaitAccum = Math.max(0, Math.round(secs));
-    updateWrongGaitUI(container);
-    closeWg();
-    autoSave(); // <<-- AUTO SAVE
+    if (secs == null) { alert('Ogiltigt format.'); return; }
+    wrongGaitRunning = false; wrongGaitAccum = Math.max(0, Math.round(secs));
+    updateWrongGaitUI(container); wgWrap?.classList.add('hidden'); autoSave();
   });
 
-  // Halt – Start
-  const btnHaltStart = qs('#btnHaltStart', container);
-  btnHaltStart && btnHaltStart.addEventListener('click', () => {
-    if (!currentSn) return;
-    if (!haltRunning) {
-      haltRunning = true;
-      haltStartTs = nowSec();
-      ensureTicker(container);
-      renderHalts(container);
-    }
+  qs('#btnHaltStart', container)?.addEventListener('click', () => {
+    if (!currentSn || haltRunning) return;
+    haltRunning = true; haltStartTs = nowSec();
+    ensureTicker(container); renderHalts(container);
+  });
+  qs('#btnHaltStop', container)?.addEventListener('click', () => {
+    if (!currentSn || !haltRunning) return;
+    const dur = Math.max(0, nowSec() - haltStartTs);
+    halts.push({ atSec: haltStartTs, durSec: dur });
+    haltRunning = false; haltStartTs = 0;
+    renderHalts(container); autoSave();
   });
 
-  // Halt – Stop -> AutoSave
-  const btnHaltStop = qs('#btnHaltStop', container);
-  btnHaltStop && btnHaltStop.addEventListener('click', () => {
-    if (!currentSn) return;
-    if (haltRunning) {
-      const dur = Math.max(0, nowSec() - haltStartTs);
-      halts.push({ atSec: haltStartTs, durSec: dur }); // Spara starttiden for loggen
-      haltRunning = false;
-      haltStartTs = 0;
-      renderHalts(container);
-      autoSave(); // <<-- AUTO SAVE
-    }
-  });
-
-  // Halt - Manuell Inmatning
-  const btnHaltManualOpen = qs('#btnHaltManualOpen', container);
   const haltManualWrapper = qs('#haltManualWrapper', container);
   const haltManualInput = qs('#haltManualInput', container);
-  const haltManualApply = qs('#haltManualApply', container);
-  const haltManualCancel = qs('#haltManualCancel', container);
-
-  btnHaltManualOpen && btnHaltManualOpen.addEventListener('click', () => {
-    if (!currentSn) return;
-    haltManualWrapper.classList.remove('hidden');
-    haltManualInput.value = '';
-    setTimeout(() => haltManualInput.focus(), 0);
+  qs('#btnHaltManualOpen', container)?.addEventListener('click', () => {
+    if (currentSn) { haltManualWrapper?.classList.remove('hidden'); haltManualInput?.focus(); }
   });
-
-  haltManualCancel && haltManualCancel.addEventListener('click', () => {
-    haltManualWrapper.classList.add('hidden');
-  });
-
-  haltManualApply && haltManualApply.addEventListener('click', () => {
+  qs('#haltManualCancel', container)?.addEventListener('click', () => haltManualWrapper?.classList.add('hidden'));
+  qs('#haltManualApply', container)?.addEventListener('click', () => {
     if (!currentSn) return;
-    const val = haltManualInput.value;
-    const sec = parseMMSSorSeconds(val);
-    if (sec === null) {
-      alert("Ogiltigt format. Ange sekunder eller mm:ss.");
-      return;
-    }
+    const sec = parseMMSSorSeconds(haltManualInput.value);
+    if (sec === null) { alert("Ogiltigt format."); return; }
     halts.push({ atSec: nowSec(), durSec: sec });
-    renderHalts(container);
-    haltManualWrapper.classList.add('hidden');
-    autoSave(); // <<-- AUTO SAVE
+    renderHalts(container); haltManualWrapper.classList.add('hidden'); autoSave();
   });
 
-
-  // Halt List Interaction (Ta bort / Ändra)
   const haltList = qs('#haltList', container);
   if (haltList && !haltList._bound) {
     haltList._bound = true;
     haltList.addEventListener('click', (e) => {
-      // DELETE
       const delBtn = e.target.closest('.btnDelHalt');
       if (delBtn) {
         const i = +delBtn.dataset.i;
-        if (i >= 0 && i < halts.length) {
-          if (confirm('Ta bort denna halt?')) {
-            halts.splice(i, 1);
-            renderHalts(container);
-            autoSave(); // <<-- AUTO SAVE
-          }
-        }
+        if (confirm('Ta bort denna halt?')) { halts.splice(i, 1); renderHalts(container); autoSave(); }
         return;
       }
-
-      // EDIT
       const editBtn = e.target.closest('.btnEditHalt');
       if (editBtn) {
         const i = +editBtn.dataset.i;
-        if (i >= 0 && i < halts.length) {
-          const h = halts[i];
-          const old = fmtMMSS(h.durSec);
-          const input = prompt(`Ändra längd på halt ${i + 1} (mm:ss eller sekunder):`, old);
-          if (input === null) return; // Cancel
+        const input = prompt(`Ändra längd på halt ${i + 1} (mm:ss eller sek):`, fmtMMSS(halts[i].durSec));
+        if (input !== null) {
           const newSec = parseMMSSorSeconds(input);
-          if (newSec === null) {
-            alert('Ogiltigt format.');
-            return;
-          }
-          h.durSec = newSec;
-          renderHalts(container);
-          autoSave(); // <<-- AUTO SAVE
+          if (newSec !== null) { halts[i].durSec = newSec; renderHalts(container); autoSave(); }
         }
-        return;
       }
     });
   }
 
-  // Notes - Auto-save on blur
   if (notesEl) {
-    notesEl.addEventListener('input', () => {
-      notes = notesEl.value || "";
-    });
-    notesEl.addEventListener('blur', () => {
-      // Auto-save när man lämnar fältet
-      autoSave();
-    });
+    notesEl.addEventListener('input', () => { notes = notesEl.value || ""; });
+    notesEl.addEventListener('blur', () => autoSave());
   }
 
-  // Spara-knapp (Manual trigger)
-  btnSave && btnSave.addEventListener('click', async () => {
+  btnSave?.addEventListener('click', async () => {
     if (!currentSn) return;
-
-    // Om något rullar, stoppa det och spara ner det
-    if (haltRunning) {
-      const dur = Math.max(0, nowSec() - haltStartTs);
-      halts.push({ atSec: haltStartTs, durSec: dur });
-      haltRunning = false; haltStartTs = 0;
-    }
-    if (wrongGaitRunning) {
-      wrongGaitAccum += (nowSec() - wrongGaitStartTs);
-      wrongGaitRunning = false; wrongGaitStartTs = 0;
-    }
-
-    updateWrongGaitUI(container);
-    renderHalts(container);
-    await autoSave();
+    if (haltRunning) { halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) }); haltRunning = false; }
+    if (wrongGaitRunning) { wrongGaitAccum += (nowSec() - wrongGaitStartTs); wrongGaitRunning = false; }
+    updateWrongGaitUI(container); renderHalts(container); await autoSave();
   });
+}
+
+function findEquipageBySn(sn) {
+  return allEquipages.find(e => String(e.startNumber) === String(sn));
 }
 
 // ---------- Entrypoint ----------
@@ -758,19 +814,15 @@ export async function load() {
   render(root);
   wire(root);
 
-  const pauseBtn = qs('#btnEmergencyPause', root);
-  const resumeBtn = qs('#btnEmergencyResume', root);
-  pauseBtn?.addEventListener('click', () => {
-    if (confirm("Är du helt säker på att du vill pausa ALLA timers i hela tävlingen?")) {
-      setGlobalPause(true);
-    }
-  });
-  resumeBtn?.addEventListener('click', () => setGlobalPause(false));
   listenForGlobalPause();
+  const emPause = qs('#btnEmergencyPause', root);
+  const emResume = qs('#btnEmergencyResume', root);
+  emPause?.addEventListener('click', () => { if (confirm("Pausa ALLA timers?")) setGlobalPause(true); });
+  emResume?.addEventListener('click', () => setGlobalPause(false));
 
   if (!competitionId) {
     const status = qs('#statusMsg', root);
-    if (status) status.textContent = 'Ingen tävling vald. Gå till startsidan och välj tävling.';
+    if (status) status.textContent = 'Ingen tävling vald.';
     setButtonsEnabled(root, false);
     return;
   }
@@ -779,34 +831,15 @@ export async function load() {
     const raw = await getEquipages(competitionId);
     allEquipages = (raw || []).map(normalizeEquipage).sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
     filtered = allEquipages.slice();
-
-    // Om ?sn= finns: förvalda
-    const params = new URLSearchParams((location.hash.split('?')[1] || ''));
-    const snParam = params.get('sn');
-    if (snParam) {
-      const pref = allEquipages.find(x => String(x.startNumber) === String(snParam));
-      if (pref) {
-        setComboValue(root, pref);
-        await onEquipageSelected(pref.startNumber, root);
-      }
-    }
-
-    // bygg initial lista (öppnas när input får fokus)
     rebuildComboList(root);
 
-    const status = qs('#statusMsg', root);
-    if (status) status.textContent = '';
-    setButtonsEnabled(root, !!currentSn); // aktiveras när ekipage valts
+    const snParam = new URLSearchParams(location.hash.split('?')[1] || '').get('sn');
+    if (snParam) {
+      const pref = allEquipages.find(x => String(x.startNumber) === String(snParam));
+      if (pref) { setComboValue(root, pref); await onEquipageSelected(pref.startNumber, root); }
+    }
+    await requestWakeLock();
   } catch (e) {
-    console.error('getEquipages failed', e);
-    const status = qs('#statusMsg', root);
-    if (status) status.textContent = 'Kunde inte hämta startlista. Försök igen från startsidan.';
+    console.error('Laddning misslyckades:', e);
   }
-}
-
-export function __unload() {
-  if (liveTicker) { clearInterval(liveTicker); liveTicker = null; }
-  currentSn = null;
-  wrongGaitRunning = false; wrongGaitStartTs = 0; wrongGaitAccum = 0;
-  haltRunning = false; haltStartTs = 0; halts = [];
 }

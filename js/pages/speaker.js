@@ -8,6 +8,7 @@ import {
     getEquipages,
     getConfig,
     listenForJudges,
+    getJudges,
     listenForDressageProtocolsCollectionGroup,
     listenForDressageLiveGroup,
     listenForDressageStatusCollection,
@@ -16,15 +17,15 @@ import {
     listenForConfig
 } from '../services/firestoreService.js';
 import {
+    getPrograms,
     getDressagePenaltyCoeff,
-    computeFinalFromSaved,
     normalizeMovements,
     deduplicateAndFilterProtocols,
     guessProgramKeyFromClass,
-    calculateAggregateDressagePenalty,
-    normJudgeId,
-    calcLiveJudgeProjection
+    normJudgeId
 } from '../utils/dressageUtils.js';
+import { calculateDressageResult, calculateSingleJudgeDressageResult, calculateTotalResult } from '../services/calculationService.js';
+import { openEquipageModal } from '../ui/equipage-modal.js';
 
 import { getCompetitionHeader } from '../ui/components.js';
 import { onSnapshot, doc, collection } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
@@ -42,9 +43,9 @@ import {
     pausedMsBetween,
     stageStartTS,
     stageStopTS,
-    toTimeLabel,
     formatMsLive,
     pausedMsSince,
+    setPauseWindows,
     setMarathonConfig,
     limitsFor,
     calculateMarathonResult,
@@ -53,7 +54,9 @@ import {
     calculateProjectedPenalty,
     calculateClassSplitStats,
     analyzeSectorProgress,
-    maraton_marathonConfig
+    maraton_marathonConfig,
+    buildMergeMap,
+    ensureMergeDecorations
 } from '../utils/marathonUtils.js';
 
 import { showDetailsModal as showMarathonDetailsModal } from '../ui/marathonModal.js';
@@ -61,7 +64,8 @@ import { showDetailsModal as showMarathonDetailsModal } from '../ui/marathonModa
 import {
     computeMaxSecondsForClass,
     calculatePrecisionTimePenalty,
-    getPrecisionRanking
+    getPrecisionRanking,
+    getCalculatedRowData
 } from '../utils/precisionUtils.js';
 
 import { startMarathonSimulation } from '../utils/simulator.js';
@@ -96,6 +100,67 @@ let manualFocusId = null; // För att manuellt välja vem man tittar på i marat
 let obstacleFocusVal = null; // New: Selected obstacle number for "Obstacle Focus View"
 let sidebarClassFocus = null; // New: Manually selected class for the sidebar leaderboard
 
+let lastFullRenderTime = 0;
+let lastActiveRiderId = null;
+let lastActiveDiscipline = null;
+
+function ensureMainTicker() {
+    if (window.marathonLiveInterval) return;
+    window.marathonLiveInterval = setInterval(() => {
+        updateLiveClocks();
+    }, 100);
+}
+
+window.showRiderDetails = (sn) => {
+    try {
+        const eq = allEquipages.find(e => String(e.startNumber) === String(sn));
+        if (!eq) return;
+
+        if (currentDiscipline === 'maraton') {
+            showMarathonDetailsModal(sn, allEquipages, maratonStatusMap);
+        } else if (currentDiscipline === 'dressyr') {
+            showDressageDetailsModal(sn, { equipages: allEquipages, statusMap: dressageStatusMap, currentJudges: allJudges });
+        } else if (currentDiscipline === 'precision') {
+            showPrecisionDetailsModal(sn, allEquipages, precisionStatusMap, precisionConfig, startTimes);
+        } else {
+            // 'totalt' tab needs the unified equipage modal
+            // Use the same class/grouping logic as the sidebar and result page
+            const cls = eq.className || '';
+            const mergedKey = eq.mergedTestKey || eq._mergedKey;
+            
+            // Try to provide a full list for the class to support rankings/placings in modal
+            const liveInfo = calculateLiveInjection(eq); // Include live prognosis if this is the active rider
+            const resultRows = getTotalRanking(cls, liveInfo);
+            
+            const ctx = {
+                competitionId: competitionId || (getGlobalState ? getGlobalState('currentCompetition')?.id : null),
+                equipages: allEquipages || [],
+                resultRows: resultRows,
+                dressageMap: dressageStatusMap,
+                maratonMap: maratonStatusMap,
+                precisionMap: precisionStatusMap,
+                allCompetitionJudges: allJudges,
+                marathonConfig: maraton_marathonConfig,
+                precisionConfig: precisionConfig || {},
+                // Add these for full compatibility
+                limitsFor: limitsFor,
+                secondsToMMSS: (s) => { if (s == null || isNaN(s)) return null; const m = Math.floor(s / 60); const ss = Math.round(s % 60).toString().padStart(2, '0'); return `${m}:${ss}`; }
+            };
+            
+            if (typeof openEquipageModal === 'function') {
+                openEquipageModal(sn, ctx);
+            } else {
+                console.error('openEquipageModal not found');
+            }
+        }
+    } catch (err) {
+        console.error('Error in showRiderDetails:', err);
+    }
+};
+
+let isGloballyPaused = false;
+let pauseStartTime = 0;
+
 let unsubscribes = [];
 
 // ================= Helpers =================
@@ -124,12 +189,86 @@ function expandDressagePosition(j) {
     return '';
 }
 
+// ---- Speaker helpers: normalize state/result across sources ----
+function normState(v) {
+    return String(v || '').toLowerCase().trim();
+}
+
+function getDressageFinalPenalty(sn) {
+    const S = String(sn || '');
+    if (!S) return null;
+    const st = dressageStatusMap.get(S) || {};
+
+    // Accept multiple field names (speaker should be robust)
+    const candidates = [
+        st.finalPenalty,
+        st.penalty,
+        st.totalPenalty,
+        st.total,
+        st.resultPenalty
+    ];
+
+    for (const v of candidates) {
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return null;
+}
+
+function getDressageFinalPercent(sn) {
+    const S = String(sn || '');
+    if (!S) return null;
+    const st = dressageStatusMap.get(S) || {};
+
+    const candidates = [
+        st.finalPercent,
+        st.percent,
+        st.totalPercent
+    ];
+
+    for (const v of candidates) {
+        const n = Number(v);
+        if (Number.isFinite(n)) return n;
+    }
+    return null;
+}
+
+function normDressageState(st = {}, eq = {}) {
+    // Prefer explicit status object, otherwise fall back to equipage status fields
+    const s = normState(st.state || st.status || eq.status || eq.dressageStatus || eq.eqStatus);
+
+    // Common synonyms / legacy values
+    if (['finished', 'done', 'complete', 'completed', 'slut', 'klar'].includes(s)) return 'finished';
+    if (['active', 'in-progress', 'inprogress', 'started', 'pågår', 'paga'].includes(s)) return 'active';
+    if (['not-started', 'notstarted', 'ready', 'upcoming', 'väntar', 'vantar'].includes(s)) return 'not-started';
+
+    // If we already have a final result, treat as finished even if state is missing
+    const pen = getDressageFinalPenalty(String(eq.startNumber ?? st.startNumber ?? st.id ?? ''));
+    if (pen != null) return 'finished';
+
+    return s || 'not-started';
+}
+
 let renderTimeout = null;
-function triggerRender() {
+function triggerRender(force = false) {
     clearTimeout(renderTimeout);
     renderTimeout = setTimeout(() => {
         findCurrentRider();
-        renderSpeakerDashboard();
+        
+        const now = Date.now();
+        const riderChanged = currentRider?.eq?.id !== lastActiveRiderId;
+        const disciplineChanged = currentDiscipline !== lastActiveDiscipline;
+
+        // Only do a FULL render if forced, or state changed, or it's been a while (2s)
+        if (force || riderChanged || disciplineChanged || (now - lastFullRenderTime > 2000)) {
+            renderSpeakerDashboard();
+            lastFullRenderTime = now;
+            lastActiveRiderId = currentRider?.eq?.id;
+            lastActiveDiscipline = currentDiscipline;
+        } else {
+            // Otherwise JUST update the live clocks/timers (which use textContent)
+            updateLiveClocks();
+        }
     }, 100);
 }
 
@@ -163,10 +302,19 @@ function getLeaderToBeat(className, discipline) {
             if (st && st.totalPenalty != null) score = st.totalPenalty;
         }
 
-        if (score !== null) {
+        if (score !== null || discipline === 'precision') {
+            if (discipline === 'precision') {
+                const calc = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+                score = calc.totalPenalty;
+                if (score === null) return;
+            }
+
             if (isBetter(best ? best.score : null, score, discipline)) {
                 let time = '';
-                if (discipline === 'precision') time = precisionStatusMap.get(sn)?.time || '';
+                if (discipline === 'precision') {
+                    const st = precisionStatusMap.get(sn);
+                    time = st?.time || (score != null ? msToLabel(st?.timeMs || 0) : '');
+                }
                 best = { score, name: eq.driverName, sn: eq.startNumber, time };
             }
         }
@@ -177,10 +325,8 @@ function getLeaderToBeat(className, discipline) {
 // ================= Live Clock =================
 let liveClockInterval = null;
 function startLiveClock() {
-    if (liveClockInterval) clearInterval(liveClockInterval);
-    liveClockInterval = setInterval(() => {
-        updateLiveClocks();
-    }, 100);
+    // Legacy helper - redirected to ensureMainTicker
+    ensureMainTicker();
 }
 
 function updateLiveClocks() {
@@ -191,12 +337,14 @@ function updateLiveClocks() {
     const pPenEl = document.getElementById('precision-live-time-penalty');
     const pTotEl = document.getElementById('precision-live-total');
 
+    const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+
     if (pTimeEl && currentDiscipline === 'precision') {
         const d = currentRider.data || currentRider.statusData || {};
         const eq = currentRider.eq;
 
         if (d.running && d.liveStartEpoch) {
-            const ms = (d.livePausedMs || 0) + (Date.now() - d.liveStartEpoch);
+            const ms = (d.livePausedMs || 0) + (tickTimeNow - d.liveStartEpoch);
             pTimeEl.textContent = formatMsLive(ms);
 
             // Live Penalty Ticker
@@ -219,20 +367,48 @@ function updateLiveClocks() {
         }
     }
 
+    // 3. Central Speaker Card (Rank, Margin, etc)
+    const cardRankEl = document.getElementById('speaker-live-rank');
+    const cardTotalEl = document.getElementById('speaker-live-total');
+    const cardMarginEl = document.getElementById('speaker-live-margin');
+
+    if (currentRider && currentRider.eq && (cardRankEl || cardTotalEl || cardMarginEl)) {
+        const eq = currentRider.eq;
+        const liveInjection = calculateLiveInjection(eq);
+        const totalRanking = getTotalRanking(eq.className, liveInjection);
+        const myIdx = totalRanking.findIndex(r => String(r.sn) === String(eq.startNumber));
+
+        if (myIdx !== -1) {
+            const myR = totalRanking[myIdx];
+            if (cardRankEl) cardRankEl.textContent = (myIdx + 1);
+            if (cardTotalEl && myR.total !== Infinity) cardTotalEl.textContent = myR.total.toFixed(2);
+
+            if (cardMarginEl && totalRanking.length > 1) {
+                const others = totalRanking.filter(r => String(r.sn) !== String(eq.startNumber) && !r.isEliminated);
+                if (others.length > 0) {
+                    const leader = others[0];
+                    const diff = myR.total - leader.total;
+                    const isLeader = myIdx === 0;
+
+                    if (isLeader) {
+                        const nextBest = others[0].total; // Wait, if I'm leader, others[0] IS the next best
+                        const margin = nextBest - myR.total;
+                        cardMarginEl.textContent = `Segermarginal: ${Math.abs(margin).toFixed(2)}`;
+                        cardMarginEl.className = "text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200";
+                    } else {
+                        const leaderTotal = totalRanking[0].total;
+                        const behind = myR.total - leaderTotal;
+                        cardMarginEl.textContent = `Upp till ledning: +${behind.toFixed(2)}`;
+                        cardMarginEl.className = "text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200";
+                    }
+                }
+            }
+        }
+    }
+
     // Marathon Live Time
     const mTimeEl = document.getElementById('marathon-live-time');
 
-    // Debug helper (logs once every 5 seconds)
-    const now = Date.now();
-    if (!window.lastTickDebug || now - window.lastTickDebug > 5000) {
-        console.log('[Tick] running...', {
-            discipline: currentDiscipline,
-            hasRider: !!currentRider,
-            mTimeEl: !!mTimeEl,
-            sectorTimers: document.querySelectorAll('.sector-live-timer').length
-        });
-        window.lastTickDebug = now;
-    }
 
     if (currentDiscipline === 'maraton') {
         const d = currentRider ? (currentRider.data || currentRider.statusData || {}) : {};
@@ -243,8 +419,8 @@ function updateLiveClocks() {
             let handled = false;
 
             // Priority: Active Equipage (Source of Truth)
-            if (active && active.startTime > 1600000000000) {
-                const ms = Math.max(0, (Date.now() - active.startTime) - active.pausedMs);
+            if (active && (active.timerBaseMs > 0 || active.fixedElapsedMs != null)) {
+                const ms = Math.max(0, active.fixedElapsedMs != null ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - pausedMsSince(active.timerBaseMs, tickTimeNow) : 0));
                 mTimeEl.textContent = formatMsLive(ms);
                 handled = true;
             }
@@ -255,7 +431,7 @@ function updateLiveClocks() {
                 if (d.liveObstacleStartAt) {
                     const start = d.liveObstacleStartAt.toMillis ? d.liveObstacleStartAt.toMillis() : d.liveObstacleStartAt;
                     if (start > 0) {
-                        mTimeEl.textContent = formatMsLive(Date.now() - start);
+                        mTimeEl.textContent = formatMsLive(tickTimeNow - start);
                         handled = true;
                     }
                 }
@@ -269,7 +445,7 @@ function updateLiveClocks() {
 
                     const start = stageStartTS(d, s);
                     if (start > 0) {
-                        mTimeEl.textContent = formatMsLive(Date.now() - start - pausedMsSince(start));
+                        mTimeEl.textContent = formatMsLive(tickTimeNow - start - pausedMsSince(start, tickTimeNow));
                         handled = true;
                     }
                 }
@@ -292,12 +468,12 @@ function updateLiveClocks() {
 
             // Check ActiveEquipages first (Strict Stage Match)
             const act = sn ? activeEquipages.get(String(sn)) : null;
-            if (act && act.startTime > 1600000000000) {
+            if (act && (act.timerBaseMs > 0 || act.fixedElapsedMs != null)) {
                 // Robust Match: If active task started at approximately the same time as the sector timer (data-start),
                 // then we can trust the active record's pausedMs and startTime.
                 // This avoids issues with key naming ('wait_b' vs 'transport' vs 'A') or case sensitivity.
-                if (startStr && Math.abs(act.startTime - Number(startStr)) < 2000) {
-                    const ms = Math.max(0, (Date.now() - act.startTime) - act.pausedMs);
+                if (startStr && Math.abs((act.startTime || act.timerBaseMs) - Number(startStr)) < 2000) {
+                    const ms = Math.max(0, act.fixedElapsedMs != null ? act.fixedElapsedMs : (act.timerBaseMs ? (tickTimeNow - act.timerBaseMs) - pausedMsSince(act.timerBaseMs, tickTimeNow) : 0));
                     sec = ms / 1000;
                     handled = true;
                 } else {
@@ -309,7 +485,7 @@ function updateLiveClocks() {
             if (!handled && startStr && !isNaN(Number(startStr))) {
                 // Fallback to data-start (calculated via stageStartTS)
                 const start = Number(startStr);
-                const ms = Date.now() - start - pausedMsSince(start);
+                const ms = tickTimeNow - start - pausedMsSince(start, tickTimeNow);
                 sec = ms / 1000;
             }
 
@@ -336,17 +512,17 @@ function updateLiveClocks() {
             let handled = false;
 
             const act = sn ? activeEquipages.get(String(sn)) : null;
-            if (act && act.startTime > 1600000000000) {
+            if (act && (act.timerBaseMs > 0 || act.fixedElapsedMs != null)) {
                 // Robust Match: Proximity check (same as above)
-                if (startStr && Math.abs(act.startTime - Number(startStr)) < 2000) {
-                    ms = Math.max(0, (Date.now() - act.startTime) - act.pausedMs);
+                if (startStr && Math.abs((act.startTime || act.timerBaseMs) - Number(startStr)) < 2000) {
+                    ms = Math.max(0, act.fixedElapsedMs != null ? act.fixedElapsedMs : (act.timerBaseMs ? (tickTimeNow - act.timerBaseMs) - pausedMsSince(act.timerBaseMs, tickTimeNow) : 0));
                     handled = true;
                 }
             }
 
             if (!handled && startStr && !isNaN(Number(startStr))) {
                 const start = Number(startStr);
-                ms = Date.now() - start - pausedMsSince(start);
+                ms = tickTimeNow - start - pausedMsSince(start, tickTimeNow);
             }
 
             if (ms > 0) {
@@ -374,7 +550,7 @@ window.editSpeakerNotes = (sn) => {
     // Replace with textarea
     const area = document.createElement('textarea');
     area.id = 'edit-notes-area';
-    area.className = 'w-full h-32 p-2 border rounded text-lg text-gray-800 font-serif mb-2';
+    area.className = 'w-full h-32 p-2 border rounded text-lg text-gray-800  mb-2';
     area.value = currentText;
 
     const btnContainer = document.createElement('div');
@@ -460,21 +636,21 @@ function renderLayout() {
     contentContainer.innerHTML = '';
 
     // Render specific layout based on discipline
-    if (currentDiscipline === 'maraton') {
-        renderMarathon();
+    if (currentDiscipline === 'maraton' || currentDiscipline === 'totalt') {
+        renderMarathon(); 
     } else {
         // Default layout for Dressage and Precision
         contentContainer.innerHTML = `
             <div class="grid grid-cols-12 gap-4 items-start">
                 <!-- VÄNSTER: På banan + Noteringar (Stor yta) -->
                 <div class="col-span-12 lg:col-span-8 flex flex-col gap-4 pr-2">
-                    <div id="current-rider-card" class="bg-white p-6 rounded-xl shadow-lg border-l-8 border-brand-gold min-h-[200px] shrink-0">
-                        <p class="text-gray-500 text-center italic">Laddar pågående ekipage...</p>
+                    <div id="current-rider-card" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg border-l-8 border-brand-gold dark:border-yellow-600 min-h-[200px] shrink-0">
+                        <p class="text-gray-500 dark:text-gray-400 text-center italic">Laddar pågående ekipage...</p>
                     </div>
                     
-                    <div id="speaker-notes-card" class="bg-yellow-50 p-6 rounded-xl shadow border border-yellow-200 h-fit">
-                        <h3 class="text-sm uppercase tracking-wide text-yellow-800 font-bold mb-2">📢 Speaker Noteringar</h3>
-                        <div id="speaker-notes-content" class="text-lg text-gray-800 leading-relaxed whitespace-pre-wrap font-serif">
+                    <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 p-6 rounded-xl shadow border border-yellow-200 dark:border-yellow-800/50 h-fit">
+                        <h3 class="text-sm uppercase tracking-wide text-yellow-800 dark:text-yellow-200 font-bold mb-2">📢 Speaker Noteringar</h3>
+                        <div id="speaker-notes-content" class="text-lg text-gray-800 dark:text-gray-200 leading-relaxed whitespace-pre-wrap ">
                            Ingen information tillgänglig.
                         </div>
                     </div>
@@ -483,18 +659,18 @@ function renderLayout() {
                 <!-- HÖGER: Kommande + Resultat (Smalare yta) -->
                 <div class="col-span-12 lg:col-span-4 flex flex-col gap-4">
                     
-                    <div id="active-list-container" class="bg-white rounded-lg shadow flex flex-col mb-4 hidden h-fit">
-                        <div class="bg-brand-gold bg-opacity-20 px-4 py-2 border-b border-brand-gold border-opacity-30"><h3 class="font-bold text-yellow-900">🔥 På banan</h3></div>
+                    <div id="active-list-container" class="bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col mb-4 hidden h-fit">
+                        <div class="bg-brand-gold bg-opacity-20 dark:bg-yellow-900/40 px-4 py-2 border-b border-brand-gold border-opacity-30 dark:border-yellow-700/50"><h3 class="font-bold text-yellow-900 dark:text-yellow-100">🔥 På banan</h3></div>
                         <div id="active-list" class="p-2 space-y-2"></div>
                     </div>
 
-                    <div id="upcoming-list-container" class="bg-white rounded-lg shadow flex flex-col max-h-[500px] overflow-hidden">
-                        <div class="bg-gray-100 px-4 py-2 border-b"><h3 class="font-bold text-gray-700">Kommande startande</h3></div>
+                    <div id="upcoming-list-container" class="bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col max-h-[500px] overflow-hidden">
+                        <div class="bg-gray-100 dark:bg-gray-700 px-4 py-2 border-b dark:border-gray-600"><h3 class="font-bold text-gray-700 dark:text-gray-200">Kommande startande</h3></div>
                         <div id="upcoming-list" class="p-2 space-y-2 overflow-y-auto"></div>
                     </div>
 
-                    <div class="bg-white rounded-lg shadow flex flex-col max-h-[400px] overflow-hidden">
-                        <div class="bg-gray-100 px-4 py-2 border-b"><h3 class="font-bold text-gray-700">Senaste resultat</h3></div>
+                    <div class="bg-white dark:bg-gray-800 rounded-lg shadow flex flex-col max-h-[400px] overflow-hidden">
+                        <div class="bg-gray-100 dark:bg-gray-700 px-4 py-2 border-b dark:border-gray-600"><h3 class="font-bold text-gray-700 dark:text-gray-200">Senaste resultat</h3></div>
                         <div id="recent-results-list" class="p-2 space-y-2 overflow-y-auto"></div>
                     </div>
                 </div>
@@ -526,17 +702,17 @@ function renderMarathon() {
             <!-- Left Main Column (9) -->
             <div class="lg:col-span-9 flex flex-col gap-6">
                 <!-- Main Rider Card -->
-                <div id="current-rider-card" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden shrink-0">
+                <div id="current-rider-card" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0">
                     <!-- renderCurrentRiderCard renders here -->
                 </div>
                 
                 <!-- Obstacle Focus (Full Width in Left Col) -->
-                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
-                    <div class="bg-gray-50 px-4 py-2 border-b border-gray-100 flex justify-between items-center">
-                        <h3 class="font-bold text-gray-800 uppercase tracking-wide text-xs">Hinderresultat (Fokus)</h3>
+                 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-fit">
+                    <div class="bg-gray-50 dark:bg-gray-700/50 px-4 py-2 border-b border-gray-100 dark:border-gray-600 flex justify-between items-center">
+                        <h3 class="font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide text-xs">Hinderresultat (Fokus)</h3>
                          <div class="flex items-center gap-2">
-                            <label class="text-[10px] font-bold text-gray-500 uppercase">Välj Hinder:</label>
-                            <select onchange="window.setObstacleFocus(this.value)" class="text-xs border-gray-300 rounded shadow-sm focus:border-blue-500 focus:ring-blue-500 py-1">
+                            <label class="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase">Välj Hinder:</label>
+                            <select onchange="window.setObstacleFocus(this.value)" class="text-xs border-gray-300 dark:border-gray-600 rounded shadow-sm focus:border-blue-500 focus:ring-blue-500 py-1 dark:bg-gray-700 dark:text-white">
                                 <option value="">- Göm -</option>
                                 ${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${Number(obstacleFocusVal) === n ? 'selected' : ''}>Hinder ${n}</option>`).join('')}
                             </select>
@@ -548,9 +724,9 @@ function renderMarathon() {
                   </div>
 
                 <!-- Sector Analysis -->
-                <div id="sector-analysis-container" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
-                    <div class="bg-indigo-50 px-4 py-2 border-b border-indigo-100 flex justify-between items-center">
-                        <h3 class="font-bold text-indigo-800 uppercase tracking-wide text-xs">Sektoranalys (Vägsträckor A / T)</h3>
+                <div id="sector-analysis-container" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-fit">
+                    <div class="bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2 border-b border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
+                        <h3 class="font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wide text-xs">Sektoranalys (Vägsträckor A / T)</h3>
                     </div>
                     <div id="sector-analysis-content" class="p-0">
                         <!-- renderSectorAnalysis renders here -->
@@ -558,20 +734,20 @@ function renderMarathon() {
                 </div>
 
                  <!-- Speaker Notes (Moved to Left) -->
-                 <div id="speaker-notes-card" class="bg-yellow-50 rounded-xl shadow-sm border border-yellow-200 p-4 shrink-0 h-fit min-h-[150px]">
+                 <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl shadow-sm border border-yellow-200 dark:border-yellow-800/50 p-4 shrink-0 h-fit min-h-[150px]">
                     <div class="flex justify-between items-center mb-2">
-                        <h3 class="font-bold text-yellow-800 uppercase tracking-wide text-xs">Speaker Noteringar</h3>
-                         <button onclick="window.editSpeakerNotes(currentRider?.eq?.startNumber)" class="text-yellow-600 hover:text-yellow-800 text-xs font-bold px-2 py-1 bg-yellow-100 rounded">✎ Ändra</button>
+                        <h3 class="font-bold text-yellow-800 dark:text-yellow-200 uppercase tracking-wide text-xs">Speaker Noteringar</h3>
+                         <button onclick="window.editSpeakerNotes(currentRider?.eq?.startNumber)" class="text-yellow-600 hover:text-yellow-800 dark:text-yellow-300 dark:hover:text-yellow-100 text-xs font-bold px-2 py-1 bg-yellow-100 dark:bg-yellow-800/50 rounded">✎ Ändra</button>
                     </div>
-                    <div id="speaker-notes-content" class="text-gray-800 text-lg font-serif italic leading-relaxed">
+                    <div id="speaker-notes-content" class="text-gray-800 dark:text-gray-200 text-lg  italic leading-relaxed">
                         Inga specifika noteringar inlagda.
                     </div>
                  </div>
                 
                 <!-- Upcoming / Startlist -->
-                <div id="upcoming-list-container" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
-                    <div class="bg-gray-50 px-4 py-2 border-b border-gray-100">
-                         <h3 class="font-bold text-gray-500 uppercase tracking-wide text-xs">Kommande startande</h3>
+                <div id="upcoming-list-container" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-fit">
+                    <div class="bg-gray-50 dark:bg-gray-700/50 px-4 py-2 border-b border-gray-100 dark:border-gray-600">
+                         <h3 class="font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide text-xs">Kommande startande</h3>
                     </div>
                      <div id="upcoming-list-content" class="p-2 space-y-1">
                         <!-- renderUpcomingList renders here -->
@@ -582,10 +758,10 @@ function renderMarathon() {
             <!-- Right Sidebar Column (3) -->
             <div class="lg:col-span-3 flex flex-col gap-4">
                  <!-- Active List (Moved to Top Right) -->
-                <div id="active-list-container" class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-fit">
-                    <div class="bg-amber-50 px-4 py-2 border-b border-amber-100 flex justify-between items-center">
-                        <h3 class="font-bold text-amber-800 uppercase tracking-wide text-xs">På banan just nu</h3>
-                        <span class="text-xs font-bold text-amber-600 bg-amber-100 px-2 py-0.5 rounded-full" id="active-count-badge">0</span>
+                <div id="active-list-container" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-fit">
+                    <div class="bg-amber-50 dark:bg-amber-900/30 px-4 py-2 border-b border-amber-100 dark:border-amber-800 flex justify-between items-center">
+                        <h3 class="font-bold text-amber-800 dark:text-amber-200 uppercase tracking-wide text-xs">På banan just nu</h3>
+                        <span class="text-xs font-bold text-amber-600 dark:text-amber-300 bg-amber-100 dark:bg-amber-800/50 px-2 py-0.5 rounded-full" id="active-count-badge">0</span>
                     </div>
                     <div id="active-list-content" class="p-2 space-y-2 relative">
                         <!-- renderActiveListNew renders here -->
@@ -593,13 +769,13 @@ function renderMarathon() {
                 </div>
 
                  <!-- Leaderboard -->
-                 <div class="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col flex-1 overflow-hidden" style="max-height: 800px;">
-                     <div class="bg-blue-900 text-white px-4 py-3 flex justify-between items-center shrink-0">
-                         <h3 class="font-bold uppercase tracking-wider text-sm">Ställning</h3>
-                         <div class="text-[10px] bg-blue-800 px-2 py-0.5 rounded text-blue-200" id="sidebar-class-name">--</div>
+                 <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col flex-1 overflow-hidden" style="max-height: 800px;">
+                     <div class="bg-blue-900 dark:bg-blue-950 text-white px-4 py-3 flex justify-between items-center shrink-0">
+                         <h3 id="sidebar-leaderboard-title" class="font-bold uppercase tracking-wider text-sm">Ställning</h3>
+                         <div class="text-[10px] bg-blue-800 dark:bg-blue-900 px-2 py-0.5 rounded text-blue-200" id="sidebar-class-name">--</div>
                      </div>
                      
-                     <div class="p-2 border-b border-gray-100 bg-gray-50 shrink-0">
+                     <div class="p-2 border-b border-gray-100 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 shrink-0">
                          <div class="grid grid-cols-6 text-[10px] uppercase font-bold text-gray-400 px-2">
                              <div class="col-span-1">#</div>
                              <div class="col-span-3">Namn</div>
@@ -607,7 +783,7 @@ function renderMarathon() {
                          </div>
                      </div>
 
-                     <div id="sidebar-leaderboard-content" class="flex-1 p-0 overflow-y-auto">
+                     <div id="sidebar-leaderboard-content" class="flex-1 p-0 overflow-y-auto custom-scrollbar">
                          <!-- renderLeaderboardSidebar renders here -->
                      </div>
                  </div>
@@ -620,7 +796,6 @@ function renderMarathon() {
     renderActiveListNew();
     renderUpcomingList();
     renderLeaderboardSidebar(); // Ensure leaderboard updates on main render loop
-    renderLeaderboardSidebar();
 }
 
 // === EXPOSE INTERNALS FOR SIMULATOR ===
@@ -635,7 +810,17 @@ window.startStressTest = startMarathonSimulation;
 function renderLeaderboardSidebar() {
     const el = document.getElementById('sidebar-leaderboard-content');
     const badge = document.getElementById('sidebar-class-name');
+    const titleEl = document.getElementById('sidebar-leaderboard-title');
     if (!el) return;
+
+    // Update Title based on discipline
+    if (titleEl) {
+        if (currentDiscipline === 'maraton') titleEl.textContent = "Maratonställning";
+        else if (currentDiscipline === 'dressyr') titleEl.textContent = "Dressyrställning";
+        else if (currentDiscipline === 'precision') titleEl.textContent = "Precisionställning";
+        else if (currentDiscipline === 'totalt') titleEl.textContent = "Totalställning";
+        else titleEl.textContent = "Ställning";
+    }
 
     // 1. Determine which class to show
     let className = sidebarClassFocus || currentRider?.eq?.className;
@@ -647,13 +832,21 @@ function renderLeaderboardSidebar() {
 
     // 2. Build Class Switcher HTML
     if (badge) {
-        const uniqueClasses = [...new Set(allEquipages.map(e => e.className))].sort();
+        const uniqueClasses = [...new Set(allEquipages.map(e => e._mergedLabel || e.mergedTestLabel || e.className))].sort();
         if (uniqueClasses.length > 1) {
-            badge.innerHTML = `
-                <select onchange="window.setSidebarClassFocus(this.value)" class="bg-blue-800 text-white text-[10px] border-none rounded focus:ring-0 py-0.5 cursor-pointer pr-4">
-                    ${uniqueClasses.map(c => `<option value="${c}" ${c === className ? 'selected' : ''}>${c}</option>`).join('')}
-                </select>
-            `;
+            // Check if we already have the select to avoid flicker/reset
+            const existingSelect = badge.querySelector('select');
+            if (existingSelect) {
+                if (existingSelect.value !== className) {
+                    existingSelect.value = className;
+                }
+            } else {
+                badge.innerHTML = `
+                    <select onchange="window.setSidebarClassFocus(this.value)" class="bg-blue-800 text-white text-[10px] border-none rounded focus:ring-0 py-0.5 cursor-pointer pr-4">
+                        ${uniqueClasses.map(c => `<option value="${c}" ${c === className ? 'selected' : ''}>${c}</option>`).join('')}
+                    </select>
+                `;
+            }
         } else {
             badge.textContent = className || 'Ingen klass';
         }
@@ -664,69 +857,47 @@ function renderLeaderboardSidebar() {
         return;
     }
 
-    // 3. Get Ranking for ALL riders in this class
-    const riders = allEquipages.filter(e => e.className === className);
-    const ranked = riders.map(e => {
-        const sn = String(e.startNumber);
-        const mSt = maratonStatusMap.get(sn);
-
-        // Use getTotalRanking logic (Dressage + Marathon + Precision)
-        const dSt = dressageStatusMap.get(sn);
-        const pSt = precisionStatusMap.get(sn);
-
-        const dPen = dSt?.finalPenalty ?? null;
-        const mPen = mSt?.totalPenalty ?? null;
-        const pPen = pSt?.totalPenalty ?? null;
-
-        const total = computeTotalPenalty(dPen, mPen, pPen);
-        const isLive = activeEquipages.has(sn);
-
-        return {
-            sn: e.startNumber,
-            name: e.driverName,
-            club: e.clubName,
-            penalty: total,
-            isLive: isLive,
-            hasStartedMaraton: mSt != null && mSt.totalPenalty != null
-        };
-    }).sort((a, b) => {
-        const pA = (Number.isFinite(a.penalty)) ? a.penalty : 999999;
-        const pB = (Number.isFinite(b.penalty)) ? b.penalty : 999999;
-        return pA - pB;
-    });
+    // 3. Get Unified Ranking
+    const liveInjection = currentRider ? calculateLiveInjection(currentRider.eq || currentRider) : null;
+    const ranked = getTotalRanking(className, liveInjection);
 
     if (ranked.length === 0) {
         el.innerHTML = '<div class="p-4 text-center text-gray-400 italic text-xs">Inga ekipage i denna klass</div>';
         return;
     }
 
-    const leaderScore = (ranked.length > 0 && Number.isFinite(ranked[0].penalty)) ? ranked[0].penalty : 0;
+    const leaderScore = (ranked.length > 0 && Number.isFinite(ranked[0].total)) ? ranked[0].total : 0;
 
     el.innerHTML = ranked.map((r, i) => {
         const rank = i + 1;
         const isLeader = i === 0;
-        const diff = (Number.isFinite(r.penalty) && !isLeader) ? (r.penalty - leaderScore) : 0;
+        const diff = (Number.isFinite(r.total) && !isLeader) ? (r.total - leaderScore) : 0;
 
         let diffHtml = '';
-        if (Number.isFinite(r.penalty)) {
+        if (Number.isFinite(r.total)) {
             if (isLeader) diffHtml = `<span class="text-[10px] text-green-600 font-bold uppercase">LedarBoll</span>`;
-            else diffHtml = `<span class="text-[10px] text-red-400 font-mono">+${diff.toFixed(2)}</span>`;
+            else diffHtml = `<span class="text-[10px] text-red-400 tabular-nums tracking-wide">+${diff.toFixed(2)}</span>`;
         }
 
-        const scoreClass = r.isLive ? 'text-blue-600 animate-pulse' : 'text-gray-900';
-        const rowBg = r.isLive ? 'bg-blue-50' : (isLeader ? 'bg-yellow-50' : 'hover:bg-gray-50');
+        const isRunning = liveInjection && String(liveInjection.sn) === String(r.sn);
+        const scoreClass = isRunning ? 'text-blue-600 dark:text-blue-400 animate-pulse' : 'text-gray-900 dark:text-gray-100';
+        const rowBg = isRunning ? 'bg-blue-50 dark:bg-blue-900/20' : (isLeader ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30');
         const isSelected = (currentRider && String(currentRider.eq.startNumber) === String(r.sn));
         const selectedClass = isSelected ? 'ring-2 ring-inset ring-blue-400' : '';
 
+        // Note: r has { sn, name, total, tieBreakerTime } 
+        const eq = allEquipages.find(e => String(e.startNumber) === String(r.sn));
+        const club = eq?.clubName || '';
+
         return `
-        <div onclick="showRiderDetails('${r.sn}')" class="grid grid-cols-6 items-center p-2 border-b border-gray-100 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
-            <div class="col-span-1 font-bold text-gray-500 text-xs">${rank}.</div>
+        <div onclick="window.showRiderDetails('${r.sn}')" class="grid grid-cols-6 items-center p-2 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
+            <div class="col-span-1 font-bold text-gray-500 dark:text-gray-400 text-xs">${rank}.</div>
             <div class="col-span-3 min-w-0 pr-1">
-                <div class="font-bold text-gray-800 text-sm truncate leading-tight">${r.name}</div>
-                <div class="text-[10px] text-gray-400 truncate">${r.club}</div>
+                <div class="font-bold text-gray-800 dark:text-gray-200 text-sm truncate leading-tight">${r.name}</div>
+                <div class="text-[10px] text-gray-400 dark:text-gray-500 truncate">${club}</div>
             </div>
             <div class="col-span-2 text-right">
-                <div class="font-mono font-bold text-sm ${scoreClass}">${Number.isFinite(r.penalty) ? r.penalty.toFixed(1) : '—'}</div>
+                <div class="tabular-nums tracking-wide font-bold text-sm ${scoreClass}">${r.total === Infinity ? 'UT' : (Number.isFinite(r.total) ? r.total.toFixed(1) : '—')}</div>
                 ${diffHtml}
             </div>
         </div>`;
@@ -734,22 +905,15 @@ function renderLeaderboardSidebar() {
 }
 
 // Make global for inline clicks
-window.closeRiderModal = () => {
-    const modal = document.getElementById('rider-detail-modal');
-    if (modal) modal.classList.add('hidden');
-};
-
-window.showRiderDetails = (sn) => {
-    if (currentDiscipline === 'precision') {
-        showDetailsModal(sn, allEquipages, precisionStatusMap, precisionConfig, startTimes);
-    } else {
-        console.log('Detail view not implemented for ' + currentDiscipline);
-    }
-};
 
 window.setComparisonRider = (val) => {
     window.compareRiderId = val;
-    triggerRender();
+    triggerRender(true);
+};
+
+window.setSidebarClassFocus = (val) => {
+    sidebarClassFocus = val;
+    triggerRender(true);
 };
 
 function updateDisciplineUI() {
@@ -761,6 +925,7 @@ function updateDisciplineUI() {
             <button onclick="switchDiscipline('dressyr')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'dressyr' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Dressyr</button>
             <button onclick="switchDiscipline('maraton')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'maraton' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Maraton</button>
             <button onclick="switchDiscipline('precision')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'precision' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Precision</button>
+            <button onclick="switchDiscipline('totalt')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'totalt' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Totalt</button>
             
             <!-- Stress Test Button -->
             <button onclick="if(confirm('Starta Stress-test?')) window.startStressTest()" class="text-xs px-2 py-1 text-red-300 hover:text-red-500 hover:bg-red-50 rounded" title="Simulera">⚡</button>
@@ -775,7 +940,7 @@ function switchDiscipline(newDisc) {
     updateDisciplineUI();
     setupAllListeners();
     manualFocusId = null;
-    triggerRender();
+    triggerRender(true);
 }
 window.switchDiscipline = switchDiscipline;
 
@@ -786,29 +951,23 @@ async function verifyDressageResult(sn, st, eq) {
         const programObj = programKey ? mergedPrograms[programKey] : null;
 
         if (programObj) {
-            const protocols = await getDressageResultsForEquipage(competitionId, eq.id || sn); // Helper might expect ID or SN? logic checks both?
-            // getDressageResultsForEquipage usually returns array of protocols
+            const protocols = await getDressageResultsForEquipage(competitionId, eq.id || sn);
+            const programs = getPrograms();
+            const result = calculateDressageResult(eq, protocols, allJudges, programs);
 
-            // Allow for SN based fetch if ID logic fails in service? 
-            // The imported service 'getDressageResultsForEquipage(compId, equipageId)'
-            // We'll trust it returns what we need.
-
-            if (Array.isArray(protocols) && protocols.length > 0) {
-                // strict filter validation
-                const cleanProtocols = deduplicateAndFilterProtocols(protocols, allJudges); // Use global allJudges
-                const final = computeFinalFromSaved(eq, cleanProtocols, programObj);
-                if (final) {
-                    // Update map with VERIFIED calculation
-                    const current = dressageStatusMap.get(sn) || {};
-                    dressageStatusMap.set(sn, {
-                        ...current,
-                        finalPercent: final.percent,
-                        finalPoints: final.points,
-                        finalPenalty: final.penalty,
-                        _verified: true
-                    });
-                    triggerRender();
-                }
+            if (result && result.penalty != null) {
+                // Update map with VERIFIED calculation
+                const current = dressageStatusMap.get(sn) || {};
+                dressageStatusMap.set(sn, {
+                    ...current,
+                    finalPercent: result.percent,
+                    finalPoints: result.points,
+                    finalPenalty: result.penalty,
+                    errorPoints: result.errorPoints,
+                    errorPenalty: result.penalty,
+                    _verified: true
+                });
+                triggerRender();
             }
         }
     } catch (e) {
@@ -833,6 +992,7 @@ function attachSwitcherEvents() {
     document.getElementById('btn-dressyr')?.addEventListener('click', () => switchDiscipline('dressyr'));
     document.getElementById('btn-maraton')?.addEventListener('click', () => switchDiscipline('maraton'));
     document.getElementById('btn-precision')?.addEventListener('click', () => switchDiscipline('precision'));
+    document.getElementById('btn-totalt')?.addEventListener('click', () => switchDiscipline('totalt'));
 }
 
 function renderSpeakerDashboard() {
@@ -841,8 +1001,9 @@ function renderSpeakerDashboard() {
     renderActiveListNew();
     renderSectorAnalysis();
     renderUpcomingList();
-    renderResultList();
+    renderRecentResultsList();
     renderLeaderboardSidebar();
+    ensureSpeakerTicker();
 }
 
 function selectRider(sn) {
@@ -892,7 +1053,8 @@ function getActiveMarathonRunners() {
         if (d.running && d.liveObstacleStartAt) {
             const start = d.liveObstacleStartAt.toMillis ? d.liveObstacleStartAt.toMillis() : d.liveObstacleStartAt;
             if (start > 0) {
-                const ms = Date.now() - start;
+                const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+                const ms = Math.max(0, tickTimeNow - start - pausedMsSince(start, tickTimeNow));
                 timeLabel = (ms / 1000).toFixed(0) + 's';
             }
         }
@@ -940,8 +1102,8 @@ function renderObstacleLeaderboard(obstacleNum) {
 
     return `
     <div class="overflow-x-auto">
-        <table class="w-full text-sm text-left text-gray-600">
-            <thead class="text-xs text-gray-700 uppercase bg-gray-50 border-b">
+        <table class="w-full text-sm text-left text-gray-600 dark:text-gray-300">
+            <thead class="text-xs text-gray-700 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
                 <tr>
                     <th class="px-3 py-2">#</th>
                     <th class="px-3 py-2">Ekipage</th>
@@ -950,13 +1112,13 @@ function renderObstacleLeaderboard(obstacleNum) {
             </thead>
             <tbody>
                 ${top10.map((r, i) => `
-                <tr class="bg-white border-b hover:bg-gray-50 cursor-pointer" onclick="window.selectSpeakerRider('${r.sn}')">
-                    <td class="px-3 py-2 font-bold ${i < 3 ? 'text-brand-gold' : 'text-gray-400'}">${i + 1}</td>
+                <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onclick="window.selectSpeakerRider('${r.sn}')">
+                    <td class="px-3 py-2 font-bold ${i < 3 ? 'text-brand-gold dark:text-yellow-500' : 'text-gray-400 dark:text-gray-500'}">${i + 1}</td>
                     <td class="px-3 py-2">
-                        <div class="font-bold text-gray-800">${r.name}</div>
-                        <div class="text-[10px] text-gray-500">${r.class} • ${r.club}</div>
+                        <div class="font-bold text-gray-800 dark:text-gray-200">${r.name}</div>
+                        <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.class} • ${r.club}</div>
                     </td>
-                    <td class="px-3 py-2 text-right font-mono font-black text-gray-900">${r.penalty.toFixed(2)}</td>
+                    <td class="px-3 py-2 text-right tabular-nums tracking-wide font-black text-gray-900 dark:text-white">${(r.penalty != null) ? r.penalty.toFixed(2) : '—'}</td>
                 </tr>
                 `).join('')}
             </tbody>
@@ -977,7 +1139,7 @@ function renderActiveMarathonList(showFull = false) {
         const { eq, taskName, timeLabel } = item;
         const d = maratonStatusMap.get(String(eq.startNumber));
 
-        let statusColor = 'bg-green-50 text-green-800 border-green-100';
+        let statusColor = 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-300 border-green-100 dark:border-green-800/50';
         let icon = '🟢';
 
         // Check if "long time" warning?
@@ -988,32 +1150,32 @@ function renderActiveMarathonList(showFull = false) {
         if (res) {
             const prog = calculateProjectedPenalty(res, eq.className, null, maratonStatusMap, allEquipages);
             if (prog && Number.isFinite(prog.projectedTotal)) {
-                progHtml = `<div class="text-[10px] font-bold text-gray-500 mt-1">Prognos: ${prog.projectedTotal.toFixed(1)}</div>`;
+                progHtml = `<div class="text-[10px] font-bold text-gray-500 dark:text-gray-400 mt-1">Prognos: ${prog.projectedTotal != null ? prog.projectedTotal.toFixed(1) : '—'}</div>`;
             }
         }
 
         return `
-        <div onclick="window.selectSpeakerRider('${eq.startNumber}')" class="p-3 mb-2 rounded-lg border ${statusColor} hover:shadow-md cursor-pointer transition-all bg-white relative group">
+        <div onclick="window.selectSpeakerRider('${eq.startNumber}')" class="p-3 mb-2 rounded-lg border ${statusColor} hover:shadow-md cursor-pointer transition-all bg-white dark:bg-gray-800 relative group">
              <div class="flex justify-between items-start">
                  <div>
                      <div class="flex items-center gap-2">
-                        <span class="font-black text-lg text-gray-800 w-8">#${eq.startNumber}</span>
-                        <span class="font-bold text-sm text-gray-900 truncate max-w-[120px]" title="${eq.driverName}">${eq.driverName}</span>
+                        <span class="font-black text-lg text-gray-800 dark:text-gray-200 w-8">#${eq.startNumber}</span>
+                        <span class="font-bold text-sm text-gray-900 dark:text-white truncate max-w-[120px]" title="${eq.driverName}">${eq.driverName}</span>
                      </div>
-                     <div class="text-xs text-blue-700 font-bold mt-0.5 uppercase tracking-wide">${taskName}</div>
+                     <div class="text-xs text-blue-700 dark:text-blue-300 font-bold mt-0.5 uppercase tracking-wide">${taskName}</div>
                  </div>
                  <div class="text-right">
-                     <div class="text-xl font-mono font-black text-gray-800" id="maraton-timer-${eq.startNumber}">${timeLabel}</div>
+                     <div class="text-xl tabular-nums tracking-wide font-black text-gray-800 dark:text-gray-100" id="maraton-timer-${eq.startNumber}">${timeLabel}</div>
                  </div>
              </div>
              <div class="flex justify-between items-end mt-1">
-                 <div class="text-[10px] text-gray-400 truncate">${eq.className}</div>
+                 <div class="text-[10px] text-gray-400 dark:text-gray-500 truncate">${eq.className}</div>
                  ${progHtml}
              </div>
              
              <!-- Hover prompt -->
-             <div class="absolute inset-0 bg-blue-50/50 opacity-0 group-hover:opacity-100 flex items-center justify-center pointer-events-none transition-opacity">
-                <span class="bg-white shadow px-2 py-1 rounded text-xs font-bold text-blue-800">Visa Detaljer</span>
+             <div class="absolute inset-0 bg-blue-50/50 dark:bg-blue-900/50 opacity-0 group-hover:opacity-100 flex items-center justify-center pointer-events-none transition-opacity">
+                <span class="bg-white dark:bg-gray-800 shadow px-2 py-1 rounded text-xs font-bold text-blue-800 dark:text-blue-300">Visa Detaljer</span>
              </div>
         </div>`;
     }).join('');
@@ -1072,7 +1234,7 @@ function renderActiveList() {
 
     el.innerHTML = sourceArr.map(c => {
         const isSelected = (manualFocusId && String(manualFocusId) === String(c.sn)) || (!manualFocusId && currentRider && String(currentRider.eq.startNumber) === String(c.sn));
-        const bgClass = isSelected ? 'bg-amber-100 border-amber-300' : 'bg-gray-50 hover:bg-gray-100 border-transparent';
+        const bgClass = isSelected ? 'bg-amber-100 border-amber-300 dark:bg-yellow-900/40 dark:border-yellow-700' : 'bg-gray-50 hover:bg-gray-100 dark:bg-gray-700/50 dark:hover:bg-gray-700 border-transparent';
         const isObstacle = c.task && c.task.type === 'obstacle';
 
         let statsHtml = '';
@@ -1085,21 +1247,22 @@ function renderActiveList() {
         }
 
         // Timer placeholder (updated by Ticker)
-        // Calc elapsed for initial render
-        const ms = (Date.now() - c.startTime) - c.pausedMs;
+        // Use pauseEndTime instead of true Date.now() if paused
+        const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+        const ms = (tickTimeNow - c.startTime) - c.pausedMs;
         const timeTxt = ms > 0 ? (ms / 1000).toFixed(1) + 's' : '0.0s';
 
         return `
         <div onclick="selectSpeakerRider(${c.sn})" class="cursor-pointer p-2 rounded border mb-1 last:mb-0 ${bgClass} transition-colors">
             <div class="flex justify-between items-center">
                 <div class="flex items-center gap-2 overflow-hidden">
-                    <span class="font-bold text-gray-900 text-sm whitespace-nowrap">#${c.sn}</span>
-                    <span class="text-sm truncate" title="${c.eq.driverName}">${c.eq.driverName}</span>
+                    <span class="font-bold text-gray-900 dark:text-white text-sm whitespace-nowrap">#${c.sn}</span>
+                    <span class="text-sm truncate dark:text-gray-200" title="${c.eq.driverName}">${c.eq.driverName}</span>
                 </div>
-                <span class="text-xs font-mono font-bold w-12 text-right text-gray-700" id="maraton-timer-${c.sn}">${timeTxt}</span>
+                <span class="text-xs tabular-nums tracking-wide font-bold w-12 text-right text-gray-700 dark:text-gray-300" id="maraton-timer-${c.sn}">${timeTxt}</span>
             </div>
-            <div class="flex justify-between mt-1 text-xs text-gray-600 items-baseline">
-                <span class="bg-white px-1 rounded border ${isObstacle ? 'text-amber-700 border-amber-200 bg-amber-50' : ''}">${c.task.name}</span>
+            <div class="flex justify-between mt-1 text-xs text-gray-600 dark:text-gray-400 items-baseline">
+                <span class="bg-white dark:bg-gray-600 px-1 rounded border dark:border-gray-500 ${isObstacle ? 'text-amber-700 dark:text-amber-200 border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/40' : 'text-gray-600 dark:text-gray-300'}">${c.task.name}</span>
                 ${statsHtml}
             </div>
         </div>
@@ -1131,21 +1294,28 @@ function renderSpeakerJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumbe
         if (!judgeObj) judgeObj = (window.currentJudgesPresent || []).find(j => String(j.position).toUpperCase() === pos);
         if (!judgeObj) judgeObj = (allJudges || []).find(j => String(j.id).toLowerCase() === cleanId);
         if (judgeObj) judgeName = judgeObj.name || judgeObj.fullname || '';
-
         const nameHtml = judgeName ? `<div class="text-[10px] text-gray-400 truncate -mt-0.5 mb-1">${judgeName}</div>` : '';
+        const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber)) || {};
+        const programs = getPrograms();
+        const testKey = d.testKey || d.programKey || eq?.testKey;
+        const pObj = programs[testKey] || (eq?.className ? programs[guessProgramKeyFromClass(eq.className, programs)] : null);
 
         // Calculate projection
-        const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber));
-        const proj = calcLiveJudgeProjection(d, mergedPrograms, eq);
-
-        const pTxt = proj && Number.isFinite(proj.percent) ? `${proj.percent.toFixed(1)}%` : '–';
+        const jr = calculateSingleJudgeDressageResult(d, pObj, eq);
+        const pTxt = jr && Number.isFinite(jr.projectedPercent) ? `${jr.projectedPercent.toFixed(1)}%` : (jr && Number.isFinite(jr.percent) ? `${jr.percent.toFixed(1)}%` : '–');
 
         // Live Moment Text
         // Try to find the program definition for better text (description)
+
+        // UI Variables
         let lastTxt = '—', lastScoreTxt = '';
+        let lastMomentNo = null, lastScoreVal = null;
+
         if (currentMomentIdx >= 0 && d.movements && d.movements[currentMomentIdx]) {
             const m = d.movements[currentMomentIdx];
             const momentNo = m.momentNo;
+            lastMomentNo = momentNo;
+            lastScoreVal = Number.isFinite(m.score) ? Number(m.score) : null;
 
             let pText = '';
             const testKey = d.testKey || d.programKey || eq?.testKey;
@@ -1161,16 +1331,29 @@ function renderSpeakerJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumbe
         } else if (d.movements && d.movements.length > 0) {
             // Show last entered if not synced
             const m = d.movements[d.movements.length - 1];
+            lastMomentNo = m.momentNo;
+            lastScoreVal = Number.isFinite(m.score) ? Number(m.score) : null;
+
             lastTxt = m.momentText || `M${m.momentNo}`;
             if (Number.isFinite(m.score)) lastScoreTxt = ` (${Number(m.score).toFixed(1)})`;
         }
 
         return `
-      <div class="p-2 bg-gray-50 rounded border flex flex-col items-center">
-         <div class="text-[10px] uppercase font-bold text-gray-400">Domare ${pos}</div>
+      <div class="p-2 bg-gray-50 dark:bg-gray-700/50 rounded border dark:border-gray-600 flex flex-col items-center">
+         <div class="text-[10px] uppercase font-bold text-gray-400 dark:text-gray-500">Domare ${pos}</div>
          ${nameHtml}
-         <div class="text-xl font-bold text-gray-800 my-1">${pTxt}</div>
-         <div class="text-[10px] text-gray-500 truncate w-full text-center" title="${lastTxt}">${lastTxt}${lastScoreTxt}</div>
+         <div class="text-xl font-bold text-brand-darkblue dark:text-blue-200 my-1">${pTxt}</div>
+         
+         <div class="grid grid-cols-2 gap-2 w-full mt-1 border-t border-gray-200 dark:border-gray-600 pt-1">
+            <div class="text-center border-r border-gray-200 dark:border-gray-600">
+                <div class="text-[9px] uppercase text-gray-400">Moment</div>
+                <div class="text-xs font-bold text-gray-700 dark:text-gray-300">M${lastMomentNo || '-'}</div>
+            </div>
+            <div class="text-center">
+                 <div class="text-[9px] uppercase text-gray-400">Betyg</div>
+                 <div class="text-xs font-bold text-gray-900 dark:text-white">${lastScoreVal !== null ? lastScoreVal.toFixed(1) : '-'}</div>
+            </div>
+         </div>
       </div>`;
     }).join('');
 
@@ -1181,50 +1364,87 @@ function renderSpeakerJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumbe
 // New Helper: Render Top 3
 function renderTop3List(className, discipline) {
     if (!className) return '';
-    const results = [];
+    let results = [];
 
-    // Iterate all equipages to ensure we catch everyone in the class
-    allEquipages.forEach(eq => {
-        if (eq.className !== className) return;
-        const sn = String(eq.startNumber);
-        const st = dressageStatusMap.get(sn);
+    if (discipline === 'dressyr') {
+        allEquipages.forEach(eq => {
+            if (eq.className !== className) return;
+            const sn = String(eq.startNumber);
+            const pen = getDressageFinalPenalty(sn);
+            if (pen != null) {
+                results.push({
+                    sn: sn,
+                    name: eq.driverName,
+                    club: eq.clubName,
+                    eq: eq,
+                    penalty: Number(pen),
+                    percent: Number(getDressageFinalPercent(sn) || 0)
+                });
+            }
+        });
+        results = results.filter(r => r.penalty > 0.01);
+        results.sort((a, b) => a.penalty - b.penalty);
+    } else if (discipline === 'maraton') {
+        allEquipages.forEach(eq => {
+            if (eq.className !== className) return;
+            const sn = String(eq.startNumber);
+            const st = maratonStatusMap.get(sn);
+            if (st && st.totalPenalty != null) {
+                results.push({
+                    sn: sn,
+                    name: eq.driverName,
+                    club: eq.clubName,
+                    eq: eq,
+                    penalty: st.totalPenalty
+                });
+            }
+        });
+        results.sort((a, b) => a.penalty - b.penalty);
+    } else if (discipline === 'precision') {
+        const ranking = getPrecisionRanking(allEquipages, precisionStatusMap, className, null, precisionConfig);
+        results = ranking.map(r => ({
+            sn: r.sn,
+            name: r.name,
+            club: r.club,
+            eq: r.eq,
+            penalty: r.penalty,
+            time: r.time
+        }));
+    } else if (discipline === 'totalt') {
+        const ranking = getTotalRanking(className);
+        results = ranking.map(r => ({
+            sn: r.sn,
+            name: r.name,
+            penalty: r.total,
+            eq: allEquipages.find(e => String(e.startNumber) === String(r.sn))
+        }));
+    }
 
-        if (st && st.finalPenalty != null) {
-            results.push({
-                sn: sn,
-                name: eq.driverName,
-                club: eq.clubName,
-                eq: eq,
-                penalty: Number(st.finalPenalty), // Ensure number
-                percent: Number(st.finalPercent || 0)
-            });
-        }
-    });
-
-    // Filter out 0.00 if it means "no result" (unless it's a really good score, but 0 penalty is rare in dressage? No, 0 penalty is impossible usually, it's 100-percent. Wait, penalty is coefficient based. 0 penalty means 100%? If so, keep it. But usually defaults are 0).
-    // Let's filter> 0.01 just in case
-    const validResults = results.filter(r => r.penalty > 0.01);
-
-    validResults.sort((a, b) => a.penalty - b.penalty);
-    const top3 = validResults.slice(0, 3);
-
+    const top3 = results.slice(0, 3);
     if (top3.length === 0) return '<div class="text-xs text-center text-gray-400 italic py-2">Inga resultat i klassen ännu</div>';
 
     return `
     <div class="space-y-1">
-        ${top3.map((r, i) => `
-            <div onclick="showRiderDetails('${r.sn}')" class="flex items-center justify-between p-2 border-b last:border-0 hover:bg-yellow-50 cursor-pointer transition-colors group">
+        ${top3.map((r, i) => {
+            const displayPenalty = r.penalty === Infinity ? 'ELIM' : (r.penalty != null ? r.penalty.toFixed(2) : '—');
+            const secondaryHtml = (discipline === 'dressyr') 
+                ? `<span class="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums tracking-wide hidden sm:inline">${(r.percent || 0).toFixed(1)}%</span>`
+                : (discipline === 'precision' && r.time) 
+                    ? `<span class="text-[10px] text-gray-500 dark:text-gray-400 tabular-nums tracking-wide hidden sm:inline">(${r.time})</span>`
+                    : '';
+
+            return `
+            <div onclick="showRiderDetails('${r.sn}')" class="flex items-center justify-between p-2 border-b dark:border-gray-700 last:border-0 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 cursor-pointer transition-colors group">
                 <div class="flex items-center gap-2 overflow-hidden">
-                    <span class="font-bold text-gray-400 w-4">${i + 1}.</span>
-                    <span class="font-bold text-gray-800 truncate group-hover:text-blue-700 transition-colors" title="${r.name}">${r.name}</span>
+                    <span class="font-bold text-gray-400 dark:text-gray-500 w-4">${i + 1}.</span>
+                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors" title="${r.name}">${r.name}</span>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
-                    <span class="text-[10px] text-gray-500 font-mono hidden sm:inline">${r.percent.toFixed(1)}%</span>
-                    <span class="font-black text-gray-900">${r.penalty.toFixed(2)}</span>
+                    ${secondaryHtml}
+                    <span class="font-black text-gray-900 dark:text-white">${displayPenalty}</span>
                 </div>
-            </div>
-        `).join('')
-        }
+            </div>`;
+        }).join('')}
     </div> `;
 }
 
@@ -1254,70 +1474,242 @@ function getDressageLeaderInClass(className) {
 
 // Calculates the total penalty (Dressage + Marathon + Precision) for each rider in the class.
 // Inject live data for the current rider if available.
+/**
+ * Calculates live penalty/time for an equipage during their run.
+ * Used for live-injections in class rankings and real-time boxes.
+ */
+function calculateLiveInjection(eq) {
+    if (!eq) return null;
+    const sn = String(eq.startNumber);
+    const pSt = precisionStatusMap.get(sn);
+    
+    // 1. Precision Live
+    if (pSt && (pSt.running || pSt.inProgress)) {
+        let pen = pSt.totalPenalty || 0;
+        let timeMs = pSt.liveTimeMs || pSt.timeMs || 0;
+        if (pSt.running && pSt.liveStartEpoch) {
+            const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
+            const nowMs = (pSt.livePausedMs || 0) + (Date.now() - pSt.liveStartEpoch);
+            const lp = calculatePrecisionTimePenalty(nowMs, maxSec);
+            const op = pSt.liveObstaclePenalty || pSt.obstaclePenalty || 0;
+            const ep = pSt.extraPenalty || 0;
+            pen = op + lp + ep;
+            timeMs = nowMs;
+        }
+        return { 
+            sn: eq.startNumber, 
+            discipline: 'precision', 
+            disciplinePenalty: pen,
+            timeMs: timeMs
+        };
+    }
+    
+    // 2. Marathon Live
+    const active = activeEquipages.get(sn);
+    if (active) {
+        const d = active.data || {};
+        const res = calculateMarathonResult(eq, d, d);
+        return { 
+            sn: eq.startNumber, 
+            discipline: 'maraton', 
+            disciplinePenalty: res.totalPenalty 
+        };
+    }
+    
+    // 3. Dressage Live
+    const liveMap = liveProtocolMap.get(sn) || new Map();
+    if (liveMap.size > 0) {
+        const liveProtocols = Array.from(liveMap.values());
+        const result = calculateDressageResult(eq, liveProtocols, allJudges, mergedPrograms);
+        if (result && result.penalty != null) {
+            return { sn: eq.startNumber, discipline: 'dressyr', disciplinePenalty: result.penalty };
+        }
+    }
+    
+    return null;
+}
+
 function getTotalRanking(className, currentRiderInfo = null) {
     if (!className) return [];
 
     const results = [];
+    const targetClass = className;
 
-    allEquipages.forEach(eq => {
-        if (eq.className !== className) return;
-        const sn = String(eq.startNumber);
+    allEquipages.forEach(e => {
+        // Robust class check: match either the direct name or the merged label/key
+        const clsMatch = (e.className === targetClass || e._mergedLabel === targetClass || e.mergedTestKey === targetClass);
+        if (!clsMatch) return;
+
+        const sn = String(e.startNumber);
 
         // 1. Dressage
         const dSt = dressageStatusMap.get(sn);
-        let dPen = (dSt && dSt.finalPenalty != null) ? dSt.finalPenalty : null;
+        let dPen = dSt?.finalPenalty ?? null;
+        let dPct = dSt?.finalPercent ?? dSt?.percent ?? null;
+        const elimD = !!(dSt?.eliminated || dSt?.excluded || (dSt?.status && ['utgått', 'utesluten', 'retired', 'eliminated', 'elim', 'ute', 'utg'].some(s => String(dSt.status).toLowerCase().includes(s))));
 
         // 2. Marathon
         const mSt = maratonStatusMap.get(sn);
-        let mPen = (mSt && mSt.totalPenalty != null) ? mSt.totalPenalty : null;
+        let mPen = mSt?.totalPenalty ?? null;
+        let isElimM = false;
+        if (mSt) {
+            const mRes = calculateMarathonResult(e, mSt, mSt);
+            mPen = mRes.totalPenalty;
+            isElimM = mRes.eliminated || ['utgått', 'utesluten', 'retired', 'eliminated', 'elim', 'ute', 'utg'].some(s => String(mSt.status || '').toLowerCase().includes(s));
+        }
 
         // 3. Precision
         const pSt = precisionStatusMap.get(sn);
-        let pPen = (pSt && pSt.totalPenalty != null) ? pSt.totalPenalty : null;
-        let pTimeMs = (pSt && pSt.timeMs) || 0;
+        let pPen = pSt?.totalPenalty ?? null;
+        let pTimeMs = pSt?.timeMs || 0;
+        let isElimP = !!pSt?.eliminated;
+        if (pSt) {
+            const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+            pPen = pRes.totalPenalty;
+            pTimeMs = pRes.timeMs || 0;
+            isElimP = pRes.eliminated;
+        }
 
-        // Apply Injections
+        const totalEliminated = elimD || isElimM || isElimP;
+
+        // Apply Injections (for live rider)
         if (currentRiderInfo && String(currentRiderInfo.sn) === sn) {
-            if (currentRiderInfo.discipline === 'maraton') {
-                mPen = currentRiderInfo.totalPenalty;
-            } else if (currentRiderInfo.discipline === 'precision') {
-                pPen = currentRiderInfo.totalPenalty;
-                pTimeMs = currentRiderInfo.timeMs || 0;
+            if (currentRiderInfo.discipline === 'precision') {
+                pPen = currentRiderInfo.disciplinePenalty;
+                pTimeMs = currentRiderInfo.timeMs || pTimeMs;
+            } else if (currentRiderInfo.discipline === 'maraton') {
+                mPen = currentRiderInfo.disciplinePenalty;
             } else if (currentRiderInfo.discipline === 'dressyr') {
-                // Determine if we should override dPen (finalPenalty) with live prognosis
-                // Often we want to track live ranking.
-                if (currentRiderInfo.totalPenalty != null) {
-                    dPen = currentRiderInfo.totalPenalty;
-                }
+                dPen = currentRiderInfo.disciplinePenalty;
             }
         }
 
-        // Centralized Calculation
-        const total = computeTotalPenalty(dPen, mPen, pPen);
-
-        // For precision tie-breaker (rules say lowest time in precision breaks tie if points equal)
-        // Adjust as per valid rules. Usually total competition tie-break is complicated, 
-        // but let's assume Precision Time is the decider for now as requested.
-
         results.push({
-            sn: eq.startNumber,
-            name: eq.driverName,
-            total: total,
-            tieBreakerTime: pTimeMs
+            startNumber: e.startNumber,
+            driverName: e.driverName,
+            className: e.className,
+            // Compatibility for older sidebar calls
+            sn: e.startNumber,
+            name: e.driverName,
+            total: totalEliminated ? Infinity : computeTotalPenalty(dPen, mPen, pPen),
+            totalPenalty: totalEliminated ? null : computeTotalPenalty(dPen, mPen, pPen),
+            tieBreakerTime: pTimeMs,
+            isEliminated: totalEliminated,
+            dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD },
+            marathon: { totalPenalty: mPen, eliminated: isElimM },
+            precision: { pen: pPen, eliminated: isElimP }
         });
     });
 
-    // Sort: Lowest Total first. If tie, Lowest Precision Time first.
-    // FILTER OUT 0.00 Results which likely indicate incomplete data
-    const validResults = results.filter(r => r.total > 0.01);
+    // 1. Overall Ranking (for plac and total)
+    results.sort((a, b) => {
+        if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+        
+        const aTot = (a.total === null || a.total === undefined) ? Infinity : a.total;
+        const bTot = (b.total === null || b.total === undefined) ? Infinity : b.total;
 
-    // Sort logic
-    validResults.sort((a, b) => {
-        if (Math.abs(a.total - b.total) > 0.001) return a.total - b.total;
-        return a.tieBreakerTime - b.tieBreakerTime;
+        // Main sort: total penalty
+        if (Math.abs(aTot - bTot) > 0.001) return aTot - bTot;
+
+        // Tie-breaker 1: Marathon (lowest score better)
+        const ma = a.marathon?.totalPenalty ?? Infinity;
+        const mb = b.marathon?.totalPenalty ?? Infinity;
+        if (ma !== mb) return ma - mb;
+
+        // Tie-breaker 2: Dressage (lowest score better)
+        const da = a.dressage?.penalty ?? Infinity;
+        const db = b.dressage?.penalty ?? Infinity;
+        if (da !== db) return da - db;
+
+        // Tie-breaker 3: Precision (lowest score better)
+        const pa = a.precision?.pen ?? Infinity;
+        const pb = b.precision?.pen ?? Infinity;
+        if (pa !== pb) return pa - pb;
+
+        // Fallback: Start number
+        return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
     });
 
-    return validResults;
+    const leadTotal = (results.length > 0 && results[0].total !== Infinity) ? results[0].total : 0;
+    results.forEach((r, idx) => {
+        if (r.isEliminated) {
+            r.plac = 'ELIM';
+            r.diffFromLeader = null;
+        } else if (r.total !== Infinity) {
+            r.plac = idx + 1;
+            r.diffFromLeader = r.total - leadTotal;
+        } else {
+            r.plac = null;
+            r.diffFromLeader = null;
+        }
+    });
+
+    // 2. Discipline Rankings (posDress, posMar, posPrec)
+    const computeDisciplineRank = (list, sortFn, targetKey) => {
+        const sorted = [...list].sort(sortFn);
+        const mapKey = targetKey === 'posDress' ? 'dressage' : (targetKey === 'posMar' ? 'marathon' : 'precision');
+        
+        list.forEach(r => {
+            const discData = r[mapKey];
+            const hasRes = discData && (discData.penalty !== null || discData.totalPenalty !== null || discData.pen !== null);
+            if (hasRes && !discData.eliminated) {
+                const rank = sorted.findIndex(x => x.startNumber === r.startNumber) + 1;
+                r[targetKey] = rank;
+            } else {
+                r[targetKey] = null;
+            }
+        });
+    };
+
+    // Dressyr Rank
+    const dressageSorted = [...results].sort((a, b) => {
+        if (a.dressage.eliminated !== b.dressage.eliminated) return a.dressage.eliminated ? 1 : -1;
+        return (a.dressage.penalty ?? Infinity) - (b.dressage.penalty ?? Infinity);
+    });
+    results.forEach(r => {
+        if (r.dressage.penalty !== null && !r.dressage.eliminated) {
+            r.posDress = dressageSorted.findIndex(x => x.startNumber === r.startNumber) + 1;
+        } else r.posDress = null;
+    });
+
+    // Maraton Rank
+    const marathonSorted = [...results].sort((a, b) => {
+        if (a.marathon.eliminated !== b.marathon.eliminated) return a.marathon.eliminated ? 1 : -1;
+        return (a.marathon.totalPenalty ?? Infinity) - (b.marathon.totalPenalty ?? Infinity);
+    });
+    results.forEach(r => {
+        if (r.marathon.totalPenalty !== null && !r.marathon.eliminated) {
+            r.posMar = marathonSorted.findIndex(x => x.startNumber === r.startNumber) + 1;
+        } else r.posMar = null;
+    });
+
+    // Precision Rank
+    const precisionSorted = [...results].sort((a, b) => {
+        if (a.precision.eliminated !== b.precision.eliminated) return a.precision.eliminated ? 1 : -1;
+        if (a.precision.pen === b.precision.pen) return (a.tieBreakerTime || 0) - (b.tieBreakerTime || 0);
+        return (a.precision.pen ?? Infinity) - (b.precision.pen ?? Infinity);
+    });
+    results.forEach(r => {
+        if (r.precision.pen !== null && !r.precision.eliminated) {
+            r.posPrec = precisionSorted.findIndex(x => x.startNumber === r.startNumber) + 1;
+        } else r.posPrec = null;
+    });
+
+    return results;
+}
+
+function getValidFirstPasses(splits) {
+    if (!splits || !Array.isArray(splits)) return [];
+    const valid = [];
+    const seen = new Set();
+    for (const s of splits) {
+        if (!s.char || s.char !== s.char.toUpperCase()) continue;
+        if (!seen.has(s.char)) {
+            seen.add(s.char);
+            valid.push(s);
+        }
+    }
+    return valid;
 }
 
 function renderCurrentRiderCard() {
@@ -1344,7 +1736,7 @@ function renderCurrentRiderCard() {
             h3.innerHTML = `
             <div class="flex justify-between items-center">
                 <span>📢 Speaker Noteringar</span>
-                <button id="edit-notes-btn" onclick="editSpeakerNotes('${eq.startNumber}')" class="text-xs bg-yellow-200 text-yellow-800 px-2 py-1 rounded hover:bg-yellow-300 transition-colors">✎ Ändra</button>
+                <button id="edit-notes-btn" onclick="editSpeakerNotes('${eq.startNumber}')" class="text-xs bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-300 dark:hover:bg-yellow-700 transition-colors">✎ Ändra</button>
             </div> `;
         }
     }
@@ -1352,60 +1744,36 @@ function renderCurrentRiderCard() {
     let horseText = '';
     const horses = eq.horses || [];
     if (horses.length > 0) {
-        horseText = horses.map(h => `<span class="font-semibold">${h.name}</span> <span class="text-xs text-gray-500">(${h.lineage || ''})</span>`).join('<br>');
+        horseText = horses.map(h => {
+            const gender = h.gender ? `<span class="text-gray-400 font-medium">${h.gender}</span>` : '';
+            const lineage = h.lineage ? `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-4  italic">Härstamning: ${h.lineage}</div>` : '';
+            const owner = h.owner ? `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-4 ">Ägare: ${h.owner}</div>` : '';
+            return `
+                <div class="mb-2">
+                    <div class="flex items-baseline gap-2">
+                        <span class="font-bold text-gray-800 dark:text-gray-200">${h.name}</span>
+                        ${gender}
+                    </div>
+                    ${lineage}
+                    ${owner}
+                </div>`;
+        }).join('');
     } else {
         horseText = '<span class="text-gray-500 italic">Inga hästar registrerade</span>';
     }
 
-    // --- Total Ranking Calculation ---
-    let liveInjection = null;
+    // --- Total Ranking Calculation (with Live Detection) ---
+    const liveInjection = calculateLiveInjection(eq);
     let targetToBeatHtml = '';
-    if (currentDiscipline === 'precision') {
-        const d = data || {};
-        let pen = d.totalPenalty || 0;
-        let timeMs = d.liveTimeMs || d.timeMs || 0;
-        if (d.running && d.liveStartEpoch) {
-            const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
-            const nowMs = (d.livePausedMs || 0) + (Date.now() - d.liveStartEpoch);
-            const lp = calculatePrecisionTimePenalty(nowMs, maxSec);
-            const op = d.liveObstaclePenalty || d.obstaclePenalty || 0;
-            const ep = d.extraPenalty || 0;
-            pen = op + lp + ep;
-            timeMs = nowMs;
-        }
-        liveInjection = { sn: eq.startNumber, discipline: 'precision', totalPenalty: pen, timeMs: timeMs };
-    } else if (currentDiscipline === 'maraton') {
-        liveInjection = { sn: eq.startNumber, discipline: 'maraton', totalPenalty: data.totalPenalty || 0 };
-    } else if (currentDiscipline === 'dressyr') {
-        // Determine live dressage penalty for total ranking injection
-        // ✅ Speaker uses liveProtocolMap (judgeLiveByPos is not populated in this file)
-        const liveMap = liveProtocolMap.get(String(eq.startNumber)) || new Map();
-        let tPen = 0, cnt = 0;
-
-        for (const proto of liveMap.values()) {
-            const pos = String(proto.position || proto.judgePosition || '').toUpperCase();
-            if (!pos) continue;
-
-            const proj = calcLiveJudgeProjection(proto, mergedPrograms, eq);
-            if (proj && Number.isFinite(proj.penalty)) {
-                tPen += proj.penalty;
-                cnt++;
-            }
-        }
-
-        // Only inject if we actually have live data
-        if (cnt > 0) {
-            const avgP = tPen / cnt;
-            liveInjection = { sn: eq.startNumber, discipline: 'dressyr', totalPenalty: avgP };
-        }
-    }
+    let comparisonHtml = ''; 
+    let elapsedTime = '—';
 
 
     const totalRanking = getTotalRanking(eq.className, liveInjection);
     const myTotalRankIndex = totalRanking.findIndex(r => String(r.sn) === String(eq.startNumber));
     const myTotalRank = myTotalRankIndex !== -1 ? myTotalRankIndex + 1 : '-';
     // Find my total score
-    const myTotalScore = myTotalRankIndex !== -1 ? totalRanking[myTotalRankIndex].total : 0;
+    const myTotalScore = myTotalRankIndex !== -1 ? totalRanking[myTotalRankIndex].total : null;
 
     // --- Win Requirement / Live Margin (Phase 3) ---
     let marginHtml = '';
@@ -1429,9 +1797,9 @@ function renderCurrentRiderCard() {
             }
 
             targetToBeatHtml = `
-            <div class="text-[10px] uppercase font-bold text-gray-500">${targetLabel}</div>
-                <div class="text-lg font-black text-gray-800 leading-tight">${leader.name}</div>
-                <div class="text-lg font-mono font-bold text-gray-600">${bestOther.toFixed(2)}</div>
+            <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${targetLabel}</div>
+                <div class="text-lg font-black text-gray-800 dark:text-gray-100 leading-tight">${leader.name}</div>
+                <div class="text-lg tabular-nums tracking-wide font-bold text-gray-600 dark:text-gray-300">${(bestOther != null) ? bestOther.toFixed(2) : '—'}</div>
             </div> `;
 
             if (diff < 0) {
@@ -1443,13 +1811,13 @@ function renderCurrentRiderCard() {
                 // Hide balls text for Marathon (irrelevant/confusing?)
                 const extraText = currentDiscipline === 'maraton' ? '' : `<br> <span class="text-[10px]">${ballsText}</span>`;
 
-                marginHtml = `<div class="text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200">
-    Segermarginal: ${Math.abs(diff).toFixed(2)} ${extraText}
+                marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200">
+    Segermarginal: ${(diff != null) ? Math.abs(diff).toFixed(2) : '—'} ${extraText}
     </div>`;
             } else {
                 // I am behind
-                marginHtml = `<div class="text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200">
-    Upp till ledning: +${diff.toFixed(2)}
+                marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200">
+    Upp till ledning: +${(diff != null) ? diff.toFixed(2) : '—'}
                  </div> `;
 
                 // Tie-Breaker Logic (Only relevant if NOT dressage, or if we define a dressage tie-breaker)
@@ -1472,35 +1840,50 @@ function renderCurrentRiderCard() {
     let headerHtml = `
     <div class="flex justify-between items-start">
             <div>
-                <div class="text-sm font-bold text-brand-darkblue uppercase tracking-wider mb-1 flex items-center gap-2">
+                <div class="text-sm font-bold text-brand-darkblue dark:text-blue-300 uppercase tracking-wider mb-1 flex items-center gap-2">
                     På Banan Just Nu
                     
-                    ${currentDiscipline === 'maraton' ? (() => {
-            const others = allEquipages.filter(e => e.className === eq.className && String(e.startNumber) !== String(eq.startNumber));
+                    ${(currentDiscipline === 'maraton' || currentDiscipline === 'totalt') ? (() => {
+            const targetClass = String(eq.className || '').trim().toLowerCase();
+            let others = allEquipages.filter(e => {
+                const eClass = String(e.className || '').trim().toLowerCase();
+                return eClass === targetClass && String(e.startNumber) !== String(eq.startNumber);
+            });
+
+            // FALLBACK: If no others in same class, show all others (avoid empty list)
+            let isFallback = false;
+            if (others.length === 0 && allEquipages.length > 1) {
+                others = allEquipages.filter(e => String(e.startNumber) !== String(eq.startNumber));
+                isFallback = true;
+            }
+
+
+
             return `
-                        <select onchange="window.setComparisonRider(this.value)" class="ml-2 text-[10px] py-0.5 pl-2 pr-6 border-gray-200 rounded-full bg-gray-50 hover:bg-white focus:ring-0 cursor-pointer">
+                        <select id="compare-select" onchange="window.setComparisonRider(this.value)" class="ml-2 text-[10px] py-0.5 pl-2 pr-6 border-gray-200 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-600 focus:ring-0 cursor-pointer">
                             <option value="">+ Jämför...</option>
-                            ${others.map(r => `<option value="${r.startNumber}" ${window.compareRiderId == r.startNumber ? 'selected' : ''}>#${r.startNumber} ${r.driverName}</option>`).join('')}
+                            ${others.map(r => `<option value="${r.startNumber}" ${String(window.compareRiderId) === String(r.startNumber) ? 'selected' : ''}>#${r.startNumber} ${r.driverName}</option>`).join('')}
                         </select>`;
         })() : ''}
 
                 </div>
-                <div class="text-2xl md:text-3xl font-black text-gray-900 mb-0 truncate leading-tight">
+                <div class="text-2xl md:text-3xl font-black text-gray-900 dark:text-white mb-0 truncate leading-tight">
                     ${eq.driverName}
                 </div>
-                <div class="text-xl text-gray-600 mb-4 flex items-center gap-2">
-                    ${getClubLogoHtml(eq)} ${eq.clubName} ${getFlagHtml(eq)}
+                <div class="text-xl text-gray-600 dark:text-gray-300 mb-2 flex items-center gap-2">
+                    ${getClubLogoHtml(eq)} ${eq.clubName} ${eq.address?.city ? `<span class="text-gray-400 mx-1">•</span> <span class="text-sm font-medium text-gray-500 dark:text-gray-400">${eq.address.city}</span>` : ''} ${getFlagHtml(eq)}
                 </div>
+                ${eq.groom ? `<div class="text-sm font-bold text-blue-600 dark:text-blue-400 mb-4 bg-blue-50 dark:bg-blue-900/30 w-fit px-2 py-0.5 rounded">Groom: ${eq.groom}</div>` : '<div class="mb-4"></div>'}
                 
                 <!-- CLICKABLE MAIN NAME -->
-                <div onclick="showRiderDetails('${eq.startNumber}')" class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 rounded p-1 -ml-1 transition-colors group">
-                    <div class="inline-block bg-blue-100 text-blue-800 text-sm font-bold px-3 py-1 rounded-full group-hover:bg-blue-200">
+                <div onclick="window.showRiderDetails('${eq.startNumber}')" class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded p-1 -ml-1 transition-colors group">
+                    <div class="inline-block bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 text-sm font-bold px-3 py-1 rounded-full group-hover:bg-blue-200 dark:group-hover:bg-blue-800">
                         #${eq.startNumber} • ${eq.className}
                     </div>
                      <div class="flex flex-col items-start justify-center gap-1">
                         <div class="flex items-center gap-2">
-                             <div class="inline-block bg-purple-100 text-purple-900 text-sm font-bold px-3 py-1 rounded-full border border-purple-200 group-hover:bg-purple-200">
-                                Total: ${myTotalRank} (${myTotalScore.toFixed(2)})
+                             <div class="inline-block bg-purple-100 dark:bg-purple-900 text-purple-900 dark:text-purple-100 text-sm font-bold px-3 py-1 rounded-full border border-purple-200 dark:border-purple-800 group-hover:bg-purple-200 dark:group-hover:bg-purple-800">
+                                Total: <span id="speaker-live-rank">${myTotalRank}</span> (<span id="speaker-live-total">${myTotalScore ? myTotalScore.toFixed(2) : '—'}</span>)
                             </div>
                             ${marginHtml ? marginHtml : ''}
                         </div>
@@ -1512,7 +1895,7 @@ function renderCurrentRiderCard() {
 
             </div>
             <div class="text-right hidden md:block">
-                 <div class="text-5xl font-black text-gray-200">LIVE</div>
+                 <div class="text-5xl font-black text-gray-200 dark:text-gray-600">LIVE</div>
                  ${targetToBeatHtml || renderLeaderToBeat(eq.className)}
             </div>
         </div>
@@ -1523,29 +1906,17 @@ function renderCurrentRiderCard() {
 
     if (currentDiscipline === 'dressyr') {
 
-        // ✅ Aggregation from liveProtocolMap ...
-        let totalPercent = 0;
-        let totalPenalty = 0;
-        let count = 0;
-
         const liveMapForAgg = liveProtocolMap.get(String(eq.startNumber)) || new Map();
-        for (const proto of liveMapForAgg.values()) {
-            const proj = calcLiveJudgeProjection(proto, mergedPrograms, eq);
-            if (proj && Number.isFinite(proj.percent) && Number.isFinite(proj.penalty)) {
-                totalPercent += proj.percent;
-                totalPenalty += proj.penalty;
-                count++;
-            }
-        }
+        const liveProtocols = Array.from(liveMapForAgg.values());
+        const programs = getPrograms();
+        const liveRes = calculateDressageResult(eq, liveProtocols, allJudges, programs);
 
-        const avgPercent = count > 0 ? (totalPercent / count) : null;
-        const avgPenalty = count > 0 ? (totalPenalty / count) : null;
+        const avgPercent = (liveRes && liveRes.projectedPercent != null) ? liveRes.projectedPercent : (liveRes ? liveRes.percent : null);
+        const avgPenalty = (liveRes && liveRes.projectedPenalty != null) ? liveRes.projectedPenalty : (liveRes ? liveRes.penalty : null);
+        const isLiveRide = liveRes && liveRes.isLive;
 
         // Judge Grid
-        // Refactor: Use liveProtocolMap for robust data
         const liveMap = liveProtocolMap.get(String(eq.startNumber)) || new Map();
-
-        // ✅ ADD THIS: liveProtoArray is used below but was missing
         const liveProtoArray = Array.from(liveMap.values()).map(p => ({
             ...p,
             position: String(p.position || p.judgePosition || '').toUpperCase(),
@@ -1586,43 +1957,43 @@ function renderCurrentRiderCard() {
         // Trend vs Leader
         const leader = getDressageLeaderInClass(eq.className);
         let trendHtml = '';
-        if (leader && avgPercent !== null) {
+        if (leader && avgPercent !== null && isLiveRide) {
             // Compare Percentages (Higher is better)
             const gap = avgPercent - leader.percent;
             const gapColor = gap >= 0 ? 'text-green-600' : 'text-red-600';
             const gapSign = gap >= 0 ? '+' : '';
             const leaderName = (leader.name || '');
             trendHtml = `
-            <div class="text-center p-2 bg-gray-50 rounded-lg shadow-sm border border-gray-100 h-full flex flex-col justify-center">
-                <div class="text-[10px] uppercase tracking-wide text-gray-500 font-bold mb-0">Trend vs Ledare (${leaderName})</div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm border border-gray-100 dark:border-gray-600 h-full flex flex-col justify-center">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-bold mb-0">Trend vs Ledare (${leaderName})</div>
                 <div class="text-2xl font-black ${gapColor} leading-tight">${gapSign}${gap.toFixed(2)} %</div>
-                <div class="text-[10px] text-gray-400 mt-0">Ledare: ${leader.percent ? leader.percent.toFixed(2) : '-'}%</div>
+                <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0">Ledare: ${leader.percent ? leader.percent.toFixed(2) : '-'}%</div>
             </div> `;
         } else if (!leader) {
             trendHtml = `
-            <div class="text-center p-2 bg-gray-50 rounded-lg shadow-sm border border-gray-100 h-full flex flex-col justify-center">
-                <div class="text-[10px] uppercase tracking-wide text-gray-400 font-bold mb-0">Ingen ledare</div>
-                <div class="text-lg font-bold text-gray-300">Första start</div>
+            <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm border border-gray-100 dark:border-gray-600 h-full flex flex-col justify-center">
+                <div class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500 font-bold mb-0">Ingen ledare</div>
+                <div class="text-lg font-bold text-gray-300 dark:text-gray-600">Första start</div>
             </div> `;
         }
 
         contentHtml = `
-    <div class="mt-4 pt-4 border-t border-gray-100">
+     <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
             <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
                  <div class="md:col-span-12">
-                    <div class="text-sm uppercase text-gray-500 font-bold mb-1">Häst(ar)</div>
-                    <div class="text-xl text-gray-900 leading-snug mb-2">${horseText}</div>
+                    <div class="text-sm uppercase text-gray-500 dark:text-gray-400 font-bold mb-1">Häst(ar)</div>
+                    <div class="text-xl text-gray-900 dark:text-white leading-snug mb-2">${horseText}</div>
                 </div>
             </div>
 
             <div class="grid grid-cols-2 md:grid-cols-3 gap-3 mt-2">
-                <div class="text-center p-2 bg-brand-darkblue/5 rounded-lg border border-brand-darkblue/10 shadow-sm flex flex-col justify-center h-20">
-                    <div class="text-[10px] uppercase tracking-wider text-brand-darkblue font-extrabold mb-0 leading-none">Prognos %</div>
-                    <div class="text-3xl font-black text-brand-darkblue tracking-tight leading-none mt-1">${Number.isFinite(avgPercent) ? avgPercent.toFixed(1) + '%' : '—'}</div>
+                <div class="text-center p-2 bg-brand-darkblue/5 dark:bg-blue-900/20 rounded-lg border border-brand-darkblue/10 dark:border-blue-800 shadow-sm flex flex-col justify-center h-20">
+                    <div class="text-[10px] uppercase tracking-wider text-brand-darkblue dark:text-blue-300 font-extrabold mb-0 leading-none">${isLiveRide ? 'Prognos' : 'Aktuell'} %</div>
+                    <div class="text-3xl font-black text-brand-darkblue dark:text-blue-200 tracking-tight leading-none mt-1">${Number.isFinite(avgPercent) ? avgPercent.toFixed(1) + '%' : '—'}</div>
                 </div>
-                <div class="text-center p-2 bg-brand-darkblue/5 rounded-lg border border-brand-darkblue/10 shadow-sm flex flex-col justify-center h-20">
-                    <div class="text-[10px] uppercase tracking-wider text-brand-darkblue font-extrabold mb-0 leading-none">StraffP</div>
-                    <div class="text-3xl font-black text-brand-darkblue tracking-tight leading-none mt-1">${Number.isFinite(avgPenalty) ? avgPenalty.toFixed(2) : '—'}</div>
+                <div class="text-center p-2 bg-brand-darkblue/5 dark:bg-blue-900/20 rounded-lg border border-brand-darkblue/10 dark:border-blue-800 shadow-sm flex flex-col justify-center h-20">
+                    <div class="text-[10px] uppercase tracking-wider text-brand-darkblue dark:text-blue-300 font-extrabold mb-0 leading-none">StraffP</div>
+                    <div class="text-3xl font-black text-brand-darkblue dark:text-blue-200 tracking-tight leading-none mt-1">${Number.isFinite(avgPenalty) ? avgPenalty.toFixed(2) : '—'}</div>
                 </div>
                 <!-- Trend Box -->
                 <div class="col-span-2 md:col-span-1 h-20">
@@ -1633,16 +2004,16 @@ function renderCurrentRiderCard() {
             <!--Judge Grid-->
             <div class="mt-8">
                  <div class="flex items-center gap-2 mb-3">
-                    <div class="h-px bg-gray-200 flex-1"></div>
-                    <span class="text-xs uppercase text-gray-400 font-bold tracking-widest">Domarstatus</span>
-                    <div class="h-px bg-gray-200 flex-1"></div>
+                    <div class="h-px bg-gray-200 dark:bg-gray-700 flex-1"></div>
+                    <span class="text-xs uppercase text-gray-400 dark:text-gray-500 font-bold tracking-widest">Domarstatus</span>
+                    <div class="h-px bg-gray-200 dark:bg-gray-700 flex-1"></div>
                  </div>
                  ${judgeGridHtml}
             </div>
             
              <!--Top 3 List(Dressage)-->
-    <div class="mt-6 border-t border-gray-100 pt-4">
-        <div class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Topp 3 i klassen (${eq.className})</div>
+    <div class="mt-6 border-t border-gray-100 dark:border-gray-700 pt-4">
+        <div class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Topp 3 i klassen (${eq.className})</div>
         ${renderTop3List(eq.className, 'dressyr')}
     </div>
         </div> `;
@@ -1654,35 +2025,34 @@ function renderCurrentRiderCard() {
         const totalPenalty = liveResult.totalPenalty;
         const task = active.task || { name: 'På banan' };
 
-        let elapsedTime = '—';
         let currentState = task.name;
         let targetHtml = '';
 
         // --- Comparison View (Compact) ---
-        let comparisonHtml = '';
         if (window.compareRiderId) {
             const cmpEq = allEquipages.find(e => String(e.startNumber) === String(window.compareRiderId));
             if (cmpEq) {
                 const cmpData = maratonStatusMap.get(String(cmpEq.startNumber));
-                const cmpRes = calculateMarathonResult(cmpEq, cmpData, cmpData);
+                const cmpRes = cmpData ? calculateMarathonResult(cmpEq, cmpData, cmpData) : null;
                 const diff = (liveResult.totalPenalty || 0) - (cmpRes?.totalPenalty || 0);
-                const diffColor = diff < 0 ? 'text-green-600' : 'text-red-600';
-                const diffSign = diff > 0 ? '+' : '';
+                const diffColor = (cmpRes && diff < 0) ? 'text-green-600' : ((cmpRes && diff > 0) ? 'text-red-600' : 'text-gray-400');
+                const diffSign = (cmpRes && diff > 0) ? '+' : '';
+                const diffVal = cmpRes ? Math.abs(diff).toFixed(2) : '—';
 
                 comparisonHtml = `
-                <div class="mb-4 bg-gray-50 rounded-lg border border-gray-200 p-2 text-[10px] relative">
+                <div class="mb-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-2 text-[10px] relative">
                     <button onclick="window.setComparisonRider('')" class="absolute top-1 right-2 text-gray-400 hover:text-red-500">×</button>
                     <div class="flex justify-around items-center">
                         <div class="text-center">
-                            <span class="text-gray-500">${eq.driverName}:</span> 
-                            <span class="font-bold">${(liveResult.totalPenalty || 0).toFixed(2)}</span>
+                            <span class="text-gray-500 dark:text-gray-400">${eq.driverName}:</span> 
+                            <span class="font-bold dark:text-white">${(liveResult.totalPenalty || 0).toFixed(2)}</span>
                         </div>
-                        <div class="px-2 py-0.5 rounded ${diffColor} font-black text-xs bg-white shadow-sm border border-gray-100">
-                            ${diffSign}${Math.abs(diff).toFixed(2)}
+                        <div class="px-2 py-0.5 rounded ${diffColor} font-black text-xs bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-600">
+                            ${diffSign}${diffVal}
                         </div>
                         <div class="text-center opacity-75">
-                            <span class="text-gray-500">${cmpEq.driverName}:</span> 
-                            <span class="font-bold">${(cmpRes?.totalPenalty || 0).toFixed(2)}</span>
+                            <span class="text-gray-500 dark:text-gray-400">${cmpEq.driverName}:</span> 
+                            <span class="font-bold dark:text-gray-300">${cmpRes ? (cmpRes.totalPenalty || 0).toFixed(2) : 'Ej startat'}</span>
                         </div>
                     </div>
                 </div>`;
@@ -1690,51 +2060,78 @@ function renderCurrentRiderCard() {
         }
 
         // Live Timer calculation
-        if (active && active.startTime > 1600000000000) {
-            const ms = Math.max(0, (Date.now() - active.startTime) - active.pausedMs);
+        if (active && (active.timerBaseMs > 0 || active.fixedElapsedMs != null)) {
+            const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+            const ms = Math.max(0, active.fixedElapsedMs != null ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - pausedMsSince(active.timerBaseMs, tickTimeNow) : 0));
             elapsedTime = formatMsLive(ms);
         }
 
         // Target / Splits Logic
         let splitDiffHtml = '';
-        if (task.type === 'obstacle') {
-            const obsNum = task.key;
-            currentState = `Hinder ${obsNum}`;
+        if (task.type === 'obstacle' || task.type === 'result_flash') {
+            const obsNum = task.type === 'result_flash' ? task.data.number : task.key;
+            currentState = task.type === 'result_flash' ? `Resultat Hinder ${obsNum}` : `Hinder ${obsNum}`;
             const stats = calculateClassObstacleStats(eq.className, obsNum, maratonStatusMap, allEquipages);
 
-            if (d.live_gateSplits && d.live_gateSplits.length > 0) {
-                const myStart = d.liveObstacleStartEpoch || active.startTime;
+            const rawSplitsArray = task.type === 'result_flash' ? task.data.gateSplits : d.live_gateSplits;
+            const splitsArray = getValidFirstPasses(rawSplitsArray);
+
+            if (splitsArray && splitsArray.length > 0) {
+                let myStart = null;
+                if (task.type === 'result_flash' && task.data.enteredAt) {
+                    myStart = task.data.enteredAt?.toMillis ? task.data.enteredAt.toMillis() : (typeof task.data.enteredAt === 'string' ? new Date(task.data.enteredAt).getTime() : task.data.enteredAt);
+                } else {
+                    myStart = d.liveObstacleStartAt || d.live_staticStartAt;
+                    if (myStart && myStart.toMillis) myStart = myStart.toMillis();
+                    else if (typeof myStart === 'string') myStart = new Date(myStart).getTime();
+
+                    if (!myStart && d.obstacleTimes && d.obstacleTimes[obsNum]) {
+                        const ot = d.obstacleTimes[obsNum];
+                        myStart = ot.enteredAt || ot.enteredAtClient;
+                        if (typeof myStart === 'string') myStart = new Date(myStart).getTime();
+                    }
+                    if (!myStart) myStart = active.startTime; // Legacy fallback
+                }
+
                 if (myStart) {
                     const bestSplits = calculateClassSplitStats(eq.className, obsNum, maratonStatusMap, allEquipages);
-                    const rows = d.live_gateSplits.map(g => {
+                    const rows = splitsArray.map(g => {
                         const ts = g.ts?.toMillis ? g.ts.toMillis() : (typeof g.ts === 'string' ? new Date(g.ts).getTime() : g.ts);
                         const myDiff = ts - myStart;
                         const best = bestSplits[g.char]?.best;
-                        if (!best) return null;
+
+                        if (!best) {
+                            return `<div class="flex flex-col items-center bg-white dark:bg-gray-800 p-1 rounded border border-gray-100 dark:border-gray-700 shadow-sm min-w-[40px]">
+                                <div class="text-[8px] font-bold text-gray-400 uppercase">${g.char}</div>
+                                <div class="tabular-nums tracking-wide font-bold text-[10px] text-gray-800 dark:text-gray-200">${(myDiff / 1000).toFixed(1)}s</div>
+                            </div>`;
+                        }
+
                         const delta = myDiff - best;
                         const color = delta < 0 ? 'text-green-600' : 'text-red-600';
-                        return `<div class="flex flex-col items-center bg-white p-1 rounded border border-gray-100 shadow-sm min-w-[40px]">
+                        return `<div class="flex flex-col items-center bg-white dark:bg-gray-800 p-1 rounded border border-gray-100 dark:border-gray-700 shadow-sm min-w-[40px]">
                             <div class="text-[8px] font-bold text-gray-400 uppercase">${g.char}</div>
-                            <div class="font-mono font-bold text-[10px] ${color}">${delta > 0 ? '+' : ''}${(delta / 1000).toFixed(1)}s</div>
+                            <div class="tabular-nums tracking-wide font-bold text-[10px] ${color}">${delta > 0 ? '+' : ''}${(delta / 1000).toFixed(1)}s</div>
                         </div>`;
                     }).filter(Boolean).slice(-5);
 
                     if (rows.length > 0) {
                         splitDiffHtml = `<div class="flex gap-1 mt-1">${rows.join('')}</div>`;
-                        if (last) currentState = `Hinder ${obsNum} (${last.char})`;
+                        const last = splitsArray[splitsArray.length - 1];
+                        if (last) currentState = task.type === 'result_flash' ? `Resultat Hinder ${obsNum}` : `Hinder ${obsNum} (${last.char})`;
                     }
                 }
             }
 
             const bestTimeHtml = (stats && Number.isFinite(stats.bestTime))
-                ? `<div class="text-2xl font-black text-green-700 font-mono">${stats.bestTime.toFixed(2)}s</div>`
+                ? `<div class="text-2xl font-black text-green-700 tabular-nums tracking-wide">${stats.bestTime.toFixed(2)}s</div>`
                 : `<div class="text-sm font-bold text-gray-400">Inget ref.</div>`;
 
             targetHtml = `
-            <div class="bg-green-50 p-5 rounded-lg border border-green-100 flex flex-col justify-center items-center h-full">
-                <div class="text-[10px] uppercase font-bold text-green-800 mb-1">Mål att slå</div>
+            <div class="bg-green-50 dark:bg-green-900/20 p-5 rounded-lg border border-green-100 dark:border-green-800 flex flex-col justify-center items-center h-full">
+                <div class="text-[10px] uppercase font-bold text-green-800 dark:text-green-300 mb-1">Mål att slå</div>
                 ${bestTimeHtml}
-                <div class="text-[8px] text-green-500 uppercase font-bold">${stats?.avg ? 'Snitt: ' + (stats.avg / getObstacleCoefficient(eq.className)).toFixed(2) + 's' : 'Första start'}</div>
+                <div class="text-[8px] text-green-500 dark:text-green-400 uppercase font-bold">${stats?.avg ? 'Snitt: ' + (stats.avg / getObstacleCoefficient(eq.className)).toFixed(2) + 's' : 'Första start'}</div>
             </div>`;
         }
 
@@ -1745,30 +2142,30 @@ function renderCurrentRiderCard() {
         const chips = obsArr.slice(-6).map(o => {
             const p = Number(o.penalty);
             const stats = calculateClassObstacleStats(eq.className, o.number, maratonStatusMap, allEquipages);
-            let colorClass = 'bg-gray-100 text-gray-800';
-            if (o.eliminated || p === Infinity) colorClass = 'bg-red-100 text-red-800';
+            let colorClass = 'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-200';
+            if (o.eliminated || p === Infinity) colorClass = 'bg-red-100 text-red-800 dark:bg-red-900/50 dark:text-red-300';
             else if (Number.isFinite(p) && stats && Number.isFinite(stats.bestTime)) {
-                if (p <= stats.bestTime + 0.01) colorClass = 'bg-green-100 text-green-800 font-bold border-green-200';
-                else if (stats.avg && p < stats.avg) colorClass = 'bg-yellow-100 text-yellow-800 border-yellow-200';
+                if (p <= stats.bestTime + 0.01) colorClass = 'bg-green-100 text-green-800 font-bold border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800';
+                else if (stats.avg && p < stats.avg) colorClass = 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/50 dark:text-yellow-300 dark:border-yellow-800';
             }
-            return `<span class="px-1.5 py-0.5 rounded text-[10px] font-mono border ${colorClass}">H${o.number}: ${Number.isFinite(p) ? p.toFixed(2) : '-'}</span>`;
+            return `<span class="px-1.5 py-0.5 rounded text-[10px] tabular-nums tracking-wide border ${colorClass}">H${o.number}: ${Number.isFinite(p) ? p.toFixed(2) : '-'}</span>`;
         }).join('');
 
         contentHtml = `
-        <div class="mt-4 pt-4 border-t border-gray-100">
+        <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
             ${comparisonHtml}
             
             <div class="grid grid-cols-12 gap-4 items-stretch">
                 <!-- Main Activity (Left) -->
-                <div class="col-span-12 md:col-span-7 bg-amber-50 p-6 rounded-xl border border-amber-100 shadow-sm flex flex-col justify-center">
+                <div class="col-span-12 md:col-span-7 bg-amber-50 dark:bg-amber-900/40 p-6 rounded-xl border border-amber-100 dark:border-amber-800 shadow-sm flex flex-col justify-center">
                     <div class="flex justify-between items-start mb-2">
                         <div>
-                            <div class="text-[10px] uppercase font-bold text-amber-800 opacity-60">Nuvarande Aktivitet</div>
-                            <div class="text-xl font-black text-gray-900 leading-tight">${currentState === 'På banan' ? 'Kör sträcka' : currentState}</div>
+                            <div class="text-[10px] uppercase font-bold text-amber-800 dark:text-amber-200 opacity-60">Nuvarande Aktivitet</div>
+                            <div class="text-xl font-black text-gray-900 dark:text-white leading-tight">${currentState === 'På banan' ? 'Kör sträcka' : currentState}</div>
                         </div>
                         <div class="text-right">
-                            <div class="text-[10px] uppercase font-bold text-amber-800 opacity-60">Live Tid</div>
-                            <div class="text-3xl font-mono font-black text-amber-600 tabular-nums leading-none mt-2" id="marathon-live-time">${elapsedTime}</div>
+                            <div class="text-[10px] uppercase font-bold text-amber-800 dark:text-amber-200 opacity-60">Live Tid</div>
+                            <div class="text-3xl tabular-nums tracking-wide font-black text-amber-600 dark:text-amber-400 tabular-nums leading-none mt-2" id="marathon-live-time">${elapsedTime}</div>
                         </div>
                     </div>
                     ${splitDiffHtml}
@@ -1777,14 +2174,14 @@ function renderCurrentRiderCard() {
                 <!-- Secondary Stats (Right) -->
                 <div class="col-span-12 md:col-span-5 flex flex-col gap-3">
                     ${targetHtml ? `<div class="flex-1">${targetHtml}</div>` : `
-                    <div class="bg-gray-50 p-5 rounded-xl border border-gray-200 flex flex-col justify-center items-center flex-1">
-                        <div class="text-[10px] uppercase font-bold text-gray-500 mb-1">Totalt i Maraton</div>
-                        <div class="text-3xl font-black text-gray-900">${totalPenaltyDisplay}</div>
+                    <div class="bg-gray-50 dark:bg-gray-700 p-5 rounded-xl border border-gray-200 dark:border-gray-600 flex flex-col justify-center items-center flex-1">
+                        <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Totalt i Maraton</div>
+                        <div class="text-3xl font-black text-gray-900 dark:text-white">${totalPenaltyDisplay}</div>
                     </div>`}
 
                     <!-- Prognosis Bubble -->
                     ${prog && Number.isFinite(prog.projectedTotal) && prog.basedOnStats ? `
-                    <div class="bg-indigo-900 text-white p-4 rounded-xl shadow-lg flex items-center justify-between">
+                    <div class="bg-indigo-900 dark:bg-indigo-950 text-white p-4 rounded-xl shadow-lg flex items-center justify-between">
                         <div class="text-[10px] leading-tight opacity-75 uppercase font-bold">Prognos<br><span class="text-[8px] font-normal lowercase">Baserat på snitt</span></div>
                         <div class="text-2xl font-black tabular-nums">${prog.projectedTotal.toFixed(2)}</div>
                     </div>` : ''}
@@ -1798,12 +2195,12 @@ function renderCurrentRiderCard() {
                         <span>Senaste Hinder</span>
                         <span class="font-normal opacity-50">${obsArr.length} klara</span>
                     </div>
-                    <div class="flex flex-wrap gap-2">${chips || '<span class="text-xs text-gray-300">Inga hinder klara ännu</span>'}</div>
+                    <div class="flex flex-wrap gap-2">${chips || '<span class="text-xs text-gray-300 dark:text-gray-600">Inga hinder klara ännu</span>'}</div>
                 </div>
 
                 <div class="md:col-span-6">
                     <div class="text-[10px] uppercase text-gray-400 font-bold mb-2">Topplista (${eq.className})</div>
-                    <div class="bg-gray-50 rounded-lg p-3 border border-gray-100">
+                    <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 border border-gray-100 dark:border-gray-600">
                         ${renderTop3List(eq.className, 'maraton')}
                     </div>
                 </div>
@@ -1811,128 +2208,253 @@ function renderCurrentRiderCard() {
         </div>`;
 
     } else if (currentDiscipline === 'precision') {
+        const sn = String(eq.startNumber);
         const d = data || {};
+
+        // Use central calculation logic
+        const calcData = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+
+        // Time display
         let timeStr = '—';
         if (d.running && d.liveStartEpoch) {
             const ms = (d.livePausedMs || 0) + (Date.now() - d.liveStartEpoch);
             timeStr = formatMsLive(ms);
-        } else if (d.liveTimeMs) {
-            timeStr = formatMsLive(d.liveTimeMs);
-        } else if (d.timeMs) {
-            timeStr = formatMsLive(d.timeMs);
+        } else if (calcData.timeMs) {
+            timeStr = formatMsLive(calcData.timeMs);
         }
 
-        const timePen = d.liveTimePenalty || d.timePenalty || 0;
-        const total = d.liveTotalPenalty || d.totalPenalty || 0;
+        // Compute Top 3 for this class (Precision only)
+        const allInClass = allEquipages.filter(e => e.className === eq.className).map(e => {
+            const sn = String(e.startNumber);
+            const pSt = precisionStatusMap.get(sn);
+            let pen = pSt?.totalPenalty ?? null;
 
-        // --- Live Rank Logic (Phase 2) ---
-        const liveStats = {
-            sn: eq.startNumber,
-            eq: eq,
-            totalPenalty: total, // Approximate if live
-            timeMs: d.liveTimeMs || (d.running ? (d.livePausedMs || 0) + (Date.now() - d.liveStartEpoch) : d.timeMs),
-            timeLabel: timeStr
-        };
+            // Robust elimination check (including previous phases)
+            const mSt = maratonStatusMap.get(sn);
+            const elimM = mSt && ['utgått', 'utesluten', 'retired', 'eliminated', 'elim', 'ute', 'utg'].some(s => String(mSt.status || '').toLowerCase().includes(s));
+            const dSt = dressageStatusMap.get(sn);
+            const elimD = dSt?.eliminated || dSt?.excluded;
+            const isElimP = !!pSt?.eliminated;
 
-        // Re-calculate live penalty for ranking accuracy
-        if (d.running && d.liveStartEpoch) {
-            const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
-            const nowMs = (d.livePausedMs || 0) + (Date.now() - d.liveStartEpoch);
-            const lp = calculatePrecisionTimePenalty(nowMs, maxSec);
-            const op = d.liveObstaclePenalty || d.obstaclePenalty || 0;
-            const ep = d.extraPenalty || 0;
-            liveStats.totalPenalty = op + lp + ep;
-            liveStats.timeMs = nowMs;
-        }
+            const isEliminatedOverall = elimD || elimM || isElimP;
 
-        const ranking = getPrecisionRanking(allEquipages, precisionStatusMap, eq.className, liveStats);
-        const myRankIndex = ranking.findIndex(r => String(r.sn) === String(eq.startNumber));
-        const myRank = myRankIndex !== -1 ? myRankIndex + 1 : '-';
+            // If live, inject live data
+            if (liveInjection && String(liveInjection.sn) === sn && liveInjection.discipline === 'precision') {
+                pen = liveInjection.disciplinePenalty;
+            } else if (pen === null && pSt) {
+                 const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+                 pen = pRes.totalPenalty;
+            }
+            
+            return { sn, name: e.driverName, penalty: pen, timeMs: pSt?.timeMs || 0, eliminated: isEliminatedOverall };
+        }).sort((a,b) => {
+            const pA = a.eliminated ? Infinity : (a.penalty ?? Infinity);
+            const pB = b.eliminated ? Infinity : (b.penalty ?? Infinity);
+            if (pA === pB) return (a.timeMs || 0) - (b.timeMs || 0);
+            return pA - pB;
+        });
 
-        // Gap to Leader
-        let gapHtml = '';
-        if (myRankIndex > 0) {
-            const leader = ranking[0];
-            const diff = (liveStats.totalPenalty || 0) - (leader.penalty || 0);
-            gapHtml = `<div class="text-xs font-bold text-red-600 mt-1">+${diff.toFixed(2)} till ledaren</div>`;
-        } else if (myRankIndex === 0) {
-            gapHtml = `<div class="text-xs font-bold text-green-600 mt-1">Leder klassen!</div>`;
-        }
-
-        const top3 = ranking.slice(0, 3);
+        const top3 = allInClass.slice(0, 3);
         const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
         const maxTimeLabel = maxSec ? msToLabel(maxSec * 1000) : '—';
 
+        // Fix ReferenceErrors: Define myRank and gapHtml locally
+        const myRankIndex = allInClass.findIndex(r => String(r.sn) === String(eq.startNumber));
+        const myRank = myRankIndex !== -1 ? myRankIndex + 1 : '-';
+
+        let gapHtml = '';
+        if (myRankIndex > 0) {
+            const first = allInClass[0];
+            const diff = (allInClass[myRankIndex].penalty || 0) - (first.penalty || 0);
+            gapHtml = `<div class="text-[10px] text-blue-600 dark:text-blue-300 font-bold mt-1">Marginal till ledare: +${diff.toFixed(2)}</div>`;
+        }
+
+
         contentHtml = `
-    <div class="mt-4 pt-4 border-t border-gray-100 grid grid-cols-12 gap-4">
+    <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 grid grid-cols-12 gap-4">
             <div class="col-span-12">
-                <div class="text-sm uppercase text-gray-500 font-bold mb-2">Häst(ar)</div>
-                <div class="text-lg text-gray-800 leading-snug mb-4">${horseText}</div>
+                <div class="text-sm uppercase text-gray-500 dark:text-gray-400 font-bold mb-2">Häst(ar)</div>
+                <div class="text-lg text-gray-800 dark:text-white leading-snug mb-4">${horseText}</div>
             </div>
 
             <!--Stats Column(Narrower)-->
             <div class="col-span-12 md:col-span-5 grid grid-cols-2 gap-2">
-                <div class="bg-gray-50 p-2 rounded-lg text-center shadow-inner border border-gray-200 col-span-2 flex justify-between items-center px-4">
+                <div class="bg-gray-50 dark:bg-gray-700 p-2 rounded-lg text-center shadow-inner border border-gray-200 dark:border-gray-600 col-span-2 flex justify-between items-center px-4">
                     <div class="text-left">
-                        <div class="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Maxtid</div>
-                        <div class="text-sm font-mono text-gray-600">${maxTimeLabel}</div>
+                        <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-bold">Maxtid</div>
+                        <div class="text-sm tabular-nums tracking-wide text-gray-600 dark:text-gray-300">${maxTimeLabel}</div>
                     </div>
                     <div class="text-right">
-                         <div class="text-[10px] uppercase tracking-wide text-gray-500 font-bold">Tid</div>
-                         <div id="precision-live-time" class="text-3xl font-mono font-black text-gray-900 tracking-tight leading-none">${timeStr}</div>
+                         <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-bold">Tid</div>
+                         <div id="precision-live-time" class="text-3xl tabular-nums tracking-wide font-black text-gray-900 dark:text-white tracking-tight leading-none">${timeStr}</div>
                     </div>
                 </div>
                 
-                <div class="bg-blue-50 p-2 rounded-lg text-center shadow-sm border border-blue-100 col-span-2 relative overflow-hidden">
-                    <div class="text-[10px] uppercase tracking-wide text-blue-800 font-bold">Totalt Straff</div>
-                    <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue leading-none py-1">${d.eliminated ? 'ELIM' : total.toFixed(2)}</div>
-                    ${!d.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-bold text-gray-600 shadow-sm border border-gray-200">Rank: ${myRank}</div>` : ''}
+                <div class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-center shadow-sm border border-blue-100 dark:border-blue-800 col-span-2 relative overflow-hidden">
+                    <div class="text-[10px] uppercase tracking-wide text-blue-800 dark:text-blue-300 font-bold">Totalt Straff</div>
+                    <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${calcData.eliminated ? 'ELIM' : (calcData.totalPenalty || 0).toFixed(2)}</div>
+                    ${!calcData.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Rank: ${myRank}</div>` : ''}
                     ${gapHtml}
                 </div>
 
-                <div class="bg-white p-2 rounded-lg text-center border border-gray-200 col-span-2">
-                    <div class="grid grid-cols-2 gap-2 text-sm">
+                <div class="bg-white dark:bg-gray-800 p-2 rounded-lg text-center border border-gray-200 dark:border-gray-700 col-span-2">
+                    <div class="grid grid-cols-2 gap-2 text-sm border-b dark:border-gray-700 pb-2 mb-2">
                         <div>
-                            <span class="block text-red-800 font-bold text-lg leading-none">${(d.liveObstaclePenalty || d.obstaclePenalty || 0).toFixed(0)}</span>
-                            <span class="text-[10px] text-red-600 uppercase">Hinder</span>
+                            <span class="block text-red-800 dark:text-red-400 font-bold text-lg leading-none">${(calcData.obstaclePenalty || 0).toFixed(0)}</span>
+                            <span class="text-[10px] text-red-600 dark:text-red-300 uppercase">Hinder</span>
                         </div>
                         <div>
-                            <span id="precision-live-time-penalty" class="block text-amber-800 font-bold text-lg leading-none">${timePen.toFixed(2)}</span>
-                            <span class="text-[10px] text-amber-600 uppercase">Tidsfel</span>
+                            <span id="precision-live-time-penalty" class="block text-amber-800 dark:text-amber-400 font-bold text-lg leading-none">${(calcData.timePenalty || 0).toFixed(2)}</span>
+                            <span class="text-[10px] text-amber-600 dark:text-amber-300 uppercase">Tidsfel</span>
+                        </div>
+                    </div>
+                    <div class="text-left">
+                        <div class="text-[10px] uppercase text-gray-400 font-bold mb-1">Rivningar</div>
+                        <div class="text-xs font-bold text-red-700 dark:text-red-400 whitespace-normal leading-tight">
+                            ${calcData.display.knocksText}
                         </div>
                     </div>
                 </div>
             </div>
 
-            <!--Top 3 Column(Wider)-->
-    <div class="col-span-12 md:col-span-7 bg-white rounded border border-gray-200 overflow-hidden text-sm flex flex-col">
-        <div class="bg-gray-100 px-3 py-2 text-xs font-bold text-gray-500 uppercase tracking-wide border-b">
-            Topp 3 (${eq.className})
-        </div>
-        <div class="divide-y divide-gray-100 flex-1 overflow-y-auto max-h-[200px]">
-            ${top3.length ? top3.map((r, i) => `
-                        <div onclick="showRiderDetails('${r.sn}')" class="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 cursor-pointer hover:bg-yellow-100 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-yellow-50' : ''}">
-                            <div class="flex items-center gap-3 overflow-hidden w-full sm:w-auto mb-1 sm:mb-0">
-                                <span class="font-bold text-gray-400 w-6 text-center text-lg">${i + 1}.</span>
-                                <div class="flex flex-col min-w-0">
-                                    <span class="font-bold text-gray-800 leading-tight break-words text-base">${r.name}</span>
-                                    <div class="flex items-center gap-1 text-xs text-gray-500 truncate">
-                                         ${getClubLogoHtml(r.eq)} <span>${r.club}</span>
-                                    </div>
+            <!--Top 3 Column (Wider)-->
+            <div class="col-span-12 md:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <!-- Precision Top 3 -->
+                <div class="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden text-sm flex flex-col">
+                    <div class="bg-indigo-50 dark:bg-indigo-900/40 px-3 py-2 text-[10px] font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wide border-b border-indigo-100 dark:border-indigo-800">
+                        Topp 3 Precision (${eq.className})
+                    </div>
+                    <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
+                        ${top3.length ? top3.map((r, i) => `
+                            <div onclick="window.showRiderDetails('${r.sn}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
+                                <div class="flex items-center gap-2 overflow-hidden">
+                                    <span class="font-bold text-gray-400 w-4 text-center">${i + 1}.</span>
+                                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${r.name}</span>
                                 </div>
+                                <span class="font-black text-gray-900 dark:text-white ml-2">${(r.penalty || 0).toFixed(2)}</span>
                             </div>
-                            <div class="flex items-center justify-end gap-3 w-full sm:w-auto shrink-0 ml-2">
-                                <span class="font-black text-gray-900 text-xl">${r.penalty.toFixed(2)}</span>
-                                <span class="text-xs text-gray-400 font-mono">(${r.time ? r.time.replace(',', '.') : '—'})</span>
+                        `).join('') : '<div class="p-4 text-center text-gray-400 italic text-sm">Inga resultat</div>'}
+                    </div>
+                </div>
+
+                <!-- Overall Top 3 -->
+                <div class="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden text-sm flex flex-col">
+                    <div class="bg-brand-gold bg-opacity-10 dark:bg-yellow-900/40 px-3 py-2 text-[10px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide border-b border-brand-gold border-opacity-20 dark:border-yellow-800">
+                        Topp 3 Totalt (${eq.className})
+                    </div>
+                    <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
+                        ${totalRanking.slice(0, 3).map((r, i) => `
+                            <div onclick="window.showRiderDetails('${r.sn}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}">
+                                <div class="flex items-center gap-2 overflow-hidden">
+                                    <span class="font-bold text-yellow-600 w-4 text-center">${i + 1}.</span>
+                                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${allEquipages.find(e => String(e.startNumber) === String(r.sn))?.driverName}</span>
+                                </div>
+                                <span class="font-black text-gray-900 dark:text-white ml-2">${r.total.toFixed(2)}</span>
                             </div>
-                        </div>
-                    `).join('') : '<div class="p-4 text-center text-gray-400 italic text-sm">Inga resultat</div>'}
-        </div>
-    </div>
+                        `).join('')}
+                    </div>
+                </div>
+            </div>
         </div> `;
+    } else if (currentDiscipline === 'totalt') {
+        const sn = String(eq.startNumber);
+        
+        // Fetch all individual phase scores (robustly)
+        const dSt = dressageStatusMap.get(sn);
+        let dPen = dSt?.finalPenalty ?? null;
+
+        const mSt = maratonStatusMap.get(sn);
+        let mPen = mSt?.totalPenalty ?? null;
+        if (mPen === null && mSt) {
+            const mRes = calculateMarathonResult(eq, mSt, mSt);
+            mPen = mRes.totalPenalty;
+        }
+        const pSt = precisionStatusMap.get(sn);
+        let pPen = pSt?.totalPenalty ?? null;
+        if (liveInjection && liveInjection.discipline === 'precision' && liveInjection.disciplinePenalty != null) {
+            pPen = liveInjection.disciplinePenalty;
+        } else if (pPen === null && pSt) {
+            const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+            pPen = pRes.totalPenalty;
+        }
+
+        if (liveInjection && liveInjection.discipline === 'maraton' && liveInjection.disciplinePenalty != null) {
+            mPen = liveInjection.disciplinePenalty;
+        }
+
+        contentHtml = `
+        <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <!-- Dressage Score -->
+                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
+                    <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Dressyr</div>
+                    <div class="text-3xl font-black text-gray-900 dark:text-white">${dPen !== null ? dPen.toFixed(2) : '—'}</div>
+                    <div class="text-[10px] text-gray-400">${dSt?.finalPercent ? dSt.finalPercent.toFixed(1) + '%' : ''}</div>
+                </div>
+                
+                <!-- Marathon Score -->
+                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
+                    <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Maraton</div>
+                    <div class="text-3xl font-black text-gray-900 dark:text-white">${mPen !== null ? mPen.toFixed(2) : '—'}</div>
+                </div>
+                
+                <!-- Precision Score -->
+                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
+                    <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Precision</div>
+                    <div class="text-3xl font-black text-gray-900 dark:text-white">${pPen !== null ? pPen.toFixed(2) : '—'}</div>
+                </div>
+            </div>
+
+            <!-- Grand Total -->
+            <div class="mt-6 bg-brand-darkblue dark:bg-blue-900 text-white p-6 rounded-2xl shadow-xl flex flex-col items-center relative overflow-hidden">
+                <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-400/10 to-transparent pointer-events-none"></div>
+                <div class="text-xs uppercase font-black tracking-widest text-blue-200 mb-2">Total Ställning</div>
+                <div class="text-6xl font-black tracking-tighter">${myTotalScore === Infinity ? 'UT' : (myTotalScore !== null ? myTotalScore.toFixed(2) : '—')}</div>
+                <div class="mt-4 flex items-center gap-4">
+                    <div class="bg-white/10 px-4 py-1 rounded-full border border-white/20">
+                        <span class="text-xs font-bold text-blue-100 uppercase mr-2">Placering:</span>
+                        <span class="text-2xl font-black text-white">${myTotalRank} / ${totalRanking.length}</span>
+                    </div>
+                </div>
+                ${marginHtml ? `<div class="mt-4 w-full">${marginHtml}</div>` : ''}
+            </div>
+
+            <!-- Class Quick List -->
+            <div class="mt-6">
+                <div class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2 flex justify-between">
+                    <span>Topplista (${eq.className})</span>
+                </div>
+                <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 border border-gray-100 dark:border-gray-600 grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+                    ${renderTop3List(eq.className, 'totalt') || renderTop3List(eq.className, 'precision')}
+                </div>
+            </div>
+        </div>`;
     }
 
-    el.innerHTML = `<div class="p-4 md:p-6">${headerHtml + contentHtml}</div>`;
+    // --- FINAL STABLE RENDER ---
+    const sel = el.querySelector('#compare-select');
+    const isCompareActive = document.activeElement && document.activeElement.id === 'compare-select';
+    const hasOptions = sel && sel.options.length > 1;
+
+    // If user is interacting with comparison AND it already has options, preserve state
+    if (isCompareActive && sel && hasOptions) {
+        // Targeted updates to preserve select state
+        const timeEl = document.getElementById('marathon-live-time');
+        if (timeEl && elapsedTime !== '—') timeEl.textContent = elapsedTime;
+
+        // Update comparison box if present
+        const compContainer = el.querySelector('.comparison-container');
+        if (compContainer) compContainer.innerHTML = comparisonHtml;
+
+        // Don't replace full innerHTML to avoid closing the select
+        return;
+    }
+
+    el.innerHTML = `<div class="p-4 md:p-6">
+        ${headerHtml}
+        <div class="comparison-container">${comparisonHtml}</div>
+        ${contentHtml}
+    </div>`;
 }
 
 function renderLeaderToBeat(className) {
@@ -1943,7 +2465,7 @@ function renderLeaderToBeat(className) {
     if (!leader) return '';
 
     const label = currentDiscipline === 'dressyr' ? 'Att slå' : (leader.isLeader ? 'Ledarresultat' : 'Jagar');
-    let val = currentDiscipline === 'dressyr' ? leader.score.toFixed(1) + '%' : leader.score.toFixed(2);
+    let val = currentDiscipline === 'dressyr' ? (leader.score != null ? leader.score.toFixed(1) + '%' : '—') : (leader.score != null ? leader.score.toFixed(2) : '—');
 
     if (currentDiscipline === 'precision' && leader.time) {
         val += ` <span class="text-xs font-normal">(${leader.time})</span>`;
@@ -1954,19 +2476,19 @@ function renderLeaderToBeat(className) {
         const currentPen = currentRider.data?.liveTotalPenalty || 0;
         const diff = currentPen - leader.score;
         if (diff > 0) {
-            diffHtml = `<span class="ml-2 text-xs font-bold text-red-500">(+${diff.toFixed(2)})</span>`;
+            diffHtml = `<span class="ml-2 text-xs font-bold text-red-500">(+${(diff != null) ? diff.toFixed(2) : '—'})</span>`;
         } else if (diff < 0) {
-            diffHtml = `<span class="ml-2 text-xs font-bold text-green-500">(${diff.toFixed(2)})</span>`;
+            diffHtml = `<span class="ml-2 text-xs font-bold text-green-500">(${(diff != null) ? diff.toFixed(2) : '—'})</span>`;
         }
     }
 
     return `
-    <div class="mt-2 text-sm text-gray-500 border-l-2 border-gray-300 pl-2">
-        <div class="uppercase font-bold text-[10px] tracking-wider text-gray-400">${label}:</div>
+    <div class="mt-2 text-sm text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-2">
+        <div class="uppercase font-bold text-[10px] tracking-wider text-gray-400 dark:text-gray-500">${label}:</div>
         <div>
-            <span class="font-mono font-bold text-lg text-gray-800">${val}</span> ${diffHtml}
+            <span class="tabular-nums tracking-wide font-bold text-lg text-gray-800 dark:text-gray-200">${val}</span> ${diffHtml}
         </div>
-        <div class="text-xs text-gray-600 truncate max-w-[200px]">${leader.name}</div>
+        <div class="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[200px]">${leader.name}</div>
     </div>
     `;
 }
@@ -2007,7 +2529,7 @@ function getChasingTarget(className, currentPenalty) {
 }
 
 function renderUpcomingList() {
-    const el = document.getElementById('upcoming-list-content');
+    const el = document.getElementById('upcoming-list-content') || document.getElementById('upcoming-list');
     if (!el) return;
 
     const upcoming = allEquipages.filter(eq => {
@@ -2018,7 +2540,9 @@ function renderUpcomingList() {
 
         if (currentDiscipline === 'dressyr') {
             const st = dressageStatusMap.get(sn) || {};
+            // Use state directly to avoid normDressageState auto-finishing on zero-penalty
             state = st.state || eq.status || 'not-started';
+            if (st.finalPenalty != null && st.state === 'finished') state = 'finished';
             startTime = new Date(startTimes[sn]?.dressage || 0).getTime();
             if (currentRider && String(currentRider.eq.startNumber) === sn) return false;
         } else if (currentDiscipline === 'maraton') {
@@ -2033,7 +2557,11 @@ function renderUpcomingList() {
             if (currentRider && String(currentRider.eq.startNumber) === sn) return false;
         }
 
-        const isFinished = String(state).toLowerCase() === 'finished' || state === 'started';
+        // Check if explicitly finished or started by live status
+        let isFinished = String(state).toLowerCase() === 'finished' || state === 'started';
+        // Check if recently completed and in the result cache
+        if (recentResults.some(r => String(r.sn) === sn)) isFinished = true;
+
         return !isFinished && !isWithdrawnOrExcluded(state, { ...eq });
     }).sort((a, b) => {
         const tA = getStartTimeForSort(a.startNumber);
@@ -2042,20 +2570,20 @@ function renderUpcomingList() {
     }).slice(0, 10);
 
     if (upcoming.length === 0) {
-        el.innerHTML = '<div class="p-4 text-center text-gray-500 text-sm">Inga fler starter.</div>';
+        el.innerHTML = '<div class="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">Inga fler starter.</div>';
         return;
     }
 
     const listHtml = upcoming.map(eq => {
         const t = getStartTimeForDisplay(eq.startNumber);
         return `
-    <div class="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-white border border-transparent hover:border-gray-200 transition-colors">
+    <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-white dark:hover:bg-gray-600 border border-transparent hover:border-gray-200 dark:hover:border-gray-500 transition-colors">
             <div class="min-w-0">
-                <div class="font-bold text-gray-900 truncate">#${eq.startNumber} ${eq.driverName}</div>
-                <div class="text-xs text-gray-500 truncate">${eq.clubName}</div>
+                <div class="font-bold text-gray-900 dark:text-white truncate">#${eq.startNumber} ${eq.driverName}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${eq.clubName}</div>
             </div>
             <div class="text-right shrink-0">
-                 <div class="font-mono font-bold text-brand-darkblue">${t}</div>
+                 <div class="tabular-nums tracking-wide font-bold text-brand-darkblue dark:text-blue-300">${t}</div>
             </div>
         </div>
     `}).join('');
@@ -2068,11 +2596,19 @@ function renderUpcomingList() {
 
 function getStartTimeForSort(sn) {
     const s = String(sn);
-    let val = '99:99';
-    if (currentDiscipline === 'dressyr') val = startTimes[s]?.dressage || '99:99';
-    else if (currentDiscipline === 'maraton') val = startTimes[s]?.maraton || '99:99';
-    else if (currentDiscipline === 'precision') val = startTimes[s]?.precision || '99:99';
-    return val;
+    let val = null;
+    if (currentDiscipline === 'dressyr') val = startTimes[s]?.dressage;
+    else if (currentDiscipline === 'maraton') val = startTimes[s]?.maraton;
+    else if (currentDiscipline === 'precision') val = startTimes[s]?.precision;
+
+    // Return max value if no time found to push to end
+    if (!val) return Number.MAX_SAFE_INTEGER;
+
+    // Convert to comparable timestamp
+    if (val.includes('T')) return new Date(val).getTime();
+
+    // Handle "HH:mm" by attaching to a dummy date
+    return new Date('1970-01-01T' + (val.length === 5 ? val + ':00' : val)).getTime();
 }
 
 function getStartTimeForDisplay(sn) {
@@ -2086,14 +2622,15 @@ function getStartTimeForDisplay(sn) {
     return val;
 }
 
-function renderResultList() {
+function renderRecentResultsList() {
     const el = document.getElementById('recent-results-list');
     if (!el) return;
 
     const list = [...recentResults].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
+
     if (list.length === 0) {
-        el.innerHTML = '<div class="p-4 text-center text-gray-500 text-sm">Inga resultat ännu.</div>';
+        el.innerHTML = '<div class="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">Inga resultat ännu.</div>';
         return;
     }
 
@@ -2162,7 +2699,7 @@ function renderResultList() {
                 const best = Math.min(...classResults.map(cr => cr.finalPenalty));
                 const diff = r.finalPenalty - best;
                 if (diff > 0.001) {
-                    gapHtml = `<span class="text-[10px] text-red-500 font-mono ml-2">(+${diff.toFixed(2)})</span>`;
+                    gapHtml = `<span class="text-[10px] text-red-500 tabular-nums tracking-wide ml-2">(+${diff.toFixed(2)})</span>`;
                 } else {
                     gapHtml = `<span class="text-[10px] text-green-600 font-bold ml-2">LEDER</span>`;
                 }
@@ -2170,15 +2707,15 @@ function renderResultList() {
         }
 
         return `
-        <div onclick="showRiderDetails('${r.sn}')" class="p-2 border-b last:border-0 hover:bg-gray-50 cursor-pointer transition-colors">
+        <div onclick="showRiderDetails('${r.sn}')" class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
             <div class="flex justify-between items-baseline mb-1">
                 <div class="flex items-center">
-                     <span class="font-bold text-gray-900 mr-2">#${r.sn} ${r.name}</span>
+                     <span class="font-bold text-gray-900 dark:text-gray-200 mr-2">#${r.sn} ${r.name}</span>
                      ${gapHtml}
                 </div>
-                <span class="font-bold text-blue-600">${Number.isFinite(r.finalPenalty) ? r.finalPenalty.toFixed(2) : '-'} p</span>
+                <span class="font-bold text-blue-600 dark:text-blue-400">${Number.isFinite(r.finalPenalty) ? r.finalPenalty.toFixed(2) : '-'} p</span>
             </div>
-            <div class="flex justify-between items-center text-xs text-gray-500">
+            <div class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
                 <span>${r.clubName}</span>
                 <span>${Number.isFinite(r.finalPercent) && currentDiscipline === 'dressyr' ? r.finalPercent.toFixed(1) + '%' : ''}</span>
             </div>
@@ -2190,30 +2727,30 @@ function renderResultList() {
 
 function findCurrentRider() {
     if (manualFocusId) {
-        if (currentDiscipline === 'dressyr') {
-            const data = dressageStatusMap.get(String(manualFocusId));
-            const eq = allEquipages.find(e => String(e.startNumber) === String(manualFocusId));
-            if (eq && data) {
-                currentRider = { eq, statusData: data, liveData: liveProtocolMap.get(String(manualFocusId)) };
+        const id = String(manualFocusId);
+        const eq = allEquipages.find(e => String(e.startNumber) === id);
+        if (eq) {
+            if (currentDiscipline === 'dressyr') {
+                const data = dressageStatusMap.get(id);
+                currentRider = { eq, statusData: data, liveData: liveProtocolMap.get(id) };
                 return;
-            }
-        }
-        else if (currentDiscipline === 'maraton') {
-            const data = maratonStatusMap.get(String(manualFocusId));
-            const eq = allEquipages.find(e => String(e.startNumber) === String(manualFocusId));
-            if (eq && data) {
+            } else if (currentDiscipline === 'maraton') {
+                const data = maratonStatusMap.get(id);
                 const actives = getActiveMarathonRunners();
-                const found = actives.find(a => String(a.eq.startNumber) === String(manualFocusId));
+                const found = actives.find(a => String(a.sn) === id);
                 if (found) currentRider = found;
                 else currentRider = { eq, data, taskName: 'Vald (Ej aktiv?)' };
                 return;
-            }
-        }
-        else if (currentDiscipline === 'precision') {
-            const data = precisionStatusMap.get(String(manualFocusId));
-            const eq = allEquipages.find(e => String(e.startNumber) === String(manualFocusId));
-            if (eq) {
+            } else if (currentDiscipline === 'precision') {
+                const data = precisionStatusMap.get(id);
                 currentRider = { eq, data };
+                return;
+            } else {
+                // Totalt or fallback
+                const pData = precisionStatusMap.get(id);
+                const mData = maratonStatusMap.get(id);
+                const dData = dressageStatusMap.get(id);
+                currentRider = { eq, statusData: dData, data: pData || mData };
                 return;
             }
         }
@@ -2222,13 +2759,20 @@ function findCurrentRider() {
     if (currentDiscipline === 'dressyr') findCurrentDressageRider();
     else if (currentDiscipline === 'maraton') findCurrentMarathonRider();
     else if (currentDiscipline === 'precision') findCurrentPrecisionRider();
+    else if (currentDiscipline === 'totalt') {
+        // Priority for 'totalt' view auto-focus: Precision > Marathon > Dressage
+        findCurrentPrecisionRider();
+        if (!currentRider) findCurrentMarathonRider();
+        if (!currentRider) findCurrentDressageRider();
+    }
 }
 
 function findCurrentDressageRider() {
     let latest = null;
     let latestTs = 0;
     for (const [sn, data] of dressageStatusMap.entries()) {
-        if (data?.state === 'ongoing') {
+        const state = String(data?.state || '').toLowerCase();
+        if (state === 'ongoing' || state === 'active') {
             const ts = new Date(data.updatedAt || 0).getTime();
             if (Number.isFinite(ts) && ts > latestTs) {
                 latestTs = ts;
@@ -2295,15 +2839,23 @@ function evaluateActiveState(sn, data) {
     let startTime = 0;
     let pausedMs = 0;
 
+    let fixedElapsedMs = null;
+    let timerBaseMs = 0;
+
     // 1. Check Obstacle Activity
     if (data.currentObstacle && (data.liveObstacleStartAt || (data.liveObstacleTimeMs && data.liveObstacleTimeMs > 0))) {
         isActive = true;
         task = { type: 'obstacle', name: `Hinder ${data.currentObstacle}`, key: data.currentObstacle };
 
-        const liveStart = data.liveObstacleStartAt?.toMillis?.();
-        const updatedStart = data.updatedAt?.toMillis?.() || Date.now();
-        startTime = liveStart || updatedStart;
-        pausedMs = stageDurationMsSaved(data, 'obstacle') || 0;
+        if (data.running === true) {
+            const lastUpdateMs = Number(data.liveObstacleTimeMs) || 0;
+            const lastUpdateTime = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : Date.now();
+            // Real-time calculation basis
+            timerBaseMs = lastUpdateTime - lastUpdateMs;
+        } else {
+            // Clock is stopped by user
+            fixedElapsedMs = Number(data.liveObstacleTimeMs) || 0;
+        }
     } else {
         // 2. Result Flash
         let flashFound = false;
@@ -2326,21 +2878,25 @@ function evaluateActiveState(sn, data) {
             if (latestObs && latestExit > 0 && (Date.now() - latestExit < 20000)) {
                 isActive = true; flashFound = true;
                 task = { type: 'result_flash', name: `Resultat Hinder ${latestObs.number}`, key: 'flash', data: latestObs };
+                fixedElapsedMs = latestObs.timeMs || (latestObs.timeInSeconds * 1000) || 0;
                 startTime = latestExit;
             }
         }
 
         // 3. Stages Check (A, B, Transport)
         if (!flashFound) {
-            const stages = [{ key: 'A', name: 'Etapp A' }, { key: 'B', name: 'Etapp B' }, { key: 'transport', name: 'Transport' }];
+            const limitsA = limitsFor(eq, 'A');
+            const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
+            const stages = [{ key: 'A', name: isFixedTimeA ? 'Warm-up' : 'Etapp A' }, { key: 'B', name: 'Etapp B' }, { key: 'transport', name: 'Transport' }];
             for (const stage of stages) {
                 const start = stageStartTS(data, stage.key);
                 const stop = stageStopTS(data, stage.key);
                 if (start && !stop) {
                     isActive = true;
                     task = { type: 'stage', name: stage.name, key: stage.key };
-                    startTime = start;
+                    timerBaseMs = start;
                     pausedMs = stageDurationMsSaved(data, stage.key) || 0;
+                    startTime = start; // Legacy compat
                     break;
                 }
             }
@@ -2358,13 +2914,14 @@ function evaluateActiveState(sn, data) {
             if (hasStopA && !hasStartB) {
                 isActive = true;
                 task = { type: 'transport', name: 'Transport / Paus', key: 'wait_b' };
-                startTime = hasStopA;
+                timerBaseMs = hasStopA;
+                startTime = hasStopA; // Legacy compat
             }
         }
     }
 
     if (isActive) {
-        activeEquipages.set(String(sn), { sn, eq, data, task, startTime, pausedMs, updatedAt: Date.now() });
+        activeEquipages.set(String(sn), { sn, eq, data, task, startTime, pausedMs, timerBaseMs, fixedElapsedMs, updatedAt: Date.now() });
     } else {
         activeEquipages.delete(String(sn));
     }
@@ -2455,133 +3012,9 @@ function evaluateActiveState_OLD(sn, data) {
 }
 */
 
-function ensureMaratonTicker() {
-    if (maratonTickerInterval) return;
-    maratonTickerInterval = setInterval(() => {
-        if (currentDiscipline !== 'maraton') return;
-
-        // Render Active List content (timers)
-        // We only re-render the list HTML if items change, 
-        // OR we update the DOM elements directly.
-        // For smoother UI, we'll try to find DOM elements and update text.
-
-        activeEquipages.forEach(active => {
-            const ms = (Date.now() - active.startTime) - active.pausedMs; // Simplify live calc
-            const val = (ms / 1000).toFixed(1) + 's';
-
-            const el = document.getElementById(`maraton-timer-${active.sn}`);
-            if (el) el.textContent = val;
-
-            // Update Sector Analysis if active in A or Transport
-            // This is slightly more complex because analyzeSectorProgress does its own logic
-            // but we can approximate the diff here for the ticker or just let it re-render on snapshot.
-            // Actually, let's just find the sector timer and update it.
-            ['A', 'transport'].forEach(stg => {
-                const sEl = document.getElementById(`sector-timer-${active.sn}-${stg}`);
-                if (sEl) {
-                    sEl.textContent = val;
-                    // We'd need limits to update the diff live. 
-                    // For now, updating the timer is a good start, the diff will sync on next snapshot.
-                }
-            });
-
-            // Also update Main Card if this is the current rider
-            if (currentRider && String(currentRider.eq?.startNumber) === active.sn) {
-                const mainEl = document.getElementById('marathon-live-time-main');
-                if (mainEl) mainEl.textContent = val;
-
-                // Update LIVE Total Penalty
-                // This is the "Total Straff" box.
-                // We re-calculate the result to capture time penalties live
-                const liveRes = calculateMarathonResult(active.eq, active.data || {}, active.data || {});
-                if (liveRes && Number.isFinite(liveRes.totalPenalty)) {
-                    // Check if we have elapsed time on section that MIGHT cause penalty?
-                    // Usually calculateMarathonResult handles finished stages. 
-                    // If we want "LIVE" penalty for section overrun, we need custom logic here or in calculateMarathonResult.
-                    // But for now, let's at least update it if it changes (e.g. invalid gate passed).
-                    const totalEl = document.getElementById('marathon-live-total-penalty');
-                    // Make sure we have an element with this ID in renderCurrentRiderCard!
-                    // I will update renderCurrentRiderCard to include this ID.
-                }
-            }
-        });
-
-    }, 100);
+function ensureSpeakerTicker() {
+    ensureMainTicker();
 }
-
-// ================= Modal =================
-
-window.showRiderDetails = (sn) => {
-    if (currentDiscipline === 'maraton') {
-        const eq = allEquipages.find(e => String(e.startNumber) === String(sn));
-        if (eq) {
-            // Reuse the Shared Marathon Modal
-            // We pass maratonStatusMap which contains the live data for all drivers.
-            showMarathonDetailsModal(sn, allEquipages, maratonStatusMap);
-            return;
-        }
-    }
-
-    // For other disciplines or fallback:
-    const eq = allEquipages.find(e => String(e.startNumber) === String(sn));
-    if (!eq) return;
-
-    let content = '';
-    let title = `${eq.driverName} (${eq.className})`;
-
-    if (currentDiscipline === 'dressyr') {
-        const snKey = String(sn);
-
-        // 1. Collect protocols (Mirror pattern in dressyr-monitor.js)
-        let protocolsArr = [];
-        const saved = savedProtocolsMap.get(snKey);
-        if (saved) protocolsArr = Array.isArray(saved) ? [...saved] : [saved];
-
-        // Merge Live (Map-of-Maps)
-        const liveMap = liveProtocolMap.get(snKey);
-        if (liveMap) {
-            liveMap.forEach(liveProto => {
-                const jid = liveProto.judgeId || liveProto.id;
-                const pos = (liveProto.position || liveProto.judgePosition || '').toUpperCase();
-
-                const idx = protocolsArr.findIndex(p =>
-                    (p.judgeId && String(p.judgeId) === String(jid)) ||
-                    (p.position && String(p.position).toUpperCase() === pos)
-                );
-
-                const normalizedLive = { ...liveProto, judgeId: jid || pos, position: pos };
-
-                if (idx >= 0) protocolsArr[idx] = { ...protocolsArr[idx], ...normalizedLive };
-                else protocolsArr.push(normalizedLive);
-            });
-        }
-
-        // Filter and wrap in Map for modal
-        console.log(`[SpeakerDebug] Opening Dressage Modal for #${snKey}`);
-        console.log(`[SpeakerDebug] Protocols before filter:`, protocolsArr);
-        console.log(`[SpeakerDebug] Valid Judges:`, allJudges);
-
-        const cleanArr = deduplicateAndFilterProtocols(protocolsArr, allJudges);
-        console.log(`[SpeakerDebug] Protocols after filter:`, cleanArr);
-
-        const tempMap = new Map([[snKey, cleanArr]]);
-
-        showDressageDetailsModal(sn, {
-            statusMap: dressageStatusMap,
-            savedProtocolsMap: tempMap,
-            equipages: allEquipages,
-            currentJudges: allJudges
-        });
-        return;
-    } else if (currentDiscipline === 'precision') {
-        showPrecisionDetailsModal(sn, allEquipages, precisionStatusMap, precisionConfig, startTimes);
-        return;
-    }
-
-    // If we reach here for some reason (e.g. unknown discipline), show generic error
-    console.warn("Unknown discipline for modal:", currentDiscipline);
-}
-
 
 function findCurrentPrecisionRider() {
     let active = null;
@@ -2602,18 +3035,21 @@ function findCurrentPrecisionRider() {
 
 function maybePushRecentPrecision(sn, data) {
     if (data.inProgress === true) return;
-    if (!data.finalized && !data.status === 'Klar') {
+    if (!data.finalized && data.status !== 'Klar') {
         if (data.totalPenalty == null) return;
     }
 
     const eq = allEquipages.find(e => String(e.startNumber) === sn);
     if (!eq) return;
 
+    // Use central calculation logic to ensure penalties are accurate (not trusting stale Firestore fields)
+    const calc = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+    
     const entry = {
         sn: String(sn),
         name: eq.driverName,
         clubName: eq.clubName,
-        finalPenalty: data.totalPenalty,
+        finalPenalty: calc.totalPenalty,
         finalPercent: null,
         updatedAt: data.updatedAt || Date.now()
     };
@@ -2626,7 +3062,17 @@ function maybePushRecentPrecision(sn, data) {
     }
 }
 
+// Wrapper to prevent crash and logging
 function maybePushRecent(sn) {
+    try {
+        return maybePushRecentInternal(sn);
+    } catch (e) {
+        console.error('Error in maybePushRecent for', sn, e);
+        return false;
+    }
+}
+
+function maybePushRecentInternal(sn) {
     const S = String(sn);
     const st = dressageStatusMap.get(S) || {};
     const eq = allEquipages.find(e => String(e.startNumber) === S) || null;
@@ -2639,20 +3085,117 @@ function maybePushRecent(sn) {
         return false;
     }
 
-    const hasResult = (st.finalPenalty != null);
+    // 1. Collect all protocols (Saved + Live)
+    let protocolsArr = [];
+    const saved = savedProtocolsMap.get(S);
+    if (saved) protocolsArr = Array.isArray(saved) ? [...saved] : [saved];
 
-    if (!hasResult) {
+    const liveMap = liveProtocolMap.get(S);
+    if (liveMap) {
+        liveMap.forEach(liveProto => {
+            const jid = liveProto.judgeId || liveProto.id;
+            const pos = (liveProto.position || liveProto.judgePosition || '').toUpperCase();
+
+            // Normalize live protocol structure
+            const normalizedLive = {
+                ...liveProto,
+                judgeId: jid || pos,
+                position: pos,
+                movements: Array.isArray(liveProto.movements) ? normalizeMovements(liveProto.movements) : []
+            };
+
+            const idx = protocolsArr.findIndex(p =>
+                (p.judgeId && String(p.judgeId) === String(jid)) ||
+                (p.position && String(p.position).toUpperCase() === pos)
+            );
+
+            if (idx >= 0) protocolsArr[idx] = normalizedLive;
+            else protocolsArr.push(normalizedLive);
+        });
+    }
+
+    // Determine Relevant Judges FIRST
+    let relevantJudges = allJudges;
+    if (eq && eq.className) {
+        const clsNorm = String(eq.className).trim().toLowerCase();
+        relevantJudges = allJudges.filter(j => {
+            if (!j.classes || !Array.isArray(j.classes) || j.classes.length === 0) return true;
+
+            // Aggressive normalization: remove all non-alphanumeric chars (except maybe basic ones) and lowercase
+            // This handles "Lätt A" vs "Lätt A " vs "Lätt A  Enbet"
+            const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
+            const target = normalize(eq.className);
+
+            return j.classes.some(c => normalize(c) === target);
+        });
+
+    }
+
+    const merged = deduplicateAndFilterProtocols(protocolsArr, relevantJudges);
+
+    // Auto-detect finished status based on judge count
+    let finished = stateStr === 'finished'; // Note: using let
+    if (!finished && relevantJudges && relevantJudges.length > 0) {
+
+        const uniquePos = new Set(merged.map(p => (p.position || p.judgePosition || '').toUpperCase()).filter(x => x));
+        const expectedPos = new Set(relevantJudges.map(j => (j.position || '').toUpperCase()));
+
+        // Only mark finished if we actually expect judges
+        if (expectedPos.size > 0 && uniquePos.size >= expectedPos.size && uniquePos.size > 0) {
+            finished = true;
+        }
+    }
+
+    // Attempt Calculation if we have data
+    let result = null;
+    if (merged.length > 0) {
+        const programs = getPrograms();
+        result = calculateDressageResult(eq, merged, relevantJudges, programs);
+    }
+
+    let hasMeaningfulData = false;
+    let finalPen = st.finalPenalty;
+    let finalPct = st.finalPercent;
+
+    if (result && result.penalty != null) {
+        finalPen = result.penalty;
+        finalPct = result.percent;
+
+        const newSt = { ...st };
+        newSt.finalPercent = finalPct;
+        newSt.finalPoints = result.points;
+        newSt.finalPenalty = finalPen;
+        newSt.finalJudgeScore = { percent: finalPct, points: result.points, penalty: result.penalty };
+        newSt.errorPoints = result.errorPoints;
+        newSt.errorPenalty = result.penalty;
+        dressageStatusMap.set(S, newSt);
+    }
+
+    if (finished) {
+        hasMeaningfulData = (finalPen != null || finalPct != null);
+    } else {
+        hasMeaningfulData = (finalPen != null && finalPen > 0);
+    }
+
+    // EXTENDED DEBUG
+
+
+    if (!hasMeaningfulData) {
         const idx = recentResults.findIndex(r => String(r.sn) === S);
-        if (idx >= 0) { recentResults.splice(idx, 1); return true; }
+        if (idx >= 0) {
+
+            recentResults.splice(idx, 1);
+            return true;
+        }
         return false;
     }
 
     const entry = {
         sn: S,
-        name: eq.driverName,
-        clubName: eq.clubName,
-        finalPercent: st.finalPercent,
-        finalPenalty: st.finalPenalty,
+        name: eq.driverName || `#${S}`,
+        clubName: eq.clubName || '',
+        finalPercent: finalPct,
+        finalPenalty: finalPen,
         updatedAt: st.updatedAt || Date.now()
     };
 
@@ -2671,18 +3214,31 @@ function maybePushRecent(sn) {
 
 function setupDressageListeners() {
     // 1. Status (Group)
+    // 1. Status (Group)
     unsubscribes.push(listenForDressageStatusCollection(competitionId, (docs) => {
         docs.forEach(st => {
             const sn = String(st.id || st.startNumber);
-            // Speaker needs merging logic if verifyDressageResult updates keys, 
-            // but normally status has finalPenalty.
             const cur = dressageStatusMap.get(sn) || {};
+
+            // Be robust to legacy field names
+            const normalized = { ...st };
+            if (normalized.finalPenalty == null && normalized.penalty != null) normalized.finalPenalty = normalized.penalty;
+            if (normalized.finalPenalty == null && normalized.totalPenalty != null) normalized.finalPenalty = normalized.totalPenalty;
+            if (normalized.finalPercent == null && normalized.percent != null) normalized.finalPercent = normalized.percent;
+
+            // Normalize state
+            const sNorm = normState(normalized.state);
+            if (!normalized.state && normalized.finalPenalty != null) normalized.state = 'finished';
+            else if (['done', 'complete', 'completed', 'klar', 'slut'].includes(sNorm)) normalized.state = 'finished';
+            else if (['active', 'in-progress', 'inprogress', 'started', 'pågår', 'paga'].includes(sNorm)) normalized.state = 'active';
+
             // If just finished, verify result
-            if (st.state === 'finished' && st.finalPenalty != null && cur.state !== 'finished') {
+            if (normalized.state === 'finished' && normalized.finalPenalty != null && cur.state !== 'finished') {
                 const eq = allEquipages.find(e => String(e.startNumber) === sn);
-                if (eq) verifyDressageResult(sn, st, eq);
+                if (eq) verifyDressageResult(sn, normalized, eq);
             }
-            dressageStatusMap.set(sn, { ...cur, ...st });
+
+            dressageStatusMap.set(sn, { ...cur, ...normalized });
             maybePushRecent(sn);
         });
         triggerRender();
@@ -2763,25 +3319,24 @@ function setupDressageListeners() {
             // 1. Filter ghosts
             const cleanProtocols = deduplicateAndFilterProtocols(protocols, allJudges);
 
-            // 2. Calculate
-            const programKey = eq.testKey || (window.klassProgramMapping?.[eq.className] ?? null);
-            const programObj = programKey ? mergedPrograms[programKey] : null;
+            const programs = getPrograms();
+            const result = calculateDressageResult(eq, cleanProtocols, allJudges, programs);
 
-            if (programObj && cleanProtocols.length > 0) {
-                const final = computeFinalFromSaved(eq, cleanProtocols, programObj);
-                if (final) {
-                    const cur = dressageStatusMap.get(sn) || {};
-                    // Override status values with robust calculation
-                    dressageStatusMap.set(sn, {
-                        ...cur,
-                        finalPercent: final.percent,
-                        finalPoints: final.points,
-                        finalPenalty: final.penalty,
-                        _calculated: true
-                    });
-                    maybePushRecent(sn);
-                }
+            if (result && result.penalty != null) {
+                const cur = dressageStatusMap.get(sn) || {};
+                // Override status values with robust calculation
+                dressageStatusMap.set(sn, {
+                    ...cur,
+                    finalPercent: result.percent,
+                    finalPoints: result.points,
+                    finalPenalty: result.penalty,
+                    errorPoints: result.errorPoints,
+                    errorPenalty: result.penalty,
+                    _calculated: true
+                });
             }
+            // Move this OUTSIDE the calculation check to ensure we always try to show it using fallback logic
+            maybePushRecent(sn);
         });
         triggerRender();
     }));
@@ -2810,7 +3365,7 @@ function setupMarathonListeners() {
             maybePushRecentMarathon(sn, data);
         });
         triggerRender();
-        ensureMaratonTicker();
+        ensureSpeakerTicker();
     });
     unsubscribes.push(unsub);
 
@@ -2837,6 +3392,7 @@ function setupPrecisionListeners() {
             if (change.type === 'removed') {
                 precisionStatusMap.delete(sn);
             } else {
+                data._receivedLocalAt = Date.now(); // NYTT: För relativ tidssynk
                 precisionStatusMap.set(sn, data);
             }
             maybePushRecentPrecision(sn, data);
@@ -2862,6 +3418,46 @@ function setupAllListeners() {
     unsubscribes.forEach(u => u());
     unsubscribes = [];
 
+    // Nollställ data för den nya disciplinen så vi inte blandar ihop resultat
+    recentResults.length = 0;
+    dressageStatusMap.clear();
+    liveProtocolMap.clear();
+    maratonStatusMap.clear();
+    activeEquipages.clear();
+    precisionStatusMap.clear();
+
+    // Listen for Global Pause Status
+    const pauseSub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus'), (docSnap) => {
+        if (docSnap.exists()) {
+            const d = docSnap.data();
+            isGloballyPaused = d.isPaused === true;
+
+            // Extract latest pause start time if paused
+            if (isGloballyPaused && Array.isArray(d.pauseLog)) {
+                setPauseWindows(d.pauseLog);
+                const current = d.pauseLog.find(p => p.end === null);
+                if (current && current.start) {
+                    pauseStartTime = new Date(current.start).getTime();
+                } else {
+                    pauseStartTime = Date.now();
+                }
+            } else {
+                setPauseWindows(d.pauseLog || []);
+                pauseStartTime = 0;
+            }
+        }
+    });
+    unsubscribes.push(pauseSub);
+
+    // Listen for Display Config (for Merged Classes)
+    unsubscribes.push(listenForConfig(competitionId, 'display', (cfg) => {
+        if (cfg) {
+            buildMergeMap(cfg);
+            allEquipages = ensureMergeDecorations(allEquipages);
+            triggerRender(true);
+        }
+    }));
+
     // Listen for Judges (Global)
     unsubscribes.push(listenForJudges(competitionId, (judges) => {
         allJudges = (judges || []).map(j => ({
@@ -2871,15 +3467,18 @@ function setupAllListeners() {
             position: (expandDressagePosition(j) || j.position || '').toUpperCase()
         }));
         triggerRender();
+        // RE-EVALUATE RESULTS now that we have judges
+        if (currentDiscipline === 'dressyr') {
+            dressageStatusMap.forEach((val, key) => maybePushRecent(key));
+            triggerRender(); // Render again after processing
+        }
     }));
 
-    if (currentDiscipline === 'dressyr') {
-        setupDressageListeners();
-    } else if (currentDiscipline === 'maraton') {
-        setupMarathonListeners();
-    } else if (currentDiscipline === 'precision') {
-        setupPrecisionListeners();
-    }
+    // In Speaker page, we ALWAYS need all data to calculate Total Standings correctly
+    // regardless of which tab is active.
+    setupDressageListeners();
+    setupMarathonListeners();
+    setupPrecisionListeners();
 }
 
 export async function load() {
@@ -2888,7 +3487,7 @@ export async function load() {
 
     if (!competitionId) {
         const root = document.getElementById('page-speaker');
-        if (root) root.innerHTML = '<p class="p-8 text-center">Ingen tävling vald.</p>';
+        if (root) root.innerHTML = '<p class="p-8 text-center dark:text-gray-400">Ingen tävling vald.</p>';
         return;
     }
 
@@ -2911,7 +3510,7 @@ export async function load() {
             getConfig(competitionId, 'precisionConfig').catch(() => ({})),
             getConfig(competitionId, 'dressagePrograms').catch(() => ({})),
             getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
-            new Promise(res => listenForJudges(competitionId, res)),
+            getJudges(competitionId).catch(() => []),
             getConfig(competitionId, 'maratonConfig').catch(() => null)
         ]);
 
@@ -2934,10 +3533,15 @@ export async function load() {
         window.klassProgramMapping = mappingCfg || {};
         window.dressagePrograms = mergedPrograms;
 
-        allEquipages = (equipagesRaw || []).filter(e => e && e.startNumber != null).map(e => ({
-            ...e,
-            startNumber: Number(e.startNumber)
-        }));
+        allEquipages = (equipagesRaw || [])
+            .filter(e => e && e.startNumber != null)
+            .map(e => ({
+                ...e,
+                startNumber: Number(e.startNumber)
+            }));
+
+
+
         startTimes = (startTimesData?.times) || (startTimesData?.value?.times) || {};
 
         setupAllListeners();
@@ -2946,12 +3550,10 @@ export async function load() {
         // Removed aggressive verifyAllStartups() to prevent network overload/quota issues.
         // We will rely on new finishes triggering verification.
 
-        triggerRender();
+        triggerRender(true);
 
-        // Start live clock ticker
-        if (!window.marathonLiveInterval) {
-            window.marathonLiveInterval = setInterval(updateLiveClocks, 1000);
-        }
+        // Start unified live ticker
+        ensureMainTicker();
 
     } catch (err) {
         console.error('Kunde inte ladda speaker-sidan:', err);
@@ -2966,7 +3568,7 @@ function renderActiveListNew() {
     const el = document.getElementById('active-list-content') || document.getElementById('active-list');
 
     // 1. If not Marathon, hide and exit
-    if (currentDiscipline !== 'maraton') {
+    if (currentDiscipline !== 'maraton' && currentDiscipline !== 'totalt') {
         if (container) container.classList.add('hidden');
         const upcoming = document.getElementById('upcoming-list-container');
         if (upcoming) {
@@ -3004,14 +3606,14 @@ function renderActiveListNew() {
     const onCourseList = [];
 
     sourceArr.forEach(c => {
-        if (c.task && c.task.type === 'obstacle') hotList.push(c);
+        if (c.task && (c.task.type === 'obstacle' || c.task.type === 'result_flash')) hotList.push(c);
         else onCourseList.push(c);
     });
 
-    console.log(`LiveUpdate: ${sourceArr.length} active. Hot: ${hotList.length}, Course: ${onCourseList.length}`);
+
 
     if (hotList.length === 0 && onCourseList.length === 0) {
-        el.innerHTML = '<div class="text-xs text-gray-500 text-center p-8 bg-gray-50 rounded italic">Inga aktiva på banan (Väntar på start). <br>Klicka ⚡ för test.</div>';
+        el.innerHTML = '<div class="text-xs text-gray-500 dark:text-gray-400 text-center p-8 bg-gray-50 dark:bg-gray-800 rounded italic">Inga aktiva på banan (Väntar på start). <br>Klicka ⚡ för test.</div>';
         return;
     }
 
@@ -3022,84 +3624,90 @@ function renderActiveListNew() {
         html += `<div class="mb-2 space-y-2">`;
         html += hotList.map(c => {
             const isSelected = (manualFocusId && String(manualFocusId) === String(c.sn));
-            const obsNum = c.task.key;
+            const obsNum = c.task.type === 'result_flash' ? c.task.data.number : c.task.key;
             const stats = calculateClassObstacleStats(c.eq.className, obsNum, maratonStatusMap, allEquipages);
 
             let statsHtml = '';
             if (stats && stats.bestTime) {
                 statsHtml = `
-                 <div class="flex items-center gap-2 mt-1 bg-white/50 p-1 rounded">
-                    <span class="text-[10px] text-gray-500 uppercase font-bold">Mål att slå:</span>
-                    <span class="font-mono font-bold text-green-700">${stats.bestTime.toFixed(2)}s</span>
+                 <div class="flex items-center gap-2 mt-1 bg-white/50 dark:bg-gray-800/50 p-1 rounded">
+                    <span class="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold">Mål att slå:</span>
+                    <span class="tabular-nums tracking-wide font-bold text-green-700 dark:text-green-400">${stats.bestTime.toFixed(2)}s</span>
                  </div>`;
             }
 
             // Check Splits
             let splitText = '';
-            if (c.data.live_gateSplits && c.data.live_gateSplits.length > 0) {
+            const rawSplitsArray = c.task.type === 'result_flash' ? c.task.data.gateSplits : c.data.live_gateSplits;
+            const splitsArray = getValidFirstPasses(rawSplitsArray);
+            if (splitsArray && splitsArray.length > 0) {
                 const classStats = calculateClassSplitStats(c.eq.className, obsNum, maratonStatusMap, allEquipages);
 
                 // Show last 3 splits
-                const recentSplits = c.data.live_gateSplits.slice(-3);
+                const recentSplits = splitsArray.slice(-3);
 
                 splitText = recentSplits.map(s => {
                     let colorClass = 'text-gray-500';
                     let title = '';
 
-                    if (s.char && classStats[s.char]) {
+                    let obsStart = null;
+                    if (c.task.type === 'result_flash' && c.task.data.enteredAt) {
+                        obsStart = c.task.data.enteredAt;
+                    } else {
+                        obsStart = c.data.liveObstacleStartAt || c.data.live_staticStartAt;
+                    }
+
+                    if (obsStart && obsStart.toMillis) obsStart = obsStart.toMillis();
+                    else if (typeof obsStart === 'string') obsStart = new Date(obsStart).getTime();
+
+                    if (!obsStart && c.data.obstacleTimes && c.data.obstacleTimes[obsNum]) {
+                        const ot = c.data.obstacleTimes[obsNum];
+                        obsStart = ot.enteredAt || ot.enteredAtClient;
+                        if (typeof obsStart === 'string') obsStart = new Date(obsStart).getTime();
+                    }
+
+                    let splitTs = s.ts?.toMillis ? s.ts.toMillis() : (typeof s.ts === 'string' ? new Date(s.ts).getTime() : s.ts);
+                    let displayTime = s.time;
+
+                    if (obsStart && splitTs && !Number.isFinite(displayTime)) {
+                        displayTime = (splitTs - obsStart) / 1000;
+                    }
+
+                    if (s.char && classStats[s.char] && obsStart && splitTs) {
                         const stat = classStats[s.char];
-                        // Calc elapsed for this split relative to start? 
-                        // No, we need to compare apples to apples.
-                        // calculateClassSplitStats compares ABSOLUTE time from obstacle start.
-                        // We need the same here.
-                        let obsStart = c.data.liveObstacleStartAt || c.data.live_staticStartAt;
-                        if (obsStart && obsStart.toMillis) obsStart = obsStart.toMillis();
-                        else if (typeof obsStart === 'string') obsStart = new Date(obsStart).getTime();
-                        // Fallback to enteredAt
-                        if (!obsStart && c.data.obstacleTimes && c.data.obstacleTimes[obsNum]) {
-                            const ot = c.data.obstacleTimes[obsNum];
-                            obsStart = ot.enteredAt || ot.enteredAtClient;
-                            if (typeof obsStart === 'string') obsStart = new Date(obsStart).getTime();
-                        }
-
-                        let splitTs = s.ts;
-                        if (splitTs && splitTs.toMillis) splitTs = splitTs.toMillis();
-                        else if (typeof splitTs === 'string') splitTs = new Date(splitTs).getTime();
-
-                        if (obsStart && splitTs) {
-                            const diff = splitTs - obsStart;
-                            if (diff <= stat.best + 100) {
-                                colorClass = 'text-green-600 font-bold bg-green-50 px-1 rounded';
-                                title = `Bäst! (${(stat.best / 1000).toFixed(1)}s)`;
-                            } else if (diff < stat.avg) {
-                                colorClass = 'text-blue-600 font-semibold';
-                                title = `Bättre än snitt (${(stat.avg / 1000).toFixed(1)}s)`;
-                            } else {
-                                colorClass = 'text-amber-600';
-                                title = `Sämre än snitt (${(stat.avg / 1000).toFixed(1)}s)`;
-                            }
+                        const diff = splitTs - obsStart;
+                        if (diff <= stat.best + 100) {
+                            colorClass = 'text-green-600 dark:text-green-400 font-bold bg-green-50 dark:bg-green-900/30 px-1 rounded';
+                            title = `Bäst! (${(stat.best / 1000).toFixed(1)}s)`;
+                        } else if (diff < stat.avg) {
+                            colorClass = 'text-blue-600 dark:text-blue-400 font-semibold';
+                            title = `Bättre än snitt (${(stat.avg / 1000).toFixed(1)}s)`;
+                        } else {
+                            colorClass = 'text-amber-600 dark:text-amber-400';
+                            title = `Sämre än snitt (${(stat.avg / 1000).toFixed(1)}s)`;
                         }
                     }
 
-                    return `<span class="text-[10px] font-mono ml-1 ${colorClass}" title="${title}">(${s.char}: ${Number.isFinite(s.time) ? s.time.toFixed(1) : '-'})</span>`;
+                    return `<span class="text-[10px] tabular-nums tracking-wide ml-1 ${colorClass}" title="${title}">(${s.char}: ${Number.isFinite(displayTime) ? displayTime.toFixed(1) : '-'})</span>`;
                 }).join('');
             }
 
             // Calculate live time Safely
             let timeTxt = '00:00,00';
-            if (c.startTime > 1600000000000) {
-                const ms = Math.max(0, (Date.now() - c.startTime) - c.pausedMs);
+            if (c.timerBaseMs > 0 || c.fixedElapsedMs != null) {
+                const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+                const ms = Math.max(0, c.fixedElapsedMs != null ? c.fixedElapsedMs : (c.timerBaseMs ? (tickTimeNow - c.timerBaseMs) - pausedMsSince(c.timerBaseMs, tickTimeNow) : 0));
                 timeTxt = formatMsLive(ms);
             }
 
             return `
-            <div onclick="selectSpeakerRider(${c.sn})" class="cursor-pointer bg-amber-50 border-l-4 border-amber-500 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
+            <div onclick="selectSpeakerRider(${c.sn})" class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
                 <div class="flex justify-between items-start">
                     <div>
-                        <div class="font-black text-lg text-gray-900 leading-none">#${c.sn} ${c.eq.driverName}</div>
-                        <div class="text-xs text-amber-800 font-bold mt-1 uppercase tracking-wide">Hinder ${obsNum} ${splitText}</div>
+                        <div class="font-black text-lg text-gray-900 dark:text-white leading-none">#${c.sn} ${c.eq.driverName}</div>
+                        <div class="text-xs text-amber-800 dark:text-amber-200 font-bold mt-1 uppercase tracking-wide">${c.task.type === 'result_flash' ? 'Resultat Hinder' : 'Hinder'} ${obsNum} ${splitText}</div>
                     </div>
-                    <div class="text-3xl font-mono font-black text-gray-800 tracking-tight" id="maraton-timer-${c.sn}">${timeTxt}</div>
+                    <div class="text-3xl tabular-nums tracking-wide font-black text-gray-800 dark:text-gray-200 tracking-tight" id="maraton-timer-${c.sn}">${timeTxt}</div>
                 </div>
                 ${statsHtml}
             </div>`;
@@ -3110,7 +3718,7 @@ function renderActiveListNew() {
     // --- ON COURSE (Sections) ---
     if (onCourseList.length > 0) {
         if (hotList.length > 0) {
-            html += `<div class="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1 mt-3 px-1">Övriga på banan</div>`;
+            html += `<div class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1 mt-3 px-1">Övriga på banan</div>`;
         }
 
         html += `<div class="space-y-1">`;
@@ -3119,8 +3727,9 @@ function renderActiveListNew() {
             let timeTxt = '--:--';
             let limitsHtml = '';
 
-            if (c.startTime > 1600000000000) {
-                const ms = Math.max(0, (Date.now() - c.startTime) - c.pausedMs);
+            if (c.timerBaseMs > 0 || c.fixedElapsedMs != null) {
+                const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+                const ms = Math.max(0, c.fixedElapsedMs != null ? c.fixedElapsedMs : (c.timerBaseMs ? (tickTimeNow - c.timerBaseMs) - pausedMsSince(c.timerBaseMs, tickTimeNow) : 0));
                 timeTxt = formatMsLive(ms);
 
                 // Limits Check (Ideal Time)
@@ -3132,12 +3741,12 @@ function renderActiveListNew() {
                         const allowedTxt = formatMsLive(allowedMs);
 
                         // Determine Status
-                        let color = 'text-gray-400';
-                        if (ms > allowedMs) color = 'text-red-600 font-bold'; // Over time
-                        else if (limits.min && ms < (limits.min * 1000) && ms > (allowedMs * 0.8)) color = 'text-yellow-600'; // Approaching min? Or just generic
+                        let color = 'text-gray-400 dark:text-gray-500';
+                        if (ms > allowedMs) color = 'text-red-600 dark:text-red-400 font-bold'; // Over time
+                        else if (limits.min && ms < (limits.min * 1000) && ms > (allowedMs * 0.8)) color = 'text-yellow-600 dark:text-yellow-400'; // Approaching min? Or just generic
                         // Simple logic: Close to max?
                         const remaining = allowedMs - ms;
-                        if (remaining < 60000 && remaining > 0) color = 'text-amber-600'; // Last minute
+                        if (remaining < 60000 && remaining > 0) color = 'text-amber-600 dark:text-amber-400'; // Last minute
 
                         limitsHtml = `<span class="text-[10px] ${color} ml-1">/ ${allowedTxt}</span>`;
                     }
@@ -3145,15 +3754,15 @@ function renderActiveListNew() {
             }
 
             return `
-             <div onclick="selectSpeakerRider(${c.sn})" class="flex items-center justify-between p-2 bg-white rounded border border-gray-200 hover:border-blue-300 cursor-pointer ${isSelected ? 'bg-blue-50 border-blue-300' : ''}">
+             <div onclick="selectSpeakerRider(${c.sn})" class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
                 <div class="flex items-center gap-2 overflow-hidden">
-                    <span class="font-bold text-gray-700 text-xs w-8">#${c.sn}</span>
-                    <span class="text-sm font-semibold text-gray-900 truncate">${c.eq.driverName}</span>
+                    <span class="font-bold text-gray-700 dark:text-gray-300 text-xs w-8">#${c.sn}</span>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${c.eq.driverName}</span>
                 </div>
                 <div class="flex items-center gap-3">
-                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 text-gray-600 font-mono">${c.task.name}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${c.task.name}</span>
                     <div class="text-right">
-                         <span class="text-xs font-mono font-bold text-gray-800" id="maraton-timer-${c.sn}">${timeTxt}</span>
+                         <span class="text-xs tabular-nums tracking-wide font-bold text-gray-800 dark:text-gray-200" id="maraton-timer-${c.sn}">${timeTxt}</span>
                          ${limitsHtml}
                     </div>
                 </div>
@@ -3175,7 +3784,7 @@ function renderSectorAnalysis() {
     const container = document.getElementById('sector-analysis-container');
     if (!el || !container) return;
 
-    if (currentDiscipline !== 'maraton') {
+    if (currentDiscipline !== 'maraton' && currentDiscipline !== 'totalt') {
         container.classList.add('hidden');
         return;
     }
@@ -3236,7 +3845,7 @@ function renderSectorAnalysis() {
                             const match = keys.find(k => cls.trim().toLowerCase().startsWith(k.trim().toLowerCase()));
 
                             if (!match) {
-                                if (limitFailures <= 1) console.warn(`[DEBUG] No config match for class "${cls}". Available keys:`, keys);
+
                                 reasons.push(`DEBUG: Klass "${cls}" matchar inte någon nyckel i konfig. (Finns: ${keys.slice(0, 3).join(', ')}...)`);
                             } else {
                                 // We have a match, so it must be missing distance
@@ -3270,7 +3879,7 @@ function renderSectorAnalysis() {
             ? `<span class="text-red-500 font-bold text-left block text-xs overflow-x-auto whitespace-pre-wrap">${reasons.join('<br>')}</span>`
             : "Inga ekipage på vägsträckor just nu.";
 
-        el.innerHTML = `<div class="p-4 text-center text-gray-400 italic text-xs flex justify-center">${msg}</div>`;
+        el.innerHTML = `<div class="p-4 text-center text-gray-400 dark:text-gray-500 italic text-xs flex justify-center">${msg}</div>`;
         return;
     }
 
@@ -3283,8 +3892,8 @@ function renderSectorAnalysis() {
 
     el.innerHTML = `
     <div class="overflow-x-auto">
-        <table class="w-full text-xs text-left text-gray-600">
-            <thead class="text-[10px] text-gray-500 uppercase bg-gray-50 border-b">
+        <table class="w-full text-xs text-left text-gray-600 dark:text-gray-300">
+            <thead class="text-[10px] text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
                 <tr>
                     <th class="px-3 py-2"># Ekipage</th>
                     <th class="px-3 py-2">Etapp</th>
@@ -3313,18 +3922,18 @@ function renderSectorAnalysis() {
         // If live, we add special class and data-attributes for the clock updater
         // If live, we add special class and data-attributes for the clock updater
         const liveAttrs = a.isLive
-            ? `class="sector-live-timer font-bold font-mono px-3 py-2 text-right ${a.color} ${livePulse}" data-sn="${e.sn}" data-stage="${stageKey}" data-start="${realStart}" data-ideal="${a.ideal}"`
-            : `class="font-bold font-mono px-3 py-2 text-right ${a.color}"`;
+            ? `class="sector-live-timer font-bold tabular-nums tracking-wide px-3 py-2 text-right ${a.color} ${livePulse}" data-sn="${e.sn}" data-stage="${stageKey}" data-start="${realStart}" data-ideal="${a.ideal}"`
+            : `class="font-bold tabular-nums tracking-wide px-3 py-2 text-right ${a.color}"`;
 
         return `
-                    <tr class="bg-white border-b hover:bg-gray-50 cursor-pointer" onclick="window.selectSpeakerRider('${e.sn}')">
+                    <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" onclick="window.selectSpeakerRider('${e.sn}')">
                         <td class="px-3 py-2">
-                             <div class="font-bold text-gray-900 leading-tight">#${e.sn} ${e.eq.driverName}</div>
+                             <div class="font-bold text-gray-900 dark:text-white leading-tight">#${e.sn} ${e.eq.driverName}</div>
                              <div class="text-[10px] text-gray-400 capitalize">${e.eq.clubName}</div>
                         </td>
-                        <td class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500">${stageLabel}</td>
-                        <td class="px-3 py-2 text-right font-mono">${msToLabel(a.ideal * 1000, false)}</td>
-                        <td ${e.analysis.isLive ? `class="sector-live-elapsed px-3 py-2 text-right font-mono text-gray-900 font-bold" data-sn="${e.sn}" data-stage="${stageKey}" data-start="${realStart}"` : 'class="px-3 py-2 text-right font-mono text-gray-400"'}>${formatMsLive(a.ms)}</td>
+                        <td class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">${stageLabel}</td>
+                        <td class="px-3 py-2 text-right tabular-nums tracking-wide">${msToLabel(a.ideal * 1000, false)}</td>
+                        <td ${e.analysis.isLive ? `class="sector-live-elapsed px-3 py-2 text-right tabular-nums tracking-wide text-gray-900 dark:text-gray-200 font-bold" data-sn="${e.sn}" data-stage="${stageKey}" data-start="${realStart}"` : `class="px-3 py-2 text-right tabular-nums tracking-wide text-gray-400 dark:text-gray-500"`}>${formatMsLive(a.ms)}</td>
                         <td ${liveAttrs}>
                              ${diffText}
                         </td>
@@ -3342,6 +3951,12 @@ export function __unload() {
     if (window.marathonLiveInterval) clearInterval(window.marathonLiveInterval);
     window.marathonLiveInterval = null;
 
+    if (liveClockInterval) clearInterval(liveClockInterval);
+    liveClockInterval = null;
+
+    if (renderTimeout) clearTimeout(renderTimeout);
+    renderTimeout = null;
+
     unsubscribes.forEach(u => u());
     unsubscribes = [];
     currentRider = null;
@@ -3352,5 +3967,6 @@ export function __unload() {
     precisionStatusMap.clear();
     recentResults.length = 0;
 }
+
 
 export default { load };

@@ -1,5 +1,9 @@
 {
   "projects": {
-    "default": "combined-driving"
-  }
+    "default": "combined-driving",
+    "prod": "combined-driving",
+    "staging": "combined-driving"
+  },
+  "targets": {},
+  "etags": {}
 }

@@ -10,25 +10,37 @@ import {
   getConfig,
   getDressageResultsForEquipage,
   listenForDressageProtocolsCollectionGroup,
-  getMaratonTimingData,
+  getMarathonTimingData,
   listenForMarathonResult,
   listenForPrecisionResults,
   listenForMaratonCollection,
-  listenForMaratonTimingUpdates,
+  listenForMarathonTimingUpdates,
   listenForOfficials,
-  listenForJudges
+  listenForJudges,
+  listenForTeams // [NEW]
 } from '../services/firestoreService.js';
+import { t } from '../utils/i18n.js';
 
-import { calculatePrecisionResult } from '../utils/precisionUtils.js';
+import {
+  calculateDressageResult,
+  calculateMarathonResult,
+  calculatePrecisionResult,
+  calculateTotalResult
+} from '../services/calculationService.js';
+import { calculateTeamResults } from '../services/teamCalculationService.js'; // [NEW]
+import {
+  deduplicateAndFilterProtocols // Still needed for pre-filtering or can we skip? Service filters too.
+} from '../utils/dressageUtils.js';
 
 import { klassTempoData } from '../data/competitionData.js';
-import { getCompetitionHeader } from '../ui/components.js';
-import { ensureClubLogosLoaded, getClubLogoHtml } from '../services/logosService.js';
-import { getFlagHtml } from '../services/flagsService.js';
+import { getCompetitionHeader, renderResponsiveClassFilter } from '../ui/components.js';
+import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../services/logosService.js';
+import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../services/flagsService.js';
 import { dressagePrograms } from '../data/dressagePrograms.js'; // Behåll tills vi fixar dressyr-steget
 import { openEquipageModal } from '../ui/equipage-modal.js';
 import { injectScrollStyles, initializeScrollSync } from '../ui/scrollHelper.js';
 import { generateTotalResultsPdf } from '../pdf/totalResultsPdf.js';
+import { generateTeamResultsPdf } from '../pdf/teamResultsPdf.js'; // [NEW]
 
 // --- NY IMPORT ---
 import {
@@ -45,25 +57,18 @@ import {
 } from '../utils/sharedUtils.js';
 
 import {
-  stagePenaltyFromMs,
-  limitsFor,
+  stagePenaltyFromMs, // Maybe used for display or manual checks? Check later.
+  limitsFor, // Used for display?
   buildDominantTRCategoryByClass,
-  setMarathonConfig,
-  getObstacleCoefficient,
-  calculateMarathonResult,
+  setMarathonConfig, // Used for setup
   MARATHON_OBSTACLE_TIME_PENALTY,
-  MARATHON_TIME_LIMIT_FACTOR_A,
-  MARATHON_TIME_LIMIT_FACTOR_B,
   PENALTY_RATE
 } from '../utils/marathonUtils.js';
 import {
-  normalizeMovements,
   getDressagePenaltyCoeff,
-  calculateAggregateDressagePenalty,
-  computeFinalFromSaved,
-  guessProgramKeyFromClass,
-  deduplicateAndFilterProtocols
+  guessProgramKeyFromClass
 } from '../utils/dressageUtils.js';
+
 
 // -----------------
 
@@ -104,6 +109,11 @@ let IS_FEI = false;
 let allOfficials = []; // ← NY: funktionärer (banbyggare, TL, veterinär m.fl.)
 let isPrintExport = false; // ← NY: när true ska extra-detaljer döljas i PDF
 
+// === Team State [NEW] ===
+let rawTeams = [];
+let processedTeams = [];
+let currentMainTab = 'individual'; // 'individual' | 'teams'
+
 // Filter: visa endast ekipage som fullföljt (har total och ej elim)
 let showOnlyCompleted = false;
 let showOnlyOngoing = false;
@@ -116,6 +126,7 @@ let __latestDisplayedRows = [];
 
 // ======= HJÄLPFUNKTIONER FÖR HÄSTNAMN (SAKNADES) =======
 function getEquipageModalCtx() {
+  console.log('[TotalResultat] getEquipageModalCtx allCompetitionJudges:', allCompetitionJudges?.length, allCompetitionJudges);
   return {
     competitionId,
     equipages,
@@ -124,6 +135,8 @@ function getEquipageModalCtx() {
     allCompetitionJudges,
     marathonConfig,
     precisionConfig,
+    marathonTimeMap, // [NEW] Raw timing data for modal calc
+    marathonObstacleMap, // [NEW] Raw obstacle data for modal calc
     competitionConfig: window.competitionConfig || {}, // Passa den globala configen om den finns
     classProgramMapping: window.klassProgramMapping || {}, // Passa program-mappningen
     // Vi skickar in våra egna hjälpare så modalen kan visa fönster/format
@@ -133,12 +146,20 @@ function getEquipageModalCtx() {
 }
 
 const MOBILE_BP = 600; // Behålls ifall någon CSS skulle behöva den, men isMobile() använder den inte
-const isMobile = () => window.matchMedia("(orientation: portrait)").matches;
+const isMobile = () => window.innerWidth < 900 && window.innerWidth < window.innerHeight;
 
 // Ny huvudfunktion som väljer rätt vy
 
 function render() {
   // === STEG 1: DATABEARBETNING (Flyttad från renderDesktop) ===
+  const competition = getGlobalState('currentCompetition');
+  const showTeams = competition?.showTeams === true;
+
+  // TAB SWITCH LOGIC
+  if (showTeams && currentMainTab === 'teams') {
+    renderTeams();
+    return; // Stop here
+  }
 
   // Bygg/uppdatera grupp-chips (detta måste hända FÖRE filtrering)
   (() => {
@@ -148,14 +169,14 @@ function render() {
     const groups = groupEquipagesForDisplay(equipages, displayConfig);
     const labels = groups.map(g => g.label);
 
-    const base = "px-2 py-1 rounded border text-sm cursor-pointer";
-    const on = "bg-gray-800 text-white border-gray-800";
-    const off = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50";
-
-    chipHost.innerHTML = labels.map(lbl => {
-      const active = activeClassFilters.has(lbl);
-      return `<button type="button" data-class="${escapeHtml(lbl)}" class="${base} ${active ? on : off}">${escapeHtml(lbl)}</button>`;
-    }).join('');
+    renderResponsiveClassFilter(chipHost, labels, activeClassFilters, (lbl) => {
+      if (activeClassFilters.has(lbl)) {
+        activeClassFilters.delete(lbl);
+      } else {
+        activeClassFilters.add(lbl);
+      }
+      render();
+    });
   })();
 
   // Hämta all rådata
@@ -240,7 +261,18 @@ function render() {
     if (valA < valB) return -1 * sortDir;
     if (valA > valB) return 1 * sortDir;
 
-    // Tiebreak: använd startnummer om värdena är lika
+    // Tiebreak:
+    // 1. Om vi sorterar på 'totalPenalty' (vilket är standard för resultatlista), 
+    //    använd maratonstraff som skiljedom (lägst maratonstraff vinner).
+    if (sortKey === 'totalPenalty' && valA === valB) {
+      const mA = a.marathon?.totalPenalty ?? 999999;
+      const mB = b.marathon?.totalPenalty ?? 999999;
+      if (mA !== mB) {
+        return (mA - mB) * sortDir;
+      }
+    }
+
+    // 2. Fallback: Startnummer
     return (Number(a.startNumber) - Number(b.startNumber)) * sortDir;
   });
 
@@ -253,16 +285,6 @@ function render() {
     renderMobile(); // Denna läser nu den uppdaterade __latestDisplayedRows
   } else {
     renderDesktop(); // Denna läser nu den uppdaterade __latestDisplayedRows
-
-    // Säkerställ att X-baren kopplas på nytt om den tagits bort
-    const host = document.getElementById('total-x-wrap');
-    if (host && window.__setupXbarSync) {
-      window.__setupXbarSync({
-        barClass: 'fixed-xbar',
-        innerId: 'totalXbarInner',
-        hostEl: host
-      });
-    }
   }
 }
 
@@ -273,10 +295,10 @@ const safe = (o, p, def = null) => p.split('.').reduce((a, k) => (a && k in a) ?
 // --- STATUSIKONER ---
 function statusIcon(kind) {
   const map = {
-    ok: { title: 'Komplett', svg: 'M20 6L9 17l-5-5', cls: 'text-green-600' },
-    partial: { title: 'Delvis', svg: 'M4 12h16', cls: 'text-amber-600' },
-    missing: { title: 'Saknas', svg: 'M6 6l12 12', cls: 'text-gray-400' },
-    elim: { title: 'Eliminerad', svg: 'M6 6l12 12', cls: 'text-red-600' }
+    ok: { title: 'Komplett', svg: 'M20 6L9 17l-5-5', cls: 'text-green-600 dark:text-green-400' },
+    partial: { title: 'Delvis', svg: 'M4 12h16', cls: 'text-amber-600 dark:text-amber-400' },
+    missing: { title: 'Saknas', svg: 'M6 6l12 12', cls: 'text-gray-400 dark:text-gray-500' },
+    elim: { title: 'Eliminerad', svg: 'M6 6l12 12', cls: 'text-red-600 dark:text-red-400' }
   };
   const m = map[kind] || map.missing;
   return `
@@ -336,11 +358,11 @@ function groupEquipagesForDisplay(equipages = [], mergeCfg) {
 
 function buildCsvFromRows(rows, delim = ',') {
   const headers = [
-    'StartNr', 'Kusk', 'Klass', 'Förening',
-    'Dressyr_straff', 'Dressyr_%',
-    'Maraton_tid', 'Maraton_hinder', 'Maraton_totalt',
-    'Precision_straff',
-    'Totalt', 'Placering', 'Elim'
+    t('startno'), t('driver'), t('class'), t('club'),
+    `${t('dressage')} (${t('penalty')})`, `${t('dressage')} %`,
+    `${t('marathon')} (${t('time')})`, `${t('marathon')} (${t('obs_penalty')})`, `${t('marathon')} (${t('total')})`,
+    `${t('precision')} (${t('penalty')})`,
+    t('total'), t('ranking'), t('elim')
   ];
 
   const exportRows = (rows || []).map(r => {
@@ -395,10 +417,6 @@ function injectTotalResultsStyles() {
       min-width: max-content; /* allow many judge columns */
       width: auto;            /* not forced 100% */
     }
-    .total-results-wrap {
-      /* no overflow here – the page will scroll instead */
-      width: 100%;
-    }
     /* Sticky header that stays aligned */
     .total-results-table thead th {
       position: sticky;
@@ -415,31 +433,74 @@ function injectTotalResultsStyles() {
       vertical-align: middle;
       border-bottom: 1px solid #eee;
     }
-/* Sticky vänsterkolumner – används på både TH och TD */
-.sticky-col-start { position: sticky; left: 0;   z-index: 3; }
-.sticky-col-driver{ position: sticky; left: 84px; z-index: 3; } /* 60px kolumn + 24px horis. padding */
+    /* Sticky vänsterkolumner – används på både TH och TD */
+    .sticky-col-start { position: sticky; left: 0;   z-index: 3; }
+    .sticky-col-driver{ position: sticky; left: 84px; z-index: 3; } /* 60px kolumn + 24px horis. padding */
 
-/* NYTT: Sätt en solid bakgrund på sticky-kolumnerna
-  som matchar radens färg för att förhindra genomskinlighet vid scroll.
-*/
-.bg-white .sticky-col-start,
-.bg-white .sticky-col-driver {
-  background-color: #fff; /* Tailwind CSS 'white' */
-}
-.bg-gray-50 .sticky-col-start,
-.bg-gray-50 .sticky-col-driver {
-  background-color: #f9fafb; /* Tailwind CSS 'gray-50' */
-}
-.bg-red-50 .sticky-col-start,
-.bg-red-50 .sticky-col-driver {
-  background-color: #fef2f2; /* Tailwind CSS 'red-50' för eliminerade */
-}
+    /* NYTT: Sätt en solid bakgrund på sticky-kolumnerna
+      som matchar radens färg för att förhindra genomskinlighet vid scroll.
+    */
+    /* Header background in dark mode */
+    .dark .total-results-table thead th {
+      background: #1f2937; /* gray-800 */
+      border-bottom: 2px solid #374151; /* gray-700 */
+      color: #e5e7eb; /* gray-200 */
+    }
+
+    /* Sticky columns background in dark mode */
+    .dark .bg-white .sticky-col-start,
+    .dark .bg-white .sticky-col-driver {
+        background-color: #1f2937; /* gray-800 */
+    }
+    .dark .bg-gray-50 .sticky-col-start,
+    .dark .bg-gray-50 .sticky-col-driver {
+        background-color: #111827; /* gray-900 */
+    }
+    /* Eliminated rows in dark mode */
+    .dark .bg-red-50 .sticky-col-start,
+    .dark .bg-red-50 .sticky-col-driver {
+        background-color: #450a0a; /* red-950 approx */
+    }
+
+    /* Text colors in table for dark mode */
+    .dark .total-results-table tbody td {
+        border-bottom: 1px solid #374151;
+        color: #d1d5db;
+    }
+
+    
+    /* Dark Mode Overrides for Sticky Cols */
+    html.dark .total-results-table thead th {
+      background: #1f2937;
+      border-bottom-color: #374151;
+      color: #f3f4f6;
+    }
+    html.dark .total-results-table tbody td {
+      border-bottom-color: #374151;
+      color: #e5e7eb;
+    }
+    html.dark .bg-white .sticky-col-start,
+    html.dark .bg-white .sticky-col-driver {
+      background-color: #1f2937; /* gray-800 */
+    }
+    html.dark .bg-gray-50 .sticky-col-start,
+    html.dark .bg-gray-50 .sticky-col-driver {
+      background-color: #374151; /* gray-700 */
+    }
+    html.dark .bg-red-50 .sticky-col-start,
+    html.dark .bg-red-50 .sticky-col-driver {
+      background-color: #7f1d1d; /* red-900 */
+    }
   
 /* fasta bredder för att säkra linjering */
- .sticky-col-start { width: 60px; text-align:center; }
- .sticky-col-driver{ min-width: 220px; }
-.col-klubb   { min-width: 160px; }
-.col-hast    { min-width: 220px; }
+ .sticky-col-start { min-width: 38px; width: 38px; text-align:center; }
+ .sticky-col-driver{ min-width: 130px; max-width: 170px; }
+ @media (min-width: 1024px) {
+    .sticky-col-start { min-width: 48px; width: 48px; }
+    .sticky-col-driver{ min-width: 180px; max-width: 220px; }
+ }
+.col-klubb   { min-width: 130px; }
+.col-hast    { min-width: 180px; }
     /* Stack judge names first+last on two lines to keep columns narrow */
     .judge-head { line-height: 1.15; }
     .judge-head .first { display:block; }
@@ -505,30 +566,34 @@ function injectTotalResultsStyles() {
   pointer-events: auto;
   opacity: 1;
 }
-.tr-modal {
-  background:#fff;
-  border-radius: 12px;
-  width: 100%; max-width: 1100px;
-  max-height: 90vh; overflow:auto;
-  box-shadow: 0 10px 25px rgba(0,0,0,.10);
-  transform: scale(.96);
-  transition: transform .18s ease;
-}
-.tr-modal-backdrop.visible .tr-modal { transform: scale(1); }
-
+    .tr-modal {
+      background:#fff;
+      border-radius: 12px;
+      width: 100%; max-width: 1100px;
+      max-height: 90vh; overflow:auto;
+      box-shadow: 0 10px 25px rgba(0,0,0,.10);
+      transform: scale(.96);
+      transition: transform .18s ease;
+    }
+    .tr-modal-backdrop.visible .tr-modal { transform: scale(1); }
 
     .tr-modal header {
       position: sticky; top:0; background:#fff; z-index:1;
       display:flex; align-items:center; justify-content:space-between;
       padding: 14px 16px; border-bottom: 1px solid #eee;
     }
+    html.dark .tr-modal { background: #1f2937; color: #f3f4f6; }
+    html.dark .tr-modal header { background: #1f2937; border-bottom-color: #374151; }
+    html.dark .tr-modal .tabs button { background: #374151; color: #e5e7eb; border-color: #4b5563; }
+    html.dark .tr-modal .tabs button.active { background: #e5e7eb; color: #111827; border-color: #e5e7eb; }
+
     .tr-modal .tabs { display:flex; gap:8px; padding: 10px 16px; border-bottom:1px solid #eee;}
     .tr-modal .tabs button {
       padding:8px 12px; border-radius: 999px; border:1px solid #ddd; background:#fff; cursor:pointer;
     }
     .tr-modal .tabs button.active { background:#111; color:#fff; border-color:#111; }
     .tr-modal .content { padding: 16px; }
-    .tr-close { border:0; background:transparent; font-size:20px; cursor:pointer; }
+    .tr-close { border:0; background:transparent; font-size:20px; cursor:pointer; color:inherit; }
 
     /* Segmented Controls (likt maraton) */
     .segmented-control {
@@ -592,8 +657,8 @@ function injectTotalResultsStyles() {
     }
     
     /* Standardiserade typsnittsstorlekar för resultat */
-    .res-val { font-variant-numeric: tabular-nums; font-size: 0.95rem; }
-    .res-pos { font-size: 0.7rem; color: #6b7280; }
+    .res-val { font-variant-numeric: tabular-nums; font-size: inherit; }
+    .res-pos { font-size: 0.85em; color: #6b7280; }
 
     /* Legend / Symbolförklaring */
     .results-legend {
@@ -622,6 +687,22 @@ function injectTotalResultsStyles() {
     }
     .legend-item { display: flex; align-items: center; gap: 0.5rem; }
     .legend-label { font-weight: 600; color: #1e293b; min-width: 45px; }
+
+    /* Dark Mode Overrides for UI Components */
+    html.dark .segmented-control { background: #374151; }
+    html.dark .segmented-control button { color: #9ca3af; }
+    html.dark .segmented-control button.active { background: #4b5563; color: #fff; box-shadow: none; }
+    html.dark .segmented-control button:hover:not(.active) { color: #fff; }
+
+    html.dark .results-legend { background: #1f2937; border-color: #374151; color: #9ca3af; }
+    html.dark .legend-label { color: #e5e7eb; }
+    html.dark .search-input-wrap i { color: #9ca3af; }
+    html.dark .search-input-wrap input { 
+      background-color: #374151; 
+      border-color: #4b5563 !important; 
+      color: #fff; 
+    }
+    html.dark h4 { color: #e5e7eb; }
   `;
   const style = document.createElement('style');
   style.id = 'total-results-styles';
@@ -637,15 +718,48 @@ function injectTotalResultsStyles() {
 // DELETED redundant local function (computeDressageForEquipage)
 
 function tiebreak(a, b) {
+  // 1. Marathon (lägst straff)
   const ma = a.marathon?.totalPenalty ?? Infinity;
   const mb = b.marathon?.totalPenalty ?? Infinity;
-  if (ma !== mb) return ma - mb;
+  if (Math.abs(ma - mb) > 1e-6) return ma - mb;
+
+  // 1b. Marathon secondary tie-breaker: Obstacle Penalty Sum
+  const msa = a.marathon?.obstaclePenaltySum ?? 0;
+  const msb = b.marathon?.obstaclePenaltySum ?? 0;
+  if (Math.abs(msa - msb) > 1e-6) return msa - msb;
+
+  // 1c. Marathon tertiary tie-breaker: Obstacle Times sequence
+  const mta = a.marathon?.obstacleTimes || [];
+  const mtb = b.marathon?.obstacleTimes || [];
+  const maxM = Math.max(mta.length, mtb.length);
+  for (let i = 0; i < maxM; i++) {
+    const ta = mta[i] || 0;
+    const tb = mtb[i] || 0;
+    if (Math.abs(ta - tb) > 1e-6) return ta - tb;
+  }
+
+  // 2. Dressyr (lägst straff)
+  const da = a.dressage?.penalty ?? Infinity;
+  const db = b.dressage?.penalty ?? Infinity;
+  if (Math.abs(da - db) > 1e-6) return da - db;
+
+  // 2b. Dressyr secondary tie-breaker: General Impressions (total points)
+  const dga = a.dressage?.generalImpressionsSum ?? 0;
+  const dgb = b.dressage?.generalImpressionsSum ?? 0;
+  if (Math.abs(dga - dgb) > 1e-6) return dgb - dga; // Higher is better for general points
+
+  // 3. Precision (lägst straff)
   const pa = a.precision?.pen ?? Infinity;
   const pb = b.precision?.pen ?? Infinity;
-  if (pa !== pb) return pa - pb;
-  const da = a.dressage?.percentAvg ?? -Infinity;
-  const db = b.dressage?.percentAvg ?? -Infinity;
-  return db - da;
+  if (Math.abs(pa - pb) > 1e-6) return pa - pb;
+
+  // 3b. Precision secondary tie-breaker: Time closest to allowed time
+  const pda = a.precision?.timeDiffFromAllowed ?? Infinity;
+  const pdb = b.precision?.timeDiffFromAllowed ?? Infinity;
+  if (Math.abs(pda - pdb) > 1e-6) return pda - pdb;
+
+  // 4. Startnummer (fallback)
+  return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
 }
 
 function placeWithinClass(rows) {
@@ -701,36 +815,36 @@ function renderDesktop() {
   }
 
   // === rubriker (sorterbara) ===
-  const headers = (IS_FEI ? [
-    // ... (din header-lista är oförändrad) ...
-  ] : [
-    { key: 'plac', label: 'Plac' },
+  // === rubriker (sorterbara) ===
+  // Använd samma kolumner för både TR och FEI tills vidare
+  const headers = [
+    { key: 'plac', label: t('rank') },
     { key: 'startNumber', label: '#' },
-    { key: 'driverName', label: 'Kusk / Häst' },
-    { key: 'className', label: 'Klass' },
-    { key: 'club', label: 'Förening' },
-    { key: 'dressage', label: 'Dressyr' },
-    { key: 'marathon', label: 'Maraton' },
-    { key: 'precision', label: 'Precision' },
-    { key: 'totalPenalty', label: 'Totalt' },
-  ]);
+    { key: 'driverName', label: t('driver_horse') },
+    { key: 'className', label: t('class') },
+    { key: 'club', label: t('club') },
+    { key: 'dressage', label: t('dressage') },
+    { key: 'marathon', label: t('marathon') },
+    { key: 'precision', label: t('precision') },
+    { key: 'totalPenalty', label: t('total') },
+  ];
 
   const th = (h) => {
     let extra = '';
-    if (h.key === 'startNumber') extra = ' sticky-col-start bg-gray-50';
-    if (h.key === 'driverName') extra = ' sticky-col-driver bg-gray-50';
+    if (h.key === 'startNumber') extra = ' sticky-col-start bg-gray-50 dark:bg-gray-700';
+    if (h.key === 'driverName') extra = ' sticky-col-driver bg-gray-50 dark:bg-gray-700';
 
     const isActive = sortConfig.key === h.key;
     const sortIcon = sortConfig.direction === 'desc' ? 'fa-sort-down' : 'fa-sort-up';
     const activeClass = isActive ? ' active-sort' : '';
 
     const title = (h.key === 'totalPenalty')
-      ? 'Totalt straff. (+Δ) = mot ledaren • ↗︎ = mot närmast framför'
+      ? t('tooltip_total_penalty')
       : '';
 
     return `
-      <th data-key="${h.key}" title="${escapeHtml(title)}" class="sortable-header px-3 py-2 text-left text-xs font-semibold text-gray-600 uppercase transition-all duration-200 ${extra}${activeClass}">
-        <div class="flex items-center gap-2">
+      <th data-key="${h.key}" title="${escapeHtml(title)}" class="sortable-header px-2 py-2 lg:px-3 lg:py-2 text-left text-[10px] lg:text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase transition-all duration-200 ${extra}${activeClass}">
+        <div class="flex items-center gap-1.5 lg:gap-2">
           ${h.label}
           <i class="fas ${isActive ? sortIcon : 'fa-sort'} sort-icon"></i>
         </div>
@@ -761,17 +875,23 @@ function renderDesktop() {
     const isDressRunning = r.dressageStatus === 'ongoing' || r.dressageStatus === 'pågår';
     const dLive = isDressRunning ? '<span class="live-dot"></span>' : '';
     const dTextRaw = r.dressage?.penalty == null ? '—' : r.dressage.penalty.toFixed(2);
-    const dText = `<div class="res-val">${isBestDressage ? `<span class="font-bold text-green-700">${dTextRaw}</span>` : dTextRaw}</div>${dLive}${dPlacHtml}`;
+    const dText = `<div class="res-val">${isBestDressage ? `<span class="font-bold text-green-700 dark:text-green-400">${dTextRaw}</span>` : dTextRaw}</div>${dLive}${dPlacHtml}`;
 
     const isMarRunning = r.marathonStatus === 'ongoing' || r.marathonStatus === 'pågår';
     const mLive = isMarRunning ? '<span class="live-dot"></span>' : '';
     const mText = `<div class="res-val">${r.marathon?.totalPenalty == null ? '—' : r.marathon.totalPenalty.toFixed(2)}</div>${mLive}${mPlacHtml}`;
     const mIco = statusIcon(r.marathonStatus || 'missing');
 
-    const obstAgg = marathonObstacleMap.get(String(r.startNumber)) || {};
+    // const obstAgg = marathonObstacleMap.get(String(r.startNumber)) || {}; // RAW lookup removed
+    const mObsItems = r.marathon?.obstacles?.items || [];
     const tp = Number.isFinite(r?.marathon?.timePenalty) ? r.marathon.timePenalty : null;
-    const kd = Number.isFinite(obstAgg?.kdPts) ? obstAgg.kdPts : null;
-    const ov = Number.isFinite(obstAgg?.otherPts) ? obstAgg.otherPts : null;
+
+    // Calculate sums from centralized result items
+    const sumKd = mObsItems.reduce((acc, o) => acc + (Number(o.knockDownPenalty) || 0), 0);
+    const sumOv = mObsItems.reduce((acc, o) => acc + (Number(o.otherPenalty) || 0), 0);
+
+    const kd = sumKd > 0 ? sumKd : null;
+    const ov = sumOv > 0 ? sumOv : null;
     const hid = Number.isFinite(r?.marathon?.obstaclePenalty) ? r.marathon.obstaclePenalty : null;
 
     const tRow = lastSeenMarathonDurations.get(String(r.startNumber)) || marathonTimeMap.get(String(r.startNumber)) || {};
@@ -790,8 +910,8 @@ function renderDesktop() {
     const pTm = r.precision?.timePen;
 
     const pTip = (!isPrintExport)
-      ? [Number.isFinite(pOb) ? `Rivning: ${pOb.toFixed(2)}` : null,
-      Number.isFinite(pTm) ? `Tid: ${pTm.toFixed(2)}` : null
+      ? [Number.isFinite(pOb) ? `${t('knockdown')}: ${pOb.toFixed(2)}` : null,
+      Number.isFinite(pTm) ? `${t('time')}: ${pTm.toFixed(2)}` : null
       ].filter(Boolean).join(' • ')
       : '';
 
@@ -806,16 +926,16 @@ function renderDesktop() {
     const pText = `<div class="res-val">${pMain}</div>${pLive}${pPlacHtml}${pMini}`;
 
     const diff = (!isPrintExport && r.diffFromLeader != null && r.diffFromLeader > 0)
-      ? `<span class="text-xs text-gray-500" title="Skillnad mot klassens ledare">(+${r.diffFromLeader.toFixed(2)})</span>` : '';
+      ? `<span class="text-xs text-gray-500" title="${t('legend_diff_leader')}">(+${r.diffFromLeader.toFixed(2)})</span>` : '';
 
     const nextMini = (!isPrintExport && r.diffFromNext != null && r.diffFromNext > 0)
-      ? `<div class="text-[10px] leading-3 text-gray-500" title="Skillnad till närmast framförvarande">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
+      ? `<div class="text-[10px] leading-3 text-gray-500" title="${t('legend_diff_next')}">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
 
-    const tot = `<div class="res-val font-bold text-blue-900">${r.totalPenalty == null ? '—' : r.totalPenalty.toFixed(2)}</div>`;
+    const tot = `<div class="res-val font-bold text-blue-900 dark:text-blue-300">${r.totalPenalty == null ? '—' : r.totalPenalty.toFixed(2)}</div>`;
 
     const dPct = r.dressage?.percent == null ? '' : ` <div class="res-pos">(${r.dressage.percent.toFixed(2)}%)</div>`;
 
-    const rowCls = r.isEliminated ? 'bg-red-50' : (i % 2 === 0 ? 'bg-white' : 'bg-gray-50');
+    const rowCls = r.isEliminated ? 'bg-red-50 dark:bg-red-900/30' : (i % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700');
 
     const horse = (eq && typeof eq === 'object' && (eq.horseName || eq.horses || eq.hästnamn)) ? '' : '';
     const clubCell = `
@@ -826,12 +946,12 @@ function renderDesktop() {
       </div>`;
 
     return `<tr class="${rowCls}" data-start="${r.startNumber}">
-      <td class="px-3 py-2">${r.isEliminated ? `<span class="text-red-600 font-semibold">${escapeHtml(r.elimReason || 'ELIM')}</span>`
+      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm font-semibold">${r.isEliminated ? `<span class="text-red-600 font-semibold">${escapeHtml(r.elimReason || 'ELIM')}</span>`
         : (r.plac ?? '')
       }</td>
-      <td class="px-3 py-2 sticky-col-start" style="min-width: 60px;">${r.startNumber ?? ''}</td>
-         <td class="px-3 py-2 sticky-col-driver" style="min-width: 220px;">
-      <div class="font-medium">${(r.driverName || '').replaceAll('<', '&lt;')}</div>
+      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm sticky-col-start">${r.startNumber ?? ''}</td>
+         <td class="px-2 py-1.5 lg:px-3 lg:py-2 sticky-col-driver">
+      <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight">${(r.driverName || '').replaceAll('<', '&lt;')}</div>
       ${(() => {
         const names = [];
         if (eq?.horseName) names.push(String(eq.horseName));
@@ -843,21 +963,21 @@ function renderDesktop() {
         }
         if (!names.length && eq?.hästnamn) names.push(String(eq.hästnamn));
         return names.length
-          ? `<div class="text-xs text-gray-500 cell-multiline">${names.map(n => `<span class="line">${escapeHtml(n)}</span>`).join('')}</div>`
+          ? `<div class="hidden lg:block text-[10px] lg:text-xs text-gray-500 cell-multiline">${names.map(n => `<span class="line">${escapeHtml(n)}</span>`).join('')}</div>`
           : '';
       })()}
     </td>
-          <td class="px-3 py-2">${r.className || ''}</td>
-          <td class="px-3 py-2">${clubCell}</td>
-          <td class="px-3 py-2">${dIco}${dText}</td>
-          <td class="px-3 py-2" title="${escapeHtml(tt)}">${mIco}${mText}</td>
-          <td class="px-3 py-2">${pIco}${pText}</td>
-          <td class="px-3 py-2 font-semibold">${tot} ${diff}${nextMini}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-[160px]" title="${r.className || ''}">${r.className || ''}</div></td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2"><div class="truncate max-w-[100px] lg:max-w-[160px] text-[11px] lg:text-sm" title="${eq.clubName || ''}">${clubCell}</div></td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm">${dIco}${dText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm whitespace-nowrap" title="${escapeHtml(tt)}">${mIco}${mText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm whitespace-nowrap">${pIco}${pText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm font-semibold whitespace-nowrap">${tot} ${diff}${nextMini}</td>
     </tr>`;
   };
 
   // === tabell ===
-  const tableHead = `<thead class="bg-gray-50"><tr>${headers.map(th).join('')}</tr></thead>`;
+  const tableHead = `<thead class="bg-gray-50 dark:bg-gray-700"><tr>${headers.map(th).join('')}</tr></thead>`;
 
   // Vy: startordning vs grupperat per klass
   let tableBody = '';
@@ -871,7 +991,7 @@ function renderDesktop() {
     if (jumpHost) {
       if (classes.length > 0) {
         jumpHost.classList.remove('hidden');
-        jumpHost.innerHTML = classes.map(cls => `<a href="#${anchorId(cls)}" class="px-2 py-1 rounded border hover:bg-gray-50">${escapeHtml(cls)}</a>`).join('');
+        jumpHost.innerHTML = classes.map(cls => `<a href="#${anchorId(cls)}" class="px-2 py-1 rounded border hover:bg-gray-50 dark:hover:bg-gray-700 dark:text-gray-300">${escapeHtml(cls)}</a>`).join('');
       } else {
         jumpHost.classList.add('hidden');
         jumpHost.innerHTML = '';
@@ -890,22 +1010,22 @@ function renderDesktop() {
       const third = ranked[2]?.totalPenalty ?? null;
       const marginToThird = (leader != null && third != null) ? round2(third - leader) : null;
       const metaHtml = `
-        <span class="inline-block px-2 py-0.5 rounded-md border text-xs bg-gray-100 text-gray-700 border-gray-200 mr-2">
-          ${finished}/${total} fullföljda • ${elim} elim
+        <span class="inline-block px-2 py-0.5 rounded-md border text-xs bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-600 mr-2">
+          ${finished}/${total} ${t('completed_count')} • ${elim} ${t('elim_count')}
         </span>
-        ${leader != null ? `<span class="inline-block px-2 py-0.5 rounded-md border text-xs bg-blue-50 text-blue-800 border-blue-200 mr-2">
-          Ledare: ${leader.toFixed(2)}
+        ${leader != null ? `<span class="inline-block px-2 py-0.5 rounded-md border text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200 border-blue-200 dark:border-blue-800 mr-2">
+          ${t('leader')}: ${leader.toFixed(2)}
         </span>` : ''}
-        ${marginToThird != null ? `<span class="inline-block px-2 py-0.5 rounded-md border text-xs bg-emerald-50 text-emerald-800 border-emerald-200">
-          Marginal till #3: ${marginToThird.toFixed(2)}
+        ${marginToThird != null ? `<span class="inline-block px-2 py-0.5 rounded-md border text-xs bg-emerald-50 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-200 border-emerald-200 dark:border-emerald-800">
+          ${t('margin_to_third')}: ${marginToThird.toFixed(2)}
         </span>` : ''}
       `;
       tableBody += `
-        <tr id="${anchorId(cls)}" class="bg-gray-200 border-t-2 border-b-2 border-gray-300 sticky top-0 z-10">
-          <td class="px-3 py-2 font-bold text-gray-800" colspan="${headers.length}">
+        <tr id="${anchorId(cls)}" class="bg-gray-200 dark:bg-gray-700 border-t-2 border-b-2 border-gray-300 dark:border-gray-600 sticky top-0 z-10">
+          <td class="px-3 py-2 font-bold text-gray-800 dark:text-white" colspan="${headers.length}">
             <div class="flex flex-wrap items-center gap-2">
               <span>${escapeHtml(cls)}</span>
-              <span class="text-gray-400">|</span>
+              <span class="text-gray-400 dark:text-gray-500">|</span>
               ${metaHtml}
             </div>
           </td>
@@ -936,10 +1056,15 @@ function renderDesktop() {
   (function () {
     const host = document.getElementById('total-x-wrap');
     if (host && window.__setupXbarSync) {
-      window.__setupXbarSync({
-        barClass: 'fixed-xbar',
-        innerId: 'totalXbarInner',
-        hostEl: host
+      // Delay to ensure table layout is ready
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          window.__setupXbarSync({
+            barClass: 'fixed-xbar',
+            innerId: 'totalXbarInner',
+            hostEl: host
+          });
+        });
       });
     }
   })();
@@ -965,109 +1090,297 @@ function renderDesktop() {
   // Öppna modal på rad-klick
   container.addEventListener('click', (e) => {
     // ... (din modallogik är oförändrad) ...
-    const tr = e.target.closest('tbody tr');
-    if (!tr) return;
+    // Support both TR (desktop) and DIV/Card (mobile/teams)
+    const el = e.target.closest('tbody tr, [data-start]');
+    if (!el) return;
     if (e.target.closest('a,button,input,select,textarea,[data-no-rowclick]')) return;
-    const sn = tr.getAttribute('data-start');
+    const sn = el.getAttribute('data-start');
     if (!sn) return;
     openEquipageModal(String(sn), getEquipageModalCtx());
   });
+}
+
+
+function renderTeams() {
+  const container = document.getElementById('totalResultsContainer');
+  if (!container) return;
+
+  const showTeams = getGlobalState('currentCompetition')?.showTeams;
+  if (!showTeams) return;
+
+  if (!processedTeams || processedTeams.length === 0) {
+    container.innerHTML = `<div class="p-8 text-center text-gray-500 dark:text-gray-400">Inga lag skapade än.</div>`;
+    return;
+  }
+
+  // Calculate Best Scores across all teams (ignoring eliminated if that's the rule, but usually 'best dressage' can be anyone. Let's assume non-eliminated for 'best total', but individual phases can be best regardless? Let's stick to valid teams for now to avoid confusion).
+  // Actually, let's find the min score for each discipline among ALL teams that have a score > 0 (to avoid 0s from empty teams if any).
+  let minDress = Infinity, minMar = Infinity, minPrec = Infinity;
+
+  processedTeams.forEach(t => {
+    // Only count VALID teams for "Best in Discipline" to avoid partial sums from ELIM teams stealing the highlight
+    if (!t.isEliminated) {
+      if (Number.isFinite(t.dressage)) minDress = Math.min(minDress, t.dressage);
+      if (Number.isFinite(t.marathon)) minMar = Math.min(minMar, t.marathon);
+      if (Number.isFinite(t.precision)) minPrec = Math.min(minPrec, t.precision);
+    }
+  });
+
+  // Render Table
+  const rows = processedTeams.map((team, idx) => {
+    const isFirst = idx === 0 && !team.isEliminated;
+    const isSecond = idx === 1 && !team.isEliminated;
+    const isThird = idx === 2 && !team.isEliminated;
+
+    let rankBadge = '';
+    if (team.isEliminated) {
+      rankBadge = '<span class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-bold uppercase tracking-wider">ELIM</span>';
+    } else if (isFirst) {
+      rankBadge = '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="1:a plats">🥇</div>';
+    } else if (isSecond) {
+      rankBadge = '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="2:a plats">🥈</div>';
+    } else if (isThird) {
+      rankBadge = '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="3:e plats">🥉</div>';
+    } else {
+      rankBadge = `<div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-gray-700 text-blue-800 dark:text-gray-200 font-bold flex items-center justify-center text-sm">${team.rank || '-'}</div>`;
+    }
+
+    // Check for "Best in Discipline" (Gold underline/text)
+    const isBestDress = (!team.isEliminated || team.dressage > 0) && Math.abs(team.dressage - minDress) < 0.01;
+    const isBestMar = (!team.isEliminated || team.marathon > 0) && Math.abs(team.marathon - minMar) < 0.01;
+    const isBestPrec = (!team.isEliminated || team.precision > 0) && Math.abs(team.precision - minPrec) < 0.01;
+
+    const highlightClass = "text-amber-600 dark:text-amber-400 font-extrabold";
+
+    // Resolve Team Assets (Logo/Flag)
+    let teamAssetHtml = '';
+    const clubUrl = getClubLogoUrl(team.teamName);
+    if (clubUrl) {
+      teamAssetHtml += `<img src="${clubUrl}" alt="Logga" class="h-10 w-auto object-contain mr-3">`;
+    }
+    const cc = normalizeCountryCode(team.teamName);
+    if (cc) {
+      const flagUrl = flagPngUrl(cc);
+      teamAssetHtml += `<img src="${flagUrl}" alt="${cc}" class="h-8 w-auto object-contain mr-3 shadow-sm">`;
+    }
+
+    // Member details
+    const membersHtml = team.members.map(m => {
+      const statusIcon = m.eliminated ? '<i class="fas fa-times text-red-500"></i>' : (m.isCounting ? '<i class="fas fa-check-circle text-green-600 dark:text-green-500"></i>' : '<span class="text-gray-300 dark:text-gray-600">•</span>');
+
+      const scoreTotal = m.eliminated ? 'ELIM' : m.penalty.toFixed(2);
+      const scoreDress = m.eliminated ? '-' : m.dressage.toFixed(2);
+      const scoreMar = m.eliminated ? '-' : m.marathon.toFixed(2);
+      const scorePrec = m.eliminated ? '-' : m.precision.toFixed(2);
+
+      const isCountingClass = m.isCounting ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500 italic';
+      const cellClass = "text-right p-1";
+
+      // Resolve Member Assets
+      // We need to look up the full equipage to get club/country
+      const eq = equipages.find(e => String(e.startNumber) === String(m.startNumber));
+      const mFlag = getFlagHtml(eq);
+      const mClubLogo = getClubLogoHtml(eq, { className: 'inline-block h-4 w-auto ml-1 align-sub opacity-80', style: '' });
+
+      return `
+        <div class="grid grid-cols-12 gap-2 text-sm py-2 border-b dark:border-gray-700/50 last:border-0 border-gray-100 items-center hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" data-start="${m.startNumber}" role="button">
+           <div class="col-span-4 flex items-center gap-2 overflow-hidden pl-2">
+             <span class="w-5 text-center flex-shrink-0">${statusIcon}</span>
+             <div class="flex flex-col truncate">
+                <span class="${isCountingClass} truncate">
+                  ${mFlag} ${m.name}
+                </span>
+                <span class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
+                  #${m.startNumber} ${eq?.clubName || ''} ${mClubLogo}
+                </span>
+             </div>
+           </div>
+           
+           <div class="col-span-2 ${cellClass} ${isCountingClass}">${scoreDress}</div>
+           <div class="col-span-2 ${cellClass} ${isCountingClass}">${scoreMar}</div>
+           <div class="col-span-2 ${cellClass} ${isCountingClass}">${scorePrec}</div>
+           <div class="col-span-2 ${cellClass} font-bold ${m.isCounting ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400'}">${scoreTotal}</div>
+        </div>
+      `;
+    }).join('');
+
+    // Card styling
+    // Highlight top 3 cards slightly?
+    const cardBorder = isFirst ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50' : 'dark:border-gray-700';
+
+    return `
+      <div class="mb-6 rounded-xl border ${cardBorder} shadow-sm bg-white dark:bg-gray-800 overflow-hidden transition-all hover:shadow-md">
+        <!-- HEADER -->
+        <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/40 border-b dark:border-gray-700">
+          <div class="flex items-center gap-4">
+            ${rankBadge}
+            <div class="flex items-center">
+                ${teamAssetHtml}
+                <div>
+                    <h3 class="font-bold text-lg text-gray-900 dark:text-white leading-tight">${team.teamName}</h3>
+                    ${team.isEliminated ? '' : `<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide font-medium">Lagtotal</div>`}
+                </div>
+            </div>
+          </div>
+          <div class="text-right">
+            <div class="font-black text-2xl text-blue-900 dark:text-blue-300 tracking-tight">
+                ${team.isEliminated ? 'ELIM' : team.total.toFixed(2)}
+            </div>
+          </div>
+        </div>
+        
+        <div class="p-0">
+          <!-- Column Headers -->
+          <div class="grid grid-cols-12 gap-2 px-2 py-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider bg-gray-50/50 dark:bg-gray-800/50 border-b dark:border-gray-700/50">
+            <div class="col-span-4 pl-9">Ekipage</div>
+            <div class="col-span-2 text-right">Dressyr</div>
+            <div class="col-span-2 text-right">Maraton</div>
+            <div class="col-span-2 text-right">Precision</div>
+            <div class="col-span-2 text-right">Totalt</div>
+          </div>
+
+          <div class="px-2">
+            ${membersHtml}
+          </div>
+
+          <!-- Team Sums (Footer) -->
+          <div class="grid grid-cols-12 gap-2 px-2 py-3 text-sm border-t dark:border-gray-600/50 mt-0 bg-blue-50/50 dark:bg-blue-900/10 text-gray-900 dark:text-gray-100">
+            <div class="col-span-4 text-right pr-2 font-bold self-center text-blue-900 dark:text-blue-200">Bästa 3 (Summa):</div>
+            
+            <div class="col-span-2 text-right font-bold ${isBestDress ? highlightClass : ''}" title="${isBestDress ? 'Bästa lagdressyr (för godkända lag)' : ''}">
+                ${team.isEliminated ? '-' : team.dressage.toFixed(2)}
+                ${isBestDress ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
+            </div>
+            
+            <div class="col-span-2 text-right font-bold ${isBestMar ? highlightClass : ''}" title="${isBestMar ? 'Bästa lagmaraton (för godkända lag)' : ''}">
+                ${team.isEliminated ? '-' : team.marathon.toFixed(2)}
+                ${isBestMar ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
+            </div>
+            
+            <div class="col-span-2 text-right font-bold ${isBestPrec ? highlightClass : ''}" title="${isBestPrec ? 'Bästa lagprecision (för godkända lag)' : ''}">
+                ${team.isEliminated ? '-' : team.precision.toFixed(2)}
+                ${isBestPrec ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
+            </div>
+            
+            <div class="col-span-2 text-right font-black text-blue-900 dark:text-blue-300">
+                ${team.isEliminated ? '-' : team.total.toFixed(2)}
+            </div>
+          </div>
+
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `<div class="max-w-4xl mx-auto mt-6">${rows}</div>`;
 }
 
 // (DELETED redundant help panel functions)
 
 function renderLayout() {
   const competition = getGlobalState('currentCompetition');
-  const root = document.getElementById('page-total-results');
+  const root = document.getElementById('page-total-resultat');
 
   // Datum-sträng (samma som i headern för maraton)
   const dt = new Date();
   const dateStr = dt.toLocaleDateString('sv-SE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
 
   root.innerHTML = `
-  ${getCompetitionHeader(competition, 'Totalresultat - Start- & Resultatlista')}
+  ${getCompetitionHeader(competition, t('total_results_title'))}
   
-  <div class="mb-6 text-center text-gray-500 font-medium">
+  <div class="mb-6 text-center text-gray-500 dark:text-gray-400 font-medium">
     ${dateStr}
   </div>
 
   <div class="w-full">
-    <div id="controlsContainer" class="flex flex-wrap items-center gap-4 mb-4">
-      <!-- Sökfält -->
-      <div class="search-input-wrap">
-        <i class="fas fa-search"></i>
-        <input id="quickSearch" type="search" placeholder="Sök kusk, häst..." class="w-full px-3 py-2 border rounded-md" />
+    <div id="controlsContainer" class="flex flex-wrap items-center gap-2 mb-3 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+      
+      <!-- Search Input -->
+      <div class="search-input-wrap flex-1 min-w-[200px] relative">
+        <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
+        <input id="quickSearch" type="search" placeholder="${t('search_placeholder_short')}" class="w-full pl-8 pr-3 py-1 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" />
       </div>
 
-      <!-- Startordning / Klassvis -->
-      <div id="modeToggle" class="segmented-control">
-        <button type="button" data-mode="startorder" class="${viewMode === 'startorder' ? 'active' : ''}">Startordning</button>
-        <button type="button" data-mode="byclass" class="${viewMode === 'byclass' ? 'active' : ''}">Klassvis</button>
-      </div>
+      <!-- Mode Toggle -->
+      <select id="modeSelect" class="border rounded px-2 py-1 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+        <option value="startorder" ${viewMode === 'startorder' ? 'selected' : ''}>${t('start_order')}</option>
+        <option value="byclass" ${viewMode === 'byclass' ? 'selected' : ''}>${t('view_by_class')}</option>
+      </select>
 
-      <div class="h-6 w-px bg-gray-200 hidden md:block"></div>
+      <!-- MAIN TABS (If Teams Enabled) -->
+      ${competition.showTeams ? `
+        <select id="tabSelect" class="border rounded px-2 py-1 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+          <option value="individual" ${currentMainTab === 'individual' ? 'selected' : ''}>Individuellt</option>
+          <option value="teams" ${currentMainTab === 'teams' ? 'selected' : ''}>Lag</option>
+        </select>
+      ` : ''}
 
-      <!-- Endast pågående / Endast klara -->
-      <div id="statusToggle" class="segmented-control">
-        <button type="button" data-filter="ongoing" class="${showOnlyOngoing ? 'active' : ''}">Endast pågående</button>
-        <button type="button" data-filter="completed" class="${showOnlyCompleted ? 'active' : ''}">Endast klara</button>
-      </div>
+       <!-- Klasser Dropdown (genereras av renderResponsiveClassFilter) -->
+       <div id="classChips" class="flex flex-wrap items-center gap-1"></div>
 
-      <!-- Export-knappar (flyttade till höger) -->
-      <div class="flex items-center gap-2 ml-auto">
-        <button id="exportCsvBtn" class="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition border border-gray-300 shadow-sm">
-           <i class="fas fa-file-csv"></i> CSV
+       <!-- Status Checkboxes -->
+       <label class="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300">
+          <input type="checkbox" id="checkOngoing" ${showOnlyOngoing ? 'checked' : ''} class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 dark:bg-gray-700 dark:border-gray-600">
+          ${t('show_only_ongoing')}
+       </label>
+       <label class="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 mr-auto">
+          <input type="checkbox" id="checkCompleted" ${showOnlyCompleted ? 'checked' : ''} class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 dark:bg-gray-700 dark:border-gray-600">
+          ${t('show_finalized_only')}
+       </label>
+
+      <!-- Export Buttons -->
+      <div class="flex-shrink-0 flex items-center gap-1.5">
+        <button id="exportCsvBtn" title="Exportera CSV" class="inline-flex items-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
+           <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
+           CSV
         </button>
-        <button id="btnExportPdf" class="inline-flex items-center gap-2 px-3 py-2 rounded-md bg-slate-700 hover:bg-slate-800 text-white text-sm font-medium transition shadow-sm">
-          <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 1 0 01-2 2z"/></svg>
-          Skriv ut PDF
+        <button id="btnExportPdf" class="inline-flex items-center px-2 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-500 transition-colors">
+          <svg class="mr-1.5 h-3 w-3 lg:h-3.5 lg:w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+           ${t('print_pdf')}
         </button>
       </div>
     </div>
-
-    <!-- Klass-filter (chips) -->
-    <div id="classChips" class="flex flex-wrap items-center gap-2 mb-4"></div>
 
     <!-- Status-badges per gren -->
     <div class="flex items-center gap-3 mb-4">
       <div id="disciplinesStatus" class="flex flex-wrap gap-2 items-center">
         <!-- fylls i render() -->
       </div>
-      <button id="toggleHelpBtn" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-100 hover:bg-blue-200 text-blue-800 text-xs font-medium transition-colors border border-blue-200" title="Visa förklaring av symboler">
+      <button id="toggleHelpBtn" class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-900/30 hover:bg-blue-200 dark:hover:bg-blue-900/50 text-blue-800 dark:text-blue-300 text-xs font-medium transition-colors border border-blue-200 dark:border-blue-800" title="${t('view_legend')}">
         <i class="fas fa-question-circle"></i>
-        <span>Förklaring</span>
+        <span>${t('legend_short')}</span>
       </button>
     </div>
 
     <!-- Förklaringar / Legend (Toggleable) -->
     <div id="helpPanel" class="results-legend mb-4">
       <div class="flex items-center justify-between mb-2">
-        <h4 class="font-bold text-slate-800">Symbolförklaring & Exempel</h4>
+        <h4 class="font-bold text-slate-800">${t('symbol_legend_title')}</h4>
       </div>
       <div class="legend-grid">
         <div class="legend-item">
           <span class="legend-label">(+Δ)</span> 
-          <span>Skillnad mot ledaren • <i class="text-xs text-slate-400">Ex: (+2.50)</i></span>
+          <span>${t('legend_diff_leader')} • <i class="text-xs text-slate-400">Ex: (+2.50)</i></span>
         </div>
         <div class="legend-item">
           <span class="legend-label">↗︎</span> 
-          <span>Gap till närmast framför • <i class="text-xs text-slate-400">Ex: ↗︎ 0.45</i></span>
+          <span>${t('legend_diff_next')} • <i class="text-xs text-slate-400">Ex: ↗︎ 0.45</i></span>
         </div>
         <div class="legend-item">
           <span class="legend-label">R / T</span> 
-          <span>Rivning (R) / Tid (T) straff • <i class="text-xs text-slate-400">Ex: R 3.0 / T 0.5</i></span>
+          <span>${t('legend_knock_time')} • <i class="text-xs text-slate-400">Ex: R 3.0 / T 0.5</i></span>
         </div>
         <div class="legend-item">
           <span class="live-dot" style="position:static; transform:none;"></span> 
-          <span>Pågår (Resultat uppdateras live)</span>
+          <span>${t('legend_ongoing')}</span>
         </div>
         <div class="legend-item">
           <span class="legend-label">ELIM</span> 
-          <span>Utesluten/Brutit • <i class="text-xs text-slate-400">Ex: ELIM (MA)</i></span>
+          <span>${t('legend_elim')} • <i class="text-xs text-slate-400">Ex: ELIM (MA)</i></span>
         </div>
         <div class="legend-item">
-          <span class="legend-label">Fyllig stil</span> 
-          <span>Bästa dressyrresultat i klassen</span>
+          <span class="legend-label">${t('legend_best_dressage')}</span> 
+          <span>${t('legend_best_dressage')}</span>
         </div>
       </div>
     </div>
@@ -1104,13 +1417,23 @@ function renderLayout() {
           return text.trim();
         };
 
-        await generateTotalResultsPdf(rows, comp, {
-          viewMode,
-          officials: listOfficialsText()
-        });
+        // Fix scope issue
+        const stateComp = getGlobalState('currentCompetition');
+        const showTeamsLocal = stateComp?.showTeams === true;
+
+        if (showTeamsLocal && currentMainTab === 'teams') {
+          // TEAM PDF
+          await generateTeamResultsPdf(processedTeams, comp);
+        } else {
+          // INDIVIDUAL PDF
+          await generateTotalResultsPdf(rows, comp, {
+            viewMode,
+            officials: listOfficialsText()
+          });
+        }
       } catch (err) {
         console.error('Kunde inte generera PDF:', err);
-        alert('Ett fel uppstod vid generering av PDF.');
+        alert(t('pdf_export_error'));
       }
     };
   }
@@ -1133,53 +1456,31 @@ function renderLayout() {
     };
   }
 
-  // --- Segmented Control: Startordning / Klassvis ---
-  const modeWrap = document.getElementById('modeToggle');
-  if (modeWrap) {
-    modeWrap.onclick = (e) => {
-      const btn = e.target.closest('button[data-mode]');
-      if (!btn) return;
-      viewMode = btn.dataset.mode;
-      modeWrap.querySelectorAll('button').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
+  // --- Mode Select ---
+  const modeSel = document.getElementById('modeSelect');
+  if (modeSel) {
+    modeSel.onchange = (e) => {
+      viewMode = e.target.value;
       render();
     };
   }
 
-  // --- Segmented Control: Ongoing / Completed ---
-  const statusWrap = document.getElementById('statusToggle');
-  if (statusWrap) {
-    statusWrap.onclick = (e) => {
-      const btn = e.target.closest('button[data-filter]');
-      if (!btn) return;
-      const f = btn.dataset.filter;
-      if (f === 'completed') {
-        showOnlyCompleted = !showOnlyCompleted;
-        if (showOnlyCompleted) showOnlyOngoing = false;
-        statusWrap.querySelector('[data-filter="ongoing"]').classList.remove('active');
-        btn.classList.toggle('active', showOnlyCompleted);
-      } else if (f === 'ongoing') {
-        showOnlyOngoing = !showOnlyOngoing;
-        if (showOnlyOngoing) showOnlyCompleted = false;
-        statusWrap.querySelector('[data-filter="completed"]').classList.remove('active');
-        btn.classList.toggle('active', showOnlyOngoing);
-      }
+  // --- Status Checkboxes ---
+  const checkOngoing = document.getElementById('checkOngoing');
+  const checkCompleted = document.getElementById('checkCompleted');
+  if (checkOngoing) {
+    checkOngoing.onchange = (e) => {
+      showOnlyOngoing = e.target.checked;
+      if (showOnlyOngoing && checkCompleted) checkCompleted.checked = false;
+      showOnlyCompleted = checkCompleted ? checkCompleted.checked : false;
       render();
     };
   }
-
-  // --- Klasschips-lyssnare ---
-  const chipHost = document.getElementById('classChips');
-  if (chipHost) {
-    chipHost.onclick = (e) => {
-      const btn = e.target.closest('button[data-class]');
-      if (!btn) return;
-      const cls = btn.dataset.class;
-      if (activeClassFilters.has(cls)) {
-        activeClassFilters.delete(cls);
-      } else {
-        activeClassFilters.add(cls);
-      }
+  if (checkCompleted) {
+    checkCompleted.onchange = (e) => {
+      showOnlyCompleted = e.target.checked;
+      if (showOnlyCompleted && checkOngoing) checkOngoing.checked = false;
+      showOnlyOngoing = checkOngoing ? checkOngoing.checked : false;
       render();
     };
   }
@@ -1193,6 +1494,15 @@ function renderLayout() {
       helpBtn.classList.toggle('active', isVisible);
     };
   }
+
+  // --- Tab Select (Teams) ---
+  const tabSel = document.getElementById('tabSelect');
+  if (tabSel) {
+    tabSel.onchange = (e) => {
+      currentMainTab = e.target.value;
+      render();
+    };
+  }
 }
 
 function renderMobile() {
@@ -1204,7 +1514,7 @@ function renderMobile() {
 
   let html = '';
   if (rows.length === 0) {
-    html = `<div class="p-6 text-center text-gray-500">Inga ekipage matchar din sökning.</div>`;
+    html = `<div class="p-6 text-center text-gray-500 dark:text-gray-400">${t('search_no_match')}</div>`;
   } else {
     let lastClass = null;
     rows.forEach(r => {
@@ -1212,11 +1522,11 @@ function renderMobile() {
 
       // Klassrubrik om vyn är grupperad per klass
       if (viewMode === 'byclass' && r.className !== lastClass) {
-        html += `<div class="px-4 py-2 mt-2 bg-blue-100 text-blue-800 font-bold text-lg rounded-md">${r.className || 'Okänd Klass'}</div>`;
+        html += `<div class="px-4 py-2 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-lg rounded-md">${r.className || 'Okänd Klass'}</div>`;
         lastClass = r.className;
       }
 
-      const totalLabel = r.isEliminated ? `<span class="text-red-600 font-bold">${r.elimReason || 'ELIM'}</span>` : (r.totalPenalty != null ? `${r.totalPenalty.toFixed(2)} p` : '—');
+      const totalLabel = r.isEliminated ? `<span class="text-red-600 dark:text-red-400 font-bold">${r.elimReason || 'ELIM'}</span>` : (r.totalPenalty != null ? `${r.totalPenalty.toFixed(2)} p` : '—');
       const dressyrLabel = r.dressage?.penalty != null ? `${r.dressage.penalty.toFixed(2)}` : '—';
       const maratonLabel = r.marathon?.totalPenalty != null ? `${r.marathon.totalPenalty.toFixed(2)}` : '—';
       const precisionLabel = r.precision?.pen != null ? `${r.precision.pen.toFixed(2)}` : '—';
@@ -1224,11 +1534,11 @@ function renderMobile() {
 
       // Skapa kortet
       html += `
-        <div class="m-2 rounded-xl border shadow-sm bg-white overflow-hidden cursor-pointer" data-start="${r.startNumber}" role="button" tabindex="0">
-          <div class="px-4 py-3 border-b bg-gray-50 flex items-center justify-between gap-4">
+        <div class="m-2 rounded-xl border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden cursor-pointer" data-start="${r.startNumber}" role="button" tabindex="0">
+          <div class="px-4 py-3 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex items-center justify-between gap-4">
             <div>
-              <div class="font-semibold text-lg">#${r.startNumber} ${r.driverName}</div>
-              <div class="text-sm text-gray-500">${
+              <div class="font-semibold text-lg text-gray-900 dark:text-white">#${r.startNumber} ${r.driverName}</div>
+              <div class="text-sm text-gray-500 dark:text-gray-400">${
         // === DEBUG & SAFEGUARD ===
         (typeof horseLabel === 'function')
           ? horseLabel(eq)
@@ -1237,11 +1547,11 @@ function renderMobile() {
         }</div>
             </div>
             <div class="text-center">
-              <div class="text-xs text-gray-500">Plac.</div>
-              <div class="text-2xl font-bold">${r.plac || '—'}</div>
+              <div class="text-xs text-gray-500 dark:text-gray-400">Plac.</div>
+              <div class="text-2xl font-bold text-gray-900 dark:text-white">${r.plac || '—'}</div>
             </div>
           </div>
-          <div class="p-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm">
+          <div class="p-4 grid grid-cols-2 gap-x-4 gap-y-3 text-sm text-gray-700 dark:text-gray-300">
             <div><span class="text-gray-500">Klass:</span> <span class="font-medium">${r.className || '—'}</span></div>
             <div class="flex items-center gap-2"> ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span class="font-medium truncate">${eq.clubName || '—'}</span></div>
 
@@ -1261,7 +1571,7 @@ function renderMobile() {
             </div>
 
             <div class="pt-2 border-t col-span-2 text-center">
-              <div class="text-sm text-gray-500">Totalt Straff</div>
+              <div class="text-sm text-gray-500">${t('total_penalty')}</div>
               <div class="font-bold text-blue-800 text-xl">${totalLabel}</div>
             </div>
           </div>
@@ -1270,7 +1580,7 @@ function renderMobile() {
     });
   }
 
-  container.innerHTML = `<div class="bg-gray-50 py-1">${html}</div>`;
+  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${html}</div>`;
 
   // Koppla klick-lyssnare till korten för att öppna modalen
   container.querySelectorAll('[data-start]').forEach(card => {
@@ -1307,79 +1617,98 @@ async function recompute() {
   const allPrograms = getPrograms();
   const marathonConfig = window.marathonConfig || {}; // Säkra config
 
-  const rows = equipages.map(e => {
-    const sn = String(e.startNumber);
-    const cls = e.className || '';
+  const rows = equipages
+    .filter(e => {
+      const s = String(e.status || '').toLowerCase();
+      // Exclude explicitly withdrawn/struken drivers
+      if (s.includes('struken') || s === 'withdrawn' || s === 'scratched' || e.struken || e.withdrawn) return false;
+      return true;
+    })
+    .map(e => {
+      const sn = String(e.startNumber);
+      const cls = e.className || '';
 
-    // 1. Dressyr
-    // 1. Dressyr
-    const rawProtocols = dressageMap.get(sn) || [];
-    const dressageProtocols = deduplicateAndFilterProtocols(rawProtocols, allCompetitionJudges || []);
-    const dressageResult = calculateAggregateDressagePenalty(dressageProtocols, allPrograms);
+      const rawProtocols = dressageMap.get(sn) || [];
+      const marDoc = marathonObstacleMap.get(sn) || {};
+      const timeDocRaw = lastSeenMarathonDurations.get(sn) || marathonTimeMap.get(sn) || {};
 
-    // Vi vill ha både straff och procent (för tiebreak/visning)
-    // calculateAggregateDressagePenalty returnerar bara penalty (avg).
-    // För full data kan vi behöva anpassa eller räkna procent separat om det behövs,
-    // men låt oss se om vi kan få ut mer från utils.
-    // Egentligen vore det bra om utils gav oss allt.
+      // [FIX] Merge marDoc into timeDoc because maraton-resultat.js uses a single merged state.
+      // Manual times or status-based times might be in marDoc (from 'maraton' collection).
+      // We MUST prioritize marDoc (state) over timeDocRaw (timing) to ensure manual edits persist.
+      const timeDoc = { ...timeDocRaw, ...marDoc };
 
-    // För nu, låt oss räkna procent snabbt här om utils inte ger det,
-    // ELLER se om vi kan uppdatera utils.
-    // Faktum är att computeFinalFromSaved i dressageUtils ger {points, percent, penalty}.
-    const computedDressage = computeFinalFromSaved(e, dressageProtocols, allPrograms[e.testKey] || allPrograms[guessProgramKeyFromClass(cls, allPrograms)] || null);
-    const d = computedDressage || { penalty: null, percentAvg: null, eliminated: dressageProtocols.some(p => p.eliminated) };
-    if (d.percent) d.percentAvg = d.percent; // mapping
+      const precDoc = precisionMap.get(sn) || {};
 
-    // 2. Maraton
-    // marathonObstacleMap bör nu lagra hela dokumentet (med obstacles-array)
-    const marDoc = marathonObstacleMap.get(sn) || {};
-    const timeDoc = lastSeenMarathonDurations.get(sn) || marathonTimeMap.get(sn) || {};
-    const marRes = calculateMarathonResult(e, marDoc, timeDoc);
+      // ANVÄND CENTRAL SERVICE FÖR ALLA BERÄKNINGAR
+      const res = calculateTotalResult(
+        e,
+        rawProtocols,
+        { obstacleData: marDoc, timeData: timeDoc },
+        precDoc,
+        marathonConfig,
+        precisionConfig,
+        dressagePrograms, // Passa programmen så vi kan slå upp koefficienter
+        allOfficials // Skicka med, om vi behöver kolla domare/funktionärer i framtiden
+      );
 
-    // 3. Precision
-    const precDoc = precisionMap.get(sn) || {};
-    const precRes = calculatePrecisionResult(precDoc, e, precisionConfig);
+      // Spara ner programnamn för debug/visning
+      const currentProgramKey = guessProgramKeyFromClass(e.className, e.programId);
+      const programDef = allPrograms[currentProgramKey];
+      if (programDef) {
+        res.programName = programDef.name; // Bra för debug
+      }
+      const g = resolveMergeGrouping(e, displayConfig);
 
-    // ---- Total ----
-    let totalPenalty = null;
-    const elimDress = !!d.eliminated;
-    const elimMar = !!marRes.eliminated;
-    const elimPrec = !!precRes.eliminated;
-    const isEliminated = elimDress || elimMar || elimPrec;
-    const elimReason = elimDress ? 'ELIM (DR)' : (elimMar ? 'ELIM (MA)' : (elimPrec ? 'ELIM (PR)' : null));
+      return {
+        id: e.id,
+        startNumber: e.startNumber,
+        driverName: e.driverName || e.name || '',
+        clubName: e.clubName || '',
+        className: cls,
+        displayGroupKey: g.key,
+        displayGroupLabel: g.label,
 
-    if (!isEliminated && d.penalty != null && marRes.totalPenalty != null && precRes.totalPenalty != null) {
-      totalPenalty = round2(d.penalty + marRes.totalPenalty + precRes.totalPenalty);
-    }
+        // Mappa om objektet till sidans format (service ger {penalty, percent} etc)
+        // Service returnerar { dressage: {...}, marathon: {...}, precision: {...}, totalPenalty, isEliminated, eliminatedProp }
 
-    const g = resolveMergeGrouping(e, displayConfig);
+        dressage: {
+          penalty: res.dressage.judgePenalty, // Domarpoäng (om vi vill visa det separat?) Eller total? 
+          // Sidan förväntar sig nog "penalty" som totalen inkl koefficient, vilket calculateDressageResult.penalty ÄR (inkl felkörning).
+          // Men calculateTotalResult.dressage innehåller resultatet från calculateDressageResult.
+          // calculateDressageResult returnerar { penalty, judgePenalty, percent, ... }
+          // Sidan använder d.penalty (line 1208).
+          ...res.dressage
+        },
+        // Sidan vill ha "dressageStatus". calculateTotalResult returnerar status-strängar också?
+        // Nej, calculateTotalResult returnerar bara objekt. Vi får kanske ut status via helpers eller om servicen ger det.
+        // Sidan beräknar statusIcon(r.dressageStatus) i render. 
+        // Vi behöver sätta .dressageStatus på RESULTATET.
 
-    return {
-      startNumber: e.startNumber,
-      driverName: e.driverName || e.name || '',
-      clubName: e.clubName || '',
-      className: cls,
-      displayGroupKey: g.key,
-      displayGroupLabel: g.label,
-      dressage: d,
-      marathon: {
-        ...marRes,
-        timePenalty: (marRes.stages?.A?.timePenalty || 0) + (marRes.stages?.B?.timePenalty || 0), // Support CSV
-        obstaclePenalty: marRes.obstacles?.sum || 0 // Support CSV
-      },
-      precision: {
-        ...precRes,
-        pen: precRes.totalPenalty,
-        obstPen: precRes.obstaclePenalty,
-        timePen: precRes.timePenalty
-      },
-      totalPenalty,
-      isEliminated,
-      elimReason,
-      isOngoing: (!isEliminated && totalPenalty == null && (dressageProtocols.length > 0 || marRes.totalPenalty != null || precRes.totalPenalty != null))
-      // Enklare logik: har börjat på något men inte klar med allt.
-    };
-  });
+        // Vi lägger till status-analys här (eller i service, men servicen är ren beräkning).
+        // Mapping status based on available properties from calculation service result objects
+        dressageStatus: (res.dressage.penalty != null || res.dressage.percent != null) ? 'finished' : 'missing',
+        // Marathon utils returns a 'status' string ("Klar", "Färdig", "Pågår" etc)
+        marathonStatus: (res.marathon.status === 'Klar' || res.marathon.status === 'Färdig' || res.marathon.status === 'Eliminerad') ? 'finished' : (res.marathon.status === 'Pågår' ? 'ongoing' : 'missing'),
+        // Precision utils returns 'status' string ("Klar", "Pågår")
+        precisionStatus: (res.precision.status === 'Klar' || res.precision.status === 'Utesluten') ? 'finished' : ((res.precision.status === 'Pågår' || res.precision.running) ? 'ongoing' : 'missing'),
+
+        marathon: {
+          ...res.marathon,
+          totalPenalty: res.marathon.totalPenalty
+        },
+        precision: {
+          ...res.precision,
+          pen: res.precision.totalPenalty
+        },
+
+        totalPenalty: res.totalPenalty,
+        isEliminated: res.isEliminated,
+        elimReason: res.elimReason,
+
+        isOngoing: res.isOngoing,
+        plac: null // Räknas ut senare
+      };
+    });
 
   // Placering per gren inom klass
   function rankWithinClass(baseRows, valuePicker, outField, higherIsBetter = false) {
@@ -1491,6 +1820,9 @@ async function recompute() {
     }
   });
 
+  // === TEAM CALCULATION [NEW] ===
+  processedTeams = calculateTeamResults(rawTeams, processedResults);
+
   render();
 }
 
@@ -1528,7 +1860,7 @@ function attachListeners() {
   }));
 
   // 4) Maraton-tider (live) - COLLECTION-NIVÅ
-  unsub.push(listenForMaratonTimingUpdates(competitionId, (docs) => {
+  unsub.push(listenForMarathonTimingUpdates(competitionId, (docs) => {
     const list = Array.isArray(docs) ? docs : (Array.isArray(docs?.docs) ? docs.docs : Object.values(docs || {}));
     marathonTimeMap.clear();
     for (const doc of list) {
@@ -1546,23 +1878,36 @@ function attachListeners() {
   unsub.push(listenForJudges(competitionId, (judges) => {
     allCompetitionJudges = judges || [];
   }));
+
+  // 6. Teams [NEW]
+  unsub.push(listenForTeams(competitionId, (teams) => {
+    rawTeams = teams;
+    requestRecompute();
+  }));
 }
 
 
 // Återställd refreshMarathonTimes för initial laddning
 async function refreshMarathonTimes() {
   if (!competitionId) return;
-  const docs = await getMaratonTimingData(competitionId);
+  const map = await getMarathonTimingData(competitionId);
   marathonTimeMap.clear();
-  docs.forEach(doc => {
-    // doc.id är startNumber, doc.data() är timing-infot
-    const data = typeof doc.data === 'function' ? doc.data() : doc;
-    marathonTimeMap.set(String(doc.id), data);
+  map.forEach((data, id) => {
+    marathonTimeMap.set(String(id), data);
   });
   requestRecompute();
 }
+
+
 export async function load(el) {
   console.log('Totalresultat load startar...');
+
+  // Lyssnare för att hantera rotation/resize (växla mellan kort/tabell)
+  window.addEventListener('resize', () => {
+    // Debounce behövs knappt för enkel render-omritning, men vi kör direkt
+    render();
+  });
+
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id || null;
 
@@ -1576,23 +1921,34 @@ export async function load(el) {
   // 1. Ladda nödvändig grunddata
   // 1. Ladda nödvändig grunddata
   try {
-    const [eqList, marCfg, preCfg, dispCfg, dressMapCfg] = await Promise.all([
+    const [eqList, marCfg, maratonCfgLegacy, preCfg, dispCfg, dressMapCfg, compMeta] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'marathon'),
-      getConfig(competitionId, 'precision'),
+      getConfig(competitionId, 'maratonConfig'), // [FIX] Fetch config used by maraton-resultat.js
+      getConfig(competitionId, 'precisionConfig'),
       getConfig(competitionId, 'display'),
-      getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})), // New: fetch program mapping
+      getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+      getConfig(competitionId, 'competitionMeta').catch(() => ({})),
       ensureClubLogosLoaded()
     ]);
 
     const cfg = {
       marathon: marCfg,
       precision: preCfg,
-      display: dispCfg
+      display: dispCfg,
+      meta: compMeta
     };
 
     equipages = eqList || [];
-    marathonConfig = cfg.marathon || {};
+
+    // [FIX] Prefer maratonConfig (used by working results page) for calculations
+    // Merge them to be safe, prioritizing maratonConfig's class data
+    marathonConfig = marCfg || {};
+    if (maratonCfgLegacy && Object.keys(maratonCfgLegacy).length > 0) {
+      console.log('Loaded legacy maratonConfig, merging...', maratonCfgLegacy);
+      marathonConfig = { ...marathonConfig, ...maratonCfgLegacy };
+    }
+
     setMarathonConfig(marathonConfig);
     precisionConfig = cfg.precision || {};
     // Försök läsa in displayConfig om det finns sparat i config
@@ -1601,11 +1957,20 @@ export async function load(el) {
     // Configure dressage mapping globally (like dressyr-monitor.js)
     window.klassProgramMapping = (dressMapCfg && typeof dressMapCfg === 'object') ? dressMapCfg : {};
 
+    // Configure competition config globally
+    window.competitionConfig = { ...(window.competitionConfig || {}), ...(cfg.meta || {}) };
+
+    // Update global FEI/International flag if available
+    if (cfg.meta && typeof cfg.meta.isInternational === 'boolean') {
+      IS_FEI = cfg.meta.isInternational;
+    }
+
   } catch (err) {
     console.error('Fel vid hämtning av data i init:', err);
   }
 
   // 2. Rita upp sidans struktur
+  initializeScrollSync(window.location.pathname);
   injectTotalResultsStyles();
   renderLayout();
 
@@ -1685,6 +2050,11 @@ export function __unload() {
   isPrintExport = false;
   showOnlyCompleted = false;
   __latestDisplayedRows = [];
+
+  // Team Cleanup
+  rawTeams = [];
+  processedTeams = [];
+  currentMainTab = 'individual';
 
   // 3) Nollställ globala scroll-helpers
   try { window.__teardownXbarSync?.(); } catch { }

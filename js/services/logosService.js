@@ -1,3 +1,5 @@
+import { getConfig, saveConfig } from './firestoreService.js';
+
 let _clubLogoMap = null;
 let _loadPromise = null;
 
@@ -11,23 +13,53 @@ function _normalize(obj) {
 }
 
 /**
- * Ladda (och cacha) loggokartan från JSON.
- * Anropa gärna i dina load()-funktioner.
+ * Ladda loggor (både statiska globala och tävlingsspecifika).
  */
-export async function ensureClubLogosLoaded(url = '/assets/config/club-logos.json') {
-  if (_clubLogoMap) return _clubLogoMap;
-  if (_loadPromise) return _loadPromise;
+export async function ensureClubLogosLoaded(competitionId = null) {
+  // If we have a fully loaded map and no specific competition is requested (or same one), might return. 
+  // However, forcing refresh if competitionId changes is good. 
+  // For simplicity, we always check if we need to merge.
 
-  _loadPromise = fetch(url)
-    .then(r => r.ok ? r.json() : {})
-    .then(json => (_clubLogoMap = _normalize(json)))
-    .catch(err => {
-      console.warn('[logosService] kunde inte läsa club-logos.json', err);
-      _clubLogoMap = {};
-      return _clubLogoMap;
-    });
+  if (_loadPromise) await _loadPromise;
 
-  return _loadPromise;
+  // 1. Load Static (Base) if not loaded
+  if (!_clubLogoMap) {
+    _loadPromise = fetch('/assets/config/club-logos.json')
+      .then(r => r.ok ? r.json() : {})
+      .then(json => (_clubLogoMap = _normalize(json)))
+      .catch(err => {
+        console.warn('[logosService] kunde inte läsa club-logos.json', err);
+        _clubLogoMap = {};
+        return _clubLogoMap;
+      });
+    await _loadPromise;
+    _loadPromise = null;
+  }
+
+  // 2. Load Global Firestore Logos (BASELINE)
+  try {
+    const { getDocData } = await import('./firestoreService.js');
+    const globalLogos = await getDocData('config', 'clubLogos');
+    if (globalLogos) {
+      _clubLogoMap = { ..._clubLogoMap, ..._normalize(globalLogos) };
+    }
+  } catch (err) {
+    console.warn('[logosService] Failed to load global Firestore logos', err);
+  }
+
+  // 3. Load Dynamic (Competition Override)
+  if (competitionId) {
+    try {
+      const dynamicLogos = await getConfig(competitionId, 'clubLogos');
+      if (dynamicLogos) {
+        _clubLogoMap = { ..._clubLogoMap, ..._normalize(dynamicLogos) };
+      }
+    } catch (err) {
+      console.warn('[logosService] Failed to load dynamic logos', err);
+    }
+  }
+
+  return _clubLogoMap;
 }
 
 export function getClubLogoUrl(clubName) {
@@ -41,7 +73,60 @@ export function getClubLogoHtml(eq, { className = 'inline-block h-5 w-auto', sty
   return url ? `<img src="${url}" alt="${eq?.clubName || ''}" class="${className}" style="${style}">` : '';
 }
 
-// Valfritt: möjliggör runtime-uppdatering om du vill skriva in nya loggor via admin
+/**
+ * Saves a new GLOBAL logo URL for a club.
+ * Affects all competitions that don't override this specific club.
+ */
+export async function saveGlobalLogo(clubName, url) {
+  if (!clubName) return;
+
+  // 1. Update Local
+  updateClubLogo(clubName, url);
+
+  // 2. Save to Global Firestore (config/clubLogos)
+  const key = String(clubName).trim().toLowerCase();
+  const payload = {};
+  payload[key] = url;
+
+  // Save via specific helper or direct setDoc logic if imported
+  // We need to import setDocData for this
+  // But setDocData was added to firestoreService.js, we need to import it here too.
+  // Actually, we can use saveConfig if it supported global. 
+  // Let's assume we import setDocData.
+  const { setDocData } = await import('./firestoreService.js');
+  await setDocData('config', 'clubLogos', payload, true);
+}
+
+/**
+ * Saves a new logo URL for a club in the specific competition context.
+ */
+export async function saveCompetitionLogo(competitionId, clubName, url) {
+  if (!competitionId || !clubName) return;
+
+  // 1. Update Local
+  updateClubLogo(clubName, url);
+
+  // 2. Save to Firestore (merge with existing)
+  // We fetch existing first to be safe, or just use saveConfig with merge=true (default implementation of saveConfig usually merges fields in the doc)
+  // Let's assume saveConfig merges top-level fields. But here we want to merge into the map fields.
+  // Actually, saveConfig likely does set({ ...data }, { merge: true }). 
+  // So passing { "club name": "url" } works.
+
+  // Key must be standard string, but firestore keys can be anything. 
+  // Best to rely on our normalized key or the display name? 
+  // Let's use the raw name as key in Firestore for readability, or normalized?
+  // Normalized is safer for matching.
+  const key = String(clubName).trim().toLowerCase(); // normalized key
+  // BUT: if we save normalized key, we might lose original casing for display if we ever iterate it.
+  // The map is for LOOKUP.
+
+  // We will save using the normalized key to ensure matches work.
+  const payload = {};
+  payload[key] = url;
+
+  await saveConfig(competitionId, 'clubLogos', payload);
+}
+
 export function setClubLogoMap(obj) { _clubLogoMap = _normalize(obj); }
 export function updateClubLogo(name, url) {
   if (!_clubLogoMap) _clubLogoMap = {};

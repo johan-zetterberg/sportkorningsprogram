@@ -32,12 +32,19 @@ try {
   await enableMultiTabIndexedDbPersistence(db);
   console.log('Firestore persistence: multi-tab ENABLED');
 } catch (err) {
-  console.warn('Multi-tab persistence failed, fallback single-tab:', err?.code || err);
-  try {
-    await enableIndexedDbPersistence(db);
-    console.log('Firestore persistence: single-tab ENABLED');
-  } catch (err2) {
-    console.warn('Firestore persistence DISABLED', err2?.code || err2);
+  if (err.code === 'failed-precondition' || err.code === 'unimplemented') {
+    console.warn('Firestore persistence failed/not possible:', err.code);
+  } else if (err.name === 'QuotaExceededError' || err.code === 'quota-exceeded') {
+    console.error('Firestore storage quota exceeded! Persistence DISABLED to prevent crash.');
+    console.warn('Please clear browser site data (Application -> Storage -> Clear site data).');
+  } else {
+    console.warn('Fallback single-tab persistence due to:', err);
+    try {
+      await enableIndexedDbPersistence(db);
+      console.log('Firestore persistence: single-tab ENABLED');
+    } catch (err2) {
+      console.warn('Firestore persistence DISABLED:', err2?.code || err2);
+    }
   }
 }
 

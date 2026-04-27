@@ -1,4 +1,5 @@
 // js/ui/components.js
+import { escapeHtml } from '../utils/sharedUtils.js';
 
 /**
  * Renderar ett standardiserat sidhuvud för en tävling.
@@ -47,16 +48,19 @@ export function getCompetitionHeader(competition, pageTitle) {
     }
 
     return `
-        <header class="bg-gradient-to-r from-brand-darkblue to-indigo-950 border-b-4 border-brand-gold p-4 md:p-6 rounded-t-lg mb-6 shadow-xl flex items-center gap-4 md:gap-6">
+        <header class="bg-gradient-to-r from-brand-darkblue to-indigo-950 dark:from-gray-900 dark:to-gray-800 border-b-4 border-brand-gold dark:border-brand-gold/70 p-2 md:p-4 rounded-t-lg mb-2 md:mb-4 shadow-xl flex items-center gap-3 md:gap-4 transition-colors">
             
-            <img src="/icons/DriveLive_512.png" alt="DriveLive Logga" class="h-16 w-16 md:h-20 md:w-20 rounded-md flex-shrink-0">
+            <img src="/icons/DriveLive_512.png" alt="DriveLive Logga" class="h-12 w-12 md:h-16 md:w-16 rounded-md flex-shrink-0">
 
             <div class="flex-grow">
-                <h1 class="text-2xl md:text-3xl font-bold font text-white">${competition.name || 'Tävling'}</h1>
-                <p class="text-lg text-brand-lightblue">${pageTitle || ''}</p>
+                <div class="flex items-center gap-2">
+                    <h1 class="text-xl md:text-2xl font-bold font text-white">${competition.name || 'Tävling'}</h1>
+                    ${(competition.published === false) ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-400 text-yellow-900 shadow-sm uppercase tracking-wider">UTKAST</span>' : ''}
+                </div>
+                <p class="text-sm md:text-base text-brand-lightblue dark:text-blue-300">${pageTitle || ''}</p>
                 
                 ${(competition.location || dateString) ? `
-                    <div class="text-sm text-gray-300 mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <div class="text-xs text-gray-300 dark:text-gray-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
                         ${competition.location ? `<span>📍 ${competition.location}</span>` : ''}
                         ${dateString ? `<span>🗓️ ${dateString}</span>` : ''}
                     </div>
@@ -75,9 +79,9 @@ export function getCompetitionHeader(competition, pageTitle) {
  */
 export function createSearchableDropdown(container, data, onSelect) {
     container.innerHTML = `
-        <div class="searchable-dropdown relative bg-white">
-            <input type="text" class="search-input w-full p-2 border rounded-md" placeholder="Sök på nr eller namn...">
-            <div class="searchable-dropdown-list hidden absolute top-full left-0 right-0 bg-white border mt-1 rounded-md shadow-lg z-10 max-h-60 overflow-y-auto"></div>
+        <div class="searchable-dropdown relative bg-white dark:bg-gray-800">
+            <input type="text" class="search-input w-full p-2 border dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400" placeholder="Sök på nr eller namn...">
+            <div class="searchable-dropdown-list hidden absolute top-full left-0 right-0 bg-white dark:bg-gray-700 border dark:border-gray-600 mt-1 rounded-md shadow-lg z-10 max-h-60 overflow-y-auto"></div>
         </div>
     `;
     const searchInput = container.querySelector('.search-input');
@@ -96,7 +100,7 @@ export function createSearchableDropdown(container, data, onSelect) {
         } else {
             filteredData.forEach(item => {
                 const itemEl = document.createElement('div');
-                itemEl.className = 'p-3 hover:bg-blue-50 cursor-pointer';
+                itemEl.className = 'p-3 hover:bg-blue-50 dark:hover:bg-gray-600 cursor-pointer text-gray-900 dark:text-gray-100';
                 itemEl.textContent = `#${item.startNumber} - ${item.driverName}`;
                 itemEl.dataset.value = item.startNumber;
                 itemEl.addEventListener('click', () => {
@@ -134,6 +138,9 @@ export function createSearchableDropdown(container, data, onSelect) {
             }
         },
         getValue: () => selectedValue,
+        updateData: (newData) => {
+            data = newData;
+        },
         destroy: () => {
             document.removeEventListener('click', docClickHandler);
             container.innerHTML = '';
@@ -154,18 +161,18 @@ export function showAlert(message, isSuccess = true) {
     const button = document.getElementById('closeAlertModal');
 
     if (isSuccess === 'offline') {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 dark:bg-yellow-900';
+        iconDiv.innerHTML = `<svg class="h-6 w-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
         titleEl.textContent = 'Sparad till kö';
         button.className = "px-4 py-2 bg-yellow-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500";
     } else if (isSuccess) {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900';
+        iconDiv.innerHTML = `<svg class="h-6 w-6 text-green-600 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
         titleEl.textContent = 'Klart!';
         button.className = "px-4 py-2 bg-green-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500";
     } else {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-red-600" stroke="currentColor" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900';
+        iconDiv.innerHTML = `<svg class="h-6 w-6 text-red-600 dark:text-red-300" stroke="currentColor" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
         titleEl.textContent = 'Fel!';
         button.className = "px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500";
     }
@@ -177,4 +184,87 @@ export function showAlert(message, isSuccess = true) {
     button.onclick = () => {
         modal.style.display = 'none';
     };
+}
+
+/**
+ * Renderar en responsiv klassfilter-komponent.
+ * Visar chips på desktop och en dropdown-meny på mobil.
+ * @param {HTMLElement} container - Elementet att rendera i.
+ * @param {string[]} labels - Lista på klasser/etiketter.
+ * @param {Set<string>} activeSet - Set med aktiva filter.
+ * @param {Function} onToggle - Callback(label) när ett filter ändras.
+ */
+export function renderResponsiveClassFilter(container, labels, activeSet, onToggle) {
+    if (!container) return;
+
+    // Spara öppet-tillstånd för dropdown (mobil)
+    const existingDetails = container.querySelector('.mobile-filter-dropdown');
+    const wasOpen = existingDetails ? existingDetails.hasAttribute('open') : false;
+
+    // CSS-klasser
+    const chipBase = "px-2 py-1 rounded border text-sm cursor-pointer transition-colors select-none";
+    const chipOn = "bg-gray-800 text-white border-gray-800 shadow-sm dark:bg-gray-200 dark:text-gray-900 dark:border-gray-200";
+    const chipOff = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600";
+
+    // Desktop: Chips
+    // Vi använder 'hidden md:flex' för att dölja på mobil och visa på desktop
+    const desktopHtml = `
+        <div class="hidden md:flex flex-wrap gap-2">
+            ${labels.map(lbl => {
+        const active = activeSet.has(lbl);
+        return `<button type="button" data-filter-val="${escapeHtml(lbl)}" class="${chipBase} ${active ? chipOn : chipOff}">${escapeHtml(lbl)}</button>`;
+    }).join('')}
+        </div>
+    `;
+
+    // Mobil: Dropdown (Details/Summary)
+    const activeCount = activeSet.size;
+    const summaryText = activeCount > 0 ? `Filtrera klass (${activeCount})` : 'Filtrera klass';
+
+    const mobileItems = labels.map(lbl => {
+        const active = activeSet.has(lbl);
+        const checkIcon = active
+            ? '<i class="fas fa-check-square text-blue-600 dark:text-blue-400"></i>'
+            : '<i class="far fa-square text-gray-400 dark:text-gray-500"></i>';
+        const rowBg = active ? 'bg-blue-50 dark:bg-blue-900/30' : '';
+        const txtColor = active ? 'text-blue-800 dark:text-blue-200' : 'text-gray-700 dark:text-gray-200';
+
+        return `
+            <div data-filter-val="${escapeHtml(lbl)}" class="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 ${rowBg}">
+                <div class="w-5 text-center">${checkIcon}</div>
+                <span class="text-sm font-medium ${txtColor}">${escapeHtml(lbl)}</span>
+            </div>
+         `;
+    }).join('');
+
+    const mobileHtml = `
+        <details class="mobile-filter-dropdown md:hidden w-full group relative" ${wasOpen ? 'open' : ''}>
+            <summary class="list-none px-3 py-1.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 dark:text-gray-200 cursor-pointer flex items-center justify-between select-none hover:bg-gray-50 dark:hover:bg-gray-600">
+                <span>${summaryText}</span>
+                <i class="fas fa-chevron-down text-gray-400 text-[10px] ml-2 transition-transform group-open:rotate-180"></i>
+            </summary>
+            <div class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-50 max-h-80 overflow-y-auto w-[250px]">
+                ${mobileItems.length > 0 ? mobileItems : '<div class="p-4 text-gray-500 text-sm italic text-center">Inga klasser tillgängliga</div>'}
+            </div>
+        </details>
+    `;
+
+    container.innerHTML = desktopHtml + mobileHtml;
+
+    // Koppla händelselyssnare (om ej redan gjort på containern)
+    if (!container.dataset.wiredResponsive) {
+        container.addEventListener('click', (e) => {
+            const target = e.target.closest('[data-filter-val]');
+            if (!target) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            const val = target.getAttribute('data-filter-val');
+            if (val && onToggle) {
+                onToggle(val);
+            }
+        });
+        container.dataset.wiredResponsive = 'true';
+    }
 }

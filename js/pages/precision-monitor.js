@@ -10,7 +10,8 @@ import { ensureClubLogosLoaded, getClubLogoHtml } from '../services/logosService
 import { getFlagHtml } from '../services/flagsService.js';
 import { standardPortAllowance, klassTempoData } from '../data/competitionData.js';
 import { showDetailsModal } from '../ui/precisionModal.js'; // NYTT
-import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth } from '../utils/precisionUtils.js';
+import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionTimePenalty } from '../utils/precisionUtils.js';
+import { t } from '../utils/i18n.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -23,6 +24,9 @@ let leaderInClass = null; // NYTT: För att hålla koll på ledaren
 const recentResults = [];
 let tickerInterval = null;
 let unsubscribes = [];
+let lastRenderedUpcomingHash = null;
+let lastRenderedResultsHash = null;
+let lastDriverSn = "";
 
 // ---------- Helpers ----------
 const formatMsLive = (ms) => {
@@ -79,22 +83,22 @@ function renderLayout() {
 
   root.innerHTML = `
     <div class="container mx-auto p-4 md:p-8">
-      ${getCompetitionHeader(comp, 'Precision – Live Monitor')}
-      <div id="current-driver-panel" class="bg-white p-6 rounded-xl shadow-lg mb-8"></div>
+      ${getCompetitionHeader(comp, t('precision_monitor_title'))}
+      <div id="precision-current-driver-panel" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg mb-8"></div>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div id="upcoming-panel" class="bg-white p-4 rounded-lg shadow"></div>
-        <div id="results-panel" class="bg-white p-4 rounded-lg shadow"></div>
+        <div id="precision-upcoming-panel" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow"></div>
+        <div id="precision-results-panel" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow"></div>
       </div>
     </div>
   `;
 }
 
 function renderCurrentDriver() {
-  const panel = document.getElementById('current-driver-panel');
+  const panel = document.getElementById('precision-current-driver-panel');
   if (!panel) return;
 
   if (!currentDriver) {
-    panel.innerHTML = `<div class="text-center p-8 text-gray-500 text-xl">Väntar på nästa ekipage...</div>`;
+    panel.innerHTML = `<div class="text-center p-8 text-gray-500 dark:text-gray-400 text-xl">${t('monitor_waiting')}</div>`;
     return;
   }
 
@@ -107,7 +111,9 @@ function renderCurrentDriver() {
   if ((data.finalized || data.status === 'Klar') && isNum(data.totalPenalty)) {
     elapsedMs = data.timeMs || 0;
   } else if (data.running && data.liveStartEpoch) {
-    elapsedMs = (data.livePausedMs || 0) + (Date.now() - data.liveStartEpoch);
+    // RELATIV CLOCK: Använd tidpunkten då vi tog emot snapshoten för att kompensera för klockdiff.
+    const receivedAt = data._receivedLocalAt || Date.now();
+    elapsedMs = (data.livePausedMs || 0) + (receivedAt - data.liveStartEpoch) + (Date.now() - receivedAt);
   } else {
     elapsedMs = data.liveTimeMs || 0;
   }
@@ -120,87 +126,142 @@ function renderCurrentDriver() {
   const portDisplay = isNum(allowance) ? `+ ${allowance} cm` : '–';
 
   // Om klart/uteslutet, använd de slutgiltiga värdena, annars live
-  const showFinal = (data.finalized || data.status === 'Klar' || data.eliminated);
+  // FIX: Om running=true, tvinga live-visning (ignorera status='Klar' från gammal körning)
+  const showFinal = !data.running && (data.finalized || data.status === 'Klar' || data.eliminated);
+  const isSameDriver = lastDriverSn === String(eq.startNumber);
+  lastDriverSn = String(eq.startNumber);
 
-  const displayTimePenalty = showFinal
-    ? (data.timePenalty || 0)
-    : (data.liveTimePenalty || 0);
+  // Calculate display values
+  const displayObstaclePenalty = data.liveObstaclePenalty || data.obstaclePenalty || 0;
+  const displayExtra = data.extraPenalty || 0;
 
-  const displayObstaclePenalty = showFinal
-    ? (data.obstaclePenalty || 0)
-    : (data.liveObstaclePenalty || 0);
-
-  const displayExtra = showFinal
-    ? (data.extraPenalty || 0)
-    : (data.extraPenalty || 0); // extraPenalty är samma i payload
-
-  // Total straff
-  let displayTotal = 0;
-  if (data.eliminated) {
-    // Om utesluten, kanske visa ELIM eller Infinity?
-    // Mallen nedan hanterar 'ELIM' text om data.eliminated är true
-  } else {
-    displayTotal = showFinal
-      ? (data.totalPenalty || 0)
-      : (data.liveTotalPenalty || 0);
+  // Calculate time penalty
+  let displayTimePenalty = 0;
+  if (data.finalized || data.status === 'Klar') {
+    displayTimePenalty = data.timePenalty || 0;
+  } else if (isNum(maxSec) && maxSec > 0 && elapsedMs > maxSec * 1000) {
+    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+    displayTimePenalty = calculatePrecisionTimePenalty(elapsedMs, maxSec, rate);
   }
 
-  panel.innerHTML = `
-        <div class="flex justify-between items-start mb-4 border-b pb-4">
-            <div>
-                <h3 class="text-3xl font-bold">#${eq.startNumber} ${eq.driverName}</h3>
-                <div class="text-gray-600 flex items-center gap-2 mt-1">
-                    ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span>${eq.className}</span>
-                </div>
-            </div>
-            ${leaderInClass ? `
-            <div class="text-right">
-                <div class="text-sm text-gray-500">Ledare i klassen</div>
-                <div class="font-semibold">${leaderInClass.name}</div>
-                <div class="font-bold text-brand-lightblue">
-                    ${leaderInClass.totalPenalty.toFixed(2)} p
-                    <span class="text-sm font-normal text-gray-600 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
-                </div>
-            </div>
-            ` : ''}
-        </div>
+  let displayTotal = 0;
+  if (data.finalized || data.status === 'Klar') {
+    displayTotal = data.totalPenalty || 0;
+  } else {
+    displayTotal = displayTimePenalty + displayObstaclePenalty + displayExtra;
+  }
+  // Handle infinite/elimination
+  if (data.eliminated) {
+    displayTotal = Infinity;
+  }
 
-        <div class="grid md:grid-cols-2 gap-6 items-center">
-            <div>
-                <div class="text-sm text-gray-500 uppercase">${showFinal ? 'Sluttid' : 'Live-tid'}</div>
-                <div id="live-timer-main" class="text-7xl font font-bold tabular-nums ${displayTimePenalty > 0 ? 'text-red-600' : ''}">${formatMsLive(elapsedMs)}</div>
-                <div class="grid grid-cols-3 gap-2 text-center text-sm mt-2">
-                    <div class="bg-gray-100 p-2 rounded-lg"><div class="font-bold">${isNum(maxSec) ? formatMsLive(maxSec * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-500">Maxtid</div></div>
-                    <div class="bg-gray-100 p-2 rounded-lg"><div class="font-bold">${isNum(trackLength) ? trackLength + 'm' : '–'}</div><div class="text-xs text-gray-500">Banlängd</div></div>
-                    <div class="bg-gray-100 p-2 rounded-lg"><div class="font-bold">${portDisplay}</div><div class="text-xs text-gray-500">Hinderbredd</div></div>
-                </div>
-            </div>
-
-            <div class="bg-gray-50 p-4 rounded-lg">
-                <div class="text-center mb-4">
-                    <div class="text-sm text-gray-500 uppercase">Totalt Straff ${showFinal ? '' : '(Preliminärt)'}</div>
-                    <div id="live-total-penalty" class="text-7xl font-bold tabular-nums text-brand-lightblue">${data.eliminated ? 'ELIM' : displayTotal.toFixed(2)}</div>
-                </div>
-                <div class="grid grid-cols-3 gap-2 text-center text-sm border-t pt-2">
-                    <div><div class="text-gray-500">Tidsstraff</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
-                    <div><div class="text-gray-500">Hinderstraff</div><div class="font-semibold text-lg">${data.eliminated ? '–' : displayObstaclePenalty}</div></div>
-                    <div><div class="text-gray-500">Annat</div><div class="font-semibold text-lg">${data.eliminated ? '–' : displayExtra}</div></div>
-                </div>
-                ${(Array.isArray(data.knocks) && data.knocks.length > 0) ? `
-                <div class="border-t mt-3 pt-2">
-                    <div class="text-sm text-gray-500 mb-1">Rivna portar:</div>
-                    <div class="flex flex-wrap gap-2">
-                        ${data.knocks.map(gate => `<span class="bg-red-100 text-red-800 font font-semibold px-2 py-1 rounded">${gate}</span>`).join('')}
+  // Om föraren byts, rendera om hela panelen. Annars, uppdatera atomärt.
+  if (!isSameDriver) {
+    panel.innerHTML = `
+            <div class="flex justify-between items-start mb-4 border-b dark:border-gray-700 pb-4">
+                <div>
+                    <h3 class="text-3xl font-bold dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+                    <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
+                        ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span>${eq.className}</span>
                     </div>
                 </div>
-                ` : ''}
+                <div id="leader-in-class-slot" class="text-right">
+                    ${leaderInClass ? `
+                    <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
+                    <div class="font-semibold dark:text-white">${leaderInClass.name}</div>
+                    <div class="font-bold text-brand-lightblue">
+                        ${leaderInClass.totalPenalty.toFixed(2)} p
+                        <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
+                    </div>
+                    ` : ''}
+                </div>
             </div>
-        </div>
-    `;
+
+            <div class="grid md:grid-cols-2 gap-6 items-center">
+                <div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400 uppercase">${showFinal ? t('finish_time') : t('live_time')}</div>
+                    <div id="live-timer-main" class="text-7xl font font-bold tabular-nums dark:text-white ${displayTimePenalty > 0 ? 'text-red-600 dark:text-red-400' : ''}">${formatMsLive(elapsedMs)}</div>
+                    <div class="grid grid-cols-3 gap-2 text-center text-sm mt-2">
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(maxSec) ? formatMsLive(maxSec * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-500 dark:text-gray-400">${t('max_time')}</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(maxSec) ? formatMsLive(maxSec * 2 * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-500 dark:text-gray-400">Maximaltid</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(trackLength) ? trackLength + 'm' : '–'}</div><div class="text-xs text-gray-500 dark:text-gray-400">${t('track_len')}</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${portDisplay}</div><div class="text-xs text-gray-500 dark:text-gray-400">${t('obstacle_width')}</div></div>
+                    </div>
+                </div>
+
+                <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg">
+                    <div class="text-center mb-4">
+                        <div class="text-sm text-gray-500 dark:text-gray-400 uppercase">${t('total_penalty')} ${showFinal ? '' : t('preliminary_suffix')}</div>
+                        <div id="live-total-penalty" class="text-7xl font-bold tabular-nums text-brand-lightblue">${data.eliminated ? 'ELIM' : displayTotal.toFixed(2)}</div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center text-sm border-t dark:border-gray-600 pt-2 dark:text-gray-300">
+                        <div><div class="text-gray-500 dark:text-gray-400">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
+                        <div><div class="text-gray-500 dark:text-gray-400">${t('obs_penalty')}</div><div id="live-obstacle-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayObstaclePenalty}</div></div>
+                        <div><div class="text-gray-500 dark:text-gray-400">${t('other_penalty')}</div><div id="live-extra-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayExtra}</div></div>
+                    </div>
+                    <div id="live-knocks-container" class="border-t dark:border-gray-600 mt-3 pt-2">
+                        ${(Array.isArray(data.knocks) && data.knocks.length > 0) ? `
+                        <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">${t('knocked_gates')}</div>
+                        <div class="flex flex-wrap gap-2">
+                            ${data.knocks.map(gate => {
+      const timeMs = data.knockDownTimes?.[gate];
+      const timeLabel = isNum(timeMs) ? formatMsLive(timeMs) : '';
+      return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${gate}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
+    }).join('')}
+                        </div>
+                        ` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+  } else {
+    // Om samma förare, uppdatera endast de dynamiska delarna atomärt
+    const leaderSlot = document.getElementById('leader-in-class-slot');
+    if (leaderSlot) {
+      leaderSlot.innerHTML = leaderInClass ? `
+                <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
+                <div class="font-semibold dark:text-white">${leaderInClass.name}</div>
+                <div class="font-bold text-brand-lightblue">
+                    ${leaderInClass.totalPenalty.toFixed(2)} p
+                    <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
+                </div>
+            ` : '';
+    }
+
+    const totalPenaltyEl = document.getElementById('live-total-penalty');
+    if (totalPenaltyEl) totalPenaltyEl.textContent = data.eliminated ? 'ELIM' : displayTotal.toFixed(2);
+
+    const timePenaltyEl = document.getElementById('live-time-penalty');
+    if (timePenaltyEl) timePenaltyEl.textContent = data.eliminated ? '–' : displayTimePenalty.toFixed(2);
+
+    const obsPenaltyEl = document.getElementById('live-obstacle-penalty');
+    if (obsPenaltyEl) obsPenaltyEl.textContent = data.eliminated ? '–' : displayObstaclePenalty;
+
+    const extraPenaltyEl = document.getElementById('live-extra-penalty');
+    if (extraPenaltyEl) extraPenaltyEl.textContent = data.eliminated ? '–' : displayExtra;
+
+    const knocksEl = document.getElementById('live-knocks-container');
+    if (knocksEl) {
+      if (Array.isArray(data.knocks) && data.knocks.length > 0) {
+        knocksEl.innerHTML = `
+                <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">${t('knocked_gates')}</div>
+                <div class="flex flex-wrap gap-2">
+                    ${data.knocks.map(gate => {
+          const timeMs = data.knockDownTimes?.[gate];
+          const timeLabel = isNum(timeMs) ? formatMsLive(timeMs) : '';
+          return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${gate}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
+        }).join('')}
+                </div>
+            `;
+      } else {
+        knocksEl.innerHTML = '';
+      }
+    }
+  }
 }
 
 function renderUpcomingPanel() {
-  const panelEl = document.getElementById('upcoming-panel');
+  const panelEl = document.getElementById('precision-upcoming-panel');
   if (!panelEl) return;
 
   const upcoming = allEquipages
@@ -212,25 +273,29 @@ function renderUpcomingPanel() {
     })
     .slice(0, 5);
 
-  let content = '<h3 class="text-lg font-bold mb-2">Nästa Start</h3>';
+  const currentHash = upcoming.map(eq => `${eq.startNumber}:${startTimes[String(eq.startNumber)]?.precision}`).join('|');
+  if (currentHash === lastRenderedUpcomingHash) return;
+  lastRenderedUpcomingHash = currentHash;
+
+  let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('next_start')}</h3>`;
   if (upcoming.length === 0) {
-    content += `<p class="text-sm text-gray-500">Alla ekipage har startat.</p>`;
+    content += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('all_started')}</p>`;
   } else {
     content += upcoming.map(eq => {
       const startTime = formatTime(startTimes[String(eq.startNumber)]?.precision);
       return `
-        <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b last:border-0 hover:bg-gray-50 rounded px-1"
+        <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
                 data-sn="${eq.startNumber}">
           <div class="flex items-center gap-3 min-w-0">
-            <span class="font-bold w-8 shrink-0 text-center">#${eq.startNumber}</span>
-            <span class="truncate">${eq.driverName || ''}</span>
+            <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${eq.startNumber}</span>
+            <span class="truncate dark:text-gray-300">${eq.driverName || ''}</span>
           </div>
           <div class="flex items-center gap-3 shrink-0">
             <div class="flex items-center gap-1 justify-start" title="${eq.clubName || ''}">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
             </div>
-            <span class="font-semibold text-gray-800 w-20 text-right">${startTime}</span>
+            <span class="font-semibold text-gray-800 dark:text-gray-300 w-20 text-right">${startTime}</span>
           </div>
         </button>
       `;
@@ -250,13 +315,13 @@ function renderUpcomingPanel() {
 
 
 function renderResultsPanel() {
-  const panelEl = document.getElementById('results-panel');
+  const panelEl = document.getElementById('precision-results-panel');
   if (!panelEl) return;
 
-  let content = '<h3 class="text-lg font-bold mb-2">Senaste Resultat</h3>';
+  let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('latest_results')}</h3>`;
 
   if (recentResults.length === 0) {
-    content += `<p class="text-sm text-gray-500">Inga resultat rapporterade ännu.</p>`;
+    content += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('no_results_yet')}</p>`;
   } else {
     content += recentResults.map(res => {
       // ✅ Fallbacks så vi aldrig får "#undefined"
@@ -275,24 +340,33 @@ function renderResultsPanel() {
         : (Number.isFinite(penalty) ? penalty.toFixed(2) + ' p' : '—');
 
       return `
-        <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b last:border-0 hover:bg-gray-50 rounded px-1"
+        <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
                 data-sn="${sn}">
           <div class="flex items-center gap-3 min-w-0">
-            <span class="font-bold w-8 shrink-0 text-center">#${sn}</span>
-            <span class="truncate">${name}</span>
+            <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${sn}</span>
+            <span class="truncate dark:text-gray-300">${name}</span>
           </div>
           <div class="flex items-center gap-3 shrink-0">
             <div class="flex items-center gap-1 justify-start" title="${eq.clubName || ''}">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
             </div>
-<span class="font-semibold text-gray-800 w-20 text-right">${isNum(elapsedMs) ? formatMsLive(elapsedMs) : '—'}</span>
-        <span class="font-bold text-blue-700 w-20 text-right">${penaltyText}</span>
+<span class="font-semibold text-gray-800 dark:text-gray-300 w-20 text-right">${isNum(elapsedMs) ? formatMsLive(elapsedMs) : '—'}</span>
+        <span class="font-bold text-blue-700 dark:text-blue-400 w-20 text-right">${penaltyText}</span>
           </div>
         </button>
       `;
     }).join('');
   }
+
+  const currentHash = recentResults.map(res => {
+    const sn = String(res.startNumber ?? res.sn);
+    const d = allPrecisionData.get(sn) || {};
+    return `${sn}:${res.totalPenalty ?? d.totalPenalty}`;
+  }).join('|');
+
+  if (currentHash === lastRenderedResultsHash) return;
+  lastRenderedResultsHash = currentHash;
 
   panelEl.innerHTML = content;
 
@@ -312,25 +386,25 @@ function ensureTicker() {
   tickerInterval = setInterval(() => {
     if (currentDriver) {
       const { eq, data } = currentDriver;
-      const isFinal = (data.finalized || data.status === 'Klar');
+      const isFinal = !data.running && (data.finalized || data.status === 'Klar');
 
       const timerEl = document.getElementById('live-timer-main');
       const timePenaltyEl = document.getElementById('live-time-penalty');
       const totalPenaltyEl = document.getElementById('live-total-penalty');
 
       if (timerEl) {
-        // Om klart, låt den statiska vyn vara (eller uppdatera bara klockan om vi vill vara säkra? Nej, finalizedTime är statisk)
+        // Om klart (och inte running), låt den statiska vyn vara
         if (isFinal) {
           // Gör inget "tickande" om det är klart.
-          // Säkerställ bara att tiden som visas är korrekt (kan göras här om man vill vara paranoid, men renderCurrentDriver gör det redan)
           return;
         }
 
         // NY, EXAKT TIDSBERÄKNING
+        // RELATIV CLOCK: Använd tidpunkten då vi tog emot snapshoten för att kompensera för klockdiff.
         let elapsedMs;
         if (data.running && data.liveStartEpoch) {
-          // Om klockan går, räkna live från den exakta starttiden
-          elapsedMs = (data.livePausedMs || 0) + (Date.now() - data.liveStartEpoch);
+          const receivedAt = data._receivedLocalAt || Date.now();
+          elapsedMs = (data.livePausedMs || 0) + (receivedAt - data.liveStartEpoch) + (Date.now() - receivedAt);
         } else {
           // Om klockan är stoppad, visa den senast kända tiden
           elapsedMs = data.liveTimeMs || 0;
@@ -350,9 +424,8 @@ function ensureTicker() {
           // Tidigare kod i precision-input.js: (elapsedSec - maxSec) * 0.5
           // Kontrollera om precision-input har exakt samma logik?
           // Ja: calculateLiveTimePenalty -> (elapsedSec - maxSec) * 0.5
-          if (elapsedSec > maxSec) {
-            currentTimePenalty = (elapsedSec - maxSec) * 0.5;
-          }
+          const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+          currentTimePenalty = calculatePrecisionTimePenalty(elapsedMs, maxSec, rate);
         }
 
         // Uppdatera DOM
@@ -374,9 +447,9 @@ function ensureTicker() {
 
         // Röd markering
         if (currentTimePenalty > 0) {
-          timerEl.classList.add('text-red-600');
+          timerEl.classList.add('text-red-600', 'dark:text-red-400');
         } else {
-          timerEl.classList.remove('text-red-600');
+          timerEl.classList.remove('text-red-600', 'dark:text-red-400');
         }
       }
     }
@@ -396,6 +469,7 @@ function processDocChange(change) {
   if (change.type === 'removed') {
     allPrecisionData.delete(sn);
   } else {
+    data._receivedLocalAt = Date.now(); // NYTT: För relativ tidssynk
     allPrecisionData.set(sn, data);
   }
   // När ett ekipage precis gått i mål (inProgress går från true till false) → pusha in i "Senaste Resultat"
@@ -435,45 +509,49 @@ function listenForUpdates() {
   const precisionRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
   const unsub = onSnapshot(precisionRef, (snapshot) => {
     snapshot.docChanges().forEach(processDocChange);
-    snapshot.docChanges().forEach(processDocChange);
 
-    // Försök hitta en PÅGÅENDE förare (inProgress = true)
-    // Sortera så vi väljer den som uppdaterades senast (eliminerar "zombie"-förare)
+    // Försök hitta en PÅGÅENDE förare (running = true)
+    // Sortera så vi väljer den som uppdaterades senast
     const activeDrivers = [];
     const now = Date.now();
-    const STALE_THRESHOLD_MS = 3600000; // 1 timme – ignorera äldre "inProgress" (zombies)
+    const STALE_THRESHOLD_MS = 3600000; // 1 timme
 
     for (const [sn, data] of allPrecisionData.entries()) {
-      // Ignorera om den är för gammal, även om den säger inProgress=true
-      const age = now - (data.updatedAt || 0);
-      if (data.inProgress === true && age < STALE_THRESHOLD_MS) {
-        const eq = allEquipages.find(e => String(e.startNumber) === sn);
-        if (eq) {
-          activeDrivers.push({ eq, data });
-        }
+      // Prioritera running=true
+      if (data.running === true) {
+        activeDrivers.push({ eq: allEquipages.find(e => String(e.startNumber) === sn), data, priority: 2 });
+      }
+      // Annars inProgress=true med färskt datum (om systemet inte hann sätta running=false?)
+      else if (data.inProgress === true && (now - (data.updatedAt || 0) < STALE_THRESHOLD_MS)) {
+        activeDrivers.push({ eq: allEquipages.find(e => String(e.startNumber) === sn), data, priority: 1 });
       }
     }
 
-    // Sortera fallande på updatedAt
-    activeDrivers.sort((a, b) => (b.data.updatedAt || 0) - (a.data.updatedAt || 0));
+    // Sortera: Högst prioritet först, sedan senast uppdaterad
+    activeDrivers.sort((a, b) => {
+      if (b.priority !== a.priority) return b.priority - a.priority;
+      return (b.data.updatedAt || 0) - (a.data.updatedAt || 0);
+    });
 
-    console.log('[PrecisionMonitor] Active candidates:', activeDrivers.length, activeDrivers.map(a => ({ sn: a.eq.startNumber, updated: a.data.updatedAt, running: a.data.running })));
+    // Filtrera bort undefined om equipage saknas
+    const validActive = activeDrivers.filter(a => a.eq);
 
-    let activeDriver = activeDrivers[0] || null;
+    // Välj vinnaren
+    let activeDriver = validActive[0] || null;
 
     if (activeDriver) {
-      console.log('[PrecisionMonitor] Selected active:', activeDriver.eq.startNumber, activeDriver.data);
-      // Om vi har en aktiv förare, visa den
       currentDriver = activeDriver;
-    } else if (currentDriver) {
-      // Inget aktivt just nu? Behåll den gamla men uppdatera data (t.ex. om den nyss gick i mål)
-      const sn = String(currentDriver.eq.startNumber);
-      const freshData = allPrecisionData.get(sn);
-      if (freshData) {
-        currentDriver.data = freshData;
-      } else {
-        // Föraren kanske togs bort?
-        currentDriver = null;
+    } else {
+      // Behåll nuvarande om den nyss var aktiv (för att visa resultat en stund), 
+      // men om den är finalized/klar länge sen, släpp den.
+      if (currentDriver) {
+        const fresh = allPrecisionData.get(String(currentDriver.eq.startNumber));
+        if (!fresh || (fresh.status === 'Klar' && (now - (fresh.updatedAt || 0) > 30000))) {
+          // Om den har varit klar i mer än 30 sekunder, rensa skärmen (eller visa nästa start?)
+          // För nu: rensa inte, låt den ligga kvar tills ny start
+          // currentDriver = null; 
+        }
+        if (fresh) currentDriver.data = fresh;
       }
     }
     // Om vi inte hade någon activeDriver och ingen currentDriver sen innan => currentDriver förblir null (vänteläge)
@@ -537,7 +615,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = document.getElementById('page-precision-monitor');
   if (!competitionId) {
-    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+    if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600">${t('no_competition_selected')}</p>`;
     return;
   }
   renderLayout();
@@ -550,11 +628,11 @@ export async function load() {
     allEquipages = equipagesRaw;
     precisionConfig = configRaw; // Spara config
     startTimes = startTimesData?.times || {};
-    await ensureClubLogosLoaded();
+    await ensureClubLogosLoaded(competitionId);
     listenForUpdates();
   } catch (error) {
     console.error("Kunde inte ladda data för precision-monitor:", error);
-    if (root) root.innerHTML = '<p class="p-8 text-center text-red-500">Kunde inte ladda nödvändig data.</p>';
+    if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">${t('error_loading_data')}</p>`;
   }
 }
 
@@ -572,4 +650,7 @@ export function __unload() {
   startTimes = {};
   precisionConfig = {};
   competitionId = null;
+  lastRenderedUpcomingHash = null;
+  lastRenderedResultsHash = null;
+  lastDriverSn = "";
 }

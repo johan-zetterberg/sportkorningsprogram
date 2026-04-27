@@ -11,12 +11,13 @@
 
 import { calculatePrecisionResult } from '../utils/precisionUtils.js';
 import { calculateMarathonResult } from '../utils/marathonUtils.js';
-import { computeFinalFromSaved, getPrograms } from '../utils/dressageUtils.js';
+import { getPrograms, deduplicateAndFilterProtocols } from '../utils/dressageUtils.js';
+import { calculateDressageResult } from './calculationService.js';
 
 /**
  * Aggregates all results for a list of equipages.
  * 
- * @param {Array} equipages - List of equipage objects.
+ * @param {Array} equipages - List of equipage objects (should contain errorPoints).
  * @param {Map} dressageMap - Map of startNumber -> protocols[].
  * @param {Map} marathonTimeMap - Map of startNumber -> timing object.
  * @param {Map} marathonObstacleMap - Map of startNumber -> obstacle results.
@@ -25,28 +26,23 @@ import { computeFinalFromSaved, getPrograms } from '../utils/dressageUtils.js';
  * @returns {Array} List of equipages with .totalPenalty, .plac, and discipline sub-results.
  */
 export function aggregateResults(equipages, dressageMap, marathonTimeMap, marathonObstacleMap, precisionMap, config = {}) {
+    const allPrograms = getPrograms();
     const computed = equipages.map(eq => {
         const sn = String(eq.startNumber);
         const res = { ...eq };
 
         // 1. Dressage
-        const protocols = dressageMap.get(sn) || [];
-        const programKey = eq.dressageProgramKey || protocols[0]?.programKey || protocols[0]?.testKey;
-        const program = programKey ? (getPrograms()[programKey] || null) : null;
-
-        // If we have saved results on equipage (legacy or direct), use them preference?
-        // Actually, let's recalculate if possible to be safe, or use saved if protocols missing.
-        let dRes = null;
-        if (program && protocols.length > 0) {
-            dRes = computeFinalFromSaved(eq, protocols, program);
-        } else if (eq.dressageResult) {
-            dRes = eq.dressageResult; // Fallback
-        }
+        const rawProtocols = dressageMap.get(sn) || [];
+        // calculateDressageResult handles program lookup and error points
+        const dRes = calculateDressageResult(eq, rawProtocols, [], allPrograms);
 
         res.dressage = {
-            penalty: dRes?.penalty || 0,
-            percent: dRes?.percentAvg || 0,
-            eliminated: dRes?.isEliminated || false
+            penalty: dRes.penalty || 0,
+            judgePenalty: dRes.judgePenalty || 0,
+            percent: dRes.percent || 0,
+            eliminated: dRes.eliminated || false,
+            errorPoints: dRes.errorPoints || 0,
+            errorPenalty: dRes.errorPenalty || 0
         };
 
         // 2. Marathon
