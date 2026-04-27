@@ -1,13 +1,24 @@
 // js/pages/maraton-stages-input.js
-import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig } from '../utils/marathonUtils.js';
+import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious } from '../utils/marathonUtils.js';
 import { getGlobalState } from '../main.js';
-import { getEquipages, getConfig } from '../services/firestoreService.js';
+import { getEquipages, getConfig, getMarathonStateDocuments, listenForMaratonCollection } from '../services/firestoreService.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../ui/components.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../config/firebase-config.js';
 import { downloadJson } from '../utils/sharedUtils.js';
+import { requestWakeLock } from '../utils/wakeLock.js';
 
 // --- Wrapper functions for marathonUtils ---
+
+function normalizeStageForEquipage(eq, stage) {
+  if (!eq) return stage;
+  if (stage === 'warmup') {
+    const limA = limitsFor(eq, 'A');
+    const isFTA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+    if (isFTA) return 'A';
+  }
+  return stage;
+}
 
 function getStageThresholds(equipageSnOrObj, stage) {
   const eq = resolveEquipage(equipageSnOrObj);
@@ -61,9 +72,9 @@ function computeTimePenalty(equipageSnOrObj, stage, ms) {
     secondsOut: secondsOut > 0 ? secondsOut : null,
     points: elim ? 'ELIM' : points,
     rate: 0.25,
-    tlMs: lim.ideal * 1000,
-    minMs: lim.min * 1000,
-    maxMs: lim.max * 1000
+    tlMs: (lim && lim.ideal) ? lim.ideal * 1000 : null,
+    minMs: (lim && lim.min) ? lim.min * 1000 : null,
+    maxMs: (lim && lim.max) ? lim.max * 1000 : null
   };
 }
 
@@ -99,7 +110,7 @@ function listenForGlobalCompetitionPause() {
 
     if (isPaused && !lastPauseState) {
       // TÄVLINGEN PAUSAS NU
-      console.log("Global paus aktiverad. Stoppar lokala timers.");
+
       if (tickInterval) clearInterval(tickInterval);
       tickInterval = null;
       pauseStartTime = Date.now();
@@ -107,7 +118,6 @@ function listenForGlobalCompetitionPause() {
 
     } else if (!isPaused && lastPauseState) {
       // TÄVLINGEN ÅTERUPPTAS NU
-      console.log("Global paus avslutad. Återupptar lokala timers.");
       const pauseDurationMs = Date.now() - pauseStartTime;
 
       for (const timer of activeTimers.values()) {
@@ -159,7 +169,10 @@ function extractStageFromDocData(data, stage) {
 }
 
 function upsertActiveTimerFromStage(sn, stage, st) {
-  const key = `${sn}|${stage}`;
+  const eq = findEquipageBySn(sn);
+  const actualStage = normalizeStageForEquipage(eq, stage);
+  const key = `${sn}|${actualStage}`;
+
   const hasStart = !!st?.startClock;
   const hasStop = !!st?.stopClock;
 
@@ -174,7 +187,6 @@ function upsertActiveTimerFromStage(sn, stage, st) {
   const startMs = Date.parse(st.startClock);
   if (!isFinite(startMs)) return;
 
-  // <<--- ändring: ta med ackumulerad (pausad) tid från dokumentet
   const paused = Number.isFinite(st.durationMs) ? st.durationMs : 0;
   const t = { isRunning: true, startEpoch: startMs, pausedMs: paused };
 
@@ -359,23 +371,23 @@ function renderActiveCards() {
     const ms = t?.isRunning ? (t.pausedMs + (Date.now() - t.startEpoch)) : (t?.pausedMs || 0);
 
     parts.push(`
-<div class="flex items-center justify-between px-3 py-2 rounded-lg border bg-white"
+<div class="flex items-center justify-between px-3 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700"
      data-active="${sn}|${stage}">
   <button class="card-left text-left"
           data-sn="${sn}" data-stage="${stage}">
-    <div class="text-sm font-medium text-blue-700 hover:underline">
-      ${name} <span class="text-gray-500">#${sn}</span>
+    <div class="text-sm font-medium text-blue-700 dark:text-blue-400 hover:underline">
+      ${name} <span class="text-gray-500 dark:text-gray-400">#${sn}</span>
     </div>
-    <div class="text-xs text-gray-500">${stageNiceLabel(stage)}</div>
+    <div class="text-xs text-gray-500 dark:text-gray-400">${decorateStageLabel(stage, eq)}</div>
   </button>
   <div class="flex items-center gap-3">
-    <div class="timer font-mono tabular-nums text-lg">${fmtMsTimer(ms)}</div>
-    <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white">Stoppa</button>
+    <div class="timer font-mono tabular-nums text-lg dark:text-gray-200">${fmtMsTimer(ms)}</div>
+    <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">Stoppa</button>
   </div>
 </div>
     `);
   }
-  host.innerHTML = parts.join('') || '<div class="text-sm text-gray-500">Inga aktiva timers.</div>';
+  host.innerHTML = parts.join('') || '<div class="text-sm text-gray-500 dark:text-gray-400">Inga aktiva timers.</div>';
 }
 
 // ---------- Firestore helpers ----------
@@ -474,16 +486,18 @@ async function saveStageSnapshot(stage, payload) {
   // --- Spegla även till NÄSTLAT så allt gammalt rensas korrekt ---
   // Vi läser inte längre nästlat som "sanning", men andra vyer/äldre kod kan göra det.
   // Att skriva null här gör att gamla värden inte kan "studsa tillbaka".
-  const nestedStage = {};
-  if ('startClock' in payload) nestedStage.startClock = payload.startClock;
-  if ('stopClock' in payload) nestedStage.stopClock = payload.stopClock;
-  if ('durationMs' in payload) nestedStage.durationMs = payload.durationMs;
-  if ('commentStart' in payload) nestedStage.commentStart = payload.commentStart ?? '';
-  if ('commentStop' in payload) nestedStage.commentStop = payload.commentStop ?? '';
+  const nestedStageTarget = {};
+  if ('startClock' in payload) nestedStageTarget.startClock = payload.startClock;
+  if ('stopClock' in payload) nestedStageTarget.stopClock = payload.stopClock;
+  if ('durationMs' in payload) nestedStageTarget.durationMs = payload.durationMs;
+  if ('commentStart' in payload) nestedStageTarget.commentStart = payload.commentStart ?? '';
+  if ('commentStop' in payload) nestedStageTarget.commentStop = payload.commentStop ?? '';
 
-  if (Object.keys(nestedStage).length) {
-    flat.stages = { [stage]: nestedStage };
-    flat.timing = { [stage]: nestedStage }; // rensa ev. äldre `timing.*` också
+  if (Object.keys(nestedStageTarget).length) {
+    for (const [k, v] of Object.entries(nestedStageTarget)) {
+      flat[`stages.${stage}.${k}`] = v;
+      flat[`timing.${stage}.${k}`] = v;
+    }
   }
 
   // --- Skriv EN gång (bara /maraton) ---
@@ -522,8 +536,11 @@ function applyDocToLocalState(sn, rawDoc) {
 
   // Synka aktiva timers lokalt per etapp
   const stages = ['warmup', 'A', 'transport', 'B'];
+  const eq = findEquipageBySn(sn);
+
   for (const stage of stages) {
-    const tKey = `${sn}|${stage}`;
+    const actualStage = normalizeStageForEquipage(eq, stage);
+    const tKey = `${sn}|${actualStage}`;
     const st = data?.timing?.[stage] || {};
 
     // Om "pågående" (har startClock men saknar stopClock) -> säkerställ att vi har en tickande lokal timer
@@ -539,9 +556,23 @@ function applyDocToLocalState(sn, rawDoc) {
         t.pausedMs = (st.durationMs || 0);
       }
     } else {
+      // Om etappen inte längre pågår (har stopp eller saknar start)
+      // Men vi måste vara försiktiga: om vi normaliserade till en annan etapp (t.ex. warmup -> A),
+      // ska vi bara ta bort timern om båda snapshot-etapperna är klara.
+      // Egentligen räcker det att upsertActiveTimerFromStage skött det via syncActiveFromSnapshot, 
+      // men här gör vi det per-dokument för omedelbar respons.
       if (activeTimers.has(tKey)) {
-        removeActiveCard(tKey);
-        activeTimers.delete(tKey);
+        // Kolla en gång till: finns det NÅGON del av denna normaliserade etapp som fortfarande körs?
+        const isRunningAny = stages.some(s => {
+          if (normalizeStageForEquipage(eq, s) !== actualStage) return false;
+          const d = data?.timing?.[s] || {};
+          return d.startClock && !d.stopClock;
+        });
+
+        if (!isRunningAny) {
+          removeActiveCard(tKey);
+          activeTimers.delete(tKey);
+        }
       }
     }
   }
@@ -552,10 +583,16 @@ function applyDocToLocalState(sn, rawDoc) {
 }
 
 function tsToMillis(ts) {
-  // klarar Firebase Timestamp, Date, eller null/undefined
-  try { if (ts?.toMillis) return ts.toMillis(); } catch { }
-  const d = (ts instanceof Date) ? ts : (ts?.seconds ? new Date(ts.seconds * 1000) : null);
-  return d ? d.getTime() : 0;
+  if (!ts) return 0;
+  // klarar Firebase Timestamp, Date, String, eller null/undefined
+  try { if (ts.toMillis) return ts.toMillis(); } catch { }
+  if (ts instanceof Date) return ts.getTime();
+  if (typeof ts === 'string') {
+    const parsed = Date.parse(ts);
+    return isNaN(parsed) ? 0 : parsed;
+  }
+  if (ts.seconds) return ts.seconds * 1000;
+  return 0;
 }
 
 function subscribeToEquipageDoc(sn) {
@@ -601,7 +638,12 @@ function mirrorToLocal(sn, data) {
   }
 }
 function stopGlobalTickerIfIdle() {
-  if (activeTimers.size === 0 && tickInterval) {
+  const limA = currentEquipage ? limitsFor(currentEquipage, 'A') : null;
+  const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+  const bStarted = currentDocData?.timing?.['B']?.startClock;
+  const isViewingETA = isFixedTimeA && ['A', 'warmup', 'B'].includes(currentStage) && !bStarted;
+
+  if (activeTimers.size === 0 && tickInterval && !isViewingETA) {
     clearInterval(tickInterval); tickInterval = null;
   }
 }
@@ -633,13 +675,14 @@ function paintTimer(key, now = Date.now()) {
   if (small) small.textContent = fmtMsTimer(ms);
 
   // 2) Uppdatera huvudpanelen ENDAST om detta är nuvarande ekipage + etapp
+  const eq = findEquipageBySn(sn);
   const isCurrentPanel =
     currentEquipage &&
     String(currentEquipage.startNumber) === String(sn) &&
-    currentStage === stage;
+    normalizeStageForEquipage(currentEquipage, currentStage) === normalizeStageForEquipage(eq, stage);
 
   if (isCurrentPanel) {
-    const big = document.getElementById(`timer-${stage}`);
+    const big = document.getElementById(`timer-${currentStage}`);
     if (big) {
       big.textContent = fmtMsTimer(ms);
       // färglägg enligt TL/max etc
@@ -670,14 +713,107 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
   const tlEl = document.getElementById(`info-${stage}-tl`);
   const devEl = document.getElementById(`info-${stage}-dev`);
   const penEl = document.getElementById(`info-${stage}-pen`);
+  const timerEl = document.getElementById(`timer-${stage}`);
   if (!tlEl && !devEl && !penEl) return;
 
   const res = computeTimePenalty(equipageSnOrObj, stage, ms);
 
+  // --- NYTT: DISKREPANS-KOLL (Tid vs Klockslag) ---
+  const stData = currentDocData?.timing?.[stage];
+  if (stData && stData.startClock && stData.stopClock) {
+    const startMs = new Date(stData.startClock).getTime();
+    const stopMs = new Date(stData.stopClock).getTime();
+    const clockDurationMs = stopMs - startMs;
+    const diff = Math.abs(clockDurationMs - ms);
+
+    // Om det skiljer mer än 1 sek, varna herrejösses-mycket
+    if (diff > 1000 && timerEl) {
+      timerEl.classList.add('discrepancy-warning');
+      timerEl.title = `Varning: Beräknad tid (${fmtMsTimer(clockDurationMs)}) stämmer inte med angiven tid (${fmtMsTimer(ms)}).`;
+    } else if (timerEl) {
+      timerEl.classList.remove('discrepancy-warning');
+      timerEl.title = 'Klicka för att ange manuell tid';
+    }
+  }
 
   // TL (bara själva tiden)
   if (tlEl) {
     tlEl.textContent = (res.tlMs != null) ? fmtMsMMSS(res.tlMs) : '–';
+  }
+
+  // Tid kvar till B (om Fixed Time A)
+  const etaBox = document.getElementById(`box-${stage}-etaB`);
+  const etaEl = document.getElementById(`info-${stage}-etaB`);
+  if (etaBox && etaEl) {
+    const eq = resolveEquipage(equipageSnOrObj);
+    const limA = eq ? limitsFor(eq, 'A') : null;
+    const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+
+    // Show on A/Warmup ALWAYS if FixedTime. Show on B ONLY if B hasn't started yet.
+    const isStageB = stage === 'B';
+    const bStarted = currentDocData?.timing?.['B']?.startClock;
+    const isWarmupFinished = !!currentDocData?.timing?.['warmup']?.stopClock || !!currentDocData?.timing?.['A']?.stopClock;
+
+    // Vi visar "Rast" om sträckan är klar eller om det är Fixed Time
+    const shouldShowEta = isFixedTimeA && (!isStageB || (isStageB && !bStarted));
+
+    if (shouldShowEta) {
+      const tlMs = limA.ideal * 1000;
+      etaBox.classList.remove('hidden');
+
+      // Byt etikett om sträckan är klar
+      const labelEl = etaBox.querySelector('span:first-child');
+      if (labelEl && isWarmupFinished) labelEl.textContent = 'Rast kvar:';
+
+      const warmupDoc = currentDocData?.timing?.['warmup'] || currentDocData?.timing?.['A'];
+
+      if (warmupDoc && (warmupDoc.startClock || warmupDoc.durationMs)) {
+        const pauseTimeMs = getPauseTime() * 60 * 1000;
+        let totalElapsedMs = 0;
+
+        if (isWarmupFinished && warmupDoc.stopClock) {
+          // Har gått i mål på A, vilar nu.
+          const stopMs = tsToMillis(warmupDoc.stopClock);
+          const durA = Number.isFinite(warmupDoc.durationMs)
+            ? warmupDoc.durationMs
+            : (stopMs - tsToMillis(warmupDoc.startClock) - pausedMsSince(tsToMillis(warmupDoc.startClock)));
+
+          const activeRestTime = (Date.now() - stopMs) - pausedMsSince(stopMs);
+          totalElapsedMs = durA + activeRestTime;
+        } else {
+          // A pågår fortfarande (eller är pausad)
+          const sn = String(eq.startNumber);
+          const wStageKey = currentDocData?.timing?.['A'] ? 'A' : 'warmup';
+          const tMap = activeTimers.get(`${sn}|${wStageKey}`);
+
+          if (tMap && tMap.isRunning) {
+            totalElapsedMs = tMap.pausedMs + (Date.now() - tMap.startEpoch);
+          } else if (warmupDoc.startClock && !warmupDoc.stopClock) {
+            const startMs = tsToMillis(warmupDoc.startClock);
+            const durA = warmupDoc.durationMs || 0;
+            totalElapsedMs = durA + (Date.now() - startMs) - pausedMsSince(startMs);
+          } else {
+            totalElapsedMs = warmupDoc.durationMs || 0;
+          }
+        }
+
+        const timeLeftMs = (tlMs + pauseTimeMs) - totalElapsedMs;
+
+        if (timeLeftMs >= 0) {
+          etaEl.textContent = fmtMsMMSS(timeLeftMs);
+          etaEl.className = 'tabular-nums text-sm md:text-base font-bold text-blue-600 dark:text-blue-400';
+          if (isWarmupFinished) etaBox.style.backgroundColor = 'rgba(37, 99, 235, 0.1)';
+        } else {
+          etaEl.textContent = '-' + fmtMsMMSS(Math.abs(timeLeftMs));
+          etaEl.className = 'tabular-nums text-sm md:text-base font-bold text-red-600 dark:text-red-400 animate-pulse';
+          if (isWarmupFinished) etaBox.style.backgroundColor = 'rgba(225, 29, 72, 0.1)';
+        }
+      } else {
+        etaBox.classList.add('hidden');
+      }
+    } else {
+      etaBox.classList.add('hidden');
+    }
   }
 
   // Avvikelse (mm:ss)
@@ -700,24 +836,24 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
 }
 
 function applyTimerColor(el, equipageSnOrObj, stage, ms) {
-  el.classList.remove('text-black', 'text-emerald-600', 'text-rose-600');
+  el.classList.remove('text-gray-900', 'dark:text-white', 'text-emerald-600', 'text-rose-600');
 
   const th = getStageThresholds(equipageSnOrObj, stage);
-  if (!th) { el.classList.add('text-black'); return; }
+  if (!th) { el.classList.add('text-gray-900', 'dark:text-white'); return; }
 
   // Transport: röd först när tidsgräns (ELIM) passeras
   if (stage === 'transport') {
     if (Number.isFinite(th.timeLimitMs) && ms > th.timeLimitMs) {
       el.classList.add('text-rose-600');
     } else {
-      el.classList.add('text-black');
+      el.classList.add('text-gray-900', 'dark:text-white');
     }
     return;
   }
 
   // A, B, WU: svart < min, grön inom [min, max], röd > max
   if (Number.isFinite(th.minMs) && ms < th.minMs) {
-    el.classList.add('text-black');
+    el.classList.add('text-gray-900', 'dark:text-white');
   } else if (Number.isFinite(th.maxMs) && ms <= th.maxMs) {
     el.classList.add('text-emerald-600');
   } else {
@@ -733,7 +869,6 @@ function renderLayout() {
   const root = document.getElementById('page-maraton-stages');
   if (!root) return;
 
-  // Lägg ALLT i en container – precis som i maraton-input
   root.innerHTML = `
     <style>
       .comment-wrapper { display: none; }
@@ -741,88 +876,95 @@ function renderLayout() {
       
       .toggle-btn {
           background: none;
-          border: 1px solid #cbd5e1; /* gray-300 */
-          border-radius: 99px; /* rounded-full */
+          border: 1px solid #cbd5e1;
+          border-radius: 99px;
           padding: 4px 10px;
           font-size: 11px;
           line-height: 1.2;
-          color: #475569; /* gray-600 */
+          color: #475569;
           cursor: pointer;
           white-space: nowrap;
       }
-      .toggle-btn:hover { background: #f1f5f9; /* gray-100 */ }
-      .toggle-btn.has-comment {
-          border-color: #2563eb; /* blue-600 */
-          color: #2563eb;
-          font-weight: 600;
-      }
+      .dark .toggle-btn { border-color: #4b5563; color: #d1d5db; }
+      .toggle-btn.has-comment { border-color: #2563eb; color: #2563eb; font-weight: 600; }
+      .dark .toggle-btn.has-comment { border-color: #60a5fa; color: #60a5fa; }
 
-      /* Stil för utfällbar timer-lista */
-      .active-timers-list {
-        display: none;
+      .active-timers-list { display: none; }
+      .active-timers-wrapper.is-open .active-timers-list { display: block; margin-top: 8px; }
+      .active-timers-wrapper.is-open #toggleActiveTimers .arrow { transform: rotate(180deg); }
+      
+      .discrepancy-warning {
+        color: #e11d48;
+        font-weight: 700;
+        animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       }
-      .active-timers-wrapper.is-open .active-timers-list {
-        display: block; /* Visas när wrappern har .is-open */
-      }
-      .active-timers-wrapper.is-open #toggleActiveTimers .arrow {
-        transform: rotate(180deg);
+      @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .7; } }
+
+      @media (max-width: 640px) {
+          #page-maraton-stages .container { padding: 0.5rem; }
+          .main-stages-card { padding: 0.75rem !important; border-radius: 0.5rem; }
+          
+          .sticky-stages-header {
+              top: 63px;
+              margin-left: -0.5rem;
+              margin-right: -0.5rem;
+              padding: 0.5rem !important;
+          }
+          .stageTab { py-2 !important; font-size: 12px !important; }
+          .timer-display { font-size: 2.25rem !important; }
       }
     </style>
-    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
-      ${getCompetitionHeader(comp, 'Maraton – Etapper (Start/Mål)')}
 
-      <div class="sticky top-[63px] bg-white/95 backdrop-blur p-3 border-b z-30">
-        <div class="w-full">
-          <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-            <div>
-              <div id="eqInfo" class="font-semibold">Välj ekipage…</div>
-              <div class="text-xs text-gray-600">
-                <span>Aktiv etapp:</span>
-                <span id="activeStageLabel" class="font-medium">
-                  ${(currentStage === 'warmup') ? 'Warm-up' : (currentStage === 'transport' ? 'Transport' : currentStage)}
-                </span>
+    <div class="container mx-auto p-4 md:p-8 max-w-4xl">
+      ${getCompetitionHeader(comp, 'Maraton – Etapper')}
+
+      <!-- STICKY HEADER: KUSK-INFO & FLIKAR -->
+      <div class="sticky-stages-header sticky top-[63px] bg-white/95 dark:bg-gray-900/95 backdrop-blur p-4 border-b dark:border-gray-700 z-30 shadow-sm">
+        <div class="flex flex-col gap-3">
+          <div class="flex items-center justify-between gap-2">
+            <div class="min-w-0">
+              <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">Välj ekipage…</div>
+              <div class="text-[10px] uppercase font-bold text-gray-500">
+                Aktiv etapp: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
               </div>
             </div>
-
-            <div class="grid grid-cols-4 gap-2 w-full">
-              <button data-stage="warmup"    class="stageTab flex-1 py-3 rounded-lg border text-sm font-semibold transition-colors active:scale-95 touch-manipulation">Warm-up</button>
-              <button data-stage="A"         class="stageTab flex-1 py-3 rounded-lg border text-sm font-semibold transition-colors active:scale-95 touch-manipulation">A</button>
-              <button data-stage="transport" class="stageTab flex-1 py-3 rounded-lg border text-sm font-semibold transition-colors active:scale-95 touch-manipulation">Transp.</button>
-              <button data-stage="B"         class="stageTab flex-1 py-3 rounded-lg border text-sm font-semibold transition-colors active:scale-95 touch-manipulation">B</button>
+            <div class="flex gap-1">
+              <button id="eqPrev" class="w-8 h-8 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟨</button>
+              <button id="eqNext" class="w-8 h-8 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟩</button>
             </div>
+          </div>
+
+          <div class="grid grid-cols-4 gap-1.5">
+            <button data-stage="warmup"    class="stageTab py-2.5 rounded-lg border dark:border-gray-700 text-[11px] md:text-sm font-bold transition-all shadow-sm">Warm-up</button>
+            <button data-stage="A"         class="stageTab py-2.5 rounded-lg border dark:border-gray-700 text-[11px] md:text-sm font-bold transition-all shadow-sm">A</button>
+            <button data-stage="transport" class="stageTab py-2.5 rounded-lg border dark:border-gray-700 text-[11px] md:text-sm font-bold transition-all shadow-sm">Transp.</button>
+            <button data-stage="B"         class="stageTab py-2.5 rounded-lg border dark:border-gray-700 text-[11px] md:text-sm font-bold transition-all shadow-sm">B</button>
           </div>
         </div>
       </div>
 
-      <div class="w-full p-0 pt-3 space-y-4">
-        <div class="bg-white rounded-xl border p-3">
-          <div class="font-semibold mb-2">Välj ekipage</div>
+      <div class="mt-4 space-y-4">
+        <!-- VAL AV EKIPAGE -->
+        <div class="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
+          <div class="flex items-center justify-between mb-2">
+            <label class="text-[10px] uppercase font-bold text-gray-500">Välj ekipage</label>
+            <button id="btnBackupJson" class="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">EXPORT JSON</button>
+          </div>
           <div id="equipageDropdown"></div>
-          <div class="mt-3 flex items-center justify-between">
-            <div class="text-sm text-gray-600" id="infoLineSmall">—</div>
-            <div class="flex gap-2">
-              <button id="eqPrev" class="px-3 py-1 rounded border text-sm">⟨ Föreg.</button>
-              <button id="eqNext" class="px-3 py-1 rounded border text-sm">Nästa ⟩</button>
-            </div>
-          </div>
-          <div class="mt-3 pt-3 border-t flex justify-end">
-            <button id="btnBackupJson" class="text-xs text-blue-600 hover:underline flex items-center gap-1">
-              <i class="fas fa-file-download"></i> Ladda ner säkerhetskopia (JSON)
-            </button>
-          </div>
+          <div id="infoLineSmall" class="mt-2 text-[10px] text-gray-400 text-center uppercase">—</div>
         </div>
 
-        <div id="activeTimersWrapper" class="active-timers-wrapper bg-white rounded-xl border p-3">
-          <button id="toggleActiveTimers" class="font-semibold text-sm w-full text-left flex justify-between items-center">
-            <span>Aktiva timers (0)</span>
-            <span class="arrow transition-transform">▼</span>
+        <!-- AKTIVA TIMERS (UTFÄLLBAR) -->
+        <div id="activeTimersWrapper" class="active-timers-wrapper bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
+          <button id="toggleActiveTimers" class="w-full flex justify-between items-center">
+            <span class="text-[10px] uppercase font-bold text-gray-500">Aktiva timers (0)</span>
+            <span class="arrow text-gray-400 transition-transform">▼</span>
           </button>
-          <div id="activeTimers" class="active-timers-list space-y-2 mt-3">
-            </div>
+          <div id="activeTimers" class="active-timers-list space-y-2"></div>
         </div>
 
-
-        <div id="stagePanel" class="bg-white rounded-xl border p-3">
+        <!-- ETAPP-PANEL -->
+        <div id="stagePanel">
           ${renderStagePanel(currentStage)}
         </div>
       </div>
@@ -837,110 +979,108 @@ function renderStagePanel(stage) {
   const label = (stage === 'warmup') ? 'Warm-up' : (stage === 'transport' ? 'Transport' : stage);
 
   return `
-<div class="rounded-xl border bg-white p-2 md:p-4">
-  <div class="grid gap-4 md:[grid-template-columns:minmax(0,1fr)_minmax(260px,400px)] items-start">
+<div class="main-stages-card rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+  <div class="flex flex-col gap-4">
 
-    <div>
-      <p class="text-[11px] md:text-xs text-gray-500">Etapp</p>
-      <h2 class="mt-1 text-3xl font-bold">${stageNiceLabel(stage)}</h2>
-      <div id="stageEqLine" class="text-xs text-gray-600 mt-1">—</div>
-
-      <div class="mt-4 space-y-1"> <div class="flex items-baseline gap-2">
-          <span class="text-gray-600 text-xs md:text-sm">TL:</span>
-          <span id="info-${stage}-tl" class="tabular-nums text-sm md:text-base font-medium">—</span>
-        </div>
-        <div class="flex items-baseline gap-2">
-          <span class="text-gray-600 text-xs md:text-sm">Tidsstraff:</span>
-          <span id="info-${stage}-pen" class="tabular-nums text-sm md:text-base font-medium">—</span>
+    <!-- INFO & TIMER RAD -->
+    <div class="flex items-start justify-between gap-4">
+      <div class="min-w-0">
+        <label class="text-[10px] uppercase font-bold text-gray-500 block mb-1">Etapp</label>
+        <h2 class="text-2xl font-black dark:text-white leading-tight">${decorateStageLabel(stage, currentEquipage)}</h2>
+        <div id="stageEqLine" class="text-xs text-gray-400 font-medium truncate">—</div>
+        
+        <div class="mt-2 space-y-0.5">
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] uppercase font-bold text-gray-400">TL:</span>
+            <span id="info-${stage}-tl" class="tabular-nums text-xs font-bold dark:text-gray-200">—</span>
+          </div>
+          <div id="box-${stage}-etaB" class="hidden flex items-center gap-2">
+            <span class="text-[10px] uppercase font-bold text-gray-400">Rest:</span>
+            <span id="info-${stage}-etaB" class="tabular-nums text-xs font-bold text-blue-600 dark:text-blue-400">—</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-[10px] uppercase font-bold text-gray-400">Straff:</span>
+            <span id="info-${stage}-pen" class="tabular-nums text-xs font-bold dark:text-gray-200">—</span>
+          </div>
         </div>
       </div>
-    </div>
 
-    <div class="min-w-0 w-full max-w-[400px] justify-self-end self-start">
-  <div class="relative">
-    <div id="timer-${stage}"
-         class="text-3xl md:text-4xl font-bold tabular-nums text-right leading-none max-w-[220px] w-full ml-auto whitespace-nowrap cursor-pointer"
-         title="Klicka för att ange manuell tid">
-      00:00,00
-    </div>
-    
-    <div id="manual-${stage}"
-         class="hidden absolute right-0 mt-2 w-[320px] md:w-[360px] p-5 rounded-xl border bg-white shadow-2xl z-50">
-      <label class="block text-base font-semibold mb-3">Manuell tid</label>
-      <input id="manualDigits-${stage}" type="tel" inputmode="numeric"
-             class="w-full text-4xl font-mono tracking-widest text-center px-4 py-4 border-2 border-gray-300 rounded-lg mb-4 focus:border-blue-500 focus:ring-4 focus:ring-blue-100 outline-none transition-all"
-             placeholder="mmsscc" maxlength="6" />
-      <div class="flex gap-3">
-        <button id="manualApply-${stage}"  class="flex-1 py-3 text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-transform touch-manipulation">Använd</button>
-        <button id="manualCancel-${stage}" class="flex-1 py-3 text-lg font-medium rounded-lg bg-gray-200 text-gray-800 active:scale-95 transition-transform touch-manipulation">Avbryt</button>
-      </div>
-    </div>
-  </div>
-
-  <div class="mt-4 flex items-center justify-between gap-2">
-    <button id="btnStart-${stage}" class="flex-1 py-4 text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm hover:bg-emerald-700 active:scale-95 transition-transform touch-manipulation">Start</button>
-    <button id="btnStop-${stage}"  class="flex-1 py-4 text-lg font-bold rounded-lg bg-rose-600 text-white shadow-sm hover:bg-rose-700 active:scale-95 transition-transform touch-manipulation">Mål</button>
-    <button id="btnReset-${stage}" class="px-4 py-4 rounded-lg bg-gray-200 text-gray-800 font-medium active:scale-95 transition-transform touch-manipulation hover:bg-gray-300" title="Nollställ">
-       <span class="sr-only">Nollställ</span> 🔄
-    </button>
-  </div>
-
-  <div class="mt-2 grid grid-cols-2 gap-6 text-xs md:text-sm text-gray-600">
-    <div class="text-right">
-      <div>Start kl. <span class="text-gray-400 text-[10px]">✏️</span></div>
-      <div id="startClock-${stage}" class="tabular-nums font-medium cursor-pointer hover:underline text-blue-700" title="Klicka för att ändra starttid (HHMMSS)">–</div>
-    </div>
-    <div class="text-right">
-      <div>Mål kl. <span class="text-gray-400 text-[10px]">✏️</span></div>
-      <div id="stopClock-${stage}" class="tabular-nums font-medium cursor-pointer hover:underline text-blue-700" title="Klicka för att ändra måltid (HHMMSS)">–</div>
-    </div>
-  </div>
-</div>
-
-  <div class="mt-6">
-    <button type="button" class="toggle-btn comment-toggle-btn">💬 Kommentarer</button>
-    <div class="comment-wrapper">
-      <div class="mt-4 grid gap-6 md:grid-cols-2">
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">Kommentar (start)</label>
-          <textarea id="commentStart-${stage}" rows="3" class="w-full resize-y rounded-md border border-gray-300 px-3 py-2"></textarea>
+      <div class="text-right shrink-0">
+        <div id="timer-${stage}"
+             class="timer-display text-4xl md:text-6xl font-black tabular-nums text-gray-800 dark:text-white leading-none cursor-pointer tracking-tighter"
+             title="Klicka för manuell tid">
+          00:00,00
         </div>
-        <div>
-          <label class="block text-sm text-gray-700 mb-1">Kommentar (mål)</label>
-          <textarea id="commentStop-${stage}" rows="3" class="w-full resize-y rounded-md border border-gray-300 px-3 py-2"></textarea>
+        
+        <!-- Manuelltids-editor (popup) -->
+        <div id="manual-${stage}"
+             class="hidden absolute right-4 mt-2 w-72 p-4 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl z-50">
+          <label class="block text-xs font-bold uppercase text-gray-500 mb-2">Ange manuell tid (mmsscc)</label>
+          <input id="manualDigits-${stage}" type="tel" inputmode="numeric"
+                 class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                 placeholder="mmsscc" maxlength="6" />
+          <div class="flex gap-2">
+            <button id="manualApply-${stage}" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">Använd</button>
+            <button id="manualCancel-${stage}" class="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 dark:text-gray-200">Avbryt</button>
+          </div>
         </div>
       </div>
     </div>
-  </div>
 
-  ${stage === 'B' ? `
-  <div class="mt-6 grid gap-4 md:grid-cols-2">
-    <label class="flex items-center gap-3 p-3 border rounded-md h-full">
-      <input id="bitOk" type="checkbox" class="h-5 w-5">
-      <span>Bettkontroll OK</span>
-    </label>
-    <div>
-      <label class="block text-sm text-gray-700 mb-1">Kommentar (Bett)</label>
-      <textarea id="bitComment" rows="2" class="w-full resize-y rounded-md border border-gray-300 px-3 py-2"></textarea>
+    <!-- KONTROLLER -->
+    <div class="flex items-stretch gap-2">
+      <button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">START</button>
+      <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">MÅL</button>
+      <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="Nollställ">🔄</button>
     </div>
-  </div>
-  ` : ``}
 
-  <div class="mt-6 border-t pt-4">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-      
-      <div>
-        <label for="otherMarathonPenalty" class="block text-sm text-gray-700 mb-1">Övrigt straff (totalt)</label>
-        <input type="number" id="otherMarathonPenalty" min="0" step="0.01" inputmode="decimal" class="w-full rounded-md border border-gray-300 px-3 py-2">
+    <!-- KLOCKSLAG OCH KOMMENTARER -->
+    <div class="grid grid-cols-2 gap-4">
+      <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="startClockRow-${stage}">
+        <div class="text-[10px] uppercase font-bold text-gray-500">Start kl. <span class="text-xs">✏️</span></div>
+        <div id="startClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
+      </div>
+      <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="stopClockRow-${stage}">
+        <div class="text-[10px] uppercase font-bold text-gray-500">Mål kl. <span class="text-xs">✏️</span></div>
+        <div id="stopClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      <div class="flex items-center justify-between">
+        <button type="button" class="toggle-btn comment-toggle-btn uppercase font-bold">💬 Kommentarer</button>
+        <div class="flex items-center gap-2">
+           <label class="flex items-center gap-1.5 cursor-pointer">
+             <input id="manualEliminated" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-rose-600">
+             <span class="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-400">Elim.</span>
+           </label>
+        </div>
       </div>
 
-      <label class="flex items-center gap-2 mb-2 cursor-pointer bg-rose-50 border border-rose-200 rounded-md px-3 py-2">
-         <input type="checkbox" id="manualEliminated" class="w-6 h-6 text-rose-600 rounded focus:ring-rose-500 border-gray-300">
-         <span class="text-rose-700 font-bold text-sm">Manuell Eliminering</span>
-      </label>
-      
-      <div class="flex items-center justify-end gap-2 md:col-span-2">
-        <button id="btnSave-${stage}" class="flex-grow md:flex-grow-0 px-5 py-2.5 rounded-md bg-brand-darkblue text-white hover:bg-brand-gold hover:text-brand-darkblue">Spara</button>
+      <div class="comment-wrapper">
+        <div class="grid gap-3">
+          <textarea id="commentStart-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="Kommentar start..."></textarea>
+          <textarea id="commentStop-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="Kommentar mål..."></textarea>
+        </div>
+      </div>
+
+      ${stage === 'B' ? `
+      <div class="pt-2 border-t dark:border-gray-700 space-y-2">
+        <label class="flex items-center gap-2 cursor-pointer">
+          <input id="bitOk" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600">
+          <span class="text-xs font-bold dark:text-gray-200 uppercase">Bettkontroll OK</span>
+        </label>
+        <textarea id="bitComment" rows="1" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="Ev. bettkommentar..."></textarea>
+      </div>
+      ` : ``}
+
+      <div class="pt-2 border-t dark:border-gray-700 flex flex-col gap-3">
+        <div class="flex items-center justify-between">
+          <label for="otherMarathonPenalty" class="text-[10px] uppercase font-bold text-gray-500">Övrigt straff (totalt)</label>
+          <input type="number" id="otherMarathonPenalty" min="0" step="0.01" inputmode="decimal" class="w-24 text-right font-bold rounded-lg border dark:border-gray-700 px-2 py-1 dark:bg-gray-900/40 dark:text-white">
+        </div>
+        
+        <button id="btnSave-${stage}" class="w-full py-4 rounded-xl bg-brand-darkblue text-white font-black text-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all">SPARA ÄNDRINGAR</button>
       </div>
     </div>
   </div>
@@ -979,11 +1119,14 @@ function updateTimerLabel(stage) {
   if (!host) return;
   if (!sn) { host.textContent = msToLabel(0); return; }
 
-  const key = `${sn}|${stage}`;
+  const eq = findEquipageBySn(sn);
+  const actualStage = normalizeStageForEquipage(eq, stage);
+  const key = `${sn}|${actualStage}`;
   const t = activeTimers.get(key);
   if (t) {
     const now = Date.now();
     const ms = t.isRunning ? (t.pausedMs + (now - t.startEpoch)) : t.pausedMs;
+    host.setAttribute('data-sn', sn);
     host.setAttribute('data-sn', sn);
     host.textContent = msToLabel(ms);
     applyTimerColor(host, sn, stage, ms);
@@ -1016,11 +1159,11 @@ function addOrUpdateActiveCard(sn, stage) {
   if (!card) {
     card = document.createElement('div');
     card.setAttribute('data-active', key);
-    card.className = 'rounded-lg border p-2 flex items-center justify-between';
+    card.className = 'rounded-lg border dark:border-gray-700 p-2 flex items-center justify-between bg-white dark:bg-gray-800';
     card.innerHTML = `
-      <div class="text-sm">#${sn} • ${stage.toUpperCase()}</div>
-      <div class="timer tabular-nums text-lg">00:00,00</div>
-      <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white">Stoppa</button>
+      <div class="text-sm dark:text-gray-300">#${sn} • ${stage.toUpperCase()}</div>
+      <div class="timer tabular-nums text-lg dark:text-white">00:00,00</div>
+      <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">Stoppa</button>
     `;
     host.appendChild(card);
   }
@@ -1129,11 +1272,14 @@ function bindManualEditor(stage) {
     updateTimerLabel(stage);
 
     // Spara snapshot (start = nu - ms, stopp = nu)
-    const now = Date.now();
+    const dNow = new Date();
+    dNow.setMilliseconds(0);
+    const nowMs = dNow.getTime();
+
     const payload = {
       durationMs: ms,
-      startClock: new Date(now - ms).toISOString(),
-      stopClock: new Date(now).toISOString(),
+      startClock: new Date(nowMs - ms).toISOString(),
+      stopClock: dNow.toISOString(),
       commentStart: document.getElementById(`commentStart-${stage}`)?.value || '',
       commentStop: document.getElementById(`commentStop-${stage}`)?.value || '',
     };
@@ -1200,18 +1346,20 @@ function bindStagePanel(stage) {
     });
   }
 
-  // NYTT: Koppla kommentarsknapp och textfält
-  const commentBtn = document.querySelector('.comment-toggle-btn');
-  commentBtn?.addEventListener('click', () => {
-    const wrapper = document.querySelector('.comment-wrapper');
-    wrapper?.classList.toggle('comment-visible');
-    // Fokusera på första textrutan om vi öppnar
-    if (wrapper?.classList.contains('comment-visible')) {
-      wrapper.querySelector('textarea')?.focus();
-    }
-  });
+  // NYTT: Koppla kommentarsknapp och textfält med robust hantering
+  const panel = document.getElementById('stagePanel');
+  const commentBtn = panel?.querySelector('.comment-toggle-btn');
+  if (commentBtn) {
+    commentBtn.onclick = () => {
+      const wrapper = panel.querySelector('.comment-wrapper');
+      wrapper?.classList.toggle('comment-visible');
+      if (wrapper?.classList.contains('comment-visible')) {
+        wrapper.querySelector('textarea')?.focus();
+      }
+    };
+  }
 
-  const updateBtn = () => {
+  const updateBtnStatus = () => {
     const csVal = document.getElementById(`commentStart-${stage}`)?.value || '';
     const ceVal = document.getElementById(`commentStop-${stage}`)?.value || '';
     let hasB = false;
@@ -1220,10 +1368,37 @@ function bindStagePanel(stage) {
     }
     commentBtn?.classList.toggle('has-comment', csVal.length > 0 || ceVal.length > 0 || hasB);
   };
-  document.getElementById(`commentStart-${stage}`)?.addEventListener('input', updateBtn);
-  document.getElementById(`commentStop-${stage}`)?.addEventListener('input', updateBtn);
+
+  // Auto-save för kommentarer (direkt vid ändring)
+  const autoSaveComment = async () => {
+    updateBtnStatus();
+    if (!currentEquipage) return;
+    try {
+      await saveStageSnapshot(stage, {
+        commentStart: document.getElementById(`commentStart-${stage}`)?.value || '',
+        commentStop: document.getElementById(`commentStop-${stage}`)?.value || '',
+        ...(stage === 'B' ? {
+          bitCheckComment: document.getElementById('bitComment')?.value || ''
+        } : {})
+      });
+    } catch (e) { console.error('Auto-save comment failed', e); }
+  };
+
+  const csInp = document.getElementById(`commentStart-${stage}`);
+  if (csInp) csInp.oninput = autoSaveComment;
+  const ceInp = document.getElementById(`commentStop-${stage}`);
+  if (ceInp) ceInp.oninput = autoSaveComment;
+
   if (stage === 'B') {
-    document.getElementById('bitComment')?.addEventListener('input', updateBtn);
+    const bitC = document.getElementById('bitComment');
+    if (bitC) bitC.oninput = autoSaveComment;
+    const bitOk = document.getElementById('bitOk');
+    if (bitOk) {
+      bitOk.onclick = async () => {
+        if (!currentEquipage) return;
+        await saveStageSnapshot(stage, { bitCheckOk: bitOk.checked });
+      };
+    }
   }
 
   // NYTT: Klicka på Start kl. / Mål kl. för att ändra manuellt – använd onclick för att undvika dubbla lyssnare
@@ -1305,17 +1480,34 @@ async function handleManualClockEdit(stage, type) {
   let newDuration = null;
 
   if (newStart && newStop) {
-    const tStart = Date.parse(newStart);
-    const tStop = Date.parse(newStop);
+    const dStart = new Date(newStart);
+    const dStop = new Date(newStop);
+
+    // --- NYTT: Förhindra 0,xx-diffar vid manuell ändring ---
+    // Nollställ millisekunder för BÅDA så att duration === (stop - start) i hela sekunder
+    dStart.setMilliseconds(0);
+    dStop.setMilliseconds(0);
+
+    const tStart = dStart.getTime();
+    const tStop = dStop.getTime();
+
     if (Number.isFinite(tStart) && Number.isFinite(tStop)) {
       newDuration = Math.max(0, tStop - tStart);
+      // Uppdatera även de ISO-strängar som sparas så att de slutar på .000Z
+      newStart = dStart.toISOString();
+      newStop = dStop.toISOString();
     }
   }
 
   // Payload
   const payload = {};
-  if (type === 'start') payload.startClock = newIso;
-  else payload.stopClock = newIso;
+  if (type === 'start') payload.startClock = newStart;
+  else payload.stopClock = newStop;
+
+  // Om vi ändrade en klocka och den andra fanns -> spara även den andra med nollade ms
+  // för att garantera att duration stämmer med visad tid.
+  if (type === 'start' && newStop) payload.stopClock = newStop;
+  if (type === 'stop' && newStart) payload.startClock = newStart;
 
   if (newDuration !== null) {
     payload.durationMs = newDuration;
@@ -1335,21 +1527,33 @@ async function handleManualClockEdit(stage, type) {
   try {
     await saveStageSnapshot(stage, payload);
 
-    // Om vi ändrade starttider och påverkar duration => måste kanske synka activeTimers om den körs?
-    // Enklast: Om vi sätter en manuell tid så betraktar vi den som "klar" eller "justerad".
-    // Om duration sattes -> uppdatera local state
-    if (newDuration !== null && activeTimers) {
-      // Hitta timer
-      const key = `${sn}|${stage}`;
-      let tm = activeTimers.get(key);
-      // Om vi har både start och mål är den per definition "klar" / stoppad
+    // --- SYNKA LOKAL STATE (activeTimers) ---
+    const key = `${sn}|${stage}`;
+    const tm = activeTimers.get(key);
+
+    if (tm) {
+      if (type === 'start') {
+        // Om vi ändrade starttid -> justera startEpoch för den tickande timern
+        const newStartMs = new Date(newStart).getTime();
+        tm.startEpoch = newStartMs;
+      }
+      
+      if (type === 'stop' && newStop) {
+        // Om vi satte en måltid manuellt -> stoppa timern lokalt
+        tm.isRunning = false;
+        if (newDuration !== null) tm.pausedMs = newDuration;
+      }
+
+      // Om vi nu har både start och mål (och timern fanns) -> definitivt stoppad
       if (newStart && newStop) {
-        if (tm) {
-          tm.isRunning = false;
-          tm.pausedMs = newDuration;
-        }
+        tm.isRunning = false;
+        if (newDuration !== null) tm.pausedMs = newDuration;
       }
     }
+
+    // Tvinga omedelbar UI-uppdatering så användaren ser "hoppet" i tid
+    updateTimerLabel(stage);
+    renderActiveCards();
 
   } catch (err) {
     console.error(err);
@@ -1365,11 +1569,22 @@ async function focusEquipageStage(sn, stage) {
   // välj ekipage
   currentEquipage = eq;
   if (typeof reflectDropdownSelection === 'function') reflectDropdownSelection(eq);
+
+  // === REDIRECT LOGIC for Fixed Time "Warm-up" on Stage A ===
+  // Normalisera etappen baserat på ekipagets profil (A vs Warm-up)
+  const normalized = normalizeStageForEquipage(eq, stage || currentStage);
+  if (normalized !== (stage || currentStage)) {
+    stage = normalized;
+  }
+
+  // NYTT: Uppdatera flikar (VISUAL ONLY)
+  updateTabVisibility(eq);
+
   // Uppdatera rubrik & “Välj ekipage”-info direkt
   updateEqInfo();
   const small = document.getElementById('infoLineSmall');
   if (small) {
-    small.textContent = `Visar #${eq.startNumber} ${eq.driverName || ''} • Etapp: ${stageNiceLabel(stage || currentStage)}`;
+    small.textContent = `Visar #${eq.startNumber} ${eq.driverName || ''} • Etapp: ${decorateStageLabel(stage || currentStage)}`;
   }
 
   // Byt flik/etapp program­matiskt (samma som i wireTabs())
@@ -1379,7 +1594,7 @@ async function focusEquipageStage(sn, stage) {
     highlightActiveTab();
     // 2) Etikett i headern
     const lab = document.getElementById('activeStageLabel');
-    if (lab) lab.textContent = stageNiceLabel(stage);
+    if (lab) lab.textContent = decorateStageLabel(stage);
     // 3) Rendera rätt panel och bind knappar/editor
     const host = document.getElementById('stagePanel');
     if (host) {
@@ -1398,9 +1613,53 @@ async function focusEquipageStage(sn, stage) {
   populateStageUI(currentStage, currentDocData);
   updateTimerLabel(currentStage);
   updateStageEqLine();
+  ensureGlobalTicker();
 
   // scrolla till timern så man ser kommentarsfälten direkt under
   document.getElementById(`timer-${currentStage}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// NYTT: Dynamisk visning av flikar baserat på om A är "Warm-up" (Fixed Time)
+function updateTabVisibility(eq) {
+  if (!eq) return;
+  const limitsA = limitsFor(eq, 'A');
+
+  // Detektera "Fixed Time A" genom att kolla om max === ideal (och > 0) och min === 0
+  const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
+
+  const warmupTab = document.querySelector('button[data-stage="warmup"]');
+  const stageATab = document.querySelector('button[data-stage="A"]');
+
+  if (isFixedTimeA) {
+    // 1. Dölj den "riktiga" warm-up-fliken
+    if (warmupTab) warmupTab.classList.add('hidden');
+
+    // 2. Döp om A-fliken till "Warm-up"
+    if (stageATab) {
+      stageATab.textContent = 'Warm-up';
+      // Ensure we preserve icon if present (re-apply updateTabStatuses logic potentially, or just text)
+      // updateTabStatuses relies on .dataset.originalLabel + icon.
+      // We should update originalLabel too so future icon updates use the new name.
+      stageATab.dataset.originalLabel = 'Warm-up';
+    }
+  } else {
+    // Återställ
+    if (warmupTab) warmupTab.classList.remove('hidden');
+    if (stageATab) {
+      stageATab.textContent = 'A';
+      stageATab.dataset.originalLabel = 'A';
+    }
+  }
+}
+
+function decorateStageLabel(stage, eq = currentEquipage) {
+  if (stage === 'A') {
+    const limitsA = limitsFor(eq, 'A');
+    if (limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0) {
+      return 'Warm-up';
+    }
+  }
+  return stageNiceLabel(stage);
 }
 
 function populateStageUI(stage, data) {
@@ -1414,34 +1673,32 @@ function populateStageUI(stage, data) {
 
   if (sc) sc.textContent = st.startClock ? new Date(st.startClock).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '–';
   if (ec) ec.textContent = st.stopClock ? new Date(st.stopClock).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '–';
-  if (cs && typeof st.commentStart === 'string') cs.value = st.commentStart;
-  if (ce && typeof st.commentStop === 'string') ce.value = st.commentStop;
+  
+  if (cs && typeof st.commentStart === 'string' && document.activeElement !== cs) cs.value = st.commentStart;
+  if (ce && typeof st.commentStop === 'string' && document.activeElement !== ce) ce.value = st.commentStop;
 
   // NYTT: Uppdatera kommentarsknappen baserat på innehåll
   const commentBtn = document.querySelector('.comment-toggle-btn');
   if (commentBtn) {
-    const hasComment = (st.commentStart || st.commentStop);
+    const hasComment = (st.commentStart || st.commentStop || st.bitCheckComment);
     commentBtn.classList.toggle('has-comment', !!hasComment);
   }
 
   const otherPenaltyEl = document.getElementById('otherMarathonPenalty');
-  if (otherPenaltyEl && isNum(data?.otherPenalty)) otherPenaltyEl.value = data.otherPenalty;
+  if (otherPenaltyEl && isNum(data?.otherPenalty) && document.activeElement !== otherPenaltyEl) {
+    otherPenaltyEl.value = data.otherPenalty;
+  }
 
   const elimEl = document.getElementById('manualEliminated');
-  if (elimEl) {
+  if (elimEl && document.activeElement !== elimEl) {
     elimEl.checked = !!data.eliminated;
   }
 
   if (stage === 'B') {
     const bitOk = document.getElementById('bitOk');
     const bitC = document.getElementById('bitComment');
-    if (bitOk && typeof st.bitCheckOk === 'boolean') bitOk.checked = !!st.bitCheckOk;
-    if (bitC && typeof st.bitCheckComment === 'string') bitC.value = st.bitCheckComment;
-
-    // NYTT: Inkludera bett-kommentar i 'has-comment'-checken
-    if (commentBtn && st.bitCheckComment) {
-      commentBtn.classList.add('has-comment');
-    }
+    if (bitOk && typeof st.bitCheckOk === 'boolean' && document.activeElement !== bitOk) bitOk.checked = !!st.bitCheckOk;
+    if (bitC && typeof st.bitCheckComment === 'string' && document.activeElement !== bitC) bitC.value = st.bitCheckComment;
   }
 }
 
@@ -1449,8 +1706,10 @@ function populateStageUI(stage, data) {
 
 async function startStage(stage) {
   if (!currentEquipage) { showAlert('Välj ekipage först.', false); return; }
-  const sn = String(currentEquipage.startNumber);
-  const key = `${sn}|${stage}`;
+  const eq = currentEquipage;
+  const sn = String(eq.startNumber);
+  const actualStage = normalizeStageForEquipage(eq, stage);
+  const key = `${sn}|${actualStage}`;
   const stDoc = currentDocData?.timing?.[stage] || {};
   const nowIso = new Date().toISOString();
   const nowEpoch = Date.parse(nowIso);
@@ -1548,9 +1807,10 @@ async function startStage(stage) {
 }
 
 async function stopStage(stage) {
-  if (!currentEquipage) { showAlert('Välj ekipage först.', false); return; }
-  const sn = String(currentEquipage.startNumber);
-  const key = `${sn}|${stage}`;
+  const eq = currentEquipage;
+  const sn = String(eq.startNumber);
+  const actualStage = normalizeStageForEquipage(eq, stage);
+  const key = `${sn}|${actualStage}`;
 
   const now = Date.now();
   const stopIso = new Date(now).toISOString();
@@ -1571,6 +1831,12 @@ async function stopStage(stage) {
   } else if (Number.isFinite(docData.durationMs)) {
     // Om klockan redan var stoppad, behåll den sparade tiden.
     finalMs = docData.durationMs;
+  }
+
+  // --- NYTT: VARNING VID LÅNG TID ---
+  if (isDurationSuspicious(finalMs, currentEquipage, stage)) {
+    const ok = confirm(`Varning: Tiden (${fmtMsTimer(finalMs)}) överskrider maxtiden för denna etapp. Har du glömt att stoppa klockan innan rasten?\n\nVill du spara ändå?`);
+    if (!ok) return;
   }
 
   // --- OPTIMISTISK UPPDATERING ---
@@ -1617,17 +1883,19 @@ async function stopStage(stage) {
   }
 
   // VIKTIGT: Vi stannar kvar på sidan. Ingen automatisk navigering.
-  showAlert(`Mål registrerat för etapp ${stageNiceLabel(stage)}.`, true);
+  showAlert(`Mål registrerat för etapp ${decorateStageLabel(stage)}.`, true);
   document.getElementById(`commentStop-${stage}`)?.focus(); // Sätt fokus på kommentarsfältet
 }
 
 // --- RESET (nollställer tid lokalt + i DB) ---
 async function resetStage(stage) {
   if (!currentEquipage) return;
-  if (!confirm(`Är du säker på att du vill nollställa ALLA tider och kommentarer för etapp ${stageNiceLabel(stage)}? Detta kan inte ångras.`)) return;
+  if (!confirm(`Är du säker på att du vill nollställa ALLA tider och kommentarer för etapp ${decorateStageLabel(stage)}? Detta kan inte ångras.`)) return;
 
-  const sn = String(currentEquipage.startNumber);
-  const key = `${sn}|${stage}`;
+  const eq = currentEquipage;
+  const sn = String(eq.startNumber);
+  const actualStage = normalizeStageForEquipage(eq, stage);
+  const key = `${sn}|${actualStage}`;
 
   // 1. Stoppa och ta bort eventuell lokal timer
   if (activeTimers.has(key)) {
@@ -1637,30 +1905,54 @@ async function resetStage(stage) {
   }
 
   // 2. Skapa en payload som uttryckligen sätter ALLA relevanta fält till null
-  const stageKey = stage.toUpperCase();
-  const flatPrefix = stage === 'warmup' ? 'warmup' : (stage === 'transport' ? 'transfer' : stage);
+  const isFTA = (() => {
+    const limA = limitsFor(eq, 'A');
+    return limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+  })();
 
   const payload = {
     runningStage: null,
-    [`start_${stageKey}`]: null,
-    [`start_${flatPrefix}`]: null,
-    [`finish_${stageKey}`]: null,
-    [`finish_${flatPrefix}`]: null,
-    [`duration_${flatPrefix}_ms`]: null,
-    [`commentStart_${flatPrefix}`]: '', // Sätt kommentarer till tom sträng
-    [`commentStop_${flatPrefix}`]: '',
-    // Inkludera B-specifika fält om det är etapp B
-    ...(stage === 'B' ? { bitCheckOk: null, bettOk: null, bitCheckComment: null, bettComment: null } : {}),
-    // NYTT: Rensa även de nästlade objekten där maratonUtils faktiskt läser
-    [`timing.${stage}`]: deleteField(),
-    [`stages.${stage}`]: deleteField()
+    updatedAt: serverTimestamp()
   };
 
-  // --- OPTIMISTISK UPPDATERING ---
-  // 3. Uppdatera det lokala UI:t OMEDELBART
-  if (currentDocData?.timing) {
-    currentDocData.timing[stage] = {}; // Rensa lokalt också
+  // Listan på etapper som ska rensas
+  const stagesToClear = (isFTA && (stage === 'A' || stage === 'warmup')) 
+    ? ['A', 'warmup'] 
+    : [stage];
+
+  for (const s of stagesToClear) {
+    const stageKey = s.toUpperCase();
+    const flatPrefix = s === 'warmup' ? 'warmup' : (s === 'transport' ? 'transfer' : s);
+
+    payload[`start_${stageKey}`] = null;
+    payload[`start_${flatPrefix}`] = null;
+    payload[`finish_${stageKey}`] = null;
+    payload[`finish_${flatPrefix}`] = null;
+    payload[`duration_${flatPrefix}_ms`] = null;
+    payload[`commentStart_${flatPrefix}`] = '';
+    payload[`commentStop_${flatPrefix}`] = '';
+    
+    if (s === 'B') {
+      Object.assign(payload, { bitCheckOk: null, bettOk: null, bitCheckComment: null, bettComment: null });
+    }
+    
+    payload[`timing.${s}`] = deleteField();
+    payload[`stages.${s}`] = deleteField();
+
+    // Rensa lokalt timer-state för denna specifika nyckel också
+    const tKey = `${sn}|${s}`;
+    if (activeTimers.has(tKey)) {
+      activeTimers.delete(tKey);
+      removeActiveCard(tKey);
+    }
+    
+    // Rensa i currentDocData
+    if (currentDocData?.timing) {
+      currentDocData.timing[s] = {};
+    }
   }
+
+  stopGlobalTickerIfIdle();
   populateStageUI(stage, currentDocData);
   updateTimerLabel(stage);
   renderActiveCards(); // Se till att listan "Aktiva" också uppdateras
@@ -1675,7 +1967,7 @@ async function resetStage(stage) {
     return;
   }
 
-  showAlert(`Etapp ${stageNiceLabel(stage)} har nollställts.`, true);
+  showAlert(`Etapp ${decorateStageLabel(stage)} har nollställts.`, true);
 }
 
 async function saveCurrentStage(stage) {
@@ -1875,6 +2167,11 @@ function wireEventListeners() {
 // ---------- Events ----------
 async function onEquipageSelected(eq) {
   currentEquipage = eq || null;
+  // Normalisera currentStage för det valda ekipaget (t.ex. om vi är på Warm-up men det ska vara A)
+  if (eq) {
+    currentStage = normalizeStageForEquipage(eq, currentStage);
+  }
+  updateTabVisibility(eq); // <--- NYTT: Uppdatera tab-synlighet (A vs Warm-up)
   updateEqInfo();
   rebuildOrder();
   currentDocData = null;
@@ -1936,7 +2233,7 @@ function wireTabs() {
       currentStage = s;
       highlightActiveTab();
       const lab = document.getElementById('activeStageLabel');
-      if (lab) lab.textContent = stageNiceLabel(s);
+      if (lab) lab.textContent = decorateStageLabel(s);
       const host = document.getElementById('stagePanel');
       host.innerHTML = renderStagePanel(currentStage);
       bindStagePanel(currentStage);
@@ -1955,7 +2252,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = document.getElementById('page-maraton-stages');
   if (!competitionId) {
-    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
     return;
   }
 
@@ -1965,11 +2262,12 @@ export async function load() {
   wireTabs();
 
   // 2. Hämta all nödvändig data från databasen parallellt
-  const [listRaw, configDataSwe, configDataEng, startTimesData] = await Promise.all([
+  const [listRaw, configDataSwe, configDataEng, startTimesData, maratonDocs] = await Promise.all([
     getEquipages(competitionId),
     getConfig(competitionId, 'maratonConfig').catch(() => null),
     getConfig(competitionId, 'marathonConfig').catch(() => null),
-    getConfig(competitionId, 'startTimes').catch(() => null)
+    getConfig(competitionId, 'startTimes').catch(() => null),
+    getMarathonStateDocuments(competitionId)
   ]);
 
   // 3. Bearbeta och lagra datan i programmets minne
@@ -1986,20 +2284,33 @@ export async function load() {
 
   startTimes = startTimesData?.times || {};
   equipages = (listRaw || []).map(normalizeEquipage);
+  const maratonDocsMap = maratonDocs || new Map();
   orderByMarathonStart = [...equipages].sort((a, b) => {
-    const ta_str = startTimes[String(a.startNumber)]?.marathon;
-    const tb_str = startTimes[String(b.startNumber)]?.marathon;
-    if (ta_str && tb_str) return new Date(ta_str) - new Date(tb_str);
+    const docA = maratonDocsMap.get(String(a.startNumber));
+    const docB = maratonDocsMap.get(String(b.startNumber));
+    
+    // Done if finalized or has finish_B (last stage)
+    const doneA = !!(docA?.finalized || docA?.finish_B || docA?.finish_transfer);
+    const doneB = !!(docB?.finalized || docB?.finish_B || docB?.finish_transfer);
+
+    if (doneA !== doneB) return doneA ? 1 : -1;
+
+    const timeA = startTimes[String(a.startNumber)]?.marathon || '99:99';
+    const timeB = startTimes[String(b.startNumber)]?.marathon || '99:99';
+    if (timeA !== timeB) return timeA.localeCompare(timeB);
     return (a.startNumber || 0) - (b.startNumber || 0);
   });
 
   // 4. Initiera UI-komponenter NU när datan finns (ÅTERSTÄLLER DROPDOWN)
   const ddHost = document.getElementById('equipageDropdown');
   if (ddHost) {
-    dropdown = createSearchableDropdown(ddHost, equipages, onEquipageSelected);
+    dropdown = createSearchableDropdown(ddHost, orderByMarathonStart, onEquipageSelected);
   } else {
     console.error("Kunde inte hitta #equipageDropdown i DOM.");
   }
+
+  // Request Wake Lock
+  await requestWakeLock();
 
   // 5. Koppla alla event-lyssnare
   wireEventListeners();
@@ -2008,7 +2319,34 @@ export async function load() {
   // 6. Starta de globala Firestore-lyssnarna
   subscribeAllActiveTimers();
   listenForGlobalCompetitionPause();
+
+  if (unsubMaratonList) unsubMaratonList();
+  unsubMaratonList = listenForMaratonCollection(competitionId, (maratonDocs) => {
+    const maratonDocsMap = new Map();
+    (maratonDocs || []).forEach(d => maratonDocsMap.set(String(d.id), d));
+
+    orderByMarathonStart = [...equipages].sort((a, b) => {
+      const docA = maratonDocsMap.get(String(a.startNumber));
+      const docB = maratonDocsMap.get(String(b.startNumber));
+      
+      const doneA = !!(docA?.finalized || docA?.finish_B || docA?.finish_transfer);
+      const doneB = !!(docB?.finalized || docB?.finish_B || docB?.finish_transfer);
+
+      if (doneA !== doneB) return doneA ? 1 : -1;
+
+      const timeA = startTimes[String(a.startNumber)]?.marathon || '99:99';
+      const timeB = startTimes[String(b.startNumber)]?.marathon || '99:99';
+      if (timeA !== timeB) return timeA.localeCompare(timeB);
+      return (a.startNumber || 0) - (b.startNumber || 0);
+    });
+
+    if (dropdown) {
+      dropdown.updateData(orderByMarathonStart);
+    }
+  });
 }
+
+let unsubMaratonList = null;
 export function __unload() {
   // Stoppa global ticker
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
@@ -2021,7 +2359,8 @@ export function __unload() {
   try { unsubAllB && unsubAllB(); } catch { }
   try { unsubAllC && unsubAllC(); } catch { }
   try { unsubAllD && unsubAllD(); } catch { }
-  unsubAllA = unsubAllB = unsubAllC = unsubAllD = null;
+  try { unsubMaratonList && unsubMaratonList(); } catch { }
+  unsubAllA = unsubAllB = unsubAllC = unsubAllD = unsubMaratonList = null;
 
   // Förstör dropdown-komponenten om den finns
   if (dropdown && typeof dropdown.destroy === 'function') {
@@ -2066,8 +2405,10 @@ function parseManualTimeToMs(input) {
 
 async function applyManualStageTime(stageKey, ms) {
   // Vi sätter stop = nu, start = stop - ms. (Behåller ev tidigare start om du vill – byt här.)
-  const stopIso = new Date().toISOString();
-  const startIso = new Date(Date.now() - ms).toISOString();
+  const dNow = new Date();
+  dNow.setMilliseconds(0);
+  const stopIso = dNow.toISOString();
+  const startIso = new Date(dNow.getTime() - ms).toISOString();
 
   // Rensa ev. lokala tickers för den här etappen
   try { stopLocalStageTicker(`${listeningStartNumber}|${stageKey}`); } catch { }

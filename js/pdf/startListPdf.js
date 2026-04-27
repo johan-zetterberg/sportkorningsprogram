@@ -1,27 +1,8 @@
-// js/pdf/startListPdf.js
 import { getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { horseLabelStacked, horseLabel } from '../utils/sharedUtils.js';
-
-async function loadPdfLibs() {
-    if (window.jspdf && window.jspdf.jsPDF) return;
-    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
-}
-
-async function fetchImageDataUrl(url) {
-    if (!url) return null;
-    try {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = url;
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
-        return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-    } catch { return null; }
-}
+import { t } from '../utils/i18n.js';
+import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
 
 /**
  * Generates a start list PDF.
@@ -40,14 +21,14 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     let y = 30;
 
     // 1. ASSET LOADING
-    const srfLogo = await fetchImageDataUrl('/assets/logos/SRF.png');
+    const srfLogo = await loadImg('/assets/logos/SRF.png');
 
     const assetMap = new Map();
     const uniqueClubs = [...new Set(rows.map(r => r.clubName).filter(Boolean))];
     const uniqueNations = [...new Set(rows.map(r => r.country || 'se').map(normalizeCountryCode))];
 
     const assetPromises = [
-        ...uniqueClubs.map(club => fetchImageDataUrl(getClubLogoUrl(club)).then(res => {
+        ...uniqueClubs.map(club => loadImg(getClubLogoUrl(club)).then(res => {
             if (res?.dataUrl) assetMap.set(`club_${club}`, res.dataUrl);
         })),
         ...uniqueNations.map(cc => fetchFlagDataUrl(cc).then(url => {
@@ -57,51 +38,39 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     await Promise.all(assetPromises);
 
     // 2. HEADER
-    // Logo
-    if (srfLogo?.dataUrl) {
-        const h = 50; const w = h * (srfLogo.w / srfLogo.h);
-        doc.addImage(srfLogo.dataUrl, 'PNG', 40, y, w, h);
-    }
-
-    const compName = competition?.name || 'Tävling';
-    const compDate = competition?.dates || competition?.date || new Date().toLocaleDateString('sv-SE');
-    const locationLine = [competition?.place || competition?.city, competition?.organizerName || competition?.organizer]
-        .filter(Boolean).join(' • ');
-
-    doc.setFontSize(20).setFont(undefined, 'bold');
-    doc.text(compName, pageWidth / 2, y + 15, { align: 'center' });
-
-    doc.setFontSize(12).setFont(undefined, 'normal');
-    if (locationLine) {
-        doc.text(locationLine, pageWidth / 2, y + 32, { align: 'center' });
-        doc.text(compDate, pageWidth / 2, y + 44, { align: 'center' });
-        y += 12;
-    } else {
-        doc.text(compDate, pageWidth / 2, y + 32, { align: 'center' });
-    }
+    const isInt = !!competition?.meta?.isInternational;
 
     // Grey Bar Title
-    let disciplineTitle = 'Startlista';
-    if (type === 'dressage') disciplineTitle = 'DRESSYR – STARTLISTA';
-    else if (type === 'marathon') disciplineTitle = 'MARATON – STARTLISTA';
-    else if (type === 'precision') disciplineTitle = 'PRECISION – STARTLISTA';
-    else if (type === 'participants') disciplineTitle = 'DELTAGARLISTA';
-    else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA';
+    let disciplineTitle = t('startlist', isInt).toUpperCase();
+
+    if (type === 'dressage') disciplineTitle = `DRESSAGE - ${t('startlist', isInt).toUpperCase()}`;
+    else if (type === 'marathon') disciplineTitle = `MARATHON - ${t('startlist', isInt).toUpperCase()}`;
+    else if (type === 'precision') disciplineTitle = `CONES - ${t('startlist', isInt).toUpperCase()}`;
+    else if (type === 'participants') disciplineTitle = t('startlist', isInt).toUpperCase(); // Or "PARTICIPANTS" if key added
+    else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA'; // Keep Swedish/Custom for now or add key
+
+    // Override for Swedish if not Int
+    if (!isInt) {
+        if (type === 'dressage') disciplineTitle = 'DRESSYR – STARTLISTA';
+        else if (type === 'marathon') disciplineTitle = 'MARATON – STARTLISTA';
+        else if (type === 'precision') disciplineTitle = 'PRECISION – STARTLISTA';
+        else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA';
+    }
 
     if (options.title) disciplineTitle += `: ${options.title}`;
     else if (type !== 'participants' && type !== 'horselist') disciplineTitle += ': Alla';
 
-    y += 55;
-    doc.setFillColor(230, 230, 230);
-    doc.rect(40, y, pageWidth - 80, 20, 'F');
-    doc.setFontSize(11).setFont(undefined, 'bold');
-    doc.setTextColor(0, 0, 0);
-    doc.text(disciplineTitle, pageWidth / 2, y + 14, { align: 'center' });
-
-    y += 40; // Spacing after title bar
+    y = drawStandardHeader(doc, competition, disciplineTitle, srfLogo, 30, 40);
+    y += 10; // Extra spacing after header
 
     // 3. TABLE CONFIG
-    let headers = [['Start', 'Nr', 'Kusk / Häst', 'Klass', 'Land/Klubb']];
+    let headers = [[
+        t('start', isInt) || 'Start',
+        t('startno', isInt),
+        `${t('driver', isInt)} / ${t('horse', isInt)}`,
+        t('class', isInt),
+        `${t('club', isInt)} / NF`
+    ]];
     let colStyles = {
         0: { cellWidth: 40, halign: 'center' }, // Start
         1: { cellWidth: 30, halign: 'center' }, // Nr
@@ -111,7 +80,12 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     };
 
     if (type === 'participants') {
-        headers = [['Nr', 'Kusk / Häst', 'Klass', 'Land/Klubb']];
+        headers = [[
+            t('startno', isInt),
+            `${t('driver', isInt)} / ${t('horse', isInt)}`,
+            t('class', isInt),
+            `${t('club', isInt)} / NF`
+        ]];
         colStyles = {
             0: { cellWidth: 30, halign: 'center' }, // Nr
             1: { minCellWidth: 140 }, // Kusk/Häst

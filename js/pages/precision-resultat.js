@@ -1,12 +1,27 @@
-// js/pages/precision-resultat.js
+import { 
+  getEquipages, 
+  getConfig,
+  listenForPrecisionResults,
+  listenForDressageProtocolsCollectionGroup,
+  listenForMaratonCollection,
+  listenForMarathonTimingUpdates,
+  listenForTeams
+} from '../services/firestoreService.js';
+
 import { getGlobalState } from '../main.js';
-import { getEquipages, getConfig } from '../services/firestoreService.js';
+
+import {
+  calculateDressageResult,
+  calculateMarathonResult
+} from '../services/calculationService.js';
 import { collection, onSnapshot, query, getDocs, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../config/firebase-config.js';
-import { getCompetitionHeader } from '../ui/components.js';
+import { getCompetitionHeader, renderResponsiveClassFilter } from '../ui/components.js';
 import { getFlagHtml } from '../services/flagsService.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../services/logosService.js';
-import { calculatePrecisionResult } from '../utils/precisionUtils.js';
+// import { calculatePrecisionResult } from '../utils/precisionUtils.js'; // REPLACED by calculationService
+import { calculatePrecisionResult } from '../services/calculationService.js';
+import { t } from '../utils/i18n.js';
 
 import { initializeScrollSync, injectScrollStyles } from '../ui/scrollHelper.js';
 import {
@@ -16,7 +31,9 @@ import {
   startTimeFor,
   getPortAllowanceCm,
   trackWidthFromEq,
-  statusClass
+  statusClass,
+  buildOverallStanding,
+  getToBeatInfo
 } from '../utils/precisionUtils.js';
 
 // IMPORTERA NYA MODALEN
@@ -80,6 +97,12 @@ function injectPrecisionResultsBaseStyles() {
     padding: 8px 12px;
   }
   .pr-alt tbody tr:nth-child(odd) { background: #fafafa; }
+
+  /* Dark Mode Overrides */
+  .dark .pr-card { background: #1f2937; box-shadow: 0 10px 24px rgba(0,0,0,.2); }
+  .dark .pr-table thead th { background: #1f2937; border-bottom: 2px solid #374151; color: #e5e7eb; }
+  .dark .pr-table tbody td { border-bottom: 1px solid #374151; color: #d1d5db; }
+  .dark .pr-alt tbody tr:nth-child(odd) { background: #111827; }
 
     /* Mobil (< 768px): */
     @media (max-width: ${MOBILE_BP - 1}px) {
@@ -189,8 +212,31 @@ let precision_viewMode = 'startorder';
 let precision_liveUnsubscribe = null;
 let precision_MERGE_GROUPS = [];
 let precision_MERGE_MAP = new Map();
-
 const precision_finalizeCache = new Map();
+
+// NYTT för overall standings
+let precision_dressageMap = new Map();
+let precision_marathonObstacleMap = new Map();
+let precision_marathonTimingMap = new Map();
+
+function getOverallEntries(equipages) {
+  return equipages.map(eq => {
+    const sn = String(eq.startNumber);
+    const dProtos = precision_dressageMap.get(sn) || [];
+    const dRes = calculateDressageResult(eq, dProtos);
+    
+    const mDoc = precision_marathonObstacleMap.get(sn) || {};
+    const mTiming = precision_marathonTimingMap.get(sn) || {};
+    const mRes = calculateMarathonResult(eq, mDoc, mTiming);
+    
+    return {
+      eq,
+      dressagePenalty: dRes.penalty,
+      marathonPenalty: mRes.totalPenalty,
+      isElim: dRes.eliminated || mRes.eliminated
+    };
+  });
+}
 
 function isPrecisionFinalized(sn) {
   const d = precision_precisionMap.get(String(sn));
@@ -240,7 +286,8 @@ function tickPrecisionTimers() {
   precision_precisionMap.forEach((data, sn) => {
     if (data && data.running === true && data.liveStartEpoch) {
       anyRunning = true;
-      const elapsedMs = (data.livePausedMs || 0) + (Date.now() - data.liveStartEpoch);
+      const labelAt = data._receivedLocalAt || Date.now();
+      const elapsedMs = (data.livePausedMs || 0) + (labelAt - data.liveStartEpoch) + (Date.now() - labelAt);
 
       const desktopCell = document.querySelector(`td[data-sn="${sn}"].time-cell span`);
       const mobileTimer = document.querySelector(`div[data-sn="${sn}"] .live-time-card`);
@@ -263,13 +310,15 @@ function tickPrecisionTimers() {
       // Live Panel Update
       let penaltyStr = null;
       let rankStr = null;
+      let liveTimePenalty = 0;
 
       // Calculate live penalties and rank client-side for immediate feedback
       if (eq) {
         // 1. Time Penalty
-        let liveTimePenalty = 0;
+        // const maxSec = ... already calculated above
         if (isNum(maxSec) && elapsedMs > maxSec * 1000) {
-          liveTimePenalty = ((elapsedMs / 1000) - maxSec) * 0.5;
+          const rate = (precision_precisionConfig.timePenaltyRate != null) ? Number(precision_precisionConfig.timePenaltyRate) : 0.5;
+          liveTimePenalty = ((elapsedMs / 1000) - maxSec) * rate;
         }
 
         // 2. Obstacle Penalty (from data or knock loop if we had it, but here we trust data for knocks)
@@ -278,6 +327,26 @@ function tickPrecisionTimers() {
 
         const currentTotal = liveTimePenalty + obsPenalty + extraPenalty;
         penaltyStr = currentTotal.toFixed(2);
+
+        // --- Update Main Table Cells & Mobile Cards ---
+        const cellTimePen = document.querySelector(`td[data-sn="${sn}"].time-penalty-cell`);
+        const cellObsPen = document.querySelector(`td[data-sn="${sn}"].obstacle-penalty-cell`);
+        const cellTotalPen = document.querySelector(`td[data-sn="${sn}"].total-penalty-cell`);
+
+        // Mobile cards
+        const cardTimePen = document.querySelector(`.live-time-penalty-card[data-sn="${sn}"]`);
+        const cardObsPen = document.querySelector(`.live-obstacle-penalty-card[data-sn="${sn}"]`);
+        const cardTotalPen = document.querySelector(`.live-total-penalty-card[data-sn="${sn}"]`);
+
+        if (cellTimePen) cellTimePen.textContent = liveTimePenalty.toFixed(2);
+        if (cardTimePen) cardTimePen.textContent = liveTimePenalty.toFixed(2);
+
+        if (cellObsPen) cellObsPen.textContent = obsPenalty.toFixed(2);
+        if (cardObsPen) cardObsPen.textContent = obsPenalty.toFixed(2);
+
+        if (cellTotalPen) cellTotalPen.textContent = penaltyStr;
+        if (cardTotalPen) cardTotalPen.textContent = penaltyStr;
+        // ------------------------------------------
 
         // 3. Live Rank (within CLASS or MERGED GROUP)
         let allResults = [];
@@ -347,21 +416,29 @@ function renderLiveStatusPanel() {
   }
 
   const sn = String(activeEq.startNumber);
-  const data = precision_precisionMap.get(sn);
 
-  // Beräkna straff
-  const obstaclePenalty = isNum(data.liveObstaclePenalty) ? data.liveObstaclePenalty : (data.obstaclePenalty || 0);
-  const timePenalty = isNum(data.liveTimePenalty) ? data.liveTimePenalty : (data.timePenalty || 0);
-  const totalPenalty = (obstaclePenalty + timePenalty).toFixed(2);
+  // Totallista för klassen (för att räkna ut "To Beat" och overall rank)
+  const currentClass = activeEq._mergedLabel || activeEq.className;
+  const visibleInClass = precision_equipages.filter(e => (e._mergedLabel || e.className) === currentClass);
+  const overallEntries = getOverallEntries(visibleInClass);
+  const { results, map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+  const standings = { results, map: standingsMap };
+  const myOverall = standingsMap.get(sn);
+  const toBeat = getToBeatInfo(sn, standings);
+
+  // Använd central beräkning för att få formaterad knocksText m.m.
+  const data = getCalculatedRowData(sn, new Map(), precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+
+  const totalPenalty = data.totalPenalty === Infinity ? 'ELIM' : (data.totalPenalty || 0).toFixed(2);
 
   container.classList.remove('hidden');
   container.innerHTML = `
-    <div class="bg-slate-900 rounded-xl p-4 md:p-6 shadow-xl border border-slate-700 relative overflow-hidden text-white">
+    <div class="bg-slate-900 rounded-lg md:rounded-xl p-3 md:p-6 shadow-xl border border-slate-700 relative overflow-hidden text-white">
       <!-- Background Accents -->
       <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10 -translate-y-1/2 translate-x-1/2"></div>
       
-      <div class="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
-        
+      <!-- DESKTOP LAYOUT (md and up) -->
+      <div class="relative z-10 hidden md:flex flex-row items-center justify-between gap-6">
         <!-- Left: Driver Info -->
         <div class="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
            <div class="flex flex-col items-center justify-center bg-white/10 w-16 h-16 rounded-lg backdrop-blur-sm border border-white/10 shrink-0">
@@ -387,19 +464,22 @@ function renderLiveStatusPanel() {
 
         <!-- Right: Stats & Timer -->
         <div class="flex items-center gap-4 md:gap-8 shrink-0">
-           <!-- Position (Rank) -->
+           <div class="text-center px-4 border-r border-white/10 hidden lg:block">
+             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Totalplac.</div>
+             <div class="text-3xl font-bold text-emerald-400 tabular-nums">${myOverall?.rank || '-'}</div>
+             ${toBeat ? `<div class="text-[10px] text-emerald-500 font-bold mt-1">För ${toBeat.targetP < 0 ? 'vinst' : 'nästa'}: < ${toBeat.targetP.toFixed(1)}</div>` : ''}
+           </div>
+
            <div class="text-center px-4 border-r border-white/10 hidden md:block">
-             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Placering</div>
+             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Delplac.</div>
              <div class="text-3xl font-bold text-yellow-400 tabular-nums" id="livePanelRank-${sn}">-</div>
            </div>
 
-           <!-- Penalties -->
            <div class="text-center px-4 border-r border-white/10">
              <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Straff</div>
              <div class="text-3xl font-bold text-blue-300 tabular-nums" id="livePanelPenalty-${sn}">${totalPenalty}</div>
            </div>
 
-           <!-- Timer -->
            <div class="text-center min-w-[140px]">
              <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Tid</div>
              <div class="text-5xl md:text-6xl font-black tabular-nums leading-none tracking-tight" id="livePanelTimer-${sn}">
@@ -407,7 +487,44 @@ function renderLiveStatusPanel() {
              </div>
            </div>
         </div>
+      </div>
 
+      <!-- MOBILE LAYOUT (tighter) -->
+      <div class="relative z-10 flex md:hidden flex-col gap-3">
+        <div class="flex items-center justify-between">
+           <div class="flex items-center gap-3 min-w-0">
+             <div class="bg-white/10 px-2 py-1 rounded border border-white/10 font-bold font-mono text-xl">#${activeEq.startNumber}</div>
+             <div class="min-w-0">
+               <h2 class="text-lg font-bold truncate leading-tight">${activeEq.driverName}</h2>
+               <div class="flex items-center gap-2">
+                 <span class="inline-flex items-center gap-1 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold uppercase tracking-wider border border-emerald-500/30 px-1">
+                   <span class="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
+                   Live
+                 </span>
+                 <span class="text-slate-400 text-[10px] truncate">${activeEq.className}</span>
+               </div>
+             </div>
+           </div>
+           <div class="text-right">
+             <div id="livePanelTimer-mob-${sn}" class="text-3xl font-black tabular-nums leading-none text-white tracking-tight">00:00,00</div>
+             <div class="text-[9px] text-slate-400 uppercase font-bold tracking-widest mt-0.5">Löpande tid</div>
+           </div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
+           <div class="bg-white/5 p-2 rounded text-center">
+             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Straff</div>
+             <div class="text-lg font-bold text-blue-300" id="livePanelPenalty-mob-${sn}">${totalPenalty}</div>
+           </div>
+           <div class="bg-white/5 p-2 rounded text-center">
+             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Delplac.</div>
+             <div class="text-lg font-bold text-yellow-400" id="livePanelRank-mob-${sn}">-</div>
+           </div>
+           <div class="bg-white/5 p-2 rounded text-center">
+             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Totalp.</div>
+             <div class="text-lg font-bold text-emerald-400">${myOverall?.rank || '-'}</div>
+           </div>
+        </div>
       </div>
     </div>
   `;
@@ -421,6 +538,15 @@ function updateLivePanelTimer(sn, label, penaltyDef, rankDef) {
   if (elTimer) elTimer.textContent = label;
   if (elPenalty && penaltyDef) elPenalty.textContent = penaltyDef;
   if (elRank && rankDef) elRank.textContent = rankDef;
+
+  // Mobile IDs
+  const elTimerMob = document.getElementById(`livePanelTimer-mob-${sn}`);
+  const elPenaltyMob = document.getElementById(`livePanelPenalty-mob-${sn}`);
+  const elRankMob = document.getElementById(`livePanelRank-mob-${sn}`);
+
+  if (elTimerMob) elTimerMob.textContent = label;
+  if (elPenaltyMob && penaltyDef) elPenaltyMob.textContent = penaltyDef;
+  if (elRankMob && rankDef) elRankMob.textContent = rankDef;
 }
 
 function renderLayout() {
@@ -456,57 +582,76 @@ function renderLayout() {
   }
 
   root.innerHTML = `
-      <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen">
+      <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
         <div class="mb-8">
-          ${getCompetitionHeader(comp, 'Precision – Start- & Resultatlista')}
-          ${precisionDateStr ? `<h3 class="text-lg text-gray-500 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
+          ${getCompetitionHeader(comp, t('precision_result_list_title'))}
+          ${precisionDateStr ? `<h3 class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
         </div>
 
         <div id="liveStatusPanelContainer" class="mb-6 hidden"></div>
 
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col lg:flex-row gap-4 items-center justify-between" id="modeToggle">
+        <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap gap-2 md:gap-3 items-center justify-start transition-colors" id="modeToggle">
           
-          <div class="flex flex-col md:flex-row items-center gap-4 w-full lg:w-auto">
-              <div class="relative w-full md:w-72">
-                   <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                      <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                   </div>
-                   <input type="text" id="inputPrecisionSearch" 
-                      class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-gray-50 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-shadow"
-                      placeholder="Sök kusk, häst..."
-                    >
-              </div>
-
-              <div class="flex flex-wrap items-center gap-2" id="precisionToolbarControls">
-                  <div class="inline-flex shadow-sm rounded-md bg-gray-100 p-1">
-                      <button id="precBtnStartOrder" data-mode="startorder" class="px-4 py-1.5 text-sm font-medium rounded transition-all">Startordning</button>
-                      <button id="precBtnByRank" data-mode="rank" class="px-4 py-1.5 text-sm font-medium rounded transition-all">Placering</button>
-                      <button id="precBtnByClass" data-mode="byclass" class="px-4 py-1.5 text-sm font-medium rounded transition-all">Klassvis</button>
-                  </div>
-                  
-                  <div class="w-px h-6 bg-gray-300 mx-2 hidden md:block"></div>
-
-                  <button id="precToggleFinalized" class="px-3 py-1.5 text-sm font-medium rounded border transition-colors">
-                    <!-- Text updated via JS -->
-                  </button>
-              </div>
+          <div class="relative flex-grow max-w-full sm:max-w-[200px] flex-shrink-0">
+               <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                  <svg class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+               </div>
+               <input type="text" id="inputPrecisionSearch" 
+                  class="block w-full pl-8 pr-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded leading-5 bg-gray-50 dark:bg-gray-700 placeholder-gray-500 dark:placeholder-gray-400 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-xs md:text-sm transition-shadow"
+                  placeholder="${t('search_placeholder_short')}"
+                >
           </div>
 
-          <div class="flex-shrink-0 flex items-center gap-2">
+          <!-- Desktop Controls -->
+          <div class="hidden md:inline-flex shadow-sm rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex-shrink-0" id="precisionToolbarControls">
+              <button id="precBtnStartOrder" data-mode="startorder" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('start_order')}</button>
+              <button id="precBtnByRank" data-mode="rank" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('place')}</button>
+              <button id="precBtnByClass" data-mode="byclass" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('view_by_class_short')}</button>
+          </div>
+          
+          <!-- Mobile Sort Dropdown -->
+          <div class="md:hidden relative w-[110px] flex-shrink-0">
+               <select id="mobileSortSelectPrec" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs appearance-none">
+                   <option value="byclass">${t('view_by_class_short')}</option>
+                   <option value="startorder">${t('start_order')}</option>
+                   <option value="rank">${t('place')}</option>
+               </select>
+               <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+                   <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+               </div>
+          </div>
+
+          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1 hidden md:block"></div>
+
+          <button id="precToggleFinalized" class="hidden md:inline-flex px-3 py-1.5 text-xs md:text-sm font-medium rounded border transition-colors">
+            <!-- Text updated via JS -->
+          </button>
+
+          <!-- Mobile Checkbox -->
+          <label class="md:hidden flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0">
+               <input type="checkbox" id="mobileFinalizedCheckPrec" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5" />
+               <span id="mobileFinalizedLabelPrec">${t('filter_finished')}</span>
+          </label>
+
+          <div id="precClassChips" class="flex-shrink-0 z-10 w-[130px] sm:w-auto"></div>
+
+          <div class="flex-grow hidden sm:block"></div>
+
+          <div class="flex-shrink-0 flex items-center gap-2 justify-end border-t border-gray-100 sm:border-0 pt-2 sm:pt-0 dark:border-gray-700 w-full sm:w-auto">
               <button id="btnExportPrecisionCsv" 
-                class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-                 <i class="fas fa-file-csv mr-2 -ml-1 text-gray-500"></i>
+                class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+                 <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
                  CSV
               </button>
               <button id="btnExportPrecisionPdf" 
-                class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors">
-                <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+                class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
+                <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                  Skriv ut PDF
               </button>
           </div>
         </div>
 
-        <div id="precMergeStatus" class="mt-2 text-xs text-gray-600"></div>
+        <div id="precMergeStatus" class="mt-2 text-xs text-gray-600 dark:text-gray-400"></div>
         <div id="precClassChips" class="my-2 flex flex-wrap gap-2"></div>
 
         <div id="prWrap"></div>
@@ -535,7 +680,7 @@ function renderLayout() {
         );
       } catch (err) {
         console.error('PDF Export Error:', err);
-        alert('Kunde inte skapa PDF: ' + (err.message || err));
+        alert(t('pdf_export_error') + ' ' + (err.message || err));
       }
     });
   }
@@ -548,13 +693,13 @@ function renderLayout() {
       const filename = `precision_resultat_${sanitizeForFilename(comp?.name || 'tavling')}_${date}.csv`;
 
       const list = filteredSortedEquipages();
-      const placeMap = buildPlaceMap(list, precision_precisionMap);
+      const placeMap = buildPlaceMap(list, precision_precisionMap, precision_precisionConfig);
 
       const headers = [
-        'Plac', 'Nr', 'Kusk', 'Häst', 'Klass', 'Klubb',
-        'Starttid', 'Hinderbredd (cm)', 'Tid', 'Rivningar',
-        'H-Straff', 'Tid-Straff', 'Övr-Straff',
-        'Totalt', 'Status'
+        t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'),
+        t('start_time'), `${t('obstacle_width')} (cm)`, t('time'), t('knockdowns'),
+        t('obs_penalty'), t('time_penalty'), t('other_penalty_short'),
+        t('total'), t('status')
       ];
 
       const rows = list.map(eq => {
@@ -574,7 +719,7 @@ function renderLayout() {
           data.startT || '—',
           allowanceDisplay,
           data.display.timeLabel,           // Tid
-          data.display.knocksText,          // Rivningar
+          data.display.knocksSimple,        // Rivningar
           isNum(data.obstaclePenalty) ? data.obstaclePenalty.toFixed(2) : '0,00',
           isNum(data.timePenalty) ? data.timePenalty.toFixed(2) : '0,00',
           isNum(data.extraPenalty) ? data.extraPenalty.toFixed(2) : '0,00',
@@ -596,7 +741,7 @@ function updateControlStates() {
   const mode = precision_viewMode;
 
   const setBtn = (btn, active) => {
-    if (btn) btn.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${active ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+    if (btn) btn.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${active ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
   };
 
   setBtn(btnStart, mode === 'startorder');
@@ -606,8 +751,17 @@ function updateControlStates() {
   const btnFin = document.getElementById('precToggleFinalized');
   const isFin = precision_showOnlyFinalized;
   if (btnFin) {
-    btnFin.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${isFin ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`;
-    btnFin.textContent = isFin ? 'Visa alla' : 'Visa bara finaliserade';
+    btnFin.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${isFin ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
+    btnFin.textContent = isFin ? t('show_all') : t('show_finalized_only');
+  }
+
+  const mobSort = document.getElementById('mobileSortSelectPrec');
+  if (mobSort && mobSort.value !== mode) {
+      mobSort.value = mode;
+  }
+  const mobFin = document.getElementById('mobileFinalizedCheckPrec');
+  if (mobFin && mobFin.checked !== isFin) {
+      mobFin.checked = isFin;
   }
 }
 
@@ -633,6 +787,13 @@ function filteredSortedEquipages() {
       (e._mergedLabel || '').toLowerCase().includes(s)
     );
   }
+
+  // Filter out withdrawn/struken
+  list = list.filter(e => {
+    const st = String(e.status || '').toLowerCase();
+    return !['struken', 'withdrawn', 'scratched'].includes(st) && !e.struken && !e.withdrawn;
+  });
+
   if (precision_showOnlyFinalized) {
     list = list.filter(e => {
       const d = precision_precisionMap.get(String(e.startNumber)) || {};
@@ -643,7 +804,7 @@ function filteredSortedEquipages() {
     list = list.filter(e => precision_activeClassFilters.has(e._mergedLabel || e.className || '—'));
   }
 
-  const placeMap = buildPlaceMap(list, precision_precisionMap);
+  const placeMap = buildPlaceMap(list, precision_precisionMap, precision_precisionConfig);
 
   const col = precision_sort.col;
   const dir = precision_sort.dir === 'desc' ? -1 : 1;
@@ -669,6 +830,13 @@ function filteredSortedEquipages() {
         case 'obstacle': return isNum(data.obstaclePenalty) ? data.obstaclePenalty : Infinity;
         case 'timePenalty': return isNum(data.timePenalty) ? data.timePenalty : Infinity;
         case 'extra': return isNum(data.extraPenalty) ? data.extraPenalty : Infinity;
+        case 'overall': {
+              const currentClass = a._mergedLabel || a.className;
+              const visibleInClass = precision_equipages.filter(e => (e._mergedLabel || e.className) === currentClass);
+              const overallEntries = getOverallEntries(visibleInClass);
+              const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+              return standingsMap.get(String(a.startNumber))?.total ?? Infinity;
+        }
         case 'status': return { 'Pågår': 1, 'Klar': 2, 'Ej startat': 3, 'Struken': 4 }[data.status] ?? 3;
         case 'portWidth': return isNum(data.display.portWidth) ? data.display.portWidth : Infinity;
         case 'startTime': return startTimeFor(data.eq.startNumber, precision_startTimes) || 'ZZZZ';
@@ -684,6 +852,16 @@ function filteredSortedEquipages() {
 
     if (va < vb) return -1 * dir;
     if (va > vb) return 1 * dir;
+
+    // Tie-breaker: Time closest to allowed time
+    if (col === 'penalty' || col === 'place') {
+      const diffA = dataA.timeDiffFromAllowed || Infinity;
+      const diffB = dataB.timeDiffFromAllowed || Infinity;
+      if (Math.abs(diffA - diffB) > 1e-6) {
+        return (diffA - diffB) * dir;
+      }
+    }
+
     return (a.startNumber || 0) - (b.startNumber || 0);
   });
   return list;
@@ -698,12 +876,12 @@ function renderMobile() {
 
   let html = '';
   if (visibleEquipages.length === 0) {
-    html = '<div class="p-6 text-center text-gray-500">Inga ekipage matchar din sökning.</div>';
+    html = `<div class="p-6 text-center text-gray-500">${t('search_no_match')}</div>`;
   } else {
     if (precision_viewMode === 'byclass') {
       const groups = prec_groupEquipagesForDisplay(visibleEquipages, precision_displayConfig);
       for (const group of groups) {
-        html += `<div class="px-4 py-2 mt-2 bg-blue-100 text-blue-800 font-bold text-lg rounded-md">${group.label}</div>`;
+        html += `<div class="px-4 py-2 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-lg rounded-md">${group.label}</div>`;
         html += group.items.map(eq => renderCard(eq, placeMap)).join('');
       }
     } else {
@@ -711,7 +889,7 @@ function renderMobile() {
     }
   }
 
-  container.innerHTML = `<div class="bg-gray-50 py-1 space-y-2">${html}</div>`;
+  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1 space-y-2">${html}</div>`;
 
   visibleEquipages.forEach(eq => {
     const sn = String(eq.startNumber);
@@ -735,52 +913,52 @@ function renderCard(eq, placeMap) {
   const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
   const statusCls = statusClass(data.status);
   const timeLabel = data.display.timeLabel;
-  const penaltyLabel = data.d?.eliminated ? '<span class="text-red-600 font-bold">ELIM</span>' : fmt2(data.totalPenalty);
+  const penaltyLabel = data.d?.eliminated ? '<span class="text-red-600 dark:text-red-400 font-bold">ELIM</span>' : fmt2(data.totalPenalty);
   const obstacleLabel = fmt2(data.obstaclePenalty);
   const timePenaltyLabel = fmt2(data.timePenalty);
 
   return `
-        <div class="m-2 rounded-xl border shadow-sm bg-white overflow-hidden cursor-pointer" data-sn="${sn}" role="button" tabindex="0">
-            <div class="px-4 py-3 border-b bg-gray-50 flex items-start justify-between gap-4">
+        <div class="m-2 rounded-xl border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden cursor-pointer" data-sn="${sn}" role="button" tabindex="0">
+            <div class="px-4 py-3 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex items-start justify-between gap-4">
                 <div>
-                    <div class="font-semibold text-lg">#${data.eq.startNumber} ${data.eq.driverName}</div>
-                    <div class="text-sm text-gray-500">${horseLabel(data.eq)}</div>
+                    <div class="font-semibold text-lg dark:text-white">#${data.eq.startNumber} ${data.eq.driverName}</div>
+                    <div class="text-sm text-gray-500 dark:text-gray-400">${horseLabel(data.eq)}</div>
                 </div>
                 <div class="text-center flex-shrink-0">
-                    <div class="text-xs text-gray-500">Plac.</div>
-                    <div class="text-2xl font-bold">${data.place || '—'}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">${t('place_short')}</div>
+                    <div class="text-2xl font-bold dark:text-white">${data.place || '—'}</div>
                 </div>
             </div>
-            <div class="p-4 grid grid-cols-1 gap-y-2 text-sm">
-                <div class="flex justify-between"><span class="text-gray-500">Klass:</span> <span class="font-medium text-right">${data.eq._mergedLabel || data.eq.className || '—'}</span></div>
-                <div class="flex justify-between items-center"><span class="text-gray-500">Klubb:</span>
+            <div class="p-4 grid grid-cols-1 gap-y-2 text-sm dark:text-gray-300">
+                <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">${t('class')}:</span> <span class="font-medium text-right">${data.eq._mergedLabel || data.eq.className || '—'}</span></div>
+                <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">${t('club')}:</span>
                     <span class="font-medium flex items-center gap-2 text-right">
                         ${getFlagHtml(data.eq)}
                         ${getClubLogoHtml(data.eq)}
                         <span class="truncate">${data.eq.clubName || '—'}</span>
                     </span>
                 </div>
-                 <div class="flex justify-between"><span class="text-gray-500">Starttid:</span> <span class="font-medium text-right">${data.startT || '—'}</span></div>
+                 <div class="flex justify-between"><span class="text-gray-500 dark:text-gray-400">${t('start_time')}:</span> <span class="font-medium text-right">${data.startT || '—'}</span></div>
             </div>
-             <div class="px-4 py-3 border-t grid grid-cols-2 gap-4 items-center">
+             <div class="px-4 py-3 border-t dark:border-gray-700 grid grid-cols-2 gap-4 items-center">
                  <div class="text-center">
-                    <div class="text-xs text-gray-500">Tid</div>
-                    <div class="font-semibold text-lg live-time-card" data-sn="${sn}">${(data.d?.running === true) ? '••:••,••' : timeLabel}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">${t('time')}</div>
+                    <div class="font-semibold text-lg live-time-card dark:text-white" data-sn="${sn}">${(data.d?.running === true) ? '••:••,••' : timeLabel}</div>
                 </div>
                  <div class="text-center">
-                    <div class="text-xs text-gray-500">Hinderstraff</div>
-                    <div class="font-semibold text-lg">${obstacleLabel}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">${t('obs_penalty')}</div>
+                    <div class="font-semibold text-lg dark:text-white live-obstacle-penalty-card" data-sn="${sn}">${obstacleLabel}</div>
                 </div>
                  <div class="text-center">
-                    <div class="text-xs text-gray-500">Tidsstraff</div>
-                    <div class="font-semibold text-lg">${timePenaltyLabel}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">${t('time_penalty')}</div>
+                    <div class="font-semibold text-lg dark:text-white live-time-penalty-card" data-sn="${sn}">${timePenaltyLabel}</div>
                 </div>
                  <div class="text-center">
-                    <div class="text-xs text-gray-500">Totalt Straff</div>
-                    <div class="font-bold text-blue-800 text-lg">${penaltyLabel}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">${t('total')} ${t('penalty')}</div>
+                    <div class="font-bold text-blue-800 dark:text-blue-300 text-lg live-total-penalty-card" data-sn="${sn}">${penaltyLabel}</div>
                 </div>
             </div>
-             <div class="px-4 py-2 border-t text-center">
+             <div class="px-4 py-2 border-t dark:border-gray-700 text-center">
                  <span class="inline-block px-2 py-0.5 rounded-full text-xs font-medium ${statusCls}">${data.status}</span>
                  ${renderFinalizeButtons(eq)}
              </div>
@@ -800,10 +978,10 @@ function renderFinalizeButtons(eq) {
       <span id="prec-final-badge-${sn}"
             class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800"
             style="display:${finalized ? 'inline-flex' : 'none'}">
-        Finaliserad
+        ${t('finalized_badge')}
       </span>
-      <button type="button" data-prec-action="finalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" style="display:${finalized ? 'none' : ''}" onclick="event.stopPropagation(); window.__finalizePrecision('${compId}','${sn}')">Finalisera</button>
-      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50" style="display:${finalized ? '' : 'none'}" onclick="event.stopPropagation(); window.__unfinalizePrecision('${compId}','${sn}')">Ångra</button>
+      <button type="button" data-prec-action="finalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" style="display:${finalized ? 'none' : ''}" onclick="event.stopPropagation(); window.__finalizePrecision('${compId}','${sn}')">${t('finalize')}</button>
+      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50" style="display:${finalized ? '' : 'none'}" onclick="event.stopPropagation(); window.__unfinalizePrecision('${compId}','${sn}')">${t('undo')}</button>
     </div>`;
 }
 
@@ -819,56 +997,53 @@ function renderDesktop() {
   (() => {
     const statusHost = document.getElementById('precMergeStatus');
     const chipHost = document.getElementById('precClassChips');
-    if (!statusHost || !chipHost) return;
+    if (statusHost) {
+      const groups = precision_MERGE_GROUPS || [];
+      const activeCount = groups.filter(g => Array.isArray(g.members) && g.members.length > 1).length;
+      statusHost.textContent = activeCount ? `${t('active_merges')}: ${activeCount}` : '';
+      statusHost.style.display = activeCount ? 'block' : 'none';
+    }
 
-    const groups = precision_MERGE_GROUPS || [];
-    const activeCount = groups.filter(g => Array.isArray(g.members) && g.members.length > 1).length;
-    statusHost.textContent = activeCount ? `Aktiva sammanslagningar: ${activeCount}` : '';
-    statusHost.style.display = activeCount ? 'block' : 'none';
+    if (chipHost) {
+      const gArr = prec_groupEquipagesForDisplay(precision_equipages, precision_displayConfig);
+      const labels = gArr.map(g => g.label);
 
-    const gArr = prec_groupEquipagesForDisplay(precision_equipages, precision_displayConfig);
-    const labels = gArr.map(g => g.label);
-    const base = "px-2 py-1 rounded border text-sm cursor-pointer";
-    const on = "bg-gray-800 text-white border-gray-800";
-    const off = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50";
-
-    chipHost.innerHTML = labels.map(lbl => {
-      const active = precision_activeClassFilters.has(lbl);
-      return `<button type="button" data-class="${escapeHtml(lbl)}" class="${base} ${active ? on : off}">${escapeHtml(lbl)}</button>`;
-    }).join('');
-
-    if (!chipHost.dataset.wired) {
-      chipHost.addEventListener('click', (e) => {
-        const btn = e.target.closest('button[data-class]');
-        if (!btn) return;
-        const lbl = btn.dataset.class;
+      renderResponsiveClassFilter(chipHost, labels, precision_activeClassFilters, (lbl) => {
         if (precision_activeClassFilters.has(lbl)) precision_activeClassFilters.delete(lbl);
         else precision_activeClassFilters.add(lbl);
         try { if (typeof render === 'function') render(); } catch { }
       });
-      chipHost.dataset.wired = '1';
     }
   })();
 
   const visible = filteredSortedEquipages();
   const placeMap = buildPlaceMap(visible, precision_precisionMap);
 
+  // Beräkna totalställning EN GÅNG per render
+  const overallEntries = getOverallEntries(visible);
+  const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+  const standings = standingsMap;
+
+  const thClass = "px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase cursor-pointer bg-white dark:bg-gray-800";
+  const thNoClass = "px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase bg-white dark:bg-gray-800";
+
   const headHTML = `<thead><tr>
-        <th data-col="place" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Plac <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="startNumber" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer"># <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="driverName" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Kusk / Häst <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="className" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Klass <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Land/Förening</th>
-        <th data-col="startTime" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Starttid <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="portWidth" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Hinderbredd <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="time" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Tid <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="knocks" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Rivningar <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="obstacle" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Hinderstraff <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="timePenalty" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Tidsstraff <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="extra" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Annat str. <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="penalty" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Totalt <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="status" class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase cursor-pointer">Status <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Final</th>            
+        <th data-col="place" class="${thClass}">${t('rank')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="startNumber" class="${thClass}"># <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="driverName" class="${thClass}">${t('driver')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="className" class="${thClass}">${t('class')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th class="${thNoClass}">${t('country_club')}</th>
+        <th data-col="startTime" class="${thClass}">${t('start_time')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="portWidth" class="${thClass}">${t('obstacle_width')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="time" class="${thClass}">${t('time')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="knocks" class="${thClass}">${t('knockdowns')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="obstacle" class="${thClass}">${t('obs_penalty')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="timePenalty" class="${thClass}">${t('time_penalty')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="extra" class="${thClass}">${t('other_penalty_short')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="penalty" class="${thClass}">${t('total')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="overall" class="${thClass}">Total ställning <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th data-col="status" class="${thClass}">${t('status')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
+        <th class="${thNoClass}">${t('final_column')}</th>            
     </tr></thead>`;
 
   const renderRow = (eq, index) => {
@@ -879,52 +1054,58 @@ function renderDesktop() {
     const allowanceDisplay = isNum(baseAllowance) ? `+ ${baseAllowance} cm` : '—';
     const isStruken = data.eq.status === 'struken';
     const isActive = data.status && data.status.includes('Påg');
-    const badgeClass = isStruken ? 'bg-red-100 text-red-800' : statusClass(data.status);
+    const badgeClass = isStruken ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' : statusClass(data.status);
 
     let rowBgClass;
     if (isStruken) {
-      rowBgClass = 'opacity-50 bg-red-50';
+      rowBgClass = 'opacity-50 bg-red-50 dark:bg-red-900/10';
     } else if (isActive) {
-      rowBgClass = 'bg-yellow-50 border-l-4 border-yellow-500 shadow-sm relative z-10';
+      // Improved contrast: Darker yellow background in dark mode
+      rowBgClass = 'bg-yellow-50 dark:bg-yellow-900/40 border-l-4 border-yellow-500 shadow-sm relative z-10';
     } else {
-      rowBgClass = (index % 2 === 0 ? 'bg-white' : 'bg-gray-50');
+      rowBgClass = (index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/50');
     }
 
     // Om active, ta bort border-l-4 från tr och lägg kanske på första td om det strular, 
     // men vi testar på tr först. border-l funkar ofta på tr om collapse=separate.
     const overTime = (data.d.finalized && isNum(data.timePenalty) && data.timePenalty > 0);
-    const timeAlertCls = overTime ? 'text-red-600 font-semibold' : '';
+    const timeAlertCls = overTime ? 'text-red-600 dark:text-red-400 font-semibold' : '';
 
-    const rowStyle = isActive ? 'background-color: #fefce8; border-left: 4px solid #eab308;' : '';
+    const rowStyle = isActive ? 'border-left: 4px solid #eab308;' : '';
+
+    const resOverall = standings.get(sn);
 
     return `
-           <tr class="${rowBgClass} hover:bg-blue-100 cursor-pointer" data-sn="${sn}" style="${rowStyle}">
-                <td class="px-3 py-2 font-semibold">${data.place || '–'}</td>
-                <td class="px-3 py-2">${data.eq.startNumber}</td>
-                <td class="px-3 py-2 text-left align-top">
-                    <button type="button" class="font-bold text-gray-900 hover:text-blue-700 hover:underline text-left transition-colors">${data.eq.driverName}</button>
-                    <div class="text-xs text-gray-600 leading-tight whitespace-normal">${horseLabelStacked(data.eq)}</div>
+           <tr class="${rowBgClass} hover:bg-blue-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-200" data-sn="${sn}" style="${rowStyle}">
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 font-semibold text-[11px] lg:text-sm">${data.place || '–'}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">${data.eq.startNumber}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-left align-top">
+                    <button type="button" class="text-xs lg:text-base font-bold text-gray-900 dark:text-white hover:text-blue-700 dark:hover:text-blue-400 hover:underline text-left transition-colors whitespace-nowrap">${data.eq.driverName}</button>
+                    <div class="hidden lg:block text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 leading-tight whitespace-nowrap">${horseLabelStacked(data.eq)}</div>
                 </td>
-                <td class="px-3 py-2">${data.eq._mergedLabel || data.eq.className}</td>
-                <td class="px-3 py-2">
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-none" title="${data.eq._mergedLabel || data.eq.className || ''}">${data.eq._mergedLabel || data.eq.className}</div></td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5">
                     <div class="flex items-center gap-2">
-                        ${getFlagHtml(data.eq)} ${getClubLogoHtml(data.eq)} <span>${data.eq.clubName || ''}</span>
+                        ${getFlagHtml(data.eq)} ${getClubLogoHtml(data.eq)} <span class="truncate max-w-[80px] lg:max-w-[120px] text-[11px] lg:text-sm" title="${data.eq.clubName || ''}">${data.eq.clubName || ''}</span>
                     </div>
                 </td>
-                <td class="px-3 py-2">${startTimeFor(sn, precision_startTimes)}</td>
-                <td class="px-3 py-2">${allowanceDisplay}</td>
-                <td class="px-3 py-2 time-cell align-top" data-sn="${sn}">
-                    <span class="tabular-nums ${timeAlertCls}">${(data.d?.running === true) ? '••:••,••' : data.display.timeLabel}</span>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${startTimeFor(sn, precision_startTimes)}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${allowanceDisplay}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 time-cell align-top" data-sn="${sn}">
+                    <span class="tabular-nums ${timeAlertCls} text-[11px] lg:text-sm whitespace-nowrap">${(data.d?.running === true) ? '••:••,••' : data.display.timeLabel}</span>
                 </td>
-                <td class="px-3 py-2">${data.display.knocksText}</td>
-                <td class="px-3 py-2 tabular-nums">${fmt2(data.obstaclePenalty)}</td>
-                <td class="px-3 py-2 tabular-nums">${fmt2(data.timePenalty)}</td>
-                <td class="px-3 py-2 tabular-nums">${fmt2(data.extraPenalty)}</td>
-                <td class="px-3 py-2 tabular-nums font-semibold">${fmt2(data.totalPenalty)}</td>
-                <td class="px-3 py-2 text-center">
-                    <span class="inline-block px-2 py-0.5 rounded-md text-xs font-medium ${badgeClass}">${data.status}</span>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">${data.display.knocksSimple}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm obstacle-penalty-cell" data-sn="${sn}">${fmt2(data.obstaclePenalty)}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm time-penalty-cell" data-sn="${sn}">${fmt2(data.timePenalty)}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm">${fmt2(data.extraPenalty)}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums font-semibold text-[11px] lg:text-sm total-penalty-cell" data-sn="${sn}">${fmt2(data.totalPenalty)}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums font-bold text-[11px] lg:text-sm text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
+                    ${!resOverall ? '—' : (resOverall.total === Infinity ? 'ELIM' : `${fmt2(resOverall.total)} (${resOverall.rank})`)}
                 </td>
-                <td class="px-3 py-2 text-right">
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center">
+                    <span class="inline-block px-1.5 py-0.5 rounded-md text-[10px] lg:text-xs font-medium whitespace-nowrap ${badgeClass}">${data.status}</span>
+                </td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right whitespace-nowrap">
                   ${renderFinalizeButtons(eq)}
                 </td>
             </tr>`;
@@ -936,7 +1117,7 @@ function renderDesktop() {
   } else {
     const groups = prec_groupEquipagesForDisplay(visible, precision_displayConfig);
     for (const group of groups) {
-      bodyHTML += `<tr class="bg-gray-200 border-t-2 border-b-2 border-gray-300 sticky top-0 z-10"><td class="px-3 py-2 font-bold text-gray-800" colspan="15">${group.label}</td></tr>`;
+      bodyHTML += `<tr class="bg-gray-200 dark:bg-gray-700 border-t-2 border-b-2 border-gray-300 dark:border-gray-600 sticky top-0 z-10"><td class="px-3 py-2 font-bold text-gray-800 dark:text-gray-200" colspan="15">${group.label}</td></tr>`;
       bodyHTML += group.items.map((eq, i) => renderRow(eq, i)).join('');
     }
   }
@@ -1000,6 +1181,7 @@ function listenLive() {
       if (ch.type === 'removed') {
         precision_precisionMap.delete(id);
       } else {
+        newData._receivedLocalAt = Date.now(); // NYTT: För relativ tidssynk
         precision_precisionMap.set(id, newData);
       }
       if (newData.running === true && oldData.running !== true && newData.liveStartEpoch) {
@@ -1014,6 +1196,7 @@ function listenLive() {
         newData.totalPenalty !== oldData.totalPenalty ||
         newData.liveTotalPenalty !== oldData.liveTotalPenalty ||
         newData.liveObstaclePenalty !== oldData.liveObstaclePenalty ||
+        JSON.stringify(newData.knocks) !== JSON.stringify(oldData.knocks) ||
         newData.extraPenalty !== oldData.extraPenalty ||
         newData.comment !== oldData.comment
       ) {
@@ -1031,6 +1214,46 @@ function listenLive() {
     console.error("[listenLive] Fel vid lyssning på Firestore:", error);
     stopTicker();
   });
+}
+
+let overallUnsubs = [];
+function listenOverallData(compId) {
+  if (!compId || !appId) return;
+  overallUnsubs.forEach(u => u());
+  overallUnsubs = [];
+
+  // 1) Dressyr - Lyssna på alla protokoll för ekipagen
+  const unsubD = listenForDressageProtocolsCollectionGroup(compId, precision_equipages, (docs) => {
+    const grouped = new Map();
+    docs.forEach(d => {
+      const sn = String(d.startNumber);
+      if (!grouped.has(sn)) grouped.set(sn, []);
+      grouped.get(sn).push(d);
+    });
+    precision_dressageMap = grouped;
+    renderLiveDebounce();
+  });
+
+  // 2) Maraton - Lyssna på live-dokument (hinder)
+  const unsubM = listenForMaratonCollection(compId, (docs) => {
+    precision_marathonObstacleMap.clear();
+    docs.forEach(d => precision_marathonObstacleMap.set(String(d.id), d));
+    renderLiveDebounce();
+  });
+
+  // 3) Maraton - Lyssna på tider
+  const unsubMT = listenForMarathonTimingUpdates(compId, (docs) => {
+    const list = Array.isArray(docs) ? docs : (Array.isArray(docs?.docs) ? docs.docs : Object.values(docs || {}));
+    precision_marathonTimingMap.clear();
+    for (const doc of list) {
+      const data = typeof doc.data === 'function' ? doc.data() : doc;
+      const id = doc.id || data.id || data.startNumber;
+      if (id) precision_marathonTimingMap.set(String(id), data);
+    }
+    renderLiveDebounce();
+  });
+
+  overallUnsubs.push(unsubD, unsubM, unsubMT);
 }
 
 let mergeUnsubs = [];
@@ -1060,6 +1283,27 @@ function wireEventListeners() {
     precision_searchText = (e.target.value || '').trim();
     render();
   });
+
+  const mobSort = document.getElementById('mobileSortSelectPrec');
+  if (mobSort) {
+      mobSort.onchange = (e) => {
+          precision_viewMode = e.target.value;
+          if (precision_viewMode === 'startorder') { precision_sort.col = 'startNumber'; precision_sort.dir = 'asc'; }
+          else if (precision_viewMode === 'rank') { precision_sort.col = 'place'; precision_sort.dir = 'asc'; }
+          else if (precision_viewMode === 'byclass') { precision_sort.col = 'place'; precision_sort.dir = 'asc'; }
+          render();
+          updateControlStates();
+      }
+  }
+
+  const mobFin = document.getElementById('mobileFinalizedCheckPrec');
+  if (mobFin) {
+      mobFin.onchange = (e) => {
+          precision_showOnlyFinalized = e.target.checked;
+          render();
+          updateControlStates();
+      }
+  }
 
   document.getElementById('precisionToolbarControls')?.addEventListener('click', (e) => {
     const btn = e.target.closest('button');
@@ -1144,11 +1388,7 @@ export async function load() {
     _mergedLabel: prec_resolveMergeGrouping(e, null).label
   }));
 
-  try { await ensureClubLogosLoaded('/assets/config/club-logos.json'); }
-  catch (_) {
-    try { await ensureClubLogosLoaded('../assets/config/club-logos.json'); }
-    catch (_) { await ensureClubLogosLoaded('./assets/config/club-logos.json'); }
-  }
+  try { await ensureClubLogosLoaded(competitionId); } catch (e) { console.warn('Logo load failed:', e); }
 
   document.body.dataset.wasMobile = isMobile() ? '1' : '0';
   if (window.__precisionResizeHandler) try { window.removeEventListener('resize', window.__precisionResizeHandler); } catch { }
@@ -1168,10 +1408,12 @@ export async function load() {
   listenLive();
   renderLayout();
   wireEventListeners();
+  precision_sort = { col: 'startNumber', dir: 'asc' };
   render();
-  updateSortIcons();
+
   listenLive();
   listenMergeConfig(competitionId);
+  listenOverallData(competitionId);
 }
 
 // Globala funktioner för finalisera (anropas via onclick i HTML)
@@ -1221,6 +1463,7 @@ export const _testFinalize = window.__finalizePrecision;
 export function __unload() {
   if (precision_liveUnsubscribe) { precision_liveUnsubscribe(); precision_liveUnsubscribe = null; }
   if (Array.isArray(mergeUnsubs)) { mergeUnsubs.forEach(u => { try { u(); } catch { } }); mergeUnsubs = []; }
+  if (Array.isArray(overallUnsubs)) { overallUnsubs.forEach(u => { try { u(); } catch { } }); overallUnsubs = []; }
   if (typeof window.__activeScrollCleanup === 'function') { window.__activeScrollCleanup(); window.__activeScrollCleanup = null; }
   if (window.__precisionResizeHandler) { try { window.removeEventListener('resize', window.__precisionResizeHandler); } catch { } window.__precisionResizeHandler = null; }
   if (window.__precisionKeydownHandler) { try { document.removeEventListener('keydown', window.__precisionKeydownHandler); } catch { } window.__precisionKeydownHandler = null; }

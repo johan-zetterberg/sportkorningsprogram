@@ -5,16 +5,22 @@ import {
   listenForMarathonObstacles,
   getStartTimes,
   saveMarathonObstacleResult,
+  getMarathonStateDocuments,
+  listenForMaratonCollection,
+  trackWrite,
 } from '../services/firestoreService.js';
 import {
   setPauseWindows,
   getObstacleCoefficient,
+  getClassDrivenObstacles,
+  setMarathonConfig,
 } from '../utils/marathonUtils.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../ui/components.js';
 import { downloadJson } from '../utils/sharedUtils.js';
+import { requestWakeLock } from '../utils/wakeLock.js';
 
 // Firestore för live (endast det vi använder på denna sida)
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp }
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, collection, query, where, getDocs, limit }
   from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../config/firebase-config.js';
 
@@ -27,6 +33,8 @@ let marathonConfigCache = null;     // för att veta hur många portar klassen h
 let unsubObstacles = null;   // återkallare för lyssnaren
 let boundHandlers = {};      // samlar på oss event-handlers att kunna ta bort
 let obstacleList = []; // Sparar listan med hinderkonfiguration
+let marathonStateDocsMap = new Map();
+let currentStartTimesData = null;
 
 // ---- LIVE state (återanvänder precisionens modell) ----
 let currentEquipage = null;
@@ -128,7 +136,7 @@ function listenForGlobalCompetitionPause_Obstacles() {
 
     if (isPaused && !lastPauseState) {
       // TÄVLINGEN PAUSAS NU
-      console.log("Global paus aktiverad. Stoppar hindertimer.");
+
       if (timerInterval) clearInterval(timerInterval);
       timerInterval = null;
       pauseStartTime = Date.now();
@@ -146,7 +154,6 @@ function listenForGlobalCompetitionPause_Obstacles() {
 
     } else if (!isPaused && lastPauseState) {
       // TÄVLINGEN ÅTERUPPTAS NU
-      console.log("Global paus avslutad. Återupptar hindertimer.");
 
       // Återuppta mätningen i Firestore
       if (!currentLiveState.running && currentLiveState.inProgress) {
@@ -167,7 +174,7 @@ function validateRouteString(routeStr, expectedGates) {
 
   // Om ingen väg angetts
   if (tokens.length === 0) {
-    return { styledHtml: '<span class="text-gray-400">Väntar på första port...</span>', isElimination: false, reason: 'Ange väg genom hindret.' };
+    return { styledHtml: '<span class="text-gray-400 dark:text-gray-500">Väntar på första port...</span>', isElimination: false, reason: 'Ange väg genom hindret.' };
   }
 
   let expectedIdx = 0;
@@ -183,23 +190,23 @@ function validateRouteString(routeStr, expectedGates) {
 
     // Om vi redan har hittat ett fel, markera resten av portarna som en del av felkörningen
     if (firstErrorFound) {
-      styledTokens.push(`<span class="text-red-600">${token}</span>`);
+      styledTokens.push(`<span class="text-red-600 dark:text-red-400">${token}</span>`);
       continue;
     }
 
     // 1. Korrekt port i sekvensen
     if (isUppercase && ucToken === expectedGates[expectedIdx]) {
-      styledTokens.push(`<strong class="text-green-600">${token}</strong>`);
+      styledTokens.push(`<strong class="text-green-600 dark:text-green-400">${token}</strong>`);
       passedRequiredGates.add(ucToken);
       expectedIdx++;
     }
     // 2. Tillåten passage genom en redan avklarad ("död") port
     else if (passedRequiredGates.has(ucToken)) {
-      styledTokens.push(`<span class="text-brand-lightblue underline">${token}</span>`); // Blå för tydlighet
+      styledTokens.push(`<span class="text-brand-lightblue dark:text-blue-300 underline">${token}</span>`); // Blå för tydlighet
     }
     // 3. Felkörning! Detta är första felet.
     else {
-      styledTokens.push(`<strong class="text-red-600">${token}</strong>`);
+      styledTokens.push(`<strong class="text-red-600 dark:text-red-400">${token}</strong>`);
       reason = `Fel port! Förväntade ${expectedGates[expectedIdx]}, men körde ${token}. (Potentiell felkörning)`;
       firstErrorFound = true;
       // Notera: Vi sätter INTE isElimination här, då felet kan korrigeras.
@@ -456,13 +463,14 @@ async function pushLiveSafe(update) {
     const dataToSend = {
       startNumber: currentEquipage.startNumber,
       className: currentEquipage.className || '',
+      currentObstacle: currentObstacleNumber,
       ...update
     };
     if (shouldTouchUpdatedAt) {
       dataToSend.updatedAt = serverTimestamp();
     }
 
-    await setDoc(marathonDocRef(currentEquipage.startNumber), dataToSend, { merge: true });
+    await trackWrite('Uppdaterar maraton-status', setDoc(marathonDocRef(currentEquipage.startNumber), dataToSend, { merge: true }));
 
   } catch (e) {
     if (e.code !== 'permission-denied') {
@@ -499,8 +507,9 @@ function updateKnockdownVisibility() {
   const container = document.getElementById('knockdown-container');
   if (!container) return;
 
-  const obstacleNumber = document.getElementById('maratonObstacleSelect').value;
-  const obsConfig = obstacleList.find(o => o.number == obstacleNumber);
+  const obstacleNumber = document.getElementById('maratonObstacleSelect')?.value;
+  const list = obstacleList || [];
+  const obsConfig = list.find(o => o.number == obstacleNumber);
 
   // Hämta global inställning
   const isEnabledGlobally = marathonConfigCache?.obstacleKnockdown?.enabled;
@@ -547,35 +556,36 @@ function startTimerMar() {
   }
 
   const accumulatedMs = currentLiveState.liveObstacleTimeMs || 0;
+  const nowMs = Date.now();
 
-  // *** VIKTIG ÄNDRING: ***
-  // Skapa ETT lokalt timestamp här. Vi kommer använda detta
-  // både för det optimistiska UI:t OCH för datan vi skickar till servern.
-  const localStartTimestamp = Timestamp.now();
+  // *** VIRTUELL STARTTID ***
+  // För att stödja återupptagning (resume) och samtidigt hålla Monitorn enkel:
+  // Vi fejkar att vi startade tidigare (nu - ackumulerad tid).
+  // Då blir "elapsed = now - start" korrekt direkt.
+  const virtualStartMs = nowMs - accumulatedMs;
+  const localStartTimestamp = Timestamp.fromMillis(virtualStartMs);
 
   // --- OPTIMISTISK UPPDATERING ---
-  // 1. Skapa ett "låtsas-state" som använder det lokala timestampet.
   const optimisticState = {
     ...currentLiveState,
     running: true,
     inProgress: true,
     currentObstacle: currentObstacleNumber,
-    liveObstacleTimeMs: accumulatedMs,
-    liveObstacleStartAt: localStartTimestamp // <-- Använd det lokala timestampet
+    liveObstacleTimeMs: 0, // VIKTIGT: Nollställ denna eftersom tiden nu ligger inbakad i starttiden
+    liveObstacleStartAt: localStartTimestamp
   };
 
   // 2. Applicera detta state på UI *direkt*.
   applyLiveStateToUI(optimisticState);
 
   // --- SERVERUPPDATERING ---
-  // 3. Skicka det *riktiga* kommandot till servern i bakgrunden.
   pushLiveSafe({
     running: true,
     inProgress: true,
     currentObstacle: currentObstacleNumber,
-    liveObstacleStartAt: localStartTimestamp, // <-- SKICKA DET LOKALA TIMESTAMPET
-    live_staticStartAt: localStartTimestamp,  // <-- Persistent start time (cleared only on Save)
-    liveObstacleTimeMs: accumulatedMs
+    liveObstacleStartAt: localStartTimestamp,
+    live_staticStartAt: localStartTimestamp, // Uppdatera även denna så att Monitorn ser det som en jämn start
+    liveObstacleTimeMs: 0 // Nollställ ackumulerad tid i databasen också
   });
   markObstacleEntered(currentEquipage.startNumber, currentObstacleNumber);
 }
@@ -672,50 +682,167 @@ async function onMarathonEquipageSelected(equipage) {
     applyLiveStateToUI(null);
   }
 
+  // Refresh obstacle list to apply class filtering
+  if (obstacleList && obstacleList.length > 0) {
+    populateObstacleSelector(obstacleList, true);
+  }
+
   // Ladda befintligt resultat för det hinder som eventuellt redan är valt i dropdown
   const sel = document.getElementById('maratonObstacleSelect');
   if (sel && sel.value) {
-    await loadExistingResult();
+    await loadExistingResult(true); // Tyst inläsning vid ekipage-byte
   } else {
     updateHeaderInfoMar();
   }
 }
+
+async function autoSelectRunningDriverMar(obstacleNo) {
+  if (!competitionId || !obstacleNo) return false;
+  try {
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
+    // Vi söker efter någon som har running=true OCH currentObstacle=obstacleNo
+    const q = query(colRef, where('running', '==', true), where('currentObstacle', '==', Number(obstacleNo)), limit(1));
+    const snap = await getDocs(q);
+
+    if (!snap.empty) {
+      const firstRunning = snap.docs[0];
+      const startNumber = firstRunning.id;
+      
+      if (equipageSearchDropdownMar) {
+        const current = equipageSearchDropdownMar.getValue();
+        if (Number(current) !== Number(startNumber)) {
+          console.log(`[MaratonInput] Hittade pågående runda i hinder ${obstacleNo} för startnr:`, startNumber);
+          // Detta triggar onMarathonEquipageSelected -> loadExistingResult
+          equipageSearchDropdownMar.setValue(Number(startNumber));
+          return true;
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('Kunde inte autosöka efter pågående förare i maraton:', err);
+  }
+  return false;
+}
+
+/**
+ * Hanterar byte av hinder (från dropdown).
+ */
+async function handleObstacleChange() {
+  const newVal = this.value;
+  // 1. Spara valet lokalt
+  if (newVal) {
+    localStorage.setItem(`maratonLastObstacle_${competitionId}`, newVal);
+  }
+
+  // 2. Försök hitta en löpare i DETTA hinder
+  const found = await autoSelectRunningDriverMar(newVal);
+
+  if (!found) {
+    // 3. Om ingen kör det nya hindret:
+    //    Kolla om den nuvarande föraren kör ett ANNAT hinder just nu.
+    //    Om så är fallet, ska vi INTE behålla föraren vald för det nya hindret,
+    //    för då riskerar vi att nollställa deras "running"-status när vi laddar det nya (tomma) hindret.
+
+    if (currentEquipage && currentLiveState && currentLiveState.running) {
+      // Om föraren kör, och det är INTE det nya hindret (vilket vi vet eftersom found=false)
+      console.log(`[MaratonInput] Förare ${currentEquipage.startNumber} kör ett annat hinder. Avmarkerar för att skydda timer.`);
+
+      // Avmarkera föraren (sätt dropdown till tom/null)
+      if (equipageSearchDropdownMar) {
+        equipageSearchDropdownMar.setValue(null);
+        // Detta triggar onMarathonEquipageSelected(null) som rensar UI.
+        return;
+      }
+    }
+
+    // 4. Om föraren INTE kör något annat (eller vi inte har någon förare),
+    //    ladda bara resultatet för det nya hindret (vilket blir tomt/sparat).
+    await loadExistingResult(false); // Visa bekräftelse vid AKTIVT hinderbyte
+
+    // 5. NYTT: Pusha valet till Firestore omedelbart för att etablera kontext
+    //    Detta gör att Monitorn följer med och att t.ex. kommentarer kan sparas 
+    //    direkt utan att hindret "tappas bort" vid sync.
+    if (currentEquipage && newVal) {
+      await pushLiveSafe({ currentObstacle: Number(newVal) });
+    }
+
+    // 6. NYTT: Sortera om ekipagen baserat på det nya hindret
+    rebuildSortedEquipages(newVal);
+  }
+}
+
 /**
  * Fyller dropdown-menyn för hinder.
  * @param {Array<object>} obstacles - Lista på maratonhinder.
+ * @param {boolean} skipAutoSelect - Om true, kör INTE autoSelectRunningDriverMar
  */
-function populateObstacleSelector(obstacles) {
-  obstacleList = obstacles || [];
+function populateObstacleSelector(obstacles, skipAutoSelect = false) {
+  if (obstacles) {
+    // Om obstacles är en array används den direkt, annars kollar vi efter .obstacles i objektet
+    obstacleList = Array.isArray(obstacles) ? obstacles : (obstacles.obstacles || []);
+  }
+
   const obstacleSelect = document.getElementById('maratonObstacleSelect');
   if (!obstacleSelect) return;
 
   const currentVal = obstacleSelect.value;
   obstacleSelect.innerHTML = '<option value="">Välj hinder...</option>';
 
-  obstacles.forEach(obs => {
+  // Bestäm vad som ska visas
+  let obstaclesToRender = [];
+  if (obstacleList && obstacleList.length > 0) {
+    obstaclesToRender = obstacleList;
+  } else {
+    // FALLBACK: Generera lista 1..N baserat på config om ingen explicit lista finns
+    const maxObs = Number(marathonConfigCache?.maxObstacles) || 8;
+    for (let i = 1; i <= maxObs; i++) {
+      obstaclesToRender.push({ number: i });
+    }
+  }
+
+  // Apply Class Filter
+  const drivenObs = currentEquipage ? getClassDrivenObstacles(currentEquipage.className) : null;
+  const filteredObstacles = drivenObs ? obstaclesToRender.filter(o => drivenObs.includes(Number(o.number))) : obstaclesToRender;
+
+  filteredObstacles.forEach(obs => {
     const option = document.createElement('option');
     option.value = obs.number;
     option.textContent = `Hinder ${obs.number}${obs.name ? ` (${obs.name})` : ''}`;
     obstacleSelect.appendChild(option);
   });
   obstacleSelect.value = currentVal;
-  // Auto-select om inget valt: live.currentObstacle -> senaste sparade -> första i listan
-  if (!obstacleSelect.value) {
-    const livePref = currentLiveState?.currentObstacle || null;
-    const saved = Array.isArray(currentLiveState?.obstacles) ? currentLiveState.obstacles : [];
-    const lastSaved = saved.length ? Math.max(...saved.map(o => Number(o.number) || 0)) : null;
-    const firstOpt = (obstacles && obstacles.length) ? obstacles[0].number : null;
 
-    const pick = String(livePref || lastSaved || firstOpt || '');
-    if (pick) obstacleSelect.value = pick;
+  // Auto-select strategi:
+  let pick = null;
+
+  // 1. Kolla localStorage
+  const lastSelected = localStorage.getItem(`maratonLastObstacle_${competitionId}`);
+  if (lastSelected && filteredObstacles.some(o => o.number == lastSelected)) {
+    pick = lastSelected;
+  }
+
+  // 2. Om inget i storage, kolla live-state
+  if (!pick) {
+    const livePref = currentLiveState?.currentObstacle || null;
+    if (livePref) pick = livePref;
+  }
+
+  // 3. Fallback till första tillgängliga om inget valts
+  if (!pick && filteredObstacles.length > 0) {
+    pick = filteredObstacles[0].number;
+  }
+
+  if (pick) {
+    obstacleSelect.value = pick;
+    if (!skipAutoSelect) {
+      autoSelectRunningDriverMar(pick);
+    }
   }
 
   // Synka UI för valt hinder och ladda ev. sparade fält
   updateKnockdownVisibility();
   renderRouteButtonsForCurrent();
-  // Ladda in sparat resultat för det nu valda hindret (utan att nollställa något i Firestore)
-  loadExistingResult();
-
+  loadExistingResult(true); 
 }
 
 /**
@@ -725,7 +852,7 @@ function populateObstacleSelector(obstacles) {
 // UPPDATERAD FÖR ATT LADDA SPARAD DATA
 // RAD FÖRE (ca 823): // UPPDATERAD FÖR ATT LADDA SPARAD DATA
 
-async function loadExistingResult() {
+async function loadExistingResult(silent = false) {
   const equipageId = currentEquipage?.startNumber;
   const obstacleNumber = document.getElementById('maratonObstacleSelect').value;
   currentObstacleNumber = obstacleNumber ? Number(obstacleNumber) : null;
@@ -769,14 +896,27 @@ async function loadExistingResult() {
     let liveDataUpdate;
     if (resultToLoad) {
       // Om vi hittade ett sparat resultat, förbered att ladda in dess data
-      showAlert(`Laddade sparat resultat för hinder ${currentObstacleNumber}.`, true);
+      if (!silent) {
+        showAlert(`Laddade sparat resultat för hinder ${currentObstacleNumber}.`, true);
+      }
+
+      // KORRIGERING: Återställ ursprunglig starttid för att mellantider ska förbli giltiga
+      let restoredStart = null;
+      if (resultToLoad.enteredAt) {
+        const ea = resultToLoad.enteredAt;
+        if (ea && typeof ea.toMillis === 'function') restoredStart = ea.toMillis();
+        else if (ea instanceof Date) restoredStart = ea.getTime();
+        else if (typeof ea === 'string') restoredStart = new Date(ea).getTime();
+        else if (typeof ea === 'number') restoredStart = ea;
+      }
+
       liveDataUpdate = {
         currentObstacle: currentObstacleNumber,
         running: false,
         inProgress: true,
         liveObstacleTimeMs: resultToLoad.timeMs || 0,
         liveObstacleStartAt: null, // Ensure stale start time is cleared
-        live_staticStartAt: null, // Wipe old static start
+        live_staticStartAt: restoredStart, // Restore original start
         live_routeString: resultToLoad.routeString || '',
         live_knockdowns: resultToLoad.knockdowns ?? '0',
         live_otherPenalty: resultToLoad.otherPenalty ?? '0',
@@ -800,11 +940,43 @@ async function loadExistingResult() {
       };
     }
 
-    // Applicera datan lokalt och skicka sedan till Firestore för att synka alla användare
+    // 2. CRITICAL FIX: Om currentLiveState säger att vi KÖR detta hinder just nu,
+    // låt INTE "saved result" eller "default reset" skriva över running-statusen!
+    // Detta händer när autoSelectRunningDriverMar() har hittat en löpare och satt igång lyssnaren,
+    // men sedan anropas loadExistingResult() som försöker nollställa.
+
+    if (currentLiveState &&
+      currentLiveState.running === true &&
+      Number(currentLiveState.currentObstacle) === Number(currentObstacleNumber)) {
+
+      console.log(`[MaratonInput] Beåller LIVE-status för hinder ${currentObstacleNumber} (running=true).`);
+
+      // Vi behåller de fält som styr timern från live-state
+      liveDataUpdate.running = true;
+      liveDataUpdate.inProgress = true;
+      liveDataUpdate.liveObstacleTimeMs = currentLiveState.liveObstacleTimeMs; // Kan vara 0 om nyss startad
+      liveDataUpdate.liveObstacleStartAt = currentLiveState.liveObstacleStartAt;
+      liveDataUpdate.live_staticStartAt = currentLiveState.live_staticStartAt;
+
+      // Vi kanske också vill behålla live-input om den finns (tex knockdowns som precis matats in men inte sparats)
+      if (currentLiveState.live_knockdowns !== undefined) liveDataUpdate.live_knockdowns = currentLiveState.live_knockdowns;
+      if (currentLiveState.live_otherPenalty !== undefined) liveDataUpdate.live_otherPenalty = currentLiveState.live_otherPenalty;
+      if (currentLiveState.live_routeString !== undefined) liveDataUpdate.live_routeString = currentLiveState.live_routeString;
+      if (currentLiveState.live_gateSplits !== undefined) liveDataUpdate.live_gateSplits = currentLiveState.live_gateSplits;
+    }
+
+    // Applicera datan lokalt
     // Slå ihop med existerande state för att inte tappa bort ekipage-info
     const finalState = { ...currentLiveState, ...liveDataUpdate };
     applyLiveStateToUI(finalState);
-    await pushLiveSafe(liveDataUpdate);
+
+    // KORRIGERING: Vi ska INTE pusha till Firestore här om vi bara läser in data.
+    // Att pusha här (speciellt med running: false) var det som dödade timern om man bytte hinder.
+    // Vi pushar bara vid explicita användarhandlingar (Start, Stopp, Input).
+    // UNDANTAG: Om vi laddat in en *pågående* tid (som kanske tappat synk), kan vi vilja spegla det,
+    // men för "Byte av hinder" är det säkrast att vara tyst.
+
+    // await pushLiveSafe(liveDataUpdate); <-- BORTKOMMENTERAD
 
   } catch (error) {
     console.error("Kunde inte ladda hinderresultat:", error);
@@ -946,29 +1118,73 @@ async function saveResult(e) {
 
 // RAD FÖRE (ca 1009): }
 
-async function setupPage() {
-  // Hämta all nödvändig data parallellt för snabbare laddning
-  const [equipagesRaw, startTimesData, marathonConfig] = await Promise.all([
-    getEquipages(competitionId),
-    getStartTimes(competitionId),
-    getConfig(competitionId, 'maratonConfig')
-  ]);
-
-  marathonConfigCache = marathonConfig || {};
-
-  const allEquipages = (equipagesRaw || []).map(normalizeEquipage);
+function rebuildSortedEquipages(obstacleNo) {
+  const allEquipages = (equipagesRawCache || []).map(normalizeEquipage);
   const activeEquipages = allEquipages.filter(e => e.status !== 'struken');
 
-  // NY KORREKT SORTERING: Sortera efter maratonstarttid
+  const num = obstacleNo ? Number(obstacleNo) : null;
+
   sortedEquipages = [...activeEquipages].sort((a, b) => {
-    const timeA = (startTimesData && startTimesData[a.startNumber]?.maraton) || '99:99';
-    const timeB = (startTimesData && startTimesData[b.startNumber]?.maraton) || '99:99';
+    // Done with THIS obstacle?
+    const docA = marathonStateDocsMap.get(String(a.startNumber));
+    const docB = marathonStateDocsMap.get(String(b.startNumber));
+    
+    const obsA = (docA?.obstacles || []).find(o => Number(o.number) === num);
+    const obsB = (docB?.obstacles || []).find(o => Number(o.number) === num);
+
+    const doneA = !!obsA;
+    const doneB = !!obsB;
+
+    if (doneA !== doneB) return doneA ? 1 : -1;
+
+    const timeA = (currentStartTimesData && currentStartTimesData[a.startNumber]?.marathon) || '99:99';
+    const timeB = (currentStartTimesData && currentStartTimesData[b.startNumber]?.marathon) || '99:99';
     if (timeA !== timeB) return timeA.localeCompare(timeB);
-    return a.startNumber - b.startNumber; // Fallback till startnummer
+    return a.startNumber - b.startNumber;
   });
 
-  const equipageSearchContainer = document.getElementById('equipageSearchContainerMar');
-  equipageSearchDropdownMar = createSearchableDropdown(equipageSearchContainer, sortedEquipages, onMarathonEquipageSelected);
+  if (equipageSearchDropdownMar) {
+    equipageSearchDropdownMar.updateData(sortedEquipages);
+  } else {
+    const equipageSearchContainer = document.getElementById('equipageSearchContainerMar');
+    if (equipageSearchContainer) {
+      equipageSearchDropdownMar = createSearchableDropdown(equipageSearchContainer, sortedEquipages, onMarathonEquipageSelected);
+    }
+  }
+}
+
+let equipagesRawCache = [];
+
+async function setupPage() {
+  try {
+    // Hämta all nödvändig data parallellt för snabbare laddning
+    const [equipagesRaw, startTimesData, marathonConfig, marathonStateDocs] = await Promise.all([
+      getEquipages(competitionId),
+      getStartTimes(competitionId),
+      getConfig(competitionId, 'maratonConfig'),
+      getMarathonStateDocuments(competitionId)
+    ]);
+    equipagesRawCache = equipagesRaw || [];
+
+    marathonConfigCache = marathonConfig || {};
+    setMarathonConfig(marathonConfigCache);
+
+    marathonStateDocsMap = marathonStateDocs || new Map();
+    currentStartTimesData = startTimesData;
+
+    // Fyll hinderlistan (standard om ingen kusk är vald)
+    // Försök hämta om det finns port-inställningar i config om vi inte har en kusk
+    obstacleList = getClassDrivenObstacles(null);
+    populateObstacleSelector();
+
+    rebuildSortedEquipages(document.getElementById('maratonObstacleSelect')?.value);
+
+    // Request Wake Lock
+    try {
+      await requestWakeLock();
+    } catch (wlErr) {
+      console.warn('WakeLock failed (expected if page hidden):', wlErr);
+    }
 
   // NYTT: Bättre event-hantering för live-push
   boundHandlers.formInputHandler = (e) => {
@@ -1006,7 +1222,9 @@ async function setupPage() {
   unsubObstacles = listenForMarathonObstacles(competitionId, populateObstacleSelector);
 
   // Koppla alla knappar och event
-  boundHandlers.obstacleChange = loadExistingResult;
+
+  // KORRIGERING: Använd vår nya handler som både sparar och söker
+  boundHandlers.obstacleChange = handleObstacleChange;
   boundHandlers.submitHandler = (e) => saveResult(e);
   boundHandlers.prevClick = () => navigateEquipage(-1);
   boundHandlers.nextClick = () => navigateEquipage(1);
@@ -1035,6 +1253,13 @@ async function setupPage() {
   document.getElementById('liveTimerMar')?.addEventListener('click', boundHandlers.timerClick);
   document.getElementById('btnManualCancelMar')?.addEventListener('click', boundHandlers.cancelClick);
   document.getElementById('btnManualApplyMar')?.addEventListener('click', boundHandlers.applyClick);
+  document.getElementById('manualTimeDigitsMar')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyManualTime();
+    }
+  });
+
   document.getElementById('routeUndo')?.addEventListener('click', boundHandlers.routeUndo);
   document.getElementById('routeClear')?.addEventListener('click', boundHandlers.routeClear);
 
@@ -1050,8 +1275,20 @@ async function setupPage() {
     downloadJson(filename, backup);
   });
 
-  listenForGlobalCompetitionPause_Obstacles();
+  if (unsubMaratonList) unsubMaratonList();
+  unsubMaratonList = listenForMaratonCollection(competitionId, (maratonDocs) => {
+    marathonStateDocsMap = new Map();
+    (maratonDocs || []).forEach(d => marathonStateDocsMap.set(String(d.id), d));
+    rebuildSortedEquipages(document.getElementById('maratonObstacleSelect')?.value);
+  });
+
+  } catch (err) {
+    console.error('[MarathonInput] Allvarligt fel vid initiering:', err);
+    showAlert('Kunde inte ladda sidan korrekt. Se konsolen för detaljer.', false);
+  }
 }
+
+let unsubMaratonList = null;
 
 // RAD EFTER (ca 1062): // Hanterar Föregående/Nästa-knapparna
 
@@ -1081,15 +1318,22 @@ function applyManualTime() {
   pausedMs = digitsToMs(digits);
   isRunning = false;
   inProgress = true;
+
+  // Update state locally immediately (prevent race condition)
+  currentLiveState.liveObstacleTimeMs = pausedMs;
+  currentLiveState.running = false;
+  currentLiveState.liveObstacleStartAt = null;
+
   updateTimerViewMar();
   document.getElementById('manualTimeEditorMar')?.classList.add('hidden');
 
   // Skicka en komplett ögonblicksbild av tillståndet
   pushLiveSafe({
-    running: isRunning,
-    inProgress: inProgress,
+    running: false,
+    inProgress: true,
     currentObstacle: currentObstacleNumber,
-    liveObstacleTimeMs: pausedMs
+    liveObstacleTimeMs: pausedMs,
+    liveObstacleStartAt: null // Clear start time so monitor knows it is stopped
   });
 }
 
@@ -1174,7 +1418,7 @@ function renderRouteButtonsForCurrent() {
   letters.forEach(L => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'py-4 text-xl font-bold rounded-lg bg-emerald-100 text-emerald-800 border-2 border-emerald-600 hover:bg-emerald-600 hover:text-white active:scale-95 transition-all touch-manipulation shadow-sm';
+    btn.className = 'py-2.5 md:py-4 text-lg md:text-xl font-bold rounded-lg bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100 border-2 border-emerald-600 dark:border-emerald-700 hover:bg-emerald-600 hover:text-white dark:hover:bg-emerald-700 active:scale-95 transition-all touch-manipulation shadow-sm';
     btn.textContent = L;
     btn.addEventListener('click', () => appendRouteLetter(L));
     upperRow.appendChild(btn);
@@ -1186,7 +1430,7 @@ function renderRouteButtonsForCurrent() {
   letters.forEach(L => {
     const btn = document.createElement('button');
     btn.type = 'button';
-    btn.className = 'py-3 text-lg font-medium rounded-lg bg-red-100 text-red-800 border border-red-300 hover:bg-red-500 hover:text-white active:scale-95 transition-all touch-manipulation opacity-80';
+    btn.className = 'py-2 md:py-3 text-base md:text-lg font-medium rounded-lg bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-100 border border-red-300 dark:border-red-800 hover:bg-red-500 hover:text-white dark:hover:bg-red-700 active:scale-95 transition-all touch-manipulation opacity-80';
     btn.textContent = L.toLowerCase();
     btn.addEventListener('click', () => appendRouteLetter(L.toLowerCase()));
     lowerRow.appendChild(btn);
@@ -1238,7 +1482,7 @@ export function load() {
   const page = document.getElementById('page-maraton-input');
 
   if (!competition) {
-    page.innerHTML = `<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>`;
+    page.innerHTML = `<p class="p-8 text-center text-red-500 dark:text-red-400">Ingen tävling vald.</p>`;
     return;
   }
   competitionId = competition.id;
@@ -1249,138 +1493,156 @@ export function load() {
           display: none;
           margin-top: 8px;
       }
-      .movement-card.comment-visible .comment-wrapper,
       .comment-wrapper.comment-visible {
           display: block;
       }
       .toggle-btn {
           background: none;
-          border: 1px solid #cbd5e1; /* gray-300 */
-          border-radius: 99px; /* rounded-full */
+          border: 1px solid #cbd5e1;
+          border-radius: 99px;
           padding: 4px 10px;
           font-size: 11px;
           line-height: 1.2;
-          color: #475569; /* gray-600 */
+          color: #475569;
           cursor: pointer;
           white-space: nowrap;
       }
-      .toggle-btn:hover {
-          background: #f1f5f9; /* gray-100 */
-      }
       .toggle-btn.has-comment {
-          border-color: #2563eb; /* blue-600 */
+          border-color: #2563eb;
           color: #2563eb;
           font-weight: 600;
       }
+      
+      @media (max-width: 640px) {
+          #page-maraton-input .container { padding: 0.5rem; }
+          #page-maraton-input .main-card { padding: 0.75rem !important; border-radius: 0.5rem; }
+          #page-maraton-input h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+          
+          .sticky-maraton-controls {
+              top: 63px;
+              margin-left: -0.75rem;
+              margin-right: -0.75rem;
+              padding: 0.5rem 0.75rem !important;
+          }
+          #liveTimerMar { font-size: 2.25rem !important; }
+          .control-btn { padding: 0.5rem !important; font-size: 1rem !important; }
+          
+          .selection-grid { grid-template-columns: 1fr !important; gap: 0.5rem !important; }
+      }
+
+      /* Dark mode styles */
+      .dark .toggle-btn { border-color: #4b5563; color: #9ca3af; }
+      .dark .toggle-btn.has-comment { border-color: #60a5fa; color: #60a5fa; }
   </style>
+
   <div class="container mx-auto p-4 md:p-8 max-w-2xl">
     ${getCompetitionHeader(competition, 'Inmatning Maratonhinder')}
 
-    <div class="bg-white p-6 rounded-xl shadow-md">
-      <h2 class="text-2xl font-semibold mb-4 border-b pb-2">Rapportera Resultat</h2>
-
-      <div class="sticky top-[63px] -mx-6 px-6 py-2 bg-white/95 backdrop-blur border-b z-20">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <div id="infoEquipageLineMar" class="font-semibold">–</div>
-            <div class="text-gray-600 text-sm">
-              Hinder: <span id="infoObstacleLine" class="font-medium">–</span>
-            </div>
-          </div>
-          <div class="relative">
-            <div id="liveTimerMar" class="text-3xl font-bold tabular-nums cursor-pointer text-center" title="Klicka för att ändra tiden">00:00,00</div>
-            <div id="manualTimeEditorMar" class="hidden absolute right-0 mt-2 w-[320px] p-4 rounded-lg border bg-white shadow-lg z-40">
-              <label class="block text-sm mb-2">Manuell tid (mmsscc)</label>
-              <input id="manualTimeDigitsMar" type="tel" inputmode="numeric" class="w-full text-3xl tracking-widest px-3 py-2 border rounded mb-3" placeholder="mmsscc" maxlength="6" />
-              <div class="flex gap-2">
-                <button id="btnManualApplyMar" class="flex-1 py-2 rounded bg-emerald-600 text-white">Använd</button>
-                <button id="btnManualCancelMar" class="flex-1 py-2 rounded bg-gray-300">Avbryt</button>
-              </div>
-            </div>
-          </div>
-        </div>
-        <div class="mt-2 flex items-center gap-2">
-          <button id="btnStartMar" class="flex-1 px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-transform touch-manipulation shadow-sm">Start</button>
-          <button id="btnStopMar"  class="flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-transform touch-manipulation shadow-sm">Stopp</button>
-          <button id="btnResetMar" class="px-4 py-3 rounded-lg bg-gray-200 text-gray-700 font-medium active:scale-95 transition-transform touch-manipulation">
-            <span class="sr-only">Nollställ</span>
-            🔄
-          </button>
-        </div>
-      </div>
+    <div class="main-card bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+      <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Rapportera Resultat</h2>
 
       <form id="addMaratonResultForm" class="space-y-3">
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <div>
-            <label class="block text-sm font-medium">Välj Ekipage</label>
-            <div class="flex items-center space-x-2">
-              <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100">«</button>
-              <div id="equipageSearchContainerMar" class="mt-1 flex-grow"></div>
-              <button id="nextEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100">»</button>
+        <!-- EKIPAGE OCH HINDERVAL -->
+        <div class="selection-grid grid grid-cols-1 md:grid-cols-2 gap-3 mb-2 relative z-30">
+          <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
+            <label class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Välj Ekipage</label>
+            <div class="flex items-center gap-2">
+              <button id="prevEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
+              <div id="equipageSearchContainerMar" class="flex-grow"></div>
+              <button id="nextEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
             </div>
           </div>
 
-          <div>
-            <label for="maratonObstacleSelect" class="block text-sm font-medium">Välj Hinder</label>
-            <select id="maratonObstacleSelect" required class="mt-1 block w-full p-3 text-lg border rounded-md"></select>
+          <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
+            <label for="maratonObstacleSelect" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Hinder</label>
+            <select id="maratonObstacleSelect" required class="block w-full p-2 text-base border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
           </div>
         </div>
 
-        <div>
-          <label class="block text-sm font-medium">Väg genom hindret</label>
-          <div id="routeButtons" class="mt-1 space-y-1">
+        <!-- STICKY TIMER OCH KONTROLLER -->
+        <div class="sticky-maraton-controls sticky top-[63px] -mx-6 px-6 py-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur border-b dark:border-gray-700 z-10 shadow-sm mb-4">
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex-grow min-w-0">
+               <div id="infoEquipageLineMar" class="font-bold text-sm md:text-base dark:text-white truncate">–</div>
+               <div class="text-xs text-gray-600 dark:text-gray-400">
+                 Hinder: <span id="infoObstacleLine" class="font-bold tabular-nums">–</span>
+               </div>
             </div>
-          <input id="routeString" class="mt-2 block w-full p-2 text-base border rounded-md bg-gray-50" placeholder="Ex: A b C d …" readonly>
-          <div id="routePreview" class="mt-1 text-base leading-7 font-bold tracking-wider"></div>
-          <p class="text-sm mt-1 text-gray-500"></p>
-          <div class="mt-2 flex gap-2">
-            <button id="routeUndo"  type="button" class="px-3 py-1 text-sm rounded bg-gray-200 hover:bg-gray-300">Ångra</button>
-            <button id="routeClear" type="button" class="px-3 py-1 text-sm rounded bg-gray-200 hover:bg-gray-300">Rensa</button>
+            <div id="liveTimerMar" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer text-gray-800 dark:text-white" title="Ändra tid">00:00,00</div>
+          </div>
+
+          <div class="mt-2 flex items-center gap-2">
+            <button id="btnStartMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
+            <button id="btnStopMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>
+            <button id="btnResetMar" type="button" class="control-btn w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white">🔄</button>
+          </div>
+
+          <!-- Manuelltids-editor (floating) -->
+          <div id="manualTimeEditorMar" class="hidden absolute right-4 top-full mt-2 w-72 p-4 rounded-xl border bg-white dark:bg-gray-800 shadow-2xl z-50 dark:border-gray-700">
+            <label class="block text-xs font-bold uppercase text-gray-500 mb-2">Ange manuell tid (mmsscc)</label>
+            <input id="manualTimeDigitsMar" type="tel" inputmode="numeric" class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="mmsscc" maxlength="6" />
+            <div class="flex gap-2">
+              <button id="btnManualApplyMar" type="button" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">Använd</button>
+              <button id="btnManualCancelMar" type="button" class="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 dark:text-gray-200">Avbryt</button>
+            </div>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <!-- VÄGVAL -->
+        <div class="space-y-2">
+          <div class="flex items-center justify-between">
+            <label class="text-[10px] uppercase font-bold text-gray-500">Väg genom hindret</label>
+            <div class="flex gap-2">
+                <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 hover:underline">ÅNGRA</button>
+                <button id="routeClear" type="button" class="text-[10px] font-bold text-red-600 hover:underline">RENSA</button>
+            </div>
+          </div>
+          <div id="routeButtons" class="bg-gray-50 dark:bg-gray-900/40 p-2 rounded-lg border dark:border-gray-700"></div>
+          <div id="routePreview" class="min-h-[1.5rem] px-1 text-base font-bold tracking-widest dark:text-gray-200"></div>
+          <input id="routeString" type="hidden">
+        </div>
+
+        <!-- STRAFF OCH ELIMINERING -->
+        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2 border-t dark:border-gray-700">
           <div id="knockdown-container" class="hidden">
-            <label for="maratonKnockdowns" class="block text-sm font-medium">Knockdowns</label>
-            <input type="number" inputmode="numeric" id="maratonKnockdowns" value="0" min="0" class="mt-1 block w-full p-2 text-base border rounded-md">
+            <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Knockdowns</label>
+            <input type="number" inputmode="numeric" id="maratonKnockdowns" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           </div>
           
           <div>
-            <label for="maratonPenalty" class="block text-sm font-medium">Övrigt straff</label>
-            <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="mt-1 block w-full p-2 text-base border rounded-md" placeholder="t.ex. 10">
+            <label for="maratonPenalty" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Övrigt straff</label>
+            <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           </div>
 
-          <div class="flex items-center md:mt-6">
-            <input type="checkbox" id="maratonEliminated" class="h-5 w-5 rounded border-gray-300">
-            <label for="maratonEliminated" class="ml-2 block text-md font-medium">Eliminerad</label>
+          <div class="flex items-end">
+            <label class="flex items-center cursor-pointer p-2 border rounded hover:bg-red-50 dark:hover:bg-red-900/10 w-full h-[38px] transition-colors dark:border-gray-700">
+              <input type="checkbox" id="maratonEliminated" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
+              <span class="ml-2 text-xs font-bold text-red-700 dark:text-red-400 uppercase">Elim.</span>
+            </label>
           </div>
         </div>
 
-        <div>
-          <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬 Kom.</button>
+        <div class="pt-2">
+          <div class="flex items-center justify-between mb-2">
+             <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬 Kom.</button>
+             <div class="text-right">
+                <span class="text-[10px] uppercase font-bold text-gray-500 block">Totalt Hinderstraff</span>
+                <span id="totalPenaltyDisplay" class="text-lg font-black text-brand-darkblue dark:text-blue-400">0.00</span>
+             </div>
+          </div>
           <div class="comment-wrapper">
-            <textarea id="maratonComment" rows="2" class="mt-1 block w-full p-2 border rounded-md" placeholder="Lägg till kommentar..."></textarea>
+            <textarea id="maratonComment" rows="1" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ev. orsak..."></textarea>
           </div>
         </div>
         
-        <div class="mt-4 border-t pt-4 grid grid-cols-2 gap-4 items-center">
-            <div>
-              <label class="block text-sm font-medium">Totalt Straff Hinder</label>
-              <div id="totalPenaltyDisplay" class="mt-1 block w-full p-2 text-lg font-bold bg-gray-100 border rounded-md">
-                  0.00
-              </div>
-              <p class="text-xs text-gray-500 mt-1">Tid + Knockdowns + Övrigt</p>
-            </div>
-
-            <button type="submit" class="w-full bg-green-600 text-white font-semibold py-3 px-6 rounded-lg hover:bg-green-700 text-lg">
-              Spara & Nästa
+        <div class="pt-2">
+            <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all text-xl">
+              SPARA & NÄSTA
             </button>
-        </div>
-        <div class="mt-4 pt-3 border-t flex justify-end">
-          <button id="btnBackupMarJson" type="button" class="text-xs text-blue-600 hover:underline flex items-center gap-1">
-            <i class="fas fa-file-download"></i> Ladda ner säkerhetskopia (JSON)
-          </button>
+            <button id="btnBackupMarJson" type="button" class="w-full mt-3 text-[10px] text-gray-400 hover:text-blue-500 flex items-center justify-center gap-1">
+              <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
+            </button>
         </div>
       </form>
     </div>
@@ -1412,6 +1674,11 @@ export function __unload() {
     if (unsubMaratonDoc) {
       try { unsubMaratonDoc(); } catch { }
       unsubMaratonDoc = null;
+    }
+
+    if (unsubMaratonList) {
+      try { unsubMaratonList(); } catch { }
+      unsubMaratonList = null;
     }
 
     // Ta bort DOM-lyssnare vi satte i setupPage()

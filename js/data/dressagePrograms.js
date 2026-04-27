@@ -1,5 +1,6 @@
 export const dressagePrograms = {
     'SvLB': {
+        penaltyCoeff: 1.00,
         name: 'Lätt B (2020) (nr 522)',
         category: 'Svenska Program',
         calculationType: 'national',
@@ -25,6 +26,7 @@ export const dressagePrograms = {
     },
 
     'SvLA': {
+        penaltyCoeff: 1.00,
         name: 'Lätt A (2020) (nr 523)',
         category: 'Svenska Program',
         calculationType: 'national',
@@ -50,6 +52,7 @@ export const dressagePrograms = {
     },
 
     'SvMsvC': {
+        penaltyCoeff: 0.80,
         name: 'Msv 2 (C) (2020) (nr 524)',
         category: 'Svenska Program',
         calculationType: 'national',
@@ -76,6 +79,7 @@ export const dressagePrograms = {
     },
 
     'SvMsvB': {
+        penaltyCoeff: 0.80,
         name: 'Msv 3 (B) (2020) (nr 525)',
         category: 'Svenska Program',
         calculationType: 'national',
@@ -102,6 +106,7 @@ export const dressagePrograms = {
     },
 
     "sv_msv_4_enb_2025": {
+        "penaltyCoeff": 0.80,
         "name": "Msv 4 (Enbet) (nr 530)",
         "category": "Svenska Program",
         "arena": "40x80",
@@ -137,6 +142,7 @@ export const dressagePrograms = {
     },
 
     "sv_msv_4_par_2025": {
+        "penaltyCoeff": 0.80,
         "name": "Msv 4 (Par/Fyrspann) (nr 530)",
         "category": "Svenska Program",
         "arena": "40x80",
@@ -170,6 +176,7 @@ export const dressagePrograms = {
     },
 
     'SvSvar': {
+        penaltyCoeff: 0.76,
         name: 'Svår Klass (2020) (nr 526)',
         category: 'Svenska Program',
         calculationType: 'national',
@@ -202,6 +209,7 @@ export const dressagePrograms = {
     },
 
     'FEI_Children_2025_sv': {
+        penaltyCoeff: 0.80,
         name: 'FEI Children Test (nr 533)',
         category: 'FEI Youth',
         arena: "80x40",
@@ -233,6 +241,7 @@ export const dressagePrograms = {
     },
 
     'FEIJunior': {
+        penaltyCoeff: 0.80,
         name: 'Junior Test (nr 510)',
         category: 'FEI Youth',
         source: "510. JYD FEI Dressage Test 4A (Test J_YD)",
@@ -263,6 +272,7 @@ export const dressagePrograms = {
     },
 
     'FEI_2star_HP2_2024': {
+        penaltyCoeff: 0.76,
         name: 'FEI Test 2* HP2 (används för U25)',
         category: 'FEI Senior/U25',
         arena: "80x40",
@@ -299,6 +309,7 @@ export const dressagePrograms = {
     },
 
     'FEIParaG1': {
+        penaltyCoeff: 0.80,
         name: 'FEI Para Grad 1 (2024)',
         category: 'FEI Para',
         calculationType: 'fei',
@@ -324,6 +335,7 @@ export const dressagePrograms = {
     },
 
     'FEIParaG2': {
+        penaltyCoeff: 0.80,
         name: 'FEI Para Grad 2 (2024)',
         category: 'FEI Para',
         calculationType: 'fei',
@@ -350,6 +362,7 @@ export const dressagePrograms = {
     },
 
     'FEI_CAI1_Para': {
+        penaltyCoeff: 0.80,
         name: 'FEI Test CAI1* and Para Driving (nr 529)',
         category: 'FEI Senior',
         arena: "80x40 or 100x40",
@@ -381,6 +394,7 @@ export const dressagePrograms = {
     },
 
     'FEI_2star_2021': {
+        penaltyCoeff: 0.76,
         name: 'FEI Test 2* (nr 526)',
         category: 'FEI Senior',
         arena: "40x80",
@@ -413,6 +427,7 @@ export const dressagePrograms = {
     },
 
     'FEI_2star_HP2_HP4': {
+        penaltyCoeff: 0.76,
         name: 'FEI Test 2* HP2-HP4 (nr 527)',
         category: 'FEI Senior',
         arena: "80x40",
@@ -445,6 +460,7 @@ export const dressagePrograms = {
     },
 
     'FEI3AHP1': {
+        penaltyCoeff: 0.73,
         name: 'FEI Test 3* HP1 (Enbet)',
         category: 'FEI Senior',
         arena: "80x40",
@@ -480,6 +496,7 @@ export const dressagePrograms = {
     },
 
     'FEI_3star_B_HP4_2022': {
+        penaltyCoeff: 0.615,
         name: 'FEI Test 3*B HP4 (Par/Fyrspann)',
         category: 'FEI Senior',
         arena: "100x40",
@@ -515,6 +532,7 @@ export const dressagePrograms = {
     },
 
     'FEI_3star_HP4_2025': {
+        penaltyCoeff: 0.615,
         name: 'FEI Test 3* HP4 (Par/Fyrspann)',
         category: 'FEI Senior',
         arena: "80x40",
@@ -552,6 +570,7 @@ export const dressagePrograms = {
     },
 
     'FEI_3star_HP2_P2_2025': {
+        penaltyCoeff: 0.615,
         name: 'FEI Test 3* H2-P2 (nr 532)',
         category: 'FEI Senior',
         arena: "80x40",
@@ -589,6 +608,7 @@ export const dressagePrograms = {
     },
 
     'FEI_FU_PE_A': {
+        penaltyCoeff: 0.84,
         name: 'FEI Dressage Test "FU" (Test PE A) (nr 509)',
         category: 'FEI Para',
         arena: "40x100 or 40x80",
@@ -621,6 +641,7 @@ export const dressagePrograms = {
     // LÄGG TILL DESSA NYA PROGRAM I dressagePrograms.js
 
     'sv_latt_1_inomhus': {
+        penaltyCoeff: 1.00,
         name: 'Svenskt Lätt nr 1 (Inomhus)',
         category: 'Svenska Program',
         arena: "20x60",
@@ -648,6 +669,7 @@ export const dressagePrograms = {
     },
 
     'sv_latt_2_inomhus': {
+        penaltyCoeff: 1.00,
         name: 'Svenskt Lätt nr 2 (Inomhus)',
         category: 'Svenska Program',
         arena: "20x60",
@@ -675,6 +697,7 @@ export const dressagePrograms = {
     },
 
     'sv_msv_1_inomhus': {
+        penaltyCoeff: 0.80,
         name: 'Svenskt Medelsvårt nr 1 (Inomhus)',
         category: 'Svenska Program',
         arena: "20x60",
@@ -702,6 +725,7 @@ export const dressagePrograms = {
     },
 
     'sv_svar_1_inomhus': {
+        penaltyCoeff: 0.76,
         name: 'Svenskt Svårt nr 1 (Inomhus)',
         category: 'Svenska Program',
         arena: "20x60",
@@ -729,6 +753,7 @@ export const dressagePrograms = {
     },
 
     'FEI_Junior_2025': {
+        penaltyCoeff: 0.80,
         name: 'FEI Junior Test (nr 531)',
         category: 'FEI Youth',
         arena: "80x40",

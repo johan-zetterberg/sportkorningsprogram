@@ -7,20 +7,16 @@ import { ensureClubLogosLoaded, getClubLogoUrl } from '../services/logosService.
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import {
   getPrograms,
-  getDressagePenaltyCoeff,
+  // getDressagePenaltyCoeff, // REPLACED by calculationService
   fmtPct,
   fmtNum,
-  getMomentHorseLabel
+  getMomentHorseLabel,
+  guessProgramKeyFromClass
 } from '../utils/dressageUtils.js';
+import { calculateDressageResult } from '../services/calculationService.js';
 import { isPrivileged } from '../utils/sharedUtils.js';
-
-// --- Providers bridge (valfritt men praktiskt) ---
-async function loadPdfLibs() {
-  if (window.jspdf && window.jspdf.jsPDF) return;
-  // Fallback om de inte finns laddade globalt
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
-}
+import { t } from '../utils/i18n.js';
+import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
 
 let __pdfProviders = null;
 export function injectProviders(p) {
@@ -76,12 +72,33 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     };
 
     const saved = providers?.getSavedProtocols?.(sn) || [];
+    const validProtocols = [];
+
+    // First pass: Filter and collect
     for (const proto of saved) {
+      const jid = proto.judgeId || proto.id || proto.position;
+      const jName = proto.judgeName || proto.name || jid || '';
+
+      // Strict General Filter
+      if (String(jid).toLowerCase() === 'general') continue;
+      if (String(jName).toLowerCase().includes('general')) continue;
+
+      validProtocols.push(proto);
+    }
+
+    for (const proto of validProtocols) {
       const jid = proto.judgeId || proto.id || proto.position || 'C';
+      let pos = (proto.position || jid || '?').toUpperCase();
+
+      // Single Judge Default
+      if ((pos === '?' || !pos) && validProtocols.length === 1) {
+        pos = 'C';
+      }
+
       const movements = Array.isArray(proto.movements) ? proto.movements : [];
       data.judges[jid] = {
         id: jid,
-        position: (proto.position || jid || 'C').toUpperCase(),
+        position: pos,
         name: proto.judgeName || proto.name || jid,
         movements: movements.map(m => ({
           momentNo: Number(m.momentNo ?? m.movementNo ?? m.no),
@@ -99,14 +116,19 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
   await ensureClubLogosLoaded();
   const program = (data?.testKey && programs[data.testKey]) ? programs[data.testKey] : null;
   if (!program) {
-    // sista chans: mappa via label om testKey saknas
-    // sista chans: mappa via label om testKey saknas
+    // 1. Try finding via mapping
     const lbl = (data?._mergedLabel || data?.className || '');
-    const mapped = (window.klassProgramMapping && (
+    let mapped = (window.klassProgramMapping && (
       window.klassProgramMapping[data?.originalClassName] ||
       window.klassProgramMapping[data?.className] ||
       window.klassProgramMapping[lbl]
     ));
+
+    // 2. Fallback: Robust heuristic guessing if mapping fails
+    if (!mapped) {
+      mapped = guessProgramKeyFromClass(lbl, programs) || guessProgramKeyFromClass(data?.originalClassName, programs);
+    }
+
     if (mapped && programs[mapped]) {
       data.testKey = mapped;
       // eslint-disable-next-line no-var
@@ -230,11 +252,23 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
 
     // Calculate final results for this judge based on the summed scores
+    // Calculate final results for this judge using the centralized service
+    // We construct a temporary protocol object for this single judge
+    const singleJudgeProto = {
+      judgeId: judge.id,
+      movements: jr.movements || [],
+      eliminated: jr.eliminated,
+      testKey: data.testKey
+    };
+
+    // Calculate result for just this judge
+    const judgeRes = calculateDressageResult(data, [singleJudgeProto], [], programs);
+
     let totalPoints = 0, percent = 0, penalty = 0;
-    if (!jr.eliminated) {
-      totalPoints = calculatedSum;
-      percent = calculatedMax > 0 ? (calculatedSum / calculatedMax) * 100 : 0;
-      penalty = (calculatedMax - calculatedSum) * penaltyCoeff;
+    if (!jr.eliminated && !judgeRes.eliminated) {
+      totalPoints = judgeRes.points || 0;
+      percent = judgeRes.percent || 0;
+      penalty = judgeRes.penalty || 0;
     }
 
     const summaryData = [
@@ -262,8 +296,8 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     pdf.setFontSize(9).text('Domarens underskrift', sigX, sigY + 12);
   }
 
-  // Sammanställningssida (finns >1 domare)
-  if (judgesWithProtocols.length > 1) {
+  // Sammanställningssida (finns >0 domare) - ALWAYS print so error points are visible
+  if (judgesWithProtocols.length > 0) {
     pdf.addPage();
     let y = 45;
     if (srfLogo?.dataUrl) {
@@ -281,7 +315,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     pdf.text(`${data.className || ''} • ${data.clubName || ''}`, mx, y); y += 25;
 
     const maxScore = (effectiveProgram.movements || []).reduce((s, m) => s + 10 * (m.coeff || 1), 0);
-    const penaltyCoeff = getDressagePenaltyCoeff(program);
+    const penaltyCoeff = getDressagePenaltyCoeff(effectiveProgram);
     const today = new Date().toLocaleDateString('sv-SE');
     const totalHeaderInfo = [
       [{ content: 'Sammanställning:', styles: { fontStyle: 'bold' } }, `Totalt för ${judgesWithProtocols.length} domare`],
@@ -318,11 +352,26 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     });
     y = pdf.lastAutoTable.finalY + 20;
 
-    const avgPercent = (maxScore && sum) ? (sum / (maxScore * judgesWithProtocols.length)) * 100 : 0;
-    const finalPenalty = (maxScore * judgesWithProtocols.length - sum) * penaltyCoeff / judgesWithProtocols.length;
+    // Use centralized service to calculate the aggregated result
+    const allProtocols = judgesWithProtocols.map(j => ({
+      judgeId: j.id,
+      movements: data.judges[j.id]?.movements || [],
+      eliminated: data.judges[j.id]?.eliminated,
+      testKey: data.testKey
+    }));
+
+    const finalRes = calculateDressageResult(data, allProtocols, [], programs);
+
+    const avgPercent = (finalRes && finalRes.percent) ? finalRes.percent : 0;
+    const finalPenalty = (finalRes && finalRes.penalty != null) ? finalRes.penalty : 0;
+    // Note: sum logic earlier in the file (lines 323-333) calculates "average total points" manually to display row-by-row.
+    // That is fine to keep for the Table Display, but for the FINAL summary numbers we trust the service.
+    // Just ensuring `sum` (used in table generation) matches `finalRes.points` if we wanted to be strict,
+    // but replacing the final derivation is the goal here.
+    const displaySum = (finalRes && finalRes.points) ? finalRes.points : 0;
 
     const summary = [
-      ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : sum.toFixed(1)],
+      ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : displaySum.toFixed(1)],
       ['Snittprocent (alla domare):', data.eliminated ? 'ELIM' : fmtPct(avgPercent)],
       ['Felkörningspoäng:', (Number(data.errorPoints) || 0).toFixed(1)],
       [{ content: `Slutgiltigt straff (Plac. ${data.plac || '–'}):`, styles: { fontStyle: 'bold' } }, { content: data.eliminated ? 'ELIM' : fmtNum(finalPenalty), styles: { fontStyle: 'bold' } }]
@@ -341,76 +390,77 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // -- ASSET LOADING --
-  const loadImg = async (path) => {
-    try {
-      const img = new Image();
-      img.src = path;
-      img.crossOrigin = 'Anonymous';
-      await new Promise((r, e) => { img.onload = r; img.onerror = r; });
-      if (!img.naturalWidth) return null;
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      return { data: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-    } catch { return null; }
-  };
   const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const isInt = !!competition?.meta?.isInternational;
+  const titleStr = isInt
+    ? `DRESSAGE - ${t('results', true).toUpperCase()}: ${currentClass || ''}`
+    : `DRESSYR – RESULTATLISTA: ${currentClass || ''}`;
 
-  // -- HEADER --
-  let y = 30;
-  // 1. Logo
-  if (srfLogo) {
-    const h = 50; const w = h * (srfLogo.w / srfLogo.h);
-    doc.addImage(srfLogo.data, 'PNG', 40, y, w, h);
-  }
-
-  // 2. Title Block
-  const compName = competition?.name || 'Tävling';
-  const compDate = competition?.dates || competition?.date || new Date().toLocaleDateString('sv-SE');
-
-  // Location parts
-  const locationPart = competition?.place || competition?.city || competition?.location || '';
-  const organizerPart = competition?.club || competition?.organizerName || competition?.organizer || '';
-  const parts = [locationPart, organizerPart].filter(p => p && p.trim());
-  const locationLine = parts.length > 0 ? parts.join(' • ') : '';
-
-  doc.setFontSize(20);
-  doc.setFont(undefined, 'bold');
-  doc.text(compName, pageWidth / 2, y + 15, { align: 'center' });
-
-  doc.setFontSize(12);
-  doc.setFont(undefined, 'normal');
-  if (locationLine) {
-    doc.text(locationLine, pageWidth / 2, y + 32, { align: 'center' });
-    doc.text(compDate, pageWidth / 2, y + 44, { align: 'center' });
-    y += 12;
-  } else {
-    doc.text(compDate, pageWidth / 2, y + 32, { align: 'center' });
-  }
-
-  // 3. Grey Bar
-  y += 55;
-  doc.setFillColor(230, 230, 230);
-  doc.rect(40, y, pageWidth - 80, 20, 'F');
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.text(`DRESSYR – RESULTATLISTA: ${currentClass || ''}`, pageWidth / 2, y + 14, { align: 'center' });
+  let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40);
 
   // 4. Judges List
   // Clean judges list
-  const activeJudges = Array.isArray(judgesList) ? judgesList : [];
+  const allJudges = Array.isArray(judgesList) ? judgesList : [];
   // Sort C, E, B, H, M (standard order if possible, or just as passed)
   const order = { C: 0, E: 1, B: 2, H: 3, M: 4 };
-  activeJudges.sort((a, b) => (order[a.position] ?? 99) - (order[b.position] ?? 99));
+  allJudges.sort((a, b) => (order[a.position] ?? 99) - (order[b.position] ?? 99));
+
+  // Deduplicate positions for the columns
+  const activePositions = [...new Set(allJudges.map(j => (j.position || '').toUpperCase()).filter(p => p))];
 
   y += 30;
   doc.setFontSize(9);
   doc.setFont(undefined, 'normal');
-  const judgesStr = activeJudges.map(j => `${j.position}: ${j.name}`).join('   ');
+
+  // Find which classes are actually in this PDF
+  const uniqueClassesInPDF = [...new Set(equipages.map(e => e.className || e._mergedLabel).filter(Boolean))];
+
+  // Group names by position for the header text
+  const judgesByPos = {};
+  allJudges.forEach(j => {
+    const pos = (j.position || '').toUpperCase();
+    if (!pos) return;
+    if (!judgesByPos[pos]) judgesByPos[pos] = new Map();
+
+    let classesForJudge = [];
+    const cleanJid = String(j.id || '').replace(/^judge_/i, '');
+
+    if (window.dressageJudgeMapping) {
+      for (const [cls, mapping] of Object.entries(window.dressageJudgeMapping)) {
+        for (const [mPos, mJid] of Object.entries(mapping)) {
+          const cleanMapJid = String(mJid || '').replace(/^judge_/i, '');
+          if (cleanMapJid === cleanJid && String(mPos).toUpperCase() === pos) {
+            classesForJudge.push(cls);
+          }
+        }
+      }
+    }
+
+    // Only keep classes that are actively being printed in this document
+    classesForJudge = classesForJudge.filter(c => uniqueClassesInPDF.includes(c));
+
+    let nameStr = j.name;
+    // Only append class names if we are printing an aggregated list (more than 1 class)
+    if (classesForJudge.length > 0 && uniqueClassesInPDF.length > 1) {
+      nameStr += ` (${classesForJudge.join(', ')})`;
+    }
+
+    if (j.name) judgesByPos[pos].set(j.name, nameStr);
+  });
+
+  const judgesStrParts = [];
+  activePositions.forEach(pos => {
+    if (judgesByPos[pos]) {
+      const names = Array.from(judgesByPos[pos].values()).join(', ');
+      if (names) judgesStrParts.push(`${pos}: ${names}`);
+    }
+  });
+  const judgesStr = judgesStrParts.join('   ');
+
   if (judgesStr) {
-    doc.text(`Domare: ${judgesStr}`, 40, y);
-    y += 15;
+    const textLines = doc.splitTextToSize(`Domare: ${judgesStr}`, pageWidth - 80); // Margin 40 on each side
+    doc.text(textLines, 40, y);
+    y += (textLines.length * 12) + 3; // Advance Y based on number of lines
   }
 
   // -- PRE-LOAD IMAGES --
@@ -446,13 +496,20 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   // -- TABLE --
   // Determine Columns
   // Standard: Plac, #, Kusk/Häst, Klass, Land/Klubb, Start, [Judge 1..N], Fel, %, Straff
-  const headerRow = ['Plac', '#', 'Kusk / Häst', 'Klass', 'Land/Klubb', 'Start'];
+  const headerRow = [
+    t('rank', isInt),
+    t('startno', isInt),
+    `${t('driver', isInt)} / ${t('horse', isInt)}`,
+    t('class', isInt),
+    `${t('club', isInt)} / NF`,
+    t('start', isInt) || 'Start'
+  ];
 
-  activeJudges.forEach(j => headerRow.push(j.position)); // Add header for each judge
+  activePositions.forEach(pos => headerRow.push(pos)); // Add header for each unique judge position
 
-  headerRow.push('Fel');
+  headerRow.push(t('mistakes', isInt)); // "Fel" / "Errors" (Need to add 'mistakes' or 'errors' to dict if missing)
   headerRow.push('%');
-  headerRow.push('Straff');
+  headerRow.push(t('penalty', isInt));
 
   const head = [headerRow];
   const colStyles = {
@@ -466,7 +523,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
 
   // Dynamic judge columns start at index 6
   let colIdx = 6;
-  activeJudges.forEach(() => {
+  activePositions.forEach(() => {
     colStyles[colIdx] = { cellWidth: 30, halign: 'center' };
     colIdx++;
   });
@@ -504,8 +561,13 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     ];
 
     // Per Judge Scores
-    activeJudges.forEach(j => {
-      const jr = eq.judges ? eq.judges[j.id] : null;
+    activePositions.forEach(pos => {
+      const jRecords = Object.values(eq.judges || {});
+      // Note: judges might not have their position explicitly defined in eq.judges, but typically it is.
+      // E.g. j.position, or expandDressagePosition(j). Since expandDressagePosition is not imported here,
+      // we can match based on it explicitly if 'position' is missing but usually it is injected by now.
+      const jr = jRecords.find(j => (j.position || '').toUpperCase() === pos);
+
       // Show points or percent? Usually points in summary list per judge?
       // Or percent per judge?
       // In the app list, chips show total points.
@@ -566,4 +628,111 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   });
 
   doc.save(`dressyr_resultat_${currentClass || 'lista'}.pdf`);
+}
+
+// === NEW: Officials List (Funktionärslista) ===
+export async function generateDressageOfficialsPdf(equipages, startTimes, competition) {
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) { alert('PDF-bibliotek kunde inte laddas.'); return; }
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA DRESSYR", srfLogo, 30, 40);
+
+  // Filter withdrawn
+  const activeEqs = equipages.filter(e => e.status !== 'struken');
+  const programs = window.dressagePrograms || (typeof getPrograms === 'function' ? getPrograms() : {}) || {};
+
+  // Prepare Data
+  const rows = activeEqs.map(eq => {
+    // Start Time
+    const sMap = startTimes || {};
+    const tEntry = sMap[String(eq.startNumber)];
+    let rawTime = tEntry ? (tEntry.dressage || tEntry) : null;
+    let displayTime = '-';
+    let sortVal = 99999;
+
+    if (rawTime) {
+      // Handle ISO string or plain HH:MM
+      if (rawTime.includes('T')) {
+        // "2025-09-15T00:01" -> extract HH:MM
+        const d = new Date(rawTime);
+        if (!isNaN(d)) {
+          displayTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          sortVal = d.getHours() * 60 + d.getMinutes();
+        } else {
+          displayTime = rawTime.split('T')[1].substring(0, 5); // Fallback
+        }
+      } else if (rawTime.includes(':')) {
+        displayTime = rawTime;
+        const parts = rawTime.split(':');
+        sortVal = (parseInt(parts[0]) * 60) + parseInt(parts[1]);
+      }
+    }
+
+    // Program
+    let progName = eq.program || '';
+    if (!progName || progName === '-') {
+      const key = guessProgramKeyFromClass(eq.className, programs);
+      if (key && programs[key]) {
+        progName = programs[key].name || key;
+      }
+    }
+    if (!progName) progName = '-';
+
+    // Horse
+    let horseNames = '';
+    if (eq.horses && Array.isArray(eq.horses)) {
+      horseNames = eq.horses.map(h => h.name).join(', ');
+    } else if (eq.horseNames) {
+      horseNames = String(eq.horseNames); // Legacy/Flat
+    }
+
+    return {
+      time: displayTime,
+      startNo: eq.startNumber,
+      driver: eq.driverName,
+      club: eq.clubName || '',
+      class: eq.className,
+      program: progName,
+      horse: horseNames,
+      sortVal: sortVal
+    };
+  });
+
+  // Sort by Time, then Number
+  rows.sort((a, b) => {
+    if (a.sortVal !== b.sortVal) return a.sortVal - b.sortVal;
+    return (a.startNo || 0) - (b.startNo || 0);
+  });
+
+  const head = [['Start', '#', 'Kusk / Klubb', 'Klass', 'Program', 'Häst']];
+  const body = rows.map(r => [
+    r.time,
+    r.startNo,
+    `${r.driver}\n${r.club}`,
+    r.class,
+    r.program,
+    r.horse
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    head: head,
+    body: body,
+    theme: 'grid',
+    styles: { fontSize: 10, cellPadding: 4 },
+    headStyles: { fillColor: [50, 50, 50] },
+    columnStyles: {
+      0: { fontStyle: 'bold', halign: 'center', cellWidth: 50 },
+      1: { halign: 'center', cellWidth: 30 },
+      2: { cellWidth: 120 },
+      5: { fontStyle: 'italic' }
+    }
+  });
+
+  doc.save('funktionarslista_dressyr.pdf');
 }

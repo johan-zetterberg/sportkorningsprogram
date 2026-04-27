@@ -8,11 +8,12 @@ import { collection, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/
 import { db, appId } from '../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
+import { t } from '../utils/i18n.js';
 
 // Importera modalen direkt
 import { showDetailsModal } from '../ui/marathonModal.js';
+import { renderMap, destroyMap, updateSidebar as updateSidebarMap } from './maraton-monitor-map.js';
 
-// Importera gemensam logik från utils
 import {
   setMarathonConfig,
   setPauseWindows,
@@ -26,7 +27,8 @@ import {
   pausedMsSince,
   pausedMsBetween,
   formatMsLive,
-  toTimeLabel
+  toTimeLabel,
+  calculateMarathonResult
 } from '../utils/marathonUtils.js';
 
 function injectMonitorStylesOnce() {
@@ -41,6 +43,53 @@ function injectMonitorStylesOnce() {
     .chip.elim { background:#fee2e2; color:#991b1b; font-weight:600; }
     .chip-live { outline:2px solid rgba(251,191,36,.6); } /* markerar aktuellt hinder */
 
+    /* Map Markers */
+    .custom-div-icon { background: transparent; border: none; }
+    .map-marker-ping { position: absolute; width: 100%; height: 100%; border-radius: 50%; opacity: 0.8; animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite; }
+    .map-marker-body { position: relative; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; transform: scale(0.9); transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); z-index: 10; border: 3px solid white; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1); }
+    .map-marker-body:hover { transform: scale(1.15); z-index: 50; }
+    .map-marker-sn { font-size: 14px; font-weight: 900; color: white; text-shadow: 0 1px 2px rgba(0,0,0,0.3); pointer-events: none; }
+    /* Static Course Markers */
+    .static-div-icon { background: transparent; border: none; }
+    .static-marker { display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; }
+    .static-marker-bubble { 
+        background: white; 
+        color: #4b5563; 
+        font-weight: 800; 
+        font-size: 11px; 
+        width: 20px; 
+        height: 20px; 
+        border-radius: 50%; 
+        border: 2px solid #9ca3af; 
+        display: flex; 
+        align-items: center; 
+        justify-content: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        transition: all 0.2s;
+    }
+    .static-marker-bubble:hover {
+        transform: scale(1.2);
+        border-color: #4b5563;
+        z-index: 1000;
+    }
+
+    /* Leaflet Popup Styling */
+    .driver-popup .leaflet-popup-content-wrapper { border-radius: 12px; padding: 0; overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); }
+    .driver-popup .leaflet-popup-content { margin: 0; width: 220px !important; }
+    .driver-popup .leaflet-popup-tip { background: white; }
+    
+    /* Dark mode overrides for popup */
+    .dark .driver-popup .leaflet-popup-content-wrapper { background: #1f2937; color: white; }
+    .dark .driver-popup .leaflet-popup-tip { background: #1f2937; }
+
+    /* Sidebar Scrollbar */
+    #maraton-active-list::-webkit-scrollbar { width: 4px; }
+    #maraton-active-list::-webkit-scrollbar-track { background: transparent; }
+    #maraton-active-list::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+    #maraton-active-list::-webkit-scrollbar-thumb:hover { background: #d1d5db; }
+
+    @keyframes ping { 75%, 100% { transform: scale(2.2); opacity: 0; } }
+
 
     `;
   document.head.appendChild(s);
@@ -50,12 +99,17 @@ function injectMonitorStylesOnce() {
 let competitionId = null;
 let allEquipages = [];
 let startTimes = {};
-const allMarathonData = new Map();
+const allMarathonData = new Map(); // Derived: { ...timing, ...state }
+const marathonStateMap = new Map();  // From 'maraton' collection
+const marathonTimingMap = new Map(); // From 'maraton-timing' collection
 const activeEquipages = new Map();
 let tickerInterval = null;
 let unsubscribes = [];
 let isGloballyPaused = false;
 let pauseStartTime = 0;
+let viewMode = 'map'; // 'map' as default
+let maratonConfig = null; // Local copy for map settings
+let lastRenderedGridHash = ""; // To prevent flickering
 
 
 // ---------- Helpers ----------
@@ -79,52 +133,18 @@ function getExistingElapsedMs(docData, context) {
 
 function calculateTotalPenalty(docData, equipage) {
   if (!docData || !equipage) return null;
-
-  let totalPenalty = 0;
-  let isEliminated = false;
-
-  // 1. Hinder (använd utils)
-  const obsArr = getObstacleArray(docData);
-  for (const o of obsArr) {
-    const { penalty, eliminated } = obstacleValues(o);
-    if (eliminated) isEliminated = true;
-    if (Number.isFinite(penalty)) totalPenalty += penalty;
-  }
-
-  // 2. Etapper (använd utils)
-  ['A', 'B'].forEach(stage => {
-    const dur = stageDurationMsSaved(docData, stage);
-    // Om ingen duration är sparad men vi har tider (t.ex. manuell mål), räkna ut
-    let ms = dur;
-    if (!Number.isFinite(ms)) {
-      const s = stageStartTS(docData, stage);
-      const e = stageStopTS(docData, stage);
-      if (s && e) {
-        ms = (e - s) - pausedMsBetween(s, e);
-      }
-    }
-
-    if (Number.isFinite(ms)) {
-      const res = stagePenaltyFromMs(ms, equipage, stage);
-      if (res.elim) isEliminated = true;
-      if (Number.isFinite(res.points)) totalPenalty += res.points;
-    }
-  });
-
-  // 3. Övrigt
-  const other = Number(docData.otherPenalty);
-  if (Number.isFinite(other)) totalPenalty += other;
-
-  return isEliminated ? Infinity : totalPenalty;
+  // Use centralized TR-compliant calculation
+  const res = calculateMarathonResult(equipage, docData, docData);
+  return res.totalPenalty;
 }
 
-function calculateETA(startTimeMs, equipage, stage) {
+function calculateETA(startTimeMs, equipage, stage, nowMs = Date.now()) {
   // Använd limitsFor för att få idealtid och regler
   const limits = limitsFor(equipage, stage);
   if (!startTimeMs || !limits?.ideal) return '—';
 
   // Hämta aktuell paus-tid från utils (som har koll på globala fönster)
-  const p = pausedMsSince(startTimeMs);
+  const p = pausedMsSince(startTimeMs, nowMs);
 
   // Starttid + Idealtid (sek -> ms) + Paus
   const etaTimestamp = startTimeMs + (limits.ideal * 1000) + p;
@@ -136,8 +156,13 @@ function summarizeObstacles(docData) {
   const items = arr
     .map(o => {
       const n = Number(o.number || o.obstacleNumber || o.id);
-      const { penalty, eliminated } = obstacleValues(o);
-      return { n, p: penalty, elim: eliminated };
+      const { timeSec, penalty, eliminated } = obstacleValues(o);
+      // Prefer timeSec (seconds), fallback to penalty if no time exists
+      // If we use timeSec, it is 's', if we fallback to penalty, it might be 'p' (or 's' in legacy)
+      const val = Number.isFinite(timeSec) ? timeSec : penalty;
+      const isTime = Number.isFinite(timeSec);
+
+      return { n, val, isTime, elim: eliminated };
     })
     .filter(x => Number.isFinite(x.n) && x.n > 0)
     .sort((a, b) => a.n - b.n)
@@ -146,7 +171,7 @@ function summarizeObstacles(docData) {
   let sum = 0, eliminated = false;
   for (const it of items) {
     if (it.elim) eliminated = true;
-    if (Number.isFinite(it.p)) sum += it.p;
+    if (Number.isFinite(it.val)) sum += it.val;
   }
   return { items, sum: eliminated ? Infinity : sum, eliminated };
 }
@@ -255,6 +280,9 @@ async function openMarathonDetailsModal(startNumber) {
   await showDetailsModal(snStr, allEquipages, allMarathonData);
 }
 
+// Expose to window for map interaction
+window.openMarathonDetailsModal = openMarathonDetailsModal;
+
 
 // ---------- UI Rendering ----------
 function renderLayout() {
@@ -263,31 +291,96 @@ function renderLayout() {
   if (!root) return;
 
   root.innerHTML = `
-  <div class="container mx-auto p-4 md:p-8 transition-all duration-500" id="marathon-monitor-container">
-    <div class="flex justify-between items-center mb-4">
-        ${getCompetitionHeader(comp, 'Maraton – Live Monitor')}
-
+  <div class="container mx-auto p-4 md:p-8 transition-all duration-500" id="maraton-monitor-container">
+    <div class="mb-4">
+        ${getCompetitionHeader(comp, t('marathon_monitor_title'))}
     </div>
       <div id="pause-status-banner" class="hidden p-4 mb-4 text-center font-bold text-white bg-red-600 rounded-lg">
-        TÄVLINGEN ÄR PAUSAD
+        ${t('paused_banner')}
       </div>
 
       <div id="summary-stats" class="grid grid-cols-3 gap-4 mb-6 text-center"></div>
 
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
-        <div id="upcoming-wrapper" class="bg-white p-4 rounded-lg shadow overflow-hidden h-[400px]">
-            <div id="upcoming-panel"></div>
-        </div>
-        <div id="finished-wrapper" class="bg-white p-4 rounded-lg shadow overflow-hidden h-[400px]">
-             <div id="finished-panel"></div>
+      <!-- MAIN LIVE AREA (Now at the top) -->
+      <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
+        <h2 class="text-xl font-bold dark:text-white">${t('on_course')}</h2>
+        <div class="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
+           <button id="maratonViewGridBtn" class="px-4 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}">
+              📊 Lista
+           </button>
+           <button id="maratonViewMapBtn" class="px-4 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'map' ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}">
+              🗺️ Karta
+           </button>
         </div>
       </div>
 
-      <h2 class="text-xl font-bold mb-4 border-b pb-2">På Banan</h2>
-      <div id="monitor-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      <div id="monitor-content-area" class="mb-10">
+        <div id="monitor-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 ${viewMode === 'map' ? 'hidden' : ''}"></div>
+        <div id="monitor-map-container" class="w-full ${viewMode === 'grid' ? 'hidden' : ''}"></div>
+      </div>
+
+      <!-- SECONDARY LISTS -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div id="upcoming-wrapper" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow overflow-hidden h-[400px]">
+            <div id="upcoming-panel"></div>
         </div>
+        <div id="finished-wrapper" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow overflow-hidden h-[400px]">
+             <div id="finished-panel"></div>
+        </div>
+      </div>
     </div>
   `;
+
+  const gridBtn = document.getElementById('maratonViewGridBtn');
+  const mapBtn = document.getElementById('maratonViewMapBtn');
+
+  if (gridBtn) gridBtn.addEventListener('click', () => switchView('grid'));
+  if (mapBtn) mapBtn.addEventListener('click', () => switchView('map'));
+}
+
+function switchView(mode) {
+  try {
+    viewMode = mode;
+    const grid = document.getElementById('monitor-grid');
+    const mapContainer = document.getElementById('monitor-map-container');
+    const gridBtn = document.getElementById('maratonViewGridBtn');
+    const mapBtn = document.getElementById('maratonViewMapBtn');
+
+    if (!grid || !mapContainer || !gridBtn || !mapBtn) {
+      console.warn('Elements missing in switchView');
+      return;
+    }
+
+    if (mode === 'grid') {
+      lastRenderedGridHash = ""; // Force rebuild
+      // Show Grid
+      grid.classList.remove('hidden');
+      grid.classList.add('grid');
+
+      // Hide Map
+      mapContainer.classList.add('hidden');
+      mapContainer.classList.remove('block');
+
+      gridBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300';
+      mapBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200';
+
+      try { destroyMap(); } catch (e) { }
+    } else {
+      // Hide Grid
+      grid.classList.add('hidden');
+      grid.classList.remove('grid');
+
+      // Show Map
+      mapContainer.classList.remove('hidden');
+      mapContainer.classList.add('block');
+
+      gridBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200';
+      mapBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300';
+    }
+    renderMonitor();
+  } catch (err) {
+    console.error('Error in switchView:', err);
+  }
 }
 
 function renderSummaryStats() {
@@ -304,9 +397,9 @@ function renderSummaryStats() {
   const notStarted = allEquipages.length - onCourse - finishedCount;
 
   statsEl.innerHTML = `
-  <div class="bg-blue-50 p-3 rounded-lg"><div class="text-2xl font-bold">${onCourse}</div><div class="text-sm text-blue-800 font-semibold">På Banan</div></div>
-        <div class="bg-green-50 p-3 rounded-lg"><div class="text-2xl font-bold">${finishedCount}</div><div class="text-sm text-green-800 font-semibold">Klara</div></div>
-        <div class="bg-gray-100 p-3 rounded-lg"><div class="text-2xl font-bold">${notStarted < 0 ? 0 : notStarted}</div><div class="text-sm text-gray-600 font-semibold">Kvar att Starta</div></div>
+  <div class="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg"><div class="text-2xl font-bold dark:text-blue-100">${onCourse}</div><div class="text-sm text-blue-800 dark:text-blue-200 font-semibold">${t('on_course')}</div></div>
+        <div class="bg-green-50 dark:bg-green-900/30 p-3 rounded-lg"><div class="text-2xl font-bold dark:text-green-100">${finishedCount}</div><div class="text-sm text-green-800 dark:text-green-200 font-semibold">${t('finished_count')}</div></div>
+        <div class="bg-gray-100 dark:bg-gray-700 p-3 rounded-lg"><div class="text-2xl font-bold dark:text-gray-200">${notStarted < 0 ? 0 : notStarted}</div><div class="text-sm text-gray-600 dark:text-gray-400 font-semibold">${t('remaining_to_start')}</div></div>
 `;
 }
 
@@ -332,26 +425,26 @@ function renderUpcomingPanel() {
     })
     .slice(0, 5);
 
-  let content = '<h3 class="text-lg font-bold mb-2">Nästa Start</h3>';
+  let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('next_start')}</h3>`;
   if (upcoming.length === 0) {
-    content += `<p class="text-sm text-gray-500" > Inga fler ekipage att starta.</p> `;
+    content += `<p class="text-sm text-gray-500 dark:text-gray-400" > ${t('no_more_starts')}</p> `;
   } else {
     content += upcoming.map(eq => {
       const rawTime = startTimes[String(eq.startNumber)]?.maraton;
       const startTime = rawTime ? toTimeLabel(rawTime) : '—';
       return `
-  <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b last:border-0 hover:bg-gray-50 rounded px-1"
+  <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
 data-sn="${eq.startNumber}" >
         <div class="flex items-center gap-3 min-w-0">
-          <span class="font-bold w-8 shrink-0 text-center">#${eq.startNumber}</span>
-          <span class="truncate">${eq.driverName || ''}</span>
+          <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${eq.startNumber}</span>
+          <span class="truncate dark:text-gray-300">${eq.driverName || ''}</span>
         </div>
         <div class="flex items-center gap-3 shrink-0">
           <div class="flex items-center gap-1 justify-start" title="${eq.clubName || ''}">
             ${getFlagHtml(eq)}
             ${getClubLogoHtml(eq)}
           </div>
-          <span class="font-semibold text-gray-800 w-20 text-right">${startTime}</span>
+          <span class="font-semibold text-gray-800 dark:text-gray-200 w-20 text-right">${startTime}</span>
         </div>
       </button>
   `;
@@ -393,9 +486,9 @@ function renderFinishedPanel() {
   finished.sort((a, b) => b.finishTime - a.finishTime);
   const display = finished.slice(0, 5);
 
-  let content = '<h3 class="text-lg font-bold mb-2">Nyligen i Mål</h3>';
+  let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('recently_finished')}</h3>`;
   if (display.length === 0) {
-    content += `<p class="text-sm text-gray-500" > Inga ekipage har gått i mål ännu.</p> `;
+    content += `<p class="text-sm text-gray-500 dark:text-gray-400" > ${t('no_finished_yet')}</p> `;
   } else {
     content += display.map(fin => {
       const penaltyText = fin.totalPenalty === Infinity
@@ -403,19 +496,19 @@ function renderFinishedPanel() {
         : (Number.isFinite(fin.totalPenalty) ? fin.totalPenalty.toFixed(2) + ' p' : '—');
 
       return `
-  <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b last:border-0 hover:bg-gray-50 rounded px-1"
+  <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
 data-sn="${fin.sn}" >
               <div class="flex items-center gap-3 min-w-0">
-                <span class="font-bold w-8 shrink-0 text-center">#${fin.sn}</span>
-                <span class="truncate">${fin.name || ''}</span>
+                <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${fin.sn}</span>
+                <span class="truncate dark:text-gray-300">${fin.name || ''}</span>
               </div>
               <div class="flex items-center gap-3 shrink-0">
                 <div class="flex items-center gap-1 justify-start" title="${fin.clubName || ''}">
                   ${getFlagHtml(fin.eqObj)}
                   ${getClubLogoHtml(fin.eqObj)}
                 </div>
-                <span class="font-semibold text-gray-800 w-20 text-right">${toTimeLabel(fin.finishTime)}</span>
-                <span class="font-bold text-blue-700 w-20 text-right">
+                <span class="font-semibold text-gray-800 dark:text-gray-200 w-20 text-right">${toTimeLabel(fin.finishTime)}</span>
+                <span class="font-bold text-blue-700 dark:text-blue-400 w-20 text-right">
                     ${penaltyText}
                 </span>
               </div>
@@ -431,331 +524,285 @@ data-sn="${fin.sn}" >
 
 function renderMonitor() {
   const grid = document.getElementById('monitor-grid');
-  if (!grid) return;
+  const mapContainer = document.getElementById('monitor-map-container');
+  if (!grid || !mapContainer) return;
+
+  if (viewMode === 'map') {
+    if (!maratonConfig) {
+      mapContainer.innerHTML = `<div class="p-10 text-center text-gray-400 italic">${t('loading_map') || 'Laddar karta...'}</div>`;
+      return;
+    }
+    renderMap(mapContainer, activeEquipages, maratonConfig?.mapSettings);
+    return;
+  }
 
   if (activeEquipages.size === 0) {
-    grid.innerHTML = `<div class="col-span-full text-center p-8 bg-white rounded-lg shadow-md text-gray-500">Inga ekipage är för närvarande aktiva på banan.</div>`;
+    grid.innerHTML = `<div class="col-span-full text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md text-gray-500 dark:text-gray-400">${t('no_active_equipages')}</div>`;
+    lastRenderedGridHash = "empty";
     return;
   }
 
   const sorted = Array.from(activeEquipages.values()).sort((a, b) => a.equipageInfo.startNumber - b.equipageInfo.startNumber);
+  const currentHash = sorted.map(a => `${a.equipageInfo.startNumber}:${a.task.name}`).join('|');
 
-  grid.innerHTML = sorted.map(active => {
-    const eq = active.equipageInfo;
-    const elapsedMs = active.pausedMs + (Date.now() - active.startTime - pausedMsSince(active.startTime));
-    const stageKey = active.task.key;
-    const doc = allMarathonData.get(String(eq.startNumber)) || active.data || {};
-    const obs = summarizeObstacles(doc);
+  // 1. Structural update (only if order/tasks changed)
+  if (currentHash !== lastRenderedGridHash) {
+    grid.innerHTML = sorted.map(active => {
+      const eq = active.equipageInfo;
+      const isFlash = active.task.type === 'result_flash';
 
-    // Varning och ETA med hjälp av utils
-    let etaHtml = '', startTimeHtml = '', warningHtml = '', cardClasses = '';
-    let progressBarHtml = '';
-    const limits = limitsFor(eq, stageKey);
-
-    // Progress bar for Time Limit
-    if (limits && limits.timeLimit && (active.task.type === 'stage' || active.task.type === 'transport')) {
-      const limitMs = limits.timeLimit * 1000;
-      const pct = Math.min(100, Math.max(0, (elapsedMs / limitMs) * 100));
-
-      let colorClass = 'bg-green-500';
-      if (pct > 75) colorClass = 'bg-amber-400';
-      if (pct > 90) colorClass = 'bg-red-500';
-
-      progressBarHtml = `
-         <div class="h-2 w-full bg-gray-200 rounded-full mt-2 overflow-hidden">
-           <div class="progress-bar-fill h-full ${colorClass} transition-all duration-300 ease-out" style="width: ${pct}%" data-limit-ms="${limitMs}"></div>
-         </div>
-       `;
-    }
-
-
-    // Kolla tidsgräns (timeLimit är i sekunder i utils, konvertera till ms)
-    if (limits && limits.timeLimit && elapsedMs > (limits.timeLimit * 1000)) {
-      cardClasses = 'is-overdue';
-      warningHtml = `<div class="absolute top-2 right-2 text-red-600 animate-pulse" title="Tidsgränsen har överskridits!"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg></div>`;
-    }
-
-    if (active.task.type === 'stage' && (stageKey === 'A' || stageKey === 'B')) {
-      const eta = calculateETA(active.startTime, eq, stageKey);
-      const startTimeStr = toTimeLabel(active.startTime);
-      const etaLabel = stageKey === 'A' ? 'ETA Slut A' : 'ETA Mål';
-
-      startTimeHtml = `<div class="text-xs text-gray-500"> Start ${stageKey}: <span class="font-semibold">${startTimeStr}</span></div>`;
-      etaHtml = `<div class="text-sm font-semibold text-blue-700 mt-1"> ${etaLabel}: <span class="font">${eta}</span></div>`;
-    }
-
-    // --- LIVE SPLITS RENDERER ---
-    let splitsHtml = '';
-    if (active.task.type === 'obstacle' && doc.live_gateSplits && doc.live_gateSplits.length > 0) {
-      const splits = doc.live_gateSplits || [];
-
-      // Look for Persistent Start Time first (new logic), then Active Start Time
-      let obstacleStartTs = doc.live_staticStartAt || doc.liveObstacleStartAt;
-      if (obstacleStartTs && obstacleStartTs.toMillis) obstacleStartTs = obstacleStartTs.toMillis();
-
-      // FALLBACK: Om klockan är stoppad, hämta starttid från 'obstacleTimes'
-      if (!obstacleStartTs && doc.currentObstacle && doc.obstacleTimes && doc.obstacleTimes[doc.currentObstacle]) {
-        const ot = doc.obstacleTimes[doc.currentObstacle];
-        let st = ot.enteredAt || ot.enteredAtClient;
-        if (st && st.toMillis) st = st.toMillis();
-        else if (typeof st === 'string') st = new Date(st).getTime();
-
-        if (st && !isNaN(st)) obstacleStartTs = st;
+      if (isFlash) {
+        return `<div id="card-${eq.startNumber}" data-sn="${eq.startNumber}" class="h-full"></div>`;
       }
 
-      // Hämta statistik för klassen
-      const classStats = calculateClassSplitStats(eq.className, doc.currentObstacle);
+      return `
+     <div class="card-base relative bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 flex flex-col justify-between border-l-4 ${active.task.type === 'obstacle' ? 'border-amber-500' : 'border-blue-500'} h-full transition-all duration-300" data-sn="${eq.startNumber}" id="card-${eq.startNumber}">
+       <div id="warning-${eq.startNumber}"></div>
+           <div>
+             <div class="flex justify-between items-start">
+               <h3 class="text-lg font-bold dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+               <div class="flex flex-col items-end gap-1">
+                   <span class="task-badge px-2 py-0.5 text-xs font-semibold rounded-full ${active.task.type === 'obstacle' ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200' : 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200'}">
+                   ${active.task.name}
+                   </span>
+               </div>
+             </div>
+              <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1 mb-2 flag-logo-row">
+                ${getFlagHtml(eq)}
+                ${getClubLogoHtml(eq)}
+                <span>${eq.className}</span>
+                <span class="rank-badge inline-block" id="rank-${eq.startNumber}"></span>
+              </div>
+           </div>
+   
+           <div class="text-center my-4">
+             <div id="timer-${eq.startNumber}" class="timer-display text-4xl font font-bold tabular-nums dark:text-white">00:00,00</div>
+             <div id="info-${eq.startNumber}"></div>
+             <div id="splits-${eq.startNumber}"></div>
+             <div id="progress-${eq.startNumber}"></div>
+             <div class="flex justify-center gap-4 mt-2">
+               <div id="startTime-${eq.startNumber}"></div>
+               <div id="eta-${eq.startNumber}"></div>
+             </div>
+           </div>
+   
+           <div class="mt-auto" id="bottom-${eq.startNumber}"></div>
+        </div>
+        `;
+    }).join('');
 
-      if (obstacleStartTs) {
-        // Filtrera: Endast unika versaler (första passagen gäller)
-        const uniqueSplits = [];
-        const seenChars = new Set();
-        for (const s of splits) {
-          if (s.char && s.char === s.char.toUpperCase() && !seenChars.has(s.char)) {
-            uniqueSplits.push(s);
-            seenChars.add(s.char);
-          }
-        }
-
-        const items = uniqueSplits
-          .map(s => {
-            let ts = s.ts;
-            if (ts && ts.toMillis) ts = ts.toMillis();
-            if (!ts) return null;
-
-            // KORRIGERING: Visa total tid från start (absolut split)
-            const totalElapsed = ts - obstacleStartTs;
-
-            // Jämför med statistik
-            const stat = classStats[s.char];
-            let colorClass = 'bg-gray-100 text-gray-700 border-gray-200'; // Default
-            let title = '';
-
-            if (stat) {
-              // Marginal för "Best": inom 0.1s eller snabbare
-              if (totalElapsed <= stat.best + 100) {
-                colorClass = 'bg-green-100 text-green-800 border-green-300 ring-1 ring-green-400 font-bold';
-                title = `Bäst i klassen! (Bäst: ${(stat.best / 1000).toFixed(1)}s)`;
-              } else if (totalElapsed < stat.avg) {
-                colorClass = 'bg-blue-50 text-blue-800 border-blue-200';
-                title = `Bättre än snittet (${(stat.avg / 1000).toFixed(1)}s)`;
-              } else {
-                colorClass = 'bg-amber-50 text-amber-800 border-amber-200';
-                title = `Sämre än snittet (${(stat.avg / 1000).toFixed(1)}s)`;
-              }
-            }
-
-            return `<span class="${colorClass} px-1.5 py-0.5 rounded border text-[10px] font-mono" title="${title}">${s.char}: ${(totalElapsed / 1000).toFixed(1)}s</span>`;
-          }).filter(Boolean).slice(-8); // Visa 8 senaste
-
-        if (items.length > 0) {
-          splitsHtml = `<div class="flex flex-wrap justify-center gap-1 mt-2 mb-1 cursor-help">${items.join('')}</div>`;
-        }
-      }
-    }
-
-    // --- RANKS (placering i klassen) ---
-    // Räkna ut placering dynamiskt baserat på det vi vet
-    // Filtrera alla ekipage i samma klass
-    const classMates = allEquipages.filter(e => e.className === eq.className);
-    // Beräkna total straff för alla dessa
-    const rankedList = classMates.map(e => {
-      const d = allMarathonData.get(String(e.startNumber));
-      const p = calculateTotalPenalty(d, e); // Returnerar null om data saknas, Infinity om utesluten
-      return { sn: e.startNumber, p: (p === null ? 0 : p) }; // Behandla "ej start" som 0 eller hantera separat?
-      // Egentligen: Om man inte startat har man 0 straff, men man borde hamna sist? 
-      // Låt oss sortera på straff. De med 0 (men inte startat) är svåra.
-      // För enkelhets skull: Vi rankar de som HAR straff > 0 eller har startat.
-      // Men maratonstraff börjar på 0.
-    }).sort((a, b) => {
-      if (a.p === Infinity && b.p === Infinity) return 0;
-      if (a.p === Infinity) return 1;
-      if (b.p === Infinity) return -1;
-      return a.p - b.p;
+    grid.querySelectorAll('[data-sn]').forEach(card => {
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', () => openMarathonDetailsModal(card.getAttribute('data-sn')));
     });
 
-    // Hitta mitt index
-    const myIndex = rankedList.findIndex(x => x.sn === eq.startNumber);
-    const placement = (myIndex !== -1) ? myIndex + 1 : '-';
-    const rankHtml = `<div class="text-xs font-bold text-gray-500 bg-gray-100 px-2 py-1 rounded inline-block ml-2" title="Preliminär placering i klassen">Plac: ${placement}</div>`;
+    lastRenderedGridHash = currentHash;
+  }
 
+  // 2. Atomic updates
+  sorted.forEach(active => {
+    const eq = active.equipageInfo;
+    const sn = String(eq.startNumber);
+    const card = document.getElementById(`card-${sn}`);
+    if (!card) return;
 
-    // --- VISUALISERING: TARGET TIME (BÄST I KLASSEN) ---
-    // Om vi kör ett hinder, visa vad rekordet är just nu
-    let infoHtml = '';
-    if (active.task.type === 'obstacle') {
-      const stats = calculateClassObstacleStats(eq.className, doc.currentObstacle);
-      // Hinderstraff är tid * 0.25 (oftast). Vi vill visa TIDEN att slå (sekunder).
-      // Statsen returnerar straffpoäng. Vi får baklängesräkna eller spara tid i stats.
-      // Enklast: Spara tid i stats också.
-      // Men vänta, 'calculateClassObstacleStats' räknar PENALTY. 
-      // Vi vill visa "Tid att slå".
-      // Vi får göra en snabb sökning efter bästa TIDEN också om vi vill vara exakta.
-
-      // Låt oss utöka logiken snabbt här inline eller skapa en helper om vi orkar.
-      // Helpern 'calculateClassObstacleStats' är bra men returnerar Straff.  
-      // Vi gör en snabb sökning här för "Best Time In Seconds"
-      let bestSeconds = Infinity;
-      for (const [s_sn, s_data] of allMarathonData.entries()) {
-        const s_eq = allEquipages.find(e => String(e.startNumber) === s_sn);
-        if (!s_eq || s_eq.className !== eq.className) continue;
-        const s_res = s_data.obstacles?.find(o => Number(o.number) === Number(doc.currentObstacle));
-        if (s_res && Number.isFinite(s_res.timeInSeconds) && !s_res.eliminated) {
-          if (s_res.timeInSeconds < bestSeconds) bestSeconds = s_res.timeInSeconds;
-        }
-      }
-
-      if (bestSeconds !== Infinity) {
-        infoHtml = `<div class="text-xs text-gray-500 mt-1 font-mono">Att slå: <span class="font-bold text-green-700">${bestSeconds.toFixed(2)}s</span></div>`;
-      }
-    }
-
-
+    // Handle Flash Results (different template)
     if (active.task.type === 'result_flash') {
       const flashData = active.task.data;
       const { timeSec, penalty } = obstacleValues(flashData);
       const timeStr = Number.isFinite(timeSec) ? timeSec.toFixed(2) + 's' : '—';
+      const stats = calculateClassObstacleStats(eq.className, Number(flashData.number || flashData.obstacleNumber));
 
       let comparisonHtml = '';
-      let cardColor = 'bg-white border-blue-500';
-      let textColor = 'text-gray-800';
+      let cardColor = 'bg-white dark:bg-gray-800 border-blue-500 dark:border-blue-400';
 
-      if (Number.isFinite(penalty)) {
-        const n = Number(flashData.number || flashData.obstacleNumber);
-        const stats = calculateClassObstacleStats(eq.className, n);
-        if (stats) {
-          const isBest = penalty <= stats.best + 0.01;
-          const isBetter = penalty < stats.avg;
-
-          if (isBest) {
-            cardColor = 'bg-green-50 border-green-600 ring-4 ring-green-100';
-            comparisonHtml = `<div class="text-xl font-black text-green-700 uppercase tracking-wider animate-pulse">BÄST I KLASSEN!</div>`;
-          } else if (isBetter) {
-            cardColor = 'bg-blue-50 border-blue-600 ring-4 ring-blue-100';
-            comparisonHtml = `<div class="text-lg font-bold text-blue-700">Bra tid! (Bättre än snittet)</div>`;
-          } else {
-            cardColor = 'bg-white border-gray-400';
-            comparisonHtml = `<div class="text-md font-semibold text-gray-500">Tid registrerad</div>`;
-          }
-          comparisonHtml += `<div class="text-xs text-gray-500 mt-1">Snitt: ${(stats.avg / 0.25).toFixed(2)}s (${stats.avg.toFixed(2)}p)</div>`;
+      if (stats && Number.isFinite(penalty)) {
+        if (penalty <= stats.best + 0.01) {
+          cardColor = 'bg-green-50 dark:bg-green-900/20 border-green-600 dark:border-green-500 ring-4 ring-green-100 dark:ring-green-900/50';
+          comparisonHtml = `<div class="text-xl font-black text-green-700 dark:text-green-300 uppercase tracking-wider animate-pulse">${t('best_in_class')}</div>`;
+        } else if (penalty < stats.avg) {
+          cardColor = 'bg-blue-50 dark:bg-blue-900/20 border-blue-600 dark:border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/50';
+          comparisonHtml = `<div class="text-lg font-bold text-blue-700 dark:text-blue-300">${t('better_than_avg')}</div>`;
+        } else {
+          comparisonHtml = `<div class="text-md font-semibold text-gray-500 dark:text-gray-400">${t('time_registered')}</div>`;
         }
+        comparisonHtml += `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">${t('avg_short')}: ${(stats.avg / 0.25).toFixed(2)}s (${stats.avg.toFixed(2)}p)</div>`;
       }
 
-      return `
-          <div class="relative rounded-lg shadow-xl p-6 flex flex-col justify-center items-center border-l-8 ${cardColor} h-full transform scale-105 transition-transform">
+      card.className = `relative rounded-lg shadow-xl p-6 flex flex-col justify-center items-center border-l-8 ${cardColor} h-full transform scale-105 transition-transform`;
+      card.innerHTML = `
              <div class="absolute top-2 right-2 text-xs font-mono text-gray-400">RESULTAT</div>
-             <h3 class="text-2xl font-bold mb-2 text-center">#${eq.startNumber} ${eq.driverName}</h3>
-             <div class="text-sm font-semibold text-gray-600 mb-6">${active.task.name}</div>
-             
-             <div class="text-6xl font-extrabold mb-4 tracking-tight ${isFinite(penalty) ? 'text-gray-900' : 'text-red-600'}">
-                 ${timeStr}
+             <h3 class="text-2xl font-bold mb-2 text-center dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+             <div class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-6">${active.task.name}</div>
+             <div class="text-6xl font-extrabold mb-4 tracking-tight ${isFinite(penalty) ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}">${timeStr}</div>
+             <div class="text-center mb-4 font-sans">${comparisonHtml}</div>
+             <div class="mt-auto flex gap-4 text-sm text-gray-500 dark:text-gray-400 font-sans">
+                 <span>${t('penalty')}: ${Number.isFinite(penalty) ? penalty.toFixed(2) : '—'}</span>
+                 <span>${t('knockdown')}: ${flashData.knockdowns || 0}</span>
              </div>
-             
-             <div class="text-center mb-4 font-sans">
-                 ${comparisonHtml}
-             </div>
-
-             <div class="mt-auto flex gap-4 text-sm text-gray-500 font-sans">
-                 <span>Straff: ${Number.isFinite(penalty) ? penalty.toFixed(2) : '—'}</span>
-                 <span>Rivn: ${flashData.knockdowns || 0}</span>
-             </div>
-          </div>
-         `;
+      `;
+      return;
     }
 
-    return `
-  <div class="card-base relative bg-white rounded-lg shadow-lg p-4 flex flex-col justify-between border-l-4 ${active.task.type === 'obstacle' ? 'border-amber-500' : 'border-blue-500'} ${cardClasses} h-full transition-all duration-300">
-    ${warningHtml}
-        <div>
-          <div class="flex justify-between items-start">
-            <h3 class="text-lg font-bold">#${eq.startNumber} ${eq.driverName}</h3>
-            <div class="flex flex-col items-end gap-1">
-                <span class="task-badge px-2 py-0.5 text-xs font-semibold rounded-full ${active.task.type === 'obstacle' ? 'bg-amber-100 text-amber-800' : 'bg-blue-100 text-blue-800'}">
-                ${active.task.name}
-                </span>
-            </div>
-          </div>
-           <div class="text-sm text-gray-600 flex items-center gap-2 mt-1 mb-2 flag-logo-row">
-             ${getFlagHtml(eq)}
-             ${getClubLogoHtml(eq)}
-             <span>${eq.className}</span>
-             <span class="rank-badge inline-block">${rankHtml}</span>
-           </div>
-        </div>
+    // Normal Item Updates
+    const stageKey = active.task.key;
+    const doc = allMarathonData.get(sn) || active.data || {};
+    const limits = limitsFor(eq, stageKey);
+    const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+    const elapsedMs = (active.fixedElapsedMs != null) ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - pausedMsSince(active.timerBaseMs, tickTimeNow) + (active.pausedMs || 0) : 0);
 
-        <div class="text-center my-4">
-          <div id="timer-${eq.startNumber}" class="timer-display text-4xl font font-bold tabular-nums">
-            ${formatMsLive(elapsedMs)}
-          </div>
-          ${infoHtml}
-          ${splitsHtml}
-          ${progressBarHtml}
-          <div class="flex justify-center gap-4 mt-2">
-            ${startTimeHtml}
-            ${etaHtml}
-          </div>
-        </div>
+    // Timer
+    const timerEl = document.getElementById(`timer-${sn}`);
+    if (timerEl) {
+      const live = formatMsLive(elapsedMs);
+      if (timerEl.textContent !== live) timerEl.textContent = live;
+    }
 
-        <div class="mt-auto">
-          ${(() => {
-        if (!obs.items.length) return '';
-        if (!obs.items.length) return '';
-        const chips = obs.items.map(it => {
-          const label = it.elim ? 'ELIM' : (Number.isFinite(it.p) ? it.p.toFixed(2) + ' p' : '—');
-          const isLive = Number(doc.currentObstacle) === it.n;
+    // Warning
+    const warnEl = document.getElementById(`warning-${sn}`);
+    if (warnEl) {
+      if (limits?.timeLimit && elapsedMs > (limits.timeLimit * 1000)) {
+        card.classList.add('is-overdue');
+        if (!warnEl.innerHTML) warnEl.innerHTML = `<div class="absolute top-2 right-2 text-red-600 animate-pulse"><svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg></div>`;
+      } else {
+        card.classList.remove('is-overdue');
+        warnEl.innerHTML = '';
+      }
+    }
 
-          // Jämförelse-logik
-          let comparisonClass = '';
-          let title = `Hinder ${it.n}`;
+    // Target Time (To Beat)
+    const infoEl = document.getElementById(`info-${sn}`);
+    if (infoEl) {
+      if (active.task.type === 'obstacle') {
+        let bestSec = Infinity;
+        for (const [s_sn, s_data] of allMarathonData.entries()) {
+          const s_eq = allEquipages.find(e => String(e.startNumber) === s_sn);
+          if (!s_eq || s_eq.className !== eq.className) continue;
+          const s_res = s_data.obstacles?.find(o => Number(o.number) === Number(doc.currentObstacle));
+          if (s_res?.timeInSeconds && !s_res.eliminated) {
+            if (s_res.timeInSeconds < bestSec) bestSec = s_res.timeInSeconds;
+          }
+        }
+        infoEl.innerHTML = bestSec !== Infinity ? `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">${t('to_beat')}: <span class="font-bold text-green-700 dark:text-green-400">${bestSec.toFixed(2)}s</span></div>` : '';
+      } else {
+        infoEl.innerHTML = '';
+      }
+    }
 
-          if (!it.elim && Number.isFinite(it.p)) {
-            const stats = calculateClassObstacleStats(eq.className, it.n);
-            if (stats) {
-              const isBest = it.p <= stats.best + 0.01; // Marginal för flyttal
-              const isBetterThanAvg = it.p < stats.avg;
-
-              title += `\nStraff: ${it.p.toFixed(2)}\nBäst: ${stats.best.toFixed(2)}\nSnitt: ${stats.avg.toFixed(2)}`;
-
-              if (isBest) comparisonClass = 'bg-green-100 text-green-800 ring-1 ring-green-400 font-bold';
-              else if (isBetterThanAvg) comparisonClass = 'bg-blue-50 text-blue-800 ring-1 ring-blue-200';
-              else comparisonClass = 'bg-amber-50 text-amber-800 ring-1 ring-amber-200';
+    // Splits
+    const splitEl = document.getElementById(`splits-${sn}`);
+    if (splitEl) {
+      if (active.task.type === 'obstacle' && doc.live_gateSplits?.length > 0) {
+        let obsStart = doc.live_staticStartAt || doc.liveObstacleStartAt;
+        if (obsStart && obsStart.toMillis) obsStart = obsStart.toMillis();
+        if (obsStart) {
+          const classStats = calculateClassSplitStats(eq.className, doc.currentObstacle);
+          const uniqueSplits = [];
+          const seen = new Set();
+          for (const s of doc.live_gateSplits) {
+            if (s.char && s.char === s.char.toUpperCase() && !seen.has(s.char)) {
+              uniqueSplits.push(s); seen.add(s.char);
             }
           }
-
-          // Fallback style om ingen annan klass satts (och inte elim)
-          if (!comparisonClass && !it.elim) comparisonClass = 'bg-gray-100 text-gray-700';
-
-          return `<span class="chip ${it.elim ? 'elim' : ''} ${isLive ? 'chip-live' : ''} ${comparisonClass}" title="${title}">H${it.n}: ${label}</span>`;
-        }).join(''); // Space removed to let flex gap handle spacing if we use flex-wrap
-
-        const sumLbl = obs.eliminated ? 'ELIM' : (Number.isFinite(obs.sum) ? obs.sum.toFixed(2) + ' p' : '—');
-
-        const tot = calculateTotalPenalty(doc, eq);
-        const totLbl = (tot === Infinity) ? 'ELIM' : (Number.isFinite(tot) ? tot.toFixed(2) + ' p' : '—');
-
-        return `
-                <div class="pt-3 border-t mt-2 chip-container">
-                  <div class="text-xs text-gray-500 mb-1">Hinder</div>
-                  <div class="flex flex-wrap gap-1.5 mb-2">${chips}</div>
-                  <div class="flex justify-between items-center text-xs bg-gray-50 p-2 rounded">
-                    <div><span class="text-gray-500">Omg. Hinder:</span> <span class="font-semibold ml-1">${sumLbl}</span></div>
-                    <div><span class="text-gray-500">Totalt:</span> <span class="font-semibold ml-1">${totLbl}</span></div>
-                  </div>
-                </div>
-            `;
-      })()
+          const items = uniqueSplits.map(s => {
+            let ts = s.ts?.toMillis ? s.ts.toMillis() : s.ts;
+            const diff = ts - obsStart;
+            const stat = classStats[s.char];
+            let cls = 'bg-gray-100 text-gray-700 border-gray-200';
+            if (stat) {
+              if (diff <= stat.best + 100) cls = 'bg-green-100 dark:bg-green-900/40 text-green-800 dark:text-green-300 border-green-300 ring-1 ring-green-400 font-bold';
+              else if (diff < stat.avg) cls = 'bg-blue-50 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-200';
+              else cls = 'bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-200';
+            }
+            return `<span class="${cls} px-1.5 py-0.5 rounded border text-[10px] font-mono">${s.char}: ${(diff / 1000).toFixed(1)}s</span>`;
+          }).slice(-8);
+          splitEl.innerHTML = `<div class="flex flex-wrap justify-center gap-1 mt-2 mb-1 cursor-help">${items.join('')}</div>`;
+        }
+      } else {
+        splitEl.innerHTML = '';
       }
-        </div>
-      </div>
-  `;
-  }).join('');
+    }
 
-  grid.querySelectorAll('.relative').forEach(card => {
-    const h3 = card.querySelector('h3');
-    const sn = h3?.textContent?.match(/#(\d+)/)?.[1];
-    if (!sn) return;
-    card.style.cursor = 'pointer';
-    card.addEventListener('click', () => openMarathonDetailsModal(sn));
+    // Bottom (Chips)
+    const botEl = document.getElementById(`bottom-${sn}`);
+    if (botEl) {
+      const obs = summarizeObstacles(doc);
+      if (obs.items.length) {
+        const chips = obs.items.map(it => {
+          const lbl = it.elim ? 'ELIM' : (Number.isFinite(it.val) ? it.val.toFixed(2) + (it.isTime ? ' s' : ' p') : '—');
+          const isLive = Number(doc.currentObstacle) === it.n;
+          return `<span class="chip ${it.elim ? 'elim' : ''} ${isLive ? 'chip-live' : ''} bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200" title="Hinder ${it.n}">H${it.n}: ${lbl}</span>`;
+        }).join('');
+
+        // FIX: Verify live total includes stage penalty
+        let liveStageP = 0;
+        if (active.task.type === 'stage') {
+          const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, active.task.key);
+          liveStageP = elim ? Infinity : (Number.isFinite(points) ? points : 0);
+        }
+
+        const res = calculateMarathonResult(eq, doc, doc);
+        let tot = res.totalPenalty;
+
+        if (active.task.type === 'stage' && liveStageP > 0 && Number.isFinite(tot)) {
+          const baseP = res.stages[active.task.key]?.timePenalty || 0;
+          if (baseP === 0) {
+            tot += liveStageP;
+          }
+        }
+
+        const totLbl = (tot === Infinity) ? 'ELIM' : (Number.isFinite(tot) ? tot.toFixed(2) + ' p' : '—');
+        botEl.innerHTML = `
+          <div class="pt-3 border-t dark:border-gray-700 mt-2 chip-container">
+            <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">${t('obstacles')}</div>
+            <div class="flex flex-wrap gap-1.5 mb-2">${chips}</div>
+            <div class="flex justify-between items-center text-xs bg-gray-50 dark:bg-gray-800 p-2 rounded">
+              <div><span class="text-gray-500 dark:text-gray-400">${t('total')}:</span> <span class="font-semibold ml-1 dark:text-gray-200">${totLbl}</span></div>
+            </div>
+          </div>`;
+      } else {
+        botEl.innerHTML = '';
+      }
+    }
+
+    // Rank
+    const rankEl = document.getElementById(`rank-${sn}`);
+    if (rankEl) {
+      const classMates = allEquipages.filter(e => e.className === eq.className);
+      const rankedList = classMates.map(e => {
+        const d = allMarathonData.get(String(e.startNumber));
+        const p = calculateTotalPenalty(d, e);
+        return { sn: e.startNumber, p: (p === null ? 0 : p) };
+      }).sort((a, b) => {
+        if (a.p === Infinity && b.p === Infinity) return 0;
+        if (a.p === Infinity) return 1;
+        if (b.p === Infinity) return -1;
+        return a.p - b.p;
+      });
+      const myIndex = rankedList.findIndex(x => x.sn === eq.startNumber);
+      const placement = (myIndex !== -1) ? myIndex + 1 : '-';
+      rankEl.innerHTML = `<div class="text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded inline-block ml-2" title="${t('dressage_placing')}">${t('rank_short')}: ${placement}</div>`;
+    }
+
+    // ETA / StartTime
+    const stEl = document.getElementById(`startTime-${sn}`);
+    const etaEl = document.getElementById(`eta-${sn}`);
+    if (stEl && etaEl) {
+      if (active.task.type === 'stage' && (stageKey === 'A' || stageKey === 'B')) {
+        const stageStart = stageStartTS(doc, stageKey);
+        if (stageStart) {
+          const lblStart = toTimeLabel(stageStart);
+          const lblETA = calculateETA(stageStart, eq, stageKey, tickTimeNow);
+          stEl.innerHTML = `<div class="text-xs text-gray-500 flex flex-col items-center"><span>${t('start_time')}</span><span class="font-bold text-gray-800 dark:text-gray-200">${lblStart}</span></div>`;
+          etaEl.innerHTML = `<div class="text-xs text-gray-500 flex flex-col items-center"><span>ETA</span><span class="font-bold text-gray-800 dark:text-gray-200">${lblETA}</span></div>`;
+        } else {
+          stEl.innerHTML = ''; etaEl.innerHTML = '';
+        }
+      } else {
+        stEl.innerHTML = ''; etaEl.innerHTML = '';
+      }
+    }
+
   });
 }
 
@@ -763,70 +810,24 @@ function renderMonitor() {
 function ensureTicker() {
   if (tickerInterval) return;
   tickerInterval = setInterval(() => {
-    if (isGloballyPaused) return;
+    // DO NOT return early if isGloballyPaused! 
+    // We still need to run the loop so that the map/grid UI calculations 
+    // are able to execute with `tickTimeNow = pauseStartTime`.
+    // Returning early freezes the entire monitor UI from drawing anything.
 
-    let needsRender = false;
-    activeEquipages.forEach((active, sn) => {
-      const timerEl = document.getElementById(`timer-${sn}`);
-
-      // AUTO-EXPIRE FLASH
-      if (active.task.type === 'result_flash') {
-        if (Date.now() - active.startTime > 20000) {
-          // activeEquipages.delete(sn);
-          evaluateActiveState(sn);
-          needsRender = true;
-        }
-        return; // Skip timer update for flash cards
-      }
-
-      if (timerEl) {
-
-        // KORRIGERING: Beräkna elapsedMs korrekt:
-        // Om klockan rullar: Bas + (Nu - Start - Paus)
-        // Om klockan står still (men kortet visas): Bas (dvs pausedMs)
-        let elapsedMs = active.pausedMs;
-
-        if (active.isRunning) {
-          const startTimeMs = active.startTime; // Detta ska vara liveObstacleStartAt för hinder
-          if (startTimeMs) {
-            elapsedMs = active.pausedMs + (Date.now() - startTimeMs - pausedMsSince(startTimeMs));
-          }
-        }
-
-        timerEl.textContent = formatMsLive(elapsedMs);
-
-        // Update progress bar
-        const cardEl = timerEl.closest('.relative');
-        const progressBar = cardEl?.querySelector('.progress-bar-fill');
-        if (progressBar) {
-          const limitMs = Number(progressBar.getAttribute('data-limit-ms'));
-          if (limitMs > 0) {
-            const pct = Math.min(100, Math.max(0, (elapsedMs / limitMs) * 100));
-            progressBar.style.width = `${pct}%`;
-
-            // Update colors dynamically
-            progressBar.classList.remove('bg-green-500', 'bg-amber-400', 'bg-red-500');
-            if (pct > 90) progressBar.classList.add('bg-red-500');
-            else if (pct > 75) progressBar.classList.add('bg-amber-400');
-            else progressBar.classList.add('bg-green-500');
-          }
-        }
-
-        // Kolla om varning ska visas/döljas
-        const limits = limitsFor(active.equipageInfo, active.task.key);
-        if (limits && limits.timeLimit && cardEl) {
-          const isOverdue = elapsedMs > (limits.timeLimit * 1000);
-          if (isOverdue && !cardEl.classList.contains('is-overdue')) {
-            needsRender = true;
-          }
-        }
-      }
+    // 1. Update internal state if needed (mostly redundant now with unified time source)
+    activeEquipages.forEach(active => {
+      // State updates could go here if we had any non-UI logic
     });
 
-    if (needsRender && activeEquipages.size > 0) {
+    // 2. CONSOLIDATED UI UPDATES (Once per tick)
+    const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
+    if (viewMode === 'map') {
+      updateSidebarMap(activeEquipages, tickTimeNow);
+    } else {
       renderMonitor();
     }
-  }, 95);
+  }, 100);
 }
 
 function stopTicker() {
@@ -837,6 +838,17 @@ function stopTicker() {
 }
 
 // ---------- Data Logic & Listeners ----------
+
+function rebuildMarathonData(sn) {
+  const t = marathonTimingMap.get(sn) || {};
+  const s = marathonStateMap.get(sn) || {};
+
+  // MERGE: State overrides Timing (to respect manual edits)
+  const merged = { ...t, ...s };
+
+  allMarathonData.set(sn, merged);
+  evaluateActiveState(sn, merged);
+}
 
 
 // ---------- Entrypoint ----------
@@ -854,15 +866,16 @@ export async function load() {
   injectMonitorStylesOnce();
 
   try {
-    const [equipagesRaw, configRaw, startTimesData] = await Promise.all([
+    const [equipagesRaw, startTimesData, configData] = await Promise.all([
       getEquipages(competitionId),
-      getConfig(competitionId, 'maratonConfig').catch(() => ({})),
-      getConfig(competitionId, 'startTimes').catch(() => ({}))
+      getConfig(competitionId, 'startTimes').catch(() => ({})),
+      getConfig(competitionId, 'maratonConfig').catch(() => null)
     ]);
 
     allEquipages = equipagesRaw || [];
-    setMarathonConfig(configRaw || {});
     startTimes = startTimesData || {};
+    maratonConfig = configData;
+    if (maratonConfig) setMarathonConfig(maratonConfig);
 
     await ensureClubLogosLoaded();
 
@@ -881,38 +894,83 @@ export async function load() {
     });
     unsubscribes.push(unSubEquipages);
 
-    // 2. Marathon Data Collection
+    // 2. Marathon Data Collection (State / Manual)
     const unSubMarathon = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        const data = change.doc.data();
+        const d = change.doc.data();
         const sn = String(change.doc.id);
-        allMarathonData.set(sn, data);
 
-        // Check active state
-        evaluateActiveState(sn, data);
+        // Update State Map
+        marathonStateMap.set(sn, d);
+
+        // Rebuild derived data
+        rebuildMarathonData(sn);
       });
 
       renderSummaryStats();
+
+      // Initial render
       renderMonitor();
       renderUpcomingPanel();
       renderFinishedPanel();
     });
     unsubscribes.push(unSubMarathon);
 
+    // [FIX] Listen to maraton-timing (live stage times) and merge!
+    // This ensures consistency with total-resultat.js and maraton-resultat.js
+    const unSubTiming = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton-timing'), (snapshot) => {
+      snapshot.docChanges().forEach((change) => {
+        const d = change.doc.data();
+        const sn = String(change.doc.id);
+
+        // Update Timing Map
+        marathonTimingMap.set(sn, d);
+
+        // Rebuild derived data
+        rebuildMarathonData(sn);
+      });
+      // Re-render relevant parts (or let ticker handle it, but specific updates are better)
+      if (viewMode === 'map') renderMonitor(); // Map needs live updates
+      renderSummaryStats();
+      renderUpcomingPanel();
+      renderFinishedPanel();
+    });
+    unsubscribes.push(unSubTiming);
+
+    // 3. Maraton Config (Live updates for map) - MOVED OUT OF MARATHON LISTENER
+    const unSubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'maratonConfig'), (snap) => {
+      if (snap.exists()) {
+        maratonConfig = snap.data();
+        setMarathonConfig(maratonConfig);
+        if (viewMode === 'map') renderMonitor();
+      }
+    });
+    unsubscribes.push(unSubConfig);
+
     // 3. Global Pause
-    const unSubPause = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'maratonPause'), (docSnap) => {
+    const unSubPause = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus'), (docSnap) => {
 
       if (docSnap.exists()) {
         const d = docSnap.data();
-        isGloballyPaused = d.paused || false;
-        pauseStartTime = d.startTime || 0;
-        // setPauseWindows(d.windows || []); // Update utils if needed
+        isGloballyPaused = d.isPaused === true;
+        setPauseWindows(d.pauseLog || []);
+
+        if (isGloballyPaused && Array.isArray(d.pauseLog)) {
+          const current = d.pauseLog.find(p => p.end === null);
+          if (current && current.start) {
+            pauseStartTime = new Date(current.start).getTime();
+          } else {
+            pauseStartTime = Date.now();
+          }
+        } else {
+          pauseStartTime = 0;
+        }
 
         const banner = document.getElementById('pause-status-banner');
         if (banner) {
           if (isGloballyPaused) {
             banner.classList.remove('hidden');
-            banner.textContent = `TÄVLINGEN PAUSAD SEDAN ${toTimeLabel(pauseStartTime)}`;
+            banner.textContent = `TÄVLINGEN PAUSAD SEDAN ${toTimeLabel(pauseStartTime)} `;
           } else {
             banner.classList.add('hidden');
           }
@@ -955,21 +1013,67 @@ function evaluateActiveState(sn, data) {
   // Determine current task
   let task = { name: 'På Banan', type: 'unknown', key: 'unknown' };
   let startTime = 0;
+  let obstacleStart = 0;
+  let fixedElapsedMs = null; // New field for stopped timers
 
   if (startB) {
     task = { name: 'Etapp B', type: 'stage', key: 'B' };
     startTime = startB;
     if (data.currentObstacle) {
-      task = { name: `Hinder ${data.currentObstacle}`, type: 'obstacle', key: 'obstacle' };
-      // Obstacle start time logic is complex (live_staticStartAt etc), handled in renderMonitor
-      // For sorting activeEquipages, startB is fine as base time
+      task = { name: `Hinder ${data.currentObstacle} `, type: 'obstacle', key: 'obstacle' };
+
+      // --- LOGIC FIX: Check if running ---
+      if (data.running === false && typeof data.liveObstacleTimeMs === 'number') {
+        // Timer is stopped -> Use the static fixed time
+        fixedElapsedMs = data.liveObstacleTimeMs;
+      } else {
+        // Timer is running -> Calculate start time
+        // Try to find correct raw obstacle start time
+        let obsStartTs = data.live_staticStartAt || data.liveObstacleStartAt; // Prefer static if exists (robustness)
+        // Note: checking liveObstacleStartAt is usually better for 'active',
+        // but live_staticStartAt survives reloads. Use live_staticStartAt IF running.
+
+        if (obsStartTs && obsStartTs.toMillis) obsStartTs = obsStartTs.toMillis();
+        else if (typeof obsStartTs === 'string') obsStartTs = new Date(obsStartTs).getTime();
+
+        // Fallback to timing array
+        if (!obsStartTs && data.obstacleTimes && data.obstacleTimes[data.currentObstacle]) {
+          const ot = data.obstacleTimes[data.currentObstacle];
+          const st = ot.enteredAt || ot.enteredAtClient;
+          if (st) {
+            if (st.toMillis) obsStartTs = st.toMillis();
+            else obsStartTs = new Date(st).getTime();
+          }
+        }
+        obstacleStart = obsStartTs || 0;
+      }
     }
   } else if (startT) {
     task = { name: 'Transport', type: 'transport', key: 'transport' };
     startTime = startT;
+
+    // Check if Transport is stopped
+    const stopT = stageStopTS(data, 'transport');
+    if (stopT) {
+      // Transport is finished.
+      // Option 1: Mark as fixed time (waiting for B)
+      fixedElapsedMs = stageDurationMsSaved(data, 'transport');
+      // Option 2: Remove from active? Usually valid to show they are "done with transport, waiting for B".
+      // Let's show them as active but stopped.
+    }
+
   } else if (startA) {
-    task = { name: 'Etapp A', type: 'stage', key: 'A' };
+    const limitsA = limitsFor(eq, 'A');
+    const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
+    task = { name: isFixedTimeA ? 'Warm-up' : 'Etapp A', type: 'stage', key: 'A' };
     startTime = startA;
+
+    // Check if A is stopped
+    const stopA = stageStopTS(data, 'A');
+    if (stopA) {
+      // A is finished.
+      fixedElapsedMs = stageDurationMsSaved(data, 'A');
+    }
   }
 
   // Check for Flash Result
@@ -984,9 +1088,14 @@ function evaluateActiveState(sn, data) {
     equipageInfo: eq,
     data: data,
     task: task,
-    startTime: startTime, // Base start time regarding the stage
-    pausedMs: 0, // Simplified for now, calculated in render
-    isRunning: !isGloballyPaused
+    startTime: startTime,
+    obstacleStart: obstacleStart,
+    // THE UNIFIED TIME SOURCE
+    timerBaseMs: (task.type === 'obstacle' && obstacleStart) ? obstacleStart : startTime,
+    fixedElapsedMs: fixedElapsedMs, // <-- Pass this through
+    pausedMs: (task.type === 'obstacle') ? (data.liveObstacleTimeMs || 0) : (data.timing?.[task.key]?.durationMs || 0),
+    isRunning: !isGloballyPaused,
+    totalPenalty: calculateTotalPenalty(data, eq)
   });
 }
 
@@ -994,7 +1103,11 @@ function evaluateActiveState(sn, data) {
 export function __unload() {
   unsubscribes.forEach(u => u && u());
   unsubscribes = [];
-  if (tickerInterval) clearInterval(tickerInterval);
+  if (tickerInterval) {
+    clearInterval(tickerInterval);
+    tickerInterval = null;
+  }
+  destroyMap();
 }
 
 

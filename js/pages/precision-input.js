@@ -1,10 +1,21 @@
 import { getGlobalState } from '../main.js';
-import { getEquipages, getConfig, savePrecisionResult } from '../services/firestoreService.js';
-import { doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getEquipages, getConfig, savePrecisionResult, getStartTimes, getPrecisionResults } from '../services/firestoreService.js';
 import { db, appId } from '../config/firebase-config.js';
+import {
+    doc,
+    setDoc,
+    getDoc,
+    collection,
+    query,
+    where,
+    getDocs,
+    onSnapshot
+} from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../ui/components.js';
 import { standardPortAllowance, klassTempoData } from '../data/competitionData.js';
-import { downloadJson } from '../utils/sharedUtils.js';
+import { downloadJson, round2 } from '../utils/sharedUtils.js';
+import { requestWakeLock } from '../utils/wakeLock.js';
+import { computeMaxSecondsForClass, calculatePrecisionTimePenalty } from '../utils/precisionUtils.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -14,6 +25,7 @@ let currentEquipage = null;
 let searchableDropdown = null;
 
 let knocks = new Set();
+let knockDownTimes = {}; // NY: { "3A": 12345, ... }
 let extraPenalty = 0;
 let comment = '';
 
@@ -113,28 +125,6 @@ function computePortWidthForEquipage(eq) {
     if (!Number.isFinite(trackWidth) || !Number.isFinite(allowance)) return null;
     return trackWidth + allowance;
 }
-function getMaxSecondsForClass(cls) {
-    const courseData = precisionConfig.courses?.[cls];
-    const trackLength = courseData?.trackLengthMeters;
-    const normalize = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
-    const nCls = normalize(cls);
-
-    // 1. Exakt match
-    let tempo = klassTempoData[cls];
-    if (!tempo) {
-        // 2. Normaliserad sökning
-        const keys = Object.keys(klassTempoData);
-        // Hitta nyckel som är prefix till klassnamnet
-        const hit = keys.find(k => nCls.startsWith(normalize(k)));
-        if (hit) tempo = klassTempoData[hit];
-    }
-
-    // Hämta värdet (kan vara objekt {maraton, precision} eller direkt nummer)
-    const tVal = (typeof tempo === 'object') ? tempo.precision : tempo;
-
-    if (trackLength > 0 && tVal > 0) return (trackLength / tVal) * 60;
-    return null;
-}
 function getLabelsForClass(cls) {
     const courseData = precisionConfig.courses?.[cls];
     if (courseData && Array.isArray(courseData.obstacleLabels) && courseData.obstacleLabels.length > 0) {
@@ -142,19 +132,19 @@ function getLabelsForClass(cls) {
     }
     return [];
 }
-function obstaclePenalty() { return knocks.size * 3; }
-function calculateLiveTimePenalty() {
-    const maxSec = getMaxSecondsForClass(currentEquipage?.className);
-    if (!Number.isFinite(maxSec)) return 0;
-    const elapsedSec = getElapsedMs() / 1000;
-    if (elapsedSec > maxSec) return (elapsedSec - maxSec) * 0.5;
-    return 0;
+function obstaclePenalty() {
+    const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+    return knocks.size * kp;
 }
 
 // Ny hjälpfunktion som samlar all live-data
 function getLivePayload() {
     const t = getElapsedMs();
-    const liveTimePenalty = calculateLiveTimePenalty();
+    
+    const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+    const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
+
     const liveObstaclePenalty = obstaclePenalty();
     const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
 
@@ -166,11 +156,12 @@ function getLivePayload() {
         liveStartEpoch: isRunning ? startEpoch : null,
         livePausedMs: pausedMs,
         // ---
-        liveTimePenalty: parseFloat(liveTimePenalty.toFixed(2)),
+        liveTimePenalty: round2(liveTimePenalty),
         liveObstaclePenalty: liveObstaclePenalty,
         knocks: Array.from(knocks),
+        knockDownTimes: { ...knockDownTimes }, // NYTT
         extraPenalty: extraPenaltyVal,
-        liveTotalPenalty: parseFloat((liveTimePenalty + liveObstaclePenalty + extraPenaltyVal).toFixed(2)),
+        liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal),
         // NYTT:
         eliminated: !!document.getElementById('eliminatedInput').checked
     };
@@ -203,7 +194,7 @@ async function pushLiveSafe(update) {
             startNumber: currentEquipage.startNumber,
             className: currentEquipage.className,
             ...update,
-            updatedAt: Date.now() - 100 // Säkerhetsmarginal för klocksynk
+            updatedAt: Date.now() 
         };
         await setDoc(precisionDocRef(currentEquipage.startNumber), snapshot, { merge: true });
         mirrorToLocal(currentEquipage.startNumber, snapshot);
@@ -212,102 +203,156 @@ async function pushLiveSafe(update) {
     }
 }
 
-// ---------- UI Rendering ----------
-// ===== NY renderLayout() i precision-input.js =====
+// ---------- UI // ===== NY renderLayout() i precision-input.js =====
 function renderLayout() {
     const comp = getGlobalState('currentCompetition');
     const root = document.getElementById('page-precision-input');
     root.innerHTML = `
+        <style>
+            /* Kompakt mobil-layout för precision */
+            @media (max-width: 640px) {
+                #page-precision-input .container { padding: 0.5rem; }
+                #page-precision-input .main-card { padding: 0.75rem; border-radius: 0; border-left: 0; border-right: 0; }
+                
+                /* Grid-optimering */
+                #gatesGrid {
+                    grid-template-columns: repeat(5, 1fr) !important;
+                    gap: 0.5rem !important;
+                }
+                .gateBtn {
+                    font-size: 1.125rem !important; /* text-lg */
+                    padding: 0 !important;
+                    height: 50px !important;
+                }
+                
+                /* Kompakt info-rad */
+                #infoEquipageLine { font-size: 0.875rem; }
+                .info-meta { font-size: 0.75rem; }
+            }
+
+            .sticky-precision-controls {
+                position: sticky;
+                top: 63px; /* Justera beroende på sidans huvud-header */
+                z-index: 40;
+                background: rgba(255, 255, 255, 0.95);
+                backdrop-filter: blur(8px);
+                border-bottom: 1px solid #e2e8f0;
+                margin-left: -1rem;
+                margin-right: -1rem;
+                padding: 0.75rem 1rem;
+            }
+            .dark .sticky-precision-controls {
+                background: rgba(31, 41, 55, 0.95);
+                border-bottom-color: #374151;
+            }
+            
+            #liveTimer {
+                text-shadow: 0 1px 2px rgba(0,0,0,0.1);
+            }
+        </style>
+
         <div class="container mx-auto p-4 md:p-8 max-w-2xl">
-            ${getCompetitionHeader(comp, 'Precision – Inmatning (live)')} 
+            <div class="mb-4">
+                ${getCompetitionHeader(comp, 'Precision – Inmatning (live)')} 
+            </div>
 
-          
-            <div class="bg-white p-6 rounded-xl shadow-md space-y-6">
+            <!-- STICKY KONTROLLPANEL -->
+            <div class="sticky-precision-controls rounded-b-xl shadow-lg mb-4">
+                <div class="flex items-center justify-between gap-4">
+                    <div class="flex-grow">
+                        <div id="liveTimer" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="Klicka för att ändra tiden">00:00,00</div>
+                        <div class="text-xs md:text-sm mt-1 flex items-center gap-1">
+                            <span class="text-gray-500 dark:text-gray-400">Tidsfel:</span>
+                            <span id="uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
+                        </div>
+                    </div>
+                    <div class="flex gap-2">
+                        <button id="btnStart" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">Start</button>
+                        <button id="btnStop" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">Stopp</button>
+                    </div>
+                </div>
 
+                <!-- Manuell tid-editorn (flytande under timern) -->
+                <div id="manualTimeEditor" class="hidden absolute left-4 right-4 mt-2 p-4 rounded-xl border bg-white shadow-2xl z-50 dark:bg-gray-800 dark:border-gray-600">
+                    <label class="block text-sm font-semibold mb-2 dark:text-white">Ange manuell tid (mmsscc)</label>
+                    <input id="manualTimeDigits" type="tel" inputmode="numeric" class="w-full text-4xl font-mono tracking-widest text-center px-3 py-4 border-2 rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:border-blue-500" placeholder="mmsscc" maxlength="6" />
+                    <div class="flex gap-3">
+                        <button id="btnManualApply" class="flex-1 py-3 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700">Använd</button>
+                        <button id="btnManualCancel" class="flex-1 py-3 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300">Avbryt</button>
+                    </div>
+                </div>
+            </div>
 
+            <div class="main-card bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md space-y-4 border dark:border-gray-700">
+                <!-- EKIPAGEVAL -->
+                <div class="grid grid-cols-1 gap-4">
+                    <div class="flex items-center gap-2">
+                        <button id="btnPrevEq" class="p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&larr;</button>
+                        <div id="precisionEquipageSearchContainer" class="flex-grow"></div>
+                        <button id="btnNextEq" class="p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&rarr;</button>
+                        <button id="btnReset" class="p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="Nollställ">🔄</button>
+                    </div>
+                    
+                    <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
+                        <div id="infoEquipageLine" class="font-bold dark:text-white text-base md:text-lg">–</div>
+                        <div class="info-meta text-xs md:text-sm text-gray-600 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">
+                            Hinder: <span id="infoPortWidth" class="text-blue-700 dark:text-blue-400">–</span> | 
+                            Max: <span id="infoMaxTime" class="text-blue-700 dark:text-blue-400">–</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- HINDERGRUPP -->
                 <div>
-                    <label class="block text-sm font-medium">Ekipage</label>
-                    <div class="flex items-center gap-2 mt-1">
-                        <button id="btnPrevEq" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200" title="Föregående (←)">&larr;</button>
-                        <div id="precisionEquipageSearchContainer" class="flex-grow text-center text-gray-500 italic">Laddar ekipage...</div>
-                        <button id="btnNextEq" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200" title="Nästa (→)">&rarr;</button>
+                    <div class="flex items-center justify-between mb-2">
+                        <h3 class="font-bold uppercase text-xs tracking-widest text-gray-500 dark:text-gray-400">Hinder / Portar</h3>
+                        <span id="uiObstaclePenaltySummary" class="text-xs font-bold text-red-600 dark:text-red-400"></span>
+                    </div>
+                    <div id="gatesGrid" class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
                     </div>
                 </div>
 
-              
-                <div class="p-4 border rounded-lg bg-gray-50">
-                    <div class="flex items-start justify-between gap-4 mb-3">
-
+                <!-- EXTRA / KOMMENTAR -->
+                <div class="pt-4 border-t dark:border-gray-700">
+                    <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <div id="infoEquipageLine" class="font-semibold">–</div>
-                            <div class="text-gray-600 text-sm">
-                                Hinderbredd: <span id="infoPortWidth" class="font-medium">–</span> •
-                                Maxtid: <span id="infoMaxTime" class="font-medium">–</span>
-                            </div>
+                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Extra straff</label>
+                            <input type="number" id="extraPenaltyInput" value="0" min="0" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                         </div>
-
-                        <div class="relative text-right">
-                            <div id="liveTimer" class="text-4xl font-bold tabular-nums cursor-pointer" title="Klicka för att ändra tiden">00:00,00</div>
-                            <div class="mt-1 text-sm">
-                                <span class="text-gray-600">Tidsfel:</span>
-                                <span id="uiTimePenaltyTop" class="tabular-nums font-semibold">0.00</span>
-                            </div>
-
-                            <div id="manualTimeEditor" class="hidden absolute right-0 mt-2 w-[320px] p-4 rounded-lg border bg-white shadow-lg z-40 text-left">
-                                <label class="block text-sm mb-2">Manuell tid (mmsscc)</label>
-                                <input id="manualTimeDigits" type="tel" inputmode="numeric" class="w-full text-3xl tracking-widest px-3 py-2 border rounded mb-3" placeholder="mmsscc" maxlength="6" />
-                                <div class="flex gap-2">
-                                    <button id="btnManualApply" class="flex-1 py-2 rounded bg-emerald-600 text-white">Använd</button>
-                                    <button id="btnManualCancel" class="flex-1 py-2 rounded bg-gray-300">Avbryt</button>
-                                </div>
-                            </div>
+                        <div class="flex items-end">
+                            <label class="inline-flex items-center cursor-pointer p-2 border rounded hover:bg-red-50 dark:hover:bg-red-900/20 w-full h-[38px] transition-colors dark:border-gray-600">
+                                <input type="checkbox" id="eliminatedInput" class="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500 dark:bg-gray-700 dark:border-gray-600">
+                                <span class="ml-2 font-bold text-red-700 dark:text-red-400 text-xs">ELIM</span>
+                            </label>
                         </div>
-                    </div>
-
-                    <div class="flex items-center gap-2 border-t pt-3">
-                        <button id="btnStart" class="flex-1 py-3 text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-transform touch-manipulation">Start</button>
-                        <button id="btnStop" class="flex-1 py-3 text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-transform touch-manipulation">Stopp</button>
-                        <button id="btnReset" class="py-3 px-4 rounded-lg bg-gray-200 text-gray-700 font-medium active:scale-95 transition-transform touch-manipulation">
-                           <span class="sr-only">Nollställ</span>
-                           🔄
-                        </button>
-                    </div>
-                </div>
-
-                <div class="p-4 border rounded-lg bg-white">
-                    <h3 class="font-semibold mb-2">Hinder</h3>
-                    <div id="gatesGrid" class="grid grid-cols-[repeat(auto-fit,minmax(72px,1fr))] gap-3">
-                    </div>
-                </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
-                    <div class="md:col-span-1">
-                        <label for="extraPenaltyInput" class="block text-sm font-medium">Extra Straffpoäng</label>
-                        <input type="number" id="extraPenaltyInput" value="0" min="0" class="mt-1 w-full p-2 border rounded-md" placeholder="Ex: 10">
-                    </div>
-                     <!-- NYTT: Eliminerad-checkbox -->
-                    <div class="md:col-span-1 flex items-end pb-2">
-                       <label class="inline-flex items-center cursor-pointer p-2 border rounded hover:bg-red-50 w-full transition-colors">
-                            <input type="checkbox" id="eliminatedInput" class="w-6 h-6 rounded border-gray-300 text-red-600 focus:ring-red-500">
-                            <span class="ml-2 font-bold text-red-700">Eliminerad</span>
-                        </label>
-                    </div>
-                    <div class="md:col-span-2">
-                        <label for="commentInput" class="block text-sm font-medium">Kommentar</label>
-                        <textarea id="commentInput" rows="1" class="mt-1 w-full p-2 border rounded-md" placeholder="Orsak till extra straff, etc."></textarea>
+                        <div class="col-span-2">
+                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Kommentar</label>
+                            <textarea id="commentInput" rows="1" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ev. orsak..."></textarea>
+                        </div>
                     </div>
                 </div>
         
-                <div id="penaltySummary" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-                    <div class="rounded-lg bg-gray-50 px-3 py-2"><div class="text-gray-600">Tidsfel</div><div id="uiTimePenalty" class="font-semibold tabular-nums">0.00</div></div>
-                    <div class="rounded-lg bg-gray-50 px-3 py-2"><div class="text-gray-600">Hinderstraff</div><div><span id="uiObstaclePenalty" class="font-semibold tabular-nums">0</span><span id="uiObstacleInfo" class="text-gray-500"></span></div></div>
-                    <div class="rounded-lg bg-gray-50 px-3 py-2"><div class="text-gray-600">Annat</div><div id="uiExtraPenalty" class="font-semibold tabular-nums">0</div></div>
-                    <div class="rounded-lg bg-blue-50 px-3 py-2"><div class="text-blue-800">Totalt</div><div id="uiTotalPenalty" class="font-semibold tabular-nums text-blue-900">0.00</div></div>
+                <!-- SAMMANFATTNING -->
+                <div id="penaltySummary" class="flex flex-wrap gap-2 text-[10px] uppercase font-bold">
+                    <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
+                        <span>Tid</span><span id="uiTimePenalty" class="tabular-nums dark:text-gray-200">0.00</span>
+                    </div>
+                    <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
+                        <span>Hinder</span><span id="uiObstaclePenalty" class="tabular-nums dark:text-gray-200">0</span>
+                    </div>
+                    <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
+                        <span>Extra</span><span id="uiExtraPenalty" class="tabular-nums dark:text-gray-200">0</span>
+                    </div>
+                    <div class="w-full text-center rounded bg-blue-600 text-white px-3 py-2 text-sm">
+                        TOTALT: <span id="uiTotalPenalty" class="tabular-nums">0.00</span>
+                    </div>
                 </div>
-                <div class="flex flex-col sm:flex-row gap-4 items-center justify-between">
-                    <button id="btnSave" class="w-full md:w-auto text-lg px-6 py-3 bg-brand-darkblue text-white font-bold rounded-lg hover:bg-brand-gold hover:text-brand-darkblue">Spara Slutgiltigt Resultat</button>
-                    <button id="btnBackupPreJson" type="button" class="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                        <i class="fas fa-file-download"></i> Ladda ner säkerhetskopia (JSON)
+
+                <!-- ÅTGÄRDER -->
+                <div class="flex flex-col gap-3 pt-2">
+                    <button id="btnSave" class="w-full text-lg py-4 bg-brand-darkblue text-white font-bold rounded-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all dark:bg-blue-600">SPARA RESULTAT</button>
+                    <button id="btnBackupPreJson" type="button" class="text-[10px] text-gray-400 hover:text-blue-500 flex items-center justify-center gap-1">
+                        <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
                     </button>
                 </div>
 
@@ -328,7 +373,7 @@ function updateHeaderInfo() {
     }
 
     const portWidth = computePortWidthForEquipage(eq);
-    const maxSeconds = getMaxSecondsForClass(eq.className);
+    const maxSeconds = computeMaxSecondsForClass(eq.className, precisionConfig);
 
     equipageEl.textContent = `#${eq.startNumber} ${eq.driverName || ''} (${eq.className})`;
     portEl.textContent = Number.isFinite(portWidth) ? `${portWidth} cm` : 'Ej angivet';
@@ -347,21 +392,41 @@ function renderGates() {
 
     host.innerHTML = labels.map(label => {
         const active = knocks.has(label);
-        return `<button data-g="${label}" class="gateBtn p-1 aspect-square flex items-center justify-center rounded border text-lg ${active ? 'bg-red-600 text-white' : 'bg-white'}">${label}</button>`;
+        return `<button data-g="${label}" class="gateBtn p-1 aspect-square flex items-center justify-center rounded border text-lg ${active ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}">${label}</button>`;
     }).join('');
 
     host.querySelectorAll('.gateBtn').forEach(btn => {
         btn.addEventListener('click', () => {
             const g = btn.dataset.g;
-            if (knocks.has(g)) knocks.delete(g); else knocks.add(g);
+            if (knocks.has(g)) {
+                knocks.delete(g);
+                delete knockDownTimes[g];
+            } else {
+                knocks.add(g);
+                knockDownTimes[g] = getElapsedMs();
+            }
             renderGates(); // uppdatera stil
-            const liveTimePenalty = calculateLiveTimePenalty();
+            
+            // Uppdatera summering i hedern om den finns
+            const summaryEl = document.getElementById('uiObstaclePenaltySummary');
+            if (summaryEl) {
+                const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+                const totalP = knocks.size * kp;
+                summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
+            }
+
+            const t = getElapsedMs();
+            const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+            const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+            const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
+
             const liveObstaclePenalty = obstaclePenalty();
             const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
             pushLiveSafe({
                 knocks: Array.from(knocks),
+                knockDownTimes, // NYTT
                 liveObstaclePenalty,
-                liveTotalPenalty: parseFloat((liveTimePenalty + liveObstaclePenalty + extraPenaltyVal).toFixed(2))
+                liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal)
             });
         });
     });
@@ -369,79 +434,117 @@ function renderGates() {
 
 // ---------- Timer Controls & Event Handlers ----------
 
-function updateTimerView() {
-    const t = getElapsedMs();
-    const out = document.getElementById('liveTimer');
+/**
+ * renderTimerUI - Uppdaterar ENBART DOM-elementen. 
+ * Anropas både av den lokala loopen (updateTimerView) och av onSnapshot-lyssnaren.
+ */
+function renderTimerUI(t) {
+    const parts = msToParts(t);
+    const timerStr = partsToString(parts);
 
-    // --- 1) Klockan ---
-    if (out) {
-        out.textContent = partsToString(msToParts(t));
-
-        // Röd/blink om över maxtid i input-vyn
-        const cls = currentEquipage?.className;
-        const maxSec = cls ? getMaxSecondsForClass(cls) : null;   // sekunder eller null
-        const overLimitNow = Number.isFinite(maxSec) && t > (maxSec * 1000);
-
-        out.classList.toggle('text-red-600', overLimitNow);
-        out.classList.toggle('animate-pulse', overLimitNow);
-        out.classList.toggle('font-semibold', overLimitNow);
-
-        // --- 2) Tidsfel direkt under klockan ---
-        const topTP = document.getElementById('uiTimePenaltyTop');
-        if (topTP) {
-            const liveTimePenaltyTop = calculateLiveTimePenalty();
-            topTP.textContent = liveTimePenaltyTop.toFixed(2);
-            topTP.classList.toggle('text-red-600', overLimitNow);
-            topTP.classList.toggle('animate-pulse', overLimitNow);
-            topTP.classList.toggle('font-semibold', overLimitNow);
-        }
-
-        // --- 3) Summeringspanelen längst ner ---
-        const tpEl = document.getElementById('uiTimePenalty');
-        const opEl = document.getElementById('uiObstaclePenalty');
-        const oiEl = document.getElementById('uiObstacleInfo');
-        const epEl = document.getElementById('uiExtraPenalty');
-        const ttEl = document.getElementById('uiTotalPenalty');
-
-        if (tpEl || opEl || epEl || ttEl) {
-            const liveTimePenalty = calculateLiveTimePenalty();           // Number
-            const liveObstaclePenalty = obstaclePenalty();                    // ex. rivningar*3
-            const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-            const total = liveTimePenalty + liveObstaclePenalty + extraPenaltyVal;
-
-            if (tpEl) {
-                tpEl.textContent = liveTimePenalty.toFixed(2);
-                // Matcha röd/blink även i panelen
-                tpEl.classList.toggle('text-red-600', overLimitNow);
-                tpEl.classList.toggle('animate-pulse', overLimitNow);
-                tpEl.classList.toggle('font-semibold', overLimitNow);
-            }
-            if (opEl) opEl.textContent = Number.isFinite(liveObstaclePenalty) ? liveObstaclePenalty.toFixed(0) : '0';
-            if (oiEl) {
-                const rivningar = Number.isFinite(liveObstaclePenalty) ? Math.round(liveObstaclePenalty / 3) : 0;
-                oiEl.textContent = rivningar > 0 ? ` (${rivningar} × 3)` : '';
-            }
-            if (epEl) epEl.textContent = Number.isFinite(extraPenaltyVal) ? extraPenaltyVal.toFixed(2) : '0.00';
-            if (ttEl) ttEl.textContent = Number.isFinite(total) ? total.toFixed(2) : '—';
+    const timerEl = document.getElementById('liveTimer');
+    if (timerEl) {
+        timerEl.textContent = timerStr;
+        // Visuell feedback om vi kört över maxtid (valfritt)
+        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        if (maxSec > 0 && (t / 1000) > maxSec) {
+            timerEl.classList.add('text-red-600', 'dark:text-red-400');
+        } else {
+            timerEl.classList.remove('text-red-600', 'dark:text-red-400');
         }
     }
 
-    // --- 4) Din befintliga throttlade live-push (~ var 5:e sekund) ---
+    // --- 2) "Tidsfel" i topp-panelen ---
+    const topTP = document.getElementById('uiTimePenaltyTop');
+    if (topTP) {
+        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        if (maxSec > 0) {
+            const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+            const liveTimePenaltyTop = calculatePrecisionTimePenalty(t, maxSec, rate);
+            const overLimitNow = (t / 1000) > maxSec;
+
+            topTP.textContent = liveTimePenaltyTop.toFixed(2);
+            topTP.classList.toggle('text-red-600', overLimitNow);
+            topTP.classList.toggle('dark:text-red-400', overLimitNow);
+            topTP.classList.toggle('animate-pulse', overLimitNow);
+            topTP.classList.toggle('font-semibold', overLimitNow);
+        }
+    }
+
+    // --- 3) Summeringspanelen längst ner ---
+    const tpEl = document.getElementById('uiTimePenalty');
+    const opEl = document.getElementById('uiObstaclePenalty');
+    const oiEl = document.getElementById('uiObstacleInfo');
+    const epEl = document.getElementById('uiExtraPenalty');
+    const ttEl = document.getElementById('uiTotalPenalty');
+
+    if (tpEl || opEl || epEl || ttEl) {
+        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+        const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
+
+        const liveObstaclePenalty = obstaclePenalty();
+        const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
+        const total = liveTimePenalty + liveObstaclePenalty + extraPenaltyVal;
+
+        if (tpEl) {
+            tpEl.textContent = liveTimePenalty.toFixed(2);
+            const overLimitNow = maxSec > 0 && (t / 1000) > maxSec;
+            tpEl.classList.toggle('text-red-600', overLimitNow);
+            tpEl.classList.toggle('dark:text-red-400', overLimitNow);
+            tpEl.classList.toggle('animate-pulse', overLimitNow);
+            tpEl.classList.toggle('font-semibold', overLimitNow);
+        }
+        if (opEl) opEl.textContent = Number.isFinite(liveObstaclePenalty) ? liveObstaclePenalty.toFixed(0) : '0';
+        if (oiEl) {
+            const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+            const rivningar = Number.isFinite(liveObstaclePenalty) ? Math.round(liveObstaclePenalty / kp) : 0;
+            oiEl.textContent = rivningar > 0 ? ` (${rivningar} × ${kp})` : '';
+        }
+        if (epEl) epEl.textContent = Number.isFinite(extraPenaltyVal) ? extraPenaltyVal.toFixed(2) : '0.00';
+        if (ttEl) ttEl.textContent = Number.isFinite(total) ? total.toFixed(2) : '—';
+    }
+
+    // --- 4) Summering i hedern (Hinder) ---
+    const summaryEl = document.getElementById('uiObstaclePenaltySummary');
+    if (summaryEl) {
+        const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+        const totalP = knocks.size * kp;
+        summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
+    }
+}
+
+/**
+ * updateTimerView - Körs av setInterval(). 
+ * Sköter både rendering (via renderTimerUI) och den throttlade push-logiken.
+ */
+function updateTimerView() {
+    const t = getElapsedMs();
+
+    // 1. Uppdatera UI
+    renderTimerUI(t);
+
+    // 2. Throttlad live-push (~ var 5:e sekund)
     const tick = Math.floor(t / 5000);
     if (tick !== lastPushedTick) {
         lastPushedTick = tick;
-        const liveTimePenalty = calculateLiveTimePenalty();
+        
+        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+        const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
+
         const liveObstaclePenalty = obstaclePenalty();
         const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
 
         pushLiveSafe({
             running: !!timerInterval,
-            liveStartEpoch: startEpoch, // VIKTIGT: Skicka med startEpoch för att "läka" om start-pushen misslyckades
+            liveStartEpoch: startEpoch,
+            livePausedMs: pausedMs, 
             liveTimeMs: t,
-            liveTimePenalty: parseFloat(liveTimePenalty.toFixed(2)),
+            liveTimePenalty: round2(liveTimePenalty),
             liveObstaclePenalty: liveObstaclePenalty,
             extraPenalty: extraPenaltyVal,
-            liveTotalPenalty: parseFloat((liveTimePenalty + liveObstaclePenalty + extraPenaltyVal).toFixed(2))
+            liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal)
         });
     }
 }
@@ -474,117 +577,258 @@ function stopTimer() {
     pushImmediateState();  // meddela live: running=false
 }
 
-function resetTimer() {
-    stopTimer();
+function clearLocalState() {
+    stopTimerLocal(); // Stoppa timer men pusha inte
     pausedMs = 0;
     lastPushedTick = -1;
-    inProgress = false;     // <-- NYTT: inte pågående längre
+    inProgress = false;
+    // Töm UI
     updateTimerView();
-    pushImmediateState();   // <-- pusha statusändringen direkt
+}
+
+// Hjälpfunktion för att stoppa lokalt utan att pusha
+function stopTimerLocal() {
+    if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+    isRunning = false;
+}
+
+function resetTimer() {
+    stopTimer();
+
+    // 1. Återställ all lokal state för rundan
+    pausedMs = 0;
+    lastPushedTick = -1;
+    inProgress = false;
+    knocks.clear();
+    knockDownTimes = {};
+
+    // 2. Nollställ UI-ingångar (om de finns)
+    const epInput = document.getElementById('extraPenaltyInput');
+    if (epInput) epInput.value = 0;
+
+    const elimInput = document.getElementById('eliminatedInput');
+    if (elimInput) elimInput.checked = false;
+
+    const commentInput = document.getElementById('commentInput');
+    if (commentInput) commentInput.value = '';
+
+    // 3. Uppdatera UI-visning omedelbart (använd rena render-funktioner)
+    renderTimerUI(0);
+    renderGates();
+    updateHeaderInfo();
+
+    // 4. Meddela Firestore (skicka ett fullständigt "nollställt" läge)
+    // Vi skickar med explicit nollställning av "slutgiltiga" fält för att undvika att de hänger kvar i Firestore (merge:true)
+    pushLiveSafe({
+        ...getLivePayload(),
+        finalized: false,
+        status: 'Ej startat',
+        time: null,
+        timeMs: null,
+        obstaclePenalty: null,
+        timePenalty: null,
+        totalPenalty: null,
+        comment: ''
+    });
 }
 
 async function onEquipageSelected(equipage) {
-    // 1. Alltid nollställ formuläret först
-    resetTimer();
-    knocks.clear();
-    document.getElementById('extraPenaltyInput').value = 0;
-    document.getElementById('eliminatedInput').checked = false; // Reset
-    document.getElementById('commentInput').value = '';
+    // 1. Nollställ lokalt formulär (pusha INTE reset än - vi vet inte om den körs!)
+    clearLocalState();
 
-    // Nollställ även hinder visuellt direkt (så vi inte väntar på loadDriverData)
-    renderGates();
+    knocks.clear();
+    knockDownTimes = {};
+    document.getElementById('extraPenaltyInput').value = 0;
+    document.getElementById('eliminatedInput').checked = false;
+    document.getElementById('commentInput').value = '';
 
     if (!equipage) {
         currentEquipage = null;
+        renderGates();
         updateHeaderInfo();
         return;
     }
     currentEquipage = equipage;
+    renderGates();
 
-    // Anropa loadDriverData (som i sin tur laddar ev tidigare resultat)
+    // Anropa loadDriverData (som i sin tur laddar ev tidigare resultat och startar lyssning)
     await loadDriverData(equipage);
 }
 // <-- onEquipageSelected slutar här
 
+async function autoSelectRunningDriver() {
+    if (!competitionId) return;
+    try {
+        const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
+        const q = query(colRef, where('running', '==', true));
+        const snap = await getDocs(q);
+
+        if (!snap.empty) {
+            // Ta den första som hittas (borde bara vara en, men om flera tar vi bara en)
+            const firstRunning = snap.docs[0];
+            const startNumber = firstRunning.id; // Doc ID är startnummer
+            console.log('[PrecisionInput] Hittade pågående runda för startnr:', startNumber);
+
+            if (searchableDropdown) {
+                // Detta triggar onEquipageSelected som laddar data och återupptar timern
+                searchableDropdown.setValue(Number(startNumber));
+            }
+        }
+    } catch (err) {
+        console.warn('Kunde inte autosöka efter pågående förare:', err);
+    }
+}
+
+// Håll koll på nuvarande prenumeration
+let currentUnsubscribe = null;
+
 async function loadDriverData(equipage) {
     if (!equipage) return;
 
-    let isFinalized = false;
-    try {
-        const docSnap = await getDoc(precisionDocRef(equipage.startNumber));
-        // Grundåterställning av formulär - GÖR DETTA IGEN HÄR FÖR SÄKERHETS SKULL
-        // (Men behåll eliminatedInput.checked = false om du vill vara säker på att det är rent innan load)
-        knocks.clear();
-
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            console.log('[PrecisionInput] Loaded data for', equipage.startNumber, data);
-
-            // Kolla om klart
-            isFinalized = !!data.finalized || data.status === 'Klar';
-
-            // Ladda eliminerad-status - VIKTIGT: Sätt detta EXPLICIT baserat på data
-            const isElim = !!data.eliminated;
-            console.log('[PrecisionInput] Setting eliminated check to:', isElim);
-            document.getElementById('eliminatedInput').checked = isElim;
-
-            // Rivningar
-            if (Array.isArray(data.knocks)) {
-                knocks = new Set(data.knocks);
-            }
-
-            // Tid: prioritera timeMs, annars parsa "MM:SS,cc", annars ev. liveTimeMs
-            if (Number.isFinite(data.timeMs)) {
-                pausedMs = Math.max(0, data.timeMs | 0);
-            } else if (typeof data.time === 'string') {
-                pausedMs = stringTimeToMs(data.time);
-            } else if (Number.isFinite(data.liveTimeMs)) {
-                pausedMs = Math.max(0, data.liveTimeMs | 0);
-            } else {
-                pausedMs = 0;
-            }
-
-            // Extra straff och kommentar (ta sparade värden om de finns)
-            if (Number.isFinite(data.extraPenalty)) {
-                document.getElementById('extraPenaltyInput').value = data.extraPenalty;
-            }
-            if (typeof data.comment === 'string') {
-                document.getElementById('commentInput').value = data.comment;
-            }
-
-            // Vi startar inte timern automatiskt även om data.running === true
-            // Operatören får aktivt trycka Start om en pågående körning ska återupptas.
-            updateTimerView();
-            mirrorToLocal(equipage.startNumber, data);
-        } else {
-            // Om inget dokument finns, se till att eliminering är false (redan gjort i reset, men för tydlighet)
-            document.getElementById('eliminatedInput').checked = false;
-        }
-    } catch (e) {
-        console.error("Kunde inte ladda befintligt resultat:", e);
+    // Avsluta ev. tidigare prenumeration
+    if (currentUnsubscribe) {
+        currentUnsubscribe();
+        currentUnsubscribe = null;
     }
 
-    // Uppdatera headerraden och hinderknapparna efter att knocks/pausedMs satts
-    updateHeaderInfo();
-    renderGates();
+    try {
+        const docRef = precisionDocRef(equipage.startNumber);
 
-    // Informera resultatvyn om basfakta (påverkar inte tid/straff)
-    // Sänd med eliminated-statusen vi just laddat (eller nollställt)
+        currentUnsubscribe = onSnapshot(docRef, (docSnap) => {
+            // Grundåterställning av formulär sker via onEquipageSelected, 
+            // men vi måste se till att UI uppdateras korrekt vid varje snapshot.
 
-    // NYTT: Om föraren INTE är klar, markera den som pågående direkt när vi laddar den
-    // så att den syns på monitorn ("Väntar på start").
-    // isFinalized har satts i try-blocket ovan om dokumentet fanns
-    // Vi använder den direkt här.
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                // console.log('[PrecisionInput] Live update for', equipage.startNumber, data);
 
-    // Uppdatera lokal flagga för säkerhets skull
-    inProgress = !isFinalized;
+                // Kolla om klart
+                const isFinalized = !!data.finalized || data.status === 'Klar';
+                inProgress = !isFinalized;
 
-    pushLiveSafe({
-        portWidthCm: computePortWidthForEquipage(equipage),
-        trackWidthCm: Number(equipage.trackWidth) || null,
-        eliminated: !!document.getElementById('eliminatedInput').checked,
-        inProgress: inProgress
-    });
+                // Ladda eliminerad-status
+                const isElim = !!data.eliminated;
+                const elimInput = document.getElementById('eliminatedInput');
+                if (elimInput && elimInput.checked !== isElim) {
+                    elimInput.checked = isElim;
+                }
+
+                // Rivningar
+                if (Array.isArray(data.knocks)) {
+                    // Uppdatera setet
+                    knocks = new Set(data.knocks);
+                } else {
+                    knocks.clear();
+                }
+
+                // Ladda tider för rivningar
+                if (data.knockDownTimes && typeof data.knockDownTimes === 'object') {
+                    knockDownTimes = data.knockDownTimes;
+                } else {
+                    knockDownTimes = {}; // Reset om tomt
+                }
+
+                // Tid: prioritera timeMs, annars parsa "MM:SS,cc", annars ev. liveTimeMs
+                if (Number.isFinite(data.timeMs)) {
+                    pausedMs = Math.max(0, data.timeMs | 0);
+                } else if (typeof data.time === 'string') {
+                    pausedMs = stringTimeToMs(data.time);
+                } else if (Number.isFinite(data.livePausedMs)) {
+                    // Om vi har en explicit sparad 'ackumulerad tid' (livePausedMs), använd den!
+                    pausedMs = Math.max(0, data.livePausedMs | 0);
+                } else if (Number.isFinite(data.liveTimeMs) && !data.running) {
+                    // Om vi inte kör och startEpoch saknas, kan vi kanske använda liveTimeMs
+                    pausedMs = Math.max(0, data.liveTimeMs | 0);
+                } else {
+                    pausedMs = 0;
+                }
+
+                // Extra straff och kommentar
+                if (Number.isFinite(data.extraPenalty)) {
+                    const epInput = document.getElementById('extraPenaltyInput');
+                    if (epInput && document.activeElement !== epInput) {
+                        epInput.value = data.extraPenalty;
+                    }
+                }
+                if (typeof data.comment === 'string') {
+                    const cInput = document.getElementById('commentInput');
+                    if (cInput && document.activeElement !== cInput) {
+                        cInput.value = data.comment;
+                    }
+                }
+
+                // SYNKRONISERA TIMER
+                // Om servern säger RUNNING, se till att vi kör.
+                if (!!data.running) {
+                    const serverStartEpoch = data.liveStartEpoch || nowMs();
+
+                    // AUTORITETSKONTROLL: Om vi själva kör timern, lita på vår lokala startEpoch för att undvika jitter/loopar.
+                    if (isRunning) {
+                        // Vi kör redan. Vi ignorerar serverns startEpoch för att undvika "flicker" om det finns klockdiff.
+                    } else {
+                        // Vi kör INTE lokalt. Synka från servern.
+                        startEpoch = serverStartEpoch;
+                        pausedMs = data.livePausedMs || 0;
+
+                        if (!startEpoch && Number.isFinite(data.liveTimeMs)) {
+                            startEpoch = nowMs() - data.liveTimeMs;
+                        }
+
+                        if (startEpoch) {
+                            isRunning = true;
+                            inProgress = true;
+                            if (timerInterval) clearInterval(timerInterval);
+                            timerInterval = setInterval(updateTimerView, 90);
+                        }
+                    }
+                } else {
+                    // Servern säger STOPPED.
+                    if (isRunning) {
+                        // Om vi körde lokalt men servern säger stopp, stanna.
+                        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+                        isRunning = false;
+                    }
+                    // Uppdatera pausedMs från servern om vi inte kör.
+                    if (!isRunning) {
+                        if (Number.isFinite(data.timeMs)) {
+                            pausedMs = Math.max(0, data.timeMs | 0);
+                        } else if (Number.isFinite(data.livePausedMs)) {
+                            pausedMs = Math.max(0, data.livePausedMs | 0);
+                        }
+                    }
+                }
+
+                // Uppdatera UI (utan att pusha tillbaka till Firebase)
+                const activeMs = (!!data.running && data.liveStartEpoch) 
+                    ? (data.livePausedMs || 0) + (nowMs() - data.liveStartEpoch)
+                    : (data.livePausedMs || data.liveTimeMs || pausedMs);
+
+                renderTimerUI(activeMs);
+                mirrorToLocal(equipage.startNumber, data);
+            } else {
+                // Dok finns inte (nytt ekipage?) -> Kör reset-logik, fast kanske redan gjorts?
+                // Vi gör inget drastiskt här, onEquipageSelected har redan nollställt.
+            }
+
+            // Uppdatera headerraden och hinderknapparna efter att knocks/pausedMs satts
+            updateHeaderInfo();
+            renderGates();
+
+            // Uppdatera payload
+            /* pushLiveSafe({
+                portWidthCm: computePortWidthForEquipage(equipage),
+                trackWidthCm: Number(equipage.trackWidth) || null,
+                eliminated: !!document.getElementById('eliminatedInput').checked,
+                inProgress: inProgress
+            }); */ // SKIPPA LOOP: Vi behöver inte pusha tillbaka direkt vid inläsning.
+
+        }, (error) => {
+            console.error("Error watching driver data:", error);
+        });
+
+    } catch (e) {
+        console.error("Kunde inte starta lyssning på resultat:", e);
+    }
 }
 
 async function saveFinal() {
@@ -597,16 +841,14 @@ async function saveFinal() {
     stopTimer();
     const timeMs = getElapsedMs();
     const timeStr = partsToString(msToParts(timeMs));
-    const timeSec = timeMs / 1000;
-    const maxSec = getMaxSecondsForClass(currentEquipage.className);
+    
+    const maxSec = computeMaxSecondsForClass(currentEquipage.className, precisionConfig);
+    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+    const timePenaltyValue = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
 
-    const timePenaltyValue = (Number.isFinite(maxSec) && timeSec > maxSec)
-        ? (timeSec - maxSec) * 0.5
-        : 0;
-
-    const obstaclePenaltyValue = obstaclePenalty(); // 3 p per rivning
+    const obstaclePenaltyValue = obstaclePenalty(); // config p per rivning
     const extraPenaltyValue = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-    const totalPenaltyValue = parseFloat((timePenaltyValue + obstaclePenaltyValue + extraPenaltyValue).toFixed(2));
+    const totalPenaltyValue = round2(timePenaltyValue + obstaclePenaltyValue + extraPenaltyValue);
 
     const payload = {
         // --- FINAL FÄLT (det som resultat-vyn ska läsa) ---
@@ -617,8 +859,9 @@ async function saveFinal() {
         time: timeStr,                            // "MM:SS,cc"
         timeMs: timeMs,                           // praktiskt att ha sparat också
         knocks: Array.from(knocks),               // ["5A","7",...]
+        knockDownTimes: { ...knockDownTimes },    // NYTT
         obstaclePenalty: obstaclePenaltyValue,    // heltal (3 per rivning)
-        timePenalty: parseFloat(timePenaltyValue.toFixed(2)),
+        timePenalty: round2(timePenaltyValue),
         extraPenalty: extraPenaltyValue,
         totalPenalty: totalPenaltyValue,
         eliminated: !!document.getElementById('eliminatedInput').checked, // Spara till final
@@ -683,10 +926,12 @@ export async function load() {
         );
 
         // 1) Hämta rådata med timeout
-        const [equipagesRaw, precisionCfg] = await Promise.race([
+        const [equipagesRaw, precisionCfg, startTimesData, precisionResults] = await Promise.race([
             Promise.all([
                 getEquipages(competitionId),
-                getConfig(competitionId, 'precisionConfig')
+                getConfig(competitionId, 'precisionConfig'),
+                getStartTimes(competitionId),
+                getPrecisionResults(competitionId)
             ]),
             timeoutPromise
         ]);
@@ -699,9 +944,28 @@ export async function load() {
 
         precisionConfig = precisionCfg || {};
 
-        // 2) Normalisera + sortera
+        // 2) Normalisera + filtrera + sortera
         equipages = (equipagesRaw || []).map(normalizeEquipage);
-        const list = [...equipages].sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
+        const activeEquipages = equipages.filter(e => e.status !== 'struken');
+
+        const resultsMap = new Map();
+        (precisionResults || []).forEach(r => resultsMap.set(String(r.id), r));
+
+        const list = [...activeEquipages].sort((a, b) => {
+            const resA = resultsMap.get(String(a.startNumber));
+            const resB = resultsMap.get(String(b.startNumber));
+            
+            const doneA = resA?.finalized === true;
+            const doneB = resB?.finalized === true;
+
+            // Sortera efter "klar"-status först (ej klara hamnar överst)
+            if (doneA !== doneB) return doneA ? 1 : -1;
+
+            const timeA = (startTimesData && startTimesData[a.startNumber]?.precision) || '99:99';
+            const timeB = (startTimesData && startTimesData[b.startNumber]?.precision) || '99:99';
+            if (timeA !== timeB) return timeA.localeCompare(timeB);
+            return (a.startNumber || 0) - (b.startNumber || 0);
+        });
 
         // 3) Skapa sökbar dropdown med den normaliserade listan
         const searchContainer = document.getElementById('precisionEquipageSearchContainer');
@@ -711,22 +975,26 @@ export async function load() {
             console.error("Search container disappeared!");
         }
 
+        // Request Wake Lock
+        await requestWakeLock();
+
         // Event Listeners
         document.getElementById('btnStart').addEventListener('click', startTimer);
         document.getElementById('btnStop').addEventListener('click', stopTimer);
-        document.getElementById('btnReset').addEventListener('click', () => {
-            resetTimer();
-            pushLiveSafe({ liveTimeMs: 0, running: false });
-        });
+        document.getElementById('btnReset').addEventListener('click', resetTimer);
         document.getElementById('btnSave').addEventListener('click', saveFinal);
         document.getElementById('extraPenaltyInput').addEventListener('input', () => {
-            const liveTimePenalty = calculateLiveTimePenalty();
+            const t = getElapsedMs();
+            const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+            const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+            const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
+
             const liveObstaclePenalty = obstaclePenalty();
             const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
 
             pushLiveSafe({
                 extraPenalty: extraPenaltyVal,
-                liveTotalPenalty: parseFloat((liveTimePenalty + liveObstaclePenalty + extraPenaltyVal).toFixed(2))
+                liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal)
             });
         });
 
@@ -784,6 +1052,10 @@ export async function load() {
             manualEditor.classList.add('hidden');
         });
 
+        // 4) Kolla om någon kör just nu och välj den
+        // Vänta en liten stund så UI hinner "sätta sig"
+        setTimeout(() => autoSelectRunningDriver(), 500);
+
     } catch (error) {
         // Ignorera fel om vi bytt load-session
         if (myLoadId !== currentLoadId) return;
@@ -796,8 +1068,11 @@ export async function load() {
 }
 
 export function __unload() {
-    // Invalidera pågående load
-    currentLoadId++;
+    // Avsluta ev. pågående prenumeration
+    if (currentUnsubscribe) {
+        try { currentUnsubscribe(); } catch (e) { }
+        currentUnsubscribe = null;
+    }
 
     // Stoppa timer
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }

@@ -6,15 +6,17 @@ import { getDressageResultsForEquipage } from '../services/firestoreService.js';
 import {
   getPrograms,
   getDressagePenaltyCoeff,
-  computeFinalFromSaved,
   getMomentHorseLabel,
   getMomentHorseLabelStacked,
   fmtPct,
   fmtNum,
   normalizeMovementNo,
-  normalizeMovements
+  normalizeMovements,
+  guessProgramKeyFromClass
 } from '../utils/dressageUtils.js';
+import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
 import { injectProviders, generateDressagePdf } from '../pdf/dressagePdf.js';
+import { t, translateDressageString } from '../utils/i18n.js';
 
 import {
   isMobile,
@@ -37,7 +39,7 @@ export function setupDressageModalOnce() {
   if (!document.getElementById('dressageModalBaseStyle')) {
     const style = document.createElement('style');
     style.id = 'dressageModalBaseStyle';
-    style.textContent = `.dressage-modal-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2147483647;background-color:rgba(0,0,0,0);transition:background-color .18s ease;backdrop-filter:blur(4px);pointer-events:none;padding:40px 15px;opacity:0;}.dressage-modal-overlay.visible{background-color:rgba(0,0,0,0.6);pointer-events:auto;opacity:1;}.dressage-modal-overlay.hidden{display:none;}.dressage-modal-content{background:#fff;border-radius:12px;width:100%;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,.1);transform:scale(.95);transition:transform .18s ease,opacity .18s ease;}.dressage-modal-overlay.visible .dressage-modal-content{transform:scale(1);}`;
+    style.textContent = `.dressage-modal-overlay{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;z-index:2147483647;background-color:rgba(0,0,0,0);transition:background-color .18s ease;backdrop-filter:blur(4px);pointer-events:none;padding:40px 15px;opacity:0;}.dressage-modal-overlay.visible{background-color:rgba(0,0,0,0.6);pointer-events:auto;opacity:1;}.dressage-modal-overlay.hidden{display:none;}.dressage-modal-content{background:#fff;border-radius:12px;width:100%;max-width:800px;max-height:90vh;overflow-y:auto;box-shadow:0 10px 25px rgba(0,0,0,.1);transform:scale(.95);transition:transform .18s ease,opacity .18s ease;}html.dark .dressage-modal-content{background:#1f2937;color:#f3f4f6;}.dressage-modal-overlay.visible .dressage-modal-content{transform:scale(1);}`;
     document.head.appendChild(style);
   }
   const modalDiv = document.createElement('div');
@@ -74,7 +76,7 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
     }
   }
 
-  content.innerHTML = '<div class="p-12 text-center text-gray-500"><p class="text-lg font-semibold">Hämtar protokoll...</p></div>';
+  content.innerHTML = `<div class="p-12 text-center text-gray-500"><p class="text-lg font-semibold">${t('fetching_protocol')}</p></div>`;
   modal.classList.remove('hidden');
   void modal.offsetHeight;
   modal.classList.add('visible');
@@ -102,7 +104,7 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
       if (Array.isArray(opts.equipages)) {
         eq = opts.equipages.find(e => String(e.startNumber) === sn);
       }
-      if (!eq) eq = { startNumber: sn, driverName: 'Okänd kusk', className: '' };
+      if (!eq) eq = { startNumber: sn, driverName: t('unknown_driver'), className: '' };
 
       let protocols = null;
 
@@ -163,15 +165,49 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
         __eq: eq
       };
 
+      // 3b) Helper to find judge info
+      const findJudgeInfo = (jid) => {
+        if (Array.isArray(opts.currentJudges)) {
+          return opts.currentJudges.find(j => j.id === jid || j.id === `judge_${jid}`);
+        }
+        return null;
+      };
+
       protocols.forEach(p => {
+        if (p.id === 'general' || p.judgeId === 'general') return; // Skip general document, it's not a judge
+
         let jid = p.judgeId || p.id || p.position;
         if (!jid) return;
         if (typeof jid === 'string' && jid.startsWith('judge_')) jid = jid.slice(6);
 
+        const foundJ = findJudgeInfo(jid);
+
+        // Fix Name: Prefer protocol name, then found judge name, then formatted ID
+        let safeName = p.judgeName || p.name;
+        if (!safeName || safeName === jid || safeName.includes('-')) {
+          if (foundJ && foundJ.name) safeName = foundJ.name;
+          else safeName = jid.charAt(0).toUpperCase() + jid.slice(1).replace(/-/g, ' '); // simple fallback formatting
+        }
+
+        // Fix Pos
+        let safePos = (p.position || p.judgePos || '').toUpperCase();
+        if (!safePos || safePos === '?') {
+          if (foundJ) {
+            if (foundJ.position) safePos = foundJ.position;
+            else if (Array.isArray(foundJ.roles)) {
+              const r = foundJ.roles.find(x => x && x.discipline === 'dressage');
+              if (r && r.position) safePos = r.position;
+            } else if (foundJ.disciplines && foundJ.disciplines.dressage) {
+              safePos = foundJ.disciplines.dressage;
+            }
+          }
+        }
+        if (!safePos) safePos = '?';
+
         data.judges[jid] = {
           id: jid,
-          position: (p.position || p.judgePos || '?').toUpperCase(),
-          name: p.judgeName || p.name || jid,
+          position: safePos.toUpperCase(),
+          name: safeName,
           movements: normalizeMovements(p.movements),
           totalPoints: p.totalPoints,
           penalty: p.penalty,
@@ -181,7 +217,7 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
       });
     }
 
-    if (!data) throw new Error("Kunde inte hitta data.");
+    if (!data) throw new Error(t('no_data'));
 
     const programs = getPrograms();
     let programKey = data.testKey || data.programKey;
@@ -190,46 +226,46 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
     }
     if (!programKey && window.klassProgramMapping) {
       // Prioritate original class name which usually holds the mapping
-      programKey = window.klassProgramMapping[data.originalClassName] || window.klassProgramMapping[data.className] || window.klassProgramMapping[data._mergedLabel];
+      const mapped = window.klassProgramMapping[data.originalClassName] || window.klassProgramMapping[data.className] || window.klassProgramMapping[data._mergedLabel];
+      if (mapped) programKey = mapped;
     }
+
+    // Fallback: Guess from class name if still missing
+    if (!programKey && !programs[programKey]) {
+      const clsName = data.className || data.originalClassName || '';
+      // Use shared utility for robust guessing
+      const scannedKey = guessProgramKeyFromClass(clsName, programs);
+      if (scannedKey) programKey = scannedKey;
+      else {
+        // Backup: exact name match
+        const found = Object.values(programs).find(p => p.name === clsName);
+        if (found) programKey = Object.keys(programs).find(k => programs[k] === found);
+      }
+    }
+
     const program = programKey ? programs[programKey] : null;
 
-    // 4) Säkerställ att vi har totaler för varje enskild domare (Manuell beräkning för säkerhets skull)
-    // OBS: Om vi fick datan från processedResults (som redan har räknat), skippar vi detta för att inte 
-    // riskera att nolla ut resultat om programmet inte matchar exakt just nu.
     const isFromProcessed = !!opts.processedResults;
     if (!isFromProcessed && program && data.judges) {
-      const pCoeff = getDressagePenaltyCoeff(program);
-      const programMovements = Array.isArray(program.movements) ? program.movements : [];
-
-      // Beräkna maxpoäng för en domare
-      let singleJudgeMax = 0;
-      programMovements.forEach(pm => { singleJudgeMax += 10 * (Number(pm.coeff) || 1); });
-
       Object.values(data.judges).forEach(jr => {
-        let currentTotal = 0;
-        programMovements.forEach(pm => {
-          const mNo = Number(pm.no);
-          const c = Number(pm.coeff) || 1;
-          const found = jr.movements.find(m => Number(m.momentNo) === mNo);
-          if (found && found.score != null && found.score !== '') {
-            currentTotal += Number(found.score) * c;
-          }
-        });
-
-        // Uppdatera värden om de saknas eller skriv över för att vara säker
-        jr.totalPoints = currentTotal;
-        jr.percent = singleJudgeMax > 0 ? (currentTotal / singleJudgeMax) * 100 : 0;
-        jr.penalty = (singleJudgeMax - currentTotal) * pCoeff;
+        const computed = calculateSingleJudgeDressageResult(jr, program, data.__eq || {});
+        if (computed) {
+          jr.totalPoints = computed.points;
+          jr.percent = computed.percent;
+          jr.penalty = computed.penalty;
+          jr.eliminated = computed.eliminated;
+        }
       });
     }
 
     if (!data.finalPenalty && program && data.__savedProtocols?.length) {
-      const computed = computeFinalFromSaved(data.__eq || { className: data.className }, data.__savedProtocols, program);
-      if (computed) {
-        data.finalPercent = computed.percent;
-        data.finalPoints = computed.points;
-        data.finalPenalty = computed.penalty;
+      const result = calculateDressageResult(data.__eq || { className: data.className }, data.__savedProtocols, [], programs);
+      if (result) {
+        data.finalPercent = result.percent;
+        data.finalPoints = result.points;
+        data.finalPenalty = result.penalty;
+        data.errorPoints = result.errorPoints;
+        data.errorPenalty = result.errorPenalty;
       }
     }
 
@@ -237,18 +273,58 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
     const order = { C: 0, E: 1, B: 2, H: 3, M: 4 };
     let judgesPresent = [];
 
-    if (Array.isArray(opts.currentJudges)) {
-      judgesPresent = opts.currentJudges.map(j => ({
-        id: j.id, name: j.name, position: (j.position || '').toUpperCase()
-      }));
-    } else if (data.judges) {
+    // === FIX FOR MODAL TABS ===
+    // Priority 1: Use strictly the judges that exist in the DATA (ignoring class-level list if data exists)
+    // This solves the issue where 2 judges are assigned to 'C' in the class, but only one judged this specific driver.
+    const dataJudgeIds = Object.keys(data.judges || {});
+    if (dataJudgeIds.length > 0) {
       judgesPresent = Object.values(data.judges).map(j => ({
         id: j.id, name: j.name, position: (j.position || '').toUpperCase()
       }));
+    } else if (Array.isArray(opts.currentJudges)) {
+      // Fallback: If no data yet, show all possible judges
+      // Must derive position from roles if needed
+      const getPos = (j) => {
+        if (j.position) return j.position;
+        if (Array.isArray(j.roles)) {
+          const r = j.roles.find(x => x && x.discipline === 'dressage');
+          if (r && r.position) return r.position;
+        }
+        if (j.disciplines && j.disciplines.dressage) return j.disciplines.dressage;
+        return '';
+      };
+
+      const seenPos = new Set();
+      judgesPresent = opts.currentJudges
+        .map(j => ({ id: j.id, name: j.name, position: (getPos(j) || '').toUpperCase() }))
+        .filter(j => {
+          const p = j.position;
+          if (!p || !/^[CEBHM]$/.test(p)) return false;
+          if (seenPos.has(p)) return false;
+          seenPos.add(p);
+          return true;
+        });
     }
+
     judgesPresent = judgesPresent
-      .filter(j => /^[CEBHM]$/.test(j.position))
-      .sort((a, b) => (order[a.position] ?? 99) - (order[b.position] ?? 99));
+      .filter(j => {
+        const id = (j.id || '').toLowerCase();
+        const pos = (j.position || '').toUpperCase();
+
+        // Exclude "General" explicitly
+        if (id === 'general' || id.includes('general') || pos === 'GENERAL') return false;
+
+        // Return true if position exists (legacy safe behavior)
+        return !!j.position;
+      })
+      .sort((a, b) => {
+        const pA = a.position;
+        const pB = b.position;
+        const valA = order[pA] ?? 99;
+        const valB = order[pB] ?? 99;
+        if (valA !== valB) return valA - valB;
+        return pA.localeCompare(pB);
+      });
 
     // VIKTIGT: PDF-generatorn (dressagePdf.js) förväntar sig data.__judgesPresent
     data.__judgesPresent = judgesPresent;
@@ -270,12 +346,13 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
 
   } catch (e) {
     console.error('Modal Error:', e);
-    content.innerHTML = `<div class="p-6 text-center text-red-500">Ett fel uppstod: ${e.message}</div>`;
+    content.innerHTML = `<div class="p-6 text-center text-red-500">${t('error_fetching')} ${e.message}</div>`;
   }
 }
 
 // Exported helper for shared rendering
-export function renderDressageContent(container, data, judgesPresent, program, pdfContext) {
+export function renderDressageContent(container, data, judgesPresent, program, pdfContext, isInternational = false) {
+  console.log('[ModalDebug] renderDressageContent judgesPresent:', judgesPresent);
   // Rensa container men behåll struktur om vi vill? Nej bygg inre struktur.
   // Vi behöver tabs container och content container.
   container.innerHTML = `
@@ -284,7 +361,7 @@ export function renderDressageContent(container, data, judgesPresent, program, p
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z" />
           </svg>
-          Skriv ut PDF
+          ${t('print_pdf', isInternational)}
         </button>
       </div>
       <div id="judgeTabs" class="mt-4 border-b border-gray-200 flex items-center gap-2 overflow-x-auto"></div>
@@ -305,15 +382,15 @@ export function renderDressageContent(container, data, judgesPresent, program, p
 
   function renderForJudge(jid) {
     const jr = data.judges[jid];
-    if (!jr) { modalBody.innerHTML = '<div class="p-8 text-center text-gray-500 italic">Inget protokoll för denna domare.</div>'; return; }
-    if (!program) { modalBody.innerHTML = '<div class="p-8 text-center text-amber-600">Program saknas för denna klass.</div>'; return; }
-    modalBody.innerHTML = renderJudgeDetailHTML(jr, program, data);
+    if (!jr) { modalBody.innerHTML = `<div class="p-8 text-center text-gray-500 italic">${t('no_protocol', isInternational)}</div>`; return; }
+    if (!program) { modalBody.innerHTML = `<div class="p-8 text-center text-amber-600">${t('program_missing', isInternational)}</div>`; return; }
+    modalBody.innerHTML = renderJudgeDetailHTML(jr, program, data, isInternational);
     setActive('judge:' + jid);
   }
 
   function renderTotal() {
-    if (!program) { modalBody.innerHTML = '<div class="p-8 text-center text-amber-600">Program saknas.</div>'; return; }
-    modalBody.innerHTML = renderTotalDetailHTML(data, judgesPresent, program);
+    if (!program) { modalBody.innerHTML = `<div class="p-8 text-center text-amber-600">${t('program_missing', isInternational)}</div>`; return; }
+    modalBody.innerHTML = renderTotalDetailHTML(data, judgesPresent, program, isInternational);
     setActive('total');
   }
 
@@ -321,50 +398,53 @@ export function renderDressageContent(container, data, judgesPresent, program, p
     judgeTabs.querySelectorAll('.tab-btn').forEach(btn => {
       const act = btn.dataset.id === id;
       btn.classList.toggle('border-blue-600', act);
-      btn.classList.toggle('text-blue-700', act);
+      btn.classList.toggle('text-blue-600', act);
+      btn.classList.toggle('dark:text-blue-400', act);
+      btn.classList.toggle('text-gray-500', !act);
+      btn.classList.toggle('dark:text-gray-400', !act);
     });
   }
 
   if (judgesPresent.length > 0) {
-    if (judgesPresent.length > 1) {
-      const totalBtn = document.createElement('button');
-      totalBtn.className = 'tab-btn px-3 py-2 border-b-2 text-sm font-medium whitespace-nowrap font-bold border-transparent hover:text-gray-700';
-      totalBtn.dataset.id = 'total'; totalBtn.textContent = 'Total';
-      totalBtn.addEventListener('click', renderTotal);
-      judgeTabs.appendChild(totalBtn);
-      const sep = document.createElement('span'); sep.className = 'border-l h-5 mx-1 border-gray-300';
-      judgeTabs.appendChild(sep);
-    }
+    // Always show the Total tab so that error points and final computed penalties are visible
+    const totalBtn = document.createElement('button');
+    totalBtn.className = 'tab-btn px-3 py-2 border-b-2 text-sm font-bold whitespace-nowrap border-transparent hover:text-gray-700 dark:hover:text-gray-200 text-gray-500 dark:text-gray-400';
+    totalBtn.dataset.id = 'total'; totalBtn.textContent = 'Total';
+    totalBtn.addEventListener('click', renderTotal);
+    judgeTabs.appendChild(totalBtn);
+    const sep = document.createElement('span'); sep.className = 'border-l h-5 mx-1 border-gray-300 dark:border-gray-600';
+    judgeTabs.appendChild(sep);
 
     judgesPresent.forEach(j => {
       const b = document.createElement('button');
-      b.className = 'tab-btn px-3 py-2 border-b-2 text-sm font-medium whitespace-nowrap border-transparent hover:text-gray-700';
+      b.className = 'tab-btn px-3 py-2 border-b-2 text-sm font-medium whitespace-nowrap border-transparent hover:text-gray-700 dark:hover:text-gray-200 text-gray-500 dark:text-gray-400';
       b.dataset.id = 'judge:' + j.id;
-      b.textContent = `${j.position} – ${j.name}`;
+      const label = (j.position === '?' || !j.position) ? j.name : `${j.position} – ${j.name}`;
+      b.textContent = label;
       b.addEventListener('click', () => renderForJudge(j.id));
       judgeTabs.appendChild(b);
     });
 
-    if (judgesPresent.length > 1) renderTotal();
-    else renderForJudge(judgesPresent[0].id);
+    // Default to the Total tab, as it contains aggregated error points
+    renderTotal();
 
   } else {
-    modalBody.innerHTML = '<div class="p-8 text-center text-gray-500">Ingen data att visa.</div>';
+    modalBody.innerHTML = `<div class="p-8 text-center text-gray-500">${t('no_data')}</div>`;
   }
 }
 
 function renderModalUI(content, data, judgesPresent, program, pdfContext) {
   let horseLabel = '—';
-  try { horseLabel = getMomentHorseLabelStacked(data); } catch (e) { }
+  try { horseLabel = getMomentHorseLabelStacked(data.__eq || data); } catch (e) { }
 
   // Header structure for standalone modal
   content.innerHTML = `
       <div id="modalCard" class="p-4 md:p-6">
         <div class="flex justify-between items-start gap-3">
           <div>
-            <h3 class="text-xl font-bold">#${data.startNumber} ${data.driverName || ''}</h3>
-            <div class="text-sm text-gray-500 italic">${horseLabel}</div>
-            <div class="text-gray-600 flex items-center gap-2 mt-1">
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${data.startNumber} ${data.driverName || ''}</h3>
+            <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel}</div>
+            <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(data)}
               ${getClubLogoHtml(data)}
               <span>${data.className || ''} • ${data.clubName || ''}</span>
@@ -390,7 +470,7 @@ function renderModalUI(content, data, judgesPresent, program, pdfContext) {
 
 // ... (skip down to renderJudgeDetailHTML)
 
-function renderJudgeDetailHTML(jr, program, data) {
+function renderJudgeDetailHTML(jr, program, data, isInternational = false) {
   const scoresByMovementNo = new Map((jr.movements || []).map(m => [normalizeMovementNo(m), m]));
   const programMovements = Array.isArray(program?.movements) ? program.movements : [];
 
@@ -399,7 +479,7 @@ function renderJudgeDetailHTML(jr, program, data) {
   // Drivers can only see their own.
   const user = getGlobalState('currentUser') || {};
   const role = user.role || '';
-  const isAdmin = role === 'admin' || role === 'sekretariat';
+  const isAdmin = role === 'admin' || role === 'superadmin' || role === 'sekretariat';
 
   const eq = (data && data.__eq) ? data.__eq : {};
   // Check against email or driverEmail
@@ -411,13 +491,13 @@ function renderJudgeDetailHTML(jr, program, data) {
 
   const showComments = isAdmin || isMyEquipage;
 
-  let html = `<div class="overflow-x-auto"><table class="min-w-full text-sm"><thead class="bg-gray-50"><tr><th class="p-2 text-left w-2/12">Moment</th><th class="hidden md:table-cell p-2 text-left w-3/12">Att bedöma</th>${showComments ? '<th class="p-2 text-left w-5/12">Kommentar</th>' : ''}<th class="p-2 text-center w-1/12">Poäng</th><th class="p-2 text-center w-1/12">Resultat</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+  let html = `<div class="overflow-x-auto"><table class="min-w-full text-sm rounded-lg overflow-hidden"><thead class="bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200"><tr><th class="p-2 text-left w-2/12">${t('moment', isInternational)}</th><th class="hidden md:table-cell p-2 text-left w-3/12">${t('to_judge', isInternational)}</th>${showComments ? `<th class="p-2 text-left w-5/12">${t('comment', isInternational)}</th>` : ''}<th class="p-2 text-center w-1/12">${t('points', isInternational)}</th><th class="p-2 text-center w-1/12">${t('result', isInternational)}</th></tr></thead><tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 text-gray-900 dark:text-gray-100">`;
 
   let calculatedSum = 0;
   let calculatedMax = 0;
 
   if (jr && jr.eliminated) {
-    html += `<tr><td colspan="${showComments ? 5 : 4}" class="p-4 text-center text-red-600 font-bold bg-red-50">ELIMINERAD</td></tr>`;
+    html += `<tr><td colspan="${showComments ? 5 : 4}" class="p-4 text-center text-red-600 font-bold bg-red-50">${t('eliminated', isInternational).toUpperCase()}</td></tr>`;
   } else if (programMovements.length) {
     programMovements.forEach(moment => {
       const c = Number(moment.coeff) || 1;
@@ -432,30 +512,37 @@ function renderJudgeDetailHTML(jr, program, data) {
 
       const com = (hit?.comment || '').trim();
 
-      html += `<tr><td class="p-2 align-top"><p class="font-semibold">${moment.no}. ${moment.text || ''}</p><p class="text-xs text-blue-800">${moment.letters || ''}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600">${moment.judge || ''}</td>${showComments ? `<td class="p-2 align-top italic text-gray-700">${com}</td>` : ''}<td class="p-2 text-center align-top font-semibold text-lg">${scTxt}</td><td class="p-2 text-center align-top font-bold text-lg">${resTxt}</td></tr>`;
+      // Translate content
+      const momText = translateDressageString(moment.text, isInternational);
+      const momJudge = translateDressageString(moment.judge, isInternational);
+
+      html += `<tr><td class="p-2 align-top"><p class="font-semibold text-gray-900 dark:text-gray-100">${moment.no}. ${momText || ''}</p><p class="text-xs text-blue-800 dark:text-blue-300">${moment.letters || ''}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600 dark:text-gray-400">${momJudge || ''}</td>${showComments ? `<td class="p-2 align-top italic text-gray-700 dark:text-gray-300">${com}</td>` : ''}<td class="p-2 text-center align-top font-semibold text-lg text-gray-900 dark:text-white">${scTxt}</td><td class="p-2 text-center align-top font-bold text-lg text-gray-900 dark:text-white">${resTxt}</td></tr>`;
     });
   }
 
-  // Calculate finals if not eliminated
-  let totalPoints = 0, percent = 0, penalty = 0;
-
-  if (jr && !jr.eliminated) {
-    const pCoeff = getDressagePenaltyCoeff(program);
-    totalPoints = calculatedSum;
-    percent = calculatedMax > 0 ? (calculatedSum / calculatedMax) * 100 : 0;
-    penalty = (calculatedMax - calculatedSum) * pCoeff;
-  }
+  // Use pre-calculated finals from the service (hydrated in openDetails or processAndAggregateResults)
+  const isLive = jr.isLive || (jr.projectedPercent != null && jr.projectedPercent !== jr.percent);
+  const totalPoints = jr.totalPoints ?? 0;
+  const percent = (isLive && jr.projectedPercent != null) ? jr.projectedPercent : (jr.percent ?? 0);
+  const penalty = (isLive && jr.projectedPenalty != null) ? jr.projectedPenalty : (jr.penalty ?? 0);
 
   const colspan = isMobile() ? (showComments ? 3 : 2) : (showComments ? 4 : 3);
-  html += `</tbody><tfoot class="font-semibold"><tr class="border-t-2 bg-gray-50"><td colspan="${colspan}" class="p-2 text-right">Totalpoäng:</td><td class="p-2 text-center text-lg">${jr?.eliminated ? '–' : fmtNum(totalPoints)}</td></tr><tr class="bg-blue-50"><td colspan="${colspan}" class="p-2 text-right">Procent:</td><td class="p-2 text-center">${jr?.eliminated ? '–' : fmtPct(percent)}</td></tr><tr class="bg-blue-100 font-bold"><td colspan="${colspan}" class="p-2 text-right">Straffpoäng:</td><td class="p-2 text-center text-lg">${jr?.eliminated ? '–' : fmtNum(penalty)}</td></tr></tfoot></table></div>`; return html;
+  html += `</tbody><tfoot class="font-semibold"><tr class="border-t-2 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"><td colspan="${colspan}" class="p-2 text-right">${t('total_score', isInternational)}:</td><td class="p-2 text-center text-lg">${jr?.eliminated ? '–' : fmtNum(totalPoints)}</td></tr><tr class="bg-blue-50 dark:bg-blue-900/30 text-gray-900 dark:text-white"><td colspan="${colspan}" class="p-2 text-right">${isLive ? 'Prognos %' : t('percent', isInternational)}:</td><td class="p-2 text-center">${jr?.eliminated ? '–' : fmtPct(percent)}</td></tr><tr class="bg-blue-100 dark:bg-blue-900 text-gray-900 dark:text-white font-bold"><td colspan="${colspan}" class="p-2 text-right">${isLive ? 'Prognos Straff' : t('penalty', isInternational)}:</td><td class="p-2 text-center text-lg">${jr?.eliminated ? '–' : fmtNum(penalty)}</td></tr></tfoot></table></div>`;
+  return html;
 }
-function renderTotalDetailHTML(data, judges, program) {
+function renderTotalDetailHTML(data, judges, program, isInternational = false) {
   const programMovements = Array.isArray(program?.movements) ? program.movements : [];
-  let html = `<div class="overflow-x-auto"><table class="min-w-full text-sm"><thead class="bg-gray-50"><tr><th class="p-2 text-left">Moment</th><th class="hidden md:table-cell p-2 text-left">Att bedöma</th><th class="p-2 text-center">Snitt (0-10)</th><th class="p-2 text-center">Tot (m. koeff)</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">`;
+  let html = `<div class="overflow-x-auto"><table class="min-w-full text-sm rounded-lg overflow-hidden"><thead class="bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200"><tr><th class="p-2 text-left">${t('moment', isInternational)}</th><th class="hidden md:table-cell p-2 text-left">${t('to_judge', isInternational)}</th><th class="p-2 text-center">${t('avg_score', isInternational)}</th><th class="p-2 text-center">${t('total_coeff', isInternational)}</th></tr></thead><tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 text-gray-900 dark:text-gray-100">`;
   let calculatedTotalScore = 0;
-  if (data.eliminated) { html += `<tr><td colspan="4" class="p-4 text-center text-red-600 font-bold bg-red-50">ELIMINERAD</td></tr>`; } else if (programMovements.length) { programMovements.forEach(moment => { const scores = judges.map(j => { const jr = data.judges[j.id]; const m = (jr?.movements || []).find(mv => normalizeMovementNo(mv) === moment.no); return m?.score; }).filter(s => s != null).map(Number); const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null; const res = (avg != null) ? avg * (moment.coeff || 1) : null; if (res != null) calculatedTotalScore += res; html += `<tr><td class="p-2 align-top"><p class="font-semibold">${moment.no}. ${moment.text || ''}</p><p class="text-xs text-blue-800">${moment.letters || ''}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600">${moment.judge || ''}</td><td class="p-2 text-center align-top font-semibold text-lg">${avg != null ? avg.toFixed(2) : '–'}</td><td class="p-2 text-center align-top font-bold text-lg">${res != null ? res.toFixed(2) : '–'}</td></tr>`; }); }
+  if (data.eliminated) { html += `<tr><td colspan="4" class="p-4 text-center text-red-600 font-bold bg-red-50 dark:bg-red-900/30">${t('eliminated', isInternational).toUpperCase()}</td></tr>`; } else if (programMovements.length) { programMovements.forEach(moment => { const scores = judges.map(j => { const jr = data.judges[j.id]; const m = (jr?.movements || []).find(mv => normalizeMovementNo(mv) === moment.no); return m?.score; }).filter(s => s != null).map(Number); const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null; const res = (avg != null) ? avg * (moment.coeff || 1) : null; if (res != null) calculatedTotalScore += res; const momText = translateDressageString(moment.text, isInternational); const momJudge = translateDressageString(moment.judge, isInternational); html += `<tr><td class="p-2 align-top"><p class="font-semibold text-gray-900 dark:text-gray-100">${moment.no}. ${momText || ''}</p><p class="text-xs text-blue-800 dark:text-blue-300">${moment.letters || ''}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600 dark:text-gray-400">${momJudge || ''}</td><td class="p-2 text-center align-top font-semibold text-lg text-gray-900 dark:text-white">${avg != null ? avg.toFixed(2) : '–'}</td><td class="p-2 text-center align-top font-bold text-lg text-gray-900 dark:text-white">${res != null ? res.toFixed(2) : '–'}</td></tr>`; }); }
+  const isLive = data.isLive || (data.projectedPercent != null && data.projectedPercent !== data.finalPercent);
   const colspan = isMobile() ? 2 : 3;
-  html += `</tbody><tfoot class="font-semibold"><tr class="border-t-2 bg-gray-50"><td colspan="${colspan}" class="p-2 text-right">Totalt:</td><td class="p-2 text-center text-lg">${data.eliminated ? '–' : calculatedTotalScore.toFixed(1)}</td></tr><tr class="bg-green-50"><td colspan="${colspan}" class="p-2 text-right">Snittprocent:</td><td class="p-2 text-center">${fmtPct(data.finalPercent || data.avgPercent)}</td></tr><tr class="bg-orange-50"><td colspan="${colspan}" class="p-2 text-right">Felkörningspoäng:</td><td class="p-2 text-center">${(Number(data.errorPoints) || 0).toFixed(1)}</td></tr><tr class="bg-red-100 font-bold"><td colspan="${colspan}" class="p-2 text-right">Totalt Straff:</td><td class="p-2 text-center text-lg">${fmtNum(data.finalPenalty)}</td></tr></tfoot></table></div>`; return html;
+  const displayPercent = (isLive && data.projectedPercent != null) ? data.projectedPercent : (data.finalPercent || data.avgPercent);
+  const displayPenalty = (isLive && data.projectedPenalty != null) ? data.projectedPenalty : data.finalPenalty;
+  const errorPts = data.errorPoints ?? data.dressage?.errorPoints ?? data.__eq?.errorPoints ?? 0;
+
+  html += `</tbody><tfoot class="font-semibold"><tr class="border-t-2 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white"><td colspan="${colspan}" class="p-2 text-right">${t('total', isInternational)}:</td><td class="p-2 text-center text-lg">${data.eliminated ? '–' : fmtNum(data.finalPoints ?? calculatedTotalScore)}</td></tr><tr class="bg-green-50 dark:bg-green-900/30 text-gray-900 dark:text-white"><td colspan="${colspan}" class="p-2 text-right">${isLive ? 'Prognos %' : t('avg_percent', isInternational)}:</td><td class="p-2 text-center">${data.eliminated ? '–' : fmtPct(displayPercent)}</td></tr><tr class="bg-orange-50 dark:bg-orange-900/30 text-gray-900 dark:text-white"><td colspan="${colspan}" class="p-2 text-right">${t('error_points', isInternational)}:</td><td class="p-2 text-center">${(Number(errorPts) || 0).toFixed(1)}</td></tr><tr class="bg-red-100 dark:bg-red-900 text-gray-900 dark:text-white font-bold"><td colspan="${colspan}" class="p-2 text-right">${isLive ? 'Prognos Straff' : t('total_penalty', isInternational)}:</td><td class="p-2 text-center text-lg">${data.eliminated ? '–' : fmtNum(displayPenalty)}</td></tr></tfoot></table></div>`;
+  return html;
 }
 function attachPdfButtonHandler(buttonEl, startNumber, processedResultsRef, providers) {
   if (!buttonEl) return;
@@ -467,9 +554,9 @@ function attachPdfButtonHandler(buttonEl, startNumber, processedResultsRef, prov
         <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
       </svg>
-      Skapar PDF...`;
+      ${t('generating_pdf')}...`;
     btn.disabled = true;
-    try { await generateDressagePdf(String(startNumber), processedResultsRef || [], { providers: (providers || null) }); } catch (e) { console.error('PDF-fel', e); alert('Ett fel uppstod vid skapande av PDF.'); } finally { btn.innerHTML = orig; btn.disabled = false; }
+    try { await generateDressagePdf(String(startNumber), processedResultsRef || [], { providers: (providers || null) }); } catch (e) { console.error('PDF-fel', e); alert(t('critical_error')); } finally { btn.innerHTML = orig; btn.disabled = false; }
   });
 }
 

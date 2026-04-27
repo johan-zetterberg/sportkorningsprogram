@@ -1,7 +1,10 @@
 import { initAuth } from './services/authService.js';
 import { initRouter, navigateTo } from './services/navigationService.js';
 import { showAlert } from './ui/components.js';
-import { getCompetitionById } from './services/firestoreService.js';
+import { getCompetitionById, getConfig, getJudges, getOfficials } from './services/firestoreService.js';
+import { initLanguageToggle, t } from './utils/i18n.js';
+import { initTheme } from './services/themeService.js';
+import './ui/syncQueue.js'; // Registers <sync-queue>
 
 // --- Global State Management ---
 // Ett enkelt state-objekt för att hålla reda på den valda tävlingen.
@@ -25,12 +28,16 @@ export function setGlobalState({ key, value }) {
 
         const compNavInfo = document.getElementById('competition-nav-info');
         const compNameEl = document.getElementById('active-comp-name');
+        const infoBtn = document.getElementById('compInfoBtn'); // Get button
+
         if (value) {
-            compNavInfo.style.display = 'block';
+            compNavInfo.style.display = 'flex'; // Changed to flex for alignment
             compNameEl.textContent = value.name;
+            if (infoBtn) infoBtn.style.display = 'block'; // Show button
         } else {
             compNavInfo.style.display = 'none';
             compNameEl.textContent = 'Ingen tävling vald';
+            if (infoBtn) infoBtn.style.display = 'none'; // Hide button
         }
     }
 }
@@ -42,11 +49,23 @@ export function getGlobalState(key) {
 // --- Behörighet: får användaren finalisera resultat? ---
 export function canFinalize() {
     const role = (getGlobalState('currentUser')?.role) || 'publik';
-    // Endast domare eller admin får finalisera
-    return role === 'domare' || role === 'admin' || role === 'sekretariat';
+    // Endast domare, admin eller superadmin får finalisera
+    return role === 'domare' || role === 'admin' || role === 'sekretariat' || role === 'superadmin';
 }
 // Gör även globalt tillgänglig för sidor som inte importerar
 window.canFinalize = canFinalize;
+
+export function updateNavigationTranslations() {
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (key) {
+            const hasArrow = el.textContent.includes('▼');
+            const translated = t(key);
+            el.textContent = translated + (hasArrow ? ' ▼' : '');
+        }
+    });
+}
+window.updateNavigationTranslations = updateNavigationTranslations;
 
 // Gör showAlert globalt tillgänglig för enkelhetens skull, även om den är importerad
 // Detta kan tas bort om alla anrop till showAlert flyttas till att vara importerade.
@@ -55,6 +74,9 @@ window.showAlert = showAlert;
 // --- Applikationens Initiering ---
 function initialize() {
     console.log("Applikationen initieras...");
+    initLanguageToggle();
+    initTheme();
+    updateNavigationTranslations();
 
     // Sätt upp globala lyssnare för modaler
     const closeModalBtn = document.getElementById('closeModal');
@@ -134,45 +156,34 @@ function initialize() {
     })();
 
     // 1. Initiera autentiseringen. Vi skickar med en callback-funktion.
-    initAuth(() => {
+    initAuth(async () => {
         console.log("Autentisering klar. Startar router.");
         initRouter();
 
-        // 🆕 Försök återställa senaste tävling + sida om ingen specifik hash önskas
-        (async () => {
-            const incomingHash = window.location.hash;
-            const useStored = !incomingHash || incomingHash === '' || incomingHash === '#hub';
+        // 1. Bestäm målsida (nuvarande URL, sparad sida eller hubben)
+        let targetHash = window.location.hash;
+        if (!targetHash || targetHash === '' || targetHash === '#hub') {
+            targetHash = localStorage.getItem('lastPageId') || '#hub';
+        }
 
-            if (useStored) {
-                try {
-                    const lastCompetitionId = localStorage.getItem('lastCompetitionId');
-                    const lastPageId = localStorage.getItem('lastPageId') || '#hub';
-
-                    if (lastCompetitionId) {
-                        const comp = await getCompetitionById(lastCompetitionId);
-                        if (comp) {
-                            setGlobalState({ key: 'currentCompetition', value: comp });
-                            navigateTo(lastPageId);
-                            return; // klart
-                        }
+        // 2. Återställ tävlingskontext om den saknas
+        // Vi gör detta oavsett vilken sida man landar på, så att sub-sidor fungerar direkt vid reload.
+        if (!getGlobalState('currentCompetition')) {
+            try {
+                const lastCompetitionId = localStorage.getItem('lastCompetitionId');
+                if (lastCompetitionId) {
+                    const comp = await getCompetitionById(lastCompetitionId);
+                    if (comp) {
+                        setGlobalState({ key: 'currentCompetition', value: comp });
                     }
-                } catch (_) {
-                    // fallthrough till standardnavigeringen
                 }
+            } catch (e) {
+                console.warn('Kunde inte återställa senaste tävlingen:', e);
             }
+        }
 
-            // Standard: följ URL-hashen
-            navigateTo(window.location.hash);
-            // 3. Navigera till senaste sida om ingen hash finns
-            let targetHash = window.location.hash;
-            if (!targetHash || targetHash === '#hub') {
-                const lastPageKey = localStorage.getItem('lastPageKey');
-                if (lastPageKey) {
-                    targetHash = `#${lastPageKey}`;
-                }
-            }
-            navigateTo(targetHash);
-        })();
+        // 3. Slutför navigering
+        navigateTo(targetHash);
     });
 
     // Logik för att hantera dropdown-menyer i navigationen
@@ -231,6 +242,149 @@ function initialize() {
                     navLinksContainer.classList.add('hidden');
                 }
             });
+        });
+    }
+
+    // 5. Setup Info Modal Logic
+    const infoBtn = document.getElementById('compInfoBtn');
+    const infoModal = document.getElementById('compInfoModal');
+    const closeInfoModal = document.getElementById('closeCompInfoModal');
+    let infoMapInstance = null;
+    let infoMarkerInstance = null;
+
+    // Loading State Helper
+    const setElementText = (id, text) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text;
+    };
+
+    // Define globally to allow access from Hub cards
+    // Define globally to allow access from Hub cards
+    window.openCompetitionInfo = async (comp) => {
+        if (!comp) return;
+
+        // Ensure modal exists (if called before full init or if elements missing)
+        const modal = document.getElementById('compInfoModal');
+        if (!modal) return;
+
+        // Populate Basic Info
+        setElementText('infoModalTitle', comp.name || 'Namnlös tävling');
+        setElementText('infoModalClub', comp.club || '');
+        setElementText('infoModalDates', comp.dates || 'Datum ej satt');
+        setElementText('infoModalPlace', comp.place || 'Plats ej angiven');
+
+        // Reset Sections
+        document.getElementById('infoModalOrganizerSection').classList.add('hidden');
+
+        modal.classList.remove('hidden');
+
+        // --- MAP LOGIC ---
+        // New Layout: Map is in #infoMapColumn, Fallback Link is #infoFallbackMapLink
+        const mapColumn = document.getElementById('infoMapColumn');
+        const mapContainer = document.getElementById('infoMapContainer');
+        const googleButton = document.getElementById('infoGoogleMapsButton');
+        const fallbackLink = document.getElementById('infoFallbackMapLink');
+
+        // Fetch coordinates from Config (Safe path) or fallback to root doc
+        let coords = comp.coordinates || null;
+        try {
+            const mapConfig = await getConfig(comp.id, 'map');
+            if (mapConfig && mapConfig.coordinates) {
+                coords = mapConfig.coordinates;
+            }
+        } catch (e) { console.warn('Could not fetch map config', e); }
+
+        // --- MAP RENDER (Leaflet) ---
+
+        if (mapContainer && mapColumn) {
+            if (!infoMapInstance) {
+                try {
+                    infoMapInstance = L.map(mapContainer, { zoomControl: false, attributionControl: false }).setView([62, 15], 5);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(infoMapInstance);
+                } catch (e) { console.warn("L init error", e); }
+            }
+
+            if (coords && coords.lat && coords.lng) {
+                // SHOW MAP (Desktop Column)
+                mapColumn.classList.remove('hidden');
+                if (fallbackLink) fallbackLink.classList.add('hidden');
+
+                if (googleButton) {
+                    googleButton.href = `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`;
+                }
+
+                // Double-buffer resize to ensure layout is ready (transient modal animations)
+                const triggerResize = () => {
+                    if (infoMapInstance) {
+                        infoMapInstance.invalidateSize();
+                        // Ensure numerical coordinates
+                        const lat = Number(coords.lat);
+                        const lng = Number(coords.lng);
+                        if (!isNaN(lat) && !isNaN(lng)) {
+                            infoMapInstance.setView([lat, lng], 13);
+                        }
+                    }
+                };
+
+                requestAnimationFrame(triggerResize);
+                setTimeout(triggerResize, 300); // Robust fallback for CSS transitions
+
+                if (infoMarkerInstance) infoMapInstance.removeLayer(infoMarkerInstance);
+                infoMarkerInstance = L.marker([coords.lat, coords.lng]).addTo(infoMapInstance);
+
+            } else {
+                // NO COORDINATES -> Hide Map Column, Show Fallback Link next to Place
+                mapColumn.classList.add('hidden');
+
+                if (comp.place && fallbackLink) {
+                    const q = encodeURIComponent(comp.place + (comp.club ? ` ${comp.club}` : ''));
+                    fallbackLink.href = `https://www.google.com/maps/search/?api=1&query=${q}`;
+                    fallbackLink.classList.remove('hidden');
+                } else {
+                    if (fallbackLink) fallbackLink.classList.add('hidden');
+                }
+            }
+        }
+
+        // --- FETCH DETAILS (Organizer Only) ---
+        try {
+            // 1. Organizer from eqentriesImport config
+            const importConfig = await getConfig(comp.id, 'eqentriesImport');
+            if (importConfig && importConfig.importedCompetitionInfo) {
+                const info = importConfig.importedCompetitionInfo;
+                if (info.organizer) {
+                    setElementText('infoModalOrgName', info.organizer);
+                    setElementText('infoModalOrgCity', info.city ? `${info.zipCode || ''} ${info.city}` : '');
+                    setElementText('infoModalOrgContact', [info.phone, info.email].filter(Boolean).join(' • '));
+                    document.getElementById('infoModalOrganizerSection').classList.remove('hidden');
+                }
+            }
+
+        } catch (e) {
+            console.warn("Could not fetch competition details for modal:", e);
+        }
+    };
+
+    if (infoBtn) {
+        infoBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const comp = getGlobalState('currentCompetition');
+            if (comp) window.openCompetitionInfo(comp);
+        });
+    }
+
+    // Close handlers
+    const hide = () => {
+        const modal = document.getElementById('compInfoModal');
+        if (modal) modal.classList.add('hidden');
+    };
+
+    if (closeInfoModal) closeInfoModal.addEventListener('click', hide);
+    // Listen on document/window for closure if modal variable isn't captured perfectly in all scopes
+    const modalRef = document.getElementById('compInfoModal');
+    if (modalRef) {
+        modalRef.addEventListener('click', (e) => {
+            if (e.target === modalRef) hide();
         });
     }
 

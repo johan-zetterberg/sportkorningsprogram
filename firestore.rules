@@ -3,6 +3,7 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
+
     // ---- Roll- & behörighets-hjälpare --------------------------------------
 
     // Säkrare getUserRole: hanterar saknad users-doc
@@ -106,18 +107,46 @@ service cloud.firestore {
     }
 
     // Rot för competitions (artifacts)
+    
+    // GLOBAL CONFIG (e.g. clubLogos) - Only Admins/Superadmins
+    match /artifacts/{appId}/public/data/config/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null && (isSuperAdmin() || getUserRole() == 'admin');
+    }
+
     match /artifacts/{appId}/public/data/competitions/{compId} {
       allow read: if true;
-      
-      // RELAXED: Allow update for any authenticated user to fix "Missing Permissions"
-      allow update: if request.auth != null;
 
-      // create/delete: admin, superadmin, skapare/admins för tävlingen
-      allow create, delete: if request.auth != null
+
+      
+
+
+      // create: admin/superadmin only (since new doc has no owner yet)
+      allow create: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin'
+        );
+
+      // UPDATE: Superadmin, Admin, or Creator/Competition Admin
+      allow update: if request.auth != null
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
-          canAdminThisArtifactsComp(appId, compId)
+          // Safe check for createdBy using resource.data.get()
+          (resource.data.get('createdBy', '') == request.auth.uid) ||
+          // Safe check for admins array
+          (resource.data.get('admins', []) != null && request.auth.uid in resource.data.get('admins', [])) ||
+          // Emergency Access: If user is listed as owner in the document data itself
+          (resource.data.get('ownerId', '') == request.auth.uid)
+        );
+
+      // DELETE
+      allow delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          (resource.data.get('createdBy', '') == request.auth.uid)
         );
     }
 
@@ -206,6 +235,17 @@ service cloud.firestore {
         );
     }
 
+    // Teams Management
+    match /artifacts/{appId}/public/data/competitions/{compId}/teams/{teamId} {
+      allow read: if true;
+      allow create, update, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
     match /artifacts/{appId}/public/data/competitions/{compId}/judges/{judgeId} {
       allow read: if true;
       allow write, delete: if request.auth != null
@@ -219,6 +259,27 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/officials/{officialId} {
       allow read: if true;
       allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/assignments/{assignmentId} {
+      allow read: if true;
+      allow write, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    // Volunteer Signups (Public Create, Admin Read/Modify)
+    match /artifacts/{appId}/public/data/competitions/{compId}/volunteerSignups/{docId} {
+      allow create, update: if true; // Public can sign up (and update their own submission technically, but ID is random)
+      allow read, delete: if request.auth != null
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
@@ -262,12 +323,7 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/computed_equipages/{equipId} {
       allow read: if true;
 
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','judge','official','domare','funktionar'] ||
-          canAdminThisArtifactsComp(appId, compId)
-        );
+      allow write: if false; // Only Server (Cloud Functions) updates this
 
       allow delete: if request.auth != null
         && (
@@ -306,36 +362,7 @@ service cloud.firestore {
         );
     }
 
-    // ------------------------------------------------------------------------
-    //  ÖVRIGA TOP-LEVEL KOLLEKTIONER (om du använder dem parallellt)
-    // ------------------------------------------------------------------------
 
-    match /results/dressyr/{equipageId} {
-      allow read: if true;
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','judge']
-        );
-    }
-
-    match /maraton/{resultId} {
-      allow read: if true;
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','funktionar','domare','official','judge']
-        );
-    }
-
-    match /maratonTidtagning/{tidtagningId} {
-      allow read: if true;
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','funktionar','domare','official','judge']
-        );
-    }
 
     // ------------------------------------------------------------------------
     //  USERS

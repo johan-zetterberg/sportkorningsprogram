@@ -15,30 +15,14 @@ import {
   formatSec,
   signedSecLabel,
   toTimeLabel,
-  pausedMsSince
+  getObstacleCoefficient,
+  pausedMsSince,
+  setMarathonConfig,
 } from '../utils/marathonUtils.js';
+import { calculateMarathonResult } from '../services/calculationService.js';
+import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
 
 // === HJÄLPFUNKTIONER (Samma som i dressagePdf.js) ===
-
-async function loadPdfLibs() {
-  if (window.jspdf && window.jspdf.jsPDF) return;
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
-}
-
-async function fetchImageDataUrl(url) {
-  if (!url) return null;
-  try {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = url;
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-    const c = document.createElement('canvas');
-    c.width = img.naturalWidth; c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img, 0, 0);
-    return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-  } catch { return null; }
-}
 
 function sanitizeForFilename(name) {
   if (!name) return 'namnlos';
@@ -72,9 +56,34 @@ function globalRules() {
   };
 }
 
+// Local helper for time parsing "HH:MM" -> minutes
+function parseTimeStr(str) {
+  if (!str) return null;
+  // Handle ISO 8601 or similar with 'T'
+  let timePart = str;
+  if (str.includes('T')) {
+    const parts = str.split('T');
+    timePart = parts[1]; // Take the time part
+  }
+  const [hh, mm] = timePart.split(':').map(Number);
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  return hh * 60 + mm;
+}
+
+function formatTimeStr(mins) {
+  if (!Number.isFinite(mins)) return '-';
+  let m = Math.round(mins);
+  const h = Math.floor(m / 60) % 24; // Handle day wrap?
+  const min = m % 60;
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
 // === HUVUDFUNKTION ===
 
-export async function printMarathonPdf(eq, d) {
+import { t } from '../utils/i18n.js';
+
+export async function printMarathonPdf(eq, d, competition) {
+  const isInternational = competition?.meta?.isInternational || false;
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
@@ -84,14 +93,14 @@ export async function printMarathonPdf(eq, d) {
   let y = 40;
 
   // Timing-objektet (kan ligga i 'd' eller separat, vi antar 'd' är komplett här via modalen)
-  const t = d || {};
+  const tVals = d || {};
   const obstacles = getObstacleArray(d);
 
   // 1. LOGGOR & HEADER
   const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
-  const flagDataUrl = await fetchFlagDataUrl(cc);
+  const flagDataUrl = (await loadImg(await fetchFlagDataUrl(cc)))?.dataUrl;
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
-  const clubLogo = await fetchImageDataUrl(clubLogoUrl);
+  const clubLogo = await loadImg(clubLogoUrl);
 
   if (clubLogo?.dataUrl) {
     const maxH = 28, maxW = 110;
@@ -105,9 +114,9 @@ export async function printMarathonPdf(eq, d) {
   pdf.setFontSize(16);
   if (flagDataUrl) {
     pdf.addImage(flagDataUrl, 'PNG', mx, y - 12, 24, 15);
-    pdf.text(`Maraton – #${eq.startNumber} ${eq.driverName || ''}`, mx + 30, y);
+    pdf.text(`Marathon – #${eq.startNumber} ${eq.driverName || ''}`, mx + 30, y);
   } else {
-    pdf.text(`Maraton – #${eq.startNumber} ${eq.driverName || ''}`, mx, y);
+    pdf.text(`Marathon – #${eq.startNumber} ${eq.driverName || ''}`, mx, y);
   }
   y += 18;
 
@@ -118,30 +127,17 @@ export async function printMarathonPdf(eq, d) {
 
   // Starttid & Status
   // Vi återskapar enkel statuslogik här för utskrift
-  const hasStart = stageStartTS(t, 'A') || stageStartTS(t, 'T') || stageStartTS(t, 'B');
-  const status = hasStart ? 'Startad' : 'Ej startat'; // Förenklad status för PDF
-  pdf.text(`Status: ${status}`, mx, y);
+  const hasStart = stageStartTS(tVals, 'A') || stageStartTS(tVals, 'T') || stageStartTS(tVals, 'B');
+  const status = hasStart ? t('started', isInternational) : t('not_started', isInternational);
+  pdf.text(`${t('status', isInternational)}: ${status}`, mx, y);
   y += 10;
 
   if (!pdf.autoTable) { alert('AutoTable saknas.'); return; }
   const headStyle = { fillColor: [243, 244, 246], textColor: [55, 65, 81] };
 
-  // 2. TABELL: GLOBALA REGLER
+  // 2. TABELL: GLOBALA REGLER (Behåller dessa översättningar enkla eller manuella för nu då de är config-specifika)
   const rules = globalRules();
-  pdf.autoTable({
-    startY: y,
-    head: [['Regel', 'Värde']],
-    body: [
-      ['Straff/sekund', `${rules.timePenaltyRate} p/s`],
-      ['KD-standard', `${rules.knockdownPenaltyDefault} s`],
-      ['Max hindertid', `${rules.obstacleMaxTime} s`],
-      ...(rules.pauseTime ? [['Paus mellan A/WU och B', `${rules.pauseTime} min`]] : [])
-    ],
-    theme: 'grid',
-    styles: { fontSize: 9, cellPadding: 4 },
-    headStyles: headStyle
-  });
-  y = pdf.lastAutoTable.finalY + 12;
+
 
   // 3. TABELL: KLASSPARAMETRAR
   const cls = eq.className || '';
@@ -152,38 +148,38 @@ export async function printMarathonPdf(eq, d) {
   const idealT = limitsFor(eq, 'transport');
 
   const rowParams = [
-    ['A',
-      Number.isFinite(cs.distanceA) ? `${cs.distanceA} m` : '—',
-      (idealA && cs.distanceA && idealA.ideal) ? `${Math.round(cs.distanceA / (idealA.ideal / 60))} m/min` : '—',
-      idealA?.ideal ? formatSec(idealA.ideal) : '—',
-      idealA?.min ? formatSec(idealA.min) : '—',
-      (idealA?.max != null) ? formatSec(idealA.max) : '—',
-      idealA?.timeLimit ? formatSec(idealA.timeLimit) : '—',
-      Number.isFinite(cs.windowA) ? `${cs.windowA} min` : '—'
+    [isInternational ? 'A' : 'A',
+    Number.isFinite(cs.distanceA) ? `${cs.distanceA} m` : '—',
+    (idealA && cs.distanceA && idealA.ideal) ? `${Math.round(cs.distanceA / (idealA.ideal / 60))} m/min` : '—',
+    idealA?.ideal ? formatSec(idealA.ideal) : '—',
+    idealA?.min ? formatSec(idealA.min) : '—',
+    (idealA?.max != null) ? formatSec(idealA.max) : '—',
+    idealA?.timeLimit ? formatSec(idealA.timeLimit) : '—',
+    Number.isFinite(cs.windowA) ? `${cs.windowA} min` : '—'
     ],
-    ['T',
-      Number.isFinite(cs.distanceT) ? `${cs.distanceT} m` : '—',
-      Number.isFinite(cs.tempoT) ? `${Math.round(cs.tempoT)} m/min` : '—',
-      idealT?.ideal ? formatSec(idealT.ideal) : '—',
-      idealT?.min ? formatSec(idealT.min) : '—',
-      (idealT?.max != null) ? formatSec(idealT.max) : '—',
-      idealT?.timeLimit ? formatSec(idealT.timeLimit) : '—',
+    [isInternational ? 'Transfer' : 'T',
+    Number.isFinite(cs.distanceT) ? `${cs.distanceT} m` : '—',
+    Number.isFinite(cs.tempoT) ? `${Math.round(cs.tempoT)} m/min` : '—',
+    idealT?.ideal ? formatSec(idealT.ideal) : '—',
+    idealT?.min ? formatSec(idealT.min) : '—',
+    (idealT?.max != null) ? formatSec(idealT.max) : '—',
+    idealT?.timeLimit ? formatSec(idealT.timeLimit) : '—',
       '—'
     ],
-    ['B',
-      Number.isFinite(cs.distanceB) ? `${cs.distanceB} m` : '—',
-      (idealB && cs.distanceB && idealB.ideal) ? `${Math.round(cs.distanceB / (idealB.ideal / 60))} m/min` : '—',
-      idealB?.ideal ? formatSec(idealB.ideal) : '—',
-      idealB?.min ? formatSec(idealB.min) : '—',
-      (idealB?.max != null) ? formatSec(idealB.max) : '—',
-      idealB?.timeLimit ? formatSec(idealB.timeLimit) : '—',
-      Number.isFinite(cs.windowB) ? `${cs.windowB} min` : '—'
+    [isInternational ? 'B' : 'B',
+    Number.isFinite(cs.distanceB) ? `${cs.distanceB} m` : '—',
+    (idealB && cs.distanceB && idealB.ideal) ? `${Math.round(cs.distanceB / (idealB.ideal / 60))} m/min` : '—',
+    idealB?.ideal ? formatSec(idealB.ideal) : '—',
+    idealB?.min ? formatSec(idealB.min) : '—',
+    (idealB?.max != null) ? formatSec(idealB.max) : '—',
+    idealB?.timeLimit ? formatSec(idealB.timeLimit) : '—',
+    Number.isFinite(cs.windowB) ? `${cs.windowB} min` : '—'
     ]
   ];
 
   pdf.autoTable({
     startY: y,
-    head: [['Etapp', 'Distans', 'Tempo', 'Ideal', 'Min', 'Max', 'Tidsgräns', 'Fönster']],
+    head: [[t('stage', isInternational), t('distance', isInternational), t('tempo', isInternational), t('ideal', isInternational), t('mintime', isInternational), 'Max', t('maxtime', isInternational), t('window', isInternational)]],
     body: rowParams,
     theme: 'grid',
     styles: { fontSize: 9, cellPadding: 4 },
@@ -192,45 +188,24 @@ export async function printMarathonPdf(eq, d) {
   y = pdf.lastAutoTable.finalY + 12;
 
   // 4. TABELL: SUMMERING
-  const stagePen = { A: null, B: null };
-  for (const s of ['A', 'B']) {
-    let dur = stageDurationMsSaved(t, s);
-    if (!Number.isFinite(dur)) {
-      // Fallback: räkna ut om start/stop finns
-      const st = stageStartTS(t, s), en = stageStopTS(t, s);
-      if (st && en) dur = (en - st) - pausedMsSince(st); // Ungefärlig
-    }
-    if (Number.isFinite(dur)) {
-      const r = stagePenaltyFromMs(dur, eq, s);
-      stagePen[s] = r.elim ? Infinity : (Number.isFinite(r.points) ? r.points : null);
-    }
-  }
+  // Use centralized TR-compliant calculation
+  const res = calculateMarathonResult(eq, d, d);
 
-  // Summera hinder
-  let sumObsPen = 0;
-  let obsElim = false;
-  obstacles.forEach(o => {
-    const { penalty, eliminated } = obstacleValues(o);
-    if (eliminated) obsElim = true;
-    if (Number.isFinite(penalty)) sumObsPen += penalty;
-  });
-
-  const sumStagePen = [stagePen.A, stagePen.B].reduce((acc, v) => (v === Infinity ? Infinity : (Number.isFinite(v) ? acc + v : acc)), 0);
-  const otherPen = Number(d.otherPenalty || 0);
-
-  let totalPen = 0;
-  if (stagePen.A === Infinity || stagePen.B === Infinity || obsElim) {
-    totalPen = Infinity;
-  } else {
-    totalPen = (Number.isFinite(sumStagePen) ? sumStagePen : 0) + sumObsPen + otherPen;
-  }
+  const sumObsPen = res.obstacles.sum;
+  const obsElim = res.obstacles.eliminated;
+  const stagePenA = res.stages.A.timePenalty;
+  const stagePenB = res.stages.B.timePenalty;
+  const sumStagePen = (res.stages.A.timePenalty || 0) + (res.stages.B.timePenalty || 0);
+  const stageElim = res.stages.A.eliminated || res.stages.B.eliminated;
+  const otherPen = res.otherPenalty;
+  const totalPen = res.totalPenalty;
 
   pdf.autoTable({
-    head: [['Summa hinder', 'A', 'B', 'Summa etapper', 'Övrigt', 'Totalt']],
+    head: [[t('obstacles', isInternational) + ' ' + t('total', isInternational), 'A', 'B', t('section', isInternational) + ' ' + t('total', isInternational), t('other', isInternational), t('total', isInternational)]],
     body: [[
       (obsElim ? 'ELIM' : sumObsPen.toFixed(2)),
-      (stagePen.A === Infinity ? 'ELIM' : (Number.isFinite(stagePen.A) ? stagePen.A.toFixed(2) : '—')),
-      (stagePen.B === Infinity ? 'ELIM' : (Number.isFinite(stagePen.B) ? stagePen.B.toFixed(2) : '—')),
+      (stagePenA === Infinity ? 'ELIM' : (Number.isFinite(stagePenA) ? stagePenA.toFixed(2) : '—')),
+      (stagePenB === Infinity ? 'ELIM' : (Number.isFinite(stagePenB) ? stagePenB.toFixed(2) : '—')),
       (sumStagePen === Infinity ? 'ELIM' : (Number.isFinite(sumStagePen) ? sumStagePen.toFixed(2) : '—')),
       otherPen.toFixed(2),
       (totalPen === Infinity ? 'ELIM' : totalPen.toFixed(2)),
@@ -245,15 +220,17 @@ export async function printMarathonPdf(eq, d) {
   const STAGE_KEYS = ['A', 'transport', 'B'];
 
   for (const stage of STAGE_KEYS) {
-    const start = stageStartTS(t, stage);
-    const stop = stageStopTS(t, stage);
-    const durMs = stageDurationMsSaved(t, stage);
+    const start = stageStartTS(tVals, stage);
+    const stop = stageStopTS(tVals, stage);
+    const durMs = stageDurationMsSaved(tVals, stage);
     const pen = Number.isFinite(durMs) ? stagePenaltyFromMs(durMs, eq, stage) : { points: null, elim: false };
     const lim = limitsFor(eq, stage); // Använder eq för korrekt klass/kategori
 
+    const stageLabel = (stage === 'transport') ? (isInternational ? 'Transfer' : 'T') : String(stage).toUpperCase();
+
     if (start || stop || Number.isFinite(durMs)) {
       stageRowsTimes.push([
-        (stage === 'transport' ? 'T' : String(stage).toUpperCase()),
+        stageLabel,
         start ? new Date(start).toLocaleTimeString('sv-SE') : '—',
         stop ? new Date(stop).toLocaleTimeString('sv-SE') : '—',
         Number.isFinite(durMs) ? formatMsLive(durMs) : '—',
@@ -271,7 +248,7 @@ export async function printMarathonPdf(eq, d) {
         }
 
         stageRowsWindow.push([
-          (stage === 'transport' ? 'T' : String(stage).toUpperCase()),
+          stageLabel,
           lim.ideal ? formatSec(lim.ideal) : '—',
           lim.min ? formatSec(lim.min) : '—',
           (lim.max != null) ? formatSec(lim.max) : '—',
@@ -283,11 +260,11 @@ export async function printMarathonPdf(eq, d) {
   }
 
   if (stageRowsWindow.length) {
-    pdf.autoTable({ head: [['Etapp', 'Ideal', 'Min', 'Max', 'Δ', 'ETA']], body: stageRowsWindow, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
+    pdf.autoTable({ head: [[t('stage', isInternational), t('ideal', isInternational), t('mintime', isInternational), 'Max', 'Δ', 'ETA']], body: stageRowsWindow, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
     y = pdf.lastAutoTable.finalY + 10;
   }
   if (stageRowsTimes.length) {
-    pdf.autoTable({ head: [['Etapp', 'Start', 'Mål', 'Tid', 'Straff']], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
+    pdf.autoTable({ head: [[t('stage', isInternational), 'Start', t('finish', isInternational), t('time', isInternational), t('penalty', isInternational)]], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
     y = pdf.lastAutoTable.finalY + 12;
   }
 
@@ -326,9 +303,17 @@ export async function printMarathonPdf(eq, d) {
     const enteredAt = times.enteredAtClient || times.enteredAt || o.enteredAtClient || o.enteredAt;
     const exitAt = times.exitAtClient || times.exitAt || o.exitAtClient || o.exitAt;
 
+    // Dynamisk koefficient
+    const obsCoeff = getObstacleCoefficient(eq.className);
+    let calculatedTimePenalty = penalty || 0;
+    if (Number.isFinite(timeSec)) {
+      calculatedTimePenalty = timeSec * obsCoeff;
+    }
+
     // --- SPLITS ---
     let splitStr = '';
-    const splits = o.gateSplits || times.gateSplits || [];
+    // Prioritera times.gateSplits (live) över o.gateSplits (synkat med modalen)
+    const splits = times.gateSplits || o.gateSplits || [];
     if (splits.length > 0 && enteredAt) {
       let startTs = enteredAt;
       if (startTs && startTs.toMillis) startTs = startTs.toMillis();
@@ -341,7 +326,7 @@ export async function printMarathonPdf(eq, d) {
           else if (typeof ts === 'string') ts = new Date(ts).getTime();
           if (!ts) return null;
           return { char: s.char, diff: ts - startTs };
-        }).filter(Boolean);
+        }).filter(x => x && x.diff >= 0); // Endast valida och positiva (synkat med modalen)
 
         if (valid.length > 0) {
           splitStr = '\n' + valid.map(s => `${s.char}: ${(s.diff / 1000).toFixed(1)}`).join('  ');
@@ -361,7 +346,7 @@ export async function printMarathonPdf(eq, d) {
     return [
       String(o.number || o.obstacleNumber || ''),             // 0: H
       formatMsLive(Number(o.timeMs) || (timeSec * 1000) || 0) + splitStr, // 1: Tid + Splits
-      eliminated ? 'ELIM' : (Number.isFinite(penalty) ? penalty.toFixed(2) : '—'), // 2: Str
+      eliminated ? 'ELIM' : (Number.isFinite(calculatedTimePenalty) ? calculatedTimePenalty.toFixed(2) : '—'), // 2: Str (Time Penalty)
       combinedKD,                                             // 3: Rivn (Antal + Straff)
       Number(o.otherPenalty || 0).toFixed(2),                 // 4: Övr
       combinedTime,                                           // 5: Tidpunkt (In/Ut)
@@ -378,8 +363,8 @@ export async function printMarathonPdf(eq, d) {
       startY: y,
       // Visa 'Väg' kolumnen bara om data finns
       head: hasRoute
-        ? [['H', 'Tid', 'Str', 'Rivn', 'Övr', 'Start / Mål', 'Väg', 'Komm.']]
-        : [['H', 'Tid', 'Str', 'Rivn', 'Övr', 'Start / Mål', 'Komm.']],
+        ? [[t('obstacles', isInternational), t('time', isInternational), t('errors', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Väg', 'Komm.']]
+        : [[t('obstacles', isInternational), t('time', isInternational), t('errors', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Komm.']],
 
       // Om ingen väg finns, filtrera bort index 6 från varje rad
       body: hasRoute
@@ -407,8 +392,8 @@ export async function printMarathonPdf(eq, d) {
   pdf.save(filename);
 }
 
-// NY: Generera resultatlista för maraton (Landscape)
 export async function generateMarathonListPdf(equipages, competition) {
+  const isInternational = competition?.meta?.isInternational || false;
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('PDF-bibliotek kunde inte laddas.'); return; }
@@ -416,76 +401,37 @@ export async function generateMarathonListPdf(equipages, competition) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  // -- LOGO & HEADER --
-  const loadImg = async (path) => {
-    try {
-      const img = new Image();
-      img.src = path;
-      img.crossOrigin = 'Anonymous';
-      await new Promise((r, e) => { img.onload = r; img.onerror = r; });
-      if (!img.naturalWidth) return null;
-      const c = document.createElement('canvas');
-      c.width = img.naturalWidth; c.height = img.naturalHeight;
-      c.getContext('2d').drawImage(img, 0, 0);
-      return { data: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-    } catch { return null; }
-  };
   const srfLogo = await loadImg('/assets/logos/SRF.png');
-
-  let y = 30;
-  if (srfLogo) {
-    const h = 50; const w = h * (srfLogo.w / srfLogo.h);
-    doc.addImage(srfLogo.data, 'PNG', 40, y, w, h);
-  }
-
-  const compName = competition?.name || 'Tävling';
-  const compDate = competition?.dates || competition?.date || new Date().toLocaleDateString('sv-SE');
-  const locationPart = competition?.place || competition?.city || competition?.location || '';
-  const organizerPart = competition?.club || competition?.organizerName || competition?.organizer || '';
-  const parts = [locationPart, organizerPart].filter(p => p && p.trim());
-  const locationLine = parts.length > 0 ? parts.join(' • ') : '';
-
-  doc.setFontSize(20);
-  doc.setFont(undefined, 'bold');
-  doc.text(compName, pageWidth / 2, y + 15, { align: 'center' });
-
-  doc.setFontSize(12);
-  doc.setFont(undefined, 'normal');
-  if (locationLine) {
-    doc.text(locationLine, pageWidth / 2, y + 32, { align: 'center' });
-    doc.text(compDate, pageWidth / 2, y + 44, { align: 'center' });
-    y += 12;
-  } else {
-    doc.text(compDate, pageWidth / 2, y + 32, { align: 'center' });
-  }
-
-  y += 55;
-  doc.setFillColor(230, 230, 230);
-  doc.rect(40, y, pageWidth - 80, 20, 'F');
-  doc.setFontSize(11);
-  doc.setFont(undefined, 'bold');
-  doc.text("MARATON – RESULTATLISTA", pageWidth / 2, y + 14, { align: 'center' });
-  y += 30;
+  const title = `MARATHON – ${t('results', isInternational).toUpperCase()}`;
+  let y = drawStandardHeader(doc, competition, title, srfLogo, 30, 40);
 
   // -- DYNAMIC COLUMNS --
   let maxObstacles = 0;
   equipages.forEach(eq => {
-    const obs = eq.results?.marathon?.obstacles || {};
-    Object.keys(obs).forEach(k => {
-      const num = parseInt(k, 10);
+    const items = eq.results?.marathon?.obstacles?.items || [];
+    items.forEach(o => {
+      const num = parseInt(o.number || o.obstacleNumber || o.nr || o.hinderNr, 10);
       if (!isNaN(num) && num > maxObstacles) maxObstacles = num;
     });
   });
   if (maxObstacles === 0) maxObstacles = 6;
 
   // Build Header
-  const headerRow = ['Plac', '#', 'Kusk / Häst', 'Klass', 'Straff A', 'Straff T', 'Straff B'];
+  const headerRow = [
+    t('rank', isInternational),
+    t('startno', isInternational),
+    t('driver', isInternational) + ' / ' + t('horse', isInternational),
+    t('class', isInternational),
+    (isInternational ? 'Pen A' : 'Straff A'),
+    (isInternational ? 'Pen T' : 'Straff T'),
+    (isInternational ? 'Pen B' : 'Straff B')
+  ];
   for (let i = 1; i <= maxObstacles; i++) {
     headerRow.push(`H${i}`);
   }
-  headerRow.push('H-Tot');
-  headerRow.push('Övr');
-  headerRow.push('Totalt');
+  headerRow.push('H-' + t('total', isInternational).substring(0, 1));
+  headerRow.push(t('other', isInternational));
+  headerRow.push(t('total', isInternational));
 
   const body = equipages.map(eq => {
     const mRes = eq.results?.marathon || {};
@@ -500,35 +446,258 @@ export async function generateMarathonListPdf(equipages, competition) {
       horseText = (eq.horses || []).map(h => h.name).join(', ');
     }
 
-    const tPen = mRes.timePenaltyT !== undefined ? formatMsLive(mRes.timePenaltyT) : '';
-    const otherPen = (mRes.transportPenalty || 0);
+    // Calculate aggregated "Other" penalty (Global + WG + Obstacle Extra)
+    const obsItems = mRes.obstacles?.items || [];
+    const obsOtherSum = obsItems.reduce((acc, o) => acc + (Number(o.otherPenalty) || 0), 0);
+    const otherPen = (mRes.otherPenalty || 0) + (mRes.wgPenalty || 0) + obsOtherSum;
 
-    return [
+    const row = [
       eq.place || '–',
       eq.startNumber || '',
-      `${eq.driverName}\n${horseText}`,
+      { content: `${eq.driverName}\n${horseText}`, styles: { fontSize: 8 } },
       eq.className || '',
-      formatMsLive(mRes.timePenaltyA),
-      formatMsLive(mRes.timePenaltyB),
-      (mRes.obstaclePenalty || 0).toFixed(2),
-      otherPen.toFixed(2),
-      { content: (mRes.totalPenalty || 0).toFixed(2), styles: { fontStyle: 'bold' } }
+      (mRes.stages?.A?.timePenalty != null) ? mRes.stages.A.timePenalty.toFixed(2) : '—',
+      (mRes.stages?.transport?.timePenalty != null) ? mRes.stages.transport.timePenalty.toFixed(2) : '—',
+      (mRes.stages?.B?.timePenalty != null) ? mRes.stages.B.timePenalty.toFixed(2) : '—'
     ];
+
+    // Individual Obstacles
+    for (let i = 1; i <= maxObstacles; i++) {
+      const oData = obsItems.find(o => Number(o.number || o.obstacleNumber || o.nr || o.hinderNr) === i);
+      if (oData?.eliminated) {
+        row.push('ELIM');
+      } else if (oData?.penalty != null) {
+        row.push(oData.penalty.toFixed(2));
+      } else {
+        row.push('—');
+      }
+    }
+
+    // Summary columns
+    row.push((mRes.obstacles?.sum || 0).toFixed(2));
+    row.push(otherPen.toFixed(2));
+    row.push({ content: (mRes.totalPenalty || 0).toFixed(2), styles: { fontStyle: 'bold' } });
+
+    return row;
   });
+
+  // Find index of Total column
+  const totalColIndex = headerRow.length - 1;
+  const otherColIndex = headerRow.length - 2;
+  const obsTotalColIndex = headerRow.length - 3;
 
   doc.autoTable({
     startY: y,
-    startY: y,
     head: [headerRow],
     body: body,
-    body: body,
     theme: 'grid',
-    styles: { fontSize: 9, cellPadding: 4 },
+    styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [220, 220, 220], textColor: 20 },
     columnStyles: {
-      8: { fontStyle: 'bold', halign: 'center' }
+      0: { halign: 'center', cellWidth: 25 }, // Rank
+      1: { halign: 'center', cellWidth: 25 }, // StartNo
+      2: { cellWidth: 120 },                  // Driver/Horse
+      [totalColIndex]: { fontStyle: 'bold', halign: 'right' },
+      [otherColIndex]: { halign: 'right' },
+      [obsTotalColIndex]: { halign: 'right' }
     }
   });
 
   doc.save('maraton_resultatlista.pdf');
+}
+
+// === NEW: Official Functionary Timeline ===
+export async function generateMarathonFunctionaryPdf(equipages, marathonConfig, startTimes, competition) {
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) return;
+
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Ensure marathonUtils has the config
+  if (marathonConfig) setMarathonConfig(marathonConfig);
+
+  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA MARATON (TIDER)", srfLogo, 30, 40);
+  
+  y += 5; // Extra spacing before table
+
+  // Pause time from config
+  const pauseTimeMin = marathonConfig.pauseTime || 10;
+
+  // Sort rows by Start A
+  // FIX: Hantera startTimes som objekt (inte Map)
+  // FIX: Filtrera bort strukna
+  const activeEquipages = equipages.filter(e => e.status !== 'struken');
+
+  const rows = activeEquipages.map(eq => {
+    // Start A
+    // startTimes structure from reports.js/getConfig: { "1": { marathon: "10:00" }, ... } OR flat object depending on loading
+    // Based on reports.js: startTimes[sn][type]
+    const sMap = startTimes || {};
+    const tEntry = sMap[String(eq.startNumber)];
+    const startA_Str = tEntry ? (tEntry.marathon || tEntry) : null; // Fallback if simple string mapped
+    // Ensure we stripped date for display if it's there
+    const displayStartA = startA_Str && startA_Str.includes('T')
+      ? startA_Str.split('T')[1].substring(0, 5)
+      : (startA_Str ? startA_Str.substring(0, 5) : '-');
+
+    let startA_Min = 0;
+    if (startA_Str) startA_Min = parseTimeStr(startA_Str);
+
+    // Ideals (sec)
+    const limA = limitsFor(eq, 'A');
+    const limT = limitsFor(eq, 'transport'); // or 'T'
+
+    const idealA_Min = (limA?.ideal || 0) / 60;
+    const idealT_Min = (limT?.ideal || 0) / 60;
+
+    // Finish A ~ Start A + Ideal A
+    // Fix: allow idealA_Min to be 0
+    const finishA_Min = (startA_Min !== null && idealA_Min !== null) ? startA_Min + idealA_Min : null;
+
+    // Start T ~ Finish A
+    // (Usually immediate or same as finish A)
+
+    // Finish T ~ Start T + Ideal T
+    // Fix: allow idealT_Min to be 0 (e.g. no transport)
+    const finishT_Min = (finishA_Min !== null && idealT_Min !== null) ? finishA_Min + idealT_Min : null;
+
+    // Start B ~ Finish T + Pause
+    const startB_Min = (finishT_Min !== null) ? finishT_Min + pauseTimeMin : null;
+
+    return {
+      startNo: eq.startNumber,
+      driver: eq.driverName,
+      class: eq.className,
+      startA: displayStartA,
+      finishA: formatTimeStr(finishA_Min),
+      startT: formatTimeStr(finishA_Min), // Approx same
+      finishT: formatTimeStr(finishT_Min),
+      startB: formatTimeStr(startB_Min),
+      rawStartA: startA_Min || 99999
+    };
+  }).sort((a, b) => a.rawStartA - b.rawStartA);
+
+  const head = [['Start', '#', 'Kusk', 'Klass', 'Start A', 'Mål A', 'Start T', 'Mål T', `Start B (Paus ${pauseTimeMin}m)`]];
+  const body = rows.map(r => [
+    r.startA,
+    r.startNo,
+    r.driver,
+    r.class,
+    r.startA,
+    r.finishA,
+    r.startT,
+    r.finishT,
+    r.startB
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    head: head,
+    body: body,
+    theme: 'grid',
+    styles: { fontSize: 9, cellPadding: 4 },
+    headStyles: { fillColor: [50, 50, 50] },
+    columnStyles: {
+      0: { fontStyle: 'bold' },
+      8: { fontStyle: 'bold', fillColor: [240, 240, 240] } // Highlight Start B
+    }
+  });
+
+  doc.save('funktionarslista_maraton_tider.pdf');
+}
+
+// === NEW: Official Obstacle List ===
+export async function generateMarathonObstaclePdf(equipages, marathonConfig, startTimes, competition) {
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf;
+  if (!jsPDF) return;
+
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const pageWidth = doc.internal.pageSize.getWidth();
+
+  // Ensure marathonUtils has the config
+  if (marathonConfig) setMarathonConfig(marathonConfig);
+
+  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA MARATON (HINDER)", srfLogo, 30, 40);
+  
+  y += 5; // Extra spacing before table
+
+  const pauseTimeMin = marathonConfig.pauseTime || 10;
+
+
+
+  // FIX: Filtrera bort strukna
+  const activeEquipages = equipages.filter(e => e.status !== 'struken');
+
+  const rows = activeEquipages.map(eq => {
+    // Calc Start B
+    const sMap = startTimes || {};
+    const tEntry = sMap[String(eq.startNumber)];
+    const startA_Str = tEntry ? (tEntry.marathon || tEntry) : null;
+    let startB_Str = '-';
+
+    if (startA_Str) {
+      const startA_Min = parseTimeStr(startA_Str);
+      const limA = limitsFor(eq, 'A');
+      const limT = limitsFor(eq, 'transport');
+      const idealA_Min = (limA?.ideal || 0) / 60;
+      const idealT_Min = (limT?.ideal || 0) / 60;
+
+      if (startA_Min !== null) {
+        // Allow 0 for ideals
+        const safeA = idealA_Min || 0;
+        const safeT = idealT_Min || 0;
+        const bMin = startA_Min + safeA + safeT + pauseTimeMin;
+        startB_Str = formatTimeStr(bMin);
+      }
+    }
+
+    // Width
+    const width = eq.marathonTrackWidth || eq.marathonWidth || eq.trackWidth || '-';
+
+    // Category (reuse helper logic simplified)
+    let cat = '-';
+    if (eq.horses && eq.horses.length > 0) {
+      const types = [...new Set(eq.horses.map(h => h.type).filter(Boolean))];
+      cat = types.join(', ');
+    }
+
+    return {
+      startNo: eq.startNumber,
+      driver: eq.driverName,
+      class: eq.className,
+      cat: cat,
+      width: width,
+      startB: startB_Str
+    };
+  }).sort((a, b) => (parseTimeStr(a.startB) || 99999) - (parseTimeStr(b.startB) || 99999));
+
+  const head = [['Start B (Est)', '#', 'Kusk / Klubb', 'Kat', 'Vagnbredd (cm)']];
+  const body = rows.map(r => [
+    r.startB,
+    r.startNo,
+    r.driver,
+    r.cat,
+    r.width
+  ]);
+
+  doc.autoTable({
+    startY: y,
+    head: head,
+    body: body,
+    theme: 'grid',
+    styles: { fontSize: 10, cellPadding: 4 },
+    headStyles: { fillColor: [50, 50, 50] },
+    columnStyles: {
+      0: { fontStyle: 'bold', halign: 'center' },
+      1: { halign: 'center', cellWidth: 30 },
+      4: { halign: 'center', fontStyle: 'bold', fontSize: 11, cellWidth: 80 }
+    }
+  });
+
+  doc.save('funktionarslista_maraton_hinder.pdf');
 }

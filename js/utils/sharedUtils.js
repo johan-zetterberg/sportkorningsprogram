@@ -119,9 +119,22 @@ export const isMobile = () => {
 
 // --- Logic / State Utils ---
 
+/**
+ * Normalizes an equipage object with consistent field names and types.
+ * @param {Object} e - The raw equipage object from Firestore.
+ * @returns {Object} Normalized equipage object.
+ */
+export function normalizeEquipage(e) {
+    if (!e) return null;
+    const startNumber = Number(e.startNumber ?? e.startnr ?? e.nr ?? e.start ?? e.startNo ?? e.bib ?? 0);
+    const driverName = String(e.driverName ?? e.driver ?? e.name ?? e.kusk ?? '').trim();
+    const className = String(e.className ?? e.class ?? e.klass ?? '').trim();
+    return { ...e, startNumber, driverName, className };
+}
+
 export function isPrivileged() {
     const role = (getGlobalState('currentUser')?.role) || 'publik';
-    return role === 'domare' || role === 'admin' || role === 'sekretariat';
+    return role === 'domare' || role === 'admin' || role === 'sekretariat' || role === 'superadmin';
 }
 
 export function resolveCurrentCompId() {
@@ -245,10 +258,18 @@ export function downloadJson(filename, obj) {
  * @returns {number} The sum, treating nulls/undefined as 0 (or should we return null if all are null? For ranking we usually treat 0 as start).
  */
 export function computeTotalPenalty(dressagePen, marathonPen, precisionPen) {
-    const d = (typeof dressagePen === 'number' && Number.isFinite(dressagePen)) ? dressagePen : 0;
-    const m = (typeof marathonPen === 'number' && Number.isFinite(marathonPen)) ? marathonPen : 0;
-    const p = (typeof precisionPen === 'number' && Number.isFinite(precisionPen)) ? precisionPen : 0;
-    return d + m + p; // Simple sum
+    if (dressagePen === Infinity || marathonPen === Infinity || precisionPen === Infinity) return Infinity;
+
+    const hasD = (typeof dressagePen === 'number' && Number.isFinite(dressagePen));
+    const hasM = (typeof marathonPen === 'number' && Number.isFinite(marathonPen));
+    const hasP = (typeof precisionPen === 'number' && Number.isFinite(precisionPen));
+
+    if (!hasD && !hasM && !hasP) return null;
+
+    const d = hasD ? dressagePen : 0;
+    const m = hasM ? marathonPen : 0;
+    const p = hasP ? precisionPen : 0;
+    return d + m + p;
 }
 
 /**

@@ -2,32 +2,8 @@
 import { getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
-
-/**
- * Loads jsPDF and AutoTable from CDN if not already present.
- */
-async function loadPdfLibs() {
-    if (window.jspdf && window.jspdf.jsPDF) return;
-    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
-}
-
-/**
- * Fetches an image and converts it to a Data URL for use in PDF.
- */
-async function fetchImageDataUrl(url) {
-    if (!url) return null;
-    try {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = url;
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
-        return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-    } catch { return null; }
-}
+import { t } from '../utils/i18n.js';
+import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
 
 /**
  * Generates a professional PDF report of total results.
@@ -46,7 +22,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     let y = 40;
 
     // 1. ASSET LOADING (Logos & Flags)
-    const srfLogo = await fetchImageDataUrl('/assets/logos/SRF.png');
+    const srfLogo = await loadImg('/assets/logos/SRF.png');
 
     // Pre-fetch unique club logos and flags
     const assetMap = new Map();
@@ -54,7 +30,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     const uniqueNations = [...new Set(rows.map(r => r.country || 'se').map(normalizeCountryCode))];
 
     const assetPromises = [
-        ...uniqueClubs.map(club => fetchImageDataUrl(getClubLogoUrl(club)).then(res => {
+        ...uniqueClubs.map(club => loadImg(getClubLogoUrl(club)).then(res => {
             if (res?.dataUrl) assetMap.set(`club_${club}`, res.dataUrl);
         })),
         ...uniqueNations.map(cc => fetchFlagDataUrl(cc).then(url => {
@@ -64,32 +40,8 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     await Promise.all(assetPromises);
 
     // 2. HEADER
-    if (srfLogo?.dataUrl) {
-        const h = 50;
-        const ratio = srfLogo.w / srfLogo.h || 1;
-        doc.addImage(srfLogo.dataUrl, 'PNG', pageWidth - mx - h * ratio, y - 10, h * ratio, h);
-    }
-
-    const compName = competition?.name || 'Tävling';
-    const compDate = competition?.dates || competition?.date || new Date().toLocaleDateString('sv-SE');
-    const locationLine = [competition?.place || competition?.city, competition?.organizerName || competition?.organizer]
-        .filter(Boolean).join(' • ');
-
-    doc.setFontSize(18).setFont(undefined, 'bold');
-    doc.text(compName, mx, y);
-    y += 18;
-
-    doc.setFontSize(10).setFont(undefined, 'normal');
-    if (locationLine) {
-        doc.text(locationLine, mx, y);
-        y += 12;
-    }
-    doc.text(compDate, mx, y);
-    y += 15;
-
-    doc.setFontSize(12).setFont(undefined, 'bold');
-    doc.text("TOTALRESULTAT", mx, y);
-    y += 15;
+    const isInt = !!competition?.meta?.isInternational;
+    y = drawStandardHeader(doc, competition, t('results', isInt).toUpperCase(), srfLogo, 30, mx);
 
     // 3. OFFICIALS (Optional)
     if (options.officials) {
@@ -102,7 +54,25 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     }
 
     // 4. TABLE GENERATION
-    const headers = [['Plac', '#', 'Kusk / Häst', 'Klass', 'Klubb', 'Dressyr', 'Maraton', 'Precision', 'Totalt']];
+    const headers = [[
+        t('rank', isInt),
+        t('startno', isInt),
+        `${t('driver', isInt)} / ${t('horse', isInt)}`,
+        t('class', isInt),
+        t('club', isInt),
+        'Dressage',
+        'Marathon',
+        'Cones', // Use translated keys? Or keys on the fly? Let's assume keys:
+        t('total', isInt)
+    ]];
+
+    // Manual keys for Discipline headers if needed, otherwise hardcode EN/SV
+    if (!isInt) {
+        headers[0][5] = 'Dressyr';
+        headers[0][6] = 'Maraton';
+        headers[0][7] = 'Precision';
+        headers[0][8] = 'Totalt';
+    }
 
     const body = [];
     let lastClass = null;
@@ -128,7 +98,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             r.dressage?.penalty?.toFixed(2) || '—',
             r.marathon?.totalPenalty?.toFixed(2) || '—',
             r.precision?.pen?.toFixed(2) || '—',
-            { content: r.totalPenalty?.toFixed(2) || (r.isEliminated ? 'ELIM' : '—'), styles: { fontStyle: 'bold' } }
+            { content: r.totalPenalty?.toFixed(2) || (r.isEliminated ? t('eliminated', isInt).substring(0, 4) : '—'), styles: { fontStyle: 'bold' } }
         ]);
     });
 

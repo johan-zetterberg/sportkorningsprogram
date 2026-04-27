@@ -11,7 +11,7 @@ import {
     getDressageResultsForEquipage
 } from '../services/firestoreService.js';
 import { dressagePrograms } from '../data/dressagePrograms.js';
-import { getCompetitionHeader } from '../ui/components.js';
+import { getCompetitionHeader, renderResponsiveClassFilter } from '../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../services/logosService.js';
 import { getFlagHtml, normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { doc, onSnapshot, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -24,8 +24,6 @@ import { generateDressagePdf, generateDressageListPdf } from '../pdf/dressagePdf
 // === NYTT: Importera all delad logik ===
 import {
     getPrograms,
-    getDressagePenaltyCoeff,
-    computeFinalFromSaved,
     normalizeMovementNo,
     normalizeMovements,
     fmtPct,
@@ -34,9 +32,12 @@ import {
     getMomentHorseLabelStacked,
     deduplicateAndFilterProtocols,
     guessProgramKeyFromClass,
-    calculateAggregateDressagePenalty,
-    normJudgeId
+    normJudgeId,
+    getDressagePenaltyCoeff
 } from '../utils/dressageUtils.js';
+import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
+
+import { t } from '../utils/i18n.js';
 
 import {
     escapeHtml,
@@ -69,6 +70,10 @@ let viewMode = 'byclass';
 let masterEquipageList = []; // FIX: En stabil lista över alla ekipage
 let liveJudgeData = new Map();
 let __tickerCurrentStart = null;
+
+// --- Performance Optimization State ---
+let lastStructuralHash = null;
+let lastHeaderHash = null;
 
 // Globala refs för att kunna städa på __unload
 window.__dressyrResizeHandler = window.__dressyrResizeHandler || null;
@@ -221,7 +226,7 @@ function patchFinalizeBadge(startNo, finalized) {
         if (!badge) {
             const b = document.createElement('span');
             b.id = `badge-final-${startNo}`;
-            b.className = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800';
+            b.className = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300';
             b.textContent = 'Finaliserad';
             // Sätt den bredvid knapparna
             const holder = row.querySelector('[data-finalize-slot]') || row.querySelector('.flex.items-center.gap-2');
@@ -283,12 +288,24 @@ function injectDressageResultsBaseStyles() {
       white-space: nowrap;
       height: 44px;
       padding: 8px 12px;
+      color: #111827;
     }
     .pr-table tbody td {
       white-space: nowrap;
       border-bottom: 1px solid #eee;
       vertical-align: middle;
       padding: 8px 12px;
+      color: #374151;
+    }
+    /* Dark Mode Overrides */
+    html.dark .pr-table thead th {
+      background: #374151; /* gray-700 */
+      border-bottom-color: #4b5563; /* gray-600 */
+      color: #e5e7eb; /* gray-200 */
+    }
+    html.dark .pr-table tbody td {
+      border-bottom-color: #374151; /* gray-700 */
+      color: #f3f4f6; /* gray-100 */
     }
   `;
     const s = document.createElement('style');
@@ -507,36 +524,31 @@ function judgeChip(jr, startNumber) {
     if (!jr) {
         // Om statusen är 'finished', betyder det att datan är på väg. Visa ett "laddar"-läge.
         if (statusInfo?.state === 'finished') {
-            return '<span class="inline-block px-2 py-1 text-xs rounded bg-gray-200 text-gray-600 animate-pulse">---</span>';
+            return '<span class="inline-block px-2 py-1 text-xs rounded bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400 animate-pulse">---</span>';
         }
         // Annars har domaren inte börjat döma än.
-        return '<span class="inline-block px-2 py-1 text-xs rounded bg-gray-200 text-gray-600" title="Domaren har inte påbörjat bedömning">Väntar</span>';
+        return `<span class="inline-block px-2 py-1 text-xs rounded bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-400" title="${t('dressage_monitor_waiting')}">${t('status_waiting')}</span>`;
     }
 
     // Fall 2: Eliminerad
-    if (jr.eliminated) return '<span class="inline-block px-2 py-1 text-xs rounded bg-red-100 text-red-800 font-bold">ELIM</span>';
+    if (jr.eliminated) return `<span class="inline-block px-2 py-1 text-xs rounded bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 font-bold">${t('status_eliminated')}</span>`;
 
     const tp = Number(jr.totalPoints);
     const cls = jr.isBestForJudge ? 'font-extrabold' : '';
-    const title = `Straff: ${(Number(jr.penalty) || 0).toFixed(1)} | %: ${(Number(jr.percent) || 0).toFixed(2)}${jr.place ? ` | Plac: ${jr.place}` : ''}`;
+    const title = `${t('penalty')}: ${(Number(jr.penalty) || 0).toFixed(1)} | %: ${(Number(jr.percent) || 0).toFixed(2)}${jr.place ? ` | ${t('rank')}: ${jr.place}` : ''}`;
 
-    // Fall 3: Live-chip (puls + prognos)
+    // Fall 3: Live-chip (puls + poäng) - Prognos borttagen
     if (jr.isLive) {
-        const projPct = Number.isFinite(jr.projectedPercent) ? jr.projectedPercent.toFixed(1) + '%' : '';
-        const projPen = Number.isFinite(jr.projectedPenalty) ? jr.projectedPenalty.toFixed(1) + 'p' : '';
-        const tail = (projPct || projPen)
-            ? ` <span class="block text-[10px] leading-tight text-brand-lightblue/80">→ Prognos: ${projPct}${projPct && projPen ? ' • ' : ''}${projPen}</span>`
-            : '';
-        return `<span title="${title}" class="inline-flex flex-col items-center gap-0.5 px-2 py-1 text-xs rounded bg-blue-100 text-blue-800 ${cls}">
+        return `<span title="${title}" class="inline-flex flex-col items-center gap-0.5 px-2 py-1 text-xs rounded bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100 ${cls}">
                   <span class="inline-flex items-center gap-1.5">
                     <span class="w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
                     ${Number.isFinite(tp) ? tp.toFixed(1) : '–'}
-                  </span>${tail}
+                  </span>
                 </span>`;
     }
 
     // Fall 4: Standard-chip med slutgiltig poäng
-    return `<span title="${title}" class="inline-block px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 ${cls}">
+    return `<span title="${title}" class="inline-block px-2 py-1 text-xs rounded bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300 ${cls}">
               ${Number.isFinite(tp) ? tp.toFixed(1) : '–'}
             </span>`;
 }
@@ -550,7 +562,16 @@ function statusBadgeForDressage(sn) {
     let state = 'not-started';
 
     if (equipageResult && Object.keys(equipageResult.judges).length > 0) {
-        const expectedJudgeCount = currentJudgesPresent.length;
+        // FIX: Count unique positions instead of raw judges count to handle split classes (multiple judges at 'C')
+        const classExpectedPos = getExpectedJudgesForClass(equipageResult.className);
+        let expectedJudgeCount = 0;
+        if (classExpectedPos) {
+            expectedJudgeCount = classExpectedPos.length;
+        } else {
+            const uniquePositions = new Set((currentJudgesPresent || []).map(j => (j.position || '').toUpperCase()));
+            expectedJudgeCount = uniquePositions.size;
+        }
+
         const finalJudgeCount = Object.values(equipageResult.judges).filter(j => !j.isLive && !j.eliminated).length;
         const liveJudgeCount = Object.values(equipageResult.judges).filter(j => j.isLive).length;
         const isEliminated = Object.values(equipageResult.judges).some(j => j.eliminated);
@@ -567,10 +588,10 @@ function statusBadgeForDressage(sn) {
     }
 
     const base = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium';
-    if (state === 'done') return `<span class="${base} bg-green-100 text-green-800">Klar</span>`;
-    if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800">Pågår</span>`;
-    if (state === 'eliminated') return `<span class="${base} bg-red-100 text-red-800">ELIM</span>`;
-    return `<span class="${base} bg-gray-100 text-gray-700">Ej startat</span>`;
+    if (state === 'done') return `<span class="${base} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">${t('status_done')}</span>`;
+    if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100">${t('status_running')}</span>`;
+    if (state === 'eliminated') return `<span class="${base} bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100">${t('status_eliminated')}</span>`;
+    return `<span class="${base} bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300">${t('not_started')}</span>`;
 }
 
 // ---------- Aggregation ----------
@@ -608,7 +629,7 @@ function processAndAggregateResults(equipages, allRawResults) {
         const startNumberStr = String(eq.startNumber);
         const status = dressageStatusMap.get(startNumberStr);
         const liveProtocols = liveJudgeData.get(startNumberStr);
-        if (window.DEBUG_LIVE && liveProtocols) console.log(`[Agg] #${startNumberStr} LiveProtocols:`, Array.from(liveProtocols.entries()), 'Status:', status);
+
 
         // 1. Hämta råa protokoll
         const rawAll = allRawResults.filter(r => String(r.startNumber) === startNumberStr);
@@ -639,6 +660,8 @@ function processAndAggregateResults(equipages, allRawResults) {
 
         // Samla domar-IDn
         const judgeIdsForEquipage = new Set();
+
+
         rawProtocolsForEquipage.forEach(p => {
             // Data is normalized: p.judgeId is clean string.
             if (p.judgeId) judgeIdsForEquipage.add(p.judgeId);
@@ -684,68 +707,35 @@ function processAndAggregateResults(equipages, allRawResults) {
             const jid = normJudgeId(judgeId);
 
             // A) Sparat protokoll (PRIO 1 för detaljer)
-            // Data might have been re-prefixed by deduplicate helper, so we strip again to match
             const rawProto = rawProtocolsForEquipage.find(p => normJudgeId(p.judgeId) === jid);
             if (rawProto) {
-                // === HÄR ÄR ÄNDRINGEN: ANVÄND UTILS FÖR ATT RÄKNA ===
                 if (program) {
-                    // Vi skickar in en array med ETT protokoll för att få uträkningen för just denna domare
-                    // computeFinalFromSaved returnerar { points, percent, penalty }
-                    // Vi normaliserar först rörelserna
-                    const movementsNorm = normalizeMovements(rawProto.movements);
-
-                    // Fejka ett "savedArr" med bara detta protokoll
-                    // Notera: Vi måste skicka med domarpositionen/namnet också för att utils ska kunna matcha om den gör sånt (vilket den inte gör, men ändå)
-                    const singleProto = { ...rawProto, movements: movementsNorm };
-
-                    const computed = computeFinalFromSaved(eq, [singleProto], program);
-
-                    if (window.DEBUG_LIVE || startNumberStr === '3') {
-                        console.log(`[Calc] #${startNumberStr} Judge:${jid} Program:${programKey} Max:${program?.movements?.length} computed:`, computed);
-                        // Fallback om program saknas eller utils failar (använd sparade värden)
-                        if (!finalData) {
-                            if (window.DEBUG_LIVE) console.warn(`[Calc] #${startNumberStr} Judge:${jid} FALLBACK to raw 0.0! ProgramFound:${!!program}`);
-                            finalData = {
-                                points: Number(rawProto.totalPoints),
-                                percent: Number(rawProto.percent),
-                                penalty: Number(rawProto.penalty),
-                                eliminated: !!rawProto.eliminated,
-                                position: (rawProto.judgePosition || findJudgePos(judgeId) || '').toUpperCase(),
-                                movements: movementsNorm, // Use normalized if available, or rawProto.movements if not logic available? 
-                                // normalizedMovements is defined above.
-                                id: jid,
-                                name: rawProto.judgeName || rawProto.name || ''
-                            };
-                            isFinal = true;
-                        }
-                    }
+                    const computed = calculateSingleJudgeDressageResult(rawProto, program, eq);
 
                     if (computed) {
                         finalData = {
                             totalPoints: computed.points,
                             penalty: computed.penalty,
                             percent: computed.percent,
-                            eliminated: !!rawProto.eliminated,
+                            eliminated: !!computed.eliminated,
                             position: (rawProto.judgePosition || findJudgePos(judgeId) || '').toUpperCase(),
-                            movements: movementsNorm,
-                            id: judgeId, // Added ID
-                            name: rawProto.judgeName || rawProto.name || '' // Added Name
+                            movements: normalizeMovements(rawProto.movements),
+                            id: judgeId,
+                            name: rawProto.judgeName || rawProto.name || ''
                         };
                         isFinal = true;
                     }
                 }
 
-                // Fallback om program saknas eller utils failar (använd sparade värden)
+                // Fallback om program saknas eller service failar
                 if (!finalData) {
-                    if (window.DEBUG_LIVE) console.warn(`[Calc] #${startNumberStr} Judge:${jid} FALLBACK to raw 0.0! ProgramFound:${!!program}`);
                     finalData = {
-                        points: Number(rawProto.totalPoints),
+                        totalPoints: Number(rawProto.totalPoints),
                         percent: Number(rawProto.percent),
                         penalty: Number(rawProto.penalty),
                         eliminated: !!rawProto.eliminated,
                         position: (rawProto.judgePosition || findJudgePos(judgeId) || '').toUpperCase(),
-                        movements: movementsNorm, // Use normalized if available, or rawProto.movements if not logic available? 
-                        // normalizedMovements is defined above.
+                        movements: normalizeMovements(rawProto.movements),
                         id: jid,
                         name: rawProto.judgeName || rawProto.name || ''
                     };
@@ -758,153 +748,128 @@ function processAndAggregateResults(equipages, allRawResults) {
                 const pos = liveProto.judgePosition || '';
                 updateJudgeInfo(judgeId, pos);
 
-                // Calculate functionality similar to monitor
                 const movementsNorm = liveProto.movements ? normalizeMovements(liveProto.movements) : null;
 
                 let computedLive = null;
                 if (program && movementsNorm) {
                     const singleProto = { ...liveProto, movements: movementsNorm };
-                    computedLive = computeFinalFromSaved(eq, [singleProto], program);
+                    computedLive = calculateSingleJudgeDressageResult(singleProto, program, eq);
                 }
 
                 eq.judges[jid] = {
                     totalPoints: computedLive ? computedLive.points : pickNum(liveProto, ['totalPoints', 'points', 'runningTotalPoints', 'sumPoints', 'score', 'currentScore'], 0),
                     percent: computedLive ? computedLive.percent : pickNum(liveProto, ['percent', 'runningPercent'], 0),
                     penalty: computedLive ? computedLive.penalty : pickNum(liveProto, ['penalty', 'runningPenalty', 'totalPenalty'], 0),
-
-                    // ✅ ADD THIS (needed for "current moment" + moment-score)
                     movements: movementsNorm || undefined,
-
                     isLive: true,
                     position: (pos || findJudgePos(judgeId) || '').toUpperCase(),
                     eliminated: !!liveProto.eliminated,
-                    id: jid, // Added ID
+                    id: jid,
                     name: liveProto.judgeName || liveProto.name || '',
-                    projectedPenalty: computedLive ? computedLive.penalty : pickNum(liveProto, ['projectedPenalty', 'projPenalty', 'projectedFinalPenalty', 'projectedTotalPenalty'], null),
-                    projectedPercent: computedLive ? computedLive.percent : pickNum(liveProto, ['projectedPercent', 'projPercent', 'projectedFinalPercent', 'projectedAvgPercent'], null),
+                    projectedPenalty: computedLive ? computedLive.projectedPenalty : pickNum(liveProto, ['projectedPenalty', 'projPenalty', 'projectedFinalPenalty', 'projectedTotalPenalty'], null),
+                    projectedPercent: computedLive ? computedLive.projectedPercent : pickNum(liveProto, ['projectedPercent', 'projPercent', 'projectedFinalPercent', 'projectedAvgPercent'], null),
                 };
-                return; // Gå till nästa domare
+                return;
             }
 
             if (isFinal && finalData) {
                 const lp = liveProtocols?.get(jid);
-
-                // Calculate live prognosis for final/saved row too if available
                 const movementsNorm = (lp && lp.movements) ? normalizeMovements(lp.movements) : null;
 
                 let computedLive = null;
                 if (program && movementsNorm) {
                     const singleProto = { ...lp, movements: movementsNorm };
-                    computedLive = computeFinalFromSaved(eq, [singleProto], program);
+                    computedLive = calculateSingleJudgeDressageResult(singleProto, program, eq);
                 }
 
                 eq.judges[jid] = {
                     ...finalData,
                     id: jid,
-                    // Always mark as live if we have a protocol connection
-                    isLive: !!lp,
-
-                    // ✅ ADD THIS (so moment view works even when finalData is used)
+                    isLive: !!lp && !isFinal,
                     movements: finalData.movements || movementsNorm || undefined,
-
-                    projectedPenalty: computedLive ? computedLive.penalty : pickNum(lp, ['projectedPenalty', 'projPenalty', 'projectedFinalPenalty', 'projectedTotalPenalty'], null),
-                    projectedPercent: computedLive ? computedLive.percent : pickNum(lp, ['projectedPercent', 'projPercent', 'projectedFinalPercent', 'projectedAvgPercent'], null),
+                    projectedPenalty: computedLive ? computedLive.projectedPenalty : pickNum(lp, ['projectedPenalty', 'projPenalty', 'projectedFinalPenalty', 'projectedTotalPenalty'], null),
+                    projectedPercent: computedLive ? computedLive.projectedPercent : pickNum(lp, ['projectedPercent', 'projPercent', 'projectedFinalPercent', 'projectedAvgPercent'], null),
                 };
                 updateJudgeInfo(judgeId, finalData.position);
             }
         });
 
-        // === LIVE-TOTALER: om vi inte har sparade protokoll men har live-domare ===
-        if ((!eq.__savedProtocols || eq.__savedProtocols.length === 0)) {
-            const js = Object.values(eq.judges || {});
-            const live = js.filter(j => j && j.isLive && !j.eliminated);
-
-            if (live.length) {
-                const pens = live.map(j => Number(j.penalty)).filter(Number.isFinite);
-                const pcts = live.map(j => Number(j.percent)).filter(Number.isFinite);
-
-                // Bara om vi faktiskt har siffror
-                if (pens.length || pcts.length) {
-                    // USE UTILS: calculateAggregateDressagePenalty handles averaging correctly
-                    const avgPen = pens.length ? calculateAggregateDressagePenalty(pens) : null;
-                    const avgPct = pcts.length ? pcts.reduce((a, b) => a + b, 0) / pcts.length : null;
-
-                    if (avgPen != null) eq.finalPenalty = avgPen + (Number(eq.errorPoints) || 0);
-                    if (avgPct != null) eq.avgPercent = avgPct;
-                    eq.totalJudgePenalty = avgPen;
-                }
-            }
-        }
-        // STEG 3: Summera totaler med UTILS (Viktigast!)
-        // Om vi har alla protokoll sparade, låt utils räkna ut totalen för hela ekipaget
+        // STEG 3: Summera totaler med Service
         const savedProtos = rawProtocolsForEquipage;
-        // Default to raw until filtered
         eq.__savedProtocols = savedProtos;
 
-        if (program && savedProtos.length > 0) {
-            // Filtrera bort dubbletter och spökprotokoll med den nya delade funktionen
-            // OBS: Vi använder 'allCompetitionJudges' här istället för 'currentJudgesPresent' eftersom 
-            // 'currentJudgesPresent' populeras baserat på resultatet av denna funktion (cirkulärt beroende).
-            // 'allCompetitionJudges' är laddat från config och är den sanna källan för vilka domare som FINNS.
-            const validProtos = deduplicateAndFilterProtocols(savedProtos, allCompetitionJudges || []);
-            eq.__savedProtocols = validProtos; // Store filtered protocols for the modal
+        // Combine saved protocols with live protocols to get the "Best Current Version" of each judge's sheet
+        const unifiedProtocols = [];
+        const processedJudges = new Set();
 
-            const computedTotal = computeFinalFromSaved(eq, validProtos, program);
-
-            if (computedTotal) {
-                eq.finalPenalty = computedTotal.penalty + (Number(eq.errorPoints) || 0);
-                eq.avgPercent = computedTotal.percent;
-                eq.totalJudgePenalty = computedTotal.penalty; // Utan felkörning
-
-                // Hantera eliminering
-                const isElim = savedProtos.some(p => p.eliminated);
-                if (isElim) {
-                    eq.eliminated = true;
-                    eq.finalPenalty = null;
-                }
+        // 1. Add saved protocols first
+        savedProtos.forEach(p => {
+            if (p.id === 'general') {
+                unifiedProtocols.push(p);
+                return;
             }
-        }
-        // Fallback om utils inte kunde köras (t.ex. inget program matchat)
-        else {
-            // ... (Din gamla summeringslogik här som fallback)
-            let sumPen = 0;
-            let sumPct = 0;
-            let cnt = 0;
-            Object.values(eq.judges).forEach(j => {
-                if (!j.eliminated && (Number.isFinite(j.penalty) || Number.isFinite(j.percent))) {
-                    sumPen += (Number(j.penalty) || 0);
-                    sumPct += (Number(j.percent) || 0);
-                    cnt++;
+            const jid = normJudgeId(p.judgeId);
+            if (jid) {
+                unifiedProtocols.push(p);
+                processedJudges.add(jid);
+            }
+        });
+
+        // 2. Add live protocols if no saved protocol for that judge
+        if (liveProtocols) {
+            liveProtocols.forEach((p, rawId) => {
+                const jid = normJudgeId(rawId) || normJudgeId(p.judgeId);
+                if (jid && !processedJudges.has(jid)) {
+                    // Ensure it looks like a protocol
+                    unifiedProtocols.push({
+                        ...p,
+                        judgeId: jid,
+                        // If live data has movements/score/points, ensure they are accessible
+                        movements: p.movements || [],
+                        totalPoints: Number(p.totalPoints || p.runningTotalPoints || 0),
+                        percent: Number(p.percent || p.runningPercent || 0),
+                        penalty: Number(p.penalty || p.runningPenalty || 0),
+                        eliminated: !!p.eliminated
+                    });
                 }
-                if (j.eliminated) eq.eliminated = true;
             });
-            if (cnt > 0 && !eq.eliminated) {
-                eq.finalPenalty = (sumPen / cnt) + (Number(eq.errorPoints) || 0);
-                eq.avgPercent = (sumPct / cnt);
-            }
         }
+
+        const validProtos = deduplicateAndFilterProtocols(unifiedProtocols, allCompetitionJudges || []);
+
+        // Always calculate using the service, which handles mix of finished/unfinished judges
+        const result = calculateDressageResult(eq, validProtos, allCompetitionJudges || [], programs);
+
+        if (result) {
+            eq.finalPenalty = result.penalty;
+            eq.avgPercent = result.percent;
+            eq.totalJudgePenalty = result.judgePenalty;
+            eq.errorPoints = result.errorPoints;
+            eq.errorPenalty = result.errorPenalty;
+
+            // Map prognosis from service
+            if (result.projectedPercent != null) eq.liveAvgProjectedPercent = result.projectedPercent;
+            if (result.projectedPenalty != null) eq.liveAvgProjectedPenalty = result.projectedPenalty;
+
+            if (result.eliminated) {
+                eq.eliminated = true;
+            }
+            // TR Tie-breaker
+            eq.generalImpressionsSum = result.generalImpressionsSum || 0;
+        }
+
         // === NYTT: Kopiera live-prognoser till objektet (för ticker) ===
+
         if (status) {
-            const avgP = pickNum(status, ['liveAvgProjectedPercent', 'avgProjectedPercent', 'projectedAvgPercent', 'avgPercent'], null);
-            if (avgP != null) eq.liveAvgProjectedPercent = avgP;
-
-            const avgPen = pickNum(status, ['liveAvgProjectedPenalty', 'avgProjectedPenalty', 'projectedAvgPenalty'], null);
-            if (avgPen != null) eq.liveAvgProjectedPenalty = avgPen;
-        }
-
-        // === FALLBACK: Räkna ut snittprognos själv om status saknar det ===
-        if (eq.liveAvgProjectedPercent == null) {
-            const currentJudges = Object.values(eq.judges || {}).filter(j => j && j.isLive && Number.isFinite(j.projectedPercent));
-            if (currentJudges.length > 0) {
-                const sum = currentJudges.reduce((s, j) => s + j.projectedPercent, 0);
-                eq.liveAvgProjectedPercent = sum / currentJudges.length;
+            // Only overwrite if we don't have a local calculation
+            if (eq.liveAvgProjectedPercent == null) {
+                const avgP = pickNum(status, ['liveAvgProjectedPercent', 'avgProjectedPercent', 'projectedAvgPercent', 'avgPercent'], null);
+                if (avgP != null) eq.liveAvgProjectedPercent = avgP;
             }
-        }
-        if (eq.liveAvgProjectedPenalty == null) {
-            const currentJudges = Object.values(eq.judges || {}).filter(j => j && j.isLive && Number.isFinite(j.projectedPenalty));
-            if (currentJudges.length > 0) {
-                const sum = currentJudges.reduce((s, j) => s + j.projectedPenalty, 0);
-                eq.liveAvgProjectedPenalty = sum / currentJudges.length;
+
+            if (eq.liveAvgProjectedPenalty == null) {
+                const avgPen = pickNum(status, ['liveAvgProjectedPenalty', 'avgProjectedPenalty', 'projectedAvgPenalty'], null);
+                if (avgPen != null) eq.liveAvgProjectedPenalty = avgPen;
             }
         }
     });
@@ -926,7 +891,13 @@ function processAndAggregateResults(equipages, allRawResults) {
         const limit = Number(cfg?.limit) || 0;
 
         const finalRankables = eqs.filter(eq => !eq.eliminated && eq.finalPenalty != null)
-            .sort((a, b) => a.finalPenalty - b.finalPenalty);
+            .sort((a, b) => {
+                const diff = (a.finalPenalty || 0) - (b.finalPenalty || 0);
+                if (Math.abs(diff) > 0.0001) return diff;
+                
+                // Tie-breaker: Highest General Impressions sum (TR)
+                return (b.generalImpressionsSum || 0) - (a.generalImpressionsSum || 0);
+            });
 
         if (isCR) {
             // Clear Round Logic: Ingen placering, bara Godkänd/Ej Godkänd
@@ -941,16 +912,20 @@ function processAndAggregateResults(equipages, allRawResults) {
             });
         } else {
             // Normal Placering
-            let plc = 0, lastPenalty = -Infinity;
+            let plc = 0, lastPenalty = -Infinity, lastGISum = -Infinity;
             finalRankables.forEach((eq, i) => {
                 // Vid lika straff, samma placering (standard hopp/dressyr vid lika resultat?)
                 // Här kör vi strikt placering baserat på ordning men delad vid exakt lika
                 const p = Number(eq.finalPenalty) || 0;
-                // Obs: koden innan jämförde finalPenalty direkt.
-                // Om olika: plc = i + 1
-                if (Math.abs(p - lastPenalty) > 0.0001) { plc = i + 1; }
+                const gi = Number(eq.generalImpressionsSum) || 0;
+                
+                // Tie check: Same penalty AND same general impressions sum
+                if (Math.abs(p - lastPenalty) > 0.0001 || Math.abs(gi - lastGISum) > 0.0001) { 
+                    plc = i + 1; 
+                }
                 eq.plac = plc;
                 lastPenalty = p;
+                lastGISum = gi;
             });
         }
     });
@@ -1001,22 +976,28 @@ function sortProcessedResults() {
 }
 
 function ensureModeToggle() {
-    const container = document.getElementById('dressageModeToggleContainer');
+    const container = document.getElementById('modeToggle');
     if (!container || container.dataset.listenersAttached) return;
     container.dataset.listenersAttached = 'true';
 
     const applyActive = () => {
         const btnStart = document.getElementById('btnStartOrder');
         const btnClass = document.getElementById('btnByClass');
-        if (btnStart) btnStart.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${viewMode === 'startorder' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
-        if (btnClass) btnClass.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${viewMode === 'byclass' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`;
+        if (btnStart) btnStart.className = `px-4 py-1.5 text-sm font-medium rounded transition-all transition-colors ${viewMode === 'startorder' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
+        if (btnClass) btnClass.className = `px-4 py-1.5 text-sm font-medium rounded transition-all transition-colors ${viewMode === 'byclass' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
 
         const fbtn = document.getElementById('toggleFinalized');
         const fact = showOnlyFinalized;
         if (fbtn) {
-            fbtn.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${fact ? 'bg-green-50 border-green-200 text-green-700' : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'}`;
-            fbtn.textContent = fact ? 'Visa alla' : 'Visa bara finaliserade';
+            fbtn.className = `hidden md:inline-flex px-3 py-1.5 text-sm font-medium rounded border transition-colors ${fact ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
+            fbtn.textContent = fact ? t('show_all') : t('show_finalized_only');
         }
+
+        const mSel = document.getElementById('mobileSortSelect');
+        if (mSel) mSel.value = viewMode;
+
+        const mChk = document.getElementById('mobileFinalizedCheck');
+        if (mChk) mChk.checked = fact;
     };
 
     container.addEventListener('click', (e) => {
@@ -1032,6 +1013,21 @@ function ensureModeToggle() {
         }
         if (e.target.id === 'toggleFinalized') {
             showOnlyFinalized = !showOnlyFinalized;
+            applyActive();
+            render();
+        }
+    });
+
+    container.addEventListener('change', (e) => {
+        if (e.target.id === 'mobileSortSelect') {
+            viewMode = e.target.value;
+            if (viewMode === 'startorder') { sortState.key = 'startTime'; sortState.dir = 'asc'; }
+            else { sortState.key = 'plac'; sortState.dir = 'asc'; }
+            applyActive();
+            updateURLWithSort();
+            render();
+        } else if (e.target.id === 'mobileFinalizedCheck') {
+            showOnlyFinalized = e.target.checked;
             applyActive();
             render();
         }
@@ -1075,16 +1071,35 @@ function renderMobile(judgesPresent) {
     const container = document.getElementById('resultsContainer');
     if (!container) return;
 
-    // === NYTT: Anropa chip-renderaren ===
     renderClassChips();
+    const rows = getVisibleSortedResults();
 
-    const rows = getVisibleSortedResults(); //
+    // Structural Hashing for Mobile
+    const structuralHash = [
+        'mobile',
+        rows.length,
+        searchQuery,
+        Array.from(dressage_activeClassFilters).join('|'),
+        rows.map(r => `${r.startNumber}:${isFinalized(r.startNumber)}:${r.plac}`).join('|')
+    ].join('::');
+
+    if (structuralHash === lastStructuralHash && container.children.length > 0) {
+        return;
+    }
+    lastStructuralHash = structuralHash;
+
     if (rows.length === 0) {
-        container.innerHTML = `<div class="p-6 text-center text-gray-500">Inga ekipage att visa ännu.</div>`;
+        container.innerHTML = `<div class="p-6 text-center text-gray-500 dark:text-gray-400">Inga ekipage att visa ännu.</div>`;
         return;
     }
     let html = '';
     let lastClass = null;
+
+    // === NEW LOGIC: Deduplicate positions for mobile chips ===
+    const order = { 'H': 1, 'C': 2, 'M': 3, 'E': 4, 'B': 5 };
+    const uniqueJudgesPositions = [...new Set(
+        (judgesPresent || []).map(j => (j.position || '').toUpperCase()).filter(p => /^[CEBHM]$/.test(p))
+    )].sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
 
     const renderCard = (r) => {
         const eq = masterEquipageList.find(e => String(e.startNumber) === String(r.startNumber)) || r; //
@@ -1093,67 +1108,79 @@ function renderMobile(judgesPresent) {
         const currentClassLabel = eq._mergedLabel || eq.className || 'Okänd Klass';
         let classHeader = '';
         if (viewMode === 'byclass' && currentClassLabel !== lastClass) { //
-            classHeader = `<div class="px-4 py-2 mt-2 bg-blue-100 text-blue-800 font-bold text-lg rounded-md">${currentClassLabel}</div>`;
+            classHeader = `<div class="px-4 py-2 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-lg rounded-md">${currentClassLabel}</div>`;
             lastClass = currentClassLabel;
         }
         // === SLUT ÄNDRING ===
 
         const percentLabel = fmtPct(r.avgPercent); //
-        const penaltyLabel = r.eliminated ? '<span class="text-red-600 font-bold">ELIM</span>' : fmtNum(r.finalPenalty); //
+        const penaltyLabel = r.eliminated ? '<span class="text-red-600 dark:text-red-400 font-bold">ELIM</span>' : fmtNum(r.finalPenalty); //
         const statusText = statusBadgeForDressage(r.startNumber); //
 
         let placBlock = `
-     <div class="text-xs text-gray-500">Plac.</div>
-     <div class="text-2xl font-bold">${r.plac ?? '—'}</div>
+     <div class="text-[10px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-1">Plac</div>
+     <div class="text-xl font-bold dark:text-white leading-none">${r.plac ?? '—'}</div>
   `;
         if (r.isClearRound) {
             if (r.crApproved) {
                 placBlock = `
-            <div class="text-xs text-gray-500 mb-1">Status</div>
-            <div class="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-green-100 text-green-800 border border-green-200">Godkänd</div>
+            <div class="text-[10px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-1">Status</div>
+            <div class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 leading-none">Godkänd</div>
           `;
             } else {
                 placBlock = `
-             <div class="text-xs text-gray-500">Status</div>
-             <div class="text-xl font-bold text-gray-300">–</div>
+             <div class="text-[10px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-1">Status</div>
+             <div class="text-xl font-bold text-gray-300 dark:text-gray-600 leading-none">–</div>
           `;
             }
         }
 
+        const classRowHtml = viewMode === 'startorder' ? `<div class="px-3 py-1.5 text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-700/30"><span class="font-medium text-gray-500 dark:text-gray-400">${t('class')}:</span> ${currentClassLabel}</div>` : '';
+
         return `
           ${classHeader}
-          <div class="m-2 rounded-xl border shadow-sm bg-white overflow-hidden cursor-pointer clickable-row" data-start-number="${r.startNumber}" role="button" tabindex="0">
-              <div class="px-4 py-3 border-b bg-gray-50 flex items-start justify-between gap-4">
-                  <div>
-                      <div class="font-semibold text-lg">#${r.startNumber} ${r.driverName}</div>
-                      <div class="text-sm text-gray-500">${getMomentHorseLabel(eq, 'dressage')}</div>
+          <div class="m-2 rounded-xl border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden cursor-pointer clickable-row" data-start-number="${r.startNumber}" role="button" tabindex="0">
+              <div class="px-3 py-2 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 flex items-start justify-between gap-2">
+                  <div class="flex flex-col min-w-0">
+                      <div class="font-semibold text-base dark:text-white flex items-center gap-2 flex-wrap">
+                         <span>#${r.startNumber} <span class="truncate">${r.driverName}</span></span>
+                         <div class="flex items-center gap-1 flex-shrink-0 text-xs">
+                             ${getFlagHtml(eq)}
+                             ${getClubLogoHtml(eq)}
+                         </div>
+                      </div>
                   </div>
-                  <div class="text-center flex-shrink-0">
+                  <div class="text-center flex-shrink-0 flex flex-col items-end">
                       ${placBlock}
                   </div>
               </div>
-              <div class="p-4 grid grid-cols-1 gap-y-2 text-sm">
-                    <div class="flex justify-between"><span class="text-gray-500">Klass:</span> <span class="font-medium text-right">${currentClassLabel}</span></div>
-                    <div class="flex justify-between items-center"><span class="text-gray-500">Klubb:</span>
-                        <span class="font-medium flex items-center gap-2 text-right">
-                            ${getFlagHtml(eq)}
-                            ${getClubLogoHtml(eq)}
-                            <span class="truncate">${eq.clubName || '—'}</span>
-                        </span>
-                    </div>
-                </div>
-                <div class="px-4 py-3 border-t grid grid-cols-2 gap-4 items-center">
+              ${classRowHtml}
+                <div class="px-3 py-2 border-b dark:border-gray-700 grid grid-cols-2 gap-2 items-center">
                      <div class="text-center">
-                        <div class="text-xs text-gray-500">Procent</div>
-                        <div class="font-semibold text-lg ${r.isBestTotalPercent ? 'text-emerald-700 font-extrabold' : ''}">${percentLabel}</div>
+                        <div class="text-[10px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-1">Procent</div>
+                        <div class="font-semibold text-base leading-none ${r.isBestTotalPercent ? 'text-emerald-700 dark:text-emerald-400 font-extrabold' : 'dark:text-white'}">${percentLabel}</div>
                     </div>
                      <div class="text-center">
-                        <div class="text-xs text-gray-500">Straff</div>
-                        <div class="font-bold text-blue-800 text-lg">${penaltyLabel}</div>
+                        <div class="text-[10px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-1">Straff</div>
+                        <div class="font-bold text-blue-800 dark:text-blue-300 text-lg leading-none">${penaltyLabel}</div>
                     </div>
                 </div>
-                 <div class="px-4 py-2 border-t text-center flex items-center justify-center gap-2 flex-wrap" data-finalize-slot>
-                    ${statusText}
+                <!-- Mobile Judge Chips (Merged by Position) -->
+                ${uniqueJudgesPositions.length > 0 ? `
+                <div class="px-3 py-1.5 flex flex-wrap justify-center gap-1.5 bg-gray-50 dark:bg-gray-700/30">
+                   ${uniqueJudgesPositions.map(pos => {
+            const match = Object.values(r.judges || {}).find(j =>
+                j.position === pos || (expandDressagePosition(j) === pos)
+            );
+            return `<div class="flex flex-col items-center">
+                         <span class="text-[9px] font-bold text-gray-400 dark:text-gray-500 mb-0.5 leading-none">${pos}</span>
+                         ${judgeChip(match, r.startNumber)}
+                       </div>`;
+        }).join('')}
+                </div>
+                ` : ''}
+                 <div class="px-3 py-2 border-t dark:border-gray-700 text-center flex items-center justify-center gap-2 flex-wrap" data-finalize-slot>
+                    ${!r.eliminated && !isFinalized(r.startNumber) && r.isDone ? `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">Klar</span>` : statusText}
                     ${(() => {
                 const canFinalizeCheck = window.canFinalize || (() => isPrivileged()); //
                 const can = canFinalizeCheck();
@@ -1162,10 +1189,10 @@ function renderMobile(judgesPresent) {
                 if (!can) return '';
                 if (finalized) {
                     return `
-                                <span id="badge-final-${r.startNumber}" class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800 mr-2">Finaliserad</span>
+                                <span id="badge-final-${r.startNumber}" class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 mr-2">Finaliserad</span>
                                 <button type="button"
                                         data-action="unfinalize" data-sn="${r.startNumber}"
-                                        class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50"
+                                        class="px-2 py-1 text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"
                                         onclick="event.stopPropagation(); window.__unfinalizeDressyr('${compId}','${r.startNumber}')">
                                     Ångra
                                 </button>
@@ -1233,34 +1260,18 @@ function renderClassChips() {
     const chipHost = document.getElementById('dressageClassChips');
     if (!chipHost) return;
 
-    const labels = [...new Set(masterEquipageList.map(e => e._mergedLabel || e.className || '—'))] //
+    const labels = [...new Set(masterEquipageList.map(e => e._mergedLabel || e.className || '—'))]
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, 'sv'));
 
-    const base = "px-2 py-1 rounded border text-sm cursor-pointer";
-    const on = "bg-gray-800 text-white border-gray-800";
-    const off = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50";
-
-    chipHost.innerHTML = labels.map(lbl => {
-        const active = dressage_activeClassFilters.has(lbl); //
-        return `<button type="button" data-class="${escapeHtml(lbl)}" class="${base} ${active ? on : off}">${escapeHtml(lbl)}</button>`; //
-    }).join('');
-
-    // === KORRIGERING: Händelselyssnaren kopplas HÄR, en gång ===
-    if (!chipHost.dataset.wired) {
-        chipHost.addEventListener('click', (e) => {
-            const btn = e.target.closest('button[data-class]');
-            if (!btn) return;
-            const lbl = btn.dataset.class;
-            if (dressage_activeClassFilters.has(lbl)) { //
-                dressage_activeClassFilters.delete(lbl);
-            } else {
-                dressage_activeClassFilters.add(lbl); //
-            }
-            render(); // Rita om
-        });
-        chipHost.dataset.wired = '1'; // Markera att lyssnaren är kopplad
-    }
+    renderResponsiveClassFilter(chipHost, labels, dressage_activeClassFilters, (lbl) => {
+        if (dressage_activeClassFilters.has(lbl)) {
+            dressage_activeClassFilters.delete(lbl);
+        } else {
+            dressage_activeClassFilters.add(lbl);
+        }
+        render();
+    });
 }
 
 
@@ -1268,8 +1279,30 @@ function renderClassChips() {
 function renderLiveHeader() {
     // Find active rider (PRIORITIZE most recently updated if multiple are active)
     const activeCandidates = processedResults.filter(r => {
-        const st = dressageStatusMap.get(String(r.startNumber));
-        return st && (st.state === 'start' || st.state === 'ongoing');
+        const sn = String(r.startNumber);
+        const st = dressageStatusMap.get(sn);
+        if (!st) return false;
+        if (isFinalized(sn) || r.eliminated) return false;
+
+        // Same logic as in renderDesktop to determine "isRunning"
+        const judgesValues = Object.values(r.judges || {});
+        if (judgesValues.some(j => j.eliminated)) return false;
+
+        const classExpectedPos = getExpectedJudgesForClass(r.className);
+        let uniquePositionsCount = 0;
+        if (classExpectedPos) {
+            uniquePositionsCount = classExpectedPos.length;
+        } else {
+            uniquePositionsCount = new Set((currentJudgesPresent || []).map(j => (j.position || '').toUpperCase())).size;
+        }
+        const finalCount = judgesValues.filter(j => !j.isLive && !j.eliminated).length;
+        const liveCount = judgesValues.filter(j => j.isLive).length;
+        const isDone = (uniquePositionsCount > 0 && finalCount >= uniquePositionsCount);
+
+        if (!isDone && (liveCount > 0 || finalCount > 0 || st.state === 'ongoing')) {
+            return true;
+        }
+        return false;
     });
 
     let activeRes = null;
@@ -1287,17 +1320,7 @@ function renderLiveHeader() {
 
     if (!activeRes) return '';
 
-    const percent =
-        Number.isFinite(activeRes.avgPercent)
-            ? activeRes.avgPercent.toFixed(1) + '%'
-            : '—';
-
-    const penalty =
-        Number.isFinite(activeRes.finalPenalty)
-            ? activeRes.finalPenalty.toFixed(2)
-            : '—';
-
-    // Resolve Program for Moment Text
+    // --- Recalculate everything fresh (Like Monitor) to ensure prognosis is correct ---
     const allPrograms = getPrograms();
     let program = allPrograms[activeRes.testKey] || allPrograms[activeRes.programKey];
     if (!program && activeRes.className) {
@@ -1305,19 +1328,13 @@ function renderLiveHeader() {
         if (g) program = allPrograms[g];
     }
 
-    // --- Live-protokoll för aktivt ekipage (FIX: liveJudgeData är Map<sn, Map<jid, proto>>) ---
-    const snKey = String(activeRes.startNumber);
-    const liveMap = liveJudgeData.get(snKey);
-    const liveProtocols = liveMap ? Array.from(liveMap.values()) : [];
+    // Prepare lists for aggregation
+    const freshJudgeProjections = [];
 
-    // Hitta senaste moment som fått en giltig score från någon domare
-    // Use activeRes.judges as primary source for Data (scores/names)
+    // --- Restore Moment Detection Logic ---
     const judgesDict = activeRes.judges || {};
     const allJudgeEntries = Object.values(judgesDict).filter(j => j && !j.eliminated);
 
-    // --- Moment detection fix ---
-    // Use MINIMUM progress of all judges to ensure we don't hide the "slowest" (newest) judge.
-    // Include -1 (not started yet) if a judge exists but has no scores.
     const judgeProgress = allJudgeEntries.map(j => {
         let maxIdx = -1;
         const movs = Array.isArray(j.movements) ? j.movements : [];
@@ -1331,11 +1348,10 @@ function renderLiveHeader() {
     });
 
     // If ANY judge is at -1 (start), use -1.
-    // We use Math.min(...) directly on the array (which might contain -1).
     let currentMomentIdx = judgeProgress.length > 0 ? Math.min(...judgeProgress) : -1;
 
-    // Bygg score-list för snittet (behöver inte mappas på ID, bara en lista med värden)
-    let momentText = '<span class="italic opacity-75">Startar strax...</span>';
+    // Bygg score-list för snittet
+    let momentText = `<span class="italic opacity-75">${t('status_starting_soon')}</span>`;
     const activeMomentScores = [];
     if (currentMomentIdx >= 0) {
         allJudgeEntries.forEach(j => {
@@ -1348,21 +1364,28 @@ function renderLiveHeader() {
 
         if (program?.movements?.[currentMomentIdx]) {
             const pm = program.movements[currentMomentIdx];
-            momentText = `<span class="opacity-80 font-bold mr-2 text-xl block md:inline">Moment ${pm.no}:</span> <span class="text-lg md:text-xl font-medium text-white">${pm.text}</span>`;
+            momentText = `<span class="opacity-80 font-bold mr-2 text-xl block md:inline">${t('dressage_monitor_moment_label')} ${pm.no}:</span> <span class="text-lg md:text-xl font-medium text-white">${pm.text}</span>`;
         } else {
-            momentText = `<span class="text-lg">Moment ${currentMomentIdx + 1}</span>`;
+            momentText = `<span class="text-lg">${t('dressage_monitor_moment_label')} ${currentMomentIdx + 1}</span>`;
         }
     }
 
-    // Moment Average
+    // Judge Average
     const momentAvg = activeMomentScores.length > 0
         ? (activeMomentScores.reduce((a, b) => a + b, 0) / activeMomentScores.length).toFixed(1)
         : '—';
 
-
     // Judge Cards 
+    const expectedPositions = getExpectedJudgesForClass(activeRes.className);
+
     const judges = Object.values(activeRes.judges || {})
-        .filter(j => j && !j.eliminated)
+        .filter(j => {
+            if (!j || j.eliminated) return false;
+            if (expectedPositions && !expectedPositions.includes((j.position || '').toUpperCase())) {
+                return false;
+            }
+            return true;
+        })
         .sort((a, b) => {
             const order = { 'H': 1, 'C': 2, 'M': 3, 'E': 4, 'B': 5 };
             const posA = (a.position || '').toUpperCase();
@@ -1371,7 +1394,15 @@ function renderLiveHeader() {
         });
 
     const judgeCardsHtml = judges.map(j => {
-        const pPct = j.percent > 0 ? j.percent.toFixed(1) + '%' : '—';
+        // Use PRE-CALCULATED values from processAndAggregateResults
+        const projPct = (j.projectedPercent != null && Number.isFinite(j.projectedPercent)) ? j.projectedPercent : null;
+        const pPct = projPct != null ? projPct.toFixed(1) + '%' : ((j.percent > 0) ? j.percent.toFixed(1) + '%' : '—');
+
+        // Only include in TOTAL if we have a real live judge record (not just a placeholder)
+        // AND the projection is > 0
+        if (j.isLive && projPct != null && projPct > 0) {
+            freshJudgeProjections.push(projPct);
+        }
 
         // DIRECT LOOKUP: Use the judge's own movements!
         let mScore = '—';
@@ -1398,154 +1429,234 @@ function renderLiveHeader() {
             });
 
             if (found) displayName = found.name;
-            else displayName = 'Domare';
+            else displayName = t('judge');
         }
 
         return `
-      <div class="bg-indigo-900/40 rounded-md px-1.5 py-1 text-center border border-indigo-500/30 flex flex-col items-center min-w-[70px] relative group h-full justify-between">
+      <div class="bg-indigo-900/40 rounded-md px-1 py-1 text-center border border-indigo-500/30 flex flex-col items-center min-w-[60px] relative group h-full justify-between">
            <!-- Pos -->
-           <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-[9px] font-bold px-1.5 rounded-bl-sm opacity-90">${j.position || '?'}</div>
+           <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-[8px] font-bold px-1 rounded-bl-sm opacity-90">${j.position || '?'}</div>
            
            <!-- Name -->
-           <div class="text-[9px] font-semibold text-indigo-300 truncate w-full mt-3 mb-0.5 leading-tight max-w-[65px]" title="${displayName}">
+           <div class="text-[8px] font-semibold text-indigo-300 truncate w-full mt-2.5 mb-0.5 leading-tight max-w-[55px]" title="${displayName}">
              ${stackName(displayName)}
            </div>
 
            <!-- Score -->
-           <div class="text-2xl font-black ${scoreClass} leading-none mb-0.5">${mScore}</div>
+           <div class="text-xl font-black ${scoreClass} leading-none mb-0.5">${mScore}</div>
            
            <!-- Pct -->
-           <div class="text-[9px] text-indigo-200 font-medium border-t border-indigo-500/30 w-full pt-0.5 mt-0.5">${pPct}</div>
+           <div class="text-[8px] text-indigo-200 font-medium border-t border-indigo-500/30 w-full pt-0.5 mt-0.5">${pPct}</div>
       </div>`;
     }).join('');
 
+    // --- Totals from activeRes (calculated in processAndAggregateResults) ---
+    // If freshJudgeProjections reveals a discrepancy, we could re-calculate, but we trust processedResults now.
+
+    // We prefer the liveAvgProjectedPercent if available and valid
+    const percentVal = (activeRes.liveAvgProjectedPercent != null && Number.isFinite(activeRes.liveAvgProjectedPercent))
+        ? activeRes.liveAvgProjectedPercent
+        : activeRes.avgPercent;
+
+    const percent = (Number.isFinite(percentVal)) ? percentVal.toFixed(1) + '%' : '—';
+
+
+    const penaltyVal = (activeRes.liveAvgProjectedPenalty != null && Number.isFinite(activeRes.liveAvgProjectedPenalty))
+        ? activeRes.liveAvgProjectedPenalty
+        : activeRes.finalPenalty;
+
+    const penalty = Number.isFinite(penaltyVal)
+        ? penaltyVal.toFixed(2)
+        : '—';
+
     return `
-    <div class="mb-4 bg-gradient-to-r from-brand-darkblue to-indigo-950 rounded-lg shadow-xl border-l-4 border-yellow-500 overflow-hidden text-white font-sans animate-fade-in relative flex flex-col">
+    <div class="mb-2 bg-gradient-to-r from-brand-darkblue to-indigo-950 rounded-lg shadow border-l-4 border-yellow-500 overflow-hidden text-white font-sans animate-fade-in relative 
+                flex flex-col gap-1 px-3 py-1.5">
         
-        <!-- ROW 1: Info & Main Stats -->
-        <div class="px-4 py-2 border-b border-indigo-800/50 flex flex-col md:flex-row justify-between items-center gap-4">
-             <!-- Driver Info -->
-             <div class="text-center md:text-left flex-1 min-w-0">
-                <div class="flex items-center justify-center md:justify-start gap-2 mb-0.5 opacity-90">
-                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-widest bg-red-600 text-white animate-pulse shadow-sm">Live</span>
-                     <span class="text-xs font-medium text-indigo-200">${activeRes.startNumber} ${activeRes.className}</span>
-                     <span class="hidden sm:inline italic text-indigo-300 text-xs">• ${getMomentHorseLabel(activeRes, 'dressage')}</span>
+        <!-- Row 1: Info (Left) + Stats (Right) -->
+        <div class="grid grid-cols-[1fr_max-content] items-center gap-3">
+             <!-- Driver & Horse (Flexible + Truncate) -->
+             <div class="flex flex-col min-w-0">
+                <div class="flex items-center gap-2 mb-0.5 opacity-80">
+                     <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-red-600 text-white animate-pulse shadow-sm">Live</span>
+                     <span class="text-[10px] font-medium text-indigo-200 truncate">${activeRes.startNumber} ${activeRes.className}</span>
+                     <span class="hidden sm:inline italic text-indigo-300 text-[10px]">• ${getMomentHorseLabel(activeRes, 'dressage')}</span>
                 </div>
-                <div class="text-2xl font-black text-white leading-tight tracking-tight truncate">
+                <div class="text-lg font-black text-white leading-none tracking-tight truncate">
                     ${activeRes.driverName}
                 </div>
             </div>
 
-            <!-- Stats Box -->
-             <div class="flex bg-indigo-900/40 rounded-md border border-indigo-500/30 backdrop-blur-sm divide-x divide-indigo-500/30">
-                 <div class="px-3 py-1.5 text-center min-w-[70px]">
-                    <div class="text-[9px] uppercase font-bold text-indigo-300 tracking-wider">Moment</div>
-                    <div class="text-2xl font-black text-yellow-400 leading-none">${momentAvg}</div>
+            <!-- Main Stats (Fixed Width to prevent wiggle) -->
+            <div class="flex bg-indigo-900/40 rounded border border-indigo-500/30 divide-x divide-indigo-500/30 flex-shrink-0 overflow-hidden h-[32px]">
+                 <div class="px-2 py-0.5 text-center w-[52px] flex flex-col justify-center">
+                    <div class="text-[7px] uppercase font-bold text-indigo-300 leading-tight">${t('dressage_monitor_moment_label')}</div>
+                    <div class="text-base font-black text-yellow-400 leading-none">${momentAvg}</div>
                  </div>
-                 <div class="px-3 py-1.5 text-center min-w-[70px]">
-                    <div class="text-[9px] uppercase font-bold text-indigo-300 tracking-wider">Prognos</div>
-                    <div class="text-2xl font-black text-white leading-none">${percent}</div>
+                 <div class="px-2 py-0.5 text-center w-[52px] bg-indigo-500/10 flex flex-col justify-center">
+                    <div class="text-[7px] uppercase font-bold text-indigo-200 leading-tight">Total %</div>
+                    <div class="text-base font-black text-white leading-none">${percent}</div>
                  </div>
-                  <div class="px-3 py-1.5 text-center min-w-[70px]">
-                    <div class="text-[9px] uppercase font-bold text-indigo-300 tracking-wider">Straff</div>
-                    <div class="text-2xl font-black text-blue-300 leading-none">${penalty}</div>
+                 <div class="px-2 py-0.5 text-center w-[52px] flex flex-col justify-center">
+                    <div class="text-[7px] uppercase font-bold text-indigo-300 leading-tight">${t('dressage_penalty_header')}</div>
+                    <div class="text-base font-black text-blue-300 leading-none">${penalty}</div>
                  </div>
-             </div>
+            </div>
         </div>
 
-        <!-- ROW 2: Moment & Judges -->
-        <div class="bg-indigo-900/20 px-4 py-2 flex flex-col xl:flex-row items-center justify-between gap-3">
-            <!-- Moment Text -->
-            <div class="text-sm font-medium text-indigo-100 truncate flex items-center mb-1 xl:mb-0">
+        <!-- Row 2: Moment (Left) + Judges (Right) -->
+        <div class="grid grid-cols-[1fr_max-content] items-center gap-3 border-t border-white/5 pt-1">
+            <!-- Moment Text (Flexible + Truncate) -->
+            <div class="text-[11px] font-medium text-white/90 flex items-center min-w-0 pr-2">
                <div class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse mr-2 flex-shrink-0"></div>
-               ${momentText}
+               <span class="truncate italic">${(momentText || '').replace(/<[^>]+>/g, '')}</span>
             </div>
 
-            <!-- Judges List -->
-            <div class="flex flex-wrap items-center justify-center gap-2">
-                ${judgeCardsHtml}
+            <!-- Judges (Fixed Width to prevent wiggle) -->
+            <div class="flex items-center gap-1 flex-shrink-0 h-[40px]">
+                ${judgeCardsHtml.replace(/min-w-\[60px\]/g, 'w-[52px]').replace(/text-xl/g, 'text-lg').replace(/mt-2.5/g, 'mt-2').replace(/px-1/g, 'px-0.5').replace(/min-w-\[50px\]/g, 'w-[48px]')}
             </div>
         </div>
     </div>
   `;
 }
 
+// === NEW: Helper to find expected judge positions for a specific class
+function getExpectedJudgesForClass(className) {
+    if (!window.dressageJudgeMapping) return null;
+    const assigned = window.dressageJudgeMapping[className];
+    if (!assigned) return null; // Fallback to global logic if not configured
+
+    // Extrace the positions (keys) that actually have a judge assigned (value)
+    const positions = Object.keys(assigned).filter(pos => assigned[pos] && String(assigned[pos]).trim() !== '');
+    return positions.length > 0 ? positions.map(p => p.toUpperCase()) : null;
+}
+
+function renderTableHead(thead, judgesPresent) {
+    const order = { 'H': 1, 'C': 2, 'M': 3, 'E': 4, 'B': 5 };
+    const uniquePositions = [...new Set(
+        (judgesPresent || []).map(j => (j.position || '').toUpperCase()).filter(p => /^[CEBHM]$/.test(p))
+    )].sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
+
+    const staticHeaders = [
+        { key: 'plac', label: t('rank'), align: 'center' }, 
+        { key: 'startNumber', label: t('startno'), align: 'center' },
+        { key: 'driverName', label: `${t('driver')} <span class="hidden lg:inline">/ ${t('horse')}</span>`, title: `${t('driver')} / ${t('horse')}`, align: 'left' }, 
+        { key: 'className', label: t('class'), align: 'left' },
+        { key: 'club', label: t('club'), align: 'left' }, 
+        { key: 'startTime', label: t('start_time'), align: 'center' }
+    ];
+
+    const judgeHeaders = uniquePositions.map(pos => ({
+        key: `judge_pos:${pos}`,
+        label: `<div class="text-center font-bold text-gray-700">${pos}</div>`,
+        title: `${t('judge')} ${pos}`,
+        align: 'center',
+        position: pos
+    }));
+
+    const finalHeaders = [
+        { key: 'percent', label: t('dressage_avg_percent'), align: 'right' }, { key: 'errorPoints', label: t('mistakes'), align: 'center' },
+        { key: 'finalPenalty', label: t('dressage_penalty_header'), align: 'right' }, { key: 'status', label: t('status'), align: 'center' }
+    ];
+
+    const allHeaders = [...staticHeaders, ...judgeHeaders, ...finalHeaders];
+
+    thead.innerHTML = `
+        <tr>
+            ${allHeaders.map(h => `
+              <th scope="col"
+                  class="px-2 py-2 lg:px-3 lg:py-3 ${h.align ? 'text-' + h.align : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer group hover:bg-gray-100 dark:hover:bg-gray-600"
+                  data-sort-key="${h.key}" title="${escapeHtml(h.title || h.label)}">
+                ${headerLabelWithSort(h.label, h.key)}
+              </th>`).join('')}
+             <th class="px-2 py-2 lg:px-4 lg:py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">${t('finalize')}</th>
+        </tr>
+    `;
+
+    // Reattach sort listeners
+    thead.querySelectorAll('th[data-sort-key]').forEach(th => th.addEventListener('click', () => {
+        const key = th.dataset.sortKey;
+        if (sortState.key === key) {
+            sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc';
+        } else {
+            sortState.key = key;
+            sortState.dir = 'asc';
+        }
+        updateURLWithSort();
+        render();
+    }));
+}
+
 function renderDesktop(judgesPresent) {
     const container = document.getElementById('resultsContainer');
     if (!container) return;
 
-    // === ÄNDRING: Anropa den nya chip-renderaren ===
     renderClassChips();
-
-    // === NEW: Live Banner ===
     const liveBannerHtml = renderLiveHeader();
+    const rows = getVisibleSortedResults();
+    const allPrograms = getPrograms(); // Fix: Define allPrograms for use in loop
 
-    const rows = getVisibleSortedResults(); //
+    // Structural Hashing
+    const order = { 'H': 1, 'C': 2, 'M': 3, 'E': 4, 'B': 5 };
+    const uniquePositions = [...new Set(
+        (judgesPresent || []).map(j => (j.position || '').toUpperCase()).filter(p => /^[CEBHM]$/.test(p))
+    )].sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
 
-    // ... (all header-logik är ok) ...
-    const staticHeaders = [
-        { key: 'plac', label: 'Plac', align: 'center' }, { key: 'startNumber', label: 'Nr', align: 'center' },
-        { key: 'driverName', label: 'Kusk / Häst', align: 'left' }, { key: 'className', label: 'Klass', align: 'left' },
-        { key: 'club', label: 'Land/Förening', align: 'left' }, { key: 'startTime', label: 'Starttid', align: 'center' }
-    ];
-    const judgeHeaders = (judgesPresent || []).map(j => ({
-        key: `judge:${j.id}`,
-        label: `
-      <div class="text-center -mb-0.5 text-[11px] text-gray-600">${(j.position || '?').toUpperCase()}</div>
-      <div class="text-center text-[11px] font-medium leading-tight whitespace-nowrap">
-        ${stackName(j.name || '')}
-      </div>`,
-        title: j.name || j.id,
-        align: 'center'
-    }));
-    const finalHeaders = [
-        { key: 'percent', label: 'Snitt %', align: 'right' }, { key: 'errorPoints', label: 'Fel', align: 'center' },
-        { key: 'finalPenalty', label: 'Straff', align: 'right' }, { key: 'status', label: 'Status', align: 'center' }
-    ];
-    const allHeaders = [...staticHeaders, ...judgeHeaders, ...finalHeaders];
+    const structuralHash = [
+        rows.length,
+        viewMode,
+        sortState.key,
+        sortState.dir,
+        searchQuery,
+        Array.from(dressage_activeClassFilters).join('|'),
+        uniquePositions.join(','),
+        rows.map(r => `${r.startNumber}:${isFinalized(r.startNumber)}:${r.plac}:${r.finalPenalty}:${r.eliminated}`).join('|')
+    ].join('::');
 
-    let html = `
-    ${liveBannerHtml}
-    <div id="dressage-x-wrap" class="x-scroll-wrap">
-      <table id="dressageTable" class="w-max min-w-max divide-y divide-gray-200 text-sm pr-table">
-        <thead class="bg-gray-50">
-          <tr>
-            ${allHeaders.map(h => `
-              <th scope="col"
-                  class="px-3 py-3 ${h.align ? 'text-' + h.align : 'text-left'} text-xs font-medium text-gray-500 uppercase tracking-wider cursor-pointer group hover:bg-gray-100"
-                  data-sort-key="${h.key}" title="${escapeHtml(h.title || h.label)}">
-                ${headerLabelWithSort(h.label, h.key)}
-              </th>`).join('')}
-             <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Finalisera</th>
-          </tr>
-        </thead>
-        <tbody class="bg-white divide-y divide-gray-200" id="dressageBody">
-          `;
+    const headerHash = [uniquePositions.join(','), sortState.key, sortState.dir].join(':');
 
+    // Preliminary shell if needed
+    if (!container.querySelector('table')) {
+        container.innerHTML = `
+            <div id="liveBannerSlot"></div>
+            <div id="dressage-x-wrap" class="x-scroll-wrap bg-white dark:bg-gray-900">
+                <table id="dressageTable" class="w-max min-w-max divide-y divide-gray-200 dark:divide-gray-700 text-sm pr-table">
+                    <thead class="bg-gray-50 dark:bg-gray-700" id="dressageThead"></thead>
+                    <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="dressageBody"></tbody>
+                </table>
+            </div>`;
+    }
 
+    // Always update live banner slot (high frequency)
+    const bannerSlot = document.getElementById('liveBannerSlot');
+    if (bannerSlot) {
+        bannerSlot.innerHTML = liveBannerHtml;
+    }
 
+    const thead = document.getElementById('dressageThead');
+    const tbody = document.getElementById('dressageBody');
+
+    if (thead && headerHash !== lastHeaderHash) {
+        renderTableHead(thead, judgesPresent);
+        lastHeaderHash = headerHash;
+    }
+
+    if (structuralHash === lastStructuralHash && tbody && tbody.children.length > 0) {
+        return;
+    }
+    lastStructuralHash = structuralHash;
+
+    // Body rendering
+    let html = '';
     let lastClass = null;
     rows.forEach(res => {
-        // === ÄNDRING: Använd _mergedLabel ===
         const currentClassLabel = res._mergedLabel || res.className || 'Okänd Klass';
-        if (viewMode === 'byclass' && currentClassLabel !== lastClass) { //
-            html += `<tr><td colspan="${allHeaders.length}" class="px-4 py-2 bg-blue-50 font-bold text-blue-800">Klass: ${currentClassLabel}</td></tr>`;
+        if (viewMode === 'byclass' && currentClassLabel !== lastClass) {
+            html += `<tr><td colspan="20" class="px-4 py-2 bg-blue-50 dark:bg-blue-900/40 font-bold text-blue-800 dark:text-blue-300">${t('class')}: ${currentClassLabel}</td></tr>`;
             lastClass = currentClassLabel;
         }
-        // === SLUT ÄNDRING ===
 
-        const resultText = res.eliminated ? '<span class="font-bold text-red-600">ELIMINERAD</span>' : fmtNum(res.finalPenalty); //
-
-        let placHtml = res.plac ?? '–';
-        if (res.isClearRound) {
-            if (res.crApproved) {
-                placHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800 border border-green-200">Godkänd</span>`;
-            } else {
-                placHtml = '<span class="text-gray-400">–</span>';
-            }
-        }
-
-        // Determine row status for highlighting
         const sn = String(res.startNumber);
         const statusInfo = dressageStatusMap.get(sn);
         const judgesValues = Object.values(res.judges || {});
@@ -1553,141 +1664,151 @@ function renderDesktop(judgesPresent) {
         const isFin = isFinalized(sn);
 
         let isRunning = false;
+        let isDone = false;
         if (!isEliminated && !isFin) {
-            const liveCount = judgesValues.filter(j => j.isLive).length;
+            const classExpectedPos = getExpectedJudgesForClass(res.className);
+            let uniquePositionsCount = 0;
+            if (classExpectedPos) {
+                uniquePositionsCount = classExpectedPos.length;
+            } else {
+                uniquePositionsCount = new Set((currentJudgesPresent || []).map(j => (j.position || '').toUpperCase())).size;
+            }
             const finalCount = judgesValues.filter(j => !j.isLive && !j.eliminated).length;
-            const isFinishedState = statusInfo?.state === 'finished';
+            const liveCount = judgesValues.filter(j => j.isLive).length;
+            isDone = (uniquePositionsCount > 0 && finalCount >= uniquePositionsCount);
 
-            // Same logic as statusBadgeForDressage for 'running'
-            if (!isFinishedState && (liveCount > 0 || finalCount > 0 || statusInfo?.state === 'ongoing')) {
+            if (!isDone && (liveCount > 0 || finalCount > 0 || statusInfo?.state === 'ongoing')) {
                 isRunning = true;
             }
         }
 
-        let rowClass = "hover:bg-gray-50 cursor-pointer";
+        let rowClass = "hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer";
         let rowStyle = "";
-
         if (isRunning) {
-            rowClass = "bg-yellow-50 border-l-4 border-yellow-500 shadow-sm relative z-10 cursor-pointer";
-            rowStyle = "background-color: #fefce8; border-left: 4px solid #eab308;";
+            rowClass = "bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-500 shadow-sm relative z-10 cursor-pointer";
         } else if (isEliminated) {
-            rowClass = "opacity-75 bg-red-50 cursor-pointer";
+            rowClass = "opacity-75 bg-red-50 dark:bg-red-900/10 cursor-pointer";
         }
 
-        html += `<tr class="${rowClass}" data-start-number="${res.startNumber}" style="${rowStyle}">`;
-        html += `<td class="px-4 py-3 whitespace-nowrap text-center font-semibold">${placHtml}</td>`;
-        html += `<td class="px-4 py-3 whitespace-nowrap text-center">${res.startNumber}</td>`;
-        html += `<td class="px-4 py-3" style="min-width: 180px;">
-                <div class="font-medium text-gray-900">${res.driverName || ''}</div>
-                <div class="text-sm text-gray-500 leading-tight whitespace-normal">${getMomentHorseLabelStacked(res, 'dressage')}</div>
-              </td>`;
+        // Result Logic
+        let penaltyHtml = fmtNum(res.finalPenalty);
+        let percentHtml = fmtPct(res.avgPercent);
+        let penaltyClass = res.isBestTotalPenalty ? 'font-extrabold text-blue-900 dark:text-blue-300' : 'text-gray-900 dark:text-gray-100';
+        let percentClass = res.isBestTotalPercent ? 'font-extrabold text-emerald-700 dark:text-emerald-400' : 'text-gray-900 dark:text-gray-300';
 
-        // === ÄNDRING: Använd _mergedLabel ===
-        html += `<td class="px-4 py-3">${currentClassLabel}</td>`;
+        if (isEliminated) {
+            penaltyHtml = '<span class="font-bold text-red-600 dark:text-red-400">ELIMINERAD</span>';
+        } else if (isRunning) {
+            // Use service-calculated prognosis directly
+            const projPre = res.liveAvgProjectedPercent;
+            const projPen = res.liveAvgProjectedPenalty;
 
-        html += `<td class="px-4 py-3 whitespace-nowrap">
-                <div class="flex items-center gap-2" title="${res.clubName || ''}">
-                  ${getFlagHtml(res)}
-                  ${getClubLogoHtml(res)}
-                  <span class="hidden lg:inline-block">${res.clubName || ''}</span>
-                </div>
-              </td>`;
-        html += `<td class="px-4 py-3 whitespace-nowrap text-center">${formatStartTimeLabel(res.startTime) || '–'}</td>`; //
-        (judgesPresent || []).forEach(j => {
-            html += `<td class="px-4 py-2 text-center">${judgeChip(res.judges[j.id], res.startNumber)}</td>`; //
-        });
-        html += `<td class="px-4 py-2 text-right ${res.isBestTotalPercent ? 'font-extrabold' : ''}">${fmtPct(res.avgPercent)}</td>`; //
-        html += `<td class="px-4 py-2 text-center">${(Number(res.errorPoints) || 0).toFixed(1)}</td>`;
-        html += `<td class="px-4 py-2 text-right font-bold ${res.isBestTotalPenalty ? 'text-blue-900' : ''}">${resultText}</td>`;
+            const hasProj = (projPre != null && Number.isFinite(projPre)) || (projPen != null && Number.isFinite(projPen));
 
-        // ... (resten av finalize-knappen är ok) ...
+            if (hasProj) {
+                if (Number.isFinite(projPen)) {
+                    penaltyHtml = `<div class="flex flex-col items-end leading-tight">
+                        <span class="text-sm font-bold text-brand-darkblue dark:text-blue-300 italic">${projPen.toFixed(2)}</span>
+                        <span class="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Prognos</span>
+                    </div>`;
+                    penaltyClass = '';
+                }
+                if (Number.isFinite(projPre)) {
+                    percentHtml = `<div class="flex flex-col items-end leading-tight">
+                        <span class="text-sm font-bold text-brand-darkblue dark:text-blue-300 italic">${projPre.toFixed(2)}%</span>
+                        <span class="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Prognos</span>
+                    </div>`;
+                    percentClass = '';
+                }
+            }
+        }
+
+        // Placering Logic
+        let placHtml = res.plac ?? '–';
+        if (res.isClearRound) {
+            if (res.crApproved) {
+                placHtml = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800">Godkänd</span>`;
+            } else {
+                placHtml = '<span class="text-gray-400 dark:text-gray-500">–</span>';
+            }
+        }
+
         const compId = getGlobalState('currentCompetition')?.id;
-        // sn is already declared above
-        const finalized = isFinalized(sn); //
-        const can = window.canFinalize && window.canFinalize();
+        const finalized = isFinalized(sn);
+        const can = isPrivileged();
 
-        // NY CELL: STATUS
-        html += `<td class="px-4 py-2 text-center">
-      ${statusBadgeForDressage(sn)}
-    </td>`;
+        let statusHtml = statusBadgeForDressage(sn);
+        if (!isFin && !isEliminated && isDone) {
+            statusHtml = `<span class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 mr-2">Klar</span>`;
+        }
 
-        // BEFINTLIG CELL: FINALISERA (Endast knappar nu)
-        html += `<td class="px-4 py-2">
-                <div class="flex items-center justify-center gap-2 flex-wrap" data-finalize-slot>
-                  ${can ? `
-          <span id="badge-final-${sn}" class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800"
-                style="${finalized ? '' : 'display:none'}">Finaliserad</span>
-          <button type="button"
-                  data-action="finalize" data-sn="${sn}"
-                  class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"
-                  onclick="event.stopPropagation(); window.__finalizeDressyr('${compId}','${sn}')"
-                  style="${finalized ? 'display:none' : ''}">
-            Finalisera
-          </button>
-          <button type="button"
-                  data-action="unfinalize" data-sn="${sn}"
-                  class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50"
-                  onclick="event.stopPropagation(); window.__unfinalizeDressyr('${compId}','${sn}')"
-                  style="${finalized ? '' : 'display:none'}">
-            Ångra
-          </button>
-        ` : ''}
+        html += `
+        <tr class="${rowClass}" data-start-number="${sn}" style="${rowStyle}">
+            <td class="px-2 py-1.5 lg:px-4 lg:py-3 whitespace-nowrap text-center font-semibold text-xs lg:text-sm text-gray-900 dark:text-white">${placHtml}</td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-3 whitespace-nowrap text-center text-xs lg:text-sm text-gray-900 dark:text-gray-300">${sn}</td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-3" style="min-width: 120px;">
+                <div class="font-medium text-xs lg:text-sm text-gray-900 dark:text-white">${res.driverName || ''}</div>
+                <div class="text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 leading-tight whitespace-normal hidden lg:block mb-0.5 mt-0.5">${getMomentHorseLabelStacked(res, 'dressage')}</div>
+            </td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400">${currentClassLabel}</td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-3 whitespace-nowrap">
+                <div class="flex items-center gap-1.5 lg:gap-2" title="${res.clubName || ''}">
+                    ${getFlagHtml(res)}
+                    ${getClubLogoHtml(res)}
+                    <span class="hidden lg:inline-block text-[11px] lg:text-sm text-gray-700 dark:text-gray-300">${res.clubName || ''}</span>
                 </div>
-              </td>`;
-        html += `</tr>`;
+            </td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-3 whitespace-nowrap text-center text-[11px] lg:text-sm text-gray-900 dark:text-gray-300">${formatStartTimeLabel(res.startTime) || '–'}</td>
+            ${uniquePositions.map(pos => {
+            const classExpectedPos = getExpectedJudgesForClass(res.className);
+            if (classExpectedPos && !classExpectedPos.includes(pos)) {
+                return `<td class="px-2 py-1.5 lg:px-4 lg:py-2 text-center text-xs text-gray-300 dark:text-gray-600">—</td>`;
+            }
+            const match = Object.values(res.judges || {}).find(j => (j.position === pos || expandDressagePosition(j) === pos));
+            return `<td class="px-2 py-1.5 lg:px-4 lg:py-2 text-center text-xs lg:text-sm" title="${match ? (match.name || match.id) : ''}">${judgeChip(match, sn)}</td>`;
+        }).join('')}
+            <td class="px-2 py-1.5 lg:px-4 lg:py-2 text-right text-xs lg:text-sm ${percentClass}">${percentHtml}</td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-2 text-center text-xs lg:text-sm text-gray-500 dark:text-gray-400">${res.errorPoints > 0 ? res.errorPoints : '—'}</td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-2 text-right text-xs lg:text-sm font-bold ${penaltyClass}">${penaltyHtml}</td>
+            <td class="px-2 py-1.5 lg:px-4 lg:py-2 text-center whitespace-nowrap">${statusHtml}</td>
+            <td class="px-1.5 py-1.5 lg:px-4 lg:py-2">
+                <div class="flex items-center justify-center gap-1 lg:gap-2 flex-wrap" data-finalize-slot>
+                    ${can ? `
+                    <span id="badge-final-${sn}" class="inline-flex items-center px-1.5 py-0.5 lg:px-2 lg:py-1 rounded text-[10px] lg:text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300" style="${finalized ? '' : 'display:none'}">Finaliserad</span>
+                    <button type="button" data-action="finalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" onclick="event.stopPropagation(); window.__finalizeDressyr('${compId}','${sn}')" style="${finalized ? 'display:none' : ''}">Finalisera</button>
+                    <button type="button" data-action="unfinalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20" onclick="event.stopPropagation(); window.__unfinalizeDressyr('${compId}','${sn}')" style="${finalized ? '' : 'display:none'}">Ångra</button>
+                    ` : ''}
+                </div>
+            </td>
+        </tr>`;
     });
 
-    html += `</tbody></table ></div > `;
-    container.innerHTML = html;
+    tbody.innerHTML = html;
 
-    (function () {
-        // Rensa ALLTID en gammal bar FÖRE uppsättning
-        try { window.__teardownXbarSync?.(); } catch { }
+    // Scroll sync
+    try { window.__teardownXbarSync?.(); } catch { }
+    const host = document.getElementById('dressage-x-wrap');
+    if (window.__setupXbarSync && host) {
+        window.__setupXbarSync({ barClass: 'fixed-xbar', innerId: 'dressageXbarInner', hostEl: host });
+    }
 
-        const host = document.getElementById('dressage-x-wrap');
-        if (window.__setupXbarSync && host) {
-            window.__setupXbarSync({
-                barClass: 'fixed-xbar',
-                innerId: 'dressageXbarInner',
-                hostEl: host
-            });
-        }
-    })();
-    container.querySelectorAll('thead th[data-sort-key]').forEach(th => th.addEventListener('click', () => {
-        const key = th.dataset.sortKey;
-        if (sortState.key === key) { //
-            sortState.dir = sortState.dir === 'asc' ? 'desc' : 'asc'; //
-        } else {
-            sortState.key = key; //
-            sortState.dir = 'asc'; //
-        }
-        updateURLWithSort(); //
-        render();
-    }));
-    container.querySelectorAll('tbody tr[data-start-number]').forEach(row => row.addEventListener('click', (e) => {
+    // Row click listeners
+    tbody.querySelectorAll('tr[data-start-number]').forEach(row => row.addEventListener('click', (e) => {
         if (e.target.closest('button, a, [onclick]')) return;
         const sn = row.dataset.startNumber;
         if (sn) {
-            const safeJudges = (allCompetitionJudges || []).map(j => ({
-                ...j,
-                position: (expandDressagePosition(j) || j.position || '').toUpperCase()
-            }));
-            const rawList = rawByStart.get(sn) || [];
+            const safeJudges = (allCompetitionJudges || []).map(j => ({ ...j, position: (expandDressagePosition(j) || j.position || '').toUpperCase() }));
+            const rawList = rawByStart.get(String(sn)) || [];
             const cleanList = deduplicateAndFilterProtocols(rawList, safeJudges);
             const tempMap = new Map([[String(sn), cleanList]]);
-            openDetailsModal(sn, {
-                savedProtocolsMap: tempMap,
-                equipages: masterEquipageList,
-                statusMap: dressageStatusMap,
-                currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null
-            });
+            openDetailsModal(sn, { savedProtocolsMap: tempMap, equipages: masterEquipageList, statusMap: dressageStatusMap, currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null });
         }
     }));
 }
 
 // ----- HUVUDFUNKTIONER FÖR INITIERING -----
 function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
-    console.log('[renderLiveUpdateTicker]', { lastUpdate, activeEquipageInfo, startNo });
+
     const container = document.getElementById('liveUpdateTicker');
     if (!container) return;
 
@@ -1740,25 +1861,8 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
         });
 
     // Prognos / statistik
-    const projPenalties = liveJudges
-        .map(j => Number(j.projectedPenalty))
-        .filter(n => Number.isFinite(n))
-        .sort((a, b) => a - b);
-    const minP = projPenalties.length ? projPenalties[0] : null;
-    const maxP = projPenalties.length ? projPenalties[projPenalties.length - 1] : null;
-    const medP = projPenalties.length
-        ? (projPenalties.length % 2
-            ? projPenalties[(projPenalties.length - 1) / 2]
-            : (projPenalties[projPenalties.length / 2 - 1] + projPenalties[projPenalties.length / 2]) / 2)
-        : null;
+    // Prognos borttagen
 
-    const judgePrognosisHtml = liveJudges.map(j => {
-        const prog = Number.isFinite(j.projectedPenalty) ? `${j.projectedPenalty.toFixed(1)} p` : '…';
-        return `<div class="judge-prog-item"><span class="pos">${j.position}</span><span class="prog">${prog}</span></div>`;
-    }).join('');
-
-    const avgPct = pickNum(activeEquipageInfo, ['liveAvgProjectedPercent', 'avgProjectedPercent', 'projectedAvgPercent'], null);
-    const avgProg = (avgPct != null) ? `${avgPct.toFixed(2)}% ` : '…';
 
     let latestScoreHtml = '<div class="latest-score-section-placeholder">Väntar på första poäng…</div>';
     if (lastUpdate && lastUpdate.momentNo) {
@@ -1789,16 +1893,7 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
 
     const liveIndicatorHtml = `<span style="display:inline-block;width:10px;height:10px;background-color:#f56565;border-radius:50%;animation:pulse 1.5s infinite;"></span>`;
 
-    const summaryHtml = (projPenalties.length >= 2)
-        ? `<div class="judge-summary">
-         <div class="label">MIN / MEDIAN / MAX (straff)</div>
-         <div class="value">
-           ${minP != null ? minP.toFixed(1) : '–'} p / 
-           ${medP != null ? medP.toFixed(1) : '–'} p / 
-           ${maxP != null ? maxP.toFixed(1) : '–'} p
-         </div>
-       </div>`
-        : '';
+
 
     container.innerHTML = `
     <div class="ticker-grid ${compact ? 'compact-judges' : ''} ${summaryOnly ? 'summary-only' : ''}">
@@ -1807,17 +1902,7 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
         <strong>#${activeEquipageInfo.startNumber} ${activeEquipageInfo.driverName || ''}</strong>
       </div>
       ${latestScoreHtml}
-  <div class="prognosis-section">
-    <div class="main-prognosis">
-      <div class="label">SNITTPROGNOS</div>
-      <div class="value">${avgProg}</div>
-    </div>
-    <div class="judge-prognosis-list">
-      <div class="label">PROGNOS / DOMARE</div>
-      <div class="items">${judgePrognosisHtml}</div>
-    </div>
-    ${summaryHtml}
-  </div>
+
     </div>
     `;
 
@@ -1877,7 +1962,7 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
 
 window.__finalizeDressyr = async (compIdFromBtn, startNo) => {
     try {
-        if (!(window.canFinalize && window.canFinalize())) { alert('Endast domare/admin.'); return; }
+        if (!isPrivileged()) { alert('Endast domare/admin.'); return; }
         const compId = compIdFromBtn || resolveCurrentCompId();
         if (!compId) return alert('Ingen tävling vald.');
         if (!confirm(`Finalisera dressyrresultat för #${startNo}?`)) return;
@@ -1900,7 +1985,7 @@ window.__finalizeDressyr = async (compIdFromBtn, startNo) => {
 
 window.__unfinalizeDressyr = async (compIdFromBtn, startNo) => {
     try {
-        if (!(window.canFinalize && window.canFinalize())) { alert('Endast domare/admin.'); return; }
+        if (!isPrivileged()) { alert('Endast domare/admin.'); return; }
         const compId = compIdFromBtn || resolveCurrentCompId();
         if (!compId) return alert('Ingen tävling vald.');
         if (!confirm(`Ångra finalisering för #${startNo}?`)) return;
@@ -2086,8 +2171,8 @@ function setupLive(competitionId, activeEquipages) {
         // Gruppera docs efter startNumber
         const grouped = new Map();
         docs.forEach(d => {
-            const sn = Number(d.startNumber);
-            if (!isNaN(sn)) {
+            const sn = String(d.startNumber);
+            if (sn && sn !== 'undefined' && sn !== 'null') {
                 if (!grouped.has(sn)) grouped.set(sn, []);
                 grouped.get(sn).push(d);
             }
@@ -2113,7 +2198,7 @@ function listenMergeConfig(compId) {
     if (!compId || !appId) return;
 
     // Lyssna på ALLA möjliga config-platser
-    const keys = ['display', 'tdbMergeGroups', 'classMergeMap', 'tdbMergeMap', 'dressyrClassConfig'];
+    const keys = ['display', 'tdbMergeGroups', 'classMergeMap', 'tdbMergeMap', 'dressyrClassConfig', 'dressageJudgeMapping'];
 
     keys.forEach(key => {
         const ref = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'config', key); //
@@ -2127,6 +2212,8 @@ function listenMergeConfig(compId) {
                 dress_buildMergeMap(data);
             } else if (key === 'dressyrClassConfig') {
                 window.dressyrClassConfig = data || {};
+            } else if (key === 'dressageJudgeMapping') {
+                window.dressageJudgeMapping = data || {};
             }
 
             // Märk om alla ekipage
@@ -2172,8 +2259,10 @@ function isWithdrawnOrExcluded(state, eq) {
 }
 
 export async function load() {
-    initializeDressyrScrollHelpers(); //
-    injectDressageResultsBaseStyles(); //
+    lastStructuralHash = null;
+    lastHeaderHash = null;
+    initializeDressyrScrollHelpers();
+    injectDressageResultsBaseStyles();
 
     const competition = getGlobalState('currentCompetition');
     const pageEl = document.getElementById('page-dressyr-resultat') || document.getElementById('page-dressyr-results');
@@ -2287,55 +2376,72 @@ export async function load() {
         }
 
         pageEl.innerHTML = `
-    <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen">
-      <div class="mb-8">
-        ${getCompetitionHeader(competition, 'Dressyr – Start- & Resultatlista')}
-        ${dressageDateStr ? `<h3 class="text-lg text-gray-500 mt-1 font-medium text-center">${dressageDateStr}</h3>` : ''}
+    <div class="max-w-8xl mx-auto px-2 sm:px-6 lg:px-8 py-3 md:py-6 min-h-screen dark:bg-gray-900 transition-colors duration-500">
+      <div class="mb-4 md:mb-8">
+                ${getCompetitionHeader(competition, t('dressage') + ' – ' + t('start_list_and_results'))}
+        ${dressageDateStr ? `<h3 class="text-sm md:text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center">${dressageDateStr}</h3>` : ''}
       </div>
-      <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 mb-6 flex flex-col lg:flex-row gap-4 items-center justify-between" id="modeToggle">
+      <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap gap-2 md:gap-3 items-center justify-start transition-colors" id="modeToggle">
         
-        <div class="flex flex-col md:flex-row items-center gap-4 w-full lg:w-auto">
-            <div class="relative w-full md:w-72">
-                 <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                    <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                 </div>
-                 <input type="text" id="inputDressageSearch" 
-                    class="block w-full pl-10 pr-3 py-2 border border-gray-300 rounded-md leading-5 bg-gray-50 placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 sm:text-sm transition-shadow"
-                    placeholder="Sök kusk, häst..."
-                  >
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2" id="dressageModeToggleContainer">
-                <div class="inline-flex shadow-sm rounded-md bg-gray-100 p-1">
-                    <button id="btnStartOrder" data-mode="startorder" class="px-4 py-1.5 text-sm font-medium rounded transition-all">Startordning</button>
-                    <button id="btnByClass" data-mode="byclass" class="px-4 py-1.5 text-sm font-medium rounded transition-all">Klassvis</button>
-                </div>
-                
-                <div class="w-px h-6 bg-gray-300 mx-2 hidden md:block"></div>
-
-                <button id="toggleFinalized" class="px-3 py-1.5 text-sm font-medium rounded border transition-colors">
-                  <!-- Text updated via JS -->
-                </button>
-            </div>
+        <!-- Sök -->
+        <div class="relative w-full sm:w-48 flex-grow sm:flex-grow-0">
+             <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
+                <svg class="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+             </div>
+             <input type="text" id="inputDressageSearch" 
+                class="block w-full pl-8 pr-3 py-1.5 md:py-2 text-xs md:text-sm border border-gray-300 dark:border-gray-600 rounded leading-5 bg-gray-50 dark:bg-gray-700 placeholder-gray-500 dark:placeholder-gray-400 dark:text-white focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 transition-shadow"
+                placeholder="${t('search_placeholder_short')}"
+              >
         </div>
 
-        <div class="flex-shrink-0 flex items-center gap-2">
+        <!-- Desktop Controls -->
+        <div class="hidden md:inline-flex shadow-sm rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex-shrink-0">
+            <button id="btnStartOrder" data-mode="startorder" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('start_order')}</button>
+            <button id="btnByClass" data-mode="byclass" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('view_by_class_short')}</button>
+        </div>
+        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 hidden md:block mx-1"></div>
+        <button id="toggleFinalized" class="hidden md:inline-flex px-3 py-1.5 text-xs md:text-sm font-medium rounded border transition-colors"></button>
+
+        <!-- Mobile Controls (Klassvis / Startordning) -->
+        <div class="md:hidden relative w-[110px] flex-shrink-0">
+             <select id="mobileSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs appearance-none">
+                 <option value="byclass">${t('view_by_class_short')}</option>
+                 <option value="startorder">${t('start_order')}</option>
+             </select>
+             <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+                 <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+             </div>
+        </div>
+
+        <!-- Class Filter Chips/Dropdown injected here -->
+        <div id="dressageClassChips" class="flex-shrink-0 z-10 w-[130px] sm:w-auto"></div>
+
+        <!-- Finaliserade Checkbox (Mobile) -->
+        <label class="md:hidden flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0">
+             <input type="checkbox" id="mobileFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5" />
+             <span id="mobileFinalizedLabel">${t('show_finalized_only') || 'Klara'}</span>
+        </label>
+
+        <!-- Spacer to push export buttons right if space permits -->
+        <div class="flex-grow hidden sm:block"></div>
+
+        <!-- Export Buttons -->
+        <div class="flex-shrink-0 flex items-center gap-2 lg:ml-auto w-full sm:w-auto justify-end border-t border-gray-100 sm:border-0 pt-2 sm:pt-0 dark:border-gray-700">
             <button id="btnExportDressageCsv" 
-              class="inline-flex items-center px-4 py-2 border border-gray-300 shadow-sm text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors">
-               <i class="fas fa-file-csv mr-2 -ml-1 text-gray-500"></i>
+              class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+               <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
                CSV
             </button>
             <button id="btnPrintResultsList" 
-              class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500 transition-colors">
-              <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
+              class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
+              <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                Skriv ut PDF
             </button>
         </div>
       </div>
 
       <div id="liveUpdateTicker" aria-live="polite"></div>
-      <div id="dressageClassChips" class="my-2 flex flex-wrap gap-2"></div>
-      <div id="resultsContainer" class="rounded-lg shadow ring-1 ring-black/5"></div>
+      <div id="resultsContainer" class="rounded-lg shadow ring-1 ring-black/5 dark:ring-white/10 dark:bg-gray-800"></div>
       `;
 
         // === STEG 4: Koppla alla lyssnare ===
@@ -2350,7 +2456,7 @@ export async function load() {
             pbtn.addEventListener('click', async () => {
                 const origText = pbtn.innerHTML;
                 pbtn.disabled = true;
-                pbtn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" ...>...</svg>Skapar PDF...`; // Simplified spinner, ideally copy from other button
+                pbtn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" ...>...</svg>${t('generating_pdf')}`; // Simplified spinner, ideally copy from other button
                 // Use getVisibleSortedResults() if available in scope or processedResults
                 // getVisibleSortedResults() is defined in this file (dressyr-resultat.js).
                 // It returns the currently visible list.
@@ -2381,16 +2487,16 @@ export async function load() {
                 const judges = window.__dressageCurrentJudgesPresentRef || [];
 
                 const headers = [
-                    'Plac', 'Nr', 'Kusk', 'Häst', 'Klass', 'Klubb', 'Starttid'
+                    t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'), t('start_time')
                 ];
 
                 // Judge headers
                 judges.forEach(j => {
                     const pos = (j.position || j.id).toUpperCase();
-                    headers.push(`${pos} %`, `${pos} Straff`);
+                    headers.push(`${pos} %`, `${pos} ${t('penalty')}`);
                 });
 
-                headers.push('Snitt %', 'Fel (övr)', 'Total Straff', 'Status');
+                headers.push(t('dressage_avg_percent'), t('mistakes'), t('total_penalty'), t('status'));
 
                 const rows = list.map(res => {
                     const row = [
@@ -2463,7 +2569,7 @@ export function mountDressyrResultat() { return load(); }
 export default { load };
 
 export function __unload() {
-    console.log("[Dressyr Unload] Startar städning...");
+
 
     // 1) Stäng av alla aktiva lyssnare
     try { liveUnsubs.forEach(u => u()); } catch { } //
@@ -2511,7 +2617,7 @@ export function __unload() {
     window.__teardownXbarSync = undefined;
     window.__setupXbarSync = undefined;
 
-    console.log('✅ Dressyr unload klar');
+
 }
 
 

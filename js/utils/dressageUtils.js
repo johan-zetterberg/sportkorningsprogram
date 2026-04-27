@@ -21,18 +21,20 @@ export function getDressagePenaltyCoeff(programOrKey) {
   const all = getPrograms();
   const p = (typeof programOrKey === 'string') ? (all[programOrKey] || null) : programOrKey || null;
 
-  // 1) explicit fält på programmet vinner
+  // 1) explicit fält på programmet vinner (Rekommenderat)
   const raw = p?.penaltyCoeff ?? p?.penaltyFactor ?? p?.coeffPenalty;
   if (raw != null) {
     const n = Number(String(raw).replace(',', '.'));
     if (Number.isFinite(n) && n > 0) return n;
   }
 
-  // 2) slå upp utifrån programkod i namnet (”530. …”, ”522. …”, FEI-koder)
+  // Fallback: Behåll gammal logik om programmet saknar explicit koefficient
+  // (Detta kan rensas på sikt när alla program är verifierade)
   const name = String(p?.name || p?.title || p?.id || '');
   const category = String(p?.category || '');
   const m = name.match(/^(\d{3})\b/);
   const code = m ? m[1] : null;
+
   const byCode = {
     // Svenska
     '522': 1.00, // Lätt B
@@ -50,8 +52,9 @@ export function getDressagePenaltyCoeff(programOrKey) {
   };
   if (code && byCode[code] != null) return byCode[code];
 
-  // 3) mönster – CAI/Para/Junior/Children + DOT
   const nm = `${name} ${category}`.toLowerCase();
+
+  // Patterns
   if (/\bdot\b.*coefficient/.test(nm)) return 0.615;
   if (/cai1|para/.test(nm)) return 0.80;
   if (/cai2/.test(nm)) return 0.76;
@@ -62,13 +65,12 @@ export function getDressagePenaltyCoeff(programOrKey) {
   if (/children/.test(nm)) return 0.80;
   if (/junior/.test(nm)) return 0.80;
 
-  // 4) Svenska utan kod → Lätt A/B = 1.0, övriga = 0.8
+  // Svenska utan kod
   if (/svensk|svenska/.test(nm)) {
     if (/l[äa]tt\s*a|l[âa]tt\s*a|lb|la/.test(nm)) return 1.00;
     return 0.80;
   }
 
-  // 5) fallback
   return 1.00;
 }
 
@@ -94,20 +96,43 @@ export function computeFinalFromSaved(eq, savedArr, program) {
 
   // Total per domare
   const finals = [];
+  const generalKeywords = ['gångarter', 'framåtbjudning', 'lydnad', 'kusken', 'presentation', 'helhetsintryck', 'impulsion', 'athlete', 'general impression'];
+
   for (const p of savedArr) {
     const movements = Array.isArray(p.movements) ? p.movements : [];
+    
+    // Calculate total points
     const total = movements.reduce((sum, mv) => {
       const no = Number(mv.momentNo ?? mv.movementNo ?? mv.no);
       const pm = (program.movements || []).find(x => Number(x.no) === no);
-      const c = Number(pm?.coeff) || 1;
+      if (!pm) return sum;
+      const c = Number(pm.coeff) || 1;
       const sc = (mv.score !== '' && mv.score != null) ? Number(mv.score) : null;
       return (sc != null ? (sum + sc * c) : sum);
+    }, 0);
+
+    // Calculate General Impressions sum (TR Tie-breaker)
+    const generalTotal = movements.reduce((sum, mv) => {
+      const no = Number(mv.momentNo ?? mv.movementNo ?? mv.no);
+      const pm = (program.movements || []).find(x => Number(x.no) === no);
+      if (!pm) return sum;
+      
+      const text = (pm.text || '').toLowerCase();
+      const isGeneral = generalKeywords.some(k => text.includes(k));
+      
+      if (isGeneral) {
+        const c = Number(pm.coeff) || 1;
+        const sc = (mv.score !== '' && mv.score != null) ? Number(mv.score) : null;
+        return (sc != null ? (sum + sc * c) : sum);
+      }
+      return sum;
     }, 0);
 
     finals.push({
       points: total,
       percent: maxScore ? (total / maxScore) * 100 : 0,
-      penalty: (maxScore - total) * penaltyCoeff
+      penalty: (maxScore - total) * penaltyCoeff,
+      generalTotal: generalTotal
     });
   }
   if (!finals.length) return null;
@@ -116,12 +141,14 @@ export function computeFinalFromSaved(eq, savedArr, program) {
   const avg = finals.reduce((a, b) => ({
     points: a.points + b.points,
     percent: a.percent + b.percent,
-    penalty: a.penalty + b.penalty
-  }), { points: 0, percent: 0, penalty: 0 });
+    penalty: a.penalty + b.penalty,
+    generalImpressionsSum: (a.generalImpressionsSum || 0) + (b.generalTotal || 0)
+  }), { points: 0, percent: 0, penalty: 0, generalImpressionsSum: 0 });
 
   avg.points /= finals.length;
   avg.percent /= finals.length;
   avg.penalty /= finals.length;
+  avg.generalImpressionsSum /= finals.length;
 
   return avg; // { points, percent, penalty }
 }
@@ -222,12 +249,14 @@ export function getMomentHorseLabelStacked(equipage) {
 }
 
 /**
+ * @deprecated Use calculateDressageResult from calculationService.js instead.
  * Beräknar den samlade dressyrstraffpoängen för ett ekipage baserat på en samling protokoll.
  * @param {Map | Array} protocols - Samling av protokoll (från olika domare).
  * @param {Object} allPrograms - Map med alla tillgängliga dressyrprogram (nyckel -> programobjekt).
  * @returns {number | null} - Genomsnittlig straffpoäng eller null om eliminerad/inga resultat.
  */
 export function calculateAggregateDressagePenalty(protocols, allPrograms) {
+  console.warn('Using deprecated calculateAggregateDressagePenalty. Use calculationService.js instead.');
   if (!protocols) return null;
 
   const protoList = (protocols instanceof Map) ? Array.from(protocols.values()) : (Array.isArray(protocols) ? protocols : []);
@@ -312,13 +341,17 @@ export function deduplicateAndFilterProtocols(protocols, validJudgesList) {
   // 2. Deduplicera (senaste/översta vinner om dubblett på ID eller Position)
   const dedupMap = new Map();
   normalized.forEach(p => {
-    if (p.judgeId) dedupMap.set(String(p.judgeId), p);
+    if (p.id === 'general') dedupMap.set('general', p); // Keep explicit reference
+    else if (p.judgeId) dedupMap.set(String(p.judgeId), p);
     else if (p.position) dedupMap.set('POS:' + String(p.position).toUpperCase(), p);
     else dedupMap.set('UNKNOWN:' + Math.random(), p); // Temporärt behålla okända
   });
 
   // 3. Strikt Filtrering (måste matcha giltig domare OCH ha poäng)
   return Array.from(dedupMap.values()).filter(p => {
+    // Preserve the general document for error points
+    if (p.id === 'general') return true;
+
     // A. Måste matcha en konfigurerad domare - RELAXED: allow all for now to show results
     // const matchesJudge = (p.judgeId && validIds.includes(String(p.judgeId))) ||
     //   (p.position && validPos.includes(String(p.position).toUpperCase()));
@@ -430,24 +463,48 @@ export function calcLiveJudgeProjection(liveProtocol, programsDict, equipage) {
   }
 
   if (!program) return null;
+  if (!program) return null;
   const effectiveKey = program.id || program.code || testKey;
   const movements = normalizeMovements(liveProtocol.movements || []);
-  const computed = computeFinalFromSaved(equipage || {}, [{ movements, programKey: effectiveKey }], program);
 
-  if (!computed) return null;
-
+  // Calculate specific prognosis (Projected Final)
+  // Instead of computeFinalFromSaved (which assumes 0 for missing), we calculate average of RIDDEN movements.
   let totalPointsNow = 0;
+  let maxPointsRidder = 0;
+
   movements.forEach(m => {
     const pm = program.movements.find(x => x.no === m.momentNo);
-    if (pm && m.score != null) {
-      totalPointsNow += m.score * (pm.coeff || 1);
+    if (pm && m.score != null && m.score !== '') {
+      const coeff = (Number(pm.coeff) || 1);
+      totalPointsNow += Number(m.score) * coeff;
+      maxPointsRidder += 10 * coeff;
     }
   });
 
+  if (maxPointsRidder === 0) return { percent: 0, points: 0, penalty: 0, pointsNow: 0 };
+
+  const currentPercent = (totalPointsNow / maxPointsRidder); // 0.0 to 1.0
+
+  // Total Max
+  const maxScoreTotal = (program.movements || []).reduce((s, m) => s + 10 * (Number(m.coeff) || 1), 0);
+  const penaltyCoeff = getDressagePenaltyCoeff(program);
+
+  // Projected Values
+  const projPoints = currentPercent * maxScoreTotal;
+  const projPercent = currentPercent * 100;
+  const projPenalty = (maxScoreTotal - projPoints) * penaltyCoeff;
+
   return {
-    percent: computed.percent,
-    points: computed.points,
-    penalty: computed.penalty,
+    percent: projPercent,
+    points: projPoints,
+    penalty: projPenalty,
     pointsNow: totalPointsNow
   };
+}
+
+// Expose for non-module usage (e.g. PDF generation)
+if (typeof window !== 'undefined') {
+  window.getDressagePenaltyCoeff = getDressagePenaltyCoeff;
+  window.getPrograms = getPrograms;
+  window.computeFinalFromSaved = computeFinalFromSaved;
 }

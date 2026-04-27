@@ -3,6 +3,7 @@
 import { getGlobalState } from '../main.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
+import { t } from '../utils/i18n.js';
 
 // HÄR VAR FELET: statusClass ska importeras härifrån
 import {
@@ -28,7 +29,7 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
     containerElement.innerHTML = `
           <div class="p-4 md:p-6">
             <div class="flex justify-between items-start">
-              <h3 class="text-xl font-bold">Ekipaget hittades inte</h3>
+              <h3 class="text-xl font-bold">${t('equipage_not_found')}</h3>
             </div>
           </div>`;
     return;
@@ -50,48 +51,60 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
       <div class="p-4 md:p-6">
         
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-6">
-            <div class="bg-gray-50 p-3 rounded-lg">
-                <div class="text-xs text-gray-500 uppercase font-semibold">Status</div>
+            <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">${t('status')}</div>
                 <div class="text-lg font-bold mt-1 inline-block px-3 py-1 rounded ${statusCss}">${data.status}</div>
             </div>
-            <div class="bg-gray-50 p-3 rounded-lg">
-                <div class="text-xs text-gray-500 uppercase font-semibold">Tid</div>
-                <div class="text-lg font font-bold mt-1">${data.timeLabel}</div>
+            <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">${t('time')}</div>
+                <div class="text-lg font font-bold mt-1 text-gray-900 dark:text-gray-100">${data.timeLabel}</div>
             </div>
-            <div class="bg-gray-50 p-3 rounded-lg">
-                <div class="text-xs text-gray-500 uppercase font-semibold">Starttid</div>
-                <div class="text-lg font-bold mt-1">${data.startT || '–'}</div>
+            <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
+                <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">${t('start_time')}</div>
+                <div class="text-lg font-bold mt-1 text-gray-900 dark:text-gray-100">${data.startT || '–'}</div>
             </div>
-            <div class="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                <div class="text-xs text-blue-600 uppercase font-semibold">Totalt Straff</div>
-                <div class="text-xl font-extrabold text-blue-900 mt-1">${fmt2(data.totalPenalty)}</div>
-            </div>
-        </div>
-        
-        <div class="border-t pt-4 mb-4">
-            <h4 class="text-sm font-bold text-gray-700 uppercase mb-3">Straffspecifikation</h4>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-                <div><span class="text-gray-500 block">Hinderstraff</span> <span class="font-semibold text-lg">${fmt2(data.obstaclePenalty)}</span></div>
-                <div><span class="text-gray-500 block">Tidsstraff</span> <span class="font-semibold text-lg">${fmt2(data.timePenalty)}</span></div>
-                <div><span class="text-gray-500 block">Övrigt</span> <span class="font-semibold text-lg">${fmt2(data.extraPenalty)}</span></div>
-                <div><span class="text-gray-500 block">Rivningar</span> <span class="font-semibold text-lg">${data.knocksText || data.display?.knocksText || '–'}</span></div>
+            <div class="bg-blue-50 dark:bg-blue-900/30 p-3 rounded-lg border border-blue-100 dark:border-blue-900 flex flex-col items-center justify-center">
+                <div class="text-xs text-blue-600 dark:text-blue-300 uppercase font-semibold">${t('total_penalty_title')}</div>
+                <div class="text-xl font-extrabold text-blue-900 dark:text-blue-100 mt-1">${fmt2(data.totalPenalty)}</div>
             </div>
         </div>
         
-        <div class="border-t pt-4 mb-6">
-            <h4 class="text-sm font-bold text-gray-700 uppercase mb-3">Banfakta</h4>
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-gray-50 p-3 rounded">
-                <div><span class="text-gray-500">Längd:</span> <span class="font-medium">${data.trackLenLabel || data.display?.trackLenLabel}</span></div>
-                <div><span class="text-gray-500">Tempo:</span> <span class="font-medium">${data.tempoLabel || data.display?.tempoLabel}</span></div>
-                <div><span class="text-gray-500">Maxtid:</span> <span class="font-medium">${data.maxTimeLabel || data.display?.maxTimeLabel}</span></div>
-                <div><span class="text-gray-500">Porttillägg:</span> <span class="font-medium">${allowLabel}</span></div>
+        <div class="border-t dark:border-gray-700 pt-4 mb-4">
+            <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">${t('spec_penalty')}</h4>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm text-gray-900 dark:text-gray-100">
+                <div><span class="text-gray-500 dark:text-gray-400 block">${t('obs_penalty')}</span> <span class="font-semibold text-lg">${fmt2(data.obstaclePenalty)}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400 block">${t('time_penalty')}</span> <span class="font-semibold text-lg">${fmt2(data.timePenalty)}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400 block">${t('other_penalty')}</span> <span class="font-semibold text-lg">${fmt2(data.extraPenalty)}</span></div>
+                <div>
+                  <span class="text-gray-500 dark:text-gray-400 block">${t('knockdowns')}</span>
+                  ${(() => {
+                    const simple = data.display?.knocksSimple || data.knocksSimple;
+                    const full   = data.display?.knocksText   || data.knocksText;
+                    const hasDetail = full && full !== simple && full !== '–';
+                    if (!simple || simple === '–') return `<span class="font-semibold text-lg">–</span>`;
+                    if (hasDetail) {
+                      return `<span class="font-semibold text-lg" style="border-bottom:1px dotted currentColor;cursor:default;" title="${full.replace(/"/g, '&quot;')}">${simple}</span>`;
+                    }
+                    return `<span class="font-semibold text-lg">${simple}</span>`;
+                  })()}
+                </div>
+            </div>
+        </div>
+        
+        <div class="border-t dark:border-gray-700 pt-4 mb-6">
+            <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">${t('course_facts')}</h4>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-gray-50 dark:bg-gray-700/50 p-3 rounded text-gray-700 dark:text-gray-300">
+                <div><span class="text-gray-500 dark:text-gray-400">${t('track_len')}:</span> <span class="font-medium">${data.trackLenLabel || data.display?.trackLenLabel}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('tempo')}:</span> <span class="font-medium">${data.tempoLabel || data.display?.tempoLabel}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('max_time')}:</span> <span class="font-medium">${data.maxTimeLabel || data.display?.maxTimeLabel}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('port_allowance')}:</span> <span class="font-medium">${allowLabel}</span></div>
             </div>
         </div>
 
-        <div class="border-t pt-4 flex justify-end">
-             <button id="printPrecPdfBtn" class="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-700 flex items-center gap-2 text-sm font-medium transition-colors">
+        <div class="border-t dark:border-gray-700 pt-4 flex justify-end">
+             <button id="printPrecPdfBtn" class="px-4 py-2 bg-gray-900 dark:bg-gray-800 text-white rounded hover:bg-gray-800 dark:hover:bg-gray-700 flex items-center gap-2 text-sm font-medium transition-colors">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-                Skriv ut Protokoll
+                ${t('print_pdf')}
              </button>
         </div>
       </div>`;
@@ -102,7 +115,7 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
     pdfBtn.addEventListener('click', async () => {
       const originalText = pdfBtn.innerHTML;
       pdfBtn.disabled = true;
-      pdfBtn.innerHTML = 'Genererar PDF...';
+      pdfBtn.innerHTML = `${t('generating_pdf')}...`;
       try {
         await generateAndPrintPdf(eq, precisionData, equipages, new Map([[String(eq.startNumber), precisionData]]), config, startTimes);
       } catch (e) {
@@ -133,7 +146,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       content.innerHTML = `
           <div class="p-4 md:p-6">
             <div class="flex justify-between items-start">
-              <h3 class="text-xl font-bold">#${id} – Ekipaget hittades inte</h3>
+              <h3 class="text-xl font-bold">#${id} – ${t('equipage_not_found')}</h3>
               <button id="closePrecModalBtn" class="px-2 py-1 text-2xl leading-none">&times;</button>
             </div>
           </div>`;
@@ -150,9 +163,9 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       <div class="p-4 md:p-6 pb-0">
         <div class="flex justify-between items-start gap-3 mb-4">
           <div>
-            <h3 class="text-xl font-bold">#${eq.startNumber} ${eq.driverName || ''}</h3>
-            <div class="text-sm text-gray-500 italic">${horseLabel(eq)}</div>
-            <div class="text-gray-600 flex items-center gap-2 mt-1">
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${eq.startNumber} ${eq.driverName || ''}</h3>
+            <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel(eq)}</div>
+            <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
               <span>${eq._mergedLabel || eq.className || ''} • ${eq.clubName || ''}</span>
@@ -206,6 +219,7 @@ function ensureModalExists() {
         opacity: 0;
         transition: opacity .2s ease;
       }
+      html.dark .precision-modal-overlay { background: rgba(0,0,0,0.8); }
       .precision-modal-overlay.visible {
         display: flex;
         opacity: 1;
@@ -223,6 +237,7 @@ function ensureModalExists() {
         transform: scale(.96);
         transition: transform .2s ease;
       }
+      html.dark .precision-modal-content { background: #1f2937; color: #f3f4f6; }
       .precision-modal-overlay.visible .precision-modal-content {
         transform: scale(1);
       }

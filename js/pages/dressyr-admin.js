@@ -361,18 +361,18 @@ function render(root) {
       ${getCompetitionHeader(competition, 'Dressyr – Admin')}
 
       <!-- Sektion 1: Klass → Program -->
-      <div class="bg-white p-6 rounded-xl shadow-md mb-6">
-        <h2 class="font-semibold text-lg mb-3">Mapping: Klass → Dressyrprogram</h2>
-        <p class="text-sm text-gray-600 mb-4">
+      <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md mb-6 border dark:border-gray-700">
+        <h2 class="font-semibold text-lg mb-3 dark:text-white">Mapping: Klass → Dressyrprogram</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
           Välj vilket program som gäller för varje klass. Sök/skriv i fältet (typeahead). “Auto-fix” försöker gissa enligt våra svenska regler (Lätt A/B/C, MSV 3/4, osv).
         </p>
 
         <!-- Verktygsrad för mapping -->
         <div class="flex flex-col md:flex-row items-start md:items-center gap-3 mb-4">
-          <input id="classFilter" class="border rounded px-3 py-2 w-full md:w-80" placeholder="Filtrera klasser (t.ex. Lätt A, Ponny, Enbet)…" />
+          <input id="classFilter" class="border rounded px-3 py-2 w-full md:w-80 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Filtrera klasser (t.ex. Lätt A, Ponny, Enbet)…" />
           <div class="md:ml-auto flex flex-col sm:flex-row gap-2">
-            <button id="btnAutoFixMapping" class="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700">Auto-fix mapping</button>
-            <button id="btnSaveMapping" class="px-3 py-2 rounded bg-brand-darkblue text-white hover:bg-brand-gold hover:text-brand-darkblue">Spara mapping</button>
+            <button id="btnAutoFixMapping" class="px-3 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm">Auto-fix mapping</button>
+            <button id="btnSaveMapping" class="px-3 py-2 rounded bg-brand-darkblue text-white hover:bg-brand-gold hover:text-brand-darkblue shadow-sm dark:bg-blue-600 dark:hover:bg-blue-500">Spara mapping</button>
           </div>
         </div>
 
@@ -384,95 +384,99 @@ function render(root) {
         <!-- Här renderas raderna: Klass | [input för program-nyckel] | Nyckel -->
         <div id="mappingTable" class="overflow-x-auto"></div>
 
-      <div id="mapSaved" class="text-sm text-emerald-700 mt-3"></div>
+      <div id="mapSaved" class="text-sm text-emerald-700 dark:text-emerald-400 mt-3"></div>
       </div>
 
       <!-- Sektion 1.5: Domare & Regler -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <!-- Domartilldelning -->
-        <div class="bg-white p-6 rounded-xl shadow-md">
-          <h2 class="font-semibold text-lg mb-3">Tilldela Domare</h2>
-          <p class="text-sm text-gray-600 mb-4">Vilka domare dömer vilken klass?</p>
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+          <h2 class="font-semibold text-lg mb-3 dark:text-white">Tilldela Domare</h2>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Vilka domare dömer vilken klass?</p>
           
           <div class="mb-4">
-            <label class="block text-sm font-medium mb-1">Välj klass</label>
-            <select id="judgeClassSelect" class="border rounded px-3 py-2 w-full">
+            <label class="block text-sm font-medium mb-1 dark:text-gray-300">Välj klass</label>
+            <select id="judgeClassSelect" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white">
               <option value="">-- Välj klass --</option>
             </select>
           </div>
 
-          <div id="judgeAssignmentArea" class="hidden space-y-3 p-3 bg-gray-50 rounded">
+          <div id="judgeAssignmentArea" class="hidden space-y-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded border dark:border-gray-600">
             <!-- Här renderas positionerna (C, E, etc.) -->
           </div>
           
           <div class="mt-4 flex gap-2">
-             <button id="btnSaveJudgeMapping" class="px-3 py-2 rounded bg-brand-darkblue text-white text-sm">Spara tilldelning</button>
-             <span id="judgeMapMsg" class="text-sm text-emerald-700 self-center"></span>
+             <button id="btnSaveJudgeMapping" class="px-3 py-2 rounded bg-brand-darkblue text-white text-sm shadow-sm dark:bg-blue-600 dark:hover:bg-blue-500">Spara tilldelning</button>
+             <span id="judgeMapMsg" class="text-sm text-emerald-700 dark:text-emerald-400 self-center"></span>
+          </div>
+
+          <div id="judgeSummaryArea" class="mt-6 pt-4 border-t dark:border-gray-700">
+             <!-- Assigned classes summary list renders here -->
           </div>
         </div>
 
         <!-- Regler -->
-        <div class="bg-white p-6 rounded-xl shadow-md">
-          <h2 class="font-semibold text-lg mb-3">Regler & Avdrag</h2>
-          <p class="text-sm text-gray-600 mb-4">Inställningar för felridning och andra avdrag.</p>
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+          <h2 class="font-semibold text-lg mb-3 dark:text-white">Regler & Avdrag</h2>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Inställningar för felkörning och andra avdrag.</p>
           
           <div class="space-y-4">
              <div>
-               <label class="block text-sm font-medium mb-1">1:a Felridning (poängavdrag)</label>
-               <input type="number" id="ruleError1" class="border rounded px-3 py-2 w-full" placeholder="t.ex. 2" />
+               <label class="block text-sm font-medium mb-1 dark:text-gray-300">1:a Felkörning (poängavdrag)</label>
+               <input type="number" id="ruleError1" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 2" />
              </div>
              <div>
-               <label class="block text-sm font-medium mb-1">2:a Felridning (poängavdrag)</label>
-               <input type="number" id="ruleError2" class="border rounded px-3 py-2 w-full" placeholder="t.ex. 4" />
+               <label class="block text-sm font-medium mb-1 dark:text-gray-300">2:a Felkörning (poängavdrag)</label>
+               <input type="number" id="ruleError2" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 4" />
              </div>
              <div>
-               <label class="block text-sm font-medium mb-1">3:e Felridning</label>
-               <div class="text-sm text-gray-500 italic px-3 py-2 border bg-gray-100 rounded">Eliminering</div>
+               <label class="block text-sm font-medium mb-1 dark:text-gray-300">3:e Felkörning</label>
+               <div class="text-sm text-gray-500 italic px-3 py-2 border bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400 rounded">Eliminering</div>
              </div>
           </div>
 
           <div class="mt-4 flex gap-2">
-             <button id="btnSaveRules" class="px-3 py-2 rounded bg-emerald-600 text-white text-sm">Spara regler</button>
-             <span id="rulesMsg" class="text-sm text-emerald-700 self-center"></span>
+             <button id="btnSaveRules" class="px-3 py-2 rounded bg-emerald-600 text-white text-sm shadow-sm hover:bg-emerald-700">Spara regler</button>
+             <span id="rulesMsg" class="text-sm text-emerald-700 dark:text-emerald-400 self-center"></span>
           </div>
         </div>
       </div>
 
       <!-- Sektion 2: Importera program från PDF -->
-      <div class="bg-white p-6 rounded-xl shadow-md">
-        <h2 class="font-semibold text-lg mb-3">Importera dressyrprogram från PDF</h2>
-        <p class="text-sm text-gray-600 mb-3">
+      <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <h2 class="font-semibold text-lg mb-3 dark:text-white">Importera dressyrprogram från PDF</h2>
+        <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
           Ladda en PDF (t.ex. “Svenskt Lätt B (2020) 40x80m”). Vi försöker tolka momenten. Du kan justera innan du sparar till tävlingen.
         </p>
 
         <div class="flex flex-col md:flex-row gap-3 mb-4">
-          <input type="file" id="pdfInput" accept="application/pdf" class="border rounded px-3 py-2"/>
-          <button id="btnParsePdf" class="px-4 py-2 rounded bg-gray-900 text-white">Läs PDF</button>
-          <button id="btnSaveProgram" class="px-4 py-2 rounded bg-brand-darkblue text-white" disabled>Spara till tävling</button>
-          <span id="pdfMsg" class="text-sm text-gray-600"></span>
+          <input type="file" id="pdfInput" accept="application/pdf" class="border rounded px-3 py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 text-sm"/>
+          <button id="btnParsePdf" class="px-4 py-2 rounded bg-gray-900 text-white hover:bg-gray-800 dark:bg-gray-700 dark:hover:bg-gray-600 shadow-sm">Läs PDF</button>
+          <button id="btnSaveProgram" class="px-4 py-2 rounded bg-brand-darkblue text-white hover:bg-brand-gold hover:text-brand-darkblue disabled:opacity-50 disabled:cursor-not-allowed shadow-sm dark:bg-blue-600 dark:hover:bg-blue-500">Spara till tävling</button>
+          <span id="pdfMsg" class="text-sm text-gray-600 dark:text-gray-400 self-center"></span>
         </div>
 
         <div id="programForm" class="hidden">
           <div class="grid grid-cols-1 md:grid-cols-4 gap-3 mb-3">
             <div>
-              <label class="text-sm block mb-1">Programnamn</label>
-              <input id="progName" class="border rounded px-3 py-2 w-full"/>
+              <label class="text-sm block mb-1 dark:text-gray-300">Programnamn</label>
+              <input id="progName" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white"/>
             </div>
             <div>
-              <label class="text-sm block mb-1">Program-nyckel</label>
-              <input id="progKey" class="border rounded px-3 py-2 w-full" placeholder="t.ex. sv_latt_b_40x80_2020"/>
+              <label class="text-sm block mb-1 dark:text-gray-300">Program-nyckel</label>
+              <input id="progKey" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. sv_latt_b_40x80_2020"/>
             </div>
             <div>
-              <label class="text-sm block mb-1">Kategori</label>
-              <select id="progCat" class="border rounded px-3 py-2 w-full">
+              <label class="text-sm block mb-1 dark:text-gray-300">Kategori</label>
+              <select id="progCat" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                 <option>Svenskt</option>
                 <option>FEI</option>
                 <option>Övrigt</option>
               </select>
             </div>
             <div>
-              <label class="text-sm block mb-1">Bana</label>
-              <select id="progArena" class="border rounded px-3 py-2 w-full">
+              <label class="text-sm block mb-1 dark:text-gray-300">Bana</label>
+              <select id="progArena" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                 <option value="">(okänd)</option>
                 <option>40x80</option>
                 <option>40x100</option>
@@ -483,37 +487,37 @@ function render(root) {
           <!-- Metadata -->
           <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
             <div class="flex items-center gap-2">
-              <input id="progVerified" type="checkbox" class="h-4 w-4">
-              <label for="progVerified" class="text-sm">Verifierat program</label>
+              <input id="progVerified" type="checkbox" class="h-4 w-4 rounded dark:bg-gray-700 dark:border-gray-600">
+              <label for="progVerified" class="text-sm dark:text-gray-300">Verifierat program</label>
             </div>
             <div>
-              <label class="text-sm block mb-1">Källa / källa-PDF</label>
-              <input id="progSource" class="border rounded px-3 py-2 w-full" placeholder="t.ex. 522. Svenskt Lätt B (2020) 40x80m.pdf"/>
+              <label class="text-sm block mb-1 dark:text-gray-300">Källa / källa-PDF</label>
+              <input id="progSource" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 522. Svenskt Lätt B (2020) 40x80m.pdf"/>
             </div>
             <div>
-              <label class="text-sm block mb-1">Version / år</label>
-              <input id="progVersion" class="border rounded px-3 py-2 w-full" placeholder="t.ex. 2020"/>
+              <label class="text-sm block mb-1 dark:text-gray-300">Version / år</label>
+              <input id="progVersion" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 2020"/>
             </div>
           </div>
 
           <div class="mb-2 flex items-center justify-between">
-            <h3 class="font-medium">Moment</h3>
-            <button id="btnAddMove" class="px-3 py-1 rounded bg-gray-200">Lägg till moment</button>
+            <h3 class="font-medium dark:text-white">Moment</h3>
+            <button id="btnAddMove" class="px-3 py-1 rounded bg-gray-200 hover:bg-gray-300 text-sm dark:bg-gray-700 dark:hover:bg-gray-600 dark:text-white">Lägg till moment</button>
           </div>
 
-          <div class="overflow-x-auto">
+          <div class="overflow-x-auto border rounded-lg dark:border-gray-700">
             <table class="min-w-full text-sm">
               <thead>
-                <tr class="bg-gray-50">
-                  <th class="text-left p-2">#</th>
-                  <th class="text-left p-2">Plats</th>
-                  <th class="text-left p-2">Rörelse</th>
-                  <th class="text-left p-2">Att bedöma</th>
-                  <th class="text-left p-2">Koeff</th>
+                <tr class="bg-gray-50 dark:bg-gray-700/50 border-b dark:border-gray-700">
+                  <th class="text-left p-2 dark:text-gray-300">#</th>
+                  <th class="text-left p-2 dark:text-gray-300">Plats</th>
+                  <th class="text-left p-2 dark:text-gray-300">Rörelse</th>
+                  <th class="text-left p-2 dark:text-gray-300">Att bedöma</th>
+                  <th class="text-left p-2 dark:text-gray-300">Koeff</th>
                   <th class="text-left p-2"></th>
                 </tr>
               </thead>
-              <tbody id="movesTbody"></tbody>
+              <tbody id="movesTbody" class="divide-y dark:divide-gray-700"></tbody>
             </table>
           </div>
         </div>
@@ -544,40 +548,40 @@ function rebuildMappingTable(root, filter = '') {
         `<span class="ml-2 text-xs text-amber-700">(Ej verifierat)</span>` : '';
 
       return `
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 items-center border-b py-2 ${locked ? 'opacity-60' : ''}">
-          <div class="font-medium flex items-center gap-2">
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-2 items-center border-b py-2 dark:border-gray-700 ${locked ? 'opacity-60' : ''}">
+          <div class="font-medium flex items-center gap-2 dark:text-white">
             ${esc(cls)}
-            ${locked ? '<span class="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700">Låst</span>' : ''}
+            ${locked ? '<span class="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200">Låst</span>' : ''}
           </div>
           <div class="space-y-2">
-            <input class="mapInput border rounded px-3 py-2 w-full" list="programKeysList" 
+            <input class="mapInput border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" list="programKeysList" 
                    data-cls="${esc(cls)}" value="${esc(val)}" ${locked ? 'disabled' : ''}
                    placeholder="välj/skriv program-nyckel..."/>
-            ${lbl ? `<div class="text-xs text-gray-500">${esc(lbl)} ${warn}</div>` : ''}
+            ${lbl ? `<div class="text-xs text-gray-500 dark:text-gray-400">${esc(lbl)} ${warn}</div>` : ''}
             
             <!-- Clear Round Config -->
-            <div class="flex items-center gap-3 text-sm bg-gray-50 p-2 rounded">
-              <label class="flex items-center gap-1 cursor-pointer">
-                <input type="checkbox" class="cr-check rounded border-gray-300 text-brand-darkblue" 
+            <div class="flex items-center gap-3 text-sm bg-gray-50 p-2 rounded dark:bg-gray-700/50">
+              <label class="flex items-center gap-1 cursor-pointer dark:text-gray-300">
+                <input type="checkbox" class="cr-check rounded border-gray-300 text-brand-darkblue dark:bg-gray-700 dark:border-gray-600" 
                        data-cls="${esc(cls)}" 
                        ${(classConfig[cls]?.clearRound) ? 'checked' : ''}>
                 <span>Clear Round</span>
               </label>
               ${(classConfig[cls]?.clearRound) ? `
                 <div class="flex items-center gap-1 ml-auto">
-                   <span class="text-gray-600 text-xs">Gräns:</span>
-                   <input type="number" class="cr-limit w-16 px-1 py-0.5 border rounded text-xs" 
+                   <span class="text-gray-600 text-xs dark:text-gray-400">Gräns:</span>
+                   <input type="number" class="cr-limit w-16 px-1 py-0.5 border rounded text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
                           data-cls="${esc(cls)}" 
                           value="${classConfig[cls]?.limit || 60}" step="0.5" min="0" max="100">%
                 </div>
               ` : ''}
             </div>
           </div>
-          <div class="text-xs text-gray-500">Nyckel: ${esc(val || '—')}</div>
+          <div class="text-xs text-gray-500 dark:text-gray-400">Nyckel: ${esc(val || '—')}</div>
         </div>
       `;
     }).join('');
-  host.innerHTML = rows || `<div class="text-gray-600">Inga klasser hittades.</div>`;
+  host.innerHTML = rows || `<div class="text-gray-600 dark:text-gray-400">Inga klasser hittades.</div>`;
 
   // Add listeners for local boolean toggle re-render (optional for better UX)
   host.querySelectorAll('.cr-check').forEach(chk => {
@@ -613,12 +617,12 @@ function fillProgramForm(root, prog) {
   const tb = qs('#movesTbody', root);
   tb.innerHTML = (prog.movements || []).map(m => `
   <tr>
-    <td class="p-2"><input type="number" class="mv-no border rounded px-2 py-1 w-20" value="${esc(m.no)}"/></td>
-    <td class="p-2"><input type="text"   class="mv-letters border rounded px-2 py-1 w-28" value="${esc(m.letters || '')}"/></td>
-    <td class="p-2"><input type="text"   class="mv-text border rounded px-2 py-1 w-full" value="${esc(m.text || '')}"/></td>
-    <td class="p-2"><input type="text"   class="mv-judge border rounded px-2 py-1 w-full" value="${esc(m.judge || '')}"/></td>
-    <td class="p-2"><input type="number" min="1" step="1" class="mv-coeff border rounded px-2 py-1 w-20" value="${esc(m.coeff || 1)}"/></td>
-    <td class="p-2 text-right"><button type="button" class="mv-del px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-700">Ta bort</button></td>
+    <td class="p-2"><input type="number" class="mv-no border rounded px-2 py-1 w-20 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${esc(m.no)}"/></td>
+    <td class="p-2"><input type="text"   class="mv-letters border rounded px-2 py-1 w-28 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${esc(m.letters || '')}"/></td>
+    <td class="p-2"><input type="text"   class="mv-text border rounded px-2 py-1 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${esc(m.text || '')}"/></td>
+    <td class="p-2"><input type="text"   class="mv-judge border rounded px-2 py-1 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${esc(m.judge || '')}"/></td>
+    <td class="p-2"><input type="number" min="1" step="1" class="mv-coeff border rounded px-2 py-1 w-20 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${esc(m.coeff || 1)}"/></td>
+    <td class="p-2 text-right"><button type="button" class="mv-del px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-rose-300">Ta bort</button></td>
   </tr>
 `).join('');
 }
@@ -756,12 +760,12 @@ function wire(root) {
     const tb = qs('#movesTbody', root);
     const tr = document.createElement('tr');
     tr.innerHTML = `
-  <td class="p-2"><input type="number" class="mv-no border rounded px-2 py-1 w-20" value="1"/></td>
-  <td class="p-2"><input type="text"   class="mv-letters border rounded px-2 py-1 w-28" value=""/></td>
-  <td class="p-2"><input type="text"   class="mv-text border rounded px-2 py-1 w-full" value=""/></td>
-  <td class="p-2"><input type="text"   class="mv-judge border rounded px-2 py-1 w-full" value=""/></td>
-  <td class="p-2"><input type="number" min="1" step="1" class="mv-coeff border rounded px-2 py-1 w-20" value="1"/></td>
-  <td class="p-2 text-right"><button type="button" class="mv-del px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-700">Ta bort</button></td>
+  <td class="p-2"><input type="number" class="mv-no border rounded px-2 py-1 w-20 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="1"/></td>
+  <td class="p-2"><input type="text"   class="mv-letters border rounded px-2 py-1 w-28 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value=""/></td>
+  <td class="p-2"><input type="text"   class="mv-text border rounded px-2 py-1 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" value=""/></td>
+  <td class="p-2"><input type="text"   class="mv-judge border rounded px-2 py-1 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" value=""/></td>
+  <td class="p-2"><input type="number" min="1" step="1" class="mv-coeff border rounded px-2 py-1 w-20 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="1"/></td>
+  <td class="p-2 text-right"><button type="button" class="mv-del px-2 py-1 rounded bg-rose-100 hover:bg-rose-200 text-rose-700 dark:bg-red-900/40 dark:hover:bg-red-900/60 dark:text-rose-300">Ta bort</button></td>
 `;
     tb.appendChild(tr);
   });
@@ -832,6 +836,7 @@ function wire(root) {
 
     try {
       await saveConfig(competitionId, 'dressageJudgeMapping', judgeMapping);
+      renderJudgeAssignmentSummary(root); // Update summary list
       const msg = qs('#judgeMapMsg', root);
       if (msg) { msg.textContent = 'Sparat.'; setTimeout(() => msg.textContent = '', 2000); }
     } catch (err) {
@@ -894,8 +899,8 @@ function renderJudgeAssignment(root, className) {
     const val = assigned[pos] || '';
     return `
         <div class="flex items-center gap-2">
-           <div class="w-8 font-bold text-center bg-white border rounded py-2">${pos}</div>
-           <select class="pos-select border rounded px-2 py-2 w-full" data-pos="${pos}">
+           <div class="w-8 font-bold text-center bg-white border rounded py-2 dark:bg-gray-700 dark:border-gray-600 dark:text-white">${pos}</div>
+           <select class="pos-select border rounded px-2 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" data-pos="${pos}">
               ${getOpts(pos)}
            </select>
            <!-- Sätt vald efteråt via JS eller inject string -->
@@ -908,6 +913,51 @@ function renderJudgeAssignment(root, className) {
     const pos = sel.dataset.pos;
     if (assigned[pos]) sel.value = assigned[pos];
   });
+}
+
+function renderJudgeAssignmentSummary(root) {
+  const container = qs('#judgeSummaryArea', root);
+  if (!container) return;
+
+  // Group classes by judge
+  // judgeMapping: { "Klass A": { C: "judgeId1", E: "judgeId2" }, ... }
+  const judgeAssignments = {};
+
+  for (const [clsName, positions] of Object.entries(judgeMapping)) {
+    for (const [pos, jid] of Object.entries(positions)) {
+      if (!judgeAssignments[jid]) judgeAssignments[jid] = [];
+      judgeAssignments[jid].push({ cls: clsName, pos: pos });
+    }
+  }
+
+  const judgeIds = Object.keys(judgeAssignments);
+
+  if (judgeIds.length === 0) {
+    container.innerHTML = '<div class="text-sm text-gray-500 italic dark:text-gray-400">Inga domare tilldelade ännu.</div>';
+    return;
+  }
+
+  // Look up judge names and sort
+  const summaryList = judgeIds.map(jid => {
+    const jObj = allJudges.find(j => j.id === jid);
+    const jName = jObj ? jObj.name : '(Okänd domare)';
+
+    // Sort array of classes
+    const classes = judgeAssignments[jid].sort((a, b) => a.cls.localeCompare(b.cls));
+    const classesHtml = classes.map(c => `<span class="inline-block bg-gray-100 dark:bg-gray-700 rounded px-2 py-0.5 mt-1 mr-1 text-xs text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-600">${esc(c.cls)} (${esc(c.pos)})</span>`).join('');
+
+    return `
+      <div class="mb-3 last:mb-0">
+        <div class="font-medium text-sm text-gray-800 dark:text-gray-200">${esc(jName)}</div>
+        <div class="flex flex-wrap">${classesHtml}</div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `
+    <h3 class="text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">Aktuella Tilldelningar</h3>
+    ${summaryList}
+  `;
 }
 
 function getPrimaryDressagePosition(j) {
@@ -968,6 +1018,7 @@ export async function load() {
 
   rebuildProgramDatalist(root);
   rebuildMappingTable(root, '');
+  renderJudgeAssignmentSummary(root);
 
   const noPrograms = !Object.keys(mergedPrograms).length;
   if (noPrograms) {

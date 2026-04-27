@@ -23,7 +23,7 @@ function displayEquipageData(equipage) {
         document.getElementById('safetyCheckComment').value = '';
         return;
     }
-    
+
     // Fyll i fälten med sparad data eller tomma värden
     document.getElementById('precisionBreddInput').value = equipage.trackWidth || '';
     document.getElementById('maratonBreddInput').value = equipage.marathonTrackWidth || '';
@@ -43,7 +43,7 @@ function updateStatus() {
     if (!sortedEquipages || sortedEquipages.length === 0) return;
 
     let checkedCount = 0;
-    
+
     const dropdownData = sortedEquipages.map(e => {
         const isChecked = e.safetyCheck && e.safetyCheck.approved != null;
         if (isChecked) {
@@ -80,7 +80,7 @@ function onEquipageSelect(selectedEquipage) {
 
     // Hitta index för nästa/föregående-knapparna
     currentIndex = sortedEquipages.findIndex(e => e.startNumber == selectedEquipage.startNumber);
-    
+
     // Visa datan för det valda ekipaget
     displayEquipageData(selectedEquipage);
 }
@@ -97,7 +97,7 @@ async function saveCheck() {
 
     const precisionWidth = parseInt(document.getElementById('precisionBreddInput').value, 10);
     const marathonWidth = parseInt(document.getElementById('maratonBreddInput').value, 10);
-    
+
     // Bygg uppdateringsobjektet
     const updatePayload = {
         safetyCheck: {
@@ -105,7 +105,7 @@ async function saveCheck() {
             comment: document.getElementById('safetyCheckComment').value.trim()
         }
     };
-    
+
     // Lägg bara till bredderna om de har giltiga värden
     if (!isNaN(precisionWidth) && precisionWidth > 0) {
         updatePayload.trackWidth = precisionWidth;
@@ -117,7 +117,7 @@ async function saveCheck() {
     try {
         await saveEquipage(competitionId, startNumber, updatePayload);
         showAlert(`Data för #${startNumber} har sparats.`);
-        
+
         // Uppdatera lokala listan
         const equipageInList = sortedEquipages.find(e => e.startNumber == startNumber);
         if (equipageInList) {
@@ -151,7 +151,7 @@ function navigateToEquipage(delta) {
             return;
         }
     }
-    
+
     const nextEquipage = sortedEquipages[currentIndex];
     if (nextEquipage) {
         equipageSearchDropdown.setValue(nextEquipage.startNumber);
@@ -175,45 +175,45 @@ export async function load() {
     page.innerHTML = `
         <div class="container mx-auto p-4 md:p-8 max-w-lg">
             ${getCompetitionHeader(competition, 'Funktionskontroll & Vagnbredd')}
-            <div class="bg-white p-6 rounded-xl shadow-md space-y-6">
+            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md space-y-6">
                 <div>
-                    <label class="block text-sm font-medium text-gray-700">1. Välj Ekipage</label>
+                    <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">1. Välj Ekipage</label>
                     <div class="flex items-center gap-2 mt-1">
-                        <button id="prevBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200" title="Föregående">«</button>
+                        <button id="prevBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Föregående">«</button>
                         <div id="vagnbreddEquipageSearch" class="flex-grow"></div>
-                        <button id="nextBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200" title="Nästa">»</button>
+                        <button id="nextBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Nästa">»</button>
                     </div>
                 </div>
                 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                        <label for="precisionBreddInput" class="block text-sm font-medium text-gray-700">2. Bredd Precision (cm)</label>
-                        <input type="number" id="precisionBreddInput" class="mt-1 block w-full p-3 text-lg border rounded-md" placeholder="cm...">
+                        <label for="precisionBreddInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">2. Bredd Dressyr/Precision (cm)</label>
+                        <input type="number" id="precisionBreddInput" class="mt-1 block w-full p-3 text-lg border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="cm...">
                     </div>
                     <div>
-                        <label for="maratonBreddInput" class="block text-sm font-medium text-gray-700">3. Bredd Maraton (cm)</label>
-                        <input type="number" id="maratonBreddInput" class="mt-1 block w-full p-3 text-lg border rounded-md" placeholder="cm...">
+                        <label for="maratonBreddInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">3. Bredd Maraton (cm)</label>
+                        <input type="number" id="maratonBreddInput" class="mt-1 block w-full p-3 text-lg border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="cm...">
                     </div>
                 </div>
                 
-                <div class="p-4 border rounded-lg bg-gray-50">
-                    <h3 class="text-md font-semibold mb-3">4. Funktionskontroll</h3>
+                <div class="p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 dark:border-gray-600">
+                    <h3 class="text-md font-semibold mb-3 dark:text-white">4. Funktionskontroll</h3>
                     <div class="space-y-3">
                          <label class="flex items-center cursor-pointer">
-                            <input type="checkbox" id="safetyCheckApproved" class="h-5 w-5 rounded border-gray-300">
-                            <span class="ml-3 text-md font-medium text-gray-800">Vagn Godkänd</span>
+                            <input type="checkbox" id="safetyCheckApproved" class="h-5 w-5 rounded border-gray-300 dark:border-gray-500 dark:bg-gray-600 focus:ring-blue-500">
+                            <span class="ml-3 text-md font-medium text-gray-800 dark:text-gray-200">Vagn Godkänd</span>
                         </label>
                         <div>
-                            <label for="safetyCheckComment" class="block text-sm font-medium text-gray-700">Anmärkning</label>
-                            <textarea id="safetyCheckComment" rows="2" class="mt-1 block w-full p-2 border rounded-md" placeholder="T.ex. bromsar, reflexer..."></textarea>
+                            <label for="safetyCheckComment" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Anmärkning</label>
+                            <textarea id="safetyCheckComment" rows="2" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" placeholder="T.ex. bromsar, reflexer..."></textarea>
                         </div>
                     </div>
                 </div>
 
                 <div>
-                    <button id="saveVagnbreddBtn" class="w-full bg-brand-darkblue text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-lg">Spara & Gå till Nästa</button>
+                    <button id="saveVagnbreddBtn" class="w-full bg-brand-darkblue text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-lg dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:text-white transition-colors">Spara & Gå till Nästa</button>
                 </div>
-             </div> <div id="progressIndicator" class="text-center text-gray-600 mt-4"></div>
+             </div> <div id="progressIndicator" class="text-center text-gray-600 dark:text-gray-400 mt-4"></div>
             </div>
                 </div>
         </div>
@@ -243,16 +243,16 @@ export async function load() {
             showAlert(`${badEquipages.length} ekipage hade ofullständig data och visas inte. Se konsolen (F12) för detaljer.`);
         }
 
-// Steg 3: Använd BARA den "friska" datan
-sortedEquipages = goodEquipages;
+        // Steg 3: Använd BARA den "friska" datan
+        sortedEquipages = goodEquipages;
 
-const searchContainer = document.getElementById('vagnbreddEquipageSearch');
+        const searchContainer = document.getElementById('vagnbreddEquipageSearch');
 
-// Skicka den råa, filtrerade listan med ekipage direkt till komponenten
-equipageSearchDropdown = createSearchableDropdown(searchContainer, sortedEquipages, onEquipageSelect);
-updateStatus();
+        // Skicka den råa, filtrerade listan med ekipage direkt till komponenten
+        equipageSearchDropdown = createSearchableDropdown(searchContainer, sortedEquipages, onEquipageSelect);
+        updateStatus();
 
-// Koppla händelselyssnare
+        // Koppla händelselyssnare
         document.getElementById('saveVagnbreddBtn').addEventListener('click', saveCheck);
         document.getElementById('prevBtn').addEventListener('click', () => navigateToEquipage(-1));
         document.getElementById('nextBtn').addEventListener('click', () => navigateToEquipage(1));
@@ -286,7 +286,7 @@ export function __unload() {
             console.warn("Kunde inte förstöra dropdown vid unload:", e);
         }
     }
-    
+
     // Nollställ alla state-variabler
     competitionId = null;
     allEquipages = [];
