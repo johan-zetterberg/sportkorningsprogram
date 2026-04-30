@@ -30,7 +30,6 @@ export const storage = getStorage(app);
 // Slå på offline-persistens (multi-tab om möjligt, annars single-tab)
 try {
   await enableMultiTabIndexedDbPersistence(db);
-  console.log('Firestore persistence: multi-tab ENABLED');
 } catch (err) {
   if (err.code === 'failed-precondition' || err.code === 'unimplemented') {
     console.warn('Firestore persistence failed/not possible:', err.code);
@@ -41,7 +40,6 @@ try {
     console.warn('Fallback single-tab persistence due to:', err);
     try {
       await enableIndexedDbPersistence(db);
-      console.log('Firestore persistence: single-tab ENABLED');
     } catch (err2) {
       console.warn('Firestore persistence DISABLED:', err2?.code || err2);
     }

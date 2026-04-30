@@ -22,8 +22,9 @@ export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, rate = PRECISI
     if (!Number.isFinite(timeMs) || !Number.isFinite(maxTimeSec) || maxTimeSec <= 0) return 0;
     const maxMs = maxTimeSec * 1000;
     if (timeMs <= maxMs) return 0;
-    const diff = timeMs - maxMs;
-    return Math.ceil(diff / 1000) * rate;
+    const diffMs = timeMs - maxMs;
+    const secondsOver = diffMs / 1000;
+    return round2(secondsOver * rate);
 }
 
 export function calculatePrecisionResult(state) {

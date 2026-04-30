@@ -969,8 +969,6 @@ export function calculateClassObstacleStats(className, obstacleNumber, allStatus
 
     // DEBUG LOG
     if (sn === '1' || sn === '2') {
-      console.log(`[calcMarathon] SN ${sn} RAW Objs:`, data.obstacles);
-      console.log(`[calcMarathon] SN ${sn} ObsArr Len: ${obsArr.length}`, obsArr);
     }
 
     let totalObstacleSeconds = 0;

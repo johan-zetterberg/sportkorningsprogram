@@ -34,16 +34,59 @@ service cloud.firestore {
     }
 
     // Behörighet till viss tävling i artifacts-trädet:
-    // Tillåter superadmin, skapare (createdBy) eller den som finns i admins[]
+    // Tillåter superadmin, global admin, skapare (createdBy), eller den som:
+    // 1. Finns i admins[] arrayen
+    // 2. Finns i officialEmails[] arrayen (via request.auth.token.email)
+    // 3. Finns i /admins/{uid} underkollektionen (använt rätt PIN-kod)
     function canAdminThisArtifactsComp(appId, compId) {
       return request.auth != null
         && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
         && (
           isSuperAdmin() ||
-          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.createdBy == request.auth.uid ||
+          getUserRole() == 'admin' ||
+          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('createdBy', '') == request.auth.uid ||
+          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('ownerId', '') == request.auth.uid ||
           (
-            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.admins != null &&
-            request.auth.uid in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.admins
+            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('admins', []) != null &&
+            request.auth.uid in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('admins', [])
+          ) ||
+          (
+            request.auth.token.email != null &&
+            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('officialEmails', []) != null &&
+            request.auth.token.email.lower() in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('officialEmails', [])
+          ) ||
+          (
+            exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
+            (
+              get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('role', 'admin') == 'admin' ||
+              (
+                get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', []) != null &&
+                'admin' in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', [])
+              )
+            )
+          )
+        );
+    }
+
+    function hasRoleInComp(appId, compId, roleName) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
+        && (
+          canAdminThisArtifactsComp(appId, compId) ||
+          (
+            request.auth.token.email != null &&
+            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get(roleName + 'Emails', []) != null &&
+            request.auth.token.email.lower() in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get(roleName + 'Emails', [])
+          ) ||
+          (
+            exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
+            (
+              get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('role', 'admin') == roleName ||
+              (
+                get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', []) != null &&
+                roleName in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', [])
+              )
+            )
           )
         );
     }
@@ -155,48 +198,42 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','funktionar','official','judge'] ||
-          canAdminThisArtifactsComp(appId, compId)
+          hasRoleInComp(appId, compId, 'precision')
         );
     }
 
     // ---- Dressyrprotokoll (NY STRUKTUR)
-    match /artifacts/{appId}/public/data/competitions/{competitionId}/dressage/{startNumber}/protocols/{docId} {
+    match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNumber}/protocols/{docId} {
       allow read: if true; // (läsning täcks även av public/** ovan, men OK att vara explicit)
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','judge','official','domare','funktionar']
+          hasRoleInComp(appId, compId, 'dressage')
         );
     }
 
     // Status och live-data för dressyr
-    match /artifacts/{appId}/public/data/competitions/{competitionId}/dressageStatus/{startNumber} {
+    match /artifacts/{appId}/public/data/competitions/{compId}/dressageStatus/{startNumber} {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','judge','official','domare','funktionar']
+          hasRoleInComp(appId, compId, 'dressage')
         );
 
       match /live/{docId} {
         allow read: if true;
         allow write: if request.auth != null
           && (
-            isSuperAdmin() ||
-            getUserRole() in ['admin','judge','official','domare','funktionar']
+            hasRoleInComp(appId, compId, 'dressage')
           );
       }
     }
 
     // ---- Dressyrprotokoll (LEGACY-STRUKTUR)
-    match /artifacts/{appId}/public/data/competitions/{competitionId}/dressageResults/{startNumber}/protocols/{docId} {
+    match /artifacts/{appId}/public/data/competitions/{compId}/dressageResults/{startNumber}/protocols/{docId} {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','judge','official','domare','funktionar']
+          hasRoleInComp(appId, compId, 'dressage')
         );
     }
 
@@ -205,8 +242,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','funktionar','official','judge']
+          hasRoleInComp(appId, compId, 'dressage')
         );
     }
 
@@ -225,6 +261,7 @@ service cloud.firestore {
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId) ||
+          hasRoleInComp(appId, compId, 'speaker') ||
           (
              // Allow drivers to update Declaration fields (Self-Service)
              // We trust the client UI to only show this for claimed equipages.
@@ -288,13 +325,38 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
-      allow read: if true;
+      allow read: if configId != 'secrets';
       allow write, delete: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId)
         );
+    }
+
+    // Hemliga konfigurationer (t.ex. PIN-kod)
+    match /artifacts/{appId}/public/data/competitions/{compId}/config/secrets {
+      allow read, write: if request.auth != null
+        && (
+          canAdminThisArtifactsComp(appId, compId)
+        );
+    }
+
+    function isValidPin(appId, compId, role, pin) {
+        return pin != null && pin != '' && pin != 'null' && (
+            (role == 'admin' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode', 'null')) ||
+            (role == 'dressage' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_dressage', 'null')) ||
+            (role == 'marathon' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_marathon', 'null')) ||
+            (role == 'precision' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_precision', 'null')) ||
+            (role == 'speaker' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_speaker', 'null'))
+        );
+    }
+
+    // Administratörer som joinat med PIN-kod
+    match /artifacts/{appId}/public/data/competitions/{compId}/admins/{userId} {
+      allow read: if request.auth != null && (request.auth.uid == userId || canAdminThisArtifactsComp(appId, compId));
+      allow create, update: if request.auth != null 
+        && request.auth.uid == userId 
+        && isValidPin(appId, compId, request.resource.data.get('role', 'admin'), request.resource.data.get('accessCode', ''));
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
     }
 
     // NYTT: Meddelanden (Messages)
@@ -338,9 +400,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','funktionar','official','judge','domare'] ||
-          canAdminThisArtifactsComp(appId, compId)
+          hasRoleInComp(appId, compId, 'marathon')
         );
     }
 
@@ -348,8 +408,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','funktionar','official','judge']
+          hasRoleInComp(appId, compId, 'marathon')
         );
     }
 
@@ -357,9 +416,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','funktionar','official','judge'] ||
-          canAdminThisArtifactsComp(appId, compId)
+          hasRoleInComp(appId, compId, 'marathon')
         );
     }
 
@@ -367,9 +424,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','funktionar','official','judge'] ||
-          canAdminThisArtifactsComp(appId, compId)
+          hasRoleInComp(appId, compId, 'marathon')
         );
     }
 
@@ -377,9 +432,7 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','funktionar','official','judge'] ||
-          canAdminThisArtifactsComp(appId, compId)
+          hasRoleInComp(appId, compId, 'marathon')
         );
     }
 

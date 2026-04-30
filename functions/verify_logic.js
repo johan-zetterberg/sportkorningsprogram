@@ -88,19 +88,10 @@ const precisionDoc = {
     knocks: [{ id: 1 }]
 };
 
-console.log("--- RUNNING VERIFICATION ---");
-console.log("Expected Dressage: 50.0");
-console.log("Expected Marathon: 15.0");
-console.log("Expected Precision: 8.0");
-console.log("Expected Total: 73.0");
-console.log("----------------------------");
 
 const result = calculateTotalResult(equipage, dressageProtocols, marathonDoc, timingDoc, precisionDoc, context);
 
-console.log("Calculated Result:", JSON.stringify(result, null, 2));
 
 if (result.totalPenalty === 73.0) {
-    console.log("\n✅ SUCCESS: Calculation matches expectations.");
 } else {
-    console.log("\n❌ FAILED: Values do not match.");
 }

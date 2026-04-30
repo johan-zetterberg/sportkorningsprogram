@@ -115,12 +115,6 @@ export function calculateDressageResult(equipage, protocols, validJudges = [], p
 
     // DEBUG: Log prognosis inputs
     if (pointsNow > 0 && maxPointsNow > totalMaxPoints * 0.1) {
-        console.log('CalcDressage Prognosis Debug:', {
-            pointsNow,
-            maxPointsNow,
-            totalMaxPoints,
-            prognosis: maxPointsNow > 0 ? (pointsNow / maxPointsNow) * 100 : 0
-        });
     }
 
     const isLive = maxPointsNow > 0 && maxPointsNow < totalMaxPoints;

@@ -1526,7 +1526,7 @@ export async function joinCompetitionAsAdmin(competitionId, pinCode, user) {
         email: user.email,
         joinedAt: Date.now(),
         roles: newRoles,
-        role: newRoles[0] // fallback för äldre kod
+        role: role // Viktigt: Sätt till den Nya rollen så att Firestore-reglerna kan verifiera PIN-koden mot just denna roll!
       }, { merge: true });
       successfulRole = role;
       break; // Success! We found the matching role.

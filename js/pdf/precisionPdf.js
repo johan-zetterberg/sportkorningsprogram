@@ -127,9 +127,51 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
       body: data.knockStats.map(k => [String(k.port), String(k.count)]),
       ...commonTableOpts
     });
+    y = pdf.lastAutoTable.finalY + 12;
   }
 
-  // 7. SPARA FIL
+  // 7. TABELL 4: PASSERTIDER
+  const splits = d.gateSplits || {};
+  const splitKeys = Object.keys(splits).filter(k => k === 'start' || k === 'finish' || k.startsWith('gate_'))
+    .sort((a, b) => {
+        if (a === 'start') return -1;
+        if (b === 'start') return 1;
+        if (a === 'finish') return 1;
+        if (b === 'finish') return -1;
+        return (parseInt(a.replace('gate_', '')) || 0) - (parseInt(b.replace('gate_', '')) || 0);
+    });
+
+  if (splitKeys.length > 0) {
+    const startAbs = splits['start'] || d.liveStartEpoch;
+    const splitRows = splitKeys.map(k => {
+        let label = k;
+        if (label === 'start') label = 'Start';
+        else if (label === 'finish') label = 'Mål';
+        else label = 'Gate ' + label.replace('gate_', '');
+        
+        let timeStr = '';
+        if (k === 'start' || !startAbs) {
+            timeStr = 'kl. ' + new Date(splits[k]).toLocaleTimeString('sv-SE', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+        } else {
+            const elapsed = Math.max(0, splits[k] - startAbs);
+            const m = Math.floor(elapsed / 60000);
+            const s = Math.floor((elapsed % 60000) / 1000);
+            const ds = Math.floor((elapsed % 1000) / 100);
+            timeStr = `+${m > 0 ? m + ':' : ''}${String(s).padStart(m > 0 ? 2 : 1, '0')},${ds}s`;
+        }
+        return [label, timeStr];
+    });
+
+    pdf.autoTable({
+      startY: y,
+      head: [['Passering', 'Tid']],
+      body: splitRows,
+      ...commonTableOpts
+    });
+    y = pdf.lastAutoTable.finalY + 12;
+  }
+
+  // 8. SPARA FIL
   const driverNameSanitized = sanitizeForFilename(eq.driverName || '');
   const filename = `precisionprotokoll_${eq.startNumber}_${driverNameSanitized}.pdf`;
   pdf.save(filename);

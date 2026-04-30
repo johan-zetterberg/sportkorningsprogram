@@ -13,7 +13,6 @@ export function startMarathonSimulation(options = {}) {
         activeRunnerCount = 5
     } = options;
 
-    console.log(`🚀 Starting Marathon Simulation: ${driverCount} drivers, ${activeRunnerCount} active.`);
 
     // Access internals exposed by speaker.js (we need to ensure they are exposed)
     // We expect window.speakerInternals to be available or we can try to manipulate DOM directly?
@@ -68,7 +67,6 @@ export function startMarathonSimulation(options = {}) {
                     if (Math.random() > 0.8) {
                         r.state = 'on_course';
                         r.startTime = now;
-                        console.log(`🏁 #${r.sn} Started!`);
                     }
                 }
             } else if (r.state === 'on_course') {
@@ -86,11 +84,9 @@ export function startMarathonSimulation(options = {}) {
                         ts: now
                     });
 
-                    console.log(`🚧 #${r.sn} Cleared Obstacle ${r.lastObstacle}`);
 
                     if (r.lastObstacle > 6) {
                         r.state = 'finished';
-                        console.log(`🏁 #${r.sn} Finished!`);
                     }
                 }
             }

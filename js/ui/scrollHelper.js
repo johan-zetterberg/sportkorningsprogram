@@ -13,10 +13,12 @@ export function injectScrollStyles() {
       /* Hide native scrollbars on the wrapper but allow scrolling */
       .x-scroll-wrap {
         overflow-x: auto !important;
+        overflow-y: auto !important;
+        max-height: calc(100vh - 120px);
         -ms-overflow-style: none;  /* IE/Edge */
         scrollbar-width: none;     /* Firefox */
       }
-      .x-scroll-wrap::-webkit-scrollbar { height: 0; } /* WebKit */
+      .x-scroll-wrap::-webkit-scrollbar { height: 0; width: 0; } /* WebKit */
   
       .fixed-xbar {
         position: fixed; bottom: 0; left: 0; width: 100%;

@@ -164,7 +164,16 @@ export function getClassTempoMpm(cls, config) {
 }
 
 export function computeMaxSecondsForClass(cls, config) {
-    return _coreMaxSec(cls, config);
+    const coreVal = _coreMaxSec(cls, config);
+    if (coreVal !== null) return coreVal;
+    
+    // Fallback: Use track length and TR tempo from klassTempoData
+    const len = getTrackLengthMeters(cls, config);
+    const tempo = getClassTempoMpm(cls, config);
+    if (len > 0 && tempo > 0) {
+        return Math.round((len / tempo) * 60);
+    }
+    return null;
 }
 
 export function startTimeFor(startNumber, startTimes) {

@@ -6,6 +6,7 @@ import {
 } from './rules-ledger.js';
 
 const kmhToMmin = (kmh) => (kmh * 1000) / 60;
+const round2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 
 export function getClassSettings(className, marathonConfig) {
     if (!marathonConfig || !className) return null;
@@ -115,8 +116,8 @@ export function stagePenaltyFromMs(ms, equipage, stage, marathonConfig) {
     if (diff <= 0) return { points: 0, elim: false };
 
     const rate = marathonConfig?.timePenaltyRate ?? PENALTY_RATE;
-    const pts = Math.ceil(diff) * rate;
-    return { points: pts, elim: false };
+    const pts = diff * rate;
+    return { points: round2(pts), elim: false };
 }
 
 export function getObstacleCoefficient(className, marathonConfig) {

@@ -12,7 +12,6 @@ export class SyncQueue extends HTMLElement {
 
     // Listen to network status changes to force re-check
     this.onNetworkChange = () => {
-      console.log('SyncQueue: Network status changed. Online:', navigator.onLine);
       this.update(syncService.getAll());
     };
     window.addEventListener('online', this.onNetworkChange);
@@ -28,7 +27,6 @@ export class SyncQueue extends HTMLElement {
   }
 
   update(items) {
-    console.log('SyncQueue update called with items:', items.length);
     const btn = this.shadowRoot.getElementById('sync-btn');
     const list = this.shadowRoot.getElementById('sync-list');
     const countEl = this.shadowRoot.getElementById('sync-count');

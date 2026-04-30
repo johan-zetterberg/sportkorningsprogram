@@ -100,6 +100,52 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
                 <div><span class="text-gray-500 dark:text-gray-400">${t('port_allowance')}:</span> <span class="font-medium">${allowLabel}</span></div>
             </div>
         </div>
+        
+        ${(() => {
+            const splits = precisionData?.gateSplits || {};
+            const splitKeys = Object.keys(splits).filter(k => k === 'start' || k === 'finish' || k.startsWith('gate_'))
+              .sort((a, b) => {
+                  if (a === 'start') return -1;
+                  if (b === 'start') return 1;
+                  if (a === 'finish') return 1;
+                  if (b === 'finish') return -1;
+                  return (parseInt(a.replace('gate_', '')) || 0) - (parseInt(b.replace('gate_', '')) || 0);
+              });
+              
+            if (splitKeys.length === 0) return '';
+            
+            return `
+            <div class="border-t dark:border-gray-700 pt-4 mb-6">
+                <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3 flex items-center gap-2">
+                    <i class="fas fa-map-marker-alt text-blue-500"></i> Passertider
+                </h4>
+                <div class="flex flex-wrap gap-2">
+                    ${splitKeys.map(k => {
+                        let label = k;
+                        if (label === 'start') label = 'Start';
+                        else if (label === 'finish') label = 'Mål';
+                        else label = 'Gate ' + label.replace('gate_', '');
+                        
+                        const startAbs = splits['start'] || precisionData?.liveStartEpoch;
+                        let timeStr = '';
+                        if (k === 'start' || !startAbs) {
+                            timeStr = 'kl. ' + new Date(splits[k]).toLocaleTimeString('sv-SE', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
+                        } else {
+                            const elapsed = Math.max(0, splits[k] - startAbs);
+                            const m = Math.floor(elapsed / 60000);
+                            const s = Math.floor((elapsed % 60000) / 1000);
+                            const ds = Math.floor((elapsed % 1000) / 100);
+                            timeStr = `+${m > 0 ? m + ':' : ''}${String(s).padStart(m > 0 ? 2 : 1, '0')},${ds}s`;
+                        }
+                        
+                        return `<div class="bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 border dark:border-gray-600">
+                            <span class="font-bold">${label}</span>
+                            <span class="font-mono text-xs opacity-75">${timeStr}</span>
+                        </div>`;
+                    }).join('')}
+                </div>
+            </div>`;
+        })()}
 
         <div class="border-t dark:border-gray-700 pt-4 flex justify-end">
              <button id="printPrecPdfBtn" class="px-4 py-2 bg-gray-900 dark:bg-gray-800 text-white rounded hover:bg-gray-800 dark:hover:bg-gray-700 flex items-center gap-2 text-sm font-medium transition-colors">

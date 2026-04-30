@@ -8,7 +8,10 @@ import {
     onSnapshot,
     query,
     orderBy,
-    serverTimestamp
+    serverTimestamp,
+    arrayUnion,
+    arrayRemove,
+    getDoc
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 export { serverTimestamp };
@@ -55,11 +58,25 @@ export async function saveOfficial(competitionId, official) {
         rank: official.rank || '',
         club: official.club || '',
         notes: official.notes || '',
+        role: official.role || 'admin',
         isActive: official.isActive !== undefined ? official.isActive : true,
         updatedAt: Date.now()
     };
 
     await setDoc(doc(db, `${getBasePath(competitionId)}/officials`, id), data);
+
+    // Sync email to root document for Auto-login permissions
+    if (data.email) {
+        try {
+            const roleKey = data.role === 'admin' ? 'officialEmails' : `${data.role}Emails`;
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/competitions`, competitionId), {
+                [roleKey]: arrayUnion(data.email.toLowerCase().trim())
+            });
+        } catch (e) {
+            console.warn("Kunde inte synka official email (kanske saknar behörighet på root-dokumentet)", e);
+        }
+    }
+
     return id;
 }
 
@@ -71,7 +88,30 @@ export async function updateOfficialStatus(competitionId, officialId, updates) {
 
 export async function deleteOfficial(competitionId, officialId) {
     if (!competitionId || !officialId) return;
+
+    // Hämta e-posten först så vi kan ta bort den från behörighetslistan
+    let emailToRemove = null;
+    let roleToRemove = 'admin';
+    try {
+        const snap = await getDoc(doc(db, `${getBasePath(competitionId)}/officials`, officialId));
+        if (snap.exists() && snap.data().email) {
+            emailToRemove = snap.data().email.toLowerCase().trim();
+            roleToRemove = snap.data().role || 'admin';
+        }
+    } catch (e) { }
+
     await deleteDoc(doc(db, `${getBasePath(competitionId)}/officials`, officialId));
+
+    if (emailToRemove) {
+        try {
+            const roleKey = roleToRemove === 'admin' ? 'officialEmails' : `${roleToRemove}Emails`;
+            await updateDoc(doc(db, `artifacts/${appId}/public/data/competitions`, competitionId), {
+                [roleKey]: arrayRemove(emailToRemove)
+            });
+        } catch (e) {
+            console.warn("Kunde inte synka borttagning av official email", e);
+        }
+    }
 }
 
 // --- Volunteer Signups (Anmälningar) ---

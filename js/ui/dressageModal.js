@@ -352,7 +352,6 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
 
 // Exported helper for shared rendering
 export function renderDressageContent(container, data, judgesPresent, program, pdfContext, isInternational = false) {
-  console.log('[ModalDebug] renderDressageContent judgesPresent:', judgesPresent);
   // Rensa container men behåll struktur om vi vill? Nej bygg inre struktur.
   // Vi behöver tabs container och content container.
   container.innerHTML = `

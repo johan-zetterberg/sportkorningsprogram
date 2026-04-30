@@ -77,7 +77,6 @@ function injectModalStyles() {
 // ctx ska innehålla: { competitionId, equipages, resultRows, precisionMap, allCompetitionJudges, marathonConfig, precisionConfig, limitsFor?, secondsToMMSS? }
 export async function openEquipageModal(startNumber, ctx) {
   try {
-    console.log('[ModalDebug] OPENING startNumber:', startNumber, 'CTX:', ctx);
 
     // Robust context Check
     if (!ctx) ctx = {};
@@ -156,13 +155,11 @@ export async function openEquipageModal(startNumber, ctx) {
     const tabsEl = modal.querySelector('#tr-tabs');
     const bodyEl = modal.querySelector('#tr-modal-body');
 
-    console.log('[ModalDebug] Opening for:', startNumber, 'Competition:', ctx.competitionId);
 
     // Förbereda datakällor (dressyr, tider, precision)
     const [dressageProtocols, marathonTiming, precisionResult] = await Promise.all([
       getDressageResultsForEquipage(ctx.competitionId, startNumber)
         .then(res => {
-          console.log('[ModalDebug] Fetched protocols:', res);
           return res;
         })
         .catch(err => {
@@ -173,7 +170,6 @@ export async function openEquipageModal(startNumber, ctx) {
       Promise.resolve(precisionRow || {})
     ]);
 
-    console.log('[ModalDebug] Protocols count:', dressageProtocols.length);
 
     // === TAB-innehåll ===
     async function renderTotalTab() {
@@ -230,13 +226,11 @@ export async function openEquipageModal(startNumber, ctx) {
 
         if (mapping && mapping[cls]) {
           programKey = mapping[cls];
-          console.log('[ModalDebug] Resolved program via mapping:', cls, '=>', programKey);
         } else {
           // 2. Kolla ctx.competitionConfig (legacy)
           const conf = ctx.competitionConfig;
           if (conf?.classes && conf.classes[cls]) {
             programKey = conf.classes[cls];
-            console.log('[ModalDebug] Resolved program via competitionConfig:', cls, '=>', programKey);
           }
         }
       }
@@ -247,16 +241,10 @@ export async function openEquipageModal(startNumber, ctx) {
         const guessed = guessProgramKeyFromClass(cls, getPrograms());
         if (guessed) {
           programKey = guessed;
-          console.log('[ModalDebug] Guessed program via heuristics:', cls, '=>', programKey);
         }
       }
 
       // Logga vad vi hittade
-      console.log('[ModalDebug] Program Lookup:', {
-        fromEq: eq.dressageProgramKey,
-        fromProto: p1.testKey || p1.programKey,
-        finalKey: programKey
-      });
 
       const programs = getPrograms();
       const program = programKey ? programs[programKey] : null;

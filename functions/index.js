@@ -55,7 +55,6 @@ async function recalculateEquipage(competitionId, startNumber) {
     ]);
 
     if (!eqSnap.exists) {
-        console.log(`Equipage ${eqKey} not found.`);
         return;
     }
 
@@ -102,7 +101,6 @@ async function recalculateEquipage(competitionId, startNumber) {
         calculatedBy: 'server-function'
     }, { merge: true });
 
-    console.log(`Updated computed_equipages/${eqKey} with Total: ${result.totalPenalty}`);
 }
 
 // --- TRIGGERS ---
