@@ -15,6 +15,7 @@ const pagePermissions = {
   'page-maraton-stages': ['marathon', 'domare', 'admin'],
   'page-maraton-input': ['marathon', 'domare', 'admin'],
   'page-observator-input': ['marathon', 'domare', 'admin'],
+  'page-maraton-monitor': ['publik', 'funktionar', 'domare', 'admin'],
   'page-maraton-results': ['publik', 'funktionar', 'domare', 'admin'],
   'page-precision-monitor': ['publik', 'funktionar', 'domare', 'admin'],
   'page-precision-input': ['precision', 'domare', 'admin'],
