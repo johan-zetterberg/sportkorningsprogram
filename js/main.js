@@ -36,7 +36,7 @@ export async function refreshUserCompRole() {
 
     // 2. Check admins subcollection
     try {
-        const snap = await getDoc(doc(db, 'apps', appId, 'competitions', comp.id, 'admins', user.uid));
+        const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', comp.id, 'admins', user.uid));
         if (snap.exists()) {
             const data = snap.data();
             if (Array.isArray(data.roles)) {
