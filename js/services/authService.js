@@ -10,10 +10,10 @@ let onAuthReadyCallback = null;
 /**
  * Uppdaterar synligheten för olika UI-element baserat på användarens roll och inloggningsstatus.
  */
-function updateUIVisibility() {
+export function updateUIVisibility() {
     // --- NYTT: Hämta användaren från global state istället för lokala variabler ---
     const currentUser = getGlobalState('currentUser');
-    const currentUserRole = currentUser?.role || 'publik';
+    const currentUserRole = currentUser?.compRole || currentUser?.role || 'publik';
     // --------------------------------------------------------------------------
 
     const userInfoDiv = document.getElementById('userInfo');
@@ -40,12 +40,22 @@ function updateUIVisibility() {
 
     navLinks.forEach(link => {
         const requiredRoles = (link.dataset.roleRequired || 'publik,funktionar,domare,admin').split(',');
-        // OM superadmin -> Visa allt
-        if (currentUserRole === 'superadmin') {
-            link.style.display = 'block';
-        } else {
-            link.style.display = requiredRoles.includes(currentUserRole) ? 'block' : 'none';
-        }
+        
+        // Mappa specifika funktionärsroller till den generella "funktionar"-nivån
+        const roleHierarchy = {
+            'superadmin': ['superadmin', 'admin', 'funktionar', 'publik'],
+            'admin': ['admin', 'funktionar', 'publik'],
+            'dressage': ['dressage', 'funktionar', 'publik'],
+            'marathon': ['marathon', 'funktionar', 'publik'],
+            'precision': ['precision', 'funktionar', 'publik'],
+            'speaker': ['speaker', 'funktionar', 'publik'],
+            'publik': ['publik']
+        };
+        
+        const expandedRoles = roleHierarchy[currentUserRole] || [currentUserRole, 'publik'];
+        const hasAccess = requiredRoles.some(r => expandedRoles.includes(r));
+        
+        link.style.display = hasAccess ? 'block' : 'none';
     });
 
     if (menuToggle) {
@@ -227,7 +237,6 @@ export function initAuth(callback) {
             // --- SUPERADMIN OVERRIDE ---
             const SUPER_ADMIN_EMAILS = ['admin@demo.se', 'johan.zetterberg@gmail.com'];
             if (user.email && SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())) {
-                console.log("Superadmin detected via hardcoded list.");
                 userRole = 'superadmin';
             } else {
                 let retries = 3;
@@ -325,7 +334,6 @@ export async function autoClaimEquipages(user) {
             await updateDoc(doc(db, 'users', user.uid), {
                 claimedEquipages: arrayUnion(...newClaims)
             });
-            console.log(`Auto-claimed ${newClaims.length} equipages for ${email}`);
         }
     } catch (err) {
         console.error('Auto-claim failed:', err);

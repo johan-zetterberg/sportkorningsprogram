@@ -171,7 +171,7 @@
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#dressyr-monitor" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
-                <a href="#dressyr-input" class="nav-link block px-4 py-2" data-role-required="domare,admin"
+                <a href="#dressyr-input" class="nav-link block px-4 py-2" data-role-required="dressage,domare,admin"
                   data-i18n="menu_input">Inmatning
                   Dressyr</a>
                 <a href="#dressyr-results" class="nav-link block px-4 py-2"
@@ -186,14 +186,14 @@
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#maraton-monitor" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
-                <a href="#maraton-input" class="nav-link block px-4 py-2" data-role-required="funktionar,domare,admin"
+                <a href="#maraton-input" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
                   data-i18n="menu_input_obstacles">Inmatning Hinder</a>
                 <a href="#maraton-tider" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_marathon_times">Maratontider</a>
-                <a href="#maraton-stages" class="nav-link block px-4 py-2" data-role-required="funktionar,domare,admin"
+                <a href="#maraton-stages" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
                   data-i18n="menu_stages">Maraton – Etapper</a>
                 <a href="#observator-input" class="nav-link block px-4 py-2"
-                  data-role-required="funktionar,domare,admin" data-i18n="menu_observer">Observatör</a>
+                  data-role-required="marathon,domare,admin" data-i18n="menu_observer">Observatör</a>
                 <a href="#maraton-results" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Maraton</a>
               </div>
@@ -206,8 +206,9 @@
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#precision-monitor" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
-                <a href="#precision-input" class="nav-link block px-4 py-2" data-role-required="funktionar,domare,admin"
+                <a href="#precision-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin"
                   data-i18n="menu_input">Inmatning Precision</a>
+                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin">Inmatning (Observer/Karta)</a>
                 <a href="#precision-results" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Precision</a>
               </div>
@@ -288,6 +289,7 @@
     <div id="page-observator-input" class="page"></div>
     <div id="page-vagnbredd" class="page"></div>
     <div id="page-precision-input" class="page"></div>
+    <div id="page-precision-split-input" class="page"></div>
     <div id="page-precision-results" class="page"></div>
     <div id="page-maraton-admin" class="page"></div>
     <div id="page-precision-admin" class="page"></div>

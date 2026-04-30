@@ -1,4 +1,4 @@
-import { initAuth } from './services/authService.js';
+import { initAuth, updateUIVisibility } from './services/authService.js';
 import { initRouter, navigateTo } from './services/navigationService.js';
 import { showAlert } from './ui/components.js';
 import { getCompetitionById, getConfig, getJudges, getOfficials } from './services/firestoreService.js';
@@ -12,6 +12,9 @@ const globalState = {
     currentCompetition: null,
     currentUser: null // Lägg till denna rad
 };
+
+import { db, appId } from './config/firebase-config.js';
+import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Exportera funktioner för att andra moduler ska kunna interagera med state.
 export function setGlobalState({ key, value }) {
@@ -38,6 +41,51 @@ export function setGlobalState({ key, value }) {
             compNavInfo.style.display = 'none';
             compNameEl.textContent = 'Ingen tävling vald';
             if (infoBtn) infoBtn.style.display = 'none'; // Hide button
+        }
+    }
+
+    // --- NYTT: Hämta tävlingsspecifik roll om tävling eller användare ändras ---
+    if (key === 'currentCompetition' || key === 'currentUser') {
+        const comp = globalState['currentCompetition'];
+        const user = globalState['currentUser'];
+        
+        if (comp && user && user.uid) {
+            let compRole = null;
+            
+            // 1. Check direct arrays on comp document
+            const email = (user.email || '').toLowerCase();
+            if (email) {
+                if (comp.adminEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'admin';
+                else if (comp.speakerEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'speaker';
+                else if (comp.dressageEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'dressage';
+                else if (comp.marathonEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'marathon';
+                else if (comp.precisionEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'precision';
+            }
+            
+            // 2. Check admins subcollection async if no role found in arrays
+            if (!compRole) {
+                getDoc(doc(db, 'apps', appId, 'competitions', comp.id, 'admins', user.uid))
+                    .then(snap => {
+                        if (snap.exists() && snap.data().role) {
+                            user.compRole = snap.data().role;
+                            updateUIVisibility();
+                        } else {
+                            user.compRole = null;
+                            updateUIVisibility();
+                        }
+                    })
+                    .catch(e => {
+                        console.warn("Could not fetch compRole", e);
+                        user.compRole = null;
+                        updateUIVisibility();
+                    });
+            } else {
+                user.compRole = compRole;
+                updateUIVisibility();
+            }
+        } else if (user) {
+            user.compRole = null;
+            updateUIVisibility();
         }
     }
 }
@@ -73,7 +121,6 @@ window.showAlert = showAlert;
 
 // --- Applikationens Initiering ---
 function initialize() {
-    console.log("Applikationen initieras...");
     initLanguageToggle();
     initTheme();
     updateNavigationTranslations();
@@ -157,7 +204,6 @@ function initialize() {
 
     // 1. Initiera autentiseringen. Vi skickar med en callback-funktion.
     initAuth(async () => {
-        console.log("Autentisering klar. Startar router.");
         initRouter();
 
         // 1. Bestäm målsida (nuvarande URL, sparad sida eller hubben)
