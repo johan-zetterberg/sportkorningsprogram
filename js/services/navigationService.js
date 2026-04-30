@@ -10,65 +10,64 @@ const pagePermissions = {
   'page-starttider': ['publik', 'funktionar', 'domare', 'admin'],
 
   'page-maraton-tider': ['publik', 'funktionar', 'domare', 'admin'],
-  'page-dressyr-input': ['domare', 'admin'],
+  'page-dressyr-input': ['dressage', 'domare', 'admin'],
   'page-dressyr-results': ['publik', 'funktionar', 'domare', 'admin'],
-  'page-maraton-stages': ['funktionar', 'domare', 'admin'],
-  'page-maraton-input': ['funktionar', 'domare', 'admin'],
-  'page-observator-input': ['funktionar', 'domare', 'admin'],
+  'page-maraton-stages': ['marathon', 'domare', 'admin'],
+  'page-maraton-input': ['marathon', 'domare', 'admin'],
+  'page-observator-input': ['marathon', 'domare', 'admin'],
   'page-maraton-results': ['publik', 'funktionar', 'domare', 'admin'],
-  'page-maraton-monitor': ['publik', 'funktionar', 'domare', 'admin'],
   'page-precision-monitor': ['publik', 'funktionar', 'domare', 'admin'],
-  'page-dressyr-monitor': ['publik', 'funktionar', 'domare', 'admin'],
-  'page-dressyr-admin': ['admin'],
-  'page-precision-input': ['funktionar', 'domare', 'admin'],
+  'page-precision-input': ['precision', 'domare', 'admin'],
+  'page-precision-split-input': ['precision', 'domare', 'admin'],
   'page-precision-results': ['publik', 'funktionar', 'domare', 'admin'],
   'page-precision-admin': ['admin'],
+  'page-dressyr-monitor': ['publik', 'funktionar', 'domare', 'admin'],
+  'page-dressyr-admin': ['admin'],
   'page-maraton-admin': ['admin'],
   'page-vagnbredd': ['funktionar', 'domare', 'admin'],
   'page-total-resultat': ['publik', 'funktionar', 'domare', 'admin'],
   'page-portal': ['publik', 'funktionar', 'domare', 'admin'], // Tillåt publik, men sidan kollar inloggningsstatus
-  'page-speaker': ['funktionar', 'domare', 'admin', 'speaker'],
-  'page-prize-giving': ['funktionar', 'domare', 'admin', 'speaker'],
+  'page-speaker': ['speaker', 'domare', 'admin'],
+  'page-prize-giving': ['speaker', 'funktionar', 'domare', 'admin'],
   'page-reports': ['funktionar', 'domare', 'admin'],
   'page-vet-check': ['funktionar', 'domare', 'admin'],
   'page-manual': ['publik', 'funktionar', 'domare', 'admin'],
   'page-official': ['funktionar', 'domare', 'admin'],
-
 };
 
 const pageLoaders = {
-  'hub': () => import('../pages/hub.js'),
-  'admin': () => import('../pages/admin.js'),
-  'ekipage': () => import('../pages/ekipage.js'),
-  'deltagare': () => import('../pages/deltagare.js'),
-  'hastar': () => import('../pages/hastar.js'),
-  'starttider': () => import('../pages/starttider.js'),
+  'hub': () => import('../pages/shared/hub.js'),
+  'admin': () => import('../pages/admin/admin.js'),
+  'ekipage': () => import('../pages/admin/ekipage.js'),
+  'deltagare': () => import('../pages/admin/deltagare.js'),
+  'hastar': () => import('../pages/admin/hastar.js'),
+  'starttider': () => import('../pages/admin/starttider.js'),
 
-  'maraton-tider': () => import('../pages/maraton-tider.js'),
-  'dressyr-input': () => import('../pages/dressyr-input.js'),
-  'dressyr-results': () => import('../pages/dressyr-resultat.js'),
-  'dressyr-admin': () => import('../pages/dressyr-admin.js'),
-  'maraton-input': () => import('../pages/maraton-input.js'),
-  'maraton-results': () => import('../pages/maraton-resultat.js'),
-  'maraton-monitor': () => import('../pages/maraton-monitor.js'),
-  'maraton-admin': () => import('../pages/maraton-admin.js'),
-  'maraton-stages': () => import('../pages/maraton-stages-input.js'),
-  'observator-input': () => import('../pages/observator-input.js'),
-  'precision-monitor': () => import('../pages/precision-monitor.js'),
-  'precision-input': () => import('../pages/precision-input.js'),
-  'precision-results': () => import('../pages/precision-resultat.js'),
-  'precision-admin': () => import('../pages/precision-admin.js'),
-  'dressyr-monitor': () => import('../pages/dressyr-monitor.js'),
-  'vagnbredd': () => import('../pages/vagnbredd.js'),
-  'total-resultat': () => import('../pages/total-resultat.js'),
-  'portal': () => import('../pages/portal.js'),
-  'speaker': () => import('../pages/speaker.js'),
-  'prize-giving': () => import('../pages/prize-giving.js'),
-  'reports': () => import('../pages/reports.js'),
-  'vet-check': () => import('../pages/vet-check.js'),
-  'manual': () => import('../pages/manual.js'),
-  'official': () => import('../pages/official.js'),
-
+  'maraton-tider': () => import('../pages/marathon/maraton-tider.js'),
+  'dressyr-input': () => import('../pages/dressage/dressyr-input.js'),
+  'dressyr-results': () => import('../pages/dressage/dressyr-resultat.js'),
+  'dressyr-admin': () => import('../pages/dressage/dressyr-admin.js'),
+  'maraton-input': () => import('../pages/marathon/maraton-input.js'),
+  'maraton-results': () => import('../pages/marathon/maraton-resultat.js'),
+  'maraton-monitor': () => import('../pages/marathon/maraton-monitor.js'),
+  'maraton-admin': () => import('../pages/marathon/maraton-admin.js'),
+  'maraton-stages': () => import('../pages/marathon/maraton-stages-input.js'),
+  'observator-input': () => import('../pages/marathon/observator-input.js'),
+  'precision-monitor': () => import('../pages/precision/precision-monitor.js'),
+  'precision-input': () => import('../pages/precision/precision-input.js'),
+  'precision-split-input': () => import('../pages/precision/precision-split-input.js'),
+  'precision-results': () => import('../pages/precision/precision-resultat.js'),
+  'precision-admin': () => import('../pages/precision/precision-admin.js'),
+  'dressyr-monitor': () => import('../pages/dressage/dressyr-monitor.js'),
+  'vagnbredd': () => import('../pages/shared/vagnbredd.js'),
+  'total-resultat': () => import('../pages/shared/total-resultat.js'),
+  'portal': () => import('../pages/shared/portal.js'),
+  'speaker': () => import('../pages/shared/speaker.js'),
+  'prize-giving': () => import('../pages/shared/prize-giving.js'),
+  'reports': () => import('../pages/shared/reports.js'),
+  'vet-check': () => import('../pages/shared/vet-check.js'),
+  'manual': () => import('../pages/shared/manual.js'),
+  'official': () => import('../pages/shared/official.js'),
 };
 
 let pageInitializers = {};
@@ -80,11 +79,25 @@ export async function navigateTo(hash) {
 
   try { localStorage.setItem('lastPageId', hash || '#hub'); } catch (_) { }
 
-  const userRole = getGlobalState('currentUser')?.role || 'publik';
+  const user = getGlobalState('currentUser');
+  const userRole = user?.compRole || user?.role || 'publik';
   const requiredRoles = pagePermissions[pageId] || [];
 
+  // Mappa specifika funktionärsroller till den generella "funktionar"-nivån för page routing
+  const roleHierarchy = {
+      'superadmin': ['superadmin', 'admin', 'funktionar', 'publik'],
+      'admin': ['admin', 'funktionar', 'publik'],
+      'dressage': ['dressage', 'funktionar', 'publik'],
+      'marathon': ['marathon', 'funktionar', 'publik'],
+      'precision': ['precision', 'funktionar', 'publik'],
+      'speaker': ['speaker', 'funktionar', 'publik'],
+      'publik': ['publik']
+  };
+  const expandedRoles = roleHierarchy[userRole] || [userRole, 'publik'];
+
   // Om superadmin -> Släpp igenom allt
-  if (userRole !== 'superadmin' && !requiredRoles.includes(userRole)) {
+  const hasAccess = requiredRoles.some(r => expandedRoles.includes(r));
+  if (userRole !== 'superadmin' && !hasAccess) {
     document.getElementById('loginModal').style.display = 'flex';
     if (window.location.hash !== '' && window.location.hash !== '#hub') {
       window.location.hash = '#hub';
