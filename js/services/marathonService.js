@@ -1,7 +1,7 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, query, serverTimestamp, runTransaction, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';;
-import { getConfig } from './competitionService.js';
+import { getConfig, listenForConfig } from './competitionService.js';
 import { auth } from '../config/firebase-config.js';
 
 export function listenForMarathonObstacles(competitionId, callback) {
@@ -152,6 +152,11 @@ export async function getMarathonTimingForEquipage(competitionId, startNumber) {
 export async function getStartTimes(competitionId) {
   const doc = await getConfig(competitionId, 'startTimes');
   return doc?.times || {};
+}
+
+export function listenForMarathonConfig(competitionId, callback) {
+  if (!competitionId) return () => {};
+  return listenForConfig(competitionId, 'maratonConfig', callback);
 }
 
 export async function saveMarathonTimingData(competitionId, equipageId, data) {

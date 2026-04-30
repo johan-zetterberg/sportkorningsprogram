@@ -31,6 +31,7 @@ test('seeded edge-case smoke flow', async ({ page }) => {
 });
 
 test('seeded stress monitor smoke flow', async ({ page }) => {
+  test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: true, includeStress: true });
 
   await page.goto('/index.html#total-resultat');

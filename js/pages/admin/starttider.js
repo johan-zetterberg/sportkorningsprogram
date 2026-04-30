@@ -736,7 +736,7 @@ function renderDesktop() {
 
     // Scroll helpers
     const hostEl = document.getElementById('starttider-x-wrap');
-    if (hostEl && window.__setupXbarSync) {
+    if (hostEl && typeof window.__setupXbarSync === 'function') {
         // Delay to ensure table layout is ready
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
