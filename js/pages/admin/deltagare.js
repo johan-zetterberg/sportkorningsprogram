@@ -297,7 +297,8 @@ function renderMobile() {
   if (!container) return;
 
   const sorted = getSortedEquipages();
-  const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(getGlobalState('currentUser')?.role || '');
+  const user = getGlobalState('currentUser');
+  const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(user?.compRole || user?.role || '');
   let lastClass = null;
 
   if (sorted.length === 0) {
@@ -815,7 +816,8 @@ function renderDesktop() {
     { key: 'horseName', label: t('hast_ponny') }
   ];
   // === ÄNDRING: Lade till canViewDetails-kontroll ===
-  const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(getGlobalState('currentUser')?.role || '');
+  const user = getGlobalState('currentUser');
+  const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(user?.compRole || user?.role || '');
 
   let tableHtml = `
       <div id="participant-x-host" class="x-scroll-wrap">
@@ -996,7 +998,8 @@ export async function load() {
     const pageContent = document.getElementById('page-deltagare');
     if (pageContent) {
       pageContent.addEventListener('click', (e) => {
-        const canViewDetails = ['admin', 'superadmin', 'domare', 'funktionar', 'official', 'judge', 'sekretariat'].includes(getGlobalState('currentUser')?.role || '');
+        const user = getGlobalState('currentUser');
+        const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(user?.compRole || user?.role || '');
         const row = e.target.closest('[data-equipage-id]');
         const header = e.target.closest('.sortable-header');
 
