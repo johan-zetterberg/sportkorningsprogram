@@ -173,7 +173,7 @@ function getTabContent(tab) {
                             </ul>
                             <p class="text-[10px] text-blue-800 mt-1"><em>* Strukna ekipage filtreras automatiskt bort från dessa listor.</em></p>
                         </li>
-                        <li><strong>Resultatlistor:</strong> Resultat räknas ut live. Du behöver inte "räkna" något manuellt.</li>
+                        <li><strong>Resultatlistor:</strong> Resultat räknas ut live. På "Total-resultat" kan du nu även klicka på "Skriv ut / PDF" för att få en snyggt formaterad slutlista per klass.</li>
                         <li><strong>CSV-export:</strong> Använd knapparna "CSV" för att få ut rådata till Excel om du behöver göra egna analyser.</li>
                     </ul>
                      <p class="text-xs text-blue-900 mt-2 font-bold">
@@ -257,8 +257,8 @@ function getTabContent(tab) {
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
                             <li><strong>Gå tillbaka:</strong> Klicka alltid på loggan (längst upp till vänster) för att återgå till Hubben och byta tävling.</li>
                             <li><strong>Skapa Nytt:</strong> (Endast Admin) Använd formuläret i Hubben för att starta en ny tävling.</li>
-                            <li><strong>Uppdatera:</strong> Systemet är "Live". Du behöver sällan ladda om sidan manuellt.</li>
-                            <li><strong>Mobilanpassning:</strong> På små skärmar blir filter-knapparna (t.ex. "Klass") automatiskt en rullgardinsmeny för att spara plats.</li>
+                            <li><strong>Offline-säker:</strong> Högst upp ser du en synk-ikon (moln) eller en "Offline"-badge. Du kan fortsätta skriva in resultat även utan internet!</li>
+                            <li><strong>Mobil & Surfplatta:</strong> Systemet anpassar sig automatiskt. På mobiler visas listor som klickbara "Kort", medan surfplattor och datorer visar klassiska tabeller för bättre överblick.</li>
                         </ul>
                     </div>
                 </div>
@@ -1291,8 +1291,8 @@ function getTabContentEN(tab) {
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
                             <li><strong>Go Back:</strong> Always click the logo (top left) to return to the Hub and switch competitions.</li>
                             <li><strong>Create New:</strong> (Admin only) Use the form in the Hub to start a new competition.</li>
-                            <li><strong>Refresh:</strong> The system is "Live". You rarely need to reload the page manually.</li>
-                            <li><strong>Mobile Friendly:</strong> On small screens, filter buttons (e.g., "Class") automatically become a dropdown menu to save space.</li>
+                            <li><strong>Offline Safe:</strong> Look for the sync cloud or "Offline" badge at the top. You can continue working even without internet!</li>
+                            <li><strong>Mobile & Tablet:</strong> The system adapts automatically. Phones show click-friendly "Cards", while tablets and PCs show classic tables.</li>
                         </ul>
                     </div>
                 </div>

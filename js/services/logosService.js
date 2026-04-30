@@ -1,4 +1,4 @@
-import { getConfig, saveConfig } from './firestoreService.js';
+import { getConfig, saveConfig } from './competitionService.js';
 
 let _clubLogoMap = null;
 let _loadPromise = null;

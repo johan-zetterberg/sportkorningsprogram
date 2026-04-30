@@ -2,12 +2,14 @@
 // En "kontrollrums"-vy som visar alla ekipage som just nu är aktiva på maratonbanan.
 
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { collection, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
+import { getMarathonActiveState } from '../../services/competitionStatusService.js';
 import { t } from '../../utils/i18n.js';
 
 // Importera modalen direkt
@@ -649,7 +651,17 @@ function renderMonitor() {
     const doc = allMarathonData.get(sn) || active.data || {};
     const limits = limitsFor(eq, stageKey);
     const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
-    const elapsedMs = (active.fixedElapsedMs != null) ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - pausedMsSince(active.timerBaseMs, tickTimeNow) + (active.pausedMs || 0) : 0);
+
+    // Timer calculation: distinguish between virtual (already adjusted) and raw timestamps
+    let elapsedMs = 0;
+    if (active.fixedElapsedMs != null) {
+      elapsedMs = active.fixedElapsedMs;
+    } else if (active.timerBaseMs) {
+      const diff = tickTimeNow - active.timerBaseMs;
+      // ONLY subtract global pauses if the base is RAW. Virtual bases already have them removed.
+      const pauseToSubtract = active.timerIsVirtual ? 0 : pausedMsSince(active.timerBaseMs, tickTimeNow);
+      elapsedMs = diff - pauseToSubtract + (active.pausedMs || 0);
+    }
 
     // Timer
     const timerEl = document.getElementById(`timer-${sn}`);
@@ -1000,12 +1012,21 @@ function evaluateActiveState(sn, data) {
     return;
   }
 
-  // Check started
-  const startA = stageStartTS(data, 'A');
-  const startT = stageStartTS(data, 'transport');
-  const startB = stageStartTS(data, 'B');
+  const {
+    startA,
+    startT,
+    startB,
+    stopA,
+    stopT,
+    obstacleIsLive,
+    hasActiveStageA,
+    hasActiveStageT,
+    hasActiveStageB,
+    isActive
+  } = getMarathonActiveState(data);
+  const hasLiveObstacle = obstacleIsLive;
 
-  if (!startA && !startT && !startB) {
+  if (!isActive) {
     activeEquipages.delete(sn);
     return;
   }
@@ -1014,12 +1035,13 @@ function evaluateActiveState(sn, data) {
   let task = { name: 'På Banan', type: 'unknown', key: 'unknown' };
   let startTime = 0;
   let obstacleStart = 0;
+  let timerIsVirtual = false;
   let fixedElapsedMs = null; // New field for stopped timers
 
-  if (startB) {
+  if (hasActiveStageB || hasLiveObstacle) {
     task = { name: 'Etapp B', type: 'stage', key: 'B' };
-    startTime = startB;
-    if (data.currentObstacle) {
+    startTime = startB || 0;
+    if (obstacleIsLive) {
       task = { name: `Hinder ${data.currentObstacle} `, type: 'obstacle', key: 'obstacle' };
 
       // --- LOGIC FIX: Check if running ---
@@ -1028,15 +1050,14 @@ function evaluateActiveState(sn, data) {
         fixedElapsedMs = data.liveObstacleTimeMs;
       } else {
         // Timer is running -> Calculate start time
-        // Try to find correct raw obstacle start time
-        let obsStartTs = data.live_staticStartAt || data.liveObstacleStartAt; // Prefer static if exists (robustness)
-        // Note: checking liveObstacleStartAt is usually better for 'active',
-        // but live_staticStartAt survives reloads. Use live_staticStartAt IF running.
+        // ROBUSTNESS: Prefer liveObstacleStartAt (the resume point) if it exists,
+        // as it works best with data.liveObstacleTimeMs (accumulated).
+        let obsStartTs = data.liveObstacleStartAt || data.live_staticStartAt;
 
         if (obsStartTs && obsStartTs.toMillis) obsStartTs = obsStartTs.toMillis();
         else if (typeof obsStartTs === 'string') obsStartTs = new Date(obsStartTs).getTime();
 
-        // Fallback to timing array
+        // Fallback to timing array (raw entry time)
         if (!obsStartTs && data.obstacleTimes && data.obstacleTimes[data.currentObstacle]) {
           const ot = data.obstacleTimes[data.currentObstacle];
           const st = ot.enteredAt || ot.enteredAtClient;
@@ -1046,30 +1067,30 @@ function evaluateActiveState(sn, data) {
           }
         }
         obstacleStart = obsStartTs || 0;
+
+        // If we are using live_staticStartAt, it is a VIRTUAL timestamp (already pause-adjusted)
+        if (obstacleStart && !data.liveObstacleStartAt && data.live_staticStartAt) {
+          timerIsVirtual = true;
+        }
       }
     }
-  } else if (startT) {
+  } else if (hasActiveStageT) {
     task = { name: 'Transport', type: 'transport', key: 'transport' };
     startTime = startT;
 
     // Check if Transport is stopped
-    const stopT = stageStopTS(data, 'transport');
     if (stopT) {
       // Transport is finished.
-      // Option 1: Mark as fixed time (waiting for B)
       fixedElapsedMs = stageDurationMsSaved(data, 'transport');
-      // Option 2: Remove from active? Usually valid to show they are "done with transport, waiting for B".
-      // Let's show them as active but stopped.
     }
 
-  } else if (startA) {
+  } else if (hasActiveStageA) {
     const limitsA = limitsFor(eq, 'A');
     const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
     task = { name: isFixedTimeA ? 'Warm-up' : 'Etapp A', type: 'stage', key: 'A' };
     startTime = startA;
 
     // Check if A is stopped
-    const stopA = stageStopTS(data, 'A');
     if (stopA) {
       // A is finished.
       fixedElapsedMs = stageDurationMsSaved(data, 'A');
@@ -1084,6 +1105,11 @@ function evaluateActiveState(sn, data) {
     }
   }
 
+  // Final base time and pause offset
+  // If it's an obstacle, we use the specific obstacle entry/resume time.
+  // Otherwise, we use the stage start time.
+  const baseTime = (task.type === 'obstacle' && obstacleStart) ? obstacleStart : startTime;
+
   activeEquipages.set(sn, {
     equipageInfo: eq,
     data: data,
@@ -1091,8 +1117,11 @@ function evaluateActiveState(sn, data) {
     startTime: startTime,
     obstacleStart: obstacleStart,
     // THE UNIFIED TIME SOURCE
-    timerBaseMs: (task.type === 'obstacle' && obstacleStart) ? obstacleStart : startTime,
-    fixedElapsedMs: fixedElapsedMs, // <-- Pass this through
+    timerBaseMs: baseTime,
+    timerIsVirtual: timerIsVirtual, // <-- Track if pauses should be subtracted
+    fixedElapsedMs: fixedElapsedMs,
+    // For obstacles, pausedMs is the accumulated time before the current segment (liveObstacleTimeMs).
+    // For stages, it's any manual adjustment (durationMs).
     pausedMs: (task.type === 'obstacle') ? (data.liveObstacleTimeMs || 0) : (data.timing?.[task.key]?.durationMs || 0),
     isRunning: !isGloballyPaused,
     totalPenalty: calculateTotalPenalty(data, eq)

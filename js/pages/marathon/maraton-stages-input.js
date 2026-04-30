@@ -1,8 +1,12 @@
 // js/pages/maraton-stages-input.js
 import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious } from '../../utils/marathonUtils.js';
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig, getMarathonStateDocuments, listenForMaratonCollection } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { getMarathonStateDocuments } from '../../services/marathonService.js';
+import { listenForMaratonCollection } from '../../services/marathonService.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
@@ -355,7 +359,7 @@ function renderActiveCards() {
   // NYTT: Uppdatera toggle-knappen med antalet
   const toggleBtn = document.getElementById('toggleActiveTimers');
   if (toggleBtn) {
-    toggleBtn.querySelector('span').textContent = `Aktiva timers (${activeTimers.size})`;
+    toggleBtn.querySelector('span').textContent = `${t('marathon_stages_active_timers').replace('{count}', activeTimers.size)}`;
     toggleBtn.disabled = activeTimers.size === 0;
   }
   // NYTT: Håll listan stängd om den är tom
@@ -364,11 +368,11 @@ function renderActiveCards() {
   }
 
   const parts = [];
-  for (const [key, t] of activeTimers) {
+  for (const [key, timerObj] of activeTimers) {
     const [sn, stage] = key.split('|');
     const eq = findEquipageBySn(sn);
-    const name = eq?.driverName || 'Okänd kusk';
-    const ms = t?.isRunning ? (t.pausedMs + (Date.now() - t.startEpoch)) : (t?.pausedMs || 0);
+    const name = eq?.driverName || t('marathon_stages_unknown_driver');
+    const ms = timerObj?.isRunning ? (timerObj.pausedMs + (Date.now() - timerObj.startEpoch)) : (timerObj?.pausedMs || 0);
 
     parts.push(`
 <div class="flex items-center justify-between px-3 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700"
@@ -382,12 +386,12 @@ function renderActiveCards() {
   </button>
   <div class="flex items-center gap-3">
     <div class="timer font-mono tabular-nums text-lg dark:text-gray-200">${fmtMsTimer(ms)}</div>
-    <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">Stoppa</button>
+    <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
   </div>
 </div>
     `);
   }
-  host.innerHTML = parts.join('') || '<div class="text-sm text-gray-500 dark:text-gray-400">Inga aktiva timers.</div>';
+  host.innerHTML = parts.join('') || `<div class="text-sm text-gray-500 dark:text-gray-400">${t('marathon_stages_no_active_timers')}</div>`;
 }
 
 // ---------- Firestore helpers ----------
@@ -729,10 +733,10 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
     // Om det skiljer mer än 1 sek, varna herrejösses-mycket
     if (diff > 1000 && timerEl) {
       timerEl.classList.add('discrepancy-warning');
-      timerEl.title = `Varning: Beräknad tid (${fmtMsTimer(clockDurationMs)}) stämmer inte med angiven tid (${fmtMsTimer(ms)}).`;
+      timerEl.title = t('marathon_stages_discrepancy_warning').replace('{computed}', fmtMsTimer(clockDurationMs)).replace('{manual}', fmtMsTimer(ms));
     } else if (timerEl) {
       timerEl.classList.remove('discrepancy-warning');
-      timerEl.title = 'Klicka för att ange manuell tid';
+      timerEl.title = t('marathon_stages_click_manual_time');
     }
   }
 
@@ -763,7 +767,7 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
 
       // Byt etikett om sträckan är klar
       const labelEl = etaBox.querySelector('span:first-child');
-      if (labelEl && isWarmupFinished) labelEl.textContent = 'Rast kvar:';
+      if (labelEl && isWarmupFinished) labelEl.textContent = t('marathon_stages_rest_left');
 
       const warmupDoc = currentDocData?.timing?.['warmup'] || currentDocData?.timing?.['A'];
 
@@ -916,14 +920,14 @@ function renderLayout() {
     </style>
 
     <div class="container mx-auto p-4 md:p-8 max-w-4xl">
-      ${getCompetitionHeader(comp, 'Maraton – Etapper')}
+      ${getCompetitionHeader(comp, t('marathon_stages_header'))}
 
       <!-- STICKY HEADER: KUSK-INFO & FLIKAR -->
       <div class="sticky-stages-header sticky top-[63px] bg-white/95 dark:bg-gray-900/95 backdrop-blur p-4 border-b dark:border-gray-700 z-30 shadow-sm">
         <div class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-2">
             <div class="min-w-0">
-              <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">Välj ekipage…</div>
+              <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">${t('marathon_stages_select_equipage')}…</div>
               <div class="text-[10px] uppercase font-bold text-gray-500">
                 Aktiv etapp: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
               </div>
@@ -947,8 +951,8 @@ function renderLayout() {
         <!-- VAL AV EKIPAGE -->
         <div class="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
           <div class="flex items-center justify-between mb-2">
-            <label class="text-[10px] uppercase font-bold text-gray-500">Välj ekipage</label>
-            <button id="btnBackupJson" class="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">EXPORT JSON</button>
+            <label class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_select_equipage')}</label>
+            <button id="btnBackupJson" class="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">${t('marathon_stages_export_json')}</button>
           </div>
           <div id="equipageDropdown"></div>
           <div id="infoLineSmall" class="mt-2 text-[10px] text-gray-400 text-center uppercase">—</div>
@@ -985,21 +989,21 @@ function renderStagePanel(stage) {
     <!-- INFO & TIMER RAD -->
     <div class="flex items-start justify-between gap-4">
       <div class="min-w-0">
-        <label class="text-[10px] uppercase font-bold text-gray-500 block mb-1">Etapp</label>
+        <label class="text-[10px] uppercase font-bold text-gray-500 block mb-1">${t('marathon_stages_stage')}</label>
         <h2 class="text-2xl font-black dark:text-white leading-tight">${decorateStageLabel(stage, currentEquipage)}</h2>
         <div id="stageEqLine" class="text-xs text-gray-400 font-medium truncate">—</div>
         
         <div class="mt-2 space-y-0.5">
           <div class="flex items-center gap-2">
-            <span class="text-[10px] uppercase font-bold text-gray-400">TL:</span>
+            <span class="text-[10px] uppercase font-bold text-gray-400">${t('marathon_stages_tl')}</span>
             <span id="info-${stage}-tl" class="tabular-nums text-xs font-bold dark:text-gray-200">—</span>
           </div>
           <div id="box-${stage}-etaB" class="hidden flex items-center gap-2">
-            <span class="text-[10px] uppercase font-bold text-gray-400">Rest:</span>
+            <span class="text-[10px] uppercase font-bold text-gray-400">${t('marathon_stages_rest')}</span>
             <span id="info-${stage}-etaB" class="tabular-nums text-xs font-bold text-blue-600 dark:text-blue-400">—</span>
           </div>
           <div class="flex items-center gap-2">
-            <span class="text-[10px] uppercase font-bold text-gray-400">Straff:</span>
+            <span class="text-[10px] uppercase font-bold text-gray-400">${t('marathon_stages_penalty')}</span>
             <span id="info-${stage}-pen" class="tabular-nums text-xs font-bold dark:text-gray-200">—</span>
           </div>
         </div>
@@ -1015,13 +1019,13 @@ function renderStagePanel(stage) {
         <!-- Manuelltids-editor (popup) -->
         <div id="manual-${stage}"
              class="hidden absolute right-4 mt-2 w-72 p-4 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl z-50">
-          <label class="block text-xs font-bold uppercase text-gray-500 mb-2">Ange manuell tid (mmsscc)</label>
+          <label class="block text-xs font-bold uppercase text-gray-500 mb-2">${t('marathon_stages_manual_time_input_label')}</label>
           <input id="manualDigits-${stage}" type="tel" inputmode="numeric"
                  class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                  placeholder="mmsscc" maxlength="6" />
           <div class="flex gap-2">
-            <button id="manualApply-${stage}" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">Använd</button>
-            <button id="manualCancel-${stage}" class="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 dark:text-gray-200">Avbryt</button>
+            <button id="manualApply-${stage}" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">${t('marathon_stages_apply')}</button>
+            <button id="manualCancel-${stage}" class="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 dark:text-gray-200">${t('marathon_stages_cancel')}</button>
           </div>
         </div>
       </div>
@@ -1029,38 +1033,38 @@ function renderStagePanel(stage) {
 
     <!-- KONTROLLER -->
     <div class="flex items-stretch gap-2">
-      <button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">START</button>
-      <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">MÅL</button>
-      <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="Nollställ">🔄</button>
+      <button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
+      <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>
+      <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">🔄</button>
     </div>
 
     <!-- KLOCKSLAG OCH KOMMENTARER -->
     <div class="grid grid-cols-2 gap-4">
       <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="startClockRow-${stage}">
-        <div class="text-[10px] uppercase font-bold text-gray-500">Start kl. <span class="text-xs">✏️</span></div>
+        <div class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_start_clock')} <span class="text-xs">✏️</span></div>
         <div id="startClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
       </div>
       <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="stopClockRow-${stage}">
-        <div class="text-[10px] uppercase font-bold text-gray-500">Mål kl. <span class="text-xs">✏️</span></div>
+        <div class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_finish_clock')} <span class="text-xs">✏️</span></div>
         <div id="stopClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
       </div>
     </div>
 
     <div class="space-y-3">
       <div class="flex items-center justify-between">
-        <button type="button" class="toggle-btn comment-toggle-btn uppercase font-bold">💬 Kommentarer</button>
+        <button type="button" class="toggle-btn comment-toggle-btn uppercase font-bold">${t('marathon_stages_comments')}</button>
         <div class="flex items-center gap-2">
            <label class="flex items-center gap-1.5 cursor-pointer">
              <input id="manualEliminated" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-rose-600">
-             <span class="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-400">Elim.</span>
+             <span class="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-400">${t('marathon_stages_elim')}</span>
            </label>
         </div>
       </div>
 
       <div class="comment-wrapper">
         <div class="grid gap-3">
-          <textarea id="commentStart-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="Kommentar start..."></textarea>
-          <textarea id="commentStop-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="Kommentar mål..."></textarea>
+          <textarea id="commentStart-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_comment_start')}"></textarea>
+          <textarea id="commentStop-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_comment_finish')}"></textarea>
         </div>
       </div>
 
@@ -1068,19 +1072,19 @@ function renderStagePanel(stage) {
       <div class="pt-2 border-t dark:border-gray-700 space-y-2">
         <label class="flex items-center gap-2 cursor-pointer">
           <input id="bitOk" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600">
-          <span class="text-xs font-bold dark:text-gray-200 uppercase">Bettkontroll OK</span>
+          <span class="text-xs font-bold dark:text-gray-200 uppercase">${t('marathon_stages_bit_check_ok')}</span>
         </label>
-        <textarea id="bitComment" rows="1" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="Ev. bettkommentar..."></textarea>
+        <textarea id="bitComment" rows="1" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_bit_comment')}"></textarea>
       </div>
       ` : ``}
 
       <div class="pt-2 border-t dark:border-gray-700 flex flex-col gap-3">
         <div class="flex items-center justify-between">
-          <label for="otherMarathonPenalty" class="text-[10px] uppercase font-bold text-gray-500">Övrigt straff (totalt)</label>
+          <label for="otherMarathonPenalty" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_other_penalty_total')}</label>
           <input type="number" id="otherMarathonPenalty" min="0" step="0.01" inputmode="decimal" class="w-24 text-right font-bold rounded-lg border dark:border-gray-700 px-2 py-1 dark:bg-gray-900/40 dark:text-white">
         </div>
         
-        <button id="btnSave-${stage}" class="w-full py-4 rounded-xl bg-brand-darkblue text-white font-black text-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all">SPARA ÄNDRINGAR</button>
+        <button id="btnSave-${stage}" class="w-full py-4 rounded-xl bg-brand-darkblue text-white font-black text-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all">${t('marathon_stages_save_changes')}</button>
       </div>
     </div>
   </div>
@@ -1163,7 +1167,7 @@ function addOrUpdateActiveCard(sn, stage) {
     card.innerHTML = `
       <div class="text-sm dark:text-gray-300">#${sn} • ${stage.toUpperCase()}</div>
       <div class="timer tabular-nums text-lg dark:text-white">00:00,00</div>
-      <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">Stoppa</button>
+      <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
     `;
     host.appendChild(card);
   }
@@ -1216,7 +1220,7 @@ function attachActiveTimersManualEditDelegate() {
       await saveStageSnapshot(stage, payload);
     } catch (err) {
       console.error(err);
-      showAlert('Kunde inte spara manuell tid (behörighet/uppkoppling?).');
+      showAlert(t('marathon_stages_manual_time_error'));
     }
   });
 }
@@ -1240,12 +1244,12 @@ function bindManualEditor(stage) {
   const close = () => { wrapEl.classList.add('hidden'); };
 
   timerEl.style.cursor = 'pointer';
-  timerEl.title = 'Klicka för att ange manuell tid';
+  timerEl.title = t('marathon_stages_click_manual_time');
   timerEl.addEventListener('click', open);
   cancelBtn.addEventListener('click', close);
 
   okBtn.addEventListener('click', async () => {
-    if (!currentEquipage) { showAlert('Välj ekipage först.'); return; }
+    if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first')); return; }
 
     const raw = inputEl.value;
     const ms = typeof digitsToMs === 'function'
@@ -1253,7 +1257,7 @@ function bindManualEditor(stage) {
       : (() => { const d = (raw || '').replace(/\D/g, '').slice(0, 6).padEnd(6, '0'); return ((+d.slice(0, 2)) * 60 + (+d.slice(2, 4))) * 1000 + (+d.slice(4, 6)) * 10; })();
 
     if (!Number.isFinite(ms) || ms < 0) {
-      showAlert('Ogiltigt format. Ange mmsscc, t.ex. 13253 (= 13:25,3).');
+      showAlert(t('marathon_stages_manual_time_invalid'));
       return;
     }
 
@@ -1289,7 +1293,7 @@ function bindManualEditor(stage) {
     }
 
     try { await saveStageSnapshot(stage, payload); }
-    catch (e) { console.error(e); showAlert('Kunde inte spara manuell tid.'); }
+    catch (e) { console.error(e); showAlert(t('marathon_stages_manual_time_error2')); }
     finally { close(); }
   });
 }
@@ -1340,7 +1344,7 @@ function bindStagePanel(stage) {
         // UI-feedback sker via onSnapshot -> populateStageUI, men vi kan sätta färg direkt om vi vill
       } catch (e) {
         console.error('Kunde inte spara eliminering', e);
-        showAlert('Fel vid sparande av eliminering.');
+        showAlert(t('marathon_stages_elim_save_error'));
         elimEl.checked = !val; // ångra
       }
     });
@@ -1415,7 +1419,7 @@ async function handleManualClockEdit(stage, type) {
   const sn = String(currentEquipage.startNumber);
   const stDoc = currentDocData?.timing?.[stage] || {};
 
-  const label = type === 'start' ? 'Starttiden' : 'Måltiden';
+  const label = type === 'start' ? t('marathon_stages_start_time') : t('marathon_stages_finish_time');
 
   // Pre-fill med nuvarande tid i HHMMSS-format för enklare justering
   let defVal = '';
@@ -1428,7 +1432,7 @@ async function handleManualClockEdit(stage, type) {
     defVal = `${hh}${mm}${ss}`;
   }
 
-  const raw = prompt(`Ange ny ${label} (HHMMSS):`, defVal);
+  const raw = prompt(t('marathon_stages_enter_new_time').replace('{label}', label), defVal);
   if (!raw) return;
 
   // Litet regex för att parsa HH:MM:SS (eller HH:MM:SS,ms)
@@ -1454,7 +1458,7 @@ async function handleManualClockEdit(stage, type) {
 
   const t = parseTimeInput(raw);
   if (!t) {
-    showAlert('Ogiltigt format. Använd HHMMSS (t.ex. 120000 för 12:00:00).', false);
+    showAlert(t('marathon_stages_invalid_time_format'), false);
     return;
   }
 
@@ -1516,7 +1520,7 @@ async function handleManualClockEdit(stage, type) {
   // --- VALIDERING: Varning för framtida tid ---
   const diffFromNow = new Date(newIso).getTime() - Date.now();
   if (diffFromNow > 5 * 60_000) { // Mer än 5 minuter i framtiden
-    if (!confirm('Varning: Den angivna tiden är mer än 5 minuter i framtiden. Vill du fortsätta?')) {
+    if (!confirm(t('marathon_stages_future_time_warning'))) {
       return;
     }
   }
@@ -1557,7 +1561,7 @@ async function handleManualClockEdit(stage, type) {
 
   } catch (err) {
     console.error(err);
-    showAlert('Kunde inte uppdatera tid.', false);
+    showAlert(t('marathon_stages_could_not_update_time'), false);
   }
 }
 
@@ -1584,7 +1588,7 @@ async function focusEquipageStage(sn, stage) {
   updateEqInfo();
   const small = document.getElementById('infoLineSmall');
   if (small) {
-    small.textContent = `Visar #${eq.startNumber} ${eq.driverName || ''} • Etapp: ${decorateStageLabel(stage || currentStage)}`;
+    small.textContent = t('marathon_stages_showing_equipage').replace('{startNumber}', eq.startNumber).replace('{driverName}', eq.driverName || '').replace('{stage}', decorateStageLabel(stage || currentStage));
   }
 
   // Byt flik/etapp program­matiskt (samma som i wireTabs())
@@ -1705,7 +1709,7 @@ function populateStageUI(stage, data) {
 // RAD EFTER (ca 1324): async function startStage(stage){
 
 async function startStage(stage) {
-  if (!currentEquipage) { showAlert('Välj ekipage först.', false); return; }
+  if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first'), false); return; }
   const eq = currentEquipage;
   const sn = String(eq.startNumber);
   const actualStage = normalizeStageForEquipage(eq, stage);
@@ -1766,7 +1770,7 @@ async function startStage(stage) {
       });
     } catch (err) {
       console.error(err);
-      showAlert('Kunde inte återuppta (behörighet/uppkoppling?).', false);
+      showAlert(t('marathon_stages_resume_error'), false);
       return;
     }
     return;
@@ -1802,7 +1806,7 @@ async function startStage(stage) {
     });
   } catch (err) {
     console.error(err);
-    showAlert('Kunde inte spara start (behörighet/uppkoppling?).', false);
+    showAlert(t('marathon_stages_save_start_error'), false);
   }
 }
 
@@ -1835,7 +1839,7 @@ async function stopStage(stage) {
 
   // --- NYTT: VARNING VID LÅNG TID ---
   if (isDurationSuspicious(finalMs, currentEquipage, stage)) {
-    const ok = confirm(`Varning: Tiden (${fmtMsTimer(finalMs)}) överskrider maxtiden för denna etapp. Har du glömt att stoppa klockan innan rasten?\n\nVill du spara ändå?`);
+    const ok = confirm(t('marathon_stages_max_time_warning').replace('{time}', fmtMsTimer(finalMs)));
     if (!ok) return;
   }
 
@@ -1878,19 +1882,19 @@ async function stopStage(stage) {
     await saveStageSnapshot(stage, payload);
   } catch (err) {
     console.error(err);
-    showAlert('Kunde inte spara mål (behörighet/uppkoppling?).', false);
+    showAlert(t('marathon_stages_save_finish_error'), false);
     return; // Avbryt om det inte gick att spara
   }
 
   // VIKTIGT: Vi stannar kvar på sidan. Ingen automatisk navigering.
-  showAlert(`Mål registrerat för etapp ${decorateStageLabel(stage)}.`, true);
+  showAlert(t('marathon_stages_finish_registered').replace('{stage}', decorateStageLabel(stage)), true);
   document.getElementById(`commentStop-${stage}`)?.focus(); // Sätt fokus på kommentarsfältet
 }
 
 // --- RESET (nollställer tid lokalt + i DB) ---
 async function resetStage(stage) {
   if (!currentEquipage) return;
-  if (!confirm(`Är du säker på att du vill nollställa ALLA tider och kommentarer för etapp ${decorateStageLabel(stage)}? Detta kan inte ångras.`)) return;
+  if (!confirm(t('marathon_stages_reset_confirm').replace('{stage}', decorateStageLabel(stage)))) return;
 
   const eq = currentEquipage;
   const sn = String(eq.startNumber);
@@ -1963,15 +1967,15 @@ async function resetStage(stage) {
     await setDoc(maratonDocRef(sn), payload, { merge: true });
   } catch (err) {
     console.error(err);
-    showAlert('Kunde inte nollställa i databasen.', false);
+    showAlert(t('marathon_stages_reset_error'), false);
     return;
   }
 
-  showAlert(`Etapp ${decorateStageLabel(stage)} har nollställts.`, true);
+  showAlert(t('marathon_stages_reset_success').replace('{stage}', decorateStageLabel(stage)), true);
 }
 
 async function saveCurrentStage(stage) {
-  if (!currentEquipage) { showAlert('Välj ekipage först.', false); return; }
+  if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first'), false); return; }
 
   // 1) Spara kommentarer (och ev. bettkontroll) som tidigare
   await saveStageSnapshot(stage, {
@@ -1992,13 +1996,13 @@ async function saveCurrentStage(stage) {
       // acceptera både "1,25" och "1.25"
       const num = Number(raw.replace(',', '.'));
       if (!Number.isFinite(num)) {
-        showAlert('Ogiltigt värde i Övrigt straff.', false);
+        showAlert(t('marathon_stages_invalid_penalty'), false);
       } else {
         let safe = num;
         if (safe < 0) {
           safe = 0;
           el.value = '0';
-          showAlert('Negativa straff tillåts inte. Värdet sattes till 0.', false);
+          showAlert(t('marathon_stages_negative_penalty_warning'), false);
         }
         // Viktigt: spara även 0 (tidigare försvann 0 p.g.a. `|| null`)
         await setDoc(maratonDocRef(currentEquipage.startNumber), {
@@ -2008,25 +2012,25 @@ async function saveCurrentStage(stage) {
     }
   }
 
-  showAlert('Sparat.', true);
+  showAlert(t('marathon_stages_saved'), true);
 }
 
 
 async function finalizeMarathon() {
-  if (!currentEquipage) { showAlert('Välj ekipage först.', false); return; }
+  if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first'), false); return; }
 
   // Spara först eventuella osaprade ändringar
   await saveCurrentStage('B');
 
-  if (confirm(`Är du säker på att du vill finalisera maraton för #${currentEquipage.startNumber}? Detta markerar resultatet som slutgiltigt.`)) {
+  if (confirm(t('marathon_stages_finalize_confirm').replace('{startNumber}', currentEquipage.startNumber))) {
     try {
       await setDoc(maratonDocRef(currentEquipage.startNumber), {
         finalized: true,
         updatedAt: serverTimestamp()
       }, { merge: true });
-      showAlert(`Maraton har finaliserats för #${currentEquipage.startNumber}.`);
+      showAlert(t('marathon_stages_finalize_success').replace('{startNumber}', currentEquipage.startNumber));
     } catch (err) {
-      showAlert('Kunde inte finalisera.', false);
+      showAlert(t('marathon_stages_finalize_error'), false);
     }
   }
 }
@@ -2424,11 +2428,11 @@ function wireManualStageEditors() {
   ids.forEach(k => {
     const el = document.getElementById(`timer-${k}`);
     if (!el) return;
-    el.title = 'Dubbelklicka för att mata in tid manuellt (mm:ss,cc)';
+    el.title = t('marathon_stages_manual_time_dblclick');
     el.addEventListener('dblclick', async (e) => {
       e.preventDefault();
       const currentTxt = (el.textContent || '').trim();
-      const inp = prompt(`Manuell tid för ${k} (mm:ss,cc eller mmsscc):`, currentTxt);
+      const inp = prompt(t('marathon_stages_manual_time_prompt').replace('{stage}', k), currentTxt);
       if (inp == null) return;
       await applyManualStageTime(k, ms);
     });

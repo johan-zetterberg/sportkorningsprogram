@@ -3,15 +3,11 @@
 
 import { getGlobalState } from '../../main.js';
 import { t } from '../../utils/i18n.js';
-import {
-  getEquipages,
-  getConfig,
-  listenForJudges,
-  listenForDressageProtocolsCollectionGroup,
-  listenForDressageStatusCollection,
-  listenForDressageLiveGroup,
-  getDressageResultsForEquipage
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { listenForDressageStatusCollection, listenForDressageLiveGroup, getDressageResultsForEquipage } from '../../services/dressageService.js';
+import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { onSnapshot, doc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 import { db, appId } from '../../config/firebase-config.js';

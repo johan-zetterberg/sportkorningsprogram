@@ -3,12 +3,13 @@
 
 import { getGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
-import { getEquipages } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
 import {
   doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 import { getCompetitionHeader } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 
 // ---------- State ----------
@@ -67,7 +68,7 @@ async function setGlobalPause(isPaused) {
       }
     }
 
-    const statusText = isPaused ? `Tävlingen pausad kl ${now.toLocaleTimeString('sv-SE')}` : "Tävlingen återupptagen.";
+    const statusText = isPaused ? t('observer_pause_time').replace('{time}', now.toLocaleTimeString('sv-SE')) : t('observer_resume');
 
     await setDoc(statusRef, {
       isPaused: !!isPaused,
@@ -79,7 +80,7 @@ async function setGlobalPause(isPaused) {
     showAlert(statusText);
   } catch (e) {
     console.error("Kunde inte ändra paus-status:", e);
-    showAlert("Kunde inte ändra paus-status.", false);
+    showAlert(t('observer_pause_error'), false);
   }
 }
 
@@ -97,7 +98,7 @@ function listenForGlobalPause() {
     if (resumeBtn) resumeBtn.classList.toggle('hidden', !isPaused);
 
     if (statusTextEl) {
-      statusTextEl.textContent = isPaused ? (data.statusText || 'Tävlingen är pausad.') : '';
+      statusTextEl.textContent = isPaused ? (data.statusText || t('observer_is_paused')) : '';
       statusTextEl.className = isPaused ? 'text-sm font-semibold mt-2 text-red-800' : '';
     }
 
@@ -105,11 +106,11 @@ function listenForGlobalPause() {
     if (logContainer && Array.isArray(data.pauseLog)) {
       logContainer.innerHTML = data.pauseLog.map((p, i) => {
         const startTime = new Date(p.start).toLocaleTimeString('sv-SE');
-        const endTime = p.end ? new Date(p.end).toLocaleTimeString('sv-SE') : 'Pågår...';
-        const duration = p.durationSec ? `${p.durationSec} sek` : '-';
+        const endTime = p.end ? new Date(p.end).toLocaleTimeString('sv-SE') : t('observer_ongoing');
+        const duration = p.durationSec ? t('observer_seconds').replace('{sec}', p.durationSec) : '-';
         return `
           <div class="text-[10px] text-gray-500 font-medium">
-            Paus ${i + 1}: ${startTime} - ${endTime} (${duration})
+            ${t('observer_pause_log_item').replace('{index}', i + 1).replace('{startTime}', startTime).replace('{endTime}', endTime).replace('{duration}', duration)}
           </div>
         `;
       }).join('');
@@ -213,7 +214,7 @@ function rebuildComboList(container) {
       <div class="text-[10px] text-gray-500 uppercase tracking-tighter">${e.className || ''}</div>
     </div>
   `).join('');
-  list.innerHTML = items || `<div class="px-4 py-3 text-gray-500 dark:text-gray-400">Inga träffar</div>`;
+  list.innerHTML = items || `<div class="px-4 py-3 text-gray-500 dark:text-gray-400">${t('observer_no_matches')}</div>`;
 }
 function filterEquipages(term) {
   const q = safeLower(term);
@@ -250,7 +251,7 @@ async function onEquipageSelected(sn, container) {
   const status = qs('#statusMsg', container);
   if (!currentSn) {
     setButtonsEnabled(container, false);
-    if (status) status.textContent = 'Välj ett ekipage för att börja notera.';
+    if (status) status.textContent = t('observer_select_to_note');
     return;
   }
   try {
@@ -271,7 +272,7 @@ async function onEquipageSelected(sn, container) {
     if (status) status.textContent = '';
   } catch (e) {
     console.error('Kunde inte läsa observerLog:', e);
-    if (status) status.textContent = 'Kunde inte läsa tidigare noteringar för ekipaget.';
+    if (status) status.textContent = t('observer_read_error');
     setButtonsEnabled(container, true);
   }
 }
@@ -351,7 +352,7 @@ function render(container) {
         <div class="container mx-auto max-w-2xl flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span id="stickySn" class="bg-blue-600 text-white font-black px-2 py-0.5 rounded text-sm">#--</span>
-            <span id="stickyName" class="font-bold text-gray-900 dark:text-white text-sm truncate max-w-[150px]">Välj ekipage</span>
+            <span id="stickyName" class="font-bold text-gray-900 dark:text-white text-sm truncate max-w-[150px]">${t('observer_select_equipage')}</span>
           </div>
           <div id="stickyStatus" class="flex gap-2"></div>
         </div>
@@ -375,11 +376,11 @@ function render(container) {
           <div id="emergency-panel" class="hidden mt-2 p-4 bg-white dark:bg-gray-900 rounded-2xl border-2 border-red-500 shadow-xl overflow-hidden">
              <div class="flex flex-col md:flex-row gap-4">
                 <div class="flex-1">
-                   <h3 class="font-black text-red-600 uppercase text-[10px] tracking-widest mb-1">Pausa tävlingen vid olycka</h3>
-                   <p class="text-[10px] text-gray-500 mb-4">Stoppar ALLA klockor i hela systemet omedelbart.</p>
+                   <h3 class="font-black text-red-600 uppercase text-[10px] tracking-widest mb-1">${t('observer_pause_accident')}</h3>
+                   <p class="text-[10px] text-gray-500 mb-4">${t('observer_pause_all_desc')}</p>
                    <div class="flex gap-2">
-                      <button id="btnEmergencyPause" class="flex-1 obs-touch-btn rounded-xl bg-red-600 text-white font-black hover:bg-red-700 transition-all shadow-lg active:scale-95 text-xs">STOPPA ALLT</button>
-                      <button id="btnEmergencyResume" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hidden hover:bg-emerald-700 transition-all shadow-lg active:scale-95 text-xs">ÅTERUPPTA</button>
+                      <button id="btnEmergencyPause" class="flex-1 obs-touch-btn rounded-xl bg-red-600 text-white font-black hover:bg-red-700 transition-all shadow-lg active:scale-95 text-xs">${t('observer_stop_all')}</button>
+                      <button id="btnEmergencyResume" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hidden hover:bg-emerald-700 transition-all shadow-lg active:scale-95 text-xs">${t('observer_resume_all')}</button>
                    </div>
                 </div>
                 <div class="flex-1 border-t md:border-t-0 md:border-l dark:border-gray-800 pt-4 md:pt-0 md:pl-4">
@@ -396,7 +397,7 @@ function render(container) {
           <div class="space-y-6">
             <!-- Search & Selector -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
-              <label class="block text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest mb-2">Välj Startnummer</label>
+              <label class="block text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest mb-2">${t('observer_select_startnumber')}</label>
               <div class="relative" role="combobox" aria-expanded="false">
                 <div class="flex gap-2">
                   <button id="prevEqBtn" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
@@ -405,7 +406,7 @@ function render(container) {
                   <div class="relative flex-1">
                     <input id="eqComboInput" type="text"
                       class="w-full border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 rounded-xl px-4 h-12 text-base font-bold dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
-                      placeholder="Startnr / Namn..." />
+                      placeholder="${t('observer_search_placeholder')}" />
                     <div id="eqComboList" class="absolute mt-2 left-0 right-0 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-2xl shadow-2xl max-h-80 overflow-auto hidden z-50 overflow-hidden"></div>
                   </div>
                   <button id="nextEqBtn" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
@@ -421,22 +422,22 @@ function render(container) {
               <!-- Wrong Gait -->
               <div id="wgCard" class="obs-card bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
                 <div class="flex items-center justify-between mb-4">
-                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">Fel gångart</span>
+                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">${t('observer_wrong_gait')}</span>
                   <i class="fas fa-running text-gray-200 dark:text-gray-700"></i>
                 </div>
                 <div id="wgVal" class="text-4xl font-black tabular-nums dark:text-white mb-6 text-center cursor-pointer hover:text-blue-500 transition-colors">00:00</div>
                 <div class="flex gap-2">
-                  <button id="btnWgStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">START</button>
-                  <button id="btnWgStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">STOPP</button>
+                  <button id="btnWgStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">${t('observer_start')}</button>
+                  <button id="btnWgStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">${t('observer_stop')}</button>
                 </div>
                 
                 <!-- Manual Overlay -->
                 <div id="wgManual" class="manual-overlay hidden absolute inset-0 z-10 p-5 flex flex-col justify-center items-center">
-                   <h4 class="text-xs font-black uppercase text-gray-500 dark:text-gray-400 mb-2">Ändra tid</h4>
+                   <h4 class="text-xs font-black uppercase text-gray-500 dark:text-gray-400 mb-2">${t('observer_change_time')}</h4>
                    <input id="wgManualInput" class="w-full h-12 text-center text-xl font-bold bg-white dark:bg-gray-801 border-2 border-blue-500 rounded-xl mb-4 dark:text-white" placeholder="mm:ss" />
                    <div class="flex gap-2 w-full">
-                      <button id="wgManualApply" class="flex-1 h-10 rounded-lg bg-blue-600 text-white font-bold">OK</button>
-                      <button id="wgManualCancel" class="flex-1 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-bold">Avbryt</button>
+                      <button id="wgManualApply" class="flex-1 h-10 rounded-lg bg-blue-600 text-white font-bold">${t('observer_ok')}</button>
+                      <button id="wgManualCancel" class="flex-1 h-10 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-400 font-bold">${t('observer_cancel')}</button>
                    </div>
                 </div>
               </div>
@@ -444,13 +445,13 @@ function render(container) {
               <!-- Halt -->
               <div id="haltCard" class="obs-card bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
                 <div class="flex items-center justify-between mb-4">
-                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">Halt</span>
+                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">${t('observer_halt')}</span>
                   <i class="fas fa-hand-paper text-gray-200 dark:text-gray-700"></i>
                 </div>
                 <div id="haltLive" class="text-4xl font-black tabular-nums text-gray-900 dark:text-white mb-6 text-center">—</div>
                 <div class="flex gap-2">
-                  <button id="btnHaltStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">START</button>
-                  <button id="btnHaltStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">STOPP</button>
+                  <button id="btnHaltStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">${t('observer_start')}</button>
+                  <button id="btnHaltStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">${t('observer_stop')}</button>
                 </div>
               </div>
             </div>
@@ -461,34 +462,34 @@ function render(container) {
             <!-- Halt Lista -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm h-fit">
                <div class="flex justify-between items-center mb-4">
-                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">Halt-logg</span>
-                  <button id="btnHaltManualOpen" class="text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase disabled:opacity-20" disabled>+ Manuel</button>
+                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">${t('observer_halt_log')}</span>
+                  <button id="btnHaltManualOpen" class="text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase disabled:opacity-20" disabled>${t('observer_manual_add')}</button>
                </div>
                
                <div id="haltList" class="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
-                  <div class="text-gray-400 text-xs italic text-center py-4">Inga halter ännu.</div>
+                  <div class="text-gray-400 text-xs italic text-center py-4">${t('observer_no_halts_yet')}</div>
                </div>
 
                <!-- Manual Halt Input Tray -->
                <div id="haltManualWrapper" class="hidden mt-3 p-4 bg-blue-50 dark:bg-blue-900/10 border border-blue-100 dark:border-blue-900/30 rounded-xl space-y-3">
-                  <input id="haltManualInput" class="w-full h-10 text-center font-bold rounded-lg border dark:border-gray-600 dark:bg-gray-800 dark:text-white" placeholder="mm:ss eller sek" />
+                  <input id="haltManualInput" class="w-full h-10 text-center font-bold rounded-lg border dark:border-gray-600 dark:bg-gray-800 dark:text-white" placeholder="${t('observer_manual_halt_placeholder')}" />
                   <div class="flex gap-2">
-                    <button id="haltManualApply" class="flex-1 h-10 bg-blue-600 text-white rounded-lg font-bold text-xs uppercase">Lägg till</button>
-                    <button id="haltManualCancel" class="flex-1 h-10 bg-white dark:bg-gray-800 text-gray-500 rounded-lg font-bold text-xs uppercase">Stäng</button>
+                    <button id="haltManualApply" class="flex-1 h-10 bg-blue-600 text-white rounded-lg font-bold text-xs uppercase">${t('observer_add')}</button>
+                    <button id="haltManualCancel" class="flex-1 h-10 bg-white dark:bg-gray-800 text-gray-500 rounded-lg font-bold text-xs uppercase">${t('observer_close')}</button>
                   </div>
                </div>
             </div>
 
             <!-- Anteckningar -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
-               <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest block mb-4">Anteckningar</span>
-               <textarea id="notesField" rows="4" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="Skriv iakttagelser..."></textarea>
+               <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest block mb-4">${t('observer_notes')}</span>
+               <textarea id="notesField" rows="4" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="${t('observer_notes_placeholder')}"></textarea>
                <div id="notesSaveStatus" class="flex items-center justify-end gap-1 mt-2 text-[10px] font-bold text-gray-400"></div>
             </div>
 
             <!-- Manual Save (Backup) -->
             <div class="flex gap-4">
-               <button id="btnSave" class="flex-1 h-12 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-xs uppercase tracking-widest hover:bg-gray-300 transition-all disabled:opacity-20" disabled>Spara manuellt</button>
+               <button id="btnSave" class="flex-1 h-12 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-xs uppercase tracking-widest hover:bg-gray-300 transition-all disabled:opacity-20" disabled>${t('observer_save_manually')}</button>
                <div id="saveMsg" class="flex items-center text-xs font-bold text-emerald-600"></div>
             </div>
           </div>
@@ -520,12 +521,12 @@ function renderHalts(container) {
   }
 
   if (halts.length === 0) {
-    list.innerHTML = `<div class="text-gray-400 text-xs italic text-center py-4">Inga halter ännu.</div>`;
+    list.innerHTML = `<div class="text-gray-400 text-xs italic text-center py-4">${t('observer_no_halts_yet')}</div>`;
   } else {
     list.innerHTML = halts.map((h, i) => `
         <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 p-2.5 rounded-xl border dark:border-gray-800 shadow-xs group">
           <div class="min-w-0">
-             <div class="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-tighter">Halt ${i + 1}</div>
+             <div class="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-tighter">${t('observer_halt_n').replace('{n}', i + 1)}</div>
              <div class="font-bold tabular-nums text-gray-900 dark:text-white">${fmtMMSS(h.durSec)} <span class="text-xs text-gray-400 font-medium ml-1">${fmtTime(h.atSec)}</span></div>
           </div>
           <div class="flex gap-2 shrink-0">
@@ -636,7 +637,7 @@ function wire(container) {
     const msg = qs('#saveMsg', container);
     const notesStatus = qs('#notesSaveStatus', container);
 
-    if (notesStatus) notesStatus.textContent = "Sparar...";
+    if (notesStatus) notesStatus.textContent = t('observer_saving');
 
     try {
       await writeObserverLog(currentSn, {
@@ -645,16 +646,16 @@ function wire(container) {
         notes: notesEl ? notesEl.value : notes
       });
       if (msg) {
-        msg.textContent = 'Sparat ✔';
+        msg.textContent = t('observer_saved_check');
         setTimeout(() => msg.textContent = '', 2000);
       }
       if (notesStatus) {
-        notesStatus.textContent = "Sparat ✔";
+        notesStatus.textContent = t('observer_saved_check');
         setTimeout(() => notesStatus.textContent = "", 2000);
       }
     } catch (e) {
       console.error('Auto-save failed', e);
-      if (msg) msg.textContent = 'Fel vid sparande!';
+      if (msg) msg.textContent = t('observer_save_error');
     }
   }
 
@@ -730,7 +731,7 @@ function wire(container) {
   qs('#wgManualCancel', container)?.addEventListener('click', () => wgWrap?.classList.add('hidden'));
   qs('#wgManualApply', container)?.addEventListener('click', () => {
     const secs = parseMMSSorSeconds(wgInp?.value || '');
-    if (secs == null) { alert('Ogiltigt format.'); return; }
+    if (secs == null) { alert(t('observer_invalid_format')); return; }
     wrongGaitRunning = false; wrongGaitAccum = Math.max(0, Math.round(secs));
     updateWrongGaitUI(container); wgWrap?.classList.add('hidden'); autoSave();
   });
@@ -757,7 +758,7 @@ function wire(container) {
   qs('#haltManualApply', container)?.addEventListener('click', () => {
     if (!currentSn) return;
     const sec = parseMMSSorSeconds(haltManualInput.value);
-    if (sec === null) { alert("Ogiltigt format."); return; }
+    if (sec === null) { alert(t('observer_invalid_format')); return; }
     halts.push({ atSec: nowSec(), durSec: sec });
     renderHalts(container); haltManualWrapper.classList.add('hidden'); autoSave();
   });
@@ -769,13 +770,13 @@ function wire(container) {
       const delBtn = e.target.closest('.btnDelHalt');
       if (delBtn) {
         const i = +delBtn.dataset.i;
-        if (confirm('Ta bort denna halt?')) { halts.splice(i, 1); renderHalts(container); autoSave(); }
+        if (confirm(t('observer_remove_halt_confirm'))) { halts.splice(i, 1); renderHalts(container); autoSave(); }
         return;
       }
       const editBtn = e.target.closest('.btnEditHalt');
       if (editBtn) {
         const i = +editBtn.dataset.i;
-        const input = prompt(`Ändra längd på halt ${i + 1} (mm:ss eller sek):`, fmtMMSS(halts[i].durSec));
+        const input = prompt(t('observer_edit_halt_prompt').replace('{n}', i + 1), fmtMMSS(halts[i].durSec));
         if (input !== null) {
           const newSec = parseMMSSorSeconds(input);
           if (newSec !== null) { halts[i].durSec = newSec; renderHalts(container); autoSave(); }
@@ -817,12 +818,12 @@ export async function load() {
   listenForGlobalPause();
   const emPause = qs('#btnEmergencyPause', root);
   const emResume = qs('#btnEmergencyResume', root);
-  emPause?.addEventListener('click', () => { if (confirm("Pausa ALLA timers?")) setGlobalPause(true); });
+  emPause?.addEventListener('click', () => { if (confirm(t('observer_pause_all_confirm'))) setGlobalPause(true); });
   emResume?.addEventListener('click', () => setGlobalPause(false));
 
   if (!competitionId) {
     const status = qs('#statusMsg', root);
-    if (status) status.textContent = 'Ingen tävling vald.';
+    if (status) status.textContent = t('observer_no_competition');
     setButtonsEnabled(root, false);
     return;
   }
@@ -840,6 +841,6 @@ export async function load() {
     }
     await requestWakeLock();
   } catch (e) {
-    console.error('Laddning misslyckades:', e);
+    console.error(t('observer_load_error'), e);
   }
 }

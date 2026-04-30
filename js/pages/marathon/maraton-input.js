@@ -1,14 +1,10 @@
 import { getGlobalState } from '../../main.js';
-import {
-  getEquipages,
-  getConfig,
-  listenForMarathonObstacles,
-  getStartTimes,
-  saveMarathonObstacleResult,
-  getMarathonStateDocuments,
-  listenForMaratonCollection,
-  trackWrite,
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { listenForMarathonObstacles } from '../../services/marathonService.js';
+import { getMarathonStateDocuments } from '../../services/marathonService.js';
+import { trackWrite } from '../../services/firestoreService.js';;
+import { getStartTimes, saveMarathonObstacleResult, listenForMaratonCollection } from '../../services/marathonService.js';
 import {
   setPauseWindows,
   getObstacleCoefficient,
@@ -16,6 +12,7 @@ import {
   setMarathonConfig,
 } from '../../utils/marathonUtils.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 
@@ -174,7 +171,7 @@ function validateRouteString(routeStr, expectedGates) {
 
   // Om ingen väg angetts
   if (tokens.length === 0) {
-    return { styledHtml: '<span class="text-gray-400 dark:text-gray-500">Väntar på första port...</span>', isElimination: false, reason: 'Ange väg genom hindret.' };
+    return { styledHtml: `<span class="text-gray-400 dark:text-gray-500">${t('marathon_waiting_first_gate')}</span>`, isElimination: false, reason: t('marathon_enter_route') };
   }
 
   let expectedIdx = 0;
@@ -207,7 +204,7 @@ function validateRouteString(routeStr, expectedGates) {
     // 3. Felkörning! Detta är första felet.
     else {
       styledTokens.push(`<strong class="text-red-600 dark:text-red-400">${token}</strong>`);
-      reason = `Fel port! Förväntade ${expectedGates[expectedIdx]}, men körde ${token}. (Potentiell felkörning)`;
+      reason = t('marathon_wrong_gate').replace('{expected}', expectedGates[expectedIdx]).replace('{actual}', token);
       firstErrorFound = true;
       // Notera: Vi sätter INTE isElimination här, då felet kan korrigeras.
     }
@@ -217,10 +214,10 @@ function validateRouteString(routeStr, expectedGates) {
   if (!firstErrorFound) {
     // Om alla förväntade portar är tagna och inget fel hittades
     if (expectedIdx === expectedGates.length) {
-      reason = 'Vägen är korrekt.';
+      reason = t('marathon_route_correct');
     } else {
       // Om vägen är korrekt hittills, men inte komplett
-      reason = `Vägen korrekt hittills, väntar på port ${expectedGates[expectedIdx]}...`;
+      reason = t('marathon_route_correct_so_far').replace('{expected}', expectedGates[expectedIdx]);
     }
   }
 
@@ -229,11 +226,11 @@ function validateRouteString(routeStr, expectedGates) {
   // För att vara säker sätter vi bara eliminering om den sparas i ofullständigt skick.
   if (firstErrorFound) {
     isElimination = true; // En okorrigerad felkörning leder till eliminering
-    reason += ' Vägen avslutades utan korrigering.';
+    reason += t('marathon_route_ended_uncorrected');
   } else if (expectedIdx < expectedGates.length) {
     // Om vägen är slut men inte alla portar har passerats
     isElimination = true;
-    reason = `Ej klar! Saknar portar från och med ${expectedGates[expectedIdx]}. (Eliminering)`;
+    reason = t('marathon_route_incomplete').replace('{expected}', expectedGates[expectedIdx]);
   }
 
 
@@ -551,7 +548,7 @@ function updateTotalPenaltyDisplay() {
 
 function startTimerMar() {
   if (!currentEquipage || !currentObstacleNumber) {
-    showAlert("Välj ekipage och hinder först.", false);
+    showAlert(t('marathon_select_equipage_and_obstacle'), false);
     return;
   }
 
@@ -623,7 +620,7 @@ function stopTimerMar() {
 
 function resetTimerMar(force = false) {
   if (!currentEquipage) return;
-  if (force || confirm("Är du säker? Detta nollställer tid och formulär för BÅDA användarna.")) {
+  if (force || confirm(t('marathon_confirm_reset'))) {
 
     // 1. Definiera exakt vad som ska skickas till servern för nollställning
     const serverUpdatePayload = {
@@ -784,7 +781,7 @@ function populateObstacleSelector(obstacles, skipAutoSelect = false) {
   if (!obstacleSelect) return;
 
   const currentVal = obstacleSelect.value;
-  obstacleSelect.innerHTML = '<option value="">Välj hinder...</option>';
+  obstacleSelect.innerHTML = `<option value="">${t('marathon_select_obstacle')}</option>`;
 
   // Bestäm vad som ska visas
   let obstaclesToRender = [];
@@ -805,7 +802,7 @@ function populateObstacleSelector(obstacles, skipAutoSelect = false) {
   filteredObstacles.forEach(obs => {
     const option = document.createElement('option');
     option.value = obs.number;
-    option.textContent = `Hinder ${obs.number}${obs.name ? ` (${obs.name})` : ''}`;
+    option.textContent = `${t('marathon_obstacle_prefix')} ${obs.number}${obs.name ? ` (${obs.name})` : ''}`;
     obstacleSelect.appendChild(option);
   });
   obstacleSelect.value = currentVal;
@@ -895,7 +892,7 @@ async function loadExistingResult(silent = false) {
     if (resultToLoad) {
       // Om vi hittade ett sparat resultat, förbered att ladda in dess data
       if (!silent) {
-        showAlert(`Laddade sparat resultat för hinder ${currentObstacleNumber}.`, true);
+        showAlert(t('marathon_loaded_saved_result').replace('{obstacleNumber}', currentObstacleNumber), true);
       }
 
       // KORRIGERING: Återställ ursprunglig starttid för att mellantider ska förbli giltiga
@@ -1022,7 +1019,7 @@ async function saveResult(e) {
   const equipageId = equipageSearchDropdownMar.getValue();
   const obstacleNumber = document.getElementById('maratonObstacleSelect').value;
   if (!equipageId || !obstacleNumber) {
-    showAlert("Välj både ekipage och hinder.", false);
+    showAlert(t('marathon_select_both'), false);
     return;
   }
 
@@ -1040,7 +1037,7 @@ async function saveResult(e) {
   const maxObstacleSeconds = marathonConfigCache?.obstacleMaxTime ?? 300;
   if (timeInSeconds > maxObstacleSeconds) {
     eliminated = true;
-    comment += ` (Automatiskt eliminerad: tid > ${maxObstacleSeconds}s).`;
+    comment += ' (' + t('marathon_auto_eliminated_time').replace('{max}', maxObstacleSeconds) + ').';
   }
 
   const knockdowns = parseInt(document.getElementById('maratonKnockdowns').value) || 0;
@@ -1093,9 +1090,9 @@ async function saveResult(e) {
     }, { merge: true });
 
     if (!navigator.onLine) {
-      showAlert(`Resultat för hinder ${obstacleNumber} har lagts i kön (Offline).`, 'offline');
+      showAlert(t('marathon_result_queued').replace('{obstacleNumber}', obstacleNumber), 'offline');
     } else {
-      showAlert(`Resultat för hinder ${obstacleNumber} har sparats.`);
+      showAlert(t('marathon_result_saved').replace('{obstacleNumber}', obstacleNumber));
     }
 
     // KORRIGERING: Anropa den rena navigeringsfunktionen som BARA byter ekipage.
@@ -1279,7 +1276,7 @@ async function setupPage() {
 
   } catch (err) {
     console.error('[MarathonInput] Allvarligt fel vid initiering:', err);
-    showAlert('Kunde inte ladda sidan korrekt. Se konsolen för detaljer.', false);
+    showAlert(t('marathon_page_load_error'), false);
   }
 }
 
@@ -1301,9 +1298,9 @@ function navigateEquipage(delta) {
   if (nextIndex >= 0 && nextIndex < sortedEquipages.length) {
     equipageSearchDropdownMar.setValue(sortedEquipages[nextIndex].startNumber);
   } else if (delta > 0) {
-    showAlert("Du har nått slutet av startlistan.");
+    showAlert(t('marathon_end_of_startlist'));
   } else {
-    showAlert("Du är redan vid början av startlistan.");
+    showAlert(t('marathon_start_of_startlist'));
   }
 }
 
@@ -1433,11 +1430,11 @@ function renderRouteButtonsForCurrent() {
 
   const labelU = document.createElement('div');
   labelU.className = 'text-xs text-gray-600';
-  labelU.textContent = `Portar (rätt håll) - ${result.source}:`;
+  labelU.textContent = `${t('marathon_gates_forward')} - ${result.source}:`;
 
   const labelL = document.createElement('div');
   labelL.className = 'text-xs text-gray-600 mt-1';
-  labelL.textContent = 'Portar (bakifrån):';
+  labelL.textContent = `${t('marathon_gates_backward')}:`;
 
   wrap.appendChild(labelU);
   wrap.appendChild(upperRow);
@@ -1477,7 +1474,7 @@ export function load() {
   const page = document.getElementById('page-maraton-input');
 
   if (!competition) {
-    page.innerHTML = `<p class="p-8 text-center text-red-500 dark:text-red-400">Ingen tävling vald.</p>`;
+    page.innerHTML = `<p class="p-8 text-center text-red-500 dark:text-red-400">${t('marathon_no_competition')}</p>`;
     return;
   }
   competitionId = competition.id;
@@ -1531,17 +1528,17 @@ export function load() {
   </style>
 
   <div class="container mx-auto p-4 md:p-8 max-w-2xl">
-    ${getCompetitionHeader(competition, 'Inmatning Maratonhinder')}
+    ${getCompetitionHeader(competition, t('marathon_input_header'))}
 
     <div class="main-card bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
-      <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Rapportera Resultat</h2>
+      <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">${t('marathon_report_result')}</h2>
 
       <form id="addMaratonResultForm" class="space-y-3">
         
         <!-- EKIPAGE OCH HINDERVAL -->
         <div class="selection-grid grid grid-cols-1 md:grid-cols-2 gap-3 mb-2 relative z-30">
           <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
-            <label class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Välj Ekipage</label>
+            <label class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_select_equipage')}</label>
             <div class="flex items-center gap-2">
               <button id="prevEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
               <div id="equipageSearchContainerMar" class="flex-grow"></div>
@@ -1550,7 +1547,7 @@ export function load() {
           </div>
 
           <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
-            <label for="maratonObstacleSelect" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Hinder</label>
+            <label for="maratonObstacleSelect" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_obstacle')}</label>
             <select id="maratonObstacleSelect" required class="block w-full p-2 text-base border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
           </div>
         </div>
@@ -1575,11 +1572,11 @@ export function load() {
 
           <!-- Manuelltids-editor (floating) -->
           <div id="manualTimeEditorMar" class="hidden absolute right-4 top-full mt-2 w-72 p-4 rounded-xl border bg-white dark:bg-gray-800 shadow-2xl z-50 dark:border-gray-700">
-            <label class="block text-xs font-bold uppercase text-gray-500 mb-2">Ange manuell tid (mmsscc)</label>
+            <label class="block text-xs font-bold uppercase text-gray-500 mb-2">${t('marathon_manual_time_prompt')}</label>
             <input id="manualTimeDigitsMar" type="tel" inputmode="numeric" class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="mmsscc" maxlength="6" />
             <div class="flex gap-2">
-              <button id="btnManualApplyMar" type="button" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">Använd</button>
-              <button id="btnManualCancelMar" type="button" class="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 dark:text-gray-200">Avbryt</button>
+              <button id="btnManualApplyMar" type="button" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">${t('marathon_apply')}</button>
+              <button id="btnManualCancelMar" type="button" class="flex-1 py-2 rounded-lg bg-gray-200 dark:bg-gray-700 dark:text-gray-200">${t('marathon_cancel')}</button>
             </div>
           </div>
         </div>
@@ -1587,10 +1584,10 @@ export function load() {
         <!-- VÄGVAL -->
         <div class="space-y-2">
           <div class="flex items-center justify-between">
-            <label class="text-[10px] uppercase font-bold text-gray-500">Väg genom hindret</label>
+            <label class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_route_through_obstacle')}</label>
             <div class="flex gap-2">
-                <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 hover:underline">ÅNGRA</button>
-                <button id="routeClear" type="button" class="text-[10px] font-bold text-red-600 hover:underline">RENSA</button>
+                <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 hover:underline">${t('marathon_undo')}</button>
+                <button id="routeClear" type="button" class="text-[10px] font-bold text-red-600 hover:underline">${t('marathon_clear')}</button>
             </div>
           </div>
           <div id="routeButtons" class="bg-gray-50 dark:bg-gray-900/40 p-2 rounded-lg border dark:border-gray-700"></div>
@@ -1601,43 +1598,40 @@ export function load() {
         <!-- STRAFF OCH ELIMINERING -->
         <div class="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2 border-t dark:border-gray-700">
           <div id="knockdown-container" class="hidden">
-            <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Knockdowns</label>
+            <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_knockdowns')}</label>
             <input type="number" inputmode="numeric" id="maratonKnockdowns" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           </div>
           
           <div>
-            <label for="maratonPenalty" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">Övrigt straff</label>
+            <label for="maratonPenalty" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_other_penalty')}</label>
             <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           </div>
 
           <div class="flex items-end">
             <label class="flex items-center cursor-pointer p-2 border rounded hover:bg-red-50 dark:hover:bg-red-900/10 w-full h-[38px] transition-colors dark:border-gray-700">
               <input type="checkbox" id="maratonEliminated" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
-              <span class="ml-2 text-xs font-bold text-red-700 dark:text-red-400 uppercase">Elim.</span>
+              <span class="ml-2 text-xs font-bold text-red-700 dark:text-red-400 uppercase">${t('marathon_elim')}</span>
             </label>
           </div>
         </div>
 
         <div class="pt-2">
           <div class="flex items-center justify-between mb-2">
-             <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬 Kom.</button>
+             <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">${t('marathon_comment_short')}</button>
              <div class="text-right">
-                <span class="text-[10px] uppercase font-bold text-gray-500 block">Totalt Hinderstraff</span>
+                <span class="text-[10px] uppercase font-bold text-gray-500 block">${t('marathon_total_obstacle_penalty')}</span>
                 <span id="totalPenaltyDisplay" class="text-lg font-black text-brand-darkblue dark:text-blue-400">0.00</span>
              </div>
           </div>
           <div class="comment-wrapper">
-            <textarea id="maratonComment" rows="1" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ev. orsak..."></textarea>
+            <textarea id="maratonComment" rows="1" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('marathon_comment_placeholder')}"></textarea>
           </div>
         </div>
         
         <div class="pt-2">
-            <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all text-xl">
-              SPARA & NÄSTA
-            </button>
+            <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all text-xl"> ${t('marathon_save_and_next')} </button>
             <button id="btnBackupMarJson" type="button" class="w-full mt-3 text-[10px] text-gray-400 hover:text-blue-500 flex items-center justify-center gap-1">
-              <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
-            </button>
+              <i class="fas fa-file-download"></i> ${t('marathon_export_json')} </button>
         </div>
       </form>
     </div>

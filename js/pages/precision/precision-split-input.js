@@ -1,5 +1,6 @@
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { db, appId } from '../../config/firebase-config.js';
 import {
     doc,
@@ -13,6 +14,7 @@ import {
     deleteField
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 
 let competitionId = null;
 let equipages = [];
@@ -36,31 +38,28 @@ export function renderLayout() {
     root.innerHTML = `
         <div class="container mx-auto p-4 md:p-8 max-w-xl">
             <div class="mb-4">
-                ${getCompetitionHeader(comp, 'Precision – Gate Observer')} 
+                ${getCompetitionHeader(comp, t('precision_split_header'))} 
             </div>
 
             <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-6 border dark:border-gray-700">
                 <div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
                     <p class="text-sm text-blue-800 dark:text-blue-300">
-                        Här loggar du när ekipaget passerar start, mål och de utplacerade portarna (för live-kartan). 
-                        Detta påverkar <strong>inte</strong> resultatet, utan driver endast animeringen på Monitor-kartan.
+                        ${t('precision_split_info_text')}
                     </p>
                 </div>
 
                 <div class="flex items-center gap-2">
                     <div id="splitEquipageSearchContainer" class="flex-grow"></div>
-                    <button id="btnAutoFind" class="p-2 border rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" title="Hitta pågående">
-                        Auto-finn aktiv
-                    </button>
+                    <button id="btnAutoFind" class="p-2 border rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" title="${t('precision_split_auto_find_title')}">${t('precision_split_auto_find_btn')}</button>
                 </div>
                 
                 <div class="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border dark:border-gray-700 text-center">
                     <div id="infoEquipageLine" class="font-bold dark:text-white text-lg md:text-xl">–</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">Aktuellt Ekipage</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">${t('precision_split_current_equipage')}</div>
                 </div>
 
                 <div id="gatesListContainer" class="space-y-3">
-                    <p class="text-center text-gray-500 text-sm">Välj ett ekipage för att logga tider.</p>
+                    <p class="text-center text-gray-500 text-sm">${t('precision_split_select_to_log')}</p>
                 </div>
             </div> 
         </div> 
@@ -104,7 +103,7 @@ async function logSplit(gateId) {
         await setDoc(precisionDocRef(currentEquipage.startNumber), updates, { merge: true });
     } catch (e) {
         console.warn('Split push failed:', e.message);
-        showAlert('Kunde inte spara tid.', 'error');
+        showAlert(t('precision_split_save_error'), 'error');
     }
 }
 
@@ -141,13 +140,13 @@ function renderGates() {
     if (!container) return;
 
     if (!currentEquipage) {
-        container.innerHTML = `<p class="text-center text-gray-500 text-sm">Välj ett ekipage för att logga tider.</p>`;
+        container.innerHTML = `<p class="text-center text-gray-500 text-sm">${t('precision_split_select_to_log')}</p>`;
         return;
     }
 
     const mapSettings = precisionConfig?.mapSettings || {};
     if (!mapSettings.enabled) {
-        container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded text-center text-sm dark:bg-red-900/30 dark:text-red-300">Live-karta är inte aktiverat för denna tävling.</div>`;
+        container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded text-center text-sm dark:bg-red-900/30 dark:text-red-300">${t('precision_split_live_map_disabled')}</div>`;
         return;
     }
 
@@ -165,7 +164,7 @@ function renderGates() {
     }
 
     if (keys.length === 0) {
-        container.innerHTML = `<p class="text-center text-gray-500 text-sm">Inga gates är utplacerade på kartan ännu.</p>`;
+        container.innerHTML = `<p class="text-center text-gray-500 text-sm">${t('precision_split_no_gates_deployed')}</p>`;
         return;
     }
 
@@ -212,7 +211,7 @@ function renderGates() {
             const hasSplit = !!gateSplits[gateId];
             
             if (hasSplit) {
-                if (confirm(`Vill du ångra passertiden för ${gateId.replace('gate_', '')}?`)) {
+                if (confirm(t('precision_split_undo_confirm').replace('{gateId}', gateId.replace('gate_', '')))) {
                     await undoSplit(gateId);
                 }
             } else {
@@ -258,9 +257,9 @@ async function autoSelectRunningDriver() {
             if (searchableDropdown) {
                 searchableDropdown.setValue(Number(startNumber));
             }
-            showAlert('Autofokus på pågående ekipage: ' + startNumber);
+            showAlert(t('precision_split_autofocus').replace('{startNumber}', startNumber));
         } else {
-            showAlert('Inget ekipage är startat ännu.', 'info');
+            showAlert(t('precision_split_no_started'), 'info');
         }
     } catch (err) {
         console.warn('Auto-find failed:', err);
@@ -313,7 +312,7 @@ export async function load() {
 
     } catch (e) {
         console.error('Error in precision-split-input load:', e);
-        showAlert('Kunde inte ladda data.', 'error');
+        showAlert(t('precision_split_load_error'), 'error');
     }
 }
 

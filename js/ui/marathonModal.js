@@ -1,6 +1,6 @@
 // js/ui/marathonModal.js
 import { getGlobalState } from '../main.js';
-import { getMarathonObstacleResults } from '../services/firestoreService.js';
+import { getMarathonObstacleResults } from '../services/marathonService.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
 import { t } from '../utils/i18n.js';

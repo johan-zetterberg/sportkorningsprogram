@@ -1,12 +1,9 @@
-import { 
-  getEquipages, 
-  getConfig,
-  listenForPrecisionResults,
-  listenForDressageProtocolsCollectionGroup,
-  listenForMaratonCollection,
-  listenForMarathonTimingUpdates,
-  listenForTeams
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { listenForPrecisionResults, getPrecisionResults } from '../../services/precisionService.js';
+import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
+import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments } from '../../services/marathonService.js';
+import { listenForTeams } from '../../services/teamService.js';
 
 import { getGlobalState } from '../../main.js';
 
@@ -149,7 +146,7 @@ function injectPrecisionResultsBaseStyles() {
 // ---------- State ----------
 let precision_displayConfig = {};
 const precision_activeClassFilters = new Set();
-const MOBILE_BP = 600;
+const MOBILE_BP = 500;
 
 function prec_resolveMergeGrouping(e, mergeCfg) {
   if (e?.useMergedTestForDisplay && e?.mergedTestKey && e?.mergedTestLabel) {
@@ -1056,8 +1053,8 @@ function renderFinalizeButtons(eq) {
             style="display:${finalized ? 'inline-flex' : 'none'}">
         ${t('finalized_badge')}
       </span>
-      <button type="button" data-prec-action="finalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" style="display:${finalized ? 'none' : ''}" onclick="event.stopPropagation(); window.__finalizePrecision('${compId}','${sn}')">${t('finalize')}</button>
-      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50" style="display:${finalized ? '' : 'none'}" onclick="event.stopPropagation(); window.__unfinalizePrecision('${compId}','${sn}')">${t('undo')}</button>
+      <button type="button" data-prec-action="finalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" style="display:${finalized ? 'none' : ''}" >${t('finalize')}</button>
+      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50" style="display:${finalized ? '' : 'none'}" >${t('undo')}</button>
     </div>`;
 }
 
@@ -1403,13 +1400,30 @@ function wireEventListeners() {
 
   const tableWrapper = document.getElementById('prWrap');
   tableWrapper?.addEventListener('click', (e) => {
+    // 1. Check for sort header clicks
     const th = e.target.closest('th[data-col]');
-    if (!th) return;
-    const col = th.getAttribute('data-col');
-    if (precision_sort.col === col) precision_sort.dir = (precision_sort.dir === 'asc') ? 'desc' : 'asc';
-    else { precision_sort.col = col; precision_sort.dir = 'asc'; }
-    render();
-    updateSortIcons();
+    if (th) {
+      const col = th.getAttribute('data-col');
+      if (precision_sort.col === col) precision_sort.dir = (precision_sort.dir === 'asc') ? 'desc' : 'asc';
+      else { precision_sort.col = col; precision_sort.dir = 'asc'; }
+      render();
+      updateSortIcons();
+      return;
+    }
+
+    // 2. Check for button actions (finalize/unfinalize)
+    const btn = e.target.closest('button[data-prec-action]');
+    if (btn) {
+      e.stopPropagation(); // Prevent card click
+      const action = btn.dataset.precAction;
+      const sn = btn.dataset.sn;
+      if (action === 'finalize') {
+        window.__finalizePrecision(competitionId, sn);
+      } else if (action === 'unfinalize') {
+        window.__unfinalizePrecision(competitionId, sn);
+      }
+      return;
+    }
   });
 
   updateControlStates();
@@ -1434,8 +1448,13 @@ export async function load() {
     return;
   }
 
+  const equipagesData = await getEquipages(competitionId);
+
   const [
-    equipagesData,
+    resultsData,
+    dressageData,
+    marathonObstacleData,
+    marathonTimingData,
     configData,
     startTimesData,
     displayCfg,
@@ -1443,7 +1462,10 @@ export async function load() {
     mergeCfgB,
     mergeCfgC
   ] = await Promise.all([
-    getEquipages(competitionId),
+    getPrecisionResults(competitionId).catch(() => []),
+    getAllDressageProtocols(competitionId, equipagesData || []).catch(() => new Map()),
+    getMarathonStateDocuments(competitionId).catch(() => new Map()),
+    getMarathonTimingData(competitionId).catch(() => new Map()),
     getConfig(competitionId, 'precisionConfig').catch(() => ({})),
     getConfig(competitionId, 'startTimes').catch(() => ({})),
     getConfig(competitionId, 'display').catch(() => ({})),
@@ -1456,6 +1478,24 @@ export async function load() {
   precision_precisionConfig = configData || {};
   precision_startTimes = startTimesData || {};
   precision_displayConfig = displayCfg || {};
+
+  // Populate initial result maps
+  (resultsData || []).forEach(r => precision_precisionMap.set(String(r.startNumber), r));
+  if (dressageData instanceof Map) {
+    dressageData.forEach((protocols, sn) => {
+      precision_dressageMap.set(String(sn), Array.isArray(protocols) ? protocols : []);
+    });
+  }
+  if (marathonObstacleData instanceof Map) {
+    marathonObstacleData.forEach((data, sn) => {
+      precision_marathonObstacleMap.set(String(sn), data || {});
+    });
+  }
+  if (marathonTimingData instanceof Map) {
+    marathonTimingData.forEach((data, sn) => {
+      precision_marathonTimingMap.set(String(sn), data || {});
+    });
+  }
 
   prec_buildMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || displayCfg);
   precision_equipages = precision_equipages.map(e => ({
@@ -1479,17 +1519,13 @@ export async function load() {
 
   renderLayout();
   wireEventListeners();
-  render();
-  updateSortIcons();
-  listenLive();
-  renderLayout();
-  wireEventListeners();
-  precision_sort = { col: 'startNumber', dir: 'asc' };
-  render();
-
   listenLive();
   listenMergeConfig(competitionId);
   listenOverallData(competitionId);
+
+  precision_sort = { col: 'startNumber', dir: 'asc' };
+  render();
+  updateSortIcons();
 }
 
 // Globala funktioner för finalisera (anropas via onclick i HTML)

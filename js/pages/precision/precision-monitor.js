@@ -2,7 +2,8 @@
 // En "speaker-vy" som visar det aktiva ekipaget i precision, samt nästa start och senaste resultat.
 
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';

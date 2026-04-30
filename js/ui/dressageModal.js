@@ -2,7 +2,7 @@
 import { getGlobalState } from '../main.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
-import { getDressageResultsForEquipage } from '../services/firestoreService.js';
+import { getDressageResultsForEquipage } from '../services/dressageService.js';
 import {
   getPrograms,
   getDressagePenaltyCoeff,

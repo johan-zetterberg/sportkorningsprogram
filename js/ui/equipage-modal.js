@@ -2,14 +2,10 @@
 // Ekipage-modal utdragen till egen modul.
 
 // --- Importer (identiska källor som totalsidan använder) ---
-import {
-  getDressageResultsForEquipage,
-  getMarathonTimingForEquipage,
-  getMarathonObstacleResults,
-  getMarathonLiveDocument,
-  getPrecisionResultForEquipage,
-  getConfig
-} from '../services/firestoreService.js';
+import { getDressageResultsForEquipage } from '../services/dressageService.js';
+import { getMarathonTimingForEquipage, getMarathonObstacleResults, getMarathonLiveDocument } from '../services/marathonService.js';
+import { getPrecisionResultForEquipage } from '../services/precisionService.js';
+import { getConfig } from '../services/competitionService.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
 import {

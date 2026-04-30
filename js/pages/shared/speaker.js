@@ -4,18 +4,14 @@
 import { getGlobalState } from '../../main.js';
 import { openDetails as showDressageDetailsModal } from '../../ui/dressageModal.js';
 import { showDetailsModal as showPrecisionDetailsModal } from '../../ui/precisionModal.js';
-import {
-    getEquipages,
-    getConfig,
-    listenForJudges,
-    getJudges,
-    listenForDressageProtocolsCollectionGroup,
-    listenForDressageLiveGroup,
-    listenForDressageStatusCollection,
-    getDressageResultsForEquipage,
-    updateEquipage,
-    listenForConfig
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { getJudges } from '../../services/adminService.js';
+import { updateEquipage } from '../../services/equipageService.js';
+import { listenForConfig } from '../../services/competitionService.js';
+import { listenForDressageLiveGroup, listenForDressageStatusCollection, getDressageResultsForEquipage } from '../../services/dressageService.js';
+import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
 import {
     getPrograms,
     getDressagePenaltyCoeff,

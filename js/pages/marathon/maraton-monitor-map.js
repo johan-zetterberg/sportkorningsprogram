@@ -382,7 +382,9 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
             const timerBase = active.timerBaseMs;
             let liveTime = '00:00,00';
             if (timerBase) {
-                const ms = (tickTimeNow - timerBase) - pausedMsSince(timerBase, tickTimeNow) + (active.pausedMs || 0);
+                const diff = tickTimeNow - timerBase;
+                const pauseToSubtract = active.timerIsVirtual ? 0 : pausedMsSince(timerBase, tickTimeNow);
+                const ms = diff - pauseToSubtract + (active.pausedMs || 0);
                 liveTime = formatMsLive(ms);
             }
             if (timerEl.textContent !== liveTime) {

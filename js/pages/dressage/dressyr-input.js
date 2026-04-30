@@ -1,17 +1,11 @@
 import { getGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
-import {
-  getEquipages,
-  getConfig,
-  saveConfig,
-  listenForJudges,
-  saveDressageJudgeProtocol,
-  saveDressageGeneralData,
-  setDressageStatus,
-  getDressageResultsForEquipage,
-  getDressageStatusCollection,
-  listenForDressageStatusCollection
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { saveConfig } from '../../services/competitionService.js';
+import { saveDressageJudgeProtocol, saveDressageGeneralData, setDressageStatus, getDressageStatusCollection } from '../../services/dressageService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { getDressageResultsForEquipage, listenForDressageStatusCollection } from '../../services/dressageService.js';
 
 // NYTT: Importera det vi behöver från Firebase för att prata direkt med databasen
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -21,6 +15,7 @@ import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '
 import { calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { klassProgramMapping } from '../../data/competitionData.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
@@ -266,7 +261,7 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
     if (protocolData) {
       const testKey = protocolData.testKey || protocolData.programKey || protocolData.testId;
       if (!testKey) {
-        showAlert("Protokollet saknar testKey/programKey – kan inte rendera.", false);
+        showAlert(t('alert_protocol_missing_key'), false);
         return;
       }
       programmaticChange = true;
@@ -333,7 +328,7 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
     calculateTotals();
   } catch (error) {
     console.error("Kunde inte ladda befintligt protokoll:", error);
-    showAlert("Ett kritiskt fel uppstod vid laddning av sparat protokoll.", false);
+    showAlert(t('alert_protocol_load_error'), false);
   }
 }
 
@@ -369,7 +364,7 @@ function populateSelectors() {
       testSelector.appendChild(group);
     });
 
-  judgeSelector.innerHTML = '<option value="">Välj domare…</option>';
+  judgeSelector.innerHTML = `<option value="">${t('input_select_judge')}</option>`;
   const order = { C: 0, E: 1, B: 2, H: 3, M: 4 };
 
   const expandDressageRole = (j) => {
@@ -420,7 +415,7 @@ function updateProgramMeta(key) {
   if (!host) return;
   const meta = getProgramMeta(key);
   if (!meta) { host.innerHTML = ''; return; }
-  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${meta.verified ? 'Verifierat' : 'Ej verifierat'}</span>`;
+  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${meta.verified ? t('input_verified') : t('input_not_verified')}</span>`;
   const ver = meta.version ? ` • v${meta.version}` : '';
   const src = meta.source ? ` • ${meta.source}` : '';
   const coeff = getDressagePenaltyCoeff(key);
@@ -461,13 +456,13 @@ function renderProtocol(testKey) {
                 </div>
 
                 <div class="flex-shrink-0 flex flex-col sm:flex-row gap-1">
-                    <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬 Kom.</button>
-                    <button type="button" class="toggle-btn" data-target="details">ℹ️ Info</button>
+                    <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬</button>
+                    <button type="button" class="toggle-btn" data-target="details">ℹ️</button>
                 </div>
             </div>
 
             <div class="comment-wrapper">
-                <textarea rows="1" placeholder="Lägg till kommentar..." class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                <textarea rows="1" placeholder="${t('input_add_comment')}" class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
             </div>
             <div class="movement-details text-sm text-gray-600 mt-2 border-l-2 border-gray-200 pl-2 dark:text-gray-400 dark:border-gray-700">
                 <p class="font-medium dark:text-gray-300">${moment.text}</p>
@@ -630,9 +625,9 @@ async function updateLiveStatus(lastUpdatedElement = null) {
 
 async function saveProtocol() {
   const startNumber = equipageSearchDropdown.getValue();
-  if (!startNumber) { showAlert('Välj ett ekipage först!', false); return; }
-  if (!activeDressageJudge) { showAlert('Välj en aktiv domare först!', false); return; }
-  if (!currentDressageTest) { showAlert('Välj ett dressyrprogram!', false); return; }
+  if (!startNumber) { showAlert(t('alert_select_equipage'), false); return; }
+  if (!activeDressageJudge) { showAlert(t('alert_select_judge'), false); return; }
+  if (!currentDressageTest) { showAlert(t('alert_select_program'), false); return; }
 
   try {
     const testKey = document.getElementById('testSelector').value;
@@ -711,9 +706,9 @@ async function saveProtocol() {
     });
 
     if (!navigator.onLine) {
-      showAlert(`Protokoll för ekipage #${startNumber} har lagts i kön (Offline).`, 'offline');
+      showAlert(t('alert_protocol_queued').replace('{startNumber}', startNumber), 'offline');
     } else {
-      showAlert(`Protokoll för ekipage #${startNumber} har sparats!`);
+      showAlert(t('alert_protocol_saved').replace('{startNumber}', startNumber));
     }
     clearForm();
 
@@ -728,7 +723,7 @@ async function saveProtocol() {
   } catch (error) {
     console.error("Kunde inte spara protokoll: ", error);
     // Kunde inte spara protokoll: 
-    showAlert("Ett fel uppstod. Protokollet kunde inte sparas.", false);
+    showAlert(t('alert_protocol_save_error'), false);
   }
 }
 
@@ -1181,16 +1176,16 @@ export function load() {
       
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
         <div class="md:col-span-1">
-          <label for="testSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">1. Program</label>
+          <label for="testSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_program')}</label>
           <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
           <div id="programMeta" class="text-xs text-gray-600 mt-1 truncate dark:text-gray-400"></div>
         </div>
         <div class="md:col-span-1">
-          <label for="judgeSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">2. Domare</label>
+          <label for="judgeSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_judge')}</label>
           <select id="judgeSelector" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
         </div>
         <div class="md:col-span-2">
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">3. Ekipage</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_equipage')}</label>
           <div class="flex items-center space-x-2">
             <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
             <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-30"></div>
@@ -1201,23 +1196,23 @@ export function load() {
       
       <div id="dressage-summary-bar" class="relative md:sticky md:top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg dark:bg-gray-800 dark:border dark:border-gray-700">
           <div class="grid grid-cols-5 gap-2 text-center"> <div>
-                  <p class="text-xs font-medium text-gray-700 dark:text-gray-400">Totalpoäng</p>
+                  <p class="text-xs font-medium text-gray-700 dark:text-gray-400">${t('input_total_points')}</p>
                   <p id="totalPointsDisplay" class="text-xl font-bold text-gray-900 dark:text-white">0.0</p>
               </div>
               <div>
-                  <p class="text-xs font-medium text-green-700 dark:text-green-400">Procent</p>
+                  <p class="text-xs font-medium text-green-700 dark:text-green-400">${t('input_percent')}</p>
                   <p id="percentage" class="text-xl font-bold text-green-900 dark:text-green-300">0.00 %</p>
               </div>
               <div>
-                  <p class="text-xs font-medium text-red-700 dark:text-red-400">Domarstraff</p>
+                  <p class="text-xs font-medium text-red-700 dark:text-red-400">${t('input_judge_penalty')}</p>
                   <p id="penaltyPoints" class="text-xl font-bold text-red-900 dark:text-red-300">0.0</p>
               </div>
               <div class="bg-orange-100 rounded-md p-1 dark:bg-orange-900/30">
-                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">Extra straff</p>
+                  <p class="text-xs font-medium text-orange-700 dark:text-orange-300">${t('input_extra_penalty')}</p>
                   <p id="extraPenaltyDisplay" class="text-xl font-bold text-orange-900 dark:text-orange-200">0.0</p>
               </div>
               <div>
-                  <p class="text-xs font-medium text-blue-700 dark:text-blue-400">Total</p>
+                  <p class="text-xs font-medium text-blue-700 dark:text-blue-400">${t('input_total_penalty')}</p>
                   <p id="totalPenaltyDisplay" class="text-xl font-bold text-blue-900 dark:text-blue-300">0.0</p>
               </div>
           </div>
@@ -1232,28 +1227,28 @@ export function load() {
         <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
           
           <div class="md:col-span-3">
-            <label for="errorPointsInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Felkörning (Straff)</label>
+            <label for="errorPointsInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">${t('input_error_points')}</label>
             <div class="flex gap-1 mt-1">
                <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-               <button type="button" id="btnErr1" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">Fel 1</button>
-               <button type="button" id="btnErr2" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">Fel 2</button>
+               <button type="button" id="btnErr1" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
+               <button type="button" id="btnErr2" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
             </div>
           </div>
           
           <div class="md:col-span-4">
-            <label for="errorCommentInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">Kommentar till felkörning</label>
+            <label for="errorCommentInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">${t('input_error_comment')}</label>
             <textarea id="errorCommentInput" rows="1" class="mt-1 block w-full p-2 border rounded-md text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
           </div>
 
           <div class="md:col-span-2 flex items-center h-full pt-5">
             <input type="checkbox" id="dressageEliminated" class="h-5 w-5 rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 focus:ring-red-500">
-            <label for="dressageEliminated" class="ml-2 block text-sm font-medium dark:text-gray-300">Eliminerad</label>
+            <label for="dressageEliminated" class="ml-2 block text-sm font-medium dark:text-gray-300">${t('input_eliminated')}</label>
           </div>
           
           <div class="md:col-span-3">
-            <label class="block text-xs font-medium text-transparent select-none">Spara</label>
+            <label class="block text-xs font-medium text-transparent select-none">${t('input_save')}</label>
             <button id="saveProtocol" class="w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
-              Spara Protokoll
+              ${t('input_save_protocol')}
             </button>
           </div>
           </div>
@@ -1261,7 +1256,7 @@ export function load() {
         </div>
         <div class="mt-4 pt-3 border-t flex justify-end dark:border-gray-700">
           <button id="btnBackupDreJson" type="button" class="text-xs text-blue-600 hover:underline flex items-center gap-1 dark:text-blue-400">
-            <i class="fas fa-file-download"></i> Ladda ner säkerhetskopia (JSON)
+            <i class="fas fa-file-download"></i> ${t('input_download_backup')}
           </button>
         </div>
       </div>

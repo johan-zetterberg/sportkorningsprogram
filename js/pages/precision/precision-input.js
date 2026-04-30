@@ -1,5 +1,8 @@
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig, savePrecisionResult, getStartTimes, getPrecisionResults } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { savePrecisionResult, getPrecisionResults } from '../../services/precisionService.js';
+import { getStartTimes } from '../../services/marathonService.js';
 import { db, appId } from '../../config/firebase-config.js';
 import {
     doc,
@@ -12,6 +15,7 @@ import {
     onSnapshot
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { downloadJson, round2 } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
@@ -253,32 +257,32 @@ function renderLayout() {
 
         <div class="container mx-auto p-4 md:p-8 max-w-2xl">
             <div class="mb-4">
-                ${getCompetitionHeader(comp, 'Precision – Inmatning (live)')} 
+                ${getCompetitionHeader(comp, t('precision_header'))} 
             </div>
 
             <!-- STICKY KONTROLLPANEL -->
             <div class="sticky-precision-controls rounded-b-xl shadow-lg mb-4">
                 <div class="flex items-center justify-between gap-4">
                     <div class="flex-grow">
-                        <div id="liveTimer" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="Klicka för att ändra tiden">00:00,00</div>
+                        <div id="liveTimer" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
                         <div class="text-xs md:text-sm mt-1 flex items-center gap-1">
-                            <span class="text-gray-500 dark:text-gray-400">Tidsfel:</span>
+                            <span class="text-gray-500 dark:text-gray-400">${t('precision_time_error')}</span>
                             <span id="uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
                         </div>
                     </div>
                     <div class="flex gap-2">
-                        <button id="btnStart" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">Start</button>
-                        <button id="btnStop" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">Stopp</button>
+                        <button id="btnStart" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
+                        <button id="btnStop" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>
                     </div>
                 </div>
 
                 <!-- Manuell tid-editorn (flytande under timern) -->
                 <div id="manualTimeEditor" class="hidden absolute left-4 right-4 mt-2 p-4 rounded-xl border bg-white shadow-2xl z-50 dark:bg-gray-800 dark:border-gray-600">
-                    <label class="block text-sm font-semibold mb-2 dark:text-white">Ange manuell tid (mmsscc)</label>
+                    <label class="block text-sm font-semibold mb-2 dark:text-white">${t('precision_manual_time_prompt')}</label>
                     <input id="manualTimeDigits" type="tel" inputmode="numeric" class="w-full text-4xl font-mono tracking-widest text-center px-3 py-4 border-2 rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:border-blue-500" placeholder="mmsscc" maxlength="6" />
                     <div class="flex gap-3">
-                        <button id="btnManualApply" class="flex-1 py-3 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700">Använd</button>
-                        <button id="btnManualCancel" class="flex-1 py-3 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300">Avbryt</button>
+                        <button id="btnManualApply" class="flex-1 py-3 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700">${t('precision_apply')}</button>
+                        <button id="btnManualCancel" class="flex-1 py-3 rounded-lg bg-gray-200 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-gray-300">${t('precision_cancel')}</button>
                     </div>
                 </div>
             </div>
@@ -290,7 +294,7 @@ function renderLayout() {
                         <button id="btnPrevEq" class="p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&larr;</button>
                         <div id="precisionEquipageSearchContainer" class="flex-grow"></div>
                         <button id="btnNextEq" class="p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&rarr;</button>
-                        <button id="btnReset" class="p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="Nollställ">🔄</button>
+                        <button id="btnReset" class="p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="${t('precision_reset')}">🔄</button>
                     </div>
                     
                     <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
@@ -305,7 +309,7 @@ function renderLayout() {
                 <!-- HINDERGRUPP -->
                 <div>
                     <div class="flex items-center justify-between mb-2">
-                        <h3 class="font-bold uppercase text-xs tracking-widest text-gray-500 dark:text-gray-400">Hinder / Portar</h3>
+                        <h3 class="font-bold uppercase text-xs tracking-widest text-gray-500 dark:text-gray-400">${t('precision_obstacles_gates')}</h3>
                         <span id="uiObstaclePenaltySummary" class="text-xs font-bold text-red-600 dark:text-red-400"></span>
                     </div>
                     <div id="gatesGrid" class="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
@@ -316,18 +320,18 @@ function renderLayout() {
                 <div class="pt-4 border-t dark:border-gray-700">
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Extra straff</label>
+                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
                             <input type="number" id="extraPenaltyInput" value="0" min="0" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                         </div>
                         <div class="flex items-end">
                             <label class="inline-flex items-center cursor-pointer p-2 border rounded hover:bg-red-50 dark:hover:bg-red-900/20 w-full h-[38px] transition-colors dark:border-gray-600">
                                 <input type="checkbox" id="eliminatedInput" class="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500 dark:bg-gray-700 dark:border-gray-600">
-                                <span class="ml-2 font-bold text-red-700 dark:text-red-400 text-xs">ELIM</span>
+                                <span class="ml-2 font-bold text-red-700 dark:text-red-400 text-xs">${t('precision_elim')}</span>
                             </label>
                         </div>
                         <div class="col-span-2">
-                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Kommentar</label>
-                            <textarea id="commentInput" rows="1" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ev. orsak..."></textarea>
+                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_comment')}</label>
+                            <textarea id="commentInput" rows="1" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('precision_comment_placeholder')}"></textarea>
                         </div>
                     </div>
                 </div>
@@ -335,13 +339,13 @@ function renderLayout() {
                 <!-- SAMMANFATTNING -->
                 <div id="penaltySummary" class="flex flex-wrap gap-2 text-[10px] uppercase font-bold">
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
-                        <span>Tid</span><span id="uiTimePenalty" class="tabular-nums dark:text-gray-200">0.00</span>
+                        <span>${t('precision_time_label')}</span><span id="uiTimePenalty" class="tabular-nums dark:text-gray-200">0.00</span>
                     </div>
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
-                        <span>Hinder</span><span id="uiObstaclePenalty" class="tabular-nums dark:text-gray-200">0</span>
+                        <span>${t('precision_obstacles_label').replace(':','')}</span><span id="uiObstaclePenalty" class="tabular-nums dark:text-gray-200">0</span>
                     </div>
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
-                        <span>Extra</span><span id="uiExtraPenalty" class="tabular-nums dark:text-gray-200">0</span>
+                        <span>${t('precision_extra_penalty').split(' ')[0]}</span><span id="uiExtraPenalty" class="tabular-nums dark:text-gray-200">0</span>
                     </div>
                     <div class="w-full text-center rounded bg-blue-600 text-white px-3 py-2 text-sm">
                         TOTALT: <span id="uiTotalPenalty" class="tabular-nums">0.00</span>
@@ -350,7 +354,7 @@ function renderLayout() {
 
                 <!-- ÅTGÄRDER -->
                 <div class="flex flex-col gap-3 pt-2">
-                    <button id="btnSave" class="w-full text-lg py-4 bg-brand-darkblue text-white font-bold rounded-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all dark:bg-blue-600">SPARA RESULTAT</button>
+                    <button id="btnSave" class="w-full text-lg py-4 bg-brand-darkblue text-white font-bold rounded-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all dark:bg-blue-600">${t('precision_save_results')}</button>
                     <button id="btnBackupPreJson" type="button" class="text-[10px] text-gray-400 hover:text-blue-500 flex items-center justify-center gap-1">
                         <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
                     </button>
@@ -376,8 +380,8 @@ function updateHeaderInfo() {
     const maxSeconds = computeMaxSecondsForClass(eq.className, precisionConfig);
 
     equipageEl.textContent = `#${eq.startNumber} ${eq.driverName || ''} (${eq.className})`;
-    portEl.textContent = Number.isFinite(portWidth) ? `${portWidth} cm` : 'Ej angivet';
-    maxEl.textContent = Number.isFinite(maxSeconds) ? secondsToMMSS(maxSeconds) : 'Ej angivet';
+    portEl.textContent = Number.isFinite(portWidth) ? `${portWidth} cm` : t('precision_not_specified');
+    maxEl.textContent = Number.isFinite(maxSeconds) ? secondsToMMSS(maxSeconds) : t('precision_not_specified');
 }
 
 function renderGates() {
@@ -386,7 +390,7 @@ function renderGates() {
     const labels = getLabelsForClass(currentEquipage?.className);
 
     if (labels.length === 0) {
-        host.innerHTML = `<p class="text-sm text-gray-500">Inga hinder definierade för denna klass i Precision Admin.</p>`;
+        host.innerHTML = `<p class="text-sm text-gray-500">${t('precision_no_obstacles_defined')}</p>`;
         return;
     }
 
@@ -622,7 +626,7 @@ function resetTimer() {
     pushLiveSafe({
         ...getLivePayload(),
         finalized: false,
-        status: 'Ej startat',
+        status: t('precision_not_started'),
         time: null,
         timeMs: null,
         obstaclePenalty: null,
@@ -832,7 +836,7 @@ async function loadDriverData(equipage) {
 
 async function saveFinal() {
     if (!currentEquipage) {
-        showAlert("Inget ekipage valt.", false);
+        showAlert(t('precision_no_equipage_selected'), false);
         return;
     }
 
@@ -888,14 +892,14 @@ async function saveFinal() {
         );
 
         if (!navigator.onLine) {
-            showAlert(`Slutgiltigt resultat för #${currentEquipage.startNumber} har lagts i kön (Offline).`, 'offline');
+            showAlert(t('precision_final_saved_offline').replace('{startNumber}', currentEquipage.startNumber), 'offline');
         } else {
-            showAlert(`Slutgiltigt resultat för #${currentEquipage.startNumber} har sparats.`);
+            showAlert(t('precision_final_saved').replace('{startNumber}', currentEquipage.startNumber));
         }
         // Raden som byter ekipage automatiskt är borttagen.
     } catch (err) {
         console.error('Fel vid sparning av precision:', err);
-        showAlert('Kunde inte spara resultat.', false);
+        showAlert(t('precision_save_error'), false);
     }
 }
 
@@ -919,7 +923,7 @@ export async function load() {
     try {
         // Wrapper för timeout
         const timeoutPromise = new Promise((_, reject) =>
-            setTimeout(() => reject(new Error("Timeout vid dataladdning (10s)")), 10000)
+            setTimeout(() => reject(new Error(t('precision_timeout'))), 10000)
         );
 
         // 1) Hämta rådata med timeout
@@ -1058,7 +1062,7 @@ export async function load() {
 
         console.error("Kunde inte ladda precisionsinmatning:", error);
         const el = document.getElementById('precisionEquipageSearchContainer');
-        if (el) el.innerHTML = `<span class="text-red-500 font-bold">Kunde inte ladda ekipage.<br><span class="text-xs font-normal text-gray-700">${error.message}</span></span>`;
+        if (el) el.innerHTML = `<span class="text-red-500 font-bold">${t('precision_load_error_html').replace('{error}', error.message)}</span>`;
         // showAlert("Ett kritiskt fel uppstod vid laddning av sidan.", false);
     }
 }

@@ -3,7 +3,10 @@
 // Kräver firestoreService.getConfig/saveConfig/getEquipages och global dressagePrograms för förhandsval.
 
 import { getGlobalState } from '../../main.js';
-import { getConfig, saveConfig, getEquipages, listenForJudges } from '../../services/firestoreService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { saveConfig } from '../../services/competitionService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 

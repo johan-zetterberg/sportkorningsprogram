@@ -1,15 +1,15 @@
 import { getGlobalState } from '../../main.js';
-import {
-    getEquipages,
-    listenForJudges,
-    listenForDressageProtocolsCollectionGroup,
-    listenForDressageStatus,
-    listenForDressageStatusCollection,
-    listenForDressageFinalizationCollection,
-    listenForDressageLiveGroup,
-    getConfig,
-    getDressageResultsForEquipage
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { 
+  listenForDressageStatus, 
+  listenForDressageStatusCollection, 
+  listenForDressageFinalizationCollection, 
+  listenForDressageLiveGroup, 
+  getDressageResultsForEquipage,
+  listenForDressageProtocolsCollectionGroup
+} from '../../services/dressageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
 import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
@@ -36,6 +36,11 @@ import {
     getDressagePenaltyCoeff
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
+import {
+    getExpectedDressageJudgePositions,
+    getCompletedDressageJudgePositions,
+    isDressageReadyToFinalize
+} from '../../services/competitionStatusService.js';
 
 import { t } from '../../utils/i18n.js';
 
@@ -164,7 +169,7 @@ function dress_resolveMergeGrouping(e) {
 }
 
 
-const MOBILE_BP = 600;
+const MOBILE_BP = 500;
 // isMobile imported from sharedUtils
 
 window.DEBUG_LIVE = window.DEBUG_LIVE ?? false;
@@ -586,25 +591,21 @@ function statusBadgeForDressage(sn) {
     let state = 'not-started';
 
     if (equipageResult && Object.keys(equipageResult.judges).length > 0) {
-        // FIX: Count unique positions instead of raw judges count to handle split classes (multiple judges at 'C')
         const classExpectedPos = getExpectedJudgesForClass(equipageResult.className);
-        let expectedJudgeCount = 0;
-        if (classExpectedPos) {
-            expectedJudgeCount = classExpectedPos.length;
-        } else {
-            const uniquePositions = new Set((currentJudgesPresent || []).map(j => (j.position || '').toUpperCase()));
-            expectedJudgeCount = uniquePositions.size;
-        }
-
-        const finalJudgeCount = Object.values(equipageResult.judges).filter(j => !j.isLive && !j.eliminated).length;
+        const completedPositions = getCompletedDressageJudgePositions(Object.values(equipageResult.judges || {}));
         const liveJudgeCount = Object.values(equipageResult.judges).filter(j => j.isLive).length;
         const isEliminated = Object.values(equipageResult.judges).some(j => j.eliminated);
 
         if (isEliminated) {
             state = 'eliminated';
-        } else if (expectedJudgeCount > 0 && finalJudgeCount >= expectedJudgeCount) {
+        } else if (isDressageReadyToFinalize({
+            status: statusInfo,
+            countedJudgePositions: completedPositions,
+            expectedJudgePositions: classExpectedPos,
+            finalized: false
+        })) {
             state = 'done';
-        } else if (liveJudgeCount > 0 || finalJudgeCount > 0) {
+        } else if (liveJudgeCount > 0 || completedPositions.size > 0) {
             state = 'running';
         } else if (statusInfo?.state === 'ongoing') {
             state = 'running';
@@ -1232,7 +1233,7 @@ function renderMobile(judgesPresent) {
                                 <button type="button"
                                         data-action="unfinalize" data-sn="${r.startNumber}"
                                         class="px-1.5 py-0.5 text-[9px] rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 leading-none"
-                                        onclick="event.stopPropagation(); window.__unfinalizeDressyr('${compId}','${r.startNumber}')">
+                                        >
                                     Ångra
                                 </button>
                             `;
@@ -1241,7 +1242,7 @@ function renderMobile(judgesPresent) {
                                  <button type="button"
                                          data-action="finalize" data-sn="${r.startNumber}"
                                          class="px-1.5 py-0.5 text-[9px] rounded bg-emerald-600 text-white hover:bg-emerald-700 leading-none"
-                                         onclick="event.stopPropagation(); window.__finalizeDressyr('${compId}','${r.startNumber}')">
+                                         >
                                      Lås
                                  </button>
                             `;
@@ -1329,17 +1330,16 @@ function renderLiveHeader() {
         if (judgesValues.some(j => j.eliminated)) return false;
 
         const classExpectedPos = getExpectedJudgesForClass(r.className);
-        let uniquePositionsCount = 0;
-        if (classExpectedPos) {
-            uniquePositionsCount = classExpectedPos.length;
-        } else {
-            uniquePositionsCount = new Set((currentJudgesPresent || []).map(j => (j.position || '').toUpperCase())).size;
-        }
-        const finalCount = judgesValues.filter(j => !j.isLive && !j.eliminated).length;
+        const completedPositions = getCompletedDressageJudgePositions(judgesValues);
         const liveCount = judgesValues.filter(j => j.isLive).length;
-        const isDone = (uniquePositionsCount > 0 && finalCount >= uniquePositionsCount);
+        const isDone = isDressageReadyToFinalize({
+            status: st,
+            countedJudgePositions: completedPositions,
+            expectedJudgePositions: classExpectedPos,
+            finalized: false
+        });
 
-        if (!isDone && (liveCount > 0 || finalCount > 0 || st.state === 'ongoing')) {
+        if (!isDone && (liveCount > 0 || completedPositions.size > 0 || st.state === 'ongoing')) {
             return true;
         }
         return false;
@@ -1563,13 +1563,7 @@ function renderLiveHeader() {
 
 // === NEW: Helper to find expected judge positions for a specific class
 function getExpectedJudgesForClass(className) {
-    if (!window.dressageJudgeMapping) return null;
-    const assigned = window.dressageJudgeMapping[className];
-    if (!assigned) return null; // Fallback to global logic if not configured
-
-    // Extrace the positions (keys) that actually have a judge assigned (value)
-    const positions = Object.keys(assigned).filter(pos => assigned[pos] && String(assigned[pos]).trim() !== '');
-    return positions.length > 0 ? positions.map(p => p.toUpperCase()) : null;
+    return getExpectedDressageJudgePositions(className, window.dressageJudgeMapping, currentJudgesPresent);
 }
 
 function renderTableHead(thead, judgesPresent) {
@@ -1707,15 +1701,14 @@ function renderDesktop(judgesPresent) {
         let isDone = false;
         if (!isEliminated && !isFin) {
             const classExpectedPos = getExpectedJudgesForClass(res.className);
-            let uniquePositionsCount = 0;
-            if (classExpectedPos) {
-                uniquePositionsCount = classExpectedPos.length;
-            } else {
-                uniquePositionsCount = new Set((currentJudgesPresent || []).map(j => (j.position || '').toUpperCase())).size;
-            }
-            const finalCount = judgesValues.filter(j => !j.isLive && !j.eliminated).length;
+            const completedPositions = getCompletedDressageJudgePositions(judgesValues);
             const liveCount = judgesValues.filter(j => j.isLive).length;
-            isDone = (uniquePositionsCount > 0 && finalCount >= uniquePositionsCount);
+            isDone = isDressageReadyToFinalize({
+                status: statusInfo,
+                countedJudgePositions: completedPositions,
+                expectedJudgePositions: classExpectedPos,
+                finalized: false
+            });
 
             if (!isDone && (liveCount > 0 || statusInfo?.state === 'ongoing')) {
                 isRunning = true;
@@ -1815,8 +1808,8 @@ function renderDesktop(judgesPresent) {
                 <div class="flex items-center justify-center gap-1 lg:gap-2 flex-wrap" data-finalize-slot>
                     ${can ? `
                     <span id="badge-final-${sn}" class="inline-flex items-center px-1.5 py-0.5 lg:px-2 lg:py-1 rounded text-[10px] lg:text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300" style="${finalized ? '' : 'display:none'}">Finaliserad</span>
-                    <button type="button" data-action="finalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" onclick="event.stopPropagation(); window.__finalizeDressyr('${compId}','${sn}')" style="${finalized ? 'display:none' : ''}">Finalisera</button>
-                    <button type="button" data-action="unfinalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20" onclick="event.stopPropagation(); window.__unfinalizeDressyr('${compId}','${sn}')" style="${finalized ? '' : 'display:none'}">Ångra</button>
+                    <button type="button" data-action="finalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"  style="${finalized ? 'display:none' : ''}">Finalisera</button>
+                    <button type="button" data-action="unfinalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"  style="${finalized ? '' : 'display:none'}">Ångra</button>
                     ` : ''}
                 </div>
             </td>
@@ -1833,6 +1826,26 @@ function renderDesktop(judgesPresent) {
     }
 
     // Row click listeners
+    if (!tbody.dataset.finalizeWired) {
+        tbody.addEventListener('click', (e) => {
+            const btn = e.target.closest('button[data-action][data-sn]');
+            if (!btn) return;
+
+            e.stopPropagation();
+
+            const { action, sn } = btn.dataset;
+            const compId = getGlobalState('currentCompetition')?.id;
+            if (!compId || !sn) return;
+
+            if (action === 'finalize') {
+                window.__finalizeDressyr?.(compId, sn);
+            } else if (action === 'unfinalize') {
+                window.__unfinalizeDressyr?.(compId, sn);
+            }
+        });
+        tbody.dataset.finalizeWired = '1';
+    }
+
     tbody.querySelectorAll('tr[data-start-number]').forEach(row => row.addEventListener('click', (e) => {
         if (e.target.closest('button, a, [onclick]')) return;
         const sn = row.dataset.startNumber;

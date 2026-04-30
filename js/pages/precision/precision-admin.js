@@ -2,7 +2,9 @@
 // --- KOMPLETT OCH KORRIGERAD VERSION ---
 
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig, saveConfig } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';

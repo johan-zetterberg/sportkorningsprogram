@@ -1,10 +1,10 @@
 // js/pages/maraton-admin.js
 import { getGlobalState } from '../../main.js';
-import {
-  getConfig, saveConfig,
-  getEquipages, listenForEquipages,
-  listenForMarathonObstacles, saveMarathonObstacle, deleteMarathonObstacle
-} from '../../services/firestoreService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { saveConfig } from '../../services/competitionService.js';
+import { listenForEquipages } from '../../services/equipageService.js';
+import { listenForMarathonObstacles, saveMarathonObstacle, deleteMarathonObstacle } from '../../services/marathonService.js';
+import { getEquipages } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { generateTimecardsPdf } from '../../pdf/timecardsPdf.js';
 

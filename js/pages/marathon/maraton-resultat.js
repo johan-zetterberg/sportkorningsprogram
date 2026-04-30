@@ -1,6 +1,8 @@
 // js/pages/maraton-resultat.js
 import { getGlobalState } from '../../main.js';
-import { getEquipages, getConfig, getMarathonResults, getMarathonTimingData, listenForMarathonTimingUpdates, getMarathonObstacleResults } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { getMarathonResults, getMarathonTimingData, listenForMarathonTimingUpdates, getMarathonObstacleResults } from '../../services/marathonService.js';
 import { collection, onSnapshot, updateDoc, query, doc, getDoc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
@@ -166,7 +168,7 @@ function injectMaratonTableStyles() {
     #marathonCards { display: grid; }
 
     /* Desktop/Tabellvy */
-    @media (min-width: 768px), (orientation: landscape) and (hover: none) {
+    @media (min-width: ${MOBILE_BP}px), (orientation: landscape) and (hover: none) {
       #marathon-x-wrap > table.pr-table { display: table; }
       #marathonCards { display: none; }
     }
@@ -290,7 +292,7 @@ let isGloballyPaused = false;
 let pauseStartTime = 0;
 
 // === Responsive helpers ===
-const MOBILE_BP = 600;
+const MOBILE_BP = 500;
 // isMobile imported from sharedUtils
 
 // Debounce för live-snapshots så UI inte re-rendras för ofta
@@ -304,7 +306,7 @@ function render() {
   const isLandscape = window.matchMedia("(orientation: landscape)").matches;
 
   // Kortvy endast i portrait. I landscape (även på mobil) kör vi tabellen (användaren kan scrolla i sidled).
-  const useCards = !isLandscape;
+  const useCards = isMobile();
 
   const tableWrapper = document.getElementById('marathonTableWrapper');
   const cardWrapper = document.getElementById('marathonCards');

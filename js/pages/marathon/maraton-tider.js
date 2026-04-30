@@ -1,6 +1,7 @@
 // maraton-tider.js
 
-import { getEquipages, getConfig } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoUrl, getClubLogoHtml } from '../../services/logosService.js';

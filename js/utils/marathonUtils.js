@@ -200,7 +200,7 @@ export function getClassSettings(className) {
   });
 
   if (key) return dataMap[key];
-  
+
   // 3. Normalized match (e.g. "LA" -> "Lätt A" match "Lätt A")
   const normClassName = normalizeClassKey(className);
   if (normClassName) {
@@ -501,7 +501,21 @@ export function toTimeLabel(v) {
 
 function parseTS(v) {
   if (!v) return null;
-  try { const t = new Date(v).getTime(); return Number.isFinite(t) ? t : null; }
+  try {
+    if (typeof v?.toMillis === 'function') {
+      const t = v.toMillis();
+      return Number.isFinite(t) ? t : null;
+    }
+    if (v instanceof Date) {
+      const t = v.getTime();
+      return Number.isFinite(t) ? t : null;
+    }
+    if (typeof v === 'number') {
+      return Number.isFinite(v) ? v : null;
+    }
+    const t = new Date(v).getTime();
+    return Number.isFinite(t) ? t : null;
+  }
   catch { return null; }
 }
 
