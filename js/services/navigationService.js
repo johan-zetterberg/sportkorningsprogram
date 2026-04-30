@@ -80,7 +80,9 @@ export async function navigateTo(hash) {
   try { localStorage.setItem('lastPageId', hash || '#hub'); } catch (_) { }
 
   const user = getGlobalState('currentUser');
-  const userRole = user?.compRole || user?.role || 'publik';
+  const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
+  const globalRole = user?.role || 'publik';
+  const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [globalRole];
   const requiredRoles = pagePermissions[pageId] || [];
 
   // Mappa specifika funktionärsroller till den generella "funktionar"-nivån för page routing
@@ -93,11 +95,18 @@ export async function navigateTo(hash) {
       'speaker': ['speaker', 'funktionar', 'publik'],
       'publik': ['publik']
   };
-  const expandedRoles = roleHierarchy[userRole] || [userRole, 'publik'];
+
+  let hasAccess = false;
+  for (const r of rolesToCheck) {
+      const expandedRoles = roleHierarchy[r] || [r, 'publik'];
+      if (requiredRoles.some(req => expandedRoles.includes(req))) {
+          hasAccess = true;
+          break;
+      }
+  }
 
   // Om superadmin -> Släpp igenom allt
-  const hasAccess = requiredRoles.some(r => expandedRoles.includes(r));
-  if (userRole !== 'superadmin' && !hasAccess) {
+  if (!rolesToCheck.includes('superadmin') && !hasAccess) {
     document.getElementById('loginModal').style.display = 'flex';
     if (window.location.hash !== '' && window.location.hash !== '#hub') {
       window.location.hash = '#hub';

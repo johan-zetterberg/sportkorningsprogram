@@ -27,11 +27,9 @@ import { syncService } from './syncService.js';
 // Lyssna på när vi får tillbaka nätverket.
 // Då väntar vi på att Firestore synkar allt, och rensar sedan kön.
 window.addEventListener('online', async () => {
-  console.log('Nätverk återställt. Väntar på Firestore-synk...');
   try {
     // waitForPendingWrites commitar lokala ändringar till servern
     await waitForPendingWrites(db);
-    console.log('Firestore synkad. Rensar kö.');
     syncService.clearAll();
   } catch (e) {
     console.warn('Fel vid återsynk:', e);
@@ -186,7 +184,6 @@ export async function createCompetition(data) {
     // --- IMPORT SETTINGS LOGIC ---
     if (data.importFrom) {
       const sourceId = data.importFrom;
-      console.log(`[createCompetition] Importing settings from ${sourceId} to ${newId}...`);
 
       try {
         // List of configs to copy
@@ -244,7 +241,6 @@ export async function createCompetition(data) {
               }
             }
             if (count > 0) await batch.commit();
-            console.log(`Copied ${snap.size} documents from ${colName}.`);
           } catch (err) {
             console.warn(`Failed to copy collection ${colName} from ${sourceId}`, err);
           }
@@ -255,7 +251,6 @@ export async function createCompetition(data) {
           ...configsToCopy.map(name => copyConfig(name)),
           copyCollection('maratonObstacles') // <-- Copy obstacles
         ]);
-        console.log('[createCompetition] Import complete.');
 
       } catch (importErr) {
         console.error('[createCompetition] Generic import error:', importErr);
@@ -702,6 +697,7 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
   const resultData = {
     number: on,
     timeInSeconds: timeInSec,
+    timeSeconds: timeInSec, // Added for compatibility with core engine marathon.js
     timeMs: timeInSec * 1000,
     timePenalty: 0, // Ignored by calculation engine anyway since it recalculates it
     knockdowns: 0, 
@@ -711,7 +707,7 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
     comment: data?.comment || '', 
     eliminated: !!data?.eliminated,
     routeString: data?.routeString || '',
-    gateSplits: [],
+    gateSplits: data?.gateSplits || [],
     enteredAt: new Date().toISOString()
   };
 
@@ -1291,7 +1287,6 @@ export async function getAllDressageProtocols(competitionId, equipages) {
 export async function deleteCompetition(competitionId) {
   if (!competitionId) throw new Error("deleteCompetition: competitionId saknas");
 
-  console.log(`Börjar radera tävling ${competitionId}...`);
 
   // Helper för att radera i batchar
   const deleteQueryBatch = async (queryRef) => {
@@ -1363,7 +1358,6 @@ export async function deleteCompetition(competitionId) {
   const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
   await deleteDoc(compRef);
 
-  console.log(`Tävling ${competitionId} raderad.`);
 }
 
 
@@ -1480,4 +1474,99 @@ export function listenForMarathonConfig(competitionId, callback) {
       callback(snapshot.data());
     }
   });
+}
+
+// =================================================================
+// MULTI-TENANT & RBAC (PIN-CODE ADMINS)
+// =================================================================
+
+export async function getSecretConfig(competitionId) {
+  if (!competitionId) return null;
+  try {
+    const docRef = getCompDocRef(competitionId, 'config', 'secrets');
+    const snap = await getDoc(docRef);
+    return snap.exists() ? snap.data() : null;
+  } catch (e) {
+    console.warn('getSecretConfig failed:', e);
+    return null;
+  }
+}
+
+export async function saveSecretConfig(competitionId, data) {
+  if (!competitionId) return;
+  const docRef = getCompDocRef(competitionId, 'config', 'secrets');
+  await setDoc(docRef, data, { merge: true });
+}
+
+export async function joinCompetitionAsAdmin(competitionId, pinCode, user) {
+  if (!competitionId || !pinCode || !user) throw new Error("Missing parameters for joinCompetitionAsAdmin");
+  
+  // Vi sparar PIN-koden till admins/{uid}. Reglerna i Firestore tillåter detta 
+  // ENDAST om pinCode stämmer överens med den hemliga koden.
+  const docRef = getCompDocRef(competitionId, 'admins', user.uid);
+  const rolesToTry = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+  let successfulRole = null;
+
+  // Hämta befintliga roller för att inte skriva över
+  let existingRoles = [];
+  try {
+      const snap = await getDoc(docRef);
+      if (snap.exists()) {
+          const data = snap.data();
+          if (Array.isArray(data.roles)) existingRoles = data.roles;
+          else if (data.role) existingRoles = [data.role];
+      }
+  } catch (e) {}
+
+  for (const role of rolesToTry) {
+    try {
+      const newRoles = [...new Set([...existingRoles, role])];
+      await setDoc(docRef, {
+        accessCode: pinCode,
+        email: user.email,
+        joinedAt: Date.now(),
+        roles: newRoles,
+        role: newRoles[0] // fallback för äldre kod
+      }, { merge: true });
+      successfulRole = role;
+      break; // Success! We found the matching role.
+    } catch (e) {
+      // Failed (permission denied because PIN doesn't match this role). Try next.
+    }
+  }
+
+  if (!successfulRole) {
+    throw new Error("Kunde inte ansluta. Kontrollera att PIN-koden är korrekt.");
+  }
+
+  try {
+    // Uppgradera användarens roll till funktionär så att UI/Navigations-menyerna låses upp
+    const userRef = doc(db, 'users', user.uid);
+    const userSnap = await getDoc(userRef);
+    if (!userSnap.exists() || userSnap.data().role === 'publik' || !userSnap.data().role) {
+      await setDoc(userRef, { role: 'funktionar' }, { merge: true });
+    }
+  } catch (e) {
+    console.warn("Kunde inte uppgradera global roll", e);
+  }
+
+  return successfulRole;
+}
+
+export function listenForCompetitionAdmins(competitionId, callback) {
+  if (!competitionId) return () => {};
+  const colRef = getCompCollectionRef(competitionId, 'admins');
+  return onSnapshot(query(colRef), (snap) => {
+    const admins = snap.docs.map(doc => ({ uid: doc.id, ...doc.data() }));
+    callback(admins);
+  }, (err) => {
+    console.warn("Could not listen for admins (not authorized or other error):", err);
+    callback([]);
+  });
+}
+
+export async function deleteCompetitionAdmin(competitionId, uid) {
+  if (!competitionId || !uid) return;
+  const docRef = getCompDocRef(competitionId, 'admins', uid);
+  await deleteDoc(docRef);
 }

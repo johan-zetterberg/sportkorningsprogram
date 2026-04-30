@@ -17,6 +17,43 @@ import { db, appId } from './config/firebase-config.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Exportera funktioner för att andra moduler ska kunna interagera med state.
+export async function refreshUserCompRole() {
+    const comp = globalState['currentCompetition'];
+    const user = globalState['currentUser'];
+    if (!comp || !user || !user.uid) return;
+
+    let compRoles = [];
+
+    // 1. Check direct arrays on comp document
+    const email = (user.email || '').toLowerCase();
+    if (email) {
+        if (comp.adminEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('admin');
+        if (comp.speakerEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('speaker');
+        if (comp.dressageEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('dressage');
+        if (comp.marathonEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('marathon');
+        if (comp.precisionEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('precision');
+    }
+
+    // 2. Check admins subcollection
+    try {
+        const snap = await getDoc(doc(db, 'apps', appId, 'competitions', comp.id, 'admins', user.uid));
+        if (snap.exists()) {
+            const data = snap.data();
+            if (Array.isArray(data.roles)) {
+                compRoles.push(...data.roles);
+            } else if (data.role) {
+                compRoles.push(data.role);
+            }
+        }
+    } catch (e) {
+        console.warn("Could not fetch compRoles", e);
+    }
+
+    // Deduplicate and assign
+    user.compRoles = [...new Set(compRoles)];
+    updateUIVisibility();
+}
+
 export function setGlobalState({ key, value }) {
     // Generell funktion för att sätta värden i globalState
     globalState[key] = value;
@@ -46,47 +83,7 @@ export function setGlobalState({ key, value }) {
 
     // --- NYTT: Hämta tävlingsspecifik roll om tävling eller användare ändras ---
     if (key === 'currentCompetition' || key === 'currentUser') {
-        const comp = globalState['currentCompetition'];
-        const user = globalState['currentUser'];
-        
-        if (comp && user && user.uid) {
-            let compRole = null;
-            
-            // 1. Check direct arrays on comp document
-            const email = (user.email || '').toLowerCase();
-            if (email) {
-                if (comp.adminEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'admin';
-                else if (comp.speakerEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'speaker';
-                else if (comp.dressageEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'dressage';
-                else if (comp.marathonEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'marathon';
-                else if (comp.precisionEmails?.map(e=>e.toLowerCase()).includes(email)) compRole = 'precision';
-            }
-            
-            // 2. Check admins subcollection async if no role found in arrays
-            if (!compRole) {
-                getDoc(doc(db, 'apps', appId, 'competitions', comp.id, 'admins', user.uid))
-                    .then(snap => {
-                        if (snap.exists() && snap.data().role) {
-                            user.compRole = snap.data().role;
-                            updateUIVisibility();
-                        } else {
-                            user.compRole = null;
-                            updateUIVisibility();
-                        }
-                    })
-                    .catch(e => {
-                        console.warn("Could not fetch compRole", e);
-                        user.compRole = null;
-                        updateUIVisibility();
-                    });
-            } else {
-                user.compRole = compRole;
-                updateUIVisibility();
-            }
-        } else if (user) {
-            user.compRole = null;
-            updateUIVisibility();
-        }
+        refreshUserCompRole(); // Kör async i bakgrunden vid state-ändringar
     }
 }
 
@@ -221,6 +218,7 @@ function initialize() {
                     const comp = await getCompetitionById(lastCompetitionId);
                     if (comp) {
                         setGlobalState({ key: 'currentCompetition', value: comp });
+                        await refreshUserCompRole(); // <--- Await roles before navigating
                     }
                 }
             } catch (e) {

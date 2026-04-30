@@ -13,7 +13,9 @@ let onAuthReadyCallback = null;
 export function updateUIVisibility() {
     // --- NYTT: Hämta användaren från global state istället för lokala variabler ---
     const currentUser = getGlobalState('currentUser');
-    const currentUserRole = currentUser?.compRole || currentUser?.role || 'publik';
+    const userCompRoles = currentUser?.compRoles && currentUser.compRoles.length > 0 ? currentUser.compRoles : [];
+    const globalRole = currentUser?.role || 'publik';
+    const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [globalRole];
     // --------------------------------------------------------------------------
 
     const userInfoDiv = document.getElementById('userInfo');
@@ -25,8 +27,10 @@ export function updateUIVisibility() {
 
     if (currentUser) { // Användaren är inloggad
         userInfoDiv.style.display = 'flex';
-        if (currentUserRole !== 'publik') {
-            userRoleSpan.textContent = currentUserRole.charAt(0).toUpperCase() + currentUserRole.slice(1);
+        if (globalRole !== 'publik') {
+            userRoleSpan.textContent = globalRole.charAt(0).toUpperCase() + globalRole.slice(1);
+        } else if (userCompRoles.length > 0) {
+            userRoleSpan.textContent = userCompRoles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ');
         } else {
             userRoleSpan.textContent = currentUser.email;
         }
@@ -52,8 +56,14 @@ export function updateUIVisibility() {
             'publik': ['publik']
         };
         
-        const expandedRoles = roleHierarchy[currentUserRole] || [currentUserRole, 'publik'];
-        const hasAccess = requiredRoles.some(r => expandedRoles.includes(r));
+        let hasAccess = false;
+        for (const r of rolesToCheck) {
+            const expandedRoles = roleHierarchy[r] || [r, 'publik'];
+            if (requiredRoles.some(req => expandedRoles.includes(req))) {
+                hasAccess = true;
+                break;
+            }
+        }
         
         link.style.display = hasAccess ? 'block' : 'none';
     });

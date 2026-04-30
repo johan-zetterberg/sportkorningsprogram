@@ -298,7 +298,9 @@ function renderMobile() {
 
   const sorted = getSortedEquipages();
   const user = getGlobalState('currentUser');
-  const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(user?.compRole || user?.role || '');
+  const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
+  const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [user?.role || ''];
+  const canViewDetails = rolesToCheck.some(r => ['admin', 'superadmin', 'sekretariat'].includes(r));
   let lastClass = null;
 
   if (sorted.length === 0) {
@@ -817,7 +819,9 @@ function renderDesktop() {
   ];
   // === ÄNDRING: Lade till canViewDetails-kontroll ===
   const user = getGlobalState('currentUser');
-  const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(user?.compRole || user?.role || '');
+  const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
+  const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [user?.role || ''];
+  const canViewDetails = rolesToCheck.some(r => ['admin', 'superadmin', 'sekretariat'].includes(r));
 
   let tableHtml = `
       <div id="participant-x-host" class="x-scroll-wrap">
@@ -999,7 +1003,9 @@ export async function load() {
     if (pageContent) {
       pageContent.addEventListener('click', (e) => {
         const user = getGlobalState('currentUser');
-        const canViewDetails = ['admin', 'superadmin', 'sekretariat'].includes(user?.compRole || user?.role || '');
+        const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
+        const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [user?.role || ''];
+        const canViewDetails = rolesToCheck.some(r => ['admin', 'superadmin', 'sekretariat'].includes(r));
         const row = e.target.closest('[data-equipage-id]');
         const header = e.target.closest('.sortable-header');
 
