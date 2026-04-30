@@ -5,20 +5,14 @@
 //  - Liten "Skriv ut / PDF"-knapp (window.print()) i headern
 
 import { getGlobalState } from '../../main.js';
-import {
-  getEquipages,
-  getConfig,
-  getDressageResultsForEquipage,
-  listenForDressageProtocolsCollectionGroup,
-  getMarathonTimingData,
-  listenForMarathonResult,
-  listenForPrecisionResults,
-  listenForMaratonCollection,
-  listenForMarathonTimingUpdates,
-  listenForOfficials,
-  listenForJudges,
-  listenForTeams // [NEW]
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { getDressageResultsForEquipage, listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
+import { getMarathonTimingData } from '../../services/marathonService.js';
+import { listenForPrecisionResults } from '../../services/precisionService.js';
+import { listenForOfficials, listenForJudges } from '../../services/adminService.js';
+import { listenForMaratonCollection, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
+import { listenForTeams } from '../../services/teamService.js';
 import { t } from '../../utils/i18n.js';
 
 import {
@@ -53,7 +47,9 @@ import {
   fmt2,
   downloadCsv,
   csvCell,
-  sanitizeForFilename
+  sanitizeForFilename,
+  isMobile,
+  MOBILE_BP
 } from '../../utils/sharedUtils.js';
 
 import {
@@ -144,8 +140,7 @@ function getEquipageModalCtx() {
   };
 }
 
-const MOBILE_BP = 600; // Behålls ifall någon CSS skulle behöva den, men isMobile() använder den inte
-const isMobile = () => window.innerWidth < 900 && window.innerWidth < window.innerHeight;
+// Mobil-detektering importeras globalt från sharedUtils.js
 
 // Ny huvudfunktion som väljer rätt vy
 

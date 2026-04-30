@@ -1,15 +1,10 @@
 
-import {
-    getEquipages,
-    getConfig,
-    getDressageStatusCollection,
-    getAllDressageProtocols, // [NEW]
-    getMarathonTimingData,
-    getMarathonStateDocuments, // [NEW] Fetch manual state/times
-    getMarathonResults, // Returns list of ALL obstacle results
-    getPrecisionResults,
-    getTeams // [NEW] Using the new one-time fetch
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { getDressageStatusCollection, getAllDressageProtocols } from '../../services/dressageService.js';
+import { getMarathonTimingData, getMarathonResults, getMarathonStateDocuments } from '../../services/marathonService.js';
+import { getPrecisionResults } from '../../services/precisionService.js';
+import { getTeams } from '../../services/teamService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { getGlobalState } from '../../main.js';
 import {

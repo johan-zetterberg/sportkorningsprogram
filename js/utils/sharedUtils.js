@@ -109,7 +109,7 @@ export function horseLabelStacked(eq) {
 
 // --- Environment / Device Utils ---
 
-export const MOBILE_BP = 600;
+export const MOBILE_BP = 500;
 
 export const isMobile = () => {
     // Matches logic in other files: !isDesktop

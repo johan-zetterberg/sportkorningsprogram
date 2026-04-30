@@ -1,7 +1,14 @@
 // js/pages/prize-giving.js
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader } from '../../ui/components.js';
-import { getEquipages, listenForMaratonCollection, listenForDressageProtocolsCollectionGroup, listenForPrecisionResults, getMarathonTimingData, updateEquipage, getConfig, listenForMarathonTimingUpdates, listenForEquipages, listenForMarathonConfig } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { listenForMaratonCollection, getMarathonTimingData, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
+import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
+import { listenForPrecisionResults } from '../../services/precisionService.js';
+import { updateEquipage } from '../../services/equipageService.js';
+import { listenForMarathonConfig } from '../../services/marathonService.js';
+import { listenForEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { calculateTotalCompetitionPenalties, horseLabel, fmt2 } from '../../utils/sharedUtils.js';
 import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';

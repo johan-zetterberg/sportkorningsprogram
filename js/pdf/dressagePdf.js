@@ -2,7 +2,7 @@
 // Ansvar: skapa dressyr-PDF för ett ekipage (identisk layout/beräkning som tidigare)
 
 import { getGlobalState } from '../main.js';
-import { getDressageResultsForEquipage } from '../services/firestoreService.js';
+import { getDressageResultsForEquipage } from '../services/dressageService.js';
 import { ensureClubLogosLoaded, getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import {

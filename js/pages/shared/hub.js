@@ -1,5 +1,5 @@
 import { getGlobalState, setGlobalState } from '../../main.js';
-import { createCompetition, listenForCompetitions } from '../../services/firestoreService.js';
+import { createCompetition, listenForCompetitions } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 

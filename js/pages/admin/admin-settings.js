@@ -1,4 +1,8 @@
-import { getConfig, saveConfig, getCompetitionById, deleteCompetition, getEquipages, getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin } from '../../services/firestoreService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { saveConfig } from '../../services/competitionService.js';
+import { getCompetitionById, deleteCompetition } from '../../services/competitionService.js';
+import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin } from '../../services/adminService.js';
+import { getEquipages } from '../../services/equipageService.js';
 import { getGlobalState } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
 

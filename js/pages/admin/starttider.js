@@ -1,19 +1,12 @@
 // starttider.js — Korrigerad och rensad version
 
-import {
-    getEquipages,
-    getConfig,
-    saveConfig,
-    listenForDressageProtocolsCollectionGroup,
-    listenForPrecisionResults,
-    getMarathonTimingData,
-    getMarathonStateDocuments,
-    getMarathonResults,
-    listenForMaratonCollection,
-    listenForDressageFinalizationCollection,
-    listenForDressageStatusCollection,
-    listenForMarathonTimingUpdates,
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig, saveConfig } from '../../services/competitionService.js';
+import { listenForDressageProtocolsCollectionGroup, listenForDressageStatusCollection } from '../../services/dressageService.js';
+import { listenForPrecisionResults } from '../../services/precisionService.js';
+import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults } from '../../services/marathonService.js';
+import { listenForMaratonCollection, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
+import { listenForDressageFinalizationCollection } from '../../services/dressageService.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { getGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
@@ -30,7 +23,9 @@ import {
     csvCell,
     resolveCurrentCompId,
     normalizeEquipage,
-    sanitizeForFilename
+    sanitizeForFilename,
+    isMobile,
+    MOBILE_BP
 } from '../../utils/sharedUtils.js';
 import { doc, getDoc, onSnapshot, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
@@ -62,8 +57,7 @@ let currentUserRole = 'publik';
 let viewMode = 'startorder'; // 'startorder' eller 'byclass'
 let searchTerm = '';
 
-const MOBILE_BP = 768; // Behålls ifall någon CSS skulle behöva den, men isMobile() använder den inte
-const isMobile = () => window.matchMedia("(orientation: portrait)").matches;
+// Mobil-detektering importeras globalt från sharedUtils.js
 
 // --- refs för att kunna ta bort lyssnare på unload ---
 window.__starttiderResizeHandler = window.__starttiderResizeHandler || null;

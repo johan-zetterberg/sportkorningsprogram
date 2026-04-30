@@ -1,10 +1,8 @@
-import {
-  getEquipages,
-  getConfig,
-  listenForDressageStatusCollection,
-  listenForPrecisionResults,
-  getMarathonTimingForEquipage
-} from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { listenForDressageStatusCollection } from '../../services/dressageService.js';
+import { listenForPrecisionResults } from '../../services/precisionService.js';
+import { getMarathonTimingForEquipage } from '../../services/marathonService.js';;
 import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
@@ -16,14 +14,14 @@ import {
   debounce,
   downloadCsv,
   csvCell,
-  sanitizeForFilename
+  sanitizeForFilename,
+  isMobile,
+  MOBILE_BP
 } from '../../utils/sharedUtils.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { t } from '../../utils/i18n.js';
 
-// --- NYTT: Mobil-detektering (ändrad för att lyssna på orientering) ---
-const MOBILE_BP = 600; // Vi kan behålla denna för CSS-fallback om vi vill, men isMobile använder den inte
-const isMobile = () => window.matchMedia("(orientation: portrait)").matches;
+// Mobil-detektering importeras nu globalt från sharedUtils.js
 
 // --- Lokal state för modulen ---
 let sortConfig = { key: 'className', direction: 'asc' };

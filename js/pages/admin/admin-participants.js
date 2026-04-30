@@ -1,14 +1,10 @@
-import {
-    saveEquipage,
-    deleteEquipage,
-    getConfig,
-    saveConfig,
-    saveJudge,
-    deleteJudge,
-    saveOfficial,
-    listenForEquipages,
-    listenForJudges
-} from '../../services/firestoreService.js';
+import { saveEquipage } from '../../services/equipageService.js';
+import { deleteEquipage } from '../../services/equipageService.js';
+import { saveJudge, deleteJudge, saveOfficial } from '../../services/adminService.js';
+import { saveConfig } from '../../services/competitionService.js';
+import { listenForEquipages } from '../../services/equipageService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { getConfig } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses, klassProgramMapping } from '../../data/competitionData.js';
 
@@ -879,9 +875,21 @@ function setupJudgeForm() {
 
     // Handle Judge List Click
     const list = document.getElementById('adminJudgesList');
-    if (list) list.onclick = (e) => {
+    if (list) list.onclick = async (e) => {
+        const deleteBtn = e.target.closest('.delete-judge-btn');
+        if (deleteBtn) {
+            e.preventDefault();
+            e.stopPropagation();
+            const judgeId = deleteBtn.dataset.id;
+            if (judgeId && confirm(`Är du säker på att du vill ta bort denna domare?`)) {
+                await deleteJudge(competitionId, judgeId);
+                showAlert('Domaren har tagits bort.');
+            }
+            return;
+        }
+
         const row = e.target.closest('.clickable-judge');
-        if (row && !e.target.classList.contains('delete-judge-btn')) {
+        if (row) {
             const j = allJudges.find(x => x.id === row.dataset.judgeId);
             if (j) {
                 document.getElementById('judgeId').value = j.id;

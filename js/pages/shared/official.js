@@ -1,13 +1,11 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
-import {
-    getOfficials,
-    getJudges,
-    getEquipages,
-    getConfig,
-    getCompetitionStatistics
-} from '../../services/firestoreService.js';
+import { getOfficials } from '../../services/adminService.js';
+import { getJudges } from '../../services/adminService.js';
+import { getCompetitionStatistics } from '../../services/competitionService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 
 export async function load() {
     const user = getGlobalState('currentUser');
@@ -236,8 +234,13 @@ async function loadDashboard(competitionId) {
 
             // --- Pending Verifications (Endast Admin/Sekretariat/Domare) ---
             const user = getGlobalState('currentUser');
-            const role = user?.role || 'publik';
-            if (['admin', 'sekretariat', 'superadmin', 'domare'].includes(role)) {
+            const roles = new Set([
+                user?.role || 'publik',
+                ...((Array.isArray(user?.compRoles) ? user.compRoles : []))
+            ]);
+            const canSeePending = ['admin', 'sekretariat', 'superadmin', 'domare', 'dressage', 'marathon', 'precision']
+                .some(role => roles.has(role));
+            if (canSeePending) {
                 const pendingWidget = document.getElementById('widget-pending-container');
                 const pendingText = document.getElementById('widget-pending-text');
 

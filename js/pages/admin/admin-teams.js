@@ -1,10 +1,7 @@
-import {
-  listenForTeams,
-  saveTeam,
-  deleteTeam,
-  updateCompetition,
-  listenForEquipages
-} from '../../services/firestoreService.js';
+import { listenForTeams } from '../../services/teamService.js';
+import { saveTeam, deleteTeam } from '../../services/teamService.js';
+import { updateCompetition } from '../../services/competitionService.js';
+import { listenForEquipages } from '../../services/equipageService.js';
 import { getClubLogoHtml, getClubLogoUrl, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
 

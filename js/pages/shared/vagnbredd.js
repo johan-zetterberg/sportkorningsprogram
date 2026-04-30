@@ -1,7 +1,8 @@
 // vagnbredd.js - Ny, utökad version med funktionskontroll
 
 import { getGlobalState } from '../../main.js';
-import { getEquipages, saveEquipage } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
 
 // --- Lokal state ---

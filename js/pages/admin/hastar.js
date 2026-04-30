@@ -1,4 +1,4 @@
-import { getEquipages } from '../../services/firestoreService.js';
+import { getEquipages } from '../../services/equipageService.js';
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { downloadCsv, sanitizeForFilename } from '../../utils/sharedUtils.js';

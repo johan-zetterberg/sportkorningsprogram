@@ -3,24 +3,24 @@ import { getDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { autoClaimEquipages } from '../../services/authService.js';
-import {
-    getComputedResultForEquipage,
-    getEquipages,
-    getConfig,
-    getDressageResultsForEquipage,
-    getMarathonTimingForEquipage,
-    getPrecisionResultForEquipage,
-    getMarathonLiveDocument,
-    getMarathonObstacleResults,
-    listenForDressageProtocols,
-    saveEquipage
-} from '../../services/firestoreService.js';
+import { getComputedResultForEquipage, saveEquipage } from '../../services/equipageService.js';
+import { getMarathonTimingForEquipage, getMarathonLiveDocument } from '../../services/marathonService.js';
+import { getPrecisionResultForEquipage } from '../../services/precisionService.js';
+import { listenForDressageProtocols } from '../../services/dressageService.js';
+import { getDressageResultsForEquipage } from '../../services/dressageService.js';
+import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
+import { getMarathonObstacleResults } from '../../services/marathonService.js';
 import { renderDressageContent } from '../../ui/dressageModal.js';
 import { renderMarathonContent, renderTimeCard } from '../../ui/marathonModal.js';
 import { renderPrecisionContent } from '../../ui/precisionModal.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 
-import { joinCompetitionAsAdmin, listenForJudges, getOfficials, getJudges, getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages, listenForConfig } from '../../services/firestoreService.js';
+import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.js';
+import { getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages } from '../../services/documentService.js';
+import { listenForConfig } from '../../services/competitionService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { getOfficials } from '../../services/adminService.js';
 import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';

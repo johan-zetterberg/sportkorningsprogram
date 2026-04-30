@@ -1,5 +1,6 @@
 import { getGlobalState } from '../../main.js';
-import { listenForEquipages, saveEquipage } from '../../services/firestoreService.js';
+import { listenForEquipages } from '../../services/equipageService.js';
+import { saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 
 let competitionId = null;

@@ -1,12 +1,6 @@
-import {
-    getCompetitionMessages,
-    saveCompetitionMessage,
-    deleteCompetitionMessage,
-    getCompetitionDocuments,
-    saveCompetitionDocument,
-    deleteCompetitionDocument,
-    getEquipages
-} from '../../services/firestoreService.js';
+import { getCompetitionMessages, getCompetitionDocuments } from '../../services/documentService.js';
+import { saveCompetitionMessage, deleteCompetitionMessage, saveCompetitionDocument, deleteCompetitionDocument } from '../../services/documentService.js';
+import { getEquipages } from '../../services/equipageService.js';
 import { showAlert } from '../../ui/components.js';
 
 export function renderCommunicationTab(container, competition) {

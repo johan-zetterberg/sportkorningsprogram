@@ -1,7 +1,8 @@
 import { initAuth, updateUIVisibility } from './services/authService.js';
 import { initRouter, navigateTo } from './services/navigationService.js';
 import { showAlert } from './ui/components.js';
-import { getCompetitionById, getConfig, getJudges, getOfficials } from './services/firestoreService.js';
+import { getCompetitionById, getConfig } from './services/competitionService.js';
+import { getJudges, getOfficials } from './services/adminService.js';
 import { initLanguageToggle, t } from './utils/i18n.js';
 import { initTheme } from './services/themeService.js';
 import './ui/syncQueue.js'; // Registers <sync-queue>

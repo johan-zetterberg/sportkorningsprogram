@@ -1,16 +1,11 @@
-import {
-  saveEquipage,
-  listenForEquipages,
-  deleteEquipage,
-  listenForJudges,
-  saveJudge,
-  deleteJudge,
-
-  listenForCompetition,
-  getCompetitionById,
-  getConfig,
-  saveConfig
-} from '../../services/firestoreService.js';
+import { saveEquipage } from '../../services/equipageService.js';
+import { deleteEquipage } from '../../services/equipageService.js';
+import { saveJudge, deleteJudge } from '../../services/adminService.js';
+import { listenForCompetition, getCompetitionById } from '../../services/competitionService.js';
+import { listenForEquipages } from '../../services/equipageService.js';
+import { saveConfig } from '../../services/competitionService.js';
+import { listenForJudges } from '../../services/adminService.js';
+import { getConfig } from '../../services/competitionService.js';
 import {
   listenForOfficials,
   saveOfficial,
