@@ -906,12 +906,12 @@ async function setupMarathonSettings() {
   // Läs svensknyckeln
   let existingConfig = await getConfig(competitionId, 'maratonConfig') || {};
 
-  const classNames = Array.from(new Set((allEquipages || []).map(e => {
-    if (e?.useMergedTestForDisplay && e?.mergedTestLabel) {
-      return e.mergedTestLabel;
-    }
-    return e?.className?.trim();
-  }).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'sv'));
+  // Per-class marathon settings must stay on the original class, even if
+  // classes are merged for competition display/results.
+  const classNames = Array.from(new Set((allEquipages || [])
+    .map(e => e?.className?.trim())
+    .filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b, 'sv'));
 
   const classCatMap = buildDominantTRCategoryByClass(allEquipages);
 

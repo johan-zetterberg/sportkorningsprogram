@@ -78,12 +78,13 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     let lastClass = null;
 
     rows.forEach(r => {
+        const displayClass = r._mergedLabel || r.className || 'Okänd klass';
         // Add grouping header if needed
-        if (options.viewMode === 'byclass' && r.className !== lastClass) {
+        if (options.viewMode === 'byclass' && displayClass !== lastClass) {
             body.push([
-                { content: r.className || 'Okänd klass', colSpan: 9, styles: { fillColor: [243, 244, 246], fontStyle: 'bold', fontSize: 10 } }
+                { content: displayClass, colSpan: 9, styles: { fillColor: [243, 244, 246], fontStyle: 'bold', fontSize: 10 } }
             ]);
-            lastClass = r.className;
+            lastClass = displayClass;
         }
 
         const horseLabel = r.horseName || ''; // Simplified for total results
@@ -93,7 +94,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             r.plac || '—',
             r.startNumber || '',
             driverCell,
-            r.className || '',
+            displayClass,
             r.clubName || '',
             r.dressage?.penalty?.toFixed(2) || '—',
             r.marathon?.totalPenalty?.toFixed(2) || '—',

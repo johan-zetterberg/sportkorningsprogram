@@ -52,29 +52,89 @@ export const DEFAULT_TRV_TEMPOS_KMH = {
   },
   // FEI / CAI - Default Speeds
   "CAI1*": {
-    A: { ponyA: 12.0, ponyB: 12.0, ponyCD: 12.0, horse: 13.0 },
-    B: { ponyA: 11.0, ponyB: 11.0, ponyCD: 11.0, horse: 12.0 }
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 }
   },
   "CAI2*": {
-    A: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 },
-    B: { ponyA: 12.0, ponyB: 12.0, ponyCD: 12.0, horse: 13.0 }
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
   },
   "CAI3*": {
-    A: { ponyA: 14.0, ponyB: 14.0, ponyCD: 14.0, horse: 15.0 },
+    A: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 },
     B: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 }
   },
   "CAI Children": {
-    A: { ponyA: 12.0, ponyB: 12.0, ponyCD: 12.0, horse: 13.0 },
-    B: { ponyA: 11.0, ponyB: 11.0, ponyCD: 11.0, horse: 12.0 }
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 14.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 13.0 }
   },
   "CAI Junior": {
-    A: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 },
-    B: { ponyA: 12.0, ponyB: 12.0, ponyCD: 12.0, horse: 13.0 }
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
   },
   "CAI U25": {
-    A: { ponyA: 14.0, ponyB: 14.0, ponyCD: 14.0, horse: 15.0 },
-    B: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 }
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
   }
+};
+
+// FEI manual helper table for marathon hold-times pages.
+// These defaults are intended for FEI/CAI manual calculations when no
+// competition-specific override exists.
+export const DEFAULT_FEI_MARATHON_TEMPOS_KMH = {
+  "CAI 1*": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "CAI 2*": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "CAI 3*": {
+    A: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 },
+    B: { ponyA: 13.0, ponyB: 13.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "CAI 4*": {
+    A: { ponyA: null, ponyB: null, ponyCD: null, horse: null },
+    B: { ponyA: null, ponyB: null, ponyCD: null, horse: null }
+  },
+  "Children": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 14.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 13.0 }
+  },
+  "Junior": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "Young Drivers (U25)": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "U25": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "CAICH 1*": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 14.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 13.0 }
+  },
+  "CAIJ 1*": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "CAIJ 2*": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "CAIY 2*": {
+    A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: 13.0 },
+    B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: 14.0 }
+  },
+  "Horse Singles": { A: { ponyA: null, ponyB: null, ponyCD: null, horse: 14.0 }, B: { ponyA: null, ponyB: null, ponyCD: null, horse: 13.0 } },
+  "Horse Pairs": { A: { ponyA: null, ponyB: null, ponyCD: null, horse: 14.0 }, B: { ponyA: null, ponyB: null, ponyCD: null, horse: 13.0 } },
+  "Horse Four-in-Hand": { A: { ponyA: null, ponyB: null, ponyCD: null, horse: 14.0 }, B: { ponyA: null, ponyB: null, ponyCD: null, horse: 13.0 } },
+  "Pony Singles": { A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: null }, B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: null } },
+  "Pony Pairs": { A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: null }, B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: null } },
+  "Pony Four-in-Hand": { A: { ponyA: 10.0, ponyB: 11.0, ponyCD: 12.0, horse: null }, B: { ponyA: 11.0, ponyB: 12.0, ponyCD: 13.0, horse: null } }
 };
 
 // --- PRECISION CONSTANTS ---

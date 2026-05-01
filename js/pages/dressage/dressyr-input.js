@@ -116,8 +116,10 @@ function softWarnUnknownProgram(className, key) {
   } catch { }
 }
 
-function findProgramKeyForClass(className) {
-  if (!className) return null;
+function findProgramKeyForClass(classOrEquipage) {
+  const equipage = classOrEquipage && typeof classOrEquipage === 'object' ? classOrEquipage : null;
+  const className = equipage ? equipage.className : classOrEquipage;
+  if (!className && !equipage) return null;
 
   const allProgs = getPrograms(); // alltid säker källa
   const map = (typeof window !== 'undefined' && window.klassProgramMapping)
@@ -135,6 +137,13 @@ function findProgramKeyForClass(className) {
     const cat = String(p?.category || '');
     return /para/i.test(name) || /para/i.test(cat) || /^fei/i.test(key) || /fei/i.test(name) || /fei/i.test(cat);
   };
+
+  if (equipage) {
+    const explicitKey = equipage.testKey || equipage.programKey || equipage.testId || null;
+    if (programKeyExistsSafe(explicitKey) && !(isNonParaClass && isParaish(explicitKey))) return explicitKey;
+    const explicitLegacy = resolveLegacyProgramKey(explicitKey);
+    if (programKeyExistsSafe(explicitLegacy) && !(isNonParaClass && isParaish(explicitLegacy))) return explicitLegacy;
+  }
 
   // 1) Exakt mappning (case-sensitiv & case-insensitiv)
   const directKey =
@@ -197,7 +206,7 @@ function handleSelectionChange() {
   // Auto-välj program när E-K-I-P-A-G-E väljs
   if (startNumber) {
     const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
-    const mapped = equipage ? findProgramKeyForClass(equipage.className) : null;
+    const mapped = equipage ? findProgramKeyForClass(equipage) : null;
 
     if (mapped && !manualTestOverride && (testSelector.value !== mapped || !currentDressageTest)) {
       programmaticChange = true;
@@ -312,7 +321,7 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
     } else {
       const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
       // FIX: Använder den nya, smartare sökfunktionen även här
-      const classKey = equipage ? findProgramKeyForClass(equipage.className) : null;
+      const classKey = equipage ? findProgramKeyForClass(equipage) : null;
       const testSelector = document.getElementById('testSelector');
       // FIX: Tvinga render om inget är renderat än
       if (classKey && testSelector && !manualTestOverride && (testSelector.value !== classKey || !currentDressageTest)) {

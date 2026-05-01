@@ -1,5 +1,5 @@
 import { getGlobalState, setGlobalState } from '../../main.js';
-import { createCompetition, listenForCompetitions } from '../../services/competitionService.js';
+import { createCompetition, listenForCompetitions, saveConfig } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 
@@ -195,6 +195,7 @@ let currentLimit = 50;
 let competitionListenerUnsub = null;
 let mapInstance = null;
 let markerInstance = null;
+let globalStateChangeHandler = null;
 
 function setupCompetitionListener() {
   if (competitionListenerUnsub) {
@@ -210,12 +211,9 @@ export function initMap() {
   const mapEl = document.getElementById('compMapContainer');
   if (!mapEl) return;
 
-  // Cleanup old instance if exists
-  if (mapInstance && mapInstance.remove) {
-    mapInstance.off();
-    mapInstance.remove();
-    mapInstance = null;
-    markerInstance = null;
+  if (mapInstance) {
+    setTimeout(() => { mapInstance?.invalidateSize(); }, 200);
+    return;
   }
 
   // Default to Sweden (approx center)
@@ -510,7 +508,6 @@ function setupEventListeners() {
 
         // Also save coordinates to config/map to match new reading logic
         if (compData.coordinates) {
-          const { saveConfig } = await import('../services/firestoreService.js');
           await saveConfig(newId, 'map', {
             coordinates: compData.coordinates,
             updatedAt: new Date()
@@ -539,10 +536,15 @@ export function __unload() {
     mapInstance.off();
     mapInstance.remove();
     mapInstance = null;
+    markerInstance = null;
   }
   if (competitionListenerUnsub) {
     competitionListenerUnsub();
     competitionListenerUnsub = null;
+  }
+  if (globalStateChangeHandler) {
+    window.removeEventListener('global-state-changed', globalStateChangeHandler);
+    globalStateChangeHandler = null;
   }
 }
 
@@ -553,11 +555,12 @@ export function load() {
   refreshCreateBox(); // säkerställ initialt läge
 
   // uppdatera när global state ändras (t.ex. efter login)
-  window.addEventListener('global-state-changed', (e) => {
+  globalStateChangeHandler = (e) => {
     if (e?.detail?.key === 'currentUser') {
       refreshCreateBox();
     }
-  });
+  };
+  window.addEventListener('global-state-changed', globalStateChangeHandler);
 
   // Dölj "Skapa tävling" om inte admin eller superadmin
   const createContainer = document.getElementById('create-competition-container');

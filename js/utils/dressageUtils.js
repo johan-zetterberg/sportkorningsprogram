@@ -301,7 +301,10 @@ export function calcLiveJudgeProjection(liveProtocol, programsDict, equipage) {
   const allPrograms = programsDict || {};
 
   if ((!testKey || !allPrograms[testKey]) && equipage && window.klassProgramMapping) {
-    testKey = window.klassProgramMapping[equipage.className] || window.klassProgramMapping[equipage._mergedLabel];
+    testKey = equipage.testKey
+      || equipage.programKey
+      || window.klassProgramMapping[equipage.className]
+      || window.klassProgramMapping[equipage._mergedLabel];
   }
 
   let program = allPrograms[testKey];

@@ -418,12 +418,9 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
   y += 5;
 
   // Derive allClasses from equipages
-  const allClasses = [...new Set(equipages.map(e => {
-    if (e.useMergedTestForDisplay && e.mergedTestLabel) {
-      return e.mergedTestLabel;
-    }
-    return e.className;
-  }).filter(Boolean))].sort();
+  // Course setup must stay on the original class, since merged display
+  // groups may still have different gate widths and max times.
+  const allClasses = [...new Set(equipages.map(e => e.className).filter(Boolean))].sort();
 
   // --- ONE SECTION PER CLASS ---
   for (const className of allClasses) {

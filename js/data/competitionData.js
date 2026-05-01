@@ -40,14 +40,12 @@ export const competitionClasses = {
     "Svår Fyrspann Häst"
   ],
   "Paraklasser": [
-    "Lätt A Para Grad 1 Häst",
-    "Lätt A Para Grad 1 Ponny",
-    "MSV 3 Para Grad 2 Häst", // MSV B
-    "MSV 3 Para Grad 2 Ponny",
-    "MSV 4 Para Grad 2 Häst", // MSV A
-    "MSV 4 Para Grad 2 Ponny",
-    "Svår Para Grad 2 Häst",
-    "Svår Para Grad 2 Ponny"
+    "Lätt A Para Häst",
+    "Lätt A Para Ponny",
+    "Msv Para Häst",
+    "Msv Para Ponny",
+    "Svår Para Häst",
+    "Svår Para Ponny"
   ],
   "Barnklasser": [
     "Lätt C Barn Ponny",
@@ -105,14 +103,12 @@ export const klassProgramMapping = {
   "Svår Fyrspann Häst": 'FEI4HP24',
 
   // NYTT: Mappning för Paraklasser
-  "Lätt A Para Grad 1 Häst": 'FEIParaG1',
-  "Lätt A Para Grad 1 Ponny": 'FEIParaG1',
-  "MSV 3 Para Grad 2 Häst": 'FEIParaG2',
-  "MSV 3 Para Grad 2 Ponny": 'FEIParaG2',
-  "MSV 4 Para Grad 2 Häst": 'FEIParaG2',
-  "MSV 4 Para Grad 2 Ponny": 'FEIParaG2',
-  "Svår Para Grad 2 Häst": 'FEIParaG2',
-  "Svår Para Grad 2 Ponny": 'FEIParaG2'
+  "Lätt A Para Häst": 'FEIParaG1',
+  "Lätt A Para Ponny": 'FEIParaG1',
+  "Msv Para Häst": 'FEIParaG2',
+  "Msv Para Ponny": 'FEIParaG2',
+  "Svår Para Häst": 'FEIParaG2',
+  "Svår Para Ponny": 'FEIParaG2'
 };
 
 /**
@@ -154,14 +150,12 @@ export const klassTempoData = {
   "Svår Fyrspann Häst": { maraton: 250, precision: 230 },
 
   // --- PARAKLASSER ---
-  "Lätt A Para Grad 1 Häst": { maraton: 220, precision: 150 },
-  "Lätt A Para Grad 1 Ponny": { maraton: 200, precision: 150 },
-  "MSV 3 Para Grad 2 Häst": { maraton: 240, precision: 180 }, // MSV B
-  "MSV 3 Para Grad 2 Ponny": { maraton: 220, precision: 180 },
-  "MSV 4 Para Grad 2 Häst": { maraton: 240, precision: 180 }, // MSV A
-  "MSV 4 Para Grad 2 Ponny": { maraton: 220, precision: 180 },
-  "Svår Para Grad 2 Häst": { maraton: 240, precision: 180 },
-  "Svår Para Grad 2 Ponny": { maraton: 220, precision: 180 },
+  "Lätt A Para Häst": { maraton: 220, precision: 150 },
+  "Lätt A Para Ponny": { maraton: 200, precision: 150 },
+  "Msv Para Häst": { maraton: 240, precision: 180 },
+  "Msv Para Ponny": { maraton: 220, precision: 180 },
+  "Svår Para Häst": { maraton: 240, precision: 180 },
+  "Svår Para Ponny": { maraton: 220, precision: 180 },
 
   // --- BARNKLASSER ---
   "Lätt C Barn Ponny": { maraton: 200, precision: 180 },
@@ -195,6 +189,8 @@ export const standardPortAllowance = {
   'Lätt A Barn': 45,
   'LA CH': 45,
   'Lätt A CH': 45,
+  'LA "PARA"': 30,
+  'Lätt A Para': 30,
   'LA "J"': 30,
   'LA "U25"': 30,
   'Lätt A J': 30,

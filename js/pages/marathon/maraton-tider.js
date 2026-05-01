@@ -13,7 +13,8 @@ import {
   normalizeClassKey, 
   getClassSettings,
   ensureMergeDecorations,
-  DEFAULT_TRV_TEMPOS_KMH
+  DEFAULT_TRV_TEMPOS_KMH,
+  DEFAULT_FEI_MARATHON_TEMPOS_KMH
 } from '../../utils/marathonUtils.js';
 
 // === ETA helpers ===
@@ -138,80 +139,15 @@ const FEI_CLASS_NAMES = [
   "Pony Singles", "Pony Pairs", "Pony Four-in-Hand"
 ];
 
-// FEI – "vanliga" standardtempon (km/h) för A och B.
-// OBS: Schedules kan ange andra värden – dina manuella overrides gäller alltid.
-const FEI_MARATON_TEMPOS_KMH = {
-  // — Nivåer (star levels) —
-  "CAI 1*": {
-    A: { ponyA: 12.0, ponyB: 12.5, ponyCD: 13.0, horse: 14.0 },
-    B: { ponyA: 11.0, ponyB: 11.5, ponyCD: 12.0, horse: 13.0 }
-  },
-  "CAI 2*": {
-    A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: 14.5 },
-    B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: 13.5 }
-  },
-  "CAI 3*": {
-    A: { ponyA: 13.0, ponyB: 13.5, ponyCD: 14.0, horse: 15.0 },
-    B: { ponyA: 12.0, ponyB: 12.5, ponyCD: 13.0, horse: 14.0 }
-  },
-  // 4* varierar ofta med Schedule – lämnas tomma som default (kan skrivas in manuellt)
-  "CAI 4*": {
-    A: { ponyA: null, ponyB: null, ponyCD: null, horse: null },
-    B: { ponyA: null, ponyB: null, ponyCD: null, horse: null }
-  },
-
-  // — Ålderskategorier/Mästerskap —
-  // Children: praktiskt taget alltid ponny – lämna horse=null
-  "Children": {
-    A: { ponyA: 11.0, ponyB: 11.5, ponyCD: 12.0, horse: null },
-    B: { ponyA: 10.0, ponyB: 10.5, ponyCD: 11.0, horse: null }
-  },
-  "Junior": {
-    A: { ponyA: 12.0, ponyB: 12.5, ponyCD: 13.0, horse: null },
-    B: { ponyA: 11.0, ponyB: 11.5, ponyCD: 12.0, horse: null }
-  },
-  // Young Drivers / U25 (häst förekommer ofta)
-  "Young Drivers (U25)": {
-    A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: 14.0 },
-    B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: 13.0 }
-  },
-  "U25": {
-    A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: 14.0 },
-    B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: 13.0 }
-  },
-
-  // — Prefixvarianter som ofta förekommer i Schedules —
-  "CAICH 1*": { // Children
-    A: { ponyA: 11.0, ponyB: 11.5, ponyCD: 12.0, horse: null },
-    B: { ponyA: 10.0, ponyB: 10.5, ponyCD: 11.0, horse: null }
-  },
-  "CAIJ 1*": {  // Junior 1*
-    A: { ponyA: 12.0, ponyB: 12.5, ponyCD: 13.0, horse: null },
-    B: { ponyA: 11.0, ponyB: 11.5, ponyCD: 12.0, horse: null }
-  },
-  "CAIJ 2*": {  // Junior 2*
-    A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: null },
-    B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: null }
-  },
-  "CAIY 2*": {  // Young Drivers 2*
-    A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: 14.0 },
-    B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: 13.0 }
-  },
-
-  // — Beskrivande "klassnamn" (mapping till kategori 'horse'/'pony*') —
-  // Lämnas tomma som default: täcks av manuella inputs eller specifika Schedules.
-  "Horse Singles": { A: { ponyA: null, ponyB: null, ponyCD: null, horse: 14.0 }, B: { ponyA: null, ponyB: null, ponyCD: null, horse: 13.0 } },
-  "Horse Pairs": { A: { ponyA: null, ponyB: null, ponyCD: null, horse: 14.0 }, B: { ponyA: null, ponyB: null, ponyCD: null, horse: 13.0 } },
-  "Horse Four-in-Hand": { A: { ponyA: null, ponyB: null, ponyCD: null, horse: 14.0 }, B: { ponyA: null, ponyB: null, ponyCD: null, horse: 13.0 } },
-  "Pony Singles": { A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: null }, B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: null } },
-  "Pony Pairs": { A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: null }, B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: null } },
-  "Pony Four-in-Hand": { A: { ponyA: 12.5, ponyB: 13.0, ponyCD: 13.5, horse: null }, B: { ponyA: 11.5, ponyB: 12.0, ponyCD: 12.5, horse: null } }
-};
-
-
 function getTempoTable({ isManual, ruleValue }) {
-  if (isManual && ruleValue === 'FEI') return FEI_MARATON_TEMPOS_KMH;
+  if (isManual && ruleValue === 'FEI') return DEFAULT_FEI_MARATHON_TEMPOS_KMH;
   return MARATHON_CONFIG?.tempoRules || TRV_2025_MARATON_TEMPOS_KMH;
+}
+
+function resolveTempoClassKey(table, className) {
+  if (!className) return '';
+  if (table?.[className]) return className;
+  return normalizeClassKey(className) || className;
 }
 
 const kmhToMmin = (kmh) => (kmh * 1000) / 60;
@@ -312,7 +248,7 @@ async function setupPage(competitionId) {
     const classSel = document.getElementById('manualClassSelect');
     function populateClassOptionsForRule(rule) {
       if (!classSel) return;
-      const table = rule === 'FEI' ? FEI_MARATON_TEMPOS_KMH : TRV_2025_MARATON_TEMPOS_KMH;
+      const table = rule === 'FEI' ? DEFAULT_FEI_MARATHON_TEMPOS_KMH : TRV_2025_MARATON_TEMPOS_KMH;
       const prev = classSel.value;
       classSel.innerHTML = '';
       // FEI: använd vår fördefinierade lista + ev. extra nycklar från tabellen
@@ -336,13 +272,13 @@ async function setupPage(competitionId) {
       const cat = document.getElementById('manualCategorySelect')?.value || 'horse';
       const rule = document.getElementById('manualRuleSelect')?.value || 'TR';
       if (!cls) return;
-      const table = (rule === 'FEI') ? FEI_MARATON_TEMPOS_KMH : TRV_2025_MARATON_TEMPOS_KMH;
+      const table = (rule === 'FEI') ? DEFAULT_FEI_MARATHON_TEMPOS_KMH : TRV_2025_MARATON_TEMPOS_KMH;
       const tempoA = table[cls]?.A?.[cat];
       const tempoB = table[cls]?.B?.[cat];
       const inA = document.getElementById('manualTempoAInput');
       const inB = document.getElementById('manualTempoBInput');
-      if (Number.isFinite(tempoA) && !inA.value) inA.value = String(tempoA);
-      if (Number.isFinite(tempoB) && !inB.value) inB.value = String(tempoB);
+      if (Number.isFinite(tempoA)) inA.value = String(tempoA);
+      if (Number.isFinite(tempoB)) inB.value = String(tempoB);
       // transport tempo (m/min) om finns i klasskonfig
       const cfg = getClassDistancesFromConfig(cls);
       const t = cfg?.T?.tempo_mpm;
@@ -383,7 +319,7 @@ async function setupPage(competitionId) {
       if (!equipage) return;
 
       // Använder den nya, smartare sökfunktionen
-      const distClassName = equipage._mergedLabel || equipage.className || '';
+      const distClassName = equipage.className || equipage._mergedLabel || '';
       const classDistances = getClassDistancesFromConfig(distClassName);
       document.getElementById('maratonTiderDistAAuto').textContent = classDistances?.A?.distance ? `${classDistances.A.distance} m` : t('not_specified');
       document.getElementById('maratonTiderDistTAuto').textContent = classDistances?.T?.distance ? `${classDistances.T.distance} m` : t('not_specified');
@@ -416,7 +352,7 @@ async function setupPage(competitionId) {
       let equipage, className, categoryKey, transportTempoMpm, tempoAOverride, tempoBOverride;
       if (startNumber) {
         equipage = allEquipages.find(e => e.startNumber == startNumber);
-        className = equipage?._mergedLabel || equipage?.mergedTestLabel || equipage?.className || '';
+        className = equipage?.className || equipage?._mergedLabel || equipage?.mergedTestLabel || '';
         categoryKey = detectTRCategoryFromEquipage(equipage);
       } else if (mode === 'manual') {
         // Manuellt läge utan ekipage
@@ -438,8 +374,7 @@ async function setupPage(competitionId) {
       let distA, distT, distB;
       const isAutoMode = (mode === 'auto' && startNumber);
       if (isAutoMode) {
-        // HÄR ÄR KORRIGERINGEN - ANVÄNDER NU DEN SMARTA SÖKFUNKTIONEN FÖR SAMMANSLAGNA KLASSER
-        const distClassName = equipage?._mergedLabel || className;
+        const distClassName = equipage?.className || className;
         const classDistances = getClassDistancesFromConfig(distClassName);
         distA = classDistances?.A?.distance || 0;
         distT = classDistances?.T?.distance || 0;
@@ -452,10 +387,11 @@ async function setupPage(competitionId) {
 
       // Tempo-regler (TR) ska följa ursprunglig klass (t.ex. Lätt A Enbet)
       const tempoClassName = isAutoMode ? (equipage.className || className) : className;
-      const classKey = normalizeClassKey(tempoClassName) || tempoClassName;
+      const classKey = resolveTempoClassKey(tempoTable, tempoClassName);
       
-      // Inställningar (Windows, etc) följer konfigurationen (sammanslagen klass)
-      const configClassName = isAutoMode ? (equipage._mergedLabel || className) : className;
+      // Class-specific settings must follow the original class even when
+      // merged classes compete together.
+      const configClassName = isAutoMode ? (equipage.className || className) : className;
       const classDataFromConfig = getClassSettings(configClassName) || {};
       const formatMaratonTid = (ms) => {
         if (!isFinite(ms) || ms < 0) return "-";
@@ -469,9 +405,35 @@ async function setupPage(competitionId) {
       transportTempoMpm = (typeof transportTempoMpm === 'number')
         ? transportTempoMpm
         : (cfg?.T?.tempo_mpm ?? null);
+      const getExtra = (id) => {
+        const val = document.getElementById(id)?.value || '';
+        return val.split(',').map(s => parseInt(s.trim())).filter(n => Number.isFinite(n) && n > 0);
+      };
+      const extraDistances = {
+        A: getExtra('maratonTiderExtraDistancesA'),
+        T: getExtra('maratonTiderExtraDistancesT'),
+        B: getExtra('maratonTiderExtraDistancesB')
+      };
+      
+      const includeWarmup = document.getElementById('maratonTiderIncludeWarmup')?.checked ?? true;
+      const warmupMinStr = document.getElementById('maratonTiderWarmupMinutes')?.value;
+      const manualWarmupMin = warmupMinStr ? parseInt(warmupMinStr, 10) : null;
+
+      if (!(distA > 0) && !(distT > 0) && !(distB > 0)) {
+        document.getElementById('screen-area').innerHTML = `
+          <div class="mt-4 bg-yellow-50 dark:bg-yellow-900/20 p-4 border border-yellow-200 dark:border-yellow-800 rounded shadow text-yellow-800 dark:text-yellow-200">
+            Ange minst en sträcklängd för A, T eller B för att visa tabellen.
+          </div>`;
+        document.getElementById('printable-area').innerHTML = '';
+        printBtn.classList.add('hidden');
+        return;
+      }
+
       const commonArgs = {
         classKey, categoryKey, classDataFromConfig, transportTempoMpm, formatMaratonTid, tempoTable,
-        overrideTemposKmH: { A: tempoAOverride, B: tempoBOverride } // <-- nya overrides
+        overrideTemposKmH: { A: tempoAOverride, B: tempoBOverride },
+        extraDistances,
+        includeWarmup, manualWarmupMin
       };
 
       // Generera och visa den snygga skärm-vyn
@@ -492,11 +454,11 @@ async function setupPage(competitionId) {
 
 
 function generateResultHtml(equipage, distances, args, type) {
-  const { classKey, categoryKey, classDataFromConfig, transportTempoMpm, formatMaratonTid, overrideTemposKmH } = args;
+  const { classKey, categoryKey, classDataFromConfig, transportTempoMpm, formatMaratonTid, overrideTemposKmH, includeWarmup, manualWarmupMin } = args;
   const { distA, distT, distB } = distances;
-  const { className, startNumber, driverName } = equipage;
-  const isBarnLB = /barn/i.test(className) && /l[aä]tt\s*b/i.test(className);
-  const warmupMinutes = isBarnLB ? 10 : 20;
+  const { className } = equipage;
+  const isBarnLB = /barn/i.test(className) && /l[aA ]tt\s*b/i.test(className);
+  const warmupMinutes = Number.isFinite(manualWarmupMin) ? manualWarmupMin : (isBarnLB ? 10 : 20);
 
   const generateTable = (distM, stage) => {
     if (!(distM > 0) || !classKey) return '';
@@ -508,43 +470,133 @@ function generateResultHtml(equipage, distances, args, type) {
       ?? src?.[classKey]?.[stage]?.[categoryKey];
     if (!tempoKmh) return '';
 
+    {
+      const tempoMpmNew = kmhToMmin(tempoKmh);
+      const windowMinutesNew = (stage === 'A' ? classDataFromConfig.windowA : classDataFromConfig.windowB) ?? (stage === 'A' ? 2 : 3);
+      const windowMsNew = windowMinutesNew * 60000;
+      const totalAllowedMsNew = (distM / tempoMpmNew) * 60000;
+      const totalMinMsNew = Math.max(0, totalAllowedMsNew - windowMsNew);
+      const totalAvgMsNew = (totalMinMsNew + totalAllowedMsNew) / 2;
+      const totalTimeLimitMsNew = totalAllowedMsNew * (stage === 'A' ? 1.2 : 2.0);
+      const checkpointsNew = [];
+      const kmCountNew = Math.floor(distM / 1000);
+      for (let i = 1; i <= kmCountNew; i++) checkpointsNew.push(i * 1000);
+      if (distM > 300 && !checkpointsNew.includes(distM - 300)) checkpointsNew.push(distM - 300);
+      if (args.extraDistances && args.extraDistances[stage]) {
+        args.extraDistances[stage].forEach(d => {
+          if (d > 0 && d < distM && !checkpointsNew.includes(d)) checkpointsNew.push(d);
+        });
+      }
+      checkpointsNew.sort((a, b) => a - b);
+
+      const rowsNew = checkpointsNew.map(cp => {
+        const allowedAtCp = (cp / tempoMpmNew) * 60000;
+        const minAtCp = (cp / distM) * totalMinMsNew;
+        const avgAtCp = (minAtCp + allowedAtCp) / 2;
+        let label = cp % 1000 === 0 ? `${cp / 1000} km` : `${cp} m`;
+        if (cp === (distM - 300)) label = t('300m_remaining') + ` (${cp} m)`;
+        return { label, min: minAtCp, avg: avgAtCp, allowed: allowedAtCp };
+      });
+      rowsNew.push({
+        label: `${t('finish')} (${distM} m)`,
+        min: totalMinMsNew,
+        avg: totalAvgMsNew,
+        allowed: totalAllowedMsNew,
+        isFinal: true
+      });
+
+      const headerClassNew = type === 'screen' ? 'font-semibold dark:text-gray-100' : '';
+      const tableClassNew = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '';
+      const theadClassNew = type === 'screen' ? 'bg-gray-100 dark:bg-gray-700' : '';
+      const thClassNew = type === 'screen' ? 'p-2 dark:text-gray-200' : '';
+      const tdClassNew = type === 'screen' ? 'p-2 border-b dark:border-gray-600' : '';
+      const containerClassNew = type === 'screen' ? 'bg-white dark:bg-gray-800 p-3 rounded shadow dark:border dark:border-gray-700' : 'p-3';
+      const notesBlockNew = (type === 'print')
+        ? `<div class="notes-title">${t('notes_header').replace('{stage}', stage === 'T' ? t('transport') : t('stage') + ' ' + stage)}</div><div class="notes-block"></div>`
+        : '';
+      const summaryLineNew = `<div class="${type === 'screen' ? 'mt-1 text-xs text-gray-500 dark:text-gray-400' : 'muted'}">Minimitid: ${formatMaratonTid(totalMinMsNew)} • Tillåten tid: ${formatMaratonTid(totalAllowedMsNew)} • Tidsgräns: ${formatMaratonTid(totalTimeLimitMsNew)}</div>`;
+      const printBlankRowsNew = type === 'print'
+        ? `<tr class="print-blank"><td colspan="5"><div class="comment-box"></div></td></tr><tr class="print-blank"><td colspan="5"><div class="comment-box"></div></td></tr>`
+        : '';
+      const beforeStartRowNew = type === 'print'
+        ? `<tr><td>${t('before_start')}</td><td colspan="4"><div class="comment-box"></div></td></tr>`
+        : '';
+      const bodyNew = rowsNew.map(row => {
+        const rowClass = row.isFinal && type === 'screen' ? ' class="font-bold bg-gray-50 dark:bg-gray-700/50"' : '';
+        const commentCell = type === 'print' ? '<td><div class="comment-box"></div></td>' : '';
+        return `<tr${rowClass}><td class="${tdClassNew}">${row.label}</td><td class="${tdClassNew}">${formatMaratonTid(row.min)}</td><td class="${tdClassNew}">${formatMaratonTid(row.avg)}</td><td class="${tdClassNew} ${type === 'screen' ? 'text-right' : ''}">${formatMaratonTid(row.allowed)}</td>${commentCell}</tr>${printBlankRowsNew}`;
+      }).join('');
+
+      return `<div class="${containerClassNew}">
+                     <h3 class="${headerClassNew}">${t('stage_header_format').replace('{stage}', stage).replace('{dist}', distM).replace('{tempo}', tempoKmh)}</h3>
+                    ${summaryLineNew}
+                    ${notesBlockNew}
+                     <table class="${tableClassNew}">
+                        <thead class="${theadClassNew}"><tr>
+                            <th class="${thClassNew}">${t('checkpoint')}</th>
+                            <th class="${thClassNew}">Minimitid</th>
+                            <th class="${thClassNew}">Riktid</th>
+                            <th class="${thClassNew} ${type === 'screen' ? 'text-right' : ''}">Tillåten tid</th>
+                            ${type === 'print' ? `<th class="comment-header">${t('comment')}</th>` : ''}
+                        </tr></thead>
+                        <tbody>${beforeStartRowNew}${bodyNew}</tbody>
+                    </table>
+                </div>`;
+    }
+
     const tempoMpm = kmhToMmin(tempoKmh);
     const windowMinutes = (stage === 'A' ? classDataFromConfig.windowA : classDataFromConfig.windowB) ?? (stage === 'A' ? 2 : 3);
     const windowMs = windowMinutes * 60000;
     const addBlankRows = () => {
       return type === 'print'
-        ? `<tr class="print-blank"><td colspan="3"><div class="comment-box"></div></td></tr>
-        <tr class="print-blank"><td colspan="3"><div class="comment-box"></div></td></tr>`
+        ? `<tr class="print-blank"><td colspan="5"><div class="comment-box"></div></td></tr>
+        <tr class="print-blank"><td colspan="5"><div class="comment-box"></div></td></tr>`
         : '';
     };
 
     let tableContent = '';
     if (type === 'print') {
-      tableContent += `<tr><td>${t('before_start')}</td><td colspan="2"><div class="comment-box"></div></td></tr>`;
-    }
-
-    const kmCount = Math.floor(distM / 1000);
-    for (let i = 1; i <= kmCount; i++) {
-      const timeAtKm = (i * 1000 / tempoMpm) * 60000;
-      const minTimeAtKm = Math.max(0, timeAtKm - windowMs);
-      const timeText = `${formatMaratonTid(minTimeAtKm)} – ${formatMaratonTid(timeAtKm)}`;
-      tableContent += `<tr><td>${i} km</td><td>${timeText}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
-    }
-
-    if (distM > 300) {
-      const dist300m = distM - 300;
-      const timeAt300m = (dist300m / tempoMpm) * 60000;
-      const minTimeAt300m = Math.max(0, timeAt300m - windowMs);
-      const timeText = `${formatMaratonTid(minTimeAt300m)} – ${formatMaratonTid(timeAt300m)}`;
-      tableContent += `<tr><td>${t('300m_remaining')}</td><td>${timeText}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
+      tableContent += `<tr><td>${t('before_start')}</td><td colspan="4"><div class="comment-box"></div></td></tr>`;
     }
 
     const totalAllowedMs = (distM / tempoMpm) * 60000;
-    const minTimeMs = Math.max(0, totalAllowedMs - windowMs);
-    const timeTextFinal = `${formatMaratonTid(minTimeMs)} – ${formatMaratonTid(totalAllowedMs)}`;
-    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM} m)</td><td>${timeTextFinal}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
+    const totalMinMs = Math.max(0, totalAllowedMs - windowMs);
+    const totalAvgMs = (totalMinMs + totalAllowedMs) / 2;
+    const timeLimitFactor = stage === 'A' ? 1.2 : 2.0;
+    const totalTimeLimitMs = totalAllowedMs * timeLimitFactor;
+    const idealHeader = stage === 'A' || stage === 'B' ? 'Tillåten tid' : (t('ideal_time') || 'Idealtid');
+    const windowHeader = stage === 'A' || stage === 'B' ? 'Tidsfönster (Min - Tillåten)' : t('time_window');
+
+    const checkpoints = [];
+    const kmCount = Math.floor(distM / 1000);
+    for (let i = 1; i <= kmCount; i++) {
+      checkpoints.push(i * 1000);
+    }
+    if (distM > 300 && !checkpoints.includes(distM - 300)) {
+      checkpoints.push(distM - 300);
+    }
+    if (args.extraDistances && args.extraDistances[stage]) {
+      args.extraDistances[stage].forEach(d => {
+        if (d > 0 && d < distM && !checkpoints.includes(d)) {
+          checkpoints.push(d);
+        }
+      });
+    }
+    checkpoints.sort((a, b) => a - b);
+
+    checkpoints.forEach(cp => {
+      const timeAtCp = (cp / tempoMpm) * 60000;
+      const minTimeAtCp = (cp / distM) * totalMinMs;
+      const timeText = `${formatMaratonTid(minTimeAtCp)} – ${formatMaratonTid(timeAtCp)}`;
+      let label = cp % 1000 === 0 ? `${cp / 1000} km` : `${cp} m`;
+      if (cp === (distM - 300)) label = t('300m_remaining') + ` (${cp} m)`;
+      tableContent += `<tr><td>${label}</td><td>${formatMaratonTid(timeAtCp)}</td><td class="${type === 'screen' ? 'text-right' : ''}">${timeText}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
+    });
+
+    const timeTextFinal = `${formatMaratonTid(totalMinMs)} – ${formatMaratonTid(totalAllowedMs)}`;
+    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM} m)</td><td>${formatMaratonTid(totalAllowedMs)}</td><td class="${type === 'screen' ? 'text-right' : ''}">${timeTextFinal}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
     const headerClass = type === 'screen' ? 'font-semibold dark:text-gray-100' : '';
-    const tableClass = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200' : '';
+    const tableClass = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '';
     const theadClass = type === 'screen' ? 'bg-gray-100 dark:bg-gray-700' : '';
     const thClass = type === 'screen' ? 'p-2 dark:text-gray-200' : '';
     const tdClass = type === 'screen' ? 'p-2 border-b dark:border-gray-600' : '';
@@ -560,10 +612,11 @@ function generateResultHtml(equipage, distances, args, type) {
                      <table class="${tableClass}">
                         <thead class="${theadClass}"><tr>
                             <th class="${thClass}">${t('checkpoint')}</th>
-                            <th class="${thClass} ${type === 'screen' ? 'text-right' : ''}">${t('time_window')}</th>
+                            <th class="${thClass}">${idealHeader}</th>
+                            <th class="${thClass} ${type === 'screen' ? 'text-right' : ''}">${windowHeader}</th>
                             ${type === 'print' ? `<th class="comment-header">${t('comment')}</th>` : ''}
                         </tr></thead>
-                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tdClass}">`).replaceAll('<tr>', `<tr class="${type === 'screen' ? 'border-b' : ''}">`)}</tbody>
+                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tdClass}">`)}</tbody>
                     </table>
                 </div>`;
   };
@@ -571,7 +624,12 @@ function generateResultHtml(equipage, distances, args, type) {
   const generateTransportTable = (distM) => {
     if (!(distM > 0)) return '';
     const tempoMpm = transportTempoMpm;
-    if (!tempoMpm) return '';
+    if (!tempoMpm) {
+      if (type === 'screen') {
+         return `<div class="bg-red-50 dark:bg-red-900/20 p-4 border border-red-200 dark:border-red-800 rounded shadow text-red-600 dark:text-red-400"><strong>Transport (T):</strong> ${t('missing_transport_tempo') || 'Transport-tempo (m/min) saknas!'} Ange tempo i maratonadmin eller manuellt för att visa tabellen.</div>`;
+      }
+      return '';
+    }
     const addBlankRows = () => {
       return type === 'print'
         ? `<tr class="print-blank"><td colspan="3"><div class="comment-box"></div></td></tr>
@@ -582,16 +640,30 @@ function generateResultHtml(equipage, distances, args, type) {
     let tableContent = '';
     if (type === 'print') tableContent += `<tr><td>${t('before_start')}</td><td colspan="2"><div class="comment-box"></div></td></tr>`;
 
+    const checkpoints = [];
     const kmCount = Math.floor(distM / 1000);
     for (let i = 1; i <= kmCount; i++) {
-      const timeAtKm = (i * 1000 / tempoMpm) * 60000;
-      tableContent += `<tr><td>${i} km</td><td>${formatMaratonTid(timeAtKm)}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
+      checkpoints.push(i * 1000);
     }
+    if (args.extraDistances && args.extraDistances['T']) {
+      args.extraDistances['T'].forEach(d => {
+        if (d > 0 && d < distM && !checkpoints.includes(d)) {
+          checkpoints.push(d);
+        }
+      });
+    }
+    checkpoints.sort((a, b) => a - b);
+
+    checkpoints.forEach(cp => {
+      const timeAtCp = (cp / tempoMpm) * 60000;
+      let label = cp % 1000 === 0 ? `${cp / 1000} km` : `${cp} m`;
+      tableContent += `<tr><td>${label}</td><td>${formatMaratonTid(timeAtCp)}</td><td class="${type === 'screen' ? 'text-right' : ''}"></td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
+    });
     const totalAllowedMs = (distM / tempoMpm) * 60000;
-    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM}m)</td><td>${formatMaratonTid(totalAllowedMs)}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
+    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM}m)</td><td>${formatMaratonTid(totalAllowedMs)}</td><td class="${type === 'screen' ? 'text-right' : ''}"></td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
 
     const headerClass = type === 'screen' ? 'font-semibold dark:text-gray-100' : '';
-    const tableClass = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200' : '';
+    const tableClass = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '';
     const theadClass = type === 'screen' ? 'bg-gray-100 dark:bg-gray-700' : '';
     const thClass = type === 'screen' ? 'p-2 dark:text-gray-200' : '';
     const tdClass = type === 'screen' ? 'p-2 border-b dark:border-gray-600' : '';
@@ -606,10 +678,11 @@ function generateResultHtml(equipage, distances, args, type) {
                      <table class="${tableClass}">
                         <thead class="${theadClass}"><tr>
                             <th class="${thClass}">${t('checkpoint')}</th>
-                            <th class="${thClass} ${type === 'screen' ? 'text-right' : ''}">${t('max_time')}</th>
+                            <th class="${thClass}">${t('max_time') || 'Idealtid (Max)'}</th>
+                            <th class="${thClass} ${type === 'screen' ? 'text-right' : ''}"></th>
                             ${type === 'print' ? `<th class="comment-header">${t('comment')}</th>` : ''}
                         </tr></thead>
-                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tdClass}">`).replaceAll('<tr>', `<tr class="${type === 'screen' ? 'border-b' : ''}">`)}</tbody>
+                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tdClass}">`)}</tbody>
                     </table>
                 </div>`;
   };
@@ -641,11 +714,11 @@ function generateResultHtml(equipage, distances, args, type) {
             </div>`;
     })();
 
-  const warmupInfo = type === 'screen'
-    ? `<div class="mt-2 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg text-center text-yellow-800 dark:text-yellow-200"><strong>Warm-up:</strong> ${t('warmup_max_minutes').replace('{min}', warmupMinutes)}</div>`
-    : `<p><strong>Warm-up:</strong> ${t('warmup_max_minutes').replace('{min}', warmupMinutes)}</p>`;
+  const warmupInfo = (args.includeWarmup === false) ? '' : (type === 'screen'
+    ? `<div class="mt-2 p-3 bg-yellow-100 dark:bg-yellow-900/20 border border-yellow-300 dark:border-yellow-700 rounded-lg text-center text-yellow-800 dark:text-yellow-200">${t('warmup_max_minutes').replace('{min}', warmupMinutes)}</div>`
+    : `<p><strong>${t('warmup_max_minutes').replace('{min}', warmupMinutes)}</strong></p>`);
 
-  const gridClass = type === 'screen' ? 'grid md:grid-cols-2 gap-4 mt-4' : '';
+  const gridClass = type === 'screen' ? 'grid grid-cols-1 lg:grid-cols-3 gap-4 mt-4' : '';
 
   return `${header} ${warmupInfo}
             <div class="${gridClass}">
@@ -760,13 +833,12 @@ async function generateMarathonPdfFromCurrent() {
     showAlert(t('select_equipage_calculate_first'), false);
     return;
   }
-  const horses = (typeof horseLabel === 'function') ? horseLabel(equipage) : '';
-  const className = equipage?._mergedLabel || equipage?.mergedTestLabel || equipage?.className || equipage?.klass || '';
+  const displayClassName = equipage?._mergedLabel || equipage?.mergedTestLabel || equipage?.className || equipage?.klass || '';
+  const className = equipage?.className || displayClassName;
   const clubName = equipage?.clubName || equipage?.club || '';
   const country = normalizeCountryCode(equipage?.country || 'SE');
 
   // TR/klassdata för tempo och distanser
-  const classKey = normalizeClassKey(className) || className;
   const categoryKey = (mode === 'manual' && !startNumber) ? fallbackCategory : detectTRCategoryFromEquipage(equipage);
   const cfg = getClassDistancesFromConfig(className) || {};
   // Distanser: ta från DOM om manuellt läge, annars från config
@@ -775,6 +847,7 @@ async function generateMarathonPdfFromCurrent() {
   const distB = (mode === 'manual' && !startNumber) ? (parseFloat(document.getElementById('maratonTiderDistBInput').value) || 0) : (cfg.B?.distance || 0);
   const ruleVal = document.getElementById('manualRuleSelect')?.value || 'TR';
   const table = getTempoTable({ isManual: mode === 'manual', ruleValue: ruleVal });
+  const classKey = resolveTempoClassKey(table, className);
   let tempoAk = table?.[classKey]?.A?.[categoryKey] || null;
   let tempoBk = table?.[classKey]?.B?.[categoryKey] || null;
   if (mode === 'manual' && !startNumber) {
@@ -783,6 +856,8 @@ async function generateMarathonPdfFromCurrent() {
     if (Number.isFinite(tA)) tempoAk = tA;
     if (Number.isFinite(tB)) tempoBk = tB;
   }
+  const tempoALabel = Number.isFinite(Number(tempoAk)) ? `${Number(tempoAk)} km/h` : null;
+  const tempoBLabel = Number.isFinite(Number(tempoBk)) ? `${Number(tempoBk)} km/h` : null;
 
   const tempoTm = Number.isFinite(fallbackTtempo) ? fallbackTtempo : (cfg.T?.tempo_mpm ?? null);
   // 3) Hämta loggor/flagga (SRF + klubb + flagga)
@@ -800,12 +875,10 @@ async function generateMarathonPdfFromCurrent() {
 
   // 4) Hämta tabellerna vi redan renderat (A/Transport/B)
   //    Vi letar efter H3-rubrikerna och tar första <table> efter varje rubrik.
-  const sections = Array.from(host.querySelectorAll('h3'))
-    .map(h => {
-      const title = h.textContent.trim();
-      const tbl = h.nextElementSibling && h.nextElementSibling.tagName === 'TABLE'
-        ? h.nextElementSibling
-        : h.parentElement.querySelector('table');
+  const sections = Array.from(host.children).filter(el => el && el.querySelector)
+    .map(node => {
+      const title = node.querySelector('h3')?.textContent?.trim() || '';
+      const tbl = node.querySelector('table');
       return { title, table: tbl };
     })
     .filter(s => s.table);
@@ -824,7 +897,6 @@ async function generateMarathonPdfFromCurrent() {
   }
   const pdf = new jsPDFCtor({ unit: 'pt', format: 'a4' });
   const PAGE_W = pdf.internal.pageSize.getWidth();
-  const PAGE_H = pdf.internal.pageSize.getHeight();
   const mx = 40; // vänster/höger marginal
 
   // Standardstilar
@@ -858,7 +930,7 @@ async function generateMarathonPdfFromCurrent() {
     }
 
     pdf.setFont(base.font, 'normal').setFontSize(11);
-    pdf.text(`${className || ''}${clubName ? ` • ${clubName}` : ''}`, mx, y + 16);
+    pdf.text(`${displayClassName || className || ''}${clubName ? ` • ${clubName}` : ''}`, mx, y + 16);
 
     // SRF-logga uppe till höger
     if (srfLogo?.dataUrl) {
@@ -916,16 +988,16 @@ async function generateMarathonPdfFromCurrent() {
   }
 
   // ============== SIDA 1 – STRÄCKA A (ev. Transport) =================
-  drawHeader('Sträcka A', distA, tempoAk ? `${tempoAk} km/h` : null);
-  let y = 120;
+  drawHeader('Sträcka A', distA, tempoALabel);
+  let y = 150;
 
   if (secA?.table) {
     y = addTableFromDom(secA.table, y);
   }
   // ============== SIDA 2 – STRÄCKA B =================
   pdf.addPage();
-  drawHeader('Sträcka B', distB, tempoBk ? `${tempoBk} km/h` : null);
-  y = 120;
+  drawHeader('Sträcka B', distB, tempoBLabel);
+  y = 150;
   if (secB?.table) {
     addTableFromDom(secB.table, y);
   }
@@ -936,7 +1008,11 @@ async function generateMarathonPdfFromCurrent() {
     // Visa tempo i “badge”-raden (m/min) om vi har det
     const tLbl = tempoTm ? `${tempoTm} m/min` : null;
     drawHeader('Transport', distT, tLbl);
-    addTableFromDom(secT.table, 120);
+    addTableFromDom(secT.table, 150);
+  }
+
+  if (!secA?.table && typeof pdf.deletePage === 'function') {
+    pdf.deletePage(1);
   }
 
   // 6) Spara
@@ -1024,6 +1100,32 @@ export async function load() {
                         <div><label for="maratonTiderDistAInput" class="block font-medium dark:text-gray-200">${t('length_a_m')}</label><input type="number" id="maratonTiderDistAInput" class="w-full p-2 border rounded mt-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"></div>
                         <div><label for="maratonTiderDistTInput" class="block font-medium dark:text-gray-200">${t('length_t_m')}</label><input type="number" id="maratonTiderDistTInput" class="w-full p-2 border rounded mt-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"></div>
                         <div><label for="maratonTiderDistBInput" class="block font-medium dark:text-gray-200">${t('length_b_m')}</label><input type="number" id="maratonTiderDistBInput" class="w-full p-2 border rounded mt-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100"></div>
+                    </div>
+                    <div class="mt-4 border-t pt-4 dark:border-gray-600">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <h4 class="font-medium dark:text-gray-200 mb-2">Uppvärmning (Warm-up)</h4>
+                                <div class="flex items-center gap-4">
+                                    <label class="flex items-center dark:text-gray-300">
+                                        <input type="checkbox" id="maratonTiderIncludeWarmup" class="w-4 h-4 mr-2" checked>
+                                        Inkludera
+                                    </label>
+                                    <div class="flex items-center gap-2">
+                                        <input type="number" id="maratonTiderWarmupMinutes" class="w-20 p-2 border rounded dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100" value="" placeholder="Auto">
+                                        <span class="text-sm dark:text-gray-300">minuter</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div>
+                                <h4 class="font-medium dark:text-gray-200 mb-2">Extra mellantider (m)</h4>
+                                <div class="grid grid-cols-1 md:grid-cols-3 gap-x-2 gap-y-2">
+                                    <div><label for="maratonTiderExtraDistancesA" class="block text-sm dark:text-gray-300">Sträcka A</label><input type="text" id="maratonTiderExtraDistancesA" class="w-full p-2 border rounded mt-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100" placeholder="t.ex. 500"></div>
+                                    <div><label for="maratonTiderExtraDistancesT" class="block text-sm dark:text-gray-300">Transport (T)</label><input type="text" id="maratonTiderExtraDistancesT" class="w-full p-2 border rounded mt-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100" placeholder="t.ex. 800"></div>
+                                    <div><label for="maratonTiderExtraDistancesB" class="block text-sm dark:text-gray-300">Sträcka B</label><input type="text" id="maratonTiderExtraDistancesB" class="w-full p-2 border rounded mt-1 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100" placeholder="t.ex. 1000"></div>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="text-xs text-gray-500 mt-1">Kommaseparerad lista med avstånd.</p>
                     </div>
                 </div>
                 <div class="mt-6 flex flex-col md:flex-row gap-4">

@@ -14,6 +14,25 @@ let allOfficials = [];
 let sortConfig = { key: 'restartNumber', direction: 'asc' };
 let competitionId = null;
 
+function inferParaGradeFromClassName(className = '') {
+    const s = String(className || '').toLowerCase();
+    if (!/para/.test(s)) return '';
+    if (/grad\s*1|grade\s*1|l[aä]tt\s*a|\bla\b/.test(s)) return '1';
+    if (/grad\s*2|grade\s*2|msv|medelsv|sv[aå]r/.test(s)) return '2';
+    return '2';
+}
+
+function resolveProgramKeyForClass(className = '', paraGrade = '') {
+    const label = String(className || '').trim();
+    if (!label) return '';
+    if (/para/i.test(label)) {
+        const grade = String(paraGrade || inferParaGradeFromClassName(label) || '');
+        if (grade === '1') return 'FEIParaG1';
+        if (grade === '2') return 'FEIParaG2';
+    }
+    return klassProgramMapping[label] || '';
+}
+
 export function setCompetitionId(id) {
     competitionId = id;
 }
@@ -36,6 +55,14 @@ export function getParticipantsHtml() {
                     <div class="flex items-center mb-2">
                         <input type="checkbox" id="isParaCheckbox" class="h-4 w-4 rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 focus:ring-blue-500 dark:focus:ring-blue-400">
                         <label for="isParaCheckbox" class="ml-2 block text-sm font-medium dark:text-gray-300">Parakusk (Tvinga Para-tempo)</label>
+                    </div>
+                    <div id="paraGradeWrap" class="hidden">
+                        <label for="paraGrade" class="block text-sm font-medium dark:text-gray-300">Para grade (FEI test)</label>
+                        <select id="paraGrade" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                            <option value="">Choose grade...</option>
+                            <option value="1">Grade I</option>
+                            <option value="2">Grade II</option>
+                        </select>
                     </div>
                     <div><label for="driverName" class="block text-sm font-medium dark:text-gray-300">Kuskens namn*</label><input type="text" id="driverName" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400"></div>
                     <div><label for="driverEmail" class="block text-sm font-medium dark:text-gray-300">E-post (för inloggning)</label><input type="email" id="driverEmail" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400" placeholder="ex: namn@example.com"></div>
@@ -318,9 +345,23 @@ function setupEquipageForm() {
     const driverInput = document.getElementById('driverName');
     const barnklassCheckbox = document.getElementById('isBarnklassCheckbox');
     const paraCheckbox = document.getElementById('isParaCheckbox');
+    const paraGradeWrap = document.getElementById('paraGradeWrap');
+    const paraGradeSelect = document.getElementById('paraGrade');
+
+    const isBarnClass = (className) => /\b(barn|children|ch)\b/i.test(className || '');
+    const isParaClass = (className) => /\bpara\b/i.test(className || '');
+    const syncParaGradeUi = () => {
+        const on = !!paraCheckbox.checked;
+        if (paraGradeWrap) paraGradeWrap.classList.toggle('hidden', !on);
+        if (!paraGradeSelect) return;
+        paraGradeSelect.disabled = !on;
+        if (!on) paraGradeSelect.value = '';
+        else if (!paraGradeSelect.value) paraGradeSelect.value = '2';
+    };
 
     const populateClassSelect = () => {
         const isBarnklass = barnklassCheckbox.checked;
+        const isParaSelected = paraCheckbox.checked;
         const currentSelectedClass = classSelect.value;
         classSelect.innerHTML = '<option value="">Välj klass...</option>';
 
@@ -339,9 +380,12 @@ function setupEquipageForm() {
             const optGrp = document.createElement('optgroup');
             optGrp.label = "Aktiva (Omstöpta/TDB)";
             customClasses.forEach(c => {
-                const isBarn = c.toLowerCase().includes('barn');
+                const isBarn = isBarnClass(c);
+                const isPara = isParaClass(c);
                 if (isBarnklass && !isBarn) return;
                 if (!isBarnklass && isBarn) return;
+                if (isParaSelected && !isPara) return;
+                if (!isParaSelected && isPara) return;
 
                 const option = document.createElement('option');
                 option.value = c;
@@ -352,8 +396,12 @@ function setupEquipageForm() {
         }
 
         for (const group in competitionClasses) {
-            if (!isBarnklass && group === "Barnklasser") continue;
-            if (isBarnklass && group !== "Barnklasser") continue;
+            const groupIsBarn = group === "Barnklasser";
+            const groupIsPara = group === "Paraklasser";
+            if (isBarnklass && !groupIsBarn) continue;
+            if (!isBarnklass && groupIsBarn) continue;
+            if (isParaSelected && !groupIsPara) continue;
+            if (!isParaSelected && groupIsPara) continue;
             const optgroup = document.createElement('optgroup');
             optgroup.label = group;
             competitionClasses[group].forEach(c => {
@@ -378,11 +426,12 @@ function setupEquipageForm() {
         document.getElementById('driverName').value = eq.driverName || '';
         document.getElementById('driverEmail').value = eq.email || '';
         document.getElementById('clubName').value = eq.clubName || '';
-        barnklassCheckbox.checked = !!((eq.className || '').toLowerCase().includes('barn')); // Auto-detect from class name often better? Or explicit field?
-        // Using explicit field if we had one, but we rely on class name for filtering
-
-        const isParaVal = !!eq.isPara;
-        paraCheckbox.checked = isParaVal;
+        barnklassCheckbox.checked = isBarnClass(eq.className);
+        paraCheckbox.checked = isParaClass(eq.className) || !!eq.isPara;
+        if (paraGradeSelect) {
+            paraGradeSelect.value = String(eq.paraGrade || inferParaGradeFromClassName(eq.className) || '');
+        }
+        syncParaGradeUi();
 
         populateClassSelect(); // Filter classes based on barn/not
         classSelect.value = eq.className || '';
@@ -436,11 +485,16 @@ function setupEquipageForm() {
         if (!sn) return;
         const eq = (allEquipages || []).find(x => String(x.startNumber) === sn);
         if (eq) {
-            const isBarn = ((eq.className || '').toLowerCase().includes('barn'));
+            const isBarn = isBarnClass(eq.className);
             if (barnklassCheckbox.checked !== isBarn) {
                 barnklassCheckbox.checked = isBarn;
-                populateClassSelect();
             }
+            paraCheckbox.checked = isParaClass(eq.className) || !!eq.isPara;
+            if (paraGradeSelect) {
+                paraGradeSelect.value = String(eq.paraGrade || inferParaGradeFromClassName(eq.className) || '');
+            }
+            syncParaGradeUi();
+            populateClassSelect();
             populateEquipageForm(eq);
             showAlert(`Ekipage #${sn} inläst.`, true);
         }
@@ -485,17 +539,22 @@ function setupEquipageForm() {
         const existing = allEquipages.find(eq => eq.startNumber === parseInt(startNumber));
         const status = existing ? existing.status : 'anmäld';
 
+        const selectedClass = document.getElementById('className').value;
+        const derivedIsPara = isParaClass(selectedClass) || paraCheckbox.checked;
+        const paraGrade = derivedIsPara ? String(paraGradeSelect?.value || inferParaGradeFromClassName(selectedClass) || '2') : '';
+        const resolvedTestKey = resolveProgramKeyForClass(selectedClass, paraGrade);
+
         // ... Gather data ...
         const equipageData = {
             startNumber: parseInt(startNumber),
             driverName: document.getElementById('driverName').value,
             email: document.getElementById('driverEmail').value,
             clubName: document.getElementById('clubName').value,
-            className: document.getElementById('className').value,
-            isPara: ((() => {
-                const val = paraCheckbox.checked;
-                return val;
-            })()), // <--- SAVE PARA FLAG (Logged)
+            className: selectedClass,
+            isPara: derivedIsPara,
+            paraGrade: paraGrade,
+            testKey: resolvedTestKey || null,
+            programKey: resolvedTestKey || null,
             trackWidth: parseInt(document.getElementById('trackWidth').value) || null,
             marathonTrackWidth: parseInt(document.getElementById('marathonTrackWidth').value) || null,
             status: status,
@@ -526,6 +585,7 @@ function setupEquipageForm() {
             await saveEquipage(competitionId, startNumber, equipageData);
             showAlert(`Ekipage #${startNumber} har sparats.`);
             e.target.reset();
+            syncParaGradeUi();
             populateClassSelect();
             onClassChange({ target: classSelect });
         } catch (err) { showAlert("Fel vid sparande.", false); }
@@ -533,6 +593,11 @@ function setupEquipageForm() {
 
     classSelect.addEventListener('change', onClassChange);
     barnklassCheckbox.addEventListener('change', populateClassSelect);
+    paraCheckbox.addEventListener('change', () => {
+        syncParaGradeUi();
+        populateClassSelect();
+    });
+    syncParaGradeUi();
     populateClassSelect();
     onClassChange({ target: classSelect });
 }
@@ -1418,6 +1483,10 @@ function findBestClassMatch(xmlClassName, availableAppClasses) {
     if (!xmlClassName || !availableAppClasses || availableAppClasses.length === 0) return null;
 
     const xmlNorm = normalizeEqClassName(xmlClassName).toLowerCase();
+    const xmlHasBarn = /\b(barn|children|ch)\b/i.test(xmlClassName);
+    const xmlHasPara = /\bpara\b/i.test(xmlClassName);
+    const xmlHasJunior = /\b(junior|\"j\"|\bj\b)\b/i.test(xmlClassName);
+    const xmlHasU25 = /\bu25\b/i.test(xmlClassName);
 
     // TDB-sträng innehåller explicit anspänning?
     const spanMatch = xmlNorm.match(/\b(enbet|par(?!a)|fyrspann|tandem)\b/);
@@ -1427,10 +1496,18 @@ function findBestClassMatch(xmlClassName, availableAppClasses) {
 
     for (const appClass of availableAppClasses) {
         const appNorm = normalizeEqClassName(appClass).toLowerCase();
+        const appHasBarn = /\b(barn|children|ch)\b/i.test(appClass);
+        const appHasPara = /\bpara\b/i.test(appClass);
+        const appHasJunior = /\b(junior|\"j\"|\bj\b)\b/i.test(appClass);
+        const appHasU25 = /\bu25\b/i.test(appClass);
         let score = 0;
 
         // 1) Hög träff vid exakt match
         if (xmlNorm === appNorm) score += 100;
+
+        if (xmlHasPara !== appHasPara) {
+            score -= 100;
+        }
 
         // 2) Svårighetsgrad
         if (/lätt/.test(xmlNorm) && /lätt/.test(appNorm)) score += 5;
@@ -1443,20 +1520,42 @@ function findBestClassMatch(xmlClassName, availableAppClasses) {
         if (nXml && nApp && nXml === nApp) score += 8;
 
         // 4) Anspänning
-        if (xmlSpan) {
+        if (xmlSpan && !xmlHasPara && !appHasPara) {
             // Explicit angiven i TDB: kräver match
-            if (new RegExp(`\\b${xmlSpan} \\b`).test(appNorm)) score += 10;
+            if (new RegExp(`\\b${xmlSpan}\\b`).test(appNorm)) score += 10;
             else score -= 4;
         } else {
             // Inte angiven i TDB: defaulta till Enbet
-            if (/\benbet\b/.test(appNorm)) score += 6;
-            if (/\bpar\b(?!a)/.test(appNorm)) score -= 2;
-            if (/\bfyrspann\b/.test(appNorm)) score -= 2;
+            if (!xmlHasPara && !xmlHasBarn && !xmlHasJunior && !xmlHasU25) {
+                if (/\benbet\b/.test(appNorm)) score += 6;
+                if (/\bpar\b(?!a)/.test(appNorm)) score -= 2;
+                if (/\bfyrspann\b/.test(appNorm)) score -= 2;
+            }
         }
 
         // 5) Hästtyp (om den råkar stå med i namnen)
         if (/\bponny\b/.test(xmlNorm) && /\bponny\b/.test(appNorm)) score += 3;
         if (/\bhäst\b/.test(xmlNorm) && /\bhäst\b/.test(appNorm)) score += 3;
+
+        if (xmlHasBarn) score += appHasBarn ? 12 : -8;
+        else if (appHasBarn) score -= 4;
+
+        if (xmlHasPara) {
+            score += appHasPara ? 12 : -10;
+            if (/l.*tt\s*a/.test(xmlNorm) && /l.*tt\s*a/.test(appNorm)) score += 10;
+            if (/\bmsv\b/.test(xmlNorm) && /\bmsv\b/.test(appNorm)) score += 10;
+            if (/sv.*r/.test(xmlNorm) && /sv.*r/.test(appNorm)) score += 10;
+            if (/lÃ¤tt a/.test(xmlNorm) && /lÃ¤tt a/.test(appNorm)) score += 10;
+            if (/msv(\s*\d+)?/.test(xmlNorm) && /\bmsv\b/.test(appNorm)) score += 10;
+            if (/svÃ¥r/.test(xmlNorm) && /svÃ¥r/.test(appNorm)) score += 10;
+        }
+        else if (appHasPara) score -= 4;
+
+        if (xmlHasJunior) score += appHasJunior ? 8 : -4;
+        else if (appHasJunior) score -= 2;
+
+        if (xmlHasU25) score += appHasU25 ? 8 : -4;
+        else if (appHasU25) score -= 2;
 
         if (score > bestScore) { bestScore = score; best = appClass; }
     }
@@ -1486,9 +1585,12 @@ async function parseEqEntriesXml(file) {
 
     const orgNode = xml.getElementsByTagName('Organization')[0];
     const meetingNode = xml.getElementsByTagName('MeetingSettings')[0];
+    const propositionNodes = _all(root, 'Propositions').flatMap(p => _all(p, 'o'));
+    const fallbackLocation = propositionNodes.find(prop => _text(prop, 'location')) ? _text(propositionNodes.find(prop => _text(prop, 'location')), 'location') : '';
+
     const competitionInfo = {
         name: _text(meetingNode, 'name'),
-        location: _text(meetingNode, 'location'),
+        location: _text(meetingNode, 'location') || fallbackLocation,
         organizer: _text(orgNode, 'name'),
         organizerId: _text(orgNode, 'orgNr'),
         address: _text(orgNode, 'Address'),
@@ -1501,7 +1603,7 @@ async function parseEqEntriesXml(file) {
     const classMap = new Map();
     const classInfoMap = new Map(); // ny: clabbNumber -> { label, horse }
 
-    _all(root, 'Propositions').flatMap(p => _all(p, 'o')).forEach(prop => {
+    propositionNodes.forEach(prop => {
         const classNumber = _text(prop, 'clabbNumber');
         const classLabel = _text(prop, 'AclassName');
         const horseCode = _text(prop, 'horse'); // 'H','P','A','B','C','D'
@@ -1512,6 +1614,7 @@ async function parseEqEntriesXml(file) {
     });
 
     const equipagesByClass = {};
+    const administrativeFeesByDriver = new Map();
     _all(root, 'Riders').flatMap(r => _all(r, 'o')).forEach(riderNode => {
         const driverName = `${_text(riderNode, 'firstName')} ${_text(riderNode, 'lastName')} `.trim();
         if (!driverName) return;
@@ -1609,16 +1712,11 @@ async function parseEqEntriesXml(file) {
                 }
 
                 if (parseInt(classNumber) > 900) {
-                    Object.keys(equipagesByClass).forEach(key => {
-                        if (key.startsWith(driverName + '|')) {
-                            if (!equipagesByClass[key].administrativeFees) {
-                                equipagesByClass[key].administrativeFees = [];
-                            }
-                            if (!equipagesByClass[key].administrativeFees.includes(className)) {
-                                equipagesByClass[key].administrativeFees.push(className);
-                            }
-                        }
-                    });
+                    const fees = administrativeFeesByDriver.get(driverName) || [];
+                    if (!fees.includes(className)) {
+                        fees.push(className);
+                        administrativeFeesByDriver.set(driverName, fees);
+                    }
                     return;
                 }
 
@@ -1695,6 +1793,21 @@ async function parseEqEntriesXml(file) {
             });
         });
     });
+
+    for (const [driverName, fees] of administrativeFeesByDriver.entries()) {
+        Object.keys(equipagesByClass).forEach(key => {
+            if (!key.startsWith(driverName + '|')) return;
+            const equipage = equipagesByClass[key];
+            if (!equipage.administrativeFees) {
+                equipage.administrativeFees = [];
+            }
+            fees.forEach(fee => {
+                if (!equipage.administrativeFees.includes(fee)) {
+                    equipage.administrativeFees.push(fee);
+                }
+            });
+        });
+    }
 
     let tempStartNumber = 1;
     const finalEquipages = Object.values(equipagesByClass).map(eq => {
@@ -1990,6 +2103,11 @@ function setupImportForm(compId) {
                     }
 
                     eqa.className = mappedClass; // mappa till appens klass
+                    eqa.isPara = /para/i.test(mappedClass);
+                    eqa.paraGrade = eqa.isPara ? inferParaGradeFromClassName(mappedClass) : '';
+                    const importTestKey = resolveProgramKeyForClass(mappedClass, eqa.paraGrade);
+                    eqa.testKey = importTestKey || null;
+                    eqa.programKey = importTestKey || null;
 
                     // NYTT: Sätt temporärt startnummer om det saknas
                     if (eqa.startNumber == null || Number.isNaN(Number(eqa.startNumber))) {

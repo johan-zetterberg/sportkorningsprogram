@@ -114,10 +114,12 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
   }
 
   await ensureClubLogosLoaded();
-  const program = (data?.testKey && programs[data.testKey]) ? programs[data.testKey] : null;
+  const explicitProgramKey = data?.testKey || data?.programKey || null;
+  const program = (explicitProgramKey && programs[explicitProgramKey]) ? programs[explicitProgramKey] : null;
   if (!program) {
     // 1. Try finding via mapping
-    const lbl = (data?._mergedLabel || data?.className || '');
+    const primaryClass = data?.originalClassName || data?.className || '';
+    const lbl = primaryClass || data?._mergedLabel || '';
     let mapped = (window.klassProgramMapping && (
       window.klassProgramMapping[data?.originalClassName] ||
       window.klassProgramMapping[data?.className] ||
@@ -126,7 +128,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
     // 2. Fallback: Robust heuristic guessing if mapping fails
     if (!mapped) {
-      mapped = guessProgramKeyFromClass(lbl, programs) || guessProgramKeyFromClass(data?.originalClassName, programs);
+      mapped = guessProgramKeyFromClass(primaryClass, programs) || guessProgramKeyFromClass(lbl, programs);
     }
 
     if (mapped && programs[mapped]) {

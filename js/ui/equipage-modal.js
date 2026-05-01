@@ -211,14 +211,14 @@ export async function openEquipageModal(startNumber, ctx) {
     async function renderDressyrTab() {
       // Försök hitta programnyckel från ekipaget, eller från första protokollet
       const p1 = dressageProtocols[0] || {};
-      let programKey = eq.dressageProgramKey || p1.programKey || p1.testKey || p1.protocol?.testKey;
+      let programKey = eq.dressageProgramKey || eq.testKey || eq.programKey || p1.programKey || p1.testKey || p1.protocol?.testKey;
 
       // Fallback: Slå upp via klassnamn från config (om definierat)
       // Fallback: Slå upp via klassnamn från config (om definierat)
       if (!programKey) {
         // 1. Kolla ctx.classProgramMapping (från total-resultat.js)
         const mapping = ctx.classProgramMapping || window.klassProgramMapping;
-        const cls = eq._mergedLabel || eq.className || '';
+        const cls = eq.className || eq._mergedLabel || '';
 
         if (mapping && mapping[cls]) {
           programKey = mapping[cls];
@@ -233,7 +233,7 @@ export async function openEquipageModal(startNumber, ctx) {
 
       // Fallback: Gissa via heuristik (fuzzy match)
       if (!programKey) {
-        const cls = eq._mergedLabel || eq.className || '';
+        const cls = eq.className || eq._mergedLabel || '';
         const guessed = guessProgramKeyFromClass(cls, getPrograms());
         if (guessed) {
           programKey = guessed;
