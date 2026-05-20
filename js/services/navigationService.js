@@ -28,6 +28,7 @@ const pagePermissions = {
   'page-vagnbredd': ['funktionar', 'domare', 'admin'],
   'page-total-resultat': ['publik', 'funktionar', 'domare', 'admin'],
   'page-portal': ['publik', 'funktionar', 'domare', 'admin'], // Tillåt publik, men sidan kollar inloggningsstatus
+  'page-competition-center': ['publik', 'funktionar', 'domare', 'admin'],
   'page-speaker': ['speaker', 'domare', 'admin'],
   'page-prize-giving': ['speaker', 'funktionar', 'domare', 'admin'],
   'page-reports': ['funktionar', 'domare', 'admin'],
@@ -63,6 +64,7 @@ const pageLoaders = {
   'vagnbredd': () => import('../pages/shared/vagnbredd.js'),
   'total-resultat': () => import('../pages/shared/total-resultat.js'),
   'portal': () => import('../pages/shared/portal.js'),
+  'competition-center': () => import('../pages/shared/competition-center.js'),
   'speaker': () => import('../pages/shared/speaker.js'),
   'prize-giving': () => import('../pages/shared/prize-giving.js'),
   'reports': () => import('../pages/shared/reports.js'),
@@ -74,11 +76,13 @@ const pageLoaders = {
 let pageInitializers = {};
 
 export async function navigateTo(hash) {
-  const pageKey = hash.substring(1) || 'hub';
+  const normalizedHash = hash || '#hub';
+  const routeHash = normalizedHash.split('?')[0];
+  const pageKey = routeHash.substring(1) || 'hub';
   const pageId = `page-${pageKey}`;
   localStorage.setItem('lastPageKey', pageKey);
 
-  try { localStorage.setItem('lastPageId', hash || '#hub'); } catch (_) { }
+  try { localStorage.setItem('lastPageId', routeHash || '#hub'); } catch (_) { }
 
   const user = getGlobalState('currentUser');
   const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
@@ -109,7 +113,7 @@ export async function navigateTo(hash) {
   // Om superadmin -> Släpp igenom allt
   if (!rolesToCheck.includes('superadmin') && !hasAccess) {
     document.getElementById('loginModal').style.display = 'flex';
-    if (window.location.hash !== '' && window.location.hash !== '#hub') {
+    if (routeHash !== '' && routeHash !== '#hub') {
       window.location.hash = '#hub';
     }
     return;
@@ -134,7 +138,7 @@ export async function navigateTo(hash) {
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
   document.getElementById(pageId)?.classList.add('active');
   document.querySelectorAll('.nav-link').forEach(l => l.classList.remove('active'));
-  document.querySelector(`.nav-link[href="${hash || '#hub'}"]`)?.classList.add('active');
+  document.querySelector(`.nav-link[href="${routeHash || '#hub'}"]`)?.classList.add('active');
 
   const loader = pageLoaders[pageKey];
   if (loader) {

@@ -229,11 +229,17 @@ export async function printMarathonPdf(eq, d, competition) {
     const stageLabel = (stage === 'transport') ? (isInternational ? 'Transfer' : 'T') : String(stage).toUpperCase();
 
     if (start || stop || Number.isFinite(durMs)) {
+      const holdTimeMs = res?.stages?.[stage]?.holdTimeMs || 0;
+      let timeLabel = Number.isFinite(durMs) ? formatMsLive(durMs) : '—';
+      if (holdTimeMs > 0) {
+        timeLabel += `\n(-${holdTimeMs/1000}s uppehåll)`;
+      }
+      
       stageRowsTimes.push([
         stageLabel,
         start ? new Date(start).toLocaleTimeString('sv-SE') : '—',
         stop ? new Date(stop).toLocaleTimeString('sv-SE') : '—',
-        Number.isFinite(durMs) ? formatMsLive(durMs) : '—',
+        timeLabel,
         pen.elim ? 'ELIM' : (Number.isFinite(pen.points) ? pen.points.toFixed(2) : '—')
       ]);
 
@@ -342,6 +348,11 @@ export async function printMarathonPdf(eq, d, competition) {
     const inStr = enteredAt ? toTimeLabel(enteredAt) : '—';
     const outStr = exitAt ? toTimeLabel(exitAt) : '—';
     const combinedTime = `${inStr}\n${outStr}`;
+    
+    let komm = o.comment || '';
+    if (Number(o.holdTimeSec) > 0) {
+      komm = (komm ? komm + '\n' : '') + `Uppehåll: ${o.holdTimeSec}s`;
+    }
 
     return [
       String(o.number || o.obstacleNumber || ''),             // 0: H
@@ -351,7 +362,7 @@ export async function printMarathonPdf(eq, d, competition) {
       Number(o.otherPenalty || 0).toFixed(2),                 // 4: Övr
       combinedTime,                                           // 5: Tidpunkt (In/Ut)
       (o.routeString || ''),                                  // 6: Väg
-      (o.comment || '')                                       // 7: Komm.
+      komm                                                    // 7: Komm.
     ];
   });
 

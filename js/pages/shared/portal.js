@@ -17,7 +17,7 @@ import { renderPrecisionContent } from '../../ui/precisionModal.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 
 import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.js';
-import { getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages } from '../../services/documentService.js';
+import { getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
 import { listenForConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getOfficials } from '../../services/adminService.js';
@@ -171,10 +171,9 @@ export async function load() {
                 const compName = claim?.competitionName || (await getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${cid}`)).then(d => d.data()?.name)).catch(() => '') || cid;
 
                 // Filter for this user
-                const relevant = msgs.filter(m =>
-                    !m.targetStartNumber ||
-                    String(m.targetStartNumber) === String(claim.startNumber)
-                ).map(m => ({ ...m, _compName: compName, _compId: cid }));
+                const relevant = msgs
+                    .filter(m => isMessageVisibleToDriver(m, claim.startNumber))
+                    .map(m => ({ ...m, _compName: compName, _compId: cid }));
 
                 allMsgs = allMsgs.concat(relevant);
             }
@@ -229,7 +228,7 @@ export async function load() {
                     msgs.forEach(m => {
                         // Check if new and relevant
                         const claim = claims.find(c => c.competitionId === cid);
-                        const isRelevant = !m.targetStartNumber || String(m.targetStartNumber) === String(claim.startNumber);
+                        const isRelevant = isMessageVisibleToDriver(m, claim.startNumber);
 
                         if (isRelevant && !knownMsgIds.has(m.id)) {
                             // Toast!
@@ -500,10 +499,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
         const renderMessagesSection = () => {
             if (!messages || messages.length === 0) return '';
 
-            const filtered = messages.filter(msg =>
-                !msg.targetStartNumber ||
-                String(msg.targetStartNumber) === String(startNumber)
-            );
+            const filtered = messages.filter(msg => isMessageVisibleToDriver(msg, startNumber));
 
             if (filtered.length === 0) return '';
 
@@ -1086,7 +1082,8 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
         };
 
         const renderDocuments = async () => {
-            if (!documents || documents.length === 0) {
+            const visibleDocuments = (documents || []).filter(isDocumentVisibleToDriver);
+            if (!visibleDocuments || visibleDocuments.length === 0) {
                 contentEl.innerHTML = `
                     <div class="p-12 text-center text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800/50 rounded-lg border dark:border-gray-700 border-dashed">
                         <div class="text-4xl mb-4">📄</div>
@@ -1099,7 +1096,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
 
             contentEl.innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-fade-in">
-                    ${documents.map(doc => {
+                    ${visibleDocuments.map(doc => {
                 const icon = doc.type === 'startlist' ? '📋' : (doc.type === 'course' ? '🗺️' : '📄');
                 const isHtml = doc.type === 'html';
 
@@ -1135,7 +1132,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
              `;
 
             window.openDocModal = (docId) => {
-                const d = documents.find(x => x.id === docId);
+                const d = visibleDocuments.find(x => x.id === docId);
                 if (!d) return;
 
                 const modalHtml = `

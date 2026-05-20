@@ -718,6 +718,7 @@ export const DICTIONARY = {
     'marathon_clear': { sv: 'RENSA', en: 'CLEAR' },
     'marathon_knockdowns': { sv: 'Knockdowns', en: 'Knockdowns' },
     'marathon_other_penalty': { sv: 'Övrigt straff', en: 'Other Penalty' },
+    'marathon_hold_time': { sv: 'Uppehåll (sek)', en: 'Hold time (sec)' },
     'marathon_elim': { sv: 'Elim.', en: 'Elim.' },
     'marathon_comment_short': { sv: '💬 Kom.', en: '💬 Rem.' },
     'marathon_total_obstacle_penalty': { sv: 'Totalt Hinderstraff', en: 'Total Obstacle Penalty' },

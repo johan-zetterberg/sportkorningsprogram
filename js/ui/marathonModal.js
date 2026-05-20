@@ -72,6 +72,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
       comment: o.comment || '',
       routeString: o.routeString || '',
       eliminated: eliminated,
+      holdTimeSec: Number(o.holdTimeSec || 0),
       enteredAtServer: enteredAt,
       exitAtServer: exitAt,
       gateSplits: splits
@@ -140,6 +141,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
               <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('penalty')}:</span> ${obs.timePenalty.toFixed(2)}</div>
               <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('knockdowns')}:</span> ${obs.knockdowns} (${obs.knockdownPenalty.toFixed(2)})</div>
               ${obs.otherPenalty > 0 ? `<div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400 font-bold text-amber-600 dark:text-amber-500">Övrigt straff:</span> <span class="font-bold text-amber-600 dark:text-amber-500">${obs.otherPenalty.toFixed(2)}</span></div>` : '<div></div>'}
+              ${obs.holdTimeSec > 0 ? `<div class="col-span-2 md:col-span-4 text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400 font-bold text-blue-600 dark:text-blue-500">Uppehåll:</span> <span class="font-bold text-blue-600 dark:text-blue-500">${obs.holdTimeSec}s</span></div>` : ''}
             </div>
             <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 ${t('in_label')}: ${toTimeLabel(obs.enteredAtServer)} | ${t('out_label')}: ${toTimeLabel(obs.exitAtServer)}
@@ -150,26 +152,21 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
         `;
   };
 
-  const renderStage = (stage) => {
-    const start = stageStartTS(marathonData, stage);
-    const stop = stageStopTS(marathonData, stage);
-    let dur = stageDurationMsSaved(marathonData, stage);
+  // --- Data Beräkning (TR-kompatibel) ---
+  const res = calculateMarathonResult(eq, marathonData, marathonData);
 
-    // Fallback: Om duration inte är sparat, men vi har start och mål, räkna ut det live
-    if (!Number.isFinite(dur) && start && stop) {
-      dur = (stop - start) - pausedMsSince(start); // Enkel diff (med pausjustering om möjligt)
-      // Notera: pausedMsSince räknar paus från start till NU. 
-      // pausedMsBetween(from, to) vore bättre om vi hade den importerad här.
-      // Men duration_A och B brukar sparas. Om det saknas är detta en rimlig "live approximation".
-    }
+  const renderStage = (stageKey) => {
+    const stage = res.stages[stageKey] || {};
+    const start = stage.start;
+    const stop = stage.stop;
+    const dur = stage.durationMs;
+    const sp = { points: stage.timePenalty, elim: stage.eliminated };
 
-    const sp = Number.isFinite(dur) ? stagePenaltyFromMs(dur, eq, stage) : { points: null, elim: false };
-
-    const limits = limitsFor(eq, stage);
-    let stageLabel = stage === 'transport' ? t('transport') : t('stage') + ' ' + stage;
+    const limits = limitsFor(eq, stageKey);
+    let stageLabel = stageKey === 'transport' ? t('transport') : t('stage') + ' ' + stageKey;
 
     // Detect Warm-up (Fixed Time A)
-    if (stage === 'A' && limits && limits.ideal > 0 && limits.max === limits.ideal && limits.min === 0) {
+    if (stageKey === 'A' && limits && limits.ideal > 0 && limits.max === limits.ideal && limits.min === 0) {
       stageLabel = 'Warm-up';
     }
 
@@ -202,6 +199,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
                <div>${t('time')}: ${Number.isFinite(dur) ? formatMsLive(dur) : '—'}</div>
                <div>${t('penalty')}: <b>${sp.elim ? 'ELIM' : (sp.points ?? '—')}</b></div>
             </div>
+            ${stage.holdTimeMs > 0 ? `<div class="text-xs text-blue-600 dark:text-blue-400 mt-1 font-semibold">Inkluderar avdrag för uppehåll: -${(stage.holdTimeMs / 1000).toFixed(0)}s</div>` : ''}
             <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 flex gap-4">
                 ${limitsInfo ? `<span>${limitsInfo}</span>` : ''}
                 ${isRunning ? `<span>${t('eta_label')}: ${etaLabel}</span>` : ''}
@@ -210,8 +208,6 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
         `;
   };
 
-  // --- Data Beräkning (TR-kompatibel) ---
-  const res = calculateMarathonResult(eq, marathonData, marathonData);
   const totalStagePenalty = (res.stages.A.timePenalty || 0) + (res.stages.B.timePenalty || 0);
   const totalObstaclePenalty = res.obstacles.sum;
   const isEliminated = res.eliminated;

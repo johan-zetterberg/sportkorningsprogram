@@ -629,6 +629,15 @@ export function calculateMarathonResult(equipage, marathonDoc, timingDoc) {
       eta: { A: null, B: null }
     };
   }
+  // 1.5. Calculate total hold time (uppehåll) from obstacles
+  let totalHoldTimeMs = 0;
+  const rawObsArr = getObstacleArray(d);
+  rawObsArr.forEach(o => {
+    const ht = Number(o.holdTimeSec);
+    if (Number.isFinite(ht) && ht > 0) {
+      totalHoldTimeMs += ht * 1000;
+    }
+  });
 
   // 2. Beräkna etapper (A, T, B)
   const stages = {};
@@ -660,6 +669,11 @@ export function calculateMarathonResult(equipage, marathonDoc, timingDoc) {
       ms = savedDuration;
     }
 
+    // Deduct hold time for B-stage
+    if (s === 'B' && Number.isFinite(ms)) {
+      ms = Math.max(0, ms - totalHoldTimeMs);
+    }
+
     // Straffberäkning
     const { points, elim } = stagePenaltyFromMs(ms, eq, s);
     if (elim) stagesElim = true;
@@ -672,6 +686,7 @@ export function calculateMarathonResult(equipage, marathonDoc, timingDoc) {
       durationMs: ms,
       timePenalty: points,
       eliminated: elim,
+      holdTimeMs: (s === 'B') ? totalHoldTimeMs : 0, // NEW: For UI display
       // Idealtider för referens (till ETA m.m.)
       limits: limitsFor(eq, s)
     };

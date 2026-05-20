@@ -118,6 +118,19 @@ window.updateNavigationTranslations = updateNavigationTranslations;
 window.showAlert = showAlert;
 
 // --- Applikationens Initiering ---
+function getRequestedCompetitionIdFromUrl() {
+    try {
+        const hashQuery = window.location.hash.split('?')[1] || '';
+        const hashParams = new URLSearchParams(hashQuery);
+        const hashId = hashParams.get('id');
+        if (hashId) return hashId;
+
+        const searchParams = new URLSearchParams(window.location.search || '');
+        return searchParams.get('id');
+    } catch {
+        return null;
+    }
+}
 function initialize() {
     initLanguageToggle();
     initTheme();
@@ -214,9 +227,11 @@ function initialize() {
         // Vi gör detta oavsett vilken sida man landar på, så att sub-sidor fungerar direkt vid reload.
         if (!getGlobalState('currentCompetition')) {
             try {
-                const lastCompetitionId = localStorage.getItem('lastCompetitionId');
-                if (lastCompetitionId) {
-                    const comp = await getCompetitionById(lastCompetitionId);
+                const requestedCompetitionId = getRequestedCompetitionIdFromUrl();
+                const fallbackCompetitionId = localStorage.getItem('lastCompetitionId');
+                const competitionId = requestedCompetitionId || fallbackCompetitionId;
+                if (competitionId) {
+                    const comp = await getCompetitionById(competitionId);
                     if (comp) {
                         setGlobalState({ key: 'currentCompetition', value: comp });
                         await refreshUserCompRole(); // <--- Await roles before navigating

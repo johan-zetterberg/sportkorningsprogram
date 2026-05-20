@@ -262,6 +262,7 @@ function applyLiveStateToUI(data) {
     document.getElementById('routeString').value = '';
     document.getElementById('maratonKnockdowns').value = '0';
     document.getElementById('maratonPenalty').value = '0';
+    document.getElementById('maratonHoldTime').value = '';
     if (commentInput) commentInput.value = '';
     if (commentBtn) commentBtn.classList.remove('has-comment');
     document.getElementById('maratonEliminated').checked = false;
@@ -297,6 +298,7 @@ function applyLiveStateToUI(data) {
     live_routeString: (data.live_routeString ?? (savedObstacle?.routeString ?? '')),
     live_knockdowns: (data.live_knockdowns ?? (savedObstacle?.knockdowns ?? '0')),
     live_otherPenalty: (data.live_otherPenalty ?? (savedObstacle?.otherPenalty ?? '0')),
+    live_holdTimeSec: (data.live_holdTimeSec ?? (savedObstacle?.holdTimeSec ?? '')),
     live_comment: (data.live_comment ?? (savedObstacle?.comment ?? '')),
     live_eliminated: (data.live_eliminated ?? !!(savedObstacle?.eliminated)),
     live_gateSplits: (data.live_gateSplits ?? (savedObstacle?.gateSplits ?? []))
@@ -318,6 +320,7 @@ function applyLiveStateToUI(data) {
   document.getElementById('routeString').value = effective.live_routeString || '';
   document.getElementById('maratonKnockdowns').value = String(effective.live_knockdowns ?? '0');
   document.getElementById('maratonPenalty').value = String(effective.live_otherPenalty ?? '0');
+  document.getElementById('maratonHoldTime').value = String(effective.live_holdTimeSec ?? '');
   if (commentInput) commentInput.value = effective.live_comment || '';
   if (commentBtn) commentBtn.classList.toggle('has-comment', !!(effective.live_comment || ''));
   document.getElementById('maratonEliminated').checked = !!effective.live_eliminated;
@@ -346,6 +349,9 @@ function resetFormLocallyForContextSwitch() {
 
   const other = document.getElementById('maratonPenalty');
   if (other) other.value = '0';
+
+  const hold = document.getElementById('maratonHoldTime');
+  if (hold) hold.value = '';
 
   const cmt = document.getElementById('maratonComment');
   if (cmt) cmt.value = '';
@@ -632,6 +638,7 @@ function resetTimerMar(force = false) {
       live_routeString: '',
       live_knockdowns: '0',
       live_otherPenalty: '0',
+      live_holdTimeSec: '',
       live_comment: '',
       live_eliminated: false,
       live_gateSplits: []
@@ -869,6 +876,7 @@ async function loadExistingResult(silent = false) {
       live_routeString: null,
       live_knockdowns: '0',
       live_otherPenalty: '0',
+      live_holdTimeSec: '',
       live_comment: '',
       live_eliminated: false,
       live_gateSplits: []
@@ -915,6 +923,7 @@ async function loadExistingResult(silent = false) {
         live_routeString: resultToLoad.routeString || '',
         live_knockdowns: resultToLoad.knockdowns ?? '0',
         live_otherPenalty: resultToLoad.otherPenalty ?? '0',
+        live_holdTimeSec: resultToLoad.holdTimeSec ?? '',
         live_comment: resultToLoad.comment || '',
         live_eliminated: resultToLoad.eliminated || false,
         live_gateSplits: resultToLoad.gateSplits || []
@@ -929,6 +938,7 @@ async function loadExistingResult(silent = false) {
         live_routeString: '', // Ändrat från null
         live_knockdowns: '0',
         live_otherPenalty: '0',
+        live_holdTimeSec: '',
         live_comment: '',
         live_eliminated: false,
         live_gateSplits: []
@@ -955,6 +965,7 @@ async function loadExistingResult(silent = false) {
       // Vi kanske också vill behålla live-input om den finns (tex knockdowns som precis matats in men inte sparats)
       if (currentLiveState.live_knockdowns !== undefined) liveDataUpdate.live_knockdowns = currentLiveState.live_knockdowns;
       if (currentLiveState.live_otherPenalty !== undefined) liveDataUpdate.live_otherPenalty = currentLiveState.live_otherPenalty;
+      if (currentLiveState.live_holdTimeSec !== undefined) liveDataUpdate.live_holdTimeSec = currentLiveState.live_holdTimeSec;
       if (currentLiveState.live_routeString !== undefined) liveDataUpdate.live_routeString = currentLiveState.live_routeString;
       if (currentLiveState.live_gateSplits !== undefined) liveDataUpdate.live_gateSplits = currentLiveState.live_gateSplits;
     }
@@ -1033,6 +1044,7 @@ async function saveResult(e) {
 
   let comment = document.getElementById('maratonComment').value || '';
   let eliminated = !!document.getElementById('maratonEliminated').checked;
+  const holdTimeSec = document.getElementById('maratonHoldTime').value || '';
 
   const maxObstacleSeconds = marathonConfigCache?.obstacleMaxTime ?? 300;
   if (timeInSeconds > maxObstacleSeconds) {
@@ -1058,6 +1070,7 @@ async function saveResult(e) {
     number: Number(obstacleNumber),
     timeInSeconds, timeMs, timePenalty: +timePenalty.toFixed(2),
     knockdowns, knockdownPenalty: knockdownPenaltyPoints, otherPenalty,
+    holdTimeSec,
     penalty: +totalObstaclePenalty.toFixed(2),
     comment: comment.trim(), eliminated,
     routeString: (document.getElementById('routeString')?.value || '').trim(),
@@ -1086,6 +1099,9 @@ async function saveResult(e) {
       liveObstacleStartAt: null, // Explicit cleanup
       live_staticStartAt: null, // Wipe static start
       live_routeString: '',
+      live_knockdowns: '0',
+      live_otherPenalty: '0',
+      live_holdTimeSec: '',
       live_gateSplits: []
     }, { merge: true });
 
@@ -1189,6 +1205,8 @@ async function setupPage() {
     } else if (target.id === 'maratonPenalty') {
       updateTotalPenaltyDisplay();
       pushFormField('live_otherPenalty', target.value);
+    } else if (target.id === 'maratonHoldTime') {
+      pushFormField('live_holdTimeSec', target.value);
     } else if (target.id === 'maratonComment') {
       const btn = document.querySelector('.comment-toggle-btn');
       if (btn) btn.classList.toggle('has-comment', target.value.trim() !== '');
@@ -1605,6 +1623,11 @@ export function load() {
           <div>
             <label for="maratonPenalty" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_other_penalty')}</label>
             <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+          </div>
+
+          <div>
+            <label for="maratonHoldTime" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_hold_time', 'Uppehåll (sek)')}</label>
+            <input type="number" inputmode="numeric" id="maratonHoldTime" placeholder="Sekunder" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           </div>
 
           <div class="flex items-end">

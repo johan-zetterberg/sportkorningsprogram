@@ -43,6 +43,33 @@ test('seeded stress monitor smoke flow', async ({ page }) => {
   await expect(page.locator('#page-maraton-monitor')).toContainText(/\d{2}:\d{2},\d{2}/);
 });
 
+test('public center and portal audience smoke flow', async ({ page }) => {
+  await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  await seedPublicAudienceFixtures(page);
+  const competitionId = await page.evaluate(() => localStorage.getItem('lastCompetitionId'));
+
+  await page.goto('/index.html#competition-center');
+  await expect(page.locator('#page-competition-center')).toContainText('Publik Info');
+  await expect(page.locator('#page-competition-center')).toContainText('Smoke Public Doc');
+  await expect(page.locator('#page-competition-center')).toContainText('Smoke Public Message');
+  await expect(page.locator('#page-competition-center')).not.toContainText('Smoke Drivers Doc');
+  await expect(page.locator('#page-competition-center')).not.toContainText('Smoke Drivers Message');
+  await page.goto(`/index.html#competition-center?id=${competitionId}`);
+  await expect(page.locator('#page-competition-center')).toContainText('Smoke Public Doc');
+
+  await page.goto('/index.html#portal');
+  await expect(page.locator('#page-portal')).toContainText('Min Kuskportal');
+  await page.locator('#adminImpersonateCompId').fill(competitionId);
+  await page.locator('#adminImpersonateStartNo').fill('1');
+  await page.locator('#adminImpersonateBtn').click();
+
+  await expect(page.locator('#page-portal')).toContainText('Smoke Public Message');
+  await expect(page.locator('#page-portal')).toContainText('Smoke Drivers Message');
+  await page.getByRole('button', { name: /Dokument|Documents/i }).click();
+  await expect(page.locator('#dash-content')).toContainText('Smoke Public Doc');
+  await expect(page.locator('#dash-content')).toContainText('Smoke Drivers Doc');
+});
+
 async function loginIfNeeded(page) {
   await page.goto('/index.html#hub');
 
@@ -74,4 +101,57 @@ async function seedCompetition(page, { includeEdgeCases, includeStress }) {
 
   const competitionId = await page.evaluate(() => localStorage.getItem('lastCompetitionId'));
   expect(competitionId).toBeTruthy();
+}
+
+async function seedPublicAudienceFixtures(page) {
+  await page.evaluate(async () => {
+    const competitionId = localStorage.getItem('lastCompetitionId');
+    if (!competitionId) throw new Error('Missing competitionId');
+
+    const [{ saveConfig }, { saveCompetitionDocument, saveCompetitionMessage }] = await Promise.all([
+      import('../js/services/competitionService.js'),
+      import('../js/services/documentService.js')
+    ]);
+
+    await saveConfig(competitionId, 'publicInfo', {
+      enabled: true,
+      introHtml: 'Smoke intro',
+      publish: {
+        classSummary: true,
+        documents: true,
+        messages: true,
+        maps: true
+      }
+    });
+
+    await saveCompetitionDocument(competitionId, {
+      title: 'Smoke Public Doc',
+      category: 'Information',
+      type: 'html',
+      content: 'Visible for public and drivers',
+      audience: { public: true, drivers: true }
+    });
+
+    await saveCompetitionDocument(competitionId, {
+      title: 'Smoke Drivers Doc',
+      category: 'Information',
+      type: 'html',
+      content: 'Visible only for drivers',
+      audience: { public: false, drivers: true }
+    });
+
+    await saveCompetitionMessage(competitionId, {
+      title: 'Smoke Public Message',
+      body: 'Visible for public and drivers',
+      type: 'info',
+      audience: { public: true, drivers: true }
+    });
+
+    await saveCompetitionMessage(competitionId, {
+      title: 'Smoke Drivers Message',
+      body: 'Visible only for drivers',
+      type: 'info',
+      audience: { public: false, drivers: true }
+    });
+  });
 }
