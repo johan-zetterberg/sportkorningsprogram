@@ -2,7 +2,20 @@ import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp, runTransaction, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite } from './firestoreService.js';;
 
-export async function setDressageStatus(competitionId, startNumber, { state, judgeId, judgeName }) {
+export async function setDressageStatus(competitionId, startNumber, {
+  state,
+  judgeId,
+  judgeName,
+  judgePosition,
+  protocol,
+  lastUpdate,
+  finalJudgeScore,
+  finalPercent,
+  finalPoints,
+  finalPenalty,
+  errorPoints,
+  errorPenalty
+}) {
   const ref = doc(
     db,
     `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus/${String(startNumber)}`
@@ -10,16 +23,25 @@ export async function setDressageStatus(competitionId, startNumber, { state, jud
 
   return trackWrite(`Ändrar dressyrstatus #${startNumber}`, (async () => {
     await runTransaction(db, async (transaction) => {
-      const sfDoc = await transaction.get(ref);
+      await transaction.get(ref);
 
       const payload = {
         state,               
-        judgeId: judgeId || null,
+        judgeId: judgeId || finalJudgeScore?.judgeId || null,
         judgeName: judgeName || null,
+        judgePosition: judgePosition || finalJudgeScore?.judgePosition || null,
         updatedAt: serverTimestamp(),
       };
       if (state === 'ongoing') payload.startedAt = serverTimestamp();
       if (state === 'finished') payload.finishedAt = serverTimestamp();
+      if (protocol !== undefined) payload.protocol = protocol;
+      if (lastUpdate !== undefined) payload.lastUpdate = lastUpdate;
+      if (finalJudgeScore !== undefined) payload.finalJudgeScore = finalJudgeScore;
+      if (finalPercent !== undefined) payload.finalPercent = finalPercent;
+      if (finalPoints !== undefined) payload.finalPoints = finalPoints;
+      if (finalPenalty !== undefined) payload.finalPenalty = finalPenalty;
+      if (errorPoints !== undefined) payload.errorPoints = errorPoints;
+      if (errorPenalty !== undefined) payload.errorPenalty = errorPenalty;
 
       transaction.set(ref, payload, { merge: true });
     });
@@ -80,9 +102,17 @@ export async function saveDressageJudgeProtocol(competitionId, startNumber, judg
   const sn = String(startNumber).trim();
   const jid = String(judgeId).trim();
   const docId = `judge_${jid}`;
+  const judgePosition = String(data?.judgePosition || data?.position || '').trim().toUpperCase();
+  const testKey = data?.testKey || data?.programKey || data?.testId || "";
 
   const safePayload = {
-    testKey: data?.testKey || data?.programKey || data?.testId || "",
+    startNumber: sn,
+    judgeId: jid,
+    judgeName: data?.judgeName || "",
+    judgePosition,
+    position: judgePosition,
+    testKey,
+    programKey: testKey,
     eliminated: !!data?.eliminated,
     movements: Array.isArray(data?.movements)
       ? data.movements.map((m, idx) => ({
@@ -119,15 +149,24 @@ export async function saveDressageGeneralData(competitionId, startNumber, data) 
 
 function asPlainDressageProtocol(data, docId, fallbackStartNumber) {
   if (!data) return null;
+  const protocol = data.protocol && typeof data.protocol === 'object' ? data.protocol : data;
+  const judgePosition = protocol.judgePosition ?? protocol.position ?? data.judgePosition ?? data.position ?? '';
+
   return {
     id: docId,
-    startNumber: data.startNumber ?? fallbackStartNumber,
-    judgeId: data.judgeId ?? (docId.startsWith('judge_') ? docId.replace('judge_', '') : docId),
-    testKey: data.testKey ?? data.programKey ?? '',
-    movements: Array.isArray(data.movements) ? data.movements.map(m => ({ ...m })) : [],
-    eliminated: !!data.eliminated,
-    generalErrors: data.generalErrors ?? 0,
-    updatedAt: data.updatedAt ?? null
+    startNumber: protocol.startNumber ?? data.startNumber ?? fallbackStartNumber,
+    judgeId: protocol.judgeId ?? data.judgeId ?? (docId.startsWith('judge_') ? docId.replace('judge_', '') : docId),
+    judgeName: protocol.judgeName ?? data.judgeName ?? '',
+    judgePosition,
+    position: judgePosition,
+    testKey: protocol.testKey ?? protocol.programKey ?? data.testKey ?? data.programKey ?? '',
+    programKey: protocol.programKey ?? protocol.testKey ?? data.programKey ?? data.testKey ?? '',
+    movements: Array.isArray(protocol.movements) ? protocol.movements.map(m => ({ ...m })) : [],
+    eliminated: !!(protocol.eliminated ?? data.eliminated),
+    generalErrors: protocol.generalErrors ?? data.generalErrors ?? 0,
+    lastUpdate: data.lastUpdate ?? null,
+    state: data.state ?? null,
+    updatedAt: data.updatedAt ?? protocol.updatedAt ?? null
   };
 }
 

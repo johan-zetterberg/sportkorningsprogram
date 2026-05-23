@@ -7,16 +7,13 @@ import {
   stageStartTS,
   stageStopTS,
   stageDurationMsSaved,
-  stagePenaltyFromMs,
   limitsFor,
   getObstacleArray,
   obstacleValues,
   formatMsLive,
   formatSec,
-  signedSecLabel,
   toTimeLabel,
   getObstacleCoefficient,
-  pausedMsSince,
   setMarathonConfig,
 } from '../utils/marathonUtils.js';
 import { calculateMarathonResult } from '../services/calculationService.js';
@@ -42,19 +39,6 @@ function getMomentHorseLabel(equipage) {
 }
 
 // === LOKALA HELPERS FÖR PDF-TABELLER (Hämtar rådata från config) ===
-
-function classSettingsFor(cls) {
-  return maraton_marathonConfig?.marathonClassData?.[cls] || {};
-}
-
-function globalRules() {
-  return {
-    timePenaltyRate: maraton_marathonConfig?.timePenaltyRate ?? 0.25,
-    knockdownPenaltyDefault: maraton_marathonConfig?.knockdownPenaltyDefault ?? 5,
-    obstacleMaxTime: maraton_marathonConfig?.obstacleMaxTime ?? 300,
-    pauseTime: maraton_marathonConfig?.pauseTime ?? null
-  };
-}
 
 // Local helper for time parsing "HH:MM" -> minutes
 function parseTimeStr(str) {
@@ -135,59 +119,7 @@ export async function printMarathonPdf(eq, d, competition) {
   if (!pdf.autoTable) { alert('AutoTable saknas.'); return; }
   const headStyle = { fillColor: [243, 244, 246], textColor: [55, 65, 81] };
 
-  // 2. TABELL: GLOBALA REGLER (Behåller dessa översättningar enkla eller manuella för nu då de är config-specifika)
-  const rules = globalRules();
-
-
-  // 3. TABELL: KLASSPARAMETRAR
-  const cls = eq.className || '';
-  const cs = classSettingsFor(cls);
-
-  const idealA = limitsFor(eq, 'A');
-  const idealB = limitsFor(eq, 'B');
-  const idealT = limitsFor(eq, 'transport');
-
-  const rowParams = [
-    [isInternational ? 'A' : 'A',
-    Number.isFinite(cs.distanceA) ? `${cs.distanceA} m` : '—',
-    (idealA && cs.distanceA && idealA.ideal) ? `${Math.round(cs.distanceA / (idealA.ideal / 60))} m/min` : '—',
-    idealA?.ideal ? formatSec(idealA.ideal) : '—',
-    idealA?.min ? formatSec(idealA.min) : '—',
-    (idealA?.max != null) ? formatSec(idealA.max) : '—',
-    idealA?.timeLimit ? formatSec(idealA.timeLimit) : '—',
-    Number.isFinite(cs.windowA) ? `${cs.windowA} min` : '—'
-    ],
-    [isInternational ? 'Transfer' : 'T',
-    Number.isFinite(cs.distanceT) ? `${cs.distanceT} m` : '—',
-    Number.isFinite(cs.tempoT) ? `${Math.round(cs.tempoT)} m/min` : '—',
-    idealT?.ideal ? formatSec(idealT.ideal) : '—',
-    idealT?.min ? formatSec(idealT.min) : '—',
-    (idealT?.max != null) ? formatSec(idealT.max) : '—',
-    idealT?.timeLimit ? formatSec(idealT.timeLimit) : '—',
-      '—'
-    ],
-    [isInternational ? 'B' : 'B',
-    Number.isFinite(cs.distanceB) ? `${cs.distanceB} m` : '—',
-    (idealB && cs.distanceB && idealB.ideal) ? `${Math.round(cs.distanceB / (idealB.ideal / 60))} m/min` : '—',
-    idealB?.ideal ? formatSec(idealB.ideal) : '—',
-    idealB?.min ? formatSec(idealB.min) : '—',
-    (idealB?.max != null) ? formatSec(idealB.max) : '—',
-    idealB?.timeLimit ? formatSec(idealB.timeLimit) : '—',
-    Number.isFinite(cs.windowB) ? `${cs.windowB} min` : '—'
-    ]
-  ];
-
-  pdf.autoTable({
-    startY: y,
-    head: [[t('stage', isInternational), t('distance', isInternational), t('tempo', isInternational), t('ideal', isInternational), t('mintime', isInternational), 'Max', t('maxtime', isInternational), t('window', isInternational)]],
-    body: rowParams,
-    theme: 'grid',
-    styles: { fontSize: 9, cellPadding: 4 },
-    headStyles: headStyle
-  });
-  y = pdf.lastAutoTable.finalY + 12;
-
-  // 4. TABELL: SUMMERING
+  // 2. TABELL: SUMMERING
   // Use centralized TR-compliant calculation
   const res = calculateMarathonResult(eq, d, d);
 
@@ -196,7 +128,6 @@ export async function printMarathonPdf(eq, d, competition) {
   const stagePenA = res.stages.A.timePenalty;
   const stagePenB = res.stages.B.timePenalty;
   const sumStagePen = (res.stages.A.timePenalty || 0) + (res.stages.B.timePenalty || 0);
-  const stageElim = res.stages.A.eliminated || res.stages.B.eliminated;
   const otherPen = res.otherPenalty;
   const totalPen = res.totalPenalty;
 
@@ -215,66 +146,54 @@ export async function printMarathonPdf(eq, d, competition) {
   });
   y = pdf.lastAutoTable.finalY + 12;
 
-  // 5. TABELL: ETAPPER (Tider & Fönster)
-  const stageRowsWindow = [], stageRowsTimes = [];
+  // 3. TABELL: ETAPPER
+  const stageRowsTimes = [];
   const STAGE_KEYS = ['A', 'transport', 'B'];
 
   for (const stage of STAGE_KEYS) {
     const start = stageStartTS(tVals, stage);
     const stop = stageStopTS(tVals, stage);
     const durMs = stageDurationMsSaved(tVals, stage);
-    const pen = Number.isFinite(durMs) ? stagePenaltyFromMs(durMs, eq, stage) : { points: null, elim: false };
+    const calculatedStage = res?.stages?.[stage] || {};
+    const displayDurMs = Number.isFinite(calculatedStage.durationMs) ? calculatedStage.durationMs : durMs;
+    const pen = {
+      points: calculatedStage.timePenalty,
+      elim: !!calculatedStage.eliminated
+    };
     const lim = limitsFor(eq, stage); // Använder eq för korrekt klass/kategori
 
     const stageLabel = (stage === 'transport') ? (isInternational ? 'Transfer' : 'T') : String(stage).toUpperCase();
 
-    if (start || stop || Number.isFinite(durMs)) {
-      const holdTimeMs = res?.stages?.[stage]?.holdTimeMs || 0;
-      let timeLabel = Number.isFinite(durMs) ? formatMsLive(durMs) : '—';
+    if (start || stop || Number.isFinite(displayDurMs)) {
+      const holdTimeMs = calculatedStage.holdTimeMs || 0;
+      let timeLabel = Number.isFinite(displayDurMs) ? formatMsLive(displayDurMs) : '—';
       if (holdTimeMs > 0) {
         timeLabel += `\n(-${holdTimeMs/1000}s uppehåll)`;
       }
+      const durSec = Number.isFinite(displayDurMs) ? Math.round(displayDurMs / 1000) : null;
+      const delta = (Number.isFinite(durSec) && Number.isFinite(lim?.ideal)) ? (durSec - lim.ideal) : null;
+      const allowed = lim
+        ? `${lim.min ? formatSec(lim.min) : '0:00'} - ${(lim.max != null) ? formatSec(lim.max) : '—'}`
+        : '—';
       
       stageRowsTimes.push([
         stageLabel,
         start ? new Date(start).toLocaleTimeString('sv-SE') : '—',
         stop ? new Date(stop).toLocaleTimeString('sv-SE') : '—',
         timeLabel,
+        allowed,
+        Number.isFinite(delta) ? `${delta > 0 ? '+' : ''}${delta} s` : '—',
         pen.elim ? 'ELIM' : (Number.isFinite(pen.points) ? pen.points.toFixed(2) : '—')
       ]);
-
-      if (lim) {
-        const durSec = Number.isFinite(durMs) ? Math.round(durMs / 1000) : null;
-        const delta = (Number.isFinite(durSec) && Number.isFinite(lim.ideal)) ? (durSec - lim.ideal) : null;
-        // ETA-beräkning om pågående
-        let eta = '—';
-        if (start && !stop && Number.isFinite(lim.ideal)) {
-          const p = pausedMsSince(start);
-          eta = new Date(start + p + lim.ideal * 1000).toLocaleTimeString('sv-SE');
-        }
-
-        stageRowsWindow.push([
-          stageLabel,
-          lim.ideal ? formatSec(lim.ideal) : '—',
-          lim.min ? formatSec(lim.min) : '—',
-          (lim.max != null) ? formatSec(lim.max) : '—',
-          Number.isFinite(delta) ? `${delta > 0 ? '+' : ''}${delta} s` : '—',
-          eta
-        ]);
-      }
     }
   }
 
-  if (stageRowsWindow.length) {
-    pdf.autoTable({ head: [[t('stage', isInternational), t('ideal', isInternational), t('mintime', isInternational), 'Max', 'Δ', 'ETA']], body: stageRowsWindow, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
-    y = pdf.lastAutoTable.finalY + 10;
-  }
   if (stageRowsTimes.length) {
-    pdf.autoTable({ head: [[t('stage', isInternational), 'Start', t('finish', isInternational), t('time', isInternational), t('penalty', isInternational)]], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
+    pdf.autoTable({ head: [[t('stage', isInternational), 'Start', t('finish', isInternational), t('time', isInternational), 'Tillåten tid', 'Avvikelse', t('penalty', isInternational)]], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
     y = pdf.lastAutoTable.finalY + 12;
   }
 
-  // 6. TABELL: OBSERVATÖR
+  // 4. TABELL: OBSERVATÖR
   const obsLog = d.observerLog || {};
   const wrongGaitSec = Math.max(0, Math.round(Number(obsLog.wrongGaitSeconds || 0)));
   const halts = Array.isArray(obsLog.halts) ? obsLog.halts : [];
@@ -297,8 +216,8 @@ export async function printMarathonPdf(eq, d, competition) {
     }
   }
 
-  // 7. TABELL: HINDER
-  // Vi mappar fram alla värden inklusive väg (index 8) // OBS: Vi måste slå upp tidsstämplar från obstacleTimes-mappen!
+  // 5. TABELL: HINDER
+  // Vi mappar fram alla värden inklusive väg. Tidsstämplar kan ligga i obstacleTimes.
   const obstacleTimes = d.obstacleTimes || {};
 
   const rowsObs = obstacles.map(o => {
@@ -374,8 +293,8 @@ export async function printMarathonPdf(eq, d, competition) {
       startY: y,
       // Visa 'Väg' kolumnen bara om data finns
       head: hasRoute
-        ? [[t('obstacles', isInternational), t('time', isInternational), t('errors', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Väg', 'Komm.']]
-        : [[t('obstacles', isInternational), t('time', isInternational), t('errors', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Komm.']],
+        ? [[t('obstacles', isInternational), t('time', isInternational), t('penalty', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Väg', 'Komm.']]
+        : [[t('obstacles', isInternational), t('time', isInternational), t('penalty', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Komm.']],
 
       // Om ingen väg finns, filtrera bort index 6 från varje rad
       body: hasRoute

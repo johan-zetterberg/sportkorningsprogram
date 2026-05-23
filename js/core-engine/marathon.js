@@ -129,6 +129,14 @@ export function getObstacleCoefficient(className, marathonConfig) {
     return MARATHON_OBSTACLE_TIME_PENALTY; 
 }
 
+function getTotalHoldTimeMs(obstacles) {
+    if (!Array.isArray(obstacles)) return 0;
+    return obstacles.reduce((sum, obstacle) => {
+        const seconds = Number(obstacle?.holdTimeSec);
+        return Number.isFinite(seconds) && seconds > 0 ? sum + seconds * 1000 : sum;
+    }, 0);
+}
+
 export function calculateMarathonResult(state) {
     const { equipage: eq, marathon, config } = state;
     const d = marathon.resultDoc || {};
@@ -137,6 +145,9 @@ export function calculateMarathonResult(state) {
 
     if (eq.status === 'struken') return { totalPenalty: null, status: 'Struken', eliminated: false };
 
+    const obsArr = d.obstacles || d.hinder || [];
+    const totalHoldTimeMs = getTotalHoldTimeMs(obsArr);
+
     // Stages
     let stagesPenalty = 0;
     let stagesElim = false;
@@ -144,17 +155,25 @@ export function calculateMarathonResult(state) {
     
     ['A', 'transport', 'B'].forEach(s => {
         const dur = t?.[s]?.durationMs || t?.[`duration_${s}_ms`];
+        const effectiveDur = (s === 'B' && Number.isFinite(dur))
+            ? Math.max(0, dur - totalHoldTimeMs)
+            : dur;
         let res = { points: 0, elim: false };
-        if (dur) {
-            res = stagePenaltyFromMs(dur, eq, s, marathonConfig);
+        if (effectiveDur) {
+            res = stagePenaltyFromMs(effectiveDur, eq, s, marathonConfig);
         }
         if (res.elim) stagesElim = true;
         stagesPenalty += res.points;
-        stages[s] = { durationMs: dur, timePenalty: res.points, eliminated: res.elim };
+        stages[s] = {
+            durationMs: effectiveDur,
+            rawDurationMs: dur,
+            holdTimeMs: s === 'B' ? totalHoldTimeMs : 0,
+            timePenalty: res.points,
+            eliminated: res.elim
+        };
     });
 
     // Obstacles
-    const obsArr = d.obstacles || d.hinder || [];
     let obsPenalty = 0;
     let obsElim = false;
     const obsCoeff = getObstacleCoefficient(eq.className, marathonConfig);

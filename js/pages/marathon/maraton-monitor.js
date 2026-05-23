@@ -1006,12 +1006,6 @@ function evaluateActiveState(sn, data) {
   const eq = allEquipages.find(e => String(e.startNumber) === sn);
   if (!eq) return;
 
-  // Check finished
-  if (stageStopTS(data, 'B')) {
-    activeEquipages.delete(sn);
-    return;
-  }
-
   const {
     startA,
     startT,
@@ -1025,6 +1019,13 @@ function evaluateActiveState(sn, data) {
     isActive
   } = getMarathonActiveState(data);
   const hasLiveObstacle = obstacleIsLive;
+
+  // A reset/restarted obstacle can still carry an old B finish timestamp.
+  // Do not treat that as finished while a live obstacle or result flash is active.
+  if (stageStopTS(data, 'B') && !hasLiveObstacle && !data.live_flash_result) {
+    activeEquipages.delete(sn);
+    return;
+  }
 
   if (!isActive) {
     activeEquipages.delete(sn);
@@ -1065,6 +1066,13 @@ function evaluateActiveState(sn, data) {
             if (st.toMillis) obsStartTs = st.toMillis();
             else obsStartTs = new Date(st).getTime();
           }
+        }
+        if (!obsStartTs && data.updatedAt) {
+          if (data.updatedAt.toMillis) obsStartTs = data.updatedAt.toMillis();
+          else obsStartTs = new Date(data.updatedAt).getTime();
+        }
+        if (!obsStartTs && data.running === true) {
+          obsStartTs = Date.now();
         }
         obstacleStart = obsStartTs || 0;
 

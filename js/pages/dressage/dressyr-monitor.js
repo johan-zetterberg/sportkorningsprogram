@@ -23,6 +23,7 @@ import {
   normJudgeId
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
+import { mergeDressageProtocols } from './dressageResultBuilder.js';
 
 import { setupDressageModalOnce, openDetails as openDetailsModal } from '../../ui/dressageModal.js';
 
@@ -143,48 +144,13 @@ function expandDressagePosition(j) {
 // Helper to merge saved and live protocols consistently
 // Helper to merge saved and live protocols consistently
 function getMergedProtocols(sn) {
-  // 1. Start with saved protocols
-  let rawList = [];
   const saved = savedProtocolsByStart.get(sn);
-  if (saved) rawList = Array.isArray(saved) ? [...saved] : [saved];
-
-  // 2. Apply strict deduplication and filtering (uses helper!)
-  let cleanList = deduplicateAndFilterProtocols(rawList, window.currentJudgesPresent || []);
-
-  // 3. Merge Live (Overwriting saved if matches)
-  const liveMap = liveProtocolMap.get(sn); // Now a Map<judgeId, proto>
-  if (liveMap) {
-    liveMap.forEach(liveProto => {
-      // Ensure we have a valid judge ID
-      const jid = liveProto.judgeId || liveProto.id || '';
-      const rawPos = liveProto.judgePosition || liveProto.position || '';
-      const pos = String(rawPos).trim().toUpperCase();
-
-      const finalLive = {
-        ...liveProto,
-        judgeId: jid,
-        id: jid,
-        position: pos,
-        movements: Array.isArray(liveProto.movements) ? liveProto.movements : [],
-        programKey: liveProto.testKey || liveProto.programKey || liveProto.protocol?.testKey
-      };
-
-      // If matches an existing judge, replace it. Otherwise add it.
-      const idx = cleanList.findIndex(p =>
-        (p.judgeId && String(p.judgeId) === String(jid)) ||
-        (p.position && String(p.position).toUpperCase() === pos)
-      );
-
-      if (idx >= 0) {
-        cleanList[idx] = finalLive;
-      } else {
-        cleanList.push(finalLive);
-      }
-    });
-  }
-
-  // 4. Final filter pass
-  return deduplicateAndFilterProtocols(cleanList, window.currentJudgesPresent || []);
+  const liveMap = liveProtocolMap.get(sn);
+  return mergeDressageProtocols({
+    savedProtocols: saved,
+    liveProtocols: liveMap,
+    judges: window.currentJudgesPresent || []
+  });
 }
 
 // ================= UI =================

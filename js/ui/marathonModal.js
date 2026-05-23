@@ -25,6 +25,15 @@ import {
 // Importera PDF-funktionen från din nya plats
 import { printMarathonPdf } from '../pdf/marathonPdf.js';
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function getMomentHorseLabel(equipage) {
   const allHorsesRaw = equipage.horses || equipage.horseNames || equipage.horse || [];
   if (Array.isArray(allHorsesRaw) && allHorsesRaw.length > 0) {
@@ -147,6 +156,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
                 ${t('in_label')}: ${toTimeLabel(obs.enteredAtServer)} | ${t('out_label')}: ${toTimeLabel(obs.exitAtServer)}
             </div>
              ${obs.routeString ? `<div class="mt-1 text-xs text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('route_label')}:</span> ${obs.routeString}</div>` : ''}
+             ${obs.comment ? `<div class="mt-1 text-xs text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">Kommentar:</span> ${escapeHtml(obs.comment)}</div>` : ''}
              ${splitRows}
           </div>
         `;

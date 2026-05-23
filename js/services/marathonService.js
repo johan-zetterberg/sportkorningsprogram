@@ -102,23 +102,26 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
 
   const eid = String(equipageId).trim();
   const on = Number(obstacleNumber);
+  if (!Number.isFinite(on)) throw new Error("saveMarathonObstacleResult: ogiltigt hindernummer");
   const timeInSec = Number(data?.timeInSeconds || data?.timeSeconds || 0);
+  const timeMs = Number.isFinite(Number(data?.timeMs)) ? Number(data.timeMs) : timeInSec * 1000;
   
   const resultData = {
     number: on,
     timeInSeconds: timeInSec,
     timeSeconds: timeInSec,
-    timeMs: timeInSec * 1000,
-    timePenalty: 0, 
-    knockdowns: 0, 
-    knockdownPenalty: 0, 
-    otherPenalty: Number(data?.penalty || 0),
-    penalty: 0, 
+    timeMs,
+    timePenalty: Number(data?.timePenalty || 0),
+    knockdowns: Number(data?.knockdowns || 0),
+    knockdownPenalty: Number(data?.knockdownPenalty || data?.knockDownPenalty || 0),
+    otherPenalty: Number(data?.otherPenalty || 0),
+    penalty: Number(data?.penalty || 0),
     comment: data?.comment || '', 
     eliminated: !!data?.eliminated,
+    holdTimeSec: Number(data?.holdTimeSec || 0),
     routeString: data?.routeString || '',
     gateSplits: data?.gateSplits || [],
-    enteredAt: new Date().toISOString()
+    enteredAt: data?.enteredAt || new Date().toISOString()
   };
 
   const summaryDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`, eid);
@@ -127,14 +130,25 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
     await runTransaction(db, async (transaction) => {
       const snap = await transaction.get(summaryDocRef);
       const existingData = snap.exists() ? snap.data() : {};
-      const obstacles = (existingData.obstacles || []).filter(o => o.number !== on);
+      const obstacles = (existingData.obstacles || []).filter(o => Number(o.number) !== on);
       obstacles.push(resultData);
       obstacles.sort((a, b) => a.number - b.number);
 
       transaction.set(summaryDocRef, {
         ...existingData,
         obstacles,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        currentObstacle: null,
+        running: false,
+        inProgress: false,
+        liveObstacleTimeMs: 0,
+        liveObstacleStartAt: null,
+        live_staticStartAt: null,
+        live_routeString: '',
+        live_knockdowns: '0',
+        live_otherPenalty: '0',
+        live_holdTimeSec: '',
+        live_gateSplits: []
       }, { merge: true });
     });
     return { ok: true, path: summaryDocRef.path };

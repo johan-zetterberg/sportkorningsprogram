@@ -127,12 +127,12 @@ export function calculateDressageResult(state) {
     if (result) {
         const coeff = getDressagePenaltyCoeff(program, config.allPrograms);
         const err = Number(equipage.errorPoints) || 0;
-        penalty = round2(result.penalty + err);
+        penalty = isElim ? null : round2(result.penalty + err);
     }
     
     return { 
         penalty, 
         eliminated: isElim, 
-        judgePenalty: result?.penalty 
+        judgePenalty: isElim ? null : result?.penalty 
     };
 }

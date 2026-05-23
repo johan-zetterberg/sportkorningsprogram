@@ -126,6 +126,33 @@ test('calculateDressageResult computes judge penalty plus equipage error points'
   assert.equal(result.penalty, 7);
 });
 
+test('calculateDressageResult averages multiple judges', () => {
+  const state = createBaseState();
+  state.dressage.protocols.push({
+    judgeId: 'e',
+    movements: [
+      { momentNo: 1, score: 6 },
+      { momentNo: 2, score: 7 }
+    ]
+  });
+
+  const result = calculateDressageResult(state);
+
+  assert.equal(result.eliminated, false);
+  assert.equal(result.judgePenalty, 6);
+  assert.equal(result.penalty, 8);
+});
+
+test('calculateDressageResult marks eliminated dressage without numeric penalty', () => {
+  const state = createBaseState();
+  state.dressage.protocols[0].eliminated = true;
+
+  const result = calculateDressageResult(state);
+
+  assert.equal(result.eliminated, true);
+  assert.equal(result.penalty, null);
+});
+
 test('calculateMarathonResult computes stage and obstacle penalties', () => {
   const result = calculateMarathonResult(createBaseState());
 
@@ -134,6 +161,21 @@ test('calculateMarathonResult computes stage and obstacle penalties', () => {
   assert.equal(result.stages.transport.timePenalty, 0);
   assert.equal(result.stages.B.timePenalty, 0);
   assert.equal(result.obstacles.sum, 5);
+  assert.equal(result.totalPenalty, 5);
+});
+
+test('calculateMarathonResult deducts obstacle hold time from B section', () => {
+  const state = createBaseState();
+  state.marathon.resultDoc.obstacles[0].holdTimeSec = 30;
+  state.marathon.timingDoc.B.durationMs = 1230000;
+
+  const result = calculateMarathonResult(state);
+
+  assert.equal(result.eliminated, false);
+  assert.equal(result.stages.B.rawDurationMs, 1230000);
+  assert.equal(result.stages.B.durationMs, 1200000);
+  assert.equal(result.stages.B.holdTimeMs, 30000);
+  assert.equal(result.stages.B.timePenalty, 0);
   assert.equal(result.totalPenalty, 5);
 });
 
@@ -247,7 +289,7 @@ test('calculateTotalResult marks eliminated results without producing a numeric 
 
   const result = calculateTotalResult(state);
   assert.equal(result.isEliminated, true);
-  assert.equal(result.dressagePenalty, 10);
+  assert.equal(result.dressagePenalty, null);
   assert.equal(result.totalPenalty, null);
 });
 

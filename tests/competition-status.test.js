@@ -37,12 +37,13 @@ test('getExpectedDressageJudgePositions falls back to judge roles when class map
 test('getCompletedDressageJudgePositions ignores live and eliminated judges', () => {
   const completed = getCompletedDressageJudgePositions([
     { position: 'C' },
+    { judgePosition: 'A' },
     { position: 'E', isLive: true },
     { position: 'B', eliminated: true },
     { position: 'H' }
   ]);
 
-  assert.deepEqual(Array.from(completed).sort(), ['C', 'H']);
+  assert.deepEqual(Array.from(completed).sort(), ['A', 'C', 'H']);
 });
 
 test('isDressageReadyToFinalize accepts either finished status or complete judge coverage', () => {
@@ -111,7 +112,7 @@ test('getMarathonActiveState identifies active stage A and transport/B transitio
   assert.equal(stageB.currentTaskKey, 'B');
 });
 
-test('getMarathonActiveState only flags obstacle as live when running with a live start timestamp', () => {
+test('getMarathonActiveState only flags obstacle as live when running', () => {
   const notLive = getMarathonActiveState({
     currentObstacle: 4,
     running: false,
@@ -128,4 +129,21 @@ test('getMarathonActiveState only flags obstacle as live when running with a liv
   });
   assert.equal(live.obstacleIsLive, true);
   assert.equal(live.currentTaskKey, 'obstacle');
+
+  const liveWithoutStartTimestamp = getMarathonActiveState({
+    currentObstacle: 5,
+    running: true
+  });
+  assert.equal(liveWithoutStartTimestamp.obstacleIsLive, true);
+  assert.equal(liveWithoutStartTimestamp.currentTaskKey, 'obstacle');
+
+  const restartedAfterFinishedB = getMarathonActiveState({
+    start_B: 1000,
+    finish_B: 2000,
+    currentObstacle: 2,
+    running: true
+  });
+  assert.equal(restartedAfterFinishedB.obstacleIsLive, true);
+  assert.equal(restartedAfterFinishedB.isActive, true);
+  assert.equal(restartedAfterFinishedB.currentTaskKey, 'obstacle');
 });

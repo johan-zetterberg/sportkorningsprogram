@@ -1044,7 +1044,11 @@ async function saveResult(e) {
 
   let comment = document.getElementById('maratonComment').value || '';
   let eliminated = !!document.getElementById('maratonEliminated').checked;
-  const holdTimeSec = document.getElementById('maratonHoldTime').value || '';
+  const holdTimeSec = Number(document.getElementById('maratonHoldTime').value || 0);
+  if (holdTimeSec > 0 && !comment.trim()) {
+    showAlert('Ange en kommentar som förklarar varför uppehållstiden dras av.', false);
+    return;
+  }
 
   const maxObstacleSeconds = marathonConfigCache?.obstacleMaxTime ?? 300;
   if (timeInSeconds > maxObstacleSeconds) {
@@ -1079,31 +1083,7 @@ async function saveResult(e) {
   };
 
   try {
-    const summaryDocRef = marathonDocRef(equipageId);
-    const snap = await getDoc(summaryDocRef);
-    const existingData = snap.exists() ? snap.data() : {};
-
-    const obstacles = (existingData.obstacles || []).filter(o => o.number != obstacleNumber);
-    obstacles.push(resultData);
-    obstacles.sort((a, b) => a.number - b.number);
-
-    await setDoc(summaryDocRef, {
-      ...existingData,
-      obstacles,
-      updatedAt: serverTimestamp(),
-      // Reset live state on SAVE
-      currentObstacle: null,
-      running: false,
-      inProgress: false,
-      liveObstacleTimeMs: 0,
-      liveObstacleStartAt: null, // Explicit cleanup
-      live_staticStartAt: null, // Wipe static start
-      live_routeString: '',
-      live_knockdowns: '0',
-      live_otherPenalty: '0',
-      live_holdTimeSec: '',
-      live_gateSplits: []
-    }, { merge: true });
+    await saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, resultData);
 
     if (!navigator.onLine) {
       showAlert(t('marathon_result_queued').replace('{obstacleNumber}', obstacleNumber), 'offline');

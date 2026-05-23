@@ -79,7 +79,7 @@ export function getCompletedDressageJudgePositions(judges = []) {
   const completedPositions = new Set();
   (judges || []).forEach(judge => {
     if (!judge || judge.isLive || judge.eliminated) return;
-    const pos = String(judge.position || '').toUpperCase();
+    const pos = String(judge.position || judge.judgePosition || '').toUpperCase();
     if (pos) completedPositions.add(pos);
   });
   return completedPositions;
@@ -110,8 +110,7 @@ export function getMarathonActiveState(data = {}) {
 
   const obstacleIsLive =
     Number(data.currentObstacle) > 0 &&
-    data.running === true &&
-    (!!data.liveObstacleStartAt || !!data.live_staticStartAt);
+    data.running === true;
 
   const hasActiveStageA = !!(startA && !stopA);
   const hasActiveStageT = !!(startT && !stopT);

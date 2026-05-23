@@ -670,12 +670,15 @@ async function saveProtocol() {
       const pm = program.movements.find(x => x.no === m.momentNo);
       return s + (m.score * (pm?.coeff || 1));
     }, 0);
-    const finalPenalty = eliminated ? maxScore : (maxScore - totalScore);
+    const penaltyCoeff = getDressagePenaltyCoeff(program);
+    const finalPenalty = eliminated ? null : ((maxScore - totalScore) * penaltyCoeff);
     const finalPercent = eliminated ? 0 : (maxScore > 0 ? (totalScore / maxScore) * 100 : 0);
 
     const finalJudgeScorePayload = {
       judgeId: activeDressageJudge.id,
+      judgeName: activeDressageJudge.name,
       judgePosition: activeDressageJudge._pos || '',
+      points: totalScore,
       totalPoints: totalScore,
       penalty: finalPenalty,
       percent: finalPercent,
@@ -709,6 +712,9 @@ async function saveProtocol() {
 
     await setDressageStatus(competitionId, startNumber, {
       state: finalState,
+      judgeId: activeDressageJudge.id,
+      judgeName: activeDressageJudge.name,
+      judgePosition: activeDressageJudge._pos || '',
       protocol: null,
       lastUpdate: null,
       finalJudgeScore: finalJudgeScorePayload

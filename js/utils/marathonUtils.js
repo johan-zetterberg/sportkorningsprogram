@@ -961,7 +961,7 @@ export function ensureMergeDecorations(equipages) {
 }
 
 function isFinalizedDoc(d) {
-  return d?.finalized === true || d?.status === 'finalized' || d?.status === 'Klar' || d?.isFinal === true;
+  return d?.finalized === true || d?.status === 'finalized' || d?.isFinal === true;
 }
 
 export function pausedMsBetween(a, b) {

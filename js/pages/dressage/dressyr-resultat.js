@@ -18,8 +18,7 @@ import { doc, onSnapshot, setDoc, deleteField } from "https://www.gstatic.com/fi
 import { db, appId } from '../../config/firebase-config.js';
 
 // --- NYTT: modulär modal + PDF ---
-import { setupDressageModalOnce, openDetails as openDetailsModal, closeDetailsModal } from '../../ui/dressageModal.js';
-import { generateDressagePdf, generateDressageListPdf } from '../../pdf/dressagePdf.js';
+import { setupDressageModalOnce, openDetails as openDetailsModal } from '../../ui/dressageModal.js';
 
 // === NYTT: Importera all delad logik ===
 import {
@@ -33,9 +32,18 @@ import {
     deduplicateAndFilterProtocols,
     guessProgramKeyFromClass,
     normJudgeId,
-    getDressagePenaltyCoeff
+    getDressagePenaltyCoeff,
+    computeFinalFromSaved
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
+import { mergeDressageProtocols } from './dressageResultBuilder.js';
+import { setupDressageResultExportButtons } from './dressageResultExports.js';
+import {
+    clearGlobalScrollLocks,
+    exposeDressageResultApi,
+    setupDressageProtocolModalBridge,
+    setupDressageResultGetters
+} from './dressageResultBridge.js';
 import {
     getExpectedDressageJudgePositions,
     getCompletedDressageJudgePositions,
@@ -53,11 +61,7 @@ import {
     isMobile,
     isPrivileged,
     resolveCurrentCompId,
-    debounce,
-    downloadCsv,
-    csvCell,
-    sanitizeForFilename,
-    isNum
+    debounce
 } from '../../utils/sharedUtils.js';
 
 import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
@@ -342,38 +346,6 @@ function injectDressageResultsBaseStyles() {
     s.textContent = css;
     document.head.appendChild(s);
 }
-
-// +++ NYTT: hämta image som dataURL (för utskrift) +++
-async function fetchImageDataUrl(url) {
-    if (!url) return null;
-    try {
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.src = url;
-        await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-        const c = document.createElement('canvas');
-        c.width = img.naturalWidth; c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
-        return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-    } catch {
-        return null;
-    }
-}
-
-async function fetchFirstAvailableImageDataUrl(candidates) {
-    for (const u of candidates) {
-        const img = await fetchImageDataUrl(u);
-        if (img && img.dataUrl) return img;
-    }
-    return null;
-}
-
-// ---------- Utils ----------
-// --- Exponera API till andra moduler (monitor, modal, PDF) ---
-(function exposeDressageResultAPI() {
-    window.dressageResult = window.dressageResult || {};
-    window.dressageResult.computeFinalFromSaved = computeFinalFromSaved;
-})();
 
 function expandDressagePosition(j) {
     // plocka position från roller → disciplines → position
@@ -823,44 +795,11 @@ function processAndAggregateResults(equipages, allRawResults) {
         const savedProtos = rawProtocolsForEquipage;
         eq.__savedProtocols = savedProtos;
 
-        // Combine saved protocols with live protocols to get the "Best Current Version" of each judge's sheet
-        const unifiedProtocols = [];
-        const processedJudges = new Set();
-
-        // 1. Add saved protocols first
-        savedProtos.forEach(p => {
-            if (p.id === 'general') {
-                unifiedProtocols.push(p);
-                return;
-            }
-            const jid = normJudgeId(p.judgeId);
-            if (jid) {
-                unifiedProtocols.push(p);
-                processedJudges.add(jid);
-            }
+        const validProtos = mergeDressageProtocols({
+            savedProtocols: savedProtos,
+            liveProtocols,
+            judges: allCompetitionJudges || []
         });
-
-        // 2. Add live protocols if no saved protocol for that judge
-        if (liveProtocols) {
-            liveProtocols.forEach((p, rawId) => {
-                const jid = normJudgeId(rawId) || normJudgeId(p.judgeId);
-                if (jid && !processedJudges.has(jid)) {
-                    // Ensure it looks like a protocol
-                    unifiedProtocols.push({
-                        ...p,
-                        judgeId: jid,
-                        // If live data has movements/score/points, ensure they are accessible
-                        movements: p.movements || [],
-                        totalPoints: Number(p.totalPoints || p.runningTotalPoints || 0),
-                        percent: Number(p.percent || p.runningPercent || 0),
-                        penalty: Number(p.penalty || p.runningPenalty || 0),
-                        eliminated: !!p.eliminated
-                    });
-                }
-            });
-        }
-
-        const validProtos = deduplicateAndFilterProtocols(unifiedProtocols, allCompetitionJudges || []);
 
         // Always calculate using the service, which handles mix of finished/unfinished judges
         const result = calculateDressageResult(eq, validProtos, allCompetitionJudges || [], programs);
@@ -2502,90 +2441,15 @@ export async function load() {
         ensureModeToggle(); //
         ensureSearchBox(); //
 
-        // PDF-knapp
-        // PDF-knapp
-        const pbtn = document.getElementById('btnPrintResultsList');
-        if (pbtn) {
-            pbtn.addEventListener('click', async () => {
-                const origText = pbtn.innerHTML;
-                pbtn.disabled = true;
-                pbtn.innerHTML = `<svg class="animate-spin -ml-1 mr-2 h-4 w-4 text-white" ...>...</svg>${t('generating_pdf')}`; // Simplified spinner, ideally copy from other button
-                // Use getVisibleSortedResults() if available in scope or processedResults
-                // getVisibleSortedResults() is defined in this file (dressyr-resultat.js).
-                // It returns the currently visible list.
-                const list = getVisibleSortedResults();
-                const currentClass = dressage_activeClassFilters.size > 0 ? Array.from(dressage_activeClassFilters).join(', ') : 'Alla';
-                const comp = getGlobalState('currentCompetition');
-                const judges = window.__dressageCurrentJudgesPresentRef || [];
-                try {
-                    await generateDressageListPdf(list, currentClass, comp, judges);
-                } catch (e) {
-                    console.error(e);
-                    alert('Fel vid PDF-generering: ' + e.message);
-                } finally {
-                    pbtn.innerHTML = origText;
-                    pbtn.disabled = false;
-                }
-            });
-        }
-
-        const btnCsv = document.getElementById('btnExportDressageCsv');
-        if (btnCsv) {
-            btnCsv.addEventListener('click', () => {
-                const comp = getGlobalState('currentCompetition');
-                const date = new Date().toISOString().split('T')[0];
-                const filename = `dressyr_resultat_${sanitizeForFilename(comp?.name || 'tavling')}_${date}.csv`;
-
-                const list = getVisibleSortedResults();
-                const judges = window.__dressageCurrentJudgesPresentRef || [];
-
-                const headers = [
-                    t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'), t('start_time')
-                ];
-
-                // Judge headers
-                judges.forEach(j => {
-                    const pos = (j.position || j.id).toUpperCase();
-                    headers.push(`${pos} %`, `${pos} ${t('penalty')}`);
-                });
-
-                headers.push(t('dressage_avg_percent'), t('mistakes'), t('total_penalty'), t('status'));
-
-                const rows = list.map(res => {
-                    const row = [
-                        res.plac || '—',
-                        String(res.startNumber),
-                        res.driverName || '—',
-                        getMomentHorseLabel(res, 'dressage'),
-                        res._mergedLabel || res.className || '—',
-                        res.clubName || '—',
-                        res.startTime ? formatStartTimeLabel(res.startTime) : '—'
-                    ];
-
-                    judges.forEach(j => {
-                        const jp = res.judges[j.id];
-                        if (jp) {
-                            row.push(
-                                isNum(jp.percent) ? jp.percent.toFixed(2) : '—',
-                                isNum(jp.penalty) ? jp.penalty.toFixed(1) : '—'
-                            );
-                        } else {
-                            row.push('—', '—');
-                        }
-                    });
-
-                    row.push(
-                        isNum(res.avgPercent) ? res.avgPercent.toFixed(2) : '—',
-                        isNum(res.errorPoints) ? res.errorPoints.toFixed(1) : '0.0',
-                        isNum(res.finalPenalty) ? res.finalPenalty.toFixed(2) : '—',
-                        res.eliminated ? 'ELIM' : (statusBadgeForDressage(res.startNumber).replace(/<[^>]*>/g, '').trim() || '—')
-                    );
-                    return row;
-                });
-
-                downloadCsv(filename, headers, rows);
-            });
-        }
+        setupDressageResultExportButtons({
+            getVisibleSortedResults,
+            getCurrentClassLabel: () => dressage_activeClassFilters.size > 0
+                ? Array.from(dressage_activeClassFilters).join(', ')
+                : 'Alla',
+            getJudges: () => window.__dressageCurrentJudgesPresentRef || [],
+            formatStartTimeLabel,
+            statusBadgeForDressage
+        });
 
         // Resize-lyssnare
         document.body.dataset.wasMobile = isMobile() ? '1' : '0'; //
@@ -2675,120 +2539,15 @@ export function __unload() {
 
 
 
-(function clearGlobalScrollLocks() {
-    const html = document.documentElement;
-    const body = document.body;
-    if (!html || !body) return;
-    body.classList.remove('no-scroll', 'modal-open');
-    html.classList.remove('no-scroll', 'modal-open');
-    ['overflow', 'overflowY', 'position', 'height', 'top', 'width'].forEach(k => {
-        html.style[k] = '';
-        body.style[k] = '';
-    });
-})();
-
-(function () {
-    window.dressageResult = window.dressageResult || {};
-    let extProviders = null;
-
-    window.dressageResult.injectProviders = function (p) { extProviders = p || null; };
-
-    // Sen, i din egen open-funktion:
-    // const prov = extProviders || byggEgnaProviders();
-    // const saved = prov.getSavedProtocols(sn); const program = prov.getProgramForEq(sn); osv.
-})();
-
-// --- GLOBAL DATA GETTER FÖR MONITORN ---
-(function ensureDressageResultGetters() {
-    window.dressageResult = window.dressageResult || {};
-
-    // Returnerar slutvärden för ett startnummer:
-    // { percent, points, penalty, updatedAt } eller null om ej tillgängligt.
-    window.dressageResult.getFinalFor = async function (competitionId, sn) {
-        try {
-            sn = String(sn);
-            // 1) Om resultat-sidan redan har cache/state – använd den
-            const s = (window.dressageResultState && window.dressageResultState.statusMap)
-                ? window.dressageResultState.statusMap.get(sn)
-                : null;
-
-            const pick = (data) => {
-                if (!data) return null;
-                const percent = Number(
-                    data?.finalJudgeScore?.percent ?? data?.finalPercent ?? data?.totalPercent
-                );
-                const points = Number(
-                    data?.finalJudgeScore?.points ?? data?.finalPoints ?? data?.totalPoints
-                );
-                const penalty = Number(
-                    data?.finalJudgeScore?.penalty ?? data?.finalPenalty ?? data?.totalPenalty
-                );
-                const any =
-                    Number.isFinite(percent) || Number.isFinite(points) || Number.isFinite(penalty);
-                if (!any) return null;
-                return {
-                    percent: Number.isFinite(percent) ? percent : null,
-                    points: Number.isFinite(points) ? points : null,
-                    penalty: Number.isFinite(penalty) ? penalty : null,
-                    updatedAt: (data?.updatedAt ? new Date(data.updatedAt).getTime() : Date.now())
-                };
-            };
-
-            // 2) Försök från intern cache
-            const fromCache = pick(s);
-            if (fromCache) return fromCache;
-
-            // 3) Fallback: hämta statusdokumentet direkt (samma path som ni använder)
-            if (window.db && window.appId) {
-                const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
-                const ref = doc(window.db, 'artifacts', window.appId, 'public', 'data',
-                    'competitions', competitionId, 'dressageStatus', sn);
-                const snap = await getDoc(ref);
-                if (snap.exists()) {
-                    const data = snap.data();
-                    const picked = pick(data);
-                    if (picked) return picked;
-                }
-            }
-
-            return null;
-        } catch (e) {
-            console.warn('[dressageResult.getFinalFor] failed', e);
-            return null;
-        }
-    };
-})();
-
-// Global brygga (kompatibel med både monitor och resultat)
-(function exposeBridge() {
-    const openProto = (competitionId, sn, opts = {}) => {
-        try { if (competitionId) window.currentCompetitionId = competitionId; } catch { }
-
-        // Hämta referenser från sidan
-        const pr = window.__dressageProcessedResultsRef || [];
-        const jp = window.__dressageCurrentJudgesPresentRef || [];
-
-        // ANVÄND OBJEKT-SYNTAX HÄR:
-        // ANVÄND OBJEKT-SYNTAX HÄR:
-        const safeJudges = (allCompetitionJudges || []).map(j => ({
-            ...j,
-            position: (expandDressagePosition(j) || j.position || '').toUpperCase()
-        }));
-        const rawList = rawByStart.get(String(sn)) || [];
-        const cleanList = deduplicateAndFilterProtocols(rawList, safeJudges);
-        const tempMap = new Map([[String(sn), cleanList]]);
-        return openDetailsModal(String(sn), {
-            // processedResults: pr, // SKIPPA PROCESSED RESULTS
-            savedProtocolsMap: tempMap,
-            equipages: masterEquipageList,
-            statusMap: dressageStatusMap,
-            currentJudges: (jp && jp.length) ? jp : null,
-            ...opts
-        });
-    };
-
-    window.dressageResult = window.dressageResult || {};
-    window.dressageResult.openProtocolModal = openProto;
-    window.openDressageProtocolModal = openProto;
-    window.showDressageResultModal = openProto;
-})();
+clearGlobalScrollLocks();
+exposeDressageResultApi({ computeFinalFromSaved });
+setupDressageResultGetters({ getStatusMap: () => dressageStatusMap });
+setupDressageProtocolModalBridge({
+    getAllCompetitionJudges: () => allCompetitionJudges,
+    expandDressagePosition,
+    getRawByStart: () => rawByStart,
+    getMasterEquipageList: () => masterEquipageList,
+    getDressageStatusMap: () => dressageStatusMap,
+    openDetailsModal,
+    deduplicateAndFilterProtocols
+});
