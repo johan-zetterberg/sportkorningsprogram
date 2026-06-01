@@ -13,10 +13,9 @@ import {
     getPrograms,
     normalizeMovements,
     deduplicateAndFilterProtocols,
-    guessProgramKeyFromClass,
-    normJudgeId
+    guessProgramKeyFromClass
 } from '../../utils/dressageUtils.js';
-import { calculateDressageResult, calculateSingleJudgeDressageResult, calculateTotalResult } from '../../services/calculationService.js';
+import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { openEquipageModal } from '../../ui/equipage-modal.js';
 
 import { getCompetitionHeader } from '../../ui/components.js';
@@ -51,10 +50,8 @@ import {
 import { startMarathonSimulation } from '../../utils/simulator.js';
 import {
     expandDressagePosition,
-    formatTime,
     isWithdrawnOrExcluded,
-    matchesDisplayClass,
-    normState
+    matchesDisplayClass
 } from './speakerHelpers.js';
 import {
     getDressageFinalPenalty as readDressageFinalPenalty,
@@ -62,6 +59,10 @@ import {
     getSpeakerDisciplineResult as readSpeakerDisciplineResult,
     getSpeakerDisciplineState as readSpeakerDisciplineState
 } from './speakerResults.js';
+import {
+    formatSpeakerPenalty,
+    getSpeakerPenaltyOrNull
+} from './speakerFormatUtils.js';
 import { getLeaderToBeat, getDressageLeaderInClass, calculateLiveInjection, getTotalRanking } from './speakerCalculations.js';
 import {
     getChasingTarget as renderListChasingTarget,
@@ -78,12 +79,15 @@ import {
     renderObstacleLeaderboard as renderMarathonObstacleLeaderboard,
     renderSectorAnalysis as renderMarathonSectorAnalysis
 } from './speakerMarathon.js';
+import { buildSpeakerMarathonActiveEntry } from './speakerMarathonActiveState.js';
 import {
     ensureMainTicker as ensureTimerMainTicker,
     stopLiveClock as stopTimerLiveClock,
     updateLiveClocks as updateTimerLiveClocks
 } from './speakerTimer.js';
+import { removeRecentResult, upsertRecentResult } from './speakerRecentUtils.js';
 import { setupAllListeners as setupSpeakerStateListeners } from './speakerState.js';
+import { applySpeakerDressageCalculatedResult } from './speakerStateUtils.js';
 
 // ================= State =================
 let competitionId = null;
@@ -668,17 +672,7 @@ async function verifyDressageResult(sn, st, eq) {
             const result = calculateDressageResult(eq, protocols, allJudges, programs);
 
             if (result && result.penalty != null) {
-                // Update map with VERIFIED calculation
-                const current = dressageStatusMap.get(sn) || {};
-                dressageStatusMap.set(sn, {
-                    ...current,
-                    finalPercent: result.percent,
-                    finalPoints: result.points,
-                    finalPenalty: result.penalty,
-                    errorPoints: result.errorPoints,
-                    errorPenalty: result.penalty,
-                    _verified: true
-                });
+                applySpeakerDressageCalculatedResult(dressageStatusMap, liveProtocolMap, sn, result, { _verified: true });
                 triggerRender();
             }
         }
@@ -720,14 +714,9 @@ function renderObstacleFocus() {
     el.innerHTML = renderMarathonObstacleFocus(obstacleFocusVal, getSpeakerViewContext());
 }
 
-// New: Render Obstacle Leaderboard (Focus View)
 function renderObstacleLeaderboard(obstacleNum) {
     return renderMarathonObstacleLeaderboard(obstacleNum, getSpeakerViewContext());
 }
-
-// ================= Dressage Helpers (Phase 4) =================
-
-// function calcLiveJudgeProjection removed (imported from utils)
 
 function renderSpeakerJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
     // Robust sort and filter
@@ -904,8 +893,9 @@ function renderCurrentRiderCard() {
         const others = totalRanking.filter(r => String(r.sn) !== String(eq.startNumber));
         if (others.length > 0) {
             const leader = others[0]; // Leader of the OTHERS
-            const bestOther = leader.total;
-            const diff = myTotalScore - bestOther;
+            const bestOther = getSpeakerPenaltyOrNull(leader.total);
+            const ownTotal = getSpeakerPenaltyOrNull(myTotalScore);
+            const diff = ownTotal !== null && bestOther !== null ? ownTotal - bestOther : null;
 
             // "Target to Beat" Box
             // For Marathon: Only meaningful if they are close to finishing or we compare penalties directly.
@@ -920,10 +910,10 @@ function renderCurrentRiderCard() {
             targetToBeatHtml = `
             <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${targetLabel}</div>
                 <div class="text-lg font-black text-gray-800 dark:text-gray-100 leading-tight">${leader.name}</div>
-                <div class="text-lg tabular-nums tracking-wide font-bold text-gray-600 dark:text-gray-300">${(bestOther != null) ? bestOther.toFixed(2) : '—'}</div>
+                <div class="text-lg tabular-nums tracking-wide font-bold text-gray-600 dark:text-gray-300">${formatSpeakerPenalty(bestOther)}</div>
             </div> `;
 
-            if (diff < 0) {
+            if (diff !== null && diff < 0) {
                 // I am leading!
                 // Balls Margin: How many 3.0 balls can I afford?
                 const balls = Math.floor(Math.abs(diff) / 3.0);
@@ -935,7 +925,7 @@ function renderCurrentRiderCard() {
                 marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200">
     Segermarginal: ${(diff != null) ? Math.abs(diff).toFixed(2) : '—'} ${extraText}
     </div>`;
-            } else {
+            } else if (diff !== null) {
                 // I am behind
                 marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200">
     Upp till ledning: +${(diff != null) ? diff.toFixed(2) : '—'}
@@ -1004,7 +994,7 @@ function renderCurrentRiderCard() {
                      <div class="flex flex-col items-start justify-center gap-1">
                         <div class="flex items-center gap-2">
                              <div class="inline-block bg-purple-100 dark:bg-purple-900 text-purple-900 dark:text-purple-100 text-sm font-bold px-3 py-1 rounded-full border border-purple-200 dark:border-purple-800 group-hover:bg-purple-200 dark:group-hover:bg-purple-800">
-                                Total: <span id="speaker-live-rank">${myTotalRank}</span> (<span id="speaker-live-total">${myTotalScore ? myTotalScore.toFixed(2) : '—'}</span>)
+                                Total: <span id="speaker-live-rank">${myTotalRank}</span> (<span id="speaker-live-total">${formatSpeakerPenalty(myTotalScore, { eliminated: myTotalScore === Infinity })}</span>)
                             </div>
                             ${marginHtml ? marginHtml : ''}
                         </div>
@@ -1155,10 +1145,12 @@ function renderCurrentRiderCard() {
             if (cmpEq) {
                 const cmpData = maratonStatusMap.get(String(cmpEq.startNumber));
                 const cmpRes = cmpData ? calculateMarathonResult(cmpEq, cmpData, cmpData) : null;
-                const diff = (liveResult.totalPenalty || 0) - (cmpRes?.totalPenalty || 0);
-                const diffColor = (cmpRes && diff < 0) ? 'text-green-600' : ((cmpRes && diff > 0) ? 'text-red-600' : 'text-gray-400');
-                const diffSign = (cmpRes && diff > 0) ? '+' : '';
-                const diffVal = cmpRes ? Math.abs(diff).toFixed(2) : '—';
+                const livePenalty = getSpeakerPenaltyOrNull(liveResult.totalPenalty);
+                const comparePenalty = getSpeakerPenaltyOrNull(cmpRes?.totalPenalty);
+                const diff = livePenalty !== null && comparePenalty !== null ? livePenalty - comparePenalty : null;
+                const diffColor = (diff !== null && diff < 0) ? 'text-green-600' : ((diff !== null && diff > 0) ? 'text-red-600' : 'text-gray-400');
+                const diffSign = (diff !== null && diff > 0) ? '+' : '';
+                const diffVal = diff !== null ? Math.abs(diff).toFixed(2) : '—';
 
                 comparisonHtml = `
                 <div class="mb-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-2 text-[10px] relative">
@@ -1166,14 +1158,14 @@ function renderCurrentRiderCard() {
                     <div class="flex justify-around items-center">
                         <div class="text-center">
                             <span class="text-gray-500 dark:text-gray-400">${eq.driverName}:</span> 
-                            <span class="font-bold dark:text-white">${(liveResult.totalPenalty || 0).toFixed(2)}</span>
+                            <span class="font-bold dark:text-white">${formatSpeakerPenalty(liveResult.totalPenalty, { eliminated: liveResult.eliminated })}</span>
                         </div>
                         <div class="px-2 py-0.5 rounded ${diffColor} font-black text-xs bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-600">
                             ${diffSign}${diffVal}
                         </div>
                         <div class="text-center opacity-75">
                             <span class="text-gray-500 dark:text-gray-400">${cmpEq.driverName}:</span> 
-                            <span class="font-bold dark:text-gray-300">${cmpRes ? (cmpRes.totalPenalty || 0).toFixed(2) : 'Ej startat'}</span>
+                            <span class="font-bold dark:text-gray-300">${cmpRes ? formatSpeakerPenalty(cmpRes.totalPenalty, { eliminated: cmpRes.eliminated }) : 'Ej startat'}</span>
                         </div>
                     </div>
                 </div>`;
@@ -1413,7 +1405,7 @@ function renderCurrentRiderCard() {
                 
                 <div class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-center shadow-sm border border-blue-100 dark:border-blue-800 col-span-2 relative overflow-hidden">
                     <div class="text-[10px] uppercase tracking-wide text-blue-800 dark:text-blue-300 font-bold">Totalt Straff</div>
-                    <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${calcData.eliminated ? 'ELIM' : (calcData.totalPenalty || 0).toFixed(2)}</div>
+                    <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${formatSpeakerPenalty(calcData.totalPenalty, { eliminated: calcData.eliminated })}</div>
                     ${!calcData.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Rank: ${myRank}</div>` : ''}
                     ${gapHtml}
                 </div>
@@ -1421,11 +1413,11 @@ function renderCurrentRiderCard() {
                 <div class="bg-white dark:bg-gray-800 p-2 rounded-lg text-center border border-gray-200 dark:border-gray-700 col-span-2">
                     <div class="grid grid-cols-2 gap-2 text-sm border-b dark:border-gray-700 pb-2 mb-2">
                         <div>
-                            <span class="block text-red-800 dark:text-red-400 font-bold text-lg leading-none">${(calcData.obstaclePenalty || 0).toFixed(0)}</span>
+                            <span class="block text-red-800 dark:text-red-400 font-bold text-lg leading-none">${formatSpeakerPenalty(Number(calcData.obstaclePenalty) || 0, { decimals: 0 })}</span>
                             <span class="text-[10px] text-red-600 dark:text-red-300 uppercase">Hinder</span>
                         </div>
                         <div>
-                            <span id="precision-live-time-penalty" class="block text-amber-800 dark:text-amber-400 font-bold text-lg leading-none">${(calcData.timePenalty || 0).toFixed(2)}</span>
+                            <span id="precision-live-time-penalty" class="block text-amber-800 dark:text-amber-400 font-bold text-lg leading-none">${formatSpeakerPenalty(Number(calcData.timePenalty) || 0)}</span>
                             <span class="text-[10px] text-amber-600 dark:text-amber-300 uppercase">Tidsfel</span>
                         </div>
                     </div>
@@ -1452,7 +1444,7 @@ function renderCurrentRiderCard() {
                                     <span class="font-bold text-gray-400 w-4 text-center">${i + 1}.</span>
                                     <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${r.name}</span>
                                 </div>
-                                <span class="font-black text-gray-900 dark:text-white ml-2">${(r.penalty || 0).toFixed(2)}</span>
+                                <span class="font-black text-gray-900 dark:text-white ml-2">${formatSpeakerPenalty(r.penalty)}</span>
                             </div>
                         `).join('') : '<div class="p-4 text-center text-gray-400 italic text-sm">Inga resultat</div>'}
                     </div>
@@ -1470,7 +1462,7 @@ function renderCurrentRiderCard() {
                                     <span class="font-bold text-yellow-600 w-4 text-center">${i + 1}.</span>
                                     <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${allEquipages.find(e => String(e.startNumber) === String(r.sn))?.driverName}</span>
                                 </div>
-                                <span class="font-black text-gray-900 dark:text-white ml-2">${r.total.toFixed(2)}</span>
+                                <span class="font-black text-gray-900 dark:text-white ml-2">${formatSpeakerPenalty(r.total, { eliminated: r.total === Infinity || r.isEliminated })}</span>
                             </div>
                         `).join('')}
                     </div>
@@ -1509,20 +1501,20 @@ function renderCurrentRiderCard() {
                 <!-- Dressage Score -->
                 <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Dressyr</div>
-                    <div class="text-3xl font-black text-gray-900 dark:text-white">${dPen !== null ? dPen.toFixed(2) : '—'}</div>
+                    <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(dPen)}</div>
                     <div class="text-[10px] text-gray-400">${dSt?.finalPercent ? dSt.finalPercent.toFixed(1) + '%' : ''}</div>
                 </div>
                 
                 <!-- Marathon Score -->
                 <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Maraton</div>
-                    <div class="text-3xl font-black text-gray-900 dark:text-white">${mPen !== null ? mPen.toFixed(2) : '—'}</div>
+                    <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(mPen)}</div>
                 </div>
                 
                 <!-- Precision Score -->
                 <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Precision</div>
-                    <div class="text-3xl font-black text-gray-900 dark:text-white">${pPen !== null ? pPen.toFixed(2) : '—'}</div>
+                    <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(pPen)}</div>
                 </div>
             </div>
 
@@ -1530,7 +1522,7 @@ function renderCurrentRiderCard() {
             <div class="mt-6 bg-brand-darkblue dark:bg-blue-900 text-white p-6 rounded-2xl shadow-xl flex flex-col items-center relative overflow-hidden">
                 <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-400/10 to-transparent pointer-events-none"></div>
                 <div class="text-xs uppercase font-black tracking-widest text-blue-200 mb-2">Total Ställning</div>
-                <div class="text-6xl font-black tracking-tighter">${myTotalScore === Infinity ? 'UT' : (myTotalScore !== null ? myTotalScore.toFixed(2) : '—')}</div>
+                <div class="text-6xl font-black tracking-tighter">${formatSpeakerPenalty(myTotalScore, { eliminated: myTotalScore === Infinity })}</div>
                 <div class="mt-4 flex items-center gap-4">
                     <div class="bg-white/10 px-4 py-1 rounded-full border border-white/20">
                         <span class="text-xs font-bold text-blue-100 uppercase mr-2">Placering:</span>
@@ -1684,7 +1676,6 @@ function maybePushRecentMarathon(sn, data) {
     const eq = allEquipages.find(e => String(e.startNumber) === sn);
     if (!eq) return;
 
-    const existing = recentResults.find(r => String(r.sn) === String(sn));
     const result = getSpeakerDisciplineResult(eq, 'maraton');
     const penalty = result.penalty ?? data.totalPenalty ?? 0;
 
@@ -1701,110 +1692,26 @@ function maybePushRecentMarathon(sn, data) {
         status: finishedB ? 'finished' : 'running' // Track status
     };
 
-    if (existing) {
-        Object.assign(existing, entry);
-    } else {
-        recentResults.unshift(entry);
-    }
+    upsertRecentResult(recentResults, entry, { mergeExisting: true });
 }
 
 // Check if a driver is active and update the Active Map
 // Ported from maraton-monitor.js
 function evaluateActiveState(sn, data) {
-    if (!data) { activeEquipages.delete(String(sn)); return; }
-    const eq = allEquipages.find(e => String(e.startNumber) === sn);
-    if (!eq) { activeEquipages.delete(String(sn)); return; }
+    const startNumber = String(sn);
+    const eq = allEquipages.find(e => String(e.startNumber) === startNumber);
+    const activeEntry = buildSpeakerMarathonActiveEntry(startNumber, eq, data, {
+        limitsFor,
+        stageDurationMsSaved,
+        stageStartTS,
+        stageStopTS,
+        isWithdrawnOrExcluded
+    });
 
-    let isActive = false;
-    let task = { type: 'unknown', name: '', key: '' };
-    let startTime = 0;
-    let pausedMs = 0;
-
-    let fixedElapsedMs = null;
-    let timerBaseMs = 0;
-
-    // 1. Check Obstacle Activity
-    if (data.currentObstacle && (data.liveObstacleStartAt || (data.liveObstacleTimeMs && data.liveObstacleTimeMs > 0))) {
-        isActive = true;
-        task = { type: 'obstacle', name: `Hinder ${data.currentObstacle}`, key: data.currentObstacle };
-
-        if (data.running === true) {
-            const lastUpdateMs = Number(data.liveObstacleTimeMs) || 0;
-            const lastUpdateTime = data.updatedAt?.toMillis ? data.updatedAt.toMillis() : Date.now();
-            // Real-time calculation basis
-            timerBaseMs = lastUpdateTime - lastUpdateMs;
-        } else {
-            // Clock is stopped by user
-            fixedElapsedMs = Number(data.liveObstacleTimeMs) || 0;
-        }
+    if (activeEntry) {
+        activeEquipages.set(startNumber, activeEntry);
     } else {
-        // 2. Result Flash
-        let flashFound = false;
-        if (data.obstacles && data.obstacles.length > 0) {
-            let latestExit = 0;
-            let latestObs = null;
-            const obstacleTimes = data.obstacleTimes || {};
-            data.obstacles.forEach(o => {
-                const numStr = String(o.number || o.obstacleNumber || o.id);
-                const t = obstacleTimes[numStr];
-                let exit = t?.exitAt || t?.exitAtClient || o.exitAt || o.exitAtClient;
-                if (exit) {
-                    if (exit.toMillis) exit = exit.toMillis();
-                    else if (typeof exit === 'string') exit = new Date(exit).getTime();
-                    else if (typeof exit === 'number') { }
-                    else exit = 0;
-                }
-                if (exit > latestExit) { latestExit = exit; latestObs = o; }
-            });
-            if (latestObs && latestExit > 0 && (Date.now() - latestExit < 20000)) {
-                isActive = true; flashFound = true;
-                task = { type: 'result_flash', name: `Resultat Hinder ${latestObs.number}`, key: 'flash', data: latestObs };
-                fixedElapsedMs = latestObs.timeMs || (latestObs.timeInSeconds * 1000) || 0;
-                startTime = latestExit;
-            }
-        }
-
-        // 3. Stages Check (A, B, Transport)
-        if (!flashFound) {
-            const limitsA = limitsFor(eq, 'A');
-            const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
-            const stages = [{ key: 'A', name: isFixedTimeA ? 'Warm-up' : 'Etapp A' }, { key: 'B', name: 'Etapp B' }, { key: 'transport', name: 'Transport' }];
-            for (const stage of stages) {
-                const start = stageStartTS(data, stage.key);
-                const stop = stageStopTS(data, stage.key);
-                if (start && !stop) {
-                    isActive = true;
-                    task = { type: 'stage', name: stage.name, key: stage.key };
-                    timerBaseMs = start;
-                    pausedMs = stageDurationMsSaved(data, stage.key) || 0;
-                    startTime = start; // Legacy compat
-                    break;
-                }
-            }
-        }
-    }
-
-    // 4. Fallback (Waiting)
-    if (!isActive) {
-        const stateStr = String(data.state || eq.status || '').toLowerCase();
-        const isGone = ['utgått', 'utesluten', 'retired', 'eliminated'].some(s => stateStr.includes(s));
-        if (!isGone) {
-            const hasStartA = stageStartTS(data, 'A');
-            const hasStopA = stageStopTS(data, 'A');
-            const hasStartB = stageStartTS(data, 'B');
-            if (hasStopA && !hasStartB) {
-                isActive = true;
-                task = { type: 'transport', name: 'Transport / Paus', key: 'wait_b' };
-                timerBaseMs = hasStopA;
-                startTime = hasStopA; // Legacy compat
-            }
-        }
-    }
-
-    if (isActive) {
-        activeEquipages.set(String(sn), { sn, eq, data, task, startTime, pausedMs, timerBaseMs, fixedElapsedMs, updatedAt: Date.now() });
-    } else {
-        activeEquipages.delete(String(sn));
+        activeEquipages.delete(startNumber);
     }
 }
 
@@ -1851,12 +1758,7 @@ function maybePushRecentPrecision(sn, data) {
         updatedAt: data.updatedAt || Date.now()
     };
 
-    const idx = recentResults.findIndex(r => String(r.sn) === String(sn));
-    if (idx >= 0) {
-        recentResults[idx] = entry;
-    } else {
-        recentResults.unshift(entry);
-    }
+    upsertRecentResult(recentResults, entry);
 }
 
 // Wrapper to prevent crash and logging
@@ -1877,9 +1779,7 @@ function maybePushRecentInternal(sn) {
 
     const stateStr = String(st.state || eq.status || '').toLowerCase();
     if (isWithdrawnOrExcluded(stateStr, { ...eq, ...st })) {
-        const idx = recentResults.findIndex(r => String(r.sn) === S);
-        if (idx >= 0) { recentResults.splice(idx, 1); return true; }
-        return false;
+        return removeRecentResult(recentResults, S);
     }
 
     // 1. Collect all protocols (Saved + Live)
@@ -1930,8 +1830,7 @@ function maybePushRecentInternal(sn) {
 
     const merged = deduplicateAndFilterProtocols(protocolsArr, relevantJudges);
 
-    // Auto-detect finished status based on judge count
-    let finished = stateStr === 'finished'; // Note: using let
+    let finished = stateStr === 'finished';
     if (!finished && relevantJudges && relevantJudges.length > 0) {
 
         const uniquePos = new Set(merged.map(p => (p.position || p.judgePosition || '').toUpperCase()).filter(x => x));
@@ -1958,14 +1857,7 @@ function maybePushRecentInternal(sn) {
         finalPen = result.penalty;
         finalPct = result.percent;
 
-        const newSt = { ...st };
-        newSt.finalPercent = finalPct;
-        newSt.finalPoints = result.points;
-        newSt.finalPenalty = finalPen;
-        newSt.finalJudgeScore = { percent: finalPct, points: result.points, penalty: result.penalty };
-        newSt.errorPoints = result.errorPoints;
-        newSt.errorPenalty = result.penalty;
-        dressageStatusMap.set(S, newSt);
+        applySpeakerDressageCalculatedResult(dressageStatusMap, liveProtocolMap, S, result);
     }
 
     if (finished) {
@@ -1974,17 +1866,8 @@ function maybePushRecentInternal(sn) {
         hasMeaningfulData = (finalPen != null && finalPen > 0);
     }
 
-    // EXTENDED DEBUG
-
-
     if (!hasMeaningfulData) {
-        const idx = recentResults.findIndex(r => String(r.sn) === S);
-        if (idx >= 0) {
-
-            recentResults.splice(idx, 1);
-            return true;
-        }
-        return false;
+        return removeRecentResult(recentResults, S);
     }
 
     const entry = {
@@ -1996,17 +1879,7 @@ function maybePushRecentInternal(sn) {
         updatedAt: st.updatedAt || Date.now()
     };
 
-    const idx = recentResults.findIndex(r => String(r.sn) === S);
-    if (idx >= 0) {
-        if (JSON.stringify(recentResults[idx]) !== JSON.stringify(entry)) {
-            recentResults[idx] = entry;
-            return true;
-        }
-    } else {
-        recentResults.unshift(entry);
-        return true;
-    }
-    return false;
+    return upsertRecentResult(recentResults, entry, { skipUnchanged: true });
 }
 
 function setupAllListeners() {

@@ -54,3 +54,28 @@ export async function uploadClubLogo(competitionId, file, isGlobal = true) {
     await uploadBytes(storageRef, file);
     return await getDownloadURL(storageRef);
 }
+
+export async function uploadCompetitionLogo(competitionId, file) {
+    if (!file) throw new Error("Ingen fil vald");
+    if (!competitionId) throw new Error("Competition ID required for upload");
+
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+        throw new Error("Loggan måste vara PNG, JPG eller WebP.");
+    }
+
+    const maxBytes = 2 * 1024 * 1024;
+    if (file.size > maxBytes) {
+        throw new Error("Loggan är för stor. Välj en bild under 2 MB.");
+    }
+
+    const timestamp = Date.now();
+    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    // Reuse the same storage area as club logos because existing storage rules
+    // already allow that path for competition assets.
+    const storagePath = `competitions/${competitionId}/assets/club-logos/competition_${timestamp}_${safeName}`;
+
+    const storageRef = ref(storage, storagePath);
+    await uploadBytes(storageRef, file);
+    return await getDownloadURL(storageRef);
+}

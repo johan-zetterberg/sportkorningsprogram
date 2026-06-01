@@ -14,6 +14,9 @@ import {
   computeMaxSecondsForClass,
   calculatePrecisionResult
 } from '../js/core-engine/precision.js';
+import {
+  calculatePrecisionResult as calculateUiPrecisionResult
+} from '../js/utils/precisionCalculation.js';
 import { calculateTotalResult } from '../js/core-engine/calculation.js';
 import { aggregateResults } from '../js/services/resultAggregationService.js';
 
@@ -187,6 +190,47 @@ test('computeMaxSecondsForClass and calculatePrecisionResult compute penalties',
   assert.equal(result.obstaclePenalty, 6);
   assert.equal(result.timePenalty, 2.5);
   assert.equal(result.totalPenalty, 8.5);
+});
+
+test('core precision result mirrors UI precision calculation for stale saved time penalty', () => {
+  const state = createBaseState();
+  state.precision.resultDoc = {
+    finalized: true,
+    timeMs: 106000,
+    knocks: [],
+    timePenalty: 0
+  };
+
+  const coreResult = calculatePrecisionResult(state);
+  const uiResult = calculateUiPrecisionResult(
+    state.precision.resultDoc,
+    state.equipage,
+    state.config.precisionConfig
+  );
+
+  assert.equal(coreResult.timePenalty, 3);
+  assert.equal(coreResult.totalPenalty, 3);
+  assert.deepEqual(coreResult, uiResult);
+});
+
+test('core precision result mirrors UI precision calculation for auto elimination', () => {
+  const state = createBaseState();
+  state.precision.resultDoc = {
+    finalized: true,
+    timeMs: 201000,
+    knocks: []
+  };
+
+  const coreResult = calculatePrecisionResult(state);
+  const uiResult = calculateUiPrecisionResult(
+    state.precision.resultDoc,
+    state.equipage,
+    state.config.precisionConfig
+  );
+
+  assert.equal(coreResult.eliminated, true);
+  assert.equal(coreResult.autoEliminated, true);
+  assert.deepEqual(coreResult, uiResult);
 });
 
 test('calculateTotalResult combines discipline totals consistently', () => {

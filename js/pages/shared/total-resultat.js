@@ -7,7 +7,7 @@
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { getDressageResultsForEquipage, listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
+import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
 import { getMarathonTimingData } from '../../services/marathonService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
 import { listenForOfficials, listenForJudges } from '../../services/adminService.js';
@@ -15,61 +15,62 @@ import { listenForMaratonCollection, listenForMarathonTimingUpdates } from '../.
 import { listenForTeams } from '../../services/teamService.js';
 import { t } from '../../utils/i18n.js';
 
-import {
-  calculateDressageResult,
-  calculateMarathonResult,
-  calculatePrecisionResult,
-  calculateTotalResult
-} from '../../services/calculationService.js';
-import { calculateTeamResults } from '../../services/teamCalculationService.js'; // [NEW]
-import {
-  deduplicateAndFilterProtocols // Still needed for pre-filtering or can we skip? Service filters too.
-} from '../../utils/dressageUtils.js';
-
-import { klassTempoData } from '../../data/competitionData.js';
+import { calculateTotalResult } from '../../services/calculationService.js';
+import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
-import { dressagePrograms } from '../../data/dressagePrograms.js'; // Behåll tills vi fixar dressyr-steget
+import { dressagePrograms } from '../../data/dressagePrograms.js';
 import { openEquipageModal } from '../../ui/equipage-modal.js';
 import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
 import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
-import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js'; // [NEW]
-
-// --- NY IMPORT ---
+import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js';
 import {
-  horseLabel,
-  horseLabelStacked,
+  applyTotalDisciplineStatuses,
+  buildTotalResultRow
+} from './totalResultRows.js';
+import {
+  applyTotalDisciplinePlacements,
+  applyTotalResultDiffs,
+  buildBestDressageByGroup,
+  buildDisplayedTotalRows,
+  placeTotalRowsWithinClass
+} from './totalResultRanking.js';
+import {
+  groupDocsByStartNumber,
+  mapRowsByStartNumber,
+  normalizeTimingDocs,
+  replaceMapContents,
+  unsubscribeAll
+} from './totalResultListeners.js';
+import {
+  groupTotalEquipagesForDisplay,
+  resolveTotalMergeGrouping
+} from './totalResultGrouping.js';
+import { downloadTotalCsv } from './totalResultCsv.js';
+import {
+  buildProcessedTotalTeams,
+  buildTeamDisciplineBests,
+  renderTeamCard,
+  renderTeamMemberRow
+} from './totalResultTeams.js';
+import {
+  formatTotalResultPenalty,
+  formatTotalResultPercent,
+  isTotalDisciplineEliminated
+} from './totalResultDisplayUtils.js';
+
+import {
   round2,
   secondsToMMSS,
   escapeHtml,
-  isNum,
-  fmt2,
-  downloadCsv,
-  csvCell,
-  sanitizeForFilename,
-  isMobile,
-  MOBILE_BP
+  isMobile
 } from '../../utils/sharedUtils.js';
 
 import {
-  stagePenaltyFromMs, // Maybe used for display or manual checks? Check later.
-  limitsFor, // Used for display?
-  buildDominantTRCategoryByClass,
-  setMarathonConfig, // Used for setup
-  MARATHON_OBSTACLE_TIME_PENALTY,
-  PENALTY_RATE
+  limitsFor,
+  setMarathonConfig
 } from '../../utils/marathonUtils.js';
-import {
-  getDressagePenaltyCoeff,
-  guessProgramKeyFromClass
-} from '../../utils/dressageUtils.js';
-
-
-// -----------------
-
-// ======= Konstanter (TR 2025) =======
-const PRECISION_TIME_PENALTY_PER_SEC = 0.5;
 
 // ---- Dressyr-hjälp (matchar dressyr-resultat.js) ----
 // Hämta programlistan: tävlingsspecifika overrides på window, annars globala importen (om den finns)
@@ -105,10 +106,10 @@ let IS_FEI = false;
 let allOfficials = []; // ← NY: funktionärer (banbyggare, TL, veterinär m.fl.)
 let isPrintExport = false; // ← NY: när true ska extra-detaljer döljas i PDF
 
-// === Team State [NEW] ===
 let rawTeams = [];
 let processedTeams = [];
 let currentMainTab = 'individual'; // 'individual' | 'teams'
+let totalResultsResizeHandler = null;
 
 // Filter: visa endast ekipage som fullföljt (har total och ej elim)
 let showOnlyCompleted = false;
@@ -130,8 +131,8 @@ function getEquipageModalCtx() {
     allCompetitionJudges,
     marathonConfig,
     precisionConfig,
-    marathonTimeMap, // [NEW] Raw timing data for modal calc
-    marathonObstacleMap, // [NEW] Raw obstacle data for modal calc
+    marathonTimeMap,
+    marathonObstacleMap,
     competitionConfig: window.competitionConfig || {}, // Passa den globala configen om den finns
     classProgramMapping: window.klassProgramMapping || {}, // Passa program-mappningen
     // Vi skickar in våra egna hjälpare så modalen kan visa fönster/format
@@ -160,7 +161,7 @@ function render() {
     const chipHost = document.getElementById('classChips');
     if (!chipHost) return;
 
-    const groups = groupEquipagesForDisplay(equipages, displayConfig);
+    const groups = groupTotalEquipagesForDisplay(equipages, displayConfig);
     const labels = groups.map(g => g.label);
 
     renderResponsiveClassFilter(chipHost, labels, activeClassFilters, (lbl) => {
@@ -173,101 +174,13 @@ function render() {
     });
   })();
 
-  // Hämta all rådata
-  const rows = processedResults.slice();
-
-  // Filtrera på aktiva chips
-  const filteredByClass = rows.filter(r => {
-    if (!activeClassFilters.size) return true;
-    return activeClassFilters.has(r.displayGroupLabel || '');
-  });
-
-  // Sök: startnr, kusk, klass, klubb
-  const q = (searchQuery || '').trim().toLowerCase();
-  const getEq = (sn) => equipages.find(e => String(e.startNumber) === String(sn));
-  const baseData = !q ? filteredByClass : filteredByClass.filter(r => {
-    const eq = getEq(r.startNumber) || {};
-    const hay = [
-      r.startNumber,
-      r.driverName || '',
-      r.className || '',
-      eq.clubName || '',
-    ].join(' ').toLowerCase();
-    return hay.includes(q);
-  });
-
-  // Filtrera på status (exklusiva i UI)
-  let viewData = baseData;
-  if (showOnlyCompleted) {
-    viewData = baseData.filter(r => !r.isEliminated && r.totalPenalty != null);
-  } else if (showOnlyOngoing) {
-    viewData = baseData.filter(r => !!r.isOngoing);
-  }
-
-  // === SORTERING ===
-  const sortKey = sortConfig.key || 'plac';
-  const sortDir = sortConfig.direction === 'desc' ? -1 : 1;
-
-  viewData.sort((a, b) => {
-    let valA, valB;
-
-    switch (sortKey) {
-      case 'plac':
-        valA = a.plac ?? (a.isEliminated ? 999998 : 999999);
-        valB = b.plac ?? (b.isEliminated ? 999998 : 999999);
-        break;
-      case 'startNumber':
-        valA = Number(a.startNumber) || 0;
-        valB = Number(b.startNumber) || 0;
-        break;
-      case 'driverName':
-        valA = (a.driverName || '').toLowerCase();
-        valB = (b.driverName || '').toLowerCase();
-        break;
-      case 'className':
-        valA = (a.className || '').toLowerCase();
-        valB = (b.className || '').toLowerCase();
-        break;
-      case 'club':
-        valA = (a.clubName || '').toLowerCase();
-        valB = (b.clubName || '').toLowerCase();
-        break;
-      case 'dressage':
-        valA = a.dressage?.penalty ?? 999999;
-        valB = b.dressage?.penalty ?? 999999;
-        break;
-      case 'marathon':
-        valA = a.marathon?.totalPenalty ?? 999999;
-        valB = b.marathon?.totalPenalty ?? 999999;
-        break;
-      case 'precision':
-        valA = a.precision?.pen ?? 999999;
-        valB = b.precision?.pen ?? 999999;
-        break;
-      case 'totalPenalty':
-        valA = a.totalPenalty ?? 999999;
-        valB = b.totalPenalty ?? 999999;
-        break;
-      default:
-        valA = 0; valB = 0;
-    }
-
-    if (valA < valB) return -1 * sortDir;
-    if (valA > valB) return 1 * sortDir;
-
-    // Tiebreak:
-    // 1. Om vi sorterar på 'totalPenalty' (vilket är standard för resultatlista), 
-    //    använd maratonstraff som skiljedom (lägst maratonstraff vinner).
-    if (sortKey === 'totalPenalty' && valA === valB) {
-      const mA = a.marathon?.totalPenalty ?? 999999;
-      const mB = b.marathon?.totalPenalty ?? 999999;
-      if (mA !== mB) {
-        return (mA - mB) * sortDir;
-      }
-    }
-
-    // 2. Fallback: Startnummer
-    return (Number(a.startNumber) - Number(b.startNumber)) * sortDir;
+  const viewData = buildDisplayedTotalRows(processedResults, {
+    activeClassFilters,
+    searchQuery,
+    equipages,
+    showOnlyCompleted,
+    showOnlyOngoing,
+    sortConfig
   });
 
   // Spara den slutgiltiga listan globalt så BÅDA vyerna kan läsa den
@@ -281,10 +194,6 @@ function render() {
     renderDesktop(); // Denna läser nu den uppdaterade __latestDisplayedRows
   }
 }
-
-// ======= Hjälp =======
-const byStart = (a, b) => (a.startNumber || 0) - (b.startNumber || 0);
-const safe = (o, p, def = null) => p.split('.').reduce((a, k) => (a && k in a) ? a[k] : undefined, o) ?? def;
 
 // --- STATUSIKONER ---
 function statusIcon(kind) {
@@ -313,79 +222,6 @@ function requestRecompute() {
     recompute();
   });
 }
-
-// ======= SAMMANSLAGNING: bygg "visningsgrupp" per ekipage/rad =======
-
-function resolveMergeGrouping(e, mergeCfg) {
-  // 1) Per-ekipage override (om satt vid import/adm)
-  if (e?.useMergedTestForDisplay && e?.mergedTestKey && e?.mergedTestLabel) {
-    return { key: String(e.mergedTestKey), label: String(e.mergedTestLabel) };
-  }
-
-  // 2) Global konfig via TDB-klassnummer
-  const groupsObj = mergeCfg?.mergeByClassNumber || {};
-  const num = (e?.tdbClassNumber != null) ? Number(e.tdbClassNumber) : null;
-  if (num != null) {
-    for (const [gKey, g] of Object.entries(groupsObj)) {
-      if (Array.isArray(g?.members) && g.members.includes(num)) {
-        const lbl = g?.label || e?.tdbClassLabel || e?.className || 'Sammanslagen klass';
-        return { key: String(gKey), label: String(lbl) };
-      }
-    }
-  }
-
-  // 3) Fallback: originalklass
-  const cls = e?.className || '—';
-  return { key: `CLASS:${cls}`, label: cls };
-}
-
-function groupEquipagesForDisplay(equipages = [], mergeCfg) {
-  const map = new Map();
-  for (const e of (equipages || [])) {
-    const g = resolveMergeGrouping(e, mergeCfg);
-    if (!map.has(g.key)) map.set(g.key, { key: g.key, label: g.label, items: [] });
-    map.get(g.key).items.push(e);
-  }
-  return Array.from(map.values())
-    .sort((a, b) => a.label.localeCompare(b.label, 'sv', { numeric: true, sensitivity: 'base' }));
-}
-
-function buildCsvFromRows(rows, delim = ',') {
-  const headers = [
-    t('startno'), t('driver'), t('class'), t('club'),
-    `${t('dressage')} (${t('penalty')})`, `${t('dressage')} %`,
-    `${t('marathon')} (${t('time')})`, `${t('marathon')} (${t('obs_penalty')})`, `${t('marathon')} (${t('total')})`,
-    `${t('precision')} (${t('penalty')})`,
-    t('total'), t('ranking'), t('elim')
-  ];
-
-  const exportRows = (rows || []).map(r => {
-    const eq = (equipages || []).find(e => String(e.startNumber) === String(r.startNumber)) || {};
-    return [
-      r.startNumber ?? '',
-      r.driverName ?? '',
-      r.className ?? '',
-      eq.clubName ?? '',
-      r?.dressage?.penalty != null ? r.dressage.penalty.toFixed(2) : '',
-      r?.dressage?.percentAvg != null ? r.dressage.percentAvg.toFixed(2) : '',
-      r?.marathon?.timePenalty != null ? r.marathon.timePenalty.toFixed(2) : '',
-      r?.marathon?.obstaclePenalty != null ? r.marathon.obstaclePenalty.toFixed(2) : '',
-      r?.marathon?.totalPenalty != null ? r.marathon.totalPenalty.toFixed(2) : '',
-      r?.precision?.pen != null ? r.precision.pen.toFixed(2) : '',
-      r?.totalPenalty != null ? r.totalPenalty.toFixed(2) : '',
-      r?.plac ?? '',
-      r?.isEliminated ? 'JA' : ''
-    ];
-  });
-
-  const comp = getGlobalState('currentCompetition');
-  const compName = sanitizeForFilename(comp?.name || 'tavling');
-  const date = new Date().toISOString().split('T')[0];
-  const filename = `total_resultat_${compName}_${date}.csv`;
-
-  downloadCsv(filename, headers, exportRows, delim);
-}
-
 
 // =================================================================
 // === KORREKT MARATONBERÄKNING (med rätt variabelnamn)         ===
@@ -703,84 +539,8 @@ function injectTotalResultsStyles() {
   style.textContent = css;
   document.head.appendChild(style);
 }
-
-
-
-
-// DELETED redundant local functions (marathonObstaclePenaltyFor, precisionPenaltyFor)
-
-// DELETED redundant local function (computeDressageForEquipage)
-
-function tiebreak(a, b) {
-  // 1. Marathon (lägst straff)
-  const ma = a.marathon?.totalPenalty ?? Infinity;
-  const mb = b.marathon?.totalPenalty ?? Infinity;
-  if (Math.abs(ma - mb) > 1e-6) return ma - mb;
-
-  // 2. Dressyr (lägst straff) - FEI Rule
-  const da = a.dressage?.penalty ?? Infinity;
-  const db = b.dressage?.penalty ?? Infinity;
-  if (Math.abs(da - db) > 1e-6) return da - db;
-
-  // 3. Marathon secondary tie-breaker: Obstacle Penalty Sum
-  const msa = a.marathon?.obstaclePenaltySum ?? 0;
-  const msb = b.marathon?.obstaclePenaltySum ?? 0;
-  if (Math.abs(msa - msb) > 1e-6) return msa - msb;
-
-  // 3b. Marathon tertiary tie-breaker: Obstacle Times sequence
-  const mta = a.marathon?.obstacleTimes || [];
-  const mtb = b.marathon?.obstacleTimes || [];
-  const maxM = Math.max(mta.length, mtb.length);
-  for (let i = 0; i < maxM; i++) {
-    const ta = mta[i] || 0;
-    const tb = mtb[i] || 0;
-    if (Math.abs(ta - tb) > 1e-6) return ta - tb;
-  }
-
-  // 4. Dressyr secondary tie-breaker: General Impressions (total points)
-  const dga = a.dressage?.generalImpressionsSum ?? 0;
-  const dgb = b.dressage?.generalImpressionsSum ?? 0;
-  if (Math.abs(dga - dgb) > 1e-6) return dgb - dga; // Higher is better for general points
-
-  // 3. Precision (lägst straff)
-  const pa = a.precision?.pen ?? Infinity;
-  const pb = b.precision?.pen ?? Infinity;
-  if (Math.abs(pa - pb) > 1e-6) return pa - pb;
-
-  // 3b. Precision secondary tie-breaker: Time closest to allowed time
-  const pda = a.precision?.timeDiffFromAllowed ?? Infinity;
-  const pdb = b.precision?.timeDiffFromAllowed ?? Infinity;
-  if (Math.abs(pda - pdb) > 1e-6) return pda - pdb;
-
-  // 4. Startnummer (fallback)
-  return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
-}
-
 function placeWithinClass(rows) {
-  const byGroup = new Map();
-  rows.forEach(r => {
-    const gk = r.displayGroupKey || `CLASS:${r.className || '—'}`;
-    if (!byGroup.has(gk)) byGroup.set(gk, []);
-    byGroup.get(gk).push(r);
-  });
-  const out = [];
-  for (const [gk, arr] of byGroup) {
-    arr.sort((a, b) => {
-      const A = a.totalPenalty, B = b.totalPenalty;
-      if (a.isEliminated !== b.isEliminated) { return a.isEliminated ? 1 : -1; }
-      if (A == null && B == null) return byStart(a, b);
-      if (A == null) return 1;
-      if (B == null) return -1;
-      if (A !== B) return A - B;
-      return tiebreak(a, b);
-    });
-    let place = 1;
-    arr.forEach(r => {
-      r.plac = (!r.isEliminated && r.totalPenalty != null) ? place++ : null;
-    });
-    out.push(...arr);   // ← rätt
-  }
-  return out;
+  return placeTotalRowsWithinClass(rows);
 }
 
 function renderDesktop() {
@@ -868,12 +628,12 @@ function renderDesktop() {
     const dIco = statusIcon(r.dressageStatus || 'missing');
     const isDressRunning = r.dressageStatus === 'ongoing' || r.dressageStatus === 'pågår';
     const dLive = isDressRunning ? '<span class="live-dot"></span>' : '';
-    const dTextRaw = r.dressage?.penalty == null ? '—' : r.dressage.penalty.toFixed(2);
+    const dTextRaw = formatTotalResultPenalty(r.dressage?.penalty, { eliminated: isTotalDisciplineEliminated(r, 'dressage') });
     const dText = `<div class="res-val">${isBestDressage ? `<span class="font-bold text-green-700 dark:text-green-400">${dTextRaw}</span>` : dTextRaw}</div>${dLive}${dPlacHtml}`;
 
     const isMarRunning = r.marathonStatus === 'ongoing' || r.marathonStatus === 'pågår';
     const mLive = isMarRunning ? '<span class="live-dot"></span>' : '';
-    const mText = `<div class="res-val">${r.marathon?.totalPenalty == null ? '—' : r.marathon.totalPenalty.toFixed(2)}</div>${mLive}${mPlacHtml}`;
+    const mText = `<div class="res-val">${formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') })}</div>${mLive}${mPlacHtml}`;
     const mIco = statusIcon(r.marathonStatus || 'missing');
 
     // const obstAgg = marathonObstacleMap.get(String(r.startNumber)) || {}; // RAW lookup removed
@@ -916,7 +676,7 @@ function renderDesktop() {
          </div>`
       : '';
 
-    const pMain = (pPen == null ? '—' : pPen.toFixed(2));
+    const pMain = formatTotalResultPenalty(pPen, { eliminated: isTotalDisciplineEliminated(r, 'precision') });
     const pText = `<div class="res-val">${pMain}</div>${pLive}${pPlacHtml}${pMini}`;
 
     const diff = (!isPrintExport && r.diffFromLeader != null && r.diffFromLeader > 0)
@@ -925,9 +685,9 @@ function renderDesktop() {
     const nextMini = (!isPrintExport && r.diffFromNext != null && r.diffFromNext > 0)
       ? `<div class="text-[10px] leading-3 text-gray-500" title="${t('legend_diff_next')}">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
 
-    const tot = `<div class="res-val font-bold text-blue-900 dark:text-blue-300">${r.totalPenalty == null ? '—' : r.totalPenalty.toFixed(2)}</div>`;
+    const tot = `<div class="res-val font-bold text-blue-900 dark:text-blue-300">${formatTotalResultPenalty(r.totalPenalty, { eliminated: r.isEliminated })}</div>`;
 
-    const dPct = r.dressage?.percent == null ? '' : ` <div class="res-pos">(${r.dressage.percent.toFixed(2)}%)</div>`;
+    const dPct = formatTotalResultPercent(r.dressage?.percent);
 
     const rowCls = r.isEliminated ? 'bg-red-50 dark:bg-red-900/30' : (i % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-700');
 
@@ -1107,45 +867,10 @@ function renderTeams() {
     return;
   }
 
-  // Calculate Best Scores across all teams (ignoring eliminated if that's the rule, but usually 'best dressage' can be anyone. Let's assume non-eliminated for 'best total', but individual phases can be best regardless? Let's stick to valid teams for now to avoid confusion).
-  // Actually, let's find the min score for each discipline among ALL teams that have a score > 0 (to avoid 0s from empty teams if any).
-  let minDress = Infinity, minMar = Infinity, minPrec = Infinity;
-
-  processedTeams.forEach(t => {
-    // Only count VALID teams for "Best in Discipline" to avoid partial sums from ELIM teams stealing the highlight
-    if (!t.isEliminated) {
-      if (Number.isFinite(t.dressage)) minDress = Math.min(minDress, t.dressage);
-      if (Number.isFinite(t.marathon)) minMar = Math.min(minMar, t.marathon);
-      if (Number.isFinite(t.precision)) minPrec = Math.min(minPrec, t.precision);
-    }
-  });
+  const teamBests = buildTeamDisciplineBests(processedTeams);
 
   // Render Table
   const rows = processedTeams.map((team, idx) => {
-    const isFirst = idx === 0 && !team.isEliminated;
-    const isSecond = idx === 1 && !team.isEliminated;
-    const isThird = idx === 2 && !team.isEliminated;
-
-    let rankBadge = '';
-    if (team.isEliminated) {
-      rankBadge = '<span class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-bold uppercase tracking-wider">ELIM</span>';
-    } else if (isFirst) {
-      rankBadge = '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="1:a plats">🥇</div>';
-    } else if (isSecond) {
-      rankBadge = '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="2:a plats">🥈</div>';
-    } else if (isThird) {
-      rankBadge = '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="3:e plats">🥉</div>';
-    } else {
-      rankBadge = `<div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-gray-700 text-blue-800 dark:text-gray-200 font-bold flex items-center justify-center text-sm">${team.rank || '-'}</div>`;
-    }
-
-    // Check for "Best in Discipline" (Gold underline/text)
-    const isBestDress = (!team.isEliminated || team.dressage > 0) && Math.abs(team.dressage - minDress) < 0.01;
-    const isBestMar = (!team.isEliminated || team.marathon > 0) && Math.abs(team.marathon - minMar) < 0.01;
-    const isBestPrec = (!team.isEliminated || team.precision > 0) && Math.abs(team.precision - minPrec) < 0.01;
-
-    const highlightClass = "text-amber-600 dark:text-amber-400 font-extrabold";
-
     // Resolve Team Assets (Logo/Flag)
     let teamAssetHtml = '';
     const clubUrl = getClubLogoUrl(team.teamName);
@@ -1160,116 +885,24 @@ function renderTeams() {
 
     // Member details
     const membersHtml = team.members.map(m => {
-      const statusIcon = m.eliminated ? '<i class="fas fa-times text-red-500"></i>' : (m.isCounting ? '<i class="fas fa-check-circle text-green-600 dark:text-green-500"></i>' : '<span class="text-gray-300 dark:text-gray-600">•</span>');
-
-      const scoreTotal = m.eliminated ? 'ELIM' : m.penalty.toFixed(2);
-      const scoreDress = m.eliminated ? '-' : m.dressage.toFixed(2);
-      const scoreMar = m.eliminated ? '-' : m.marathon.toFixed(2);
-      const scorePrec = m.eliminated ? '-' : m.precision.toFixed(2);
-
-      const isCountingClass = m.isCounting ? 'font-semibold text-gray-900 dark:text-gray-100' : 'text-gray-400 dark:text-gray-500 italic';
-      const cellClass = "text-right p-1";
-
-      // Resolve Member Assets
-      // We need to look up the full equipage to get club/country
       const eq = equipages.find(e => String(e.startNumber) === String(m.startNumber));
-      const mFlag = getFlagHtml(eq);
-      const mClubLogo = getClubLogoHtml(eq, { className: 'inline-block h-4 w-auto ml-1 align-sub opacity-80', style: '' });
-
-      return `
-        <div class="grid grid-cols-12 gap-2 text-sm py-2 border-b dark:border-gray-700/50 last:border-0 border-gray-100 items-center hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" data-start="${m.startNumber}" role="button">
-           <div class="col-span-4 flex items-center gap-2 overflow-hidden pl-2">
-             <span class="w-5 text-center flex-shrink-0">${statusIcon}</span>
-             <div class="flex flex-col truncate">
-                <span class="${isCountingClass} truncate">
-                  ${mFlag} ${m.name}
-                </span>
-                <span class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                  #${m.startNumber} ${eq?.clubName || ''} ${mClubLogo}
-                </span>
-             </div>
-           </div>
-           
-           <div class="col-span-2 ${cellClass} ${isCountingClass}">${scoreDress}</div>
-           <div class="col-span-2 ${cellClass} ${isCountingClass}">${scoreMar}</div>
-           <div class="col-span-2 ${cellClass} ${isCountingClass}">${scorePrec}</div>
-           <div class="col-span-2 ${cellClass} font-bold ${m.isCounting ? 'text-gray-800 dark:text-gray-200' : 'text-gray-400'}">${scoreTotal}</div>
-        </div>
-      `;
+      return renderTeamMemberRow(m, {
+        flagHtml: getFlagHtml(eq),
+        clubLogoHtml: getClubLogoHtml(eq, { className: 'inline-block h-4 w-auto ml-1 align-sub opacity-80', style: '' }),
+        clubName: eq?.clubName || ''
+      });
     }).join('');
 
-    // Card styling
-    // Highlight top 3 cards slightly?
-    const cardBorder = isFirst ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50' : 'dark:border-gray-700';
-
-    return `
-      <div class="mb-6 rounded-xl border ${cardBorder} shadow-sm bg-white dark:bg-gray-800 overflow-hidden transition-all hover:shadow-md">
-        <!-- HEADER -->
-        <div class="flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-700/40 border-b dark:border-gray-700">
-          <div class="flex items-center gap-4">
-            ${rankBadge}
-            <div class="flex items-center">
-                ${teamAssetHtml}
-                <div>
-                    <h3 class="font-bold text-lg text-gray-900 dark:text-white leading-tight">${team.teamName}</h3>
-                    ${team.isEliminated ? '' : `<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide font-medium">Lagtotal</div>`}
-                </div>
-            </div>
-          </div>
-          <div class="text-right">
-            <div class="font-black text-2xl text-blue-900 dark:text-blue-300 tracking-tight">
-                ${team.isEliminated ? 'ELIM' : team.total.toFixed(2)}
-            </div>
-          </div>
-        </div>
-        
-        <div class="p-0">
-          <!-- Column Headers -->
-          <div class="grid grid-cols-12 gap-2 px-2 py-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider bg-gray-50/50 dark:bg-gray-800/50 border-b dark:border-gray-700/50">
-            <div class="col-span-4 pl-9">Ekipage</div>
-            <div class="col-span-2 text-right">Dressyr</div>
-            <div class="col-span-2 text-right">Maraton</div>
-            <div class="col-span-2 text-right">Precision</div>
-            <div class="col-span-2 text-right">Totalt</div>
-          </div>
-
-          <div class="px-2">
-            ${membersHtml}
-          </div>
-
-          <!-- Team Sums (Footer) -->
-          <div class="grid grid-cols-12 gap-2 px-2 py-3 text-sm border-t dark:border-gray-600/50 mt-0 bg-blue-50/50 dark:bg-blue-900/10 text-gray-900 dark:text-gray-100">
-            <div class="col-span-4 text-right pr-2 font-bold self-center text-blue-900 dark:text-blue-200">Bästa 3 (Summa):</div>
-            
-            <div class="col-span-2 text-right font-bold ${isBestDress ? highlightClass : ''}" title="${isBestDress ? 'Bästa lagdressyr (för godkända lag)' : ''}">
-                ${team.isEliminated ? '-' : team.dressage.toFixed(2)}
-                ${isBestDress ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
-            </div>
-            
-            <div class="col-span-2 text-right font-bold ${isBestMar ? highlightClass : ''}" title="${isBestMar ? 'Bästa lagmaraton (för godkända lag)' : ''}">
-                ${team.isEliminated ? '-' : team.marathon.toFixed(2)}
-                ${isBestMar ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
-            </div>
-            
-            <div class="col-span-2 text-right font-bold ${isBestPrec ? highlightClass : ''}" title="${isBestPrec ? 'Bästa lagprecision (för godkända lag)' : ''}">
-                ${team.isEliminated ? '-' : team.precision.toFixed(2)}
-                ${isBestPrec ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
-            </div>
-            
-            <div class="col-span-2 text-right font-black text-blue-900 dark:text-blue-300">
-                ${team.isEliminated ? '-' : team.total.toFixed(2)}
-            </div>
-          </div>
-
-        </div>
-      </div>
-    `;
+    return renderTeamCard(team, {
+      index: idx,
+      teamBests,
+      teamAssetHtml,
+      membersHtml
+    });
   }).join('');
 
   container.innerHTML = `<div class="max-w-4xl mx-auto mt-6">${rows}</div>`;
 }
-
-// (DELETED redundant help panel functions)
 
 function renderLayout() {
   const competition = getGlobalState('currentCompetition');
@@ -1436,7 +1069,12 @@ function renderLayout() {
   const btnExport = document.getElementById('exportCsvBtn');
   if (btnExport) {
     btnExport.addEventListener('click', () => {
-      buildCsvFromRows(__latestDisplayedRows, ';');
+      downloadTotalCsv({
+        rows: __latestDisplayedRows,
+        equipages,
+        competitionName: getGlobalState('currentCompetition')?.name || 'tavling',
+        translate: t
+      }, ';');
     });
   }
 
@@ -1528,10 +1166,10 @@ function renderMobile() {
         lastClass = r.className;
       }
 
-      const totalLabel = r.isEliminated ? `<span class="text-red-600 dark:text-red-400 font-bold">${r.elimReason || 'ELIM'}</span>` : (r.totalPenalty != null ? `${r.totalPenalty.toFixed(2)}` : '—');
-      const dressyrLabel = r.dressage?.penalty != null ? `${r.dressage.penalty.toFixed(2)}` : '—';
-      const maratonLabel = r.marathon?.totalPenalty != null ? `${r.marathon.totalPenalty.toFixed(2)}` : '—';
-      const precisionLabel = r.precision?.pen != null ? `${r.precision.pen.toFixed(2)}` : '—';
+      const totalLabel = r.isEliminated ? `<span class="text-red-600 dark:text-red-400 font-bold">${r.elimReason || 'ELIM'}</span>` : formatTotalResultPenalty(r.totalPenalty);
+      const dressyrLabel = formatTotalResultPenalty(r.dressage?.penalty, { eliminated: isTotalDisciplineEliminated(r, 'dressage') });
+      const maratonLabel = formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') });
+      const precisionLabel = formatTotalResultPenalty(r.precision?.pen, { eliminated: isTotalDisciplineEliminated(r, 'precision') });
       const statusKind = r.isEliminated ? 'elim' : (r.totalPenalty != null ? 'ok' : 'missing');
 
       // 2. Placement Coloring Logic
@@ -1641,7 +1279,7 @@ function setSort(key) {
 
 async function recompute() {
   const allPrograms = getPrograms();
-  const marathonConfig = window.marathonConfig || {}; // Säkra config
+  const activeMarathonConfig = window.marathonConfig || marathonConfig || {};
 
   const rows = equipages
     .filter(e => {
@@ -1652,248 +1290,71 @@ async function recompute() {
     })
     .map(e => {
       const sn = String(e.startNumber);
-      const cls = e.className || '';
 
       const rawProtocols = dressageMap.get(sn) || [];
       const marDoc = marathonObstacleMap.get(sn) || {};
       const timeDocRaw = lastSeenMarathonDurations.get(sn) || marathonTimeMap.get(sn) || {};
 
-      // [FIX] Merge marDoc into timeDoc because maraton-resultat.js uses a single merged state.
-      // Manual times or status-based times might be in marDoc (from 'maraton' collection).
-      // We MUST prioritize marDoc (state) over timeDocRaw (timing) to ensure manual edits persist.
-      const timeDoc = { ...timeDocRaw, ...marDoc };
-
       const precDoc = precisionMap.get(sn) || {};
 
-      // ANVÄND CENTRAL SERVICE FÖR ALLA BERÄKNINGAR
-      const res = calculateTotalResult(
-        e,
+      return buildTotalResultRow({
+        equipage: e,
         rawProtocols,
-        { obstacleData: marDoc, timeData: timeDoc },
-        precDoc,
-        marathonConfig,
+        marDoc,
+        timeDocRaw,
+        precisionDoc: precDoc,
+        allPrograms,
+        judges: allCompetitionJudges,
+        marathonConfig: activeMarathonConfig,
         precisionConfig,
-        dressagePrograms, // Passa programmen så vi kan slå upp koefficienter
-        allOfficials // Skicka med, om vi behöver kolla domare/funktionärer i framtiden
-      );
-
-      // Spara ner programnamn för debug/visning
-      const currentProgramKey = guessProgramKeyFromClass(e.className, e.programId);
-      const programDef = allPrograms[currentProgramKey];
-      if (programDef) {
-        res.programName = programDef.name; // Bra för debug
-      }
-      const g = resolveMergeGrouping(e, displayConfig);
-
-      return {
-        id: e.id,
-        startNumber: e.startNumber,
-        driverName: e.driverName || e.name || '',
-        clubName: e.clubName || '',
-        className: cls,
-        displayGroupKey: g.key,
-        displayGroupLabel: g.label,
-
-        // Mappa om objektet till sidans format (service ger {penalty, percent} etc)
-        // Service returnerar { dressage: {...}, marathon: {...}, precision: {...}, totalPenalty, isEliminated, eliminatedProp }
-
-        dressage: {
-          penalty: res.dressage.judgePenalty, // Domarpoäng (om vi vill visa det separat?) Eller total? 
-          // Sidan förväntar sig nog "penalty" som totalen inkl koefficient, vilket calculateDressageResult.penalty ÄR (inkl felkörning).
-          // Men calculateTotalResult.dressage innehåller resultatet från calculateDressageResult.
-          // calculateDressageResult returnerar { penalty, judgePenalty, percent, ... }
-          // Sidan använder d.penalty (line 1208).
-          ...res.dressage
-        },
-        // Sidan vill ha "dressageStatus". calculateTotalResult returnerar status-strängar också?
-        // Nej, calculateTotalResult returnerar bara objekt. Vi får kanske ut status via helpers eller om servicen ger det.
-        // Sidan beräknar statusIcon(r.dressageStatus) i render. 
-        // Vi behöver sätta .dressageStatus på RESULTATET.
-
-        // Vi lägger till status-analys här (eller i service, men servicen är ren beräkning).
-        // Mapping status based on available properties from calculation service result objects
-        dressageStatus: (res.dressage.penalty != null || res.dressage.percent != null) ? 'finished' : 'missing',
-        // Marathon utils returns a 'status' string ("Klar", "Färdig", "Pågår" etc)
-        marathonStatus: (res.marathon.status === 'Klar' || res.marathon.status === 'Färdig' || res.marathon.status === 'Eliminerad') ? 'finished' : (res.marathon.status === 'Pågår' ? 'ongoing' : 'missing'),
-        // Precision utils returns 'status' string ("Klar", "Pågår")
-        precisionStatus: (res.precision.status === 'Klar' || res.precision.status === 'Utesluten') ? 'finished' : ((res.precision.status === 'Pågår' || res.precision.running) ? 'ongoing' : 'missing'),
-
-        marathon: {
-          ...res.marathon,
-          totalPenalty: res.marathon.totalPenalty
-        },
-        precision: {
-          ...res.precision,
-          pen: res.precision.totalPenalty
-        },
-
-        totalPenalty: res.totalPenalty,
-        isEliminated: res.isEliminated,
-        elimReason: res.elimReason,
-
-        isOngoing: res.isOngoing,
-        plac: null // Räknas ut senare
-      };
-    });
-
-  // Placering per gren inom klass
-  function rankWithinClass(baseRows, valuePicker, outField, higherIsBetter = false) {
-    const byClass = new Map();
-    baseRows.forEach(r => {
-      const cls = r.className || '—';
-      if (!byClass.has(cls)) byClass.set(cls, []);
-      byClass.get(cls).push(r);
-    });
-
-    for (const [cls, arr] of byClass) {
-      // sortera giltiga (icke-elim och har siffra) efter värde
-      const valid = arr
-        .filter(r => {
-          const v = valuePicker(r);
-          const elim = !!(r.isEliminated);
-          return !elim && Number.isFinite(v);
-        })
-        .sort((a, b) => {
-          const va = valuePicker(a), vb = valuePicker(b);
-          return higherIsBetter ? (vb - va) : (va - vb);
-        });
-
-      let place = 1;
-      let lastVal = undefined;
-      valid.forEach(r => {
-        const v = valuePicker(r);
-        if (lastVal === undefined || v !== lastVal) {
-          // ny plats om värdet skiljer sig (enkel tie-hantering)
-        }
-        r[outField] = place++;
-        lastVal = v;
+        displayConfig,
+        calculateTotalResult,
+        resolveMergeGrouping: resolveTotalMergeGrouping
       });
-    }
-  }
-
-  // Dressyr: lägre straff är bättre
-  rankWithinClass(rows, r => r?.dressage?.penalty, 'posDress', false);
-
-  // Maraton: lägre total maratonstraff är bättre
-  rankWithinClass(rows, r => r?.marathon?.totalPenalty, 'posMar', false);
-
-  // Precision: lägre straff är bättre
-  rankWithinClass(rows, r => r?.precision?.pen, 'posPrec', false);
-
-
-  processedResults = placeWithinClass(rows);
-
-  // Beräkna diff till ledare OCH till närmast framförvarande (inom klass)
-  const groupsByClass = new Map();
-  for (const r of processedResults) {
-    const gk = r.displayGroupKey || `CLASS:${r.className || '—'}`;
-    if (!groupsByClass.has(gk)) groupsByClass.set(gk, []);
-    groupsByClass.get(gk).push(r);
-  }
-
-  groupsByClass.forEach(arr => {
-    // arr är redan sorterad av placeWithinClass
-    // diffFromLeader
-    const leader = arr.find(x => !x.isEliminated && Number.isFinite(x.totalPenalty));
-    arr.forEach(x => {
-      x.diffFromLeader = (!leader || x.isEliminated || !Number.isFinite(x.totalPenalty))
-        ? null
-        : round2(x.totalPenalty - leader.totalPenalty);
     });
 
-    // diffFromNext (till närmast bättre)
-    for (let i = 0; i < arr.length; i++) {
-      const r = arr[i];
-      if (r.isEliminated || !Number.isFinite(r.totalPenalty)) { r.diffFromNext = null; continue; }
-      let j = i - 1, found = null;
-      while (j >= 0) {
-        const cand = arr[j];
-        if (!cand.isEliminated && Number.isFinite(cand.totalPenalty)) { found = cand; break; }
-        j--;
-      }
-      r.diffFromNext = found ? round2(r.totalPenalty - found.totalPenalty) : null;
-    }
-  });
+  applyTotalDisciplinePlacements(rows);
+  processedResults = placeWithinClass(rows);
+  applyTotalResultDiffs(processedResults);
 
-  // Status per gren (för ikon i tabellen)
-  processedResults.forEach(r => {
-    // Dressyr
-    if (r.isEliminated) r.dressageStatus = 'elim';
-    else if (r?.dressage?.penalty != null || r?.dressage?.percentAvg != null) r.dressageStatus = 'ok';
-    else r.dressageStatus = 'missing';
+  applyTotalDisciplineStatuses(processedResults);
 
-    // Maraton
-    if (r.isEliminated) r.marathonStatus = 'elim';
-    else if (r?.marathon?.totalPenalty != null) r.marathonStatus = 'ok';
-    else if (r?.marathon?.timePenalty != null || r?.marathon?.obstaclePenalty != null) r.marathonStatus = 'partial';
-    else r.marathonStatus = 'missing';
-
-    // Precision
-    if (r?.precision?.eliminated) r.precisionStatus = 'elim';
-    else if (r?.precision?.pen != null) r.precisionStatus = 'ok';
-    else r.precisionStatus = 'missing';
-  });
-
-
-  // Bästa dressyr per klass
   bestDressageByClass.clear();
-  processedResults.forEach(r => {
-    const key = r.displayGroupKey || `CLASS:${r.className || '—'}`;
-    const pct = r.dressage?.percentAvg;
-    if (typeof pct === 'number') {
-      const cur = bestDressageByClass.get(key);
-      if (cur == null || pct > cur) bestDressageByClass.set(key, pct);
-    }
+  buildBestDressageByGroup(processedResults).forEach((percent, groupKey) => {
+    bestDressageByClass.set(groupKey, percent);
   });
 
-  // === TEAM CALCULATION [NEW] ===
-  processedTeams = calculateTeamResults(rawTeams, processedResults);
+  processedTeams = buildProcessedTotalTeams({
+    rawTeams,
+    processedResults,
+    calculateTeamResults
+  });
 
   render();
 }
 
-// DELETED primeDressage - handled by listeners and recompute
-
 function attachListeners() {
   // 1) Dressyr - NU COLLECTION GROUP (Ersätter N separata lyssnare)
   unsub.push(listenForDressageProtocolsCollectionGroup(competitionId, equipages, (docs) => {
-    // Gruppera docs efter startNumber
-    const grouped = new Map();
-    docs.forEach(d => {
-      const sn = String(d.startNumber);
-      if (!grouped.has(sn)) grouped.set(sn, []);
-      grouped.get(sn).push(d);
-    });
-
-    // Uppdatera dressageMap
-    dressageMap.clear();
-    grouped.forEach((list, sn) => dressageMap.set(sn, list));
+    replaceMapContents(dressageMap, groupDocsByStartNumber(docs));
     requestRecompute();
   }));
 
   // 2) Precision - Collection-nivå
   unsub.push(listenForPrecisionResults(competitionId, (docs) => {
-    precisionMap.clear();
-    docs.forEach(d => precisionMap.set(String(d.id || d.startNumber), d));
+    replaceMapContents(precisionMap, mapRowsByStartNumber(docs));
     requestRecompute();
   }));
 
   // 3) Maraton (Hinder) - NU COLLECTION-NIVÅ
   unsub.push(listenForMaratonCollection(competitionId, (docs) => {
-    marathonObstacleMap.clear();
-    docs.forEach(d => marathonObstacleMap.set(String(d.id), d));
+    replaceMapContents(marathonObstacleMap, mapRowsByStartNumber(docs));
     requestRecompute();
   }));
 
   // 4) Maraton-tider (live) - COLLECTION-NIVÅ
   unsub.push(listenForMarathonTimingUpdates(competitionId, (docs) => {
-    const list = Array.isArray(docs) ? docs : (Array.isArray(docs?.docs) ? docs.docs : Object.values(docs || {}));
-    marathonTimeMap.clear();
-    for (const doc of list) {
-      const data = typeof doc.data === 'function' ? doc.data() : doc;
-      const id = doc.id || data.id || data.startNumber;
-      if (id) marathonTimeMap.set(String(id), data);
-    }
+    replaceMapContents(marathonTimeMap, normalizeTimingDocs(docs));
     requestRecompute();
   }));
 
@@ -1903,9 +1364,10 @@ function attachListeners() {
   }));
   unsub.push(listenForJudges(competitionId, (judges) => {
     allCompetitionJudges = judges || [];
+    requestRecompute();
   }));
 
-  // 6. Teams [NEW]
+  // 6. Teams
   unsub.push(listenForTeams(competitionId, (teams) => {
     rawTeams = teams;
     requestRecompute();
@@ -1917,10 +1379,7 @@ function attachListeners() {
 async function refreshMarathonTimes() {
   if (!competitionId) return;
   const map = await getMarathonTimingData(competitionId);
-  marathonTimeMap.clear();
-  map.forEach((data, id) => {
-    marathonTimeMap.set(String(id), data);
-  });
+  replaceMapContents(marathonTimeMap, normalizeTimingDocs(map));
   requestRecompute();
 }
 
@@ -1928,10 +1387,11 @@ async function refreshMarathonTimes() {
 export async function load(el) {
 
   // Lyssnare för att hantera rotation/resize (växla mellan kort/tabell)
-  window.addEventListener('resize', () => {
-    // Debounce behövs knappt för enkel render-omritning, men vi kör direkt
-    render();
-  });
+  if (totalResultsResizeHandler) {
+    window.removeEventListener('resize', totalResultsResizeHandler);
+  }
+  totalResultsResizeHandler = () => render();
+  window.addEventListener('resize', totalResultsResizeHandler, { passive: true });
 
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id || null;
@@ -1954,7 +1414,7 @@ export async function load(el) {
       getConfig(competitionId, 'display'),
       getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
       getConfig(competitionId, 'competitionMeta').catch(() => ({})),
-      ensureClubLogosLoaded()
+      ensureClubLogosLoaded(competitionId)
     ]);
 
     const cfg = {
@@ -2045,9 +1505,14 @@ function getDurationSec(row, section) {
 }
 
 export function __unload() {
+  if (totalResultsResizeHandler) {
+    try { window.removeEventListener('resize', totalResultsResizeHandler); } catch { }
+    totalResultsResizeHandler = null;
+  }
+
   // 1) Stoppa lyssnare (Använder 'unsub'-arrayen som definierades i toppen)
   if (Array.isArray(unsub)) {
-    unsub.forEach(u => u && typeof u === 'function' && u());
+    unsubscribeAll(unsub);
     unsub = [];
   }
 

@@ -1,5 +1,8 @@
 import { getGlobalState, setGlobalState } from '../main.js';
+import { getPageUnloadFunction, isStaleNavigation } from './navigationLifecycleUtils.js';
+
 let __currentPageModule = null; // spåra aktiv modul
+let __navigationId = 0;
 
 const pagePermissions = {
   'page-hub': ['publik', 'funktionar', 'domare', 'admin'],
@@ -76,6 +79,7 @@ const pageLoaders = {
 let pageInitializers = {};
 
 export async function navigateTo(hash) {
+  const navigationId = ++__navigationId;
   const normalizedHash = hash || '#hub';
   const routeHash = normalizedHash.split('?')[0];
   const pageKey = routeHash.substring(1) || 'hub';
@@ -124,15 +128,17 @@ export async function navigateTo(hash) {
     pageInitializers = {};
   }
 
-  // 🔴 Viktigt: städa föregående sida innan vi laddar nästa
+  // Viktigt: städa föregående sida innan vi laddar nästa.
   try {
-    if (__currentPageModule && typeof __currentPageModule.__unload === 'function') {
-      __currentPageModule.__unload();
-    }
+    const unload = getPageUnloadFunction(__currentPageModule);
+    if (unload) unload();
   } catch (e) {
     console.warn('Kunde inte städa föregående sida:', e);
   }
-  // extra säkerhet om någon sida glömt teardown för x-bar
+  __currentPageModule = null;
+  window.__currentPageModule = null;
+
+  // Extra säkerhet om någon sida glömt teardown för x-bar.
   try { window.__teardownXbarSync?.(); } catch { }
 
   document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
@@ -144,9 +150,18 @@ export async function navigateTo(hash) {
   if (loader) {
     try {
       const pageModule = await loader();
+      if (isStaleNavigation(navigationId, __navigationId)) return;
+
       if (pageModule && typeof pageModule.load === 'function') {
         const pageElement = document.getElementById(pageId);
         await pageModule.load(pageElement);
+
+        if (isStaleNavigation(navigationId, __navigationId)) {
+          const unload = getPageUnloadFunction(pageModule);
+          if (unload) unload();
+          return;
+        }
+
         __currentPageModule = pageModule; // spara aktiv modul för nästa teardown
         // gör även globalt (om någon annan vill städa)
         window.__currentPageModule = pageModule;

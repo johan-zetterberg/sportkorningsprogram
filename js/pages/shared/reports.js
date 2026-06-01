@@ -12,6 +12,11 @@ import {
     isPrivileged,
     resolveCurrentCompId
 } from '../../utils/sharedUtils.js';
+import {
+    formatMarathonExternalOtherPenalty,
+    formatMarathonPenaltyExportValue,
+    localizeCsvDecimal
+} from '../../utils/marathonExportUtils.js';
 
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { generateDressagePdf, generateDressageListPdf, generateDressageOfficialsPdf } from '../../pdf/dressagePdf.js';
@@ -24,6 +29,14 @@ import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeD
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { calculateDressageResult } from '../../services/calculationService.js'; // [NEW] // [NEW]
+import {
+    filterReportData,
+    formatReportCsvPenalty,
+    formatReportCsvPercent,
+    getReportClassOptions,
+    getReportDisplayClass,
+    getReportHorseNames
+} from './reportsExportUtils.js';
 
 // Global strings for CSV
 const SEPARATOR = ';';
@@ -51,9 +64,10 @@ export async function load() {
 
     render(); // Initial render (loading state?)
 
+    const eqs = await getEquipages(competitionId);
+
     // 1. Fetch Configs & Data in parallel
     const [
-        eqs,
         dStatus,
         mTiming, // Now a Map
         mState,  // [NEW] Manual state/times (Map)
@@ -66,7 +80,6 @@ export async function load() {
         tms, // [NEW] Teams
         dProtocols // [NEW] Dressage Protocols
     ] = await Promise.all([
-        getEquipages(competitionId),
         getDressageStatusCollection(competitionId),
         getMarathonTimingData(competitionId),
         getMarathonStateDocuments(competitionId), // [NEW]
@@ -77,7 +90,7 @@ export async function load() {
         getConfig(competitionId, 'startTimes'),
         getConfig(competitionId, 'competitionMeta').catch(() => ({})),
         getTeams(competitionId), // [NEW] Fetch teams
-        getAllDressageProtocols(competitionId, await getEquipages(competitionId)) // [NEW] Fetch protocols (parallel safe)
+        getAllDressageProtocols(competitionId, eqs) // [NEW] Fetch protocols
     ]);
 
     equipages = eqs;
@@ -229,7 +242,7 @@ function render() {
     const loading = !equipages || !equipages.length;
 
     // Extract unique classes
-    const uniqueClasses = [...new Set(equipages.map(e => e.className).filter(Boolean))].sort();
+    const uniqueClasses = getReportClassOptions(reportRows.length ? reportRows : equipages);
 
     page.innerHTML = `
     <div class="container mx-auto p-4 md:p-8">
@@ -390,16 +403,11 @@ function render() {
 
 function getFilteredData() {
     const filterVal = document.getElementById('report-class-filter')?.value;
-    if (!filterVal) return { eqs: equipages, rows: reportRows };
-    return {
-        eqs: equipages.filter(e => e.className === filterVal),
-        rows: reportRows.filter(r => r.className === filterVal)
-    };
+    return filterReportData({ rows: reportRows, equipages, filterClass: filterVal });
 }
 
 function getHorseNames(eq) {
-    if (!eq) return '';
-    return (eq.horses || []).map(h => h.name).join(', ');
+    return getReportHorseNames(eq);
 }
 
 window.reports_generateStartListPdf = function (type) {
@@ -433,7 +441,7 @@ window.reports_generateStartListCsv = function () {
     const rows = eqs.map(e => [
         e.startNumber,
         e.driverName,
-        e.className,
+        getReportDisplayClass(e),
         e.clubName,
         getHorseNames(e)
     ]);
@@ -476,11 +484,11 @@ window.reports_generateDressageCsv = function () {
         return [
             r.startNumber,
             r.driverName,
-            r.className,
+            getReportDisplayClass(r),
             getHorseNames(r),
             '—', '—', '—',
-            d.penalty !== null ? String(d.penalty).replace('.', ',') : (d.eliminated ? 'ELIM' : ''),
-            d.percent !== null ? String(d.percent).replace('.', ',') + '%' : ''
+            formatReportCsvPenalty(d.penalty, { eliminated: d.eliminated }),
+            formatReportCsvPercent(d.percent, { eliminated: d.eliminated })
         ];
     });
     downloadCsv(`dressyr_resultat_${competitionId}.csv`, headers, rows);
@@ -531,18 +539,20 @@ window.reports_generateMarathonObstaclePdf = function () {
 window.reports_generateMarathonCsv = function () {
     const { rows: filteredRows } = getFilteredData();
     if (!filteredRows || !filteredRows.length) { alert('Inga resultat matchar urvalet.'); return; }
-    const headers = ['StartNr', 'Kusk', 'Klass', 'Häst', 'Straff A', 'Straff B', 'Hinderstraff', 'Totalt'];
+    const headers = ['StartNr', 'Kusk', 'Klass', 'Häst', 'Straff A', 'Straff T', 'Straff B', 'Hinderstraff', 'Övrigt', 'Totalt'];
     const rows = filteredRows.map(r => {
         const m = r.marathon || {};
         return [
             r.startNumber,
             r.driverName,
-            r.className,
+            getReportDisplayClass(r),
             getHorseNames(r),
-            m.stages?.A?.timePenalty !== undefined ? String(m.stages.A.timePenalty).replace('.', ',') : '',
-            m.stages?.B?.timePenalty !== undefined ? String(m.stages.B.timePenalty).replace('.', ',') : '',
-            m.obstacles?.sum !== undefined ? String(m.obstacles.sum).replace('.', ',') : '',
-            m.totalPenalty !== null ? String(m.totalPenalty).replace('.', ',') : (m.eliminated ? 'ELIM' : '')
+            localizeCsvDecimal(formatMarathonPenaltyExportValue(m.stages?.A?.timePenalty, { equipage: r, marathonResult: m.stages?.A, empty: '' })),
+            localizeCsvDecimal(formatMarathonPenaltyExportValue(m.stages?.transport?.timePenalty, { equipage: r, marathonResult: m.stages?.transport, empty: '' })),
+            localizeCsvDecimal(formatMarathonPenaltyExportValue(m.stages?.B?.timePenalty, { equipage: r, marathonResult: m.stages?.B, empty: '' })),
+            localizeCsvDecimal(formatMarathonPenaltyExportValue(m.obstacles?.sum, { equipage: r, marathonResult: m, empty: '' })),
+            localizeCsvDecimal(formatMarathonExternalOtherPenalty(m, { equipage: r, empty: '' })),
+            localizeCsvDecimal(formatMarathonPenaltyExportValue(m.totalPenalty, { equipage: r, marathonResult: m, empty: '' }))
         ];
     });
     downloadCsv(`maraton_resultat_${competitionId}.csv`, headers, rows);
@@ -561,7 +571,8 @@ window.reports_generatePrecisionOfficialsPdf = function () {
 }
 
 window.reports_generatePrecisionCourseSetupPdf = function () {
-    generatePrecisionCourseSetupPdf(precisionConfig, equipages, getGlobalState('currentCompetition'));
+    const { eqs } = getFilteredData();
+    generatePrecisionCourseSetupPdf(precisionConfig, eqs, getGlobalState('currentCompetition'));
 }
 
 window.reports_generatePrecisionCsv = function () {
@@ -573,12 +584,12 @@ window.reports_generatePrecisionCsv = function () {
         return [
             r.startNumber,
             r.driverName,
-            r.className,
+            getReportDisplayClass(r),
             getHorseNames(r),
             p.timeMs ? (p.timeMs / 1000).toFixed(2).replace('.', ',') : '',
-            p.timePenalty !== undefined ? String(p.timePenalty).replace('.', ',') : '',
+            formatReportCsvPenalty(p.timePenalty, { eliminated: p.eliminated }),
             p.knocksCount !== undefined ? p.knocksCount : '',
-            p.totalPenalty !== null ? String(p.totalPenalty).replace('.', ',') : (p.eliminated ? 'ELIM' : '')
+            formatReportCsvPenalty(p.totalPenalty, { eliminated: p.eliminated })
         ];
     });
     downloadCsv(`precision_resultat_${competitionId}.csv`, headers, rows);
@@ -596,15 +607,15 @@ window.reports_generateTotalCsv = function () {
     const headers = ['Placering', 'StartNr', 'Kusk', 'Klass', 'Häst', 'Dressyr', 'Maraton', 'Precision', 'Totalt'];
     const rows = filteredRows.map((r, idx) => {
         return [
-            idx + 1,
+            r.isEliminated || r.totalPenalty == null ? '' : idx + 1,
             r.startNumber,
             r.driverName,
-            r.className,
+            getReportDisplayClass(r),
             getHorseNames(r),
-            r.dressage?.penalty !== undefined && r.dressage.penalty !== null ? String(r.dressage.penalty).replace('.', ',') : (r.dressage.eliminated ? 'ELIM' : ''),
-            r.marathon?.totalPenalty !== undefined && r.marathon.totalPenalty !== null ? String(r.marathon.totalPenalty).replace('.', ',') : (r.marathon.eliminated ? 'ELIM' : ''),
-            r.precision?.totalPenalty !== undefined && r.precision.totalPenalty !== null ? String(r.precision.totalPenalty).replace('.', ',') : (r.precision.eliminated ? 'ELIM' : ''),
-            r.totalPenalty !== Infinity ? String(r.totalPenalty).replace('.', ',') : 'ELIM'
+            formatReportCsvPenalty(r.dressage?.penalty, { eliminated: r.dressage?.eliminated }),
+            formatReportCsvPenalty(r.marathon?.totalPenalty, { eliminated: r.marathon?.eliminated }),
+            formatReportCsvPenalty(r.precision?.totalPenalty, { eliminated: r.precision?.eliminated }),
+            formatReportCsvPenalty(r.totalPenalty, { eliminated: r.isEliminated })
         ];
     });
     downloadCsv(`totalresultat_${competitionId}.csv`, headers, rows);
@@ -636,7 +647,7 @@ window.reports_generateTeamCsv = function () {
 
     processedTeams.forEach(t => {
         const rank = t.rank || (t.isEliminated ? 'ELIM' : '-');
-        const teamTotal = t.isEliminated ? 'ELIM' : String(t.total).replace('.', ',');
+        const teamTotal = formatReportCsvPenalty(t.total, { eliminated: t.isEliminated, empty: '-' });
 
         // 1. Team Header Row (Optional, maybe just fill all member rows with team data)
         // Let's fill all member rows with team data for easy filtering/sorting
@@ -648,10 +659,10 @@ window.reports_generateTeamCsv = function () {
                 teamTotal,
                 m.name,
                 m.startNumber,
-                m.eliminated ? 'ELIM' : String(m.dressage).replace('.', ','),
-                m.eliminated ? 'ELIM' : String(m.marathon).replace('.', ','),
-                m.eliminated ? 'ELIM' : String(m.precision).replace('.', ','),
-                m.eliminated ? 'ELIM' : String(m.penalty).replace('.', ','),
+                formatReportCsvPenalty(m.dressage, { eliminated: m.eliminated, empty: '-' }),
+                formatReportCsvPenalty(m.marathon, { eliminated: m.eliminated, empty: '-' }),
+                formatReportCsvPenalty(m.precision, { eliminated: m.eliminated, empty: '-' }),
+                formatReportCsvPenalty(m.penalty, { eliminated: m.eliminated, empty: '-' }),
                 m.isCounting ? 'Ja' : 'Nej' // "Struken" score
             ]);
         });

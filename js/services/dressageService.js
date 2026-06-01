@@ -1,6 +1,7 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp, runTransaction, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { trackWrite } from './firestoreService.js';;
+import { trackWrite } from './firestoreService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 export async function setDressageStatus(competitionId, startNumber, {
   state,
@@ -60,10 +61,7 @@ export function listenForDressageStatus(competitionId, startNumber, callback) {
     } else {
       callback(null);
     }
-  }, (err) => {
-    console.error(`Fel vid lyssning på dressyrstatus för startnr ${startNumber}:`, err);
-    callback(null); 
-  });
+  }, buildSnapshotErrorHandler(`listenForDressageStatus:${startNumber}`, callback, null));
 }
 
 export async function getDressageResultsForEquipage(competitionId, startNumber) {
@@ -170,6 +168,42 @@ function asPlainDressageProtocol(data, docId, fallbackStartNumber) {
   };
 }
 
+function createCoalescedMapEmitter(map, callback) {
+  let timerId = null;
+
+  function flush() {
+    timerId = null;
+    callback(Array.from(map.values()));
+  }
+
+  return {
+    emit() {
+      if (timerId !== null) return;
+      timerId = setTimeout(flush, 0);
+    },
+    cancel() {
+      if (timerId === null) return;
+      clearTimeout(timerId);
+      timerId = null;
+    }
+  };
+}
+
+function normalizeStartNumbers(equipagesOrStartNumbers) {
+  if (!Array.isArray(equipagesOrStartNumbers)) return [];
+  const seen = new Set();
+  const startNumbers = [];
+
+  equipagesOrStartNumbers.forEach(item => {
+    const sn = String(item?.startNumber ?? item?.id ?? item ?? '').trim();
+    if (!sn || seen.has(sn)) return;
+    seen.add(sn);
+    startNumbers.push(sn);
+  });
+
+  return startNumbers;
+}
+
 export function listenForDressageProtocols(competitionId, startNumber, callback) {
   if (!competitionId) throw new Error("listenForDressageProtocols: competitionId saknas");
   if (startNumber == null) throw new Error("listenForDressageProtocols: startNumber saknas");
@@ -183,7 +217,7 @@ export function listenForDressageProtocols(competitionId, startNumber, callback)
   return onSnapshot(colRef, (snapshot) => {
     const docs = snapshot.docs.map(d => asPlainDressageProtocol(d.data(), d.id, startNumber));
     callback(docs.filter(d => d.id !== 'general'));
-  });
+  }, buildSnapshotErrorHandler(`listenForDressageProtocols:${sn}`, callback, []));
 }
 
 export function listenForDressageStatusCollection(competitionId, callback) {
@@ -191,7 +225,7 @@ export function listenForDressageStatusCollection(competitionId, callback) {
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus`);
   return onSnapshot(colRef, (snap) => {
     callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
-  });
+  }, buildSnapshotErrorHandler('listenForDressageStatusCollection', callback, []));
 }
 
 export async function getDressageStatusCollection(competitionId) {
@@ -206,8 +240,9 @@ export function listenForDressageLiveGroup(competitionId, equipagesOrStartNumber
   
   const map = new Map();
   const unsubs = [];
+  const emitter = createCoalescedMapEmitter(map, callback);
 
-  const sns = equipagesOrStartNumbers.map(e => String(e.startNumber ?? e.id ?? e).trim());
+  const sns = normalizeStartNumbers(equipagesOrStartNumbers);
   if (sns.length === 0) {
     callback([]);
     return () => {};
@@ -228,15 +263,18 @@ export function listenForDressageLiveGroup(competitionId, equipagesOrStartNumber
             if (plain) map.set(fullId, plain);
           }
         });
-        callback(Array.from(map.values()));
-      }, (err) => console.error('Error in dressagelivegroup:', err));
+        emitter.emit();
+      }, buildSnapshotErrorHandler(`listenForDressageLiveGroup:${sn}`, callback, []));
       unsubs.push(unsub);
     } catch (e) {
       console.warn("listenForDressageLiveGroup setup err", sn, e);
     }
   });
 
-  return () => unsubs.forEach(u => u());
+  return () => {
+    emitter.cancel();
+    unsubs.forEach(u => u());
+  };
 }
 
 export function listenForDressageProtocolsCollectionGroup(competitionId, equipagesOrStartNumbers, callback) {
@@ -244,8 +282,9 @@ export function listenForDressageProtocolsCollectionGroup(competitionId, equipag
   
   const map = new Map();
   const unsubs = [];
+  const emitter = createCoalescedMapEmitter(map, callback);
 
-  const sns = equipagesOrStartNumbers.map(e => String(e.startNumber ?? e.id ?? e).trim());
+  const sns = normalizeStartNumbers(equipagesOrStartNumbers);
   if (sns.length === 0) {
     callback([]);
     return () => {};
@@ -267,15 +306,18 @@ export function listenForDressageProtocolsCollectionGroup(competitionId, equipag
             if (plain) map.set(fullId, plain);
           }
         });
-        callback(Array.from(map.values()));
-      });
+        emitter.emit();
+      }, buildSnapshotErrorHandler(`listenForDressageProtocolsCollectionGroup:${sn}`, callback, []));
       unsubs.push(unsub);
     } catch (e) {
       console.warn("listenForDressageProtocolsCollectionGroup setup err", sn, e);
     }
   });
 
-  return () => unsubs.forEach(u => u());
+  return () => {
+    emitter.cancel();
+    unsubs.forEach(u => u());
+  };
 }
 
 export async function getAllDressageProtocols(competitionId, equipages) {
@@ -310,5 +352,5 @@ export function listenForDressageFinalizationCollection(competitionId, callback)
   return onSnapshot(query(colRef), (snapshot) => {
     const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     callback(docs);
-  });
+  }, buildSnapshotErrorHandler('listenForDressageFinalizationCollection', callback, []));
 }

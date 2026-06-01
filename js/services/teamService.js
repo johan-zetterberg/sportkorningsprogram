@@ -1,6 +1,7 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDocs, setDoc, deleteDoc, onSnapshot, query, orderBy, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { trackWrite } from './firestoreService.js';;
+import { trackWrite } from './firestoreService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 export async function getTeams(competitionId) {
   if (!competitionId) return [];
@@ -22,7 +23,7 @@ export function listenForTeams(competitionId, callback) {
   return onSnapshot(q, (snap) => {
     const teams = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     callback(teams);
-  });
+  }, buildSnapshotErrorHandler('listenForTeams', callback, []));
 }
 
 export async function saveTeam(competitionId, teamIdOrData, maybeTeamData) {

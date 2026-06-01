@@ -1,6 +1,7 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDocs, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getCompCollectionRef } from './firestoreService.js';;
+import { getCompCollectionRef } from './firestoreService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 function normalizeStartNumberList(value) {
   if (!Array.isArray(value)) return [];
@@ -90,7 +91,7 @@ export function listenForCompetitionMessages(competitionId, callback) {
   return onSnapshot(query(col, orderBy('timestamp', 'desc')), (snap) => {
     const msgs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     callback(msgs);
-  });
+  }, buildSnapshotErrorHandler('listenForCompetitionMessages', callback, []));
 }
 
 export async function saveCompetitionMessage(competitionId, msgData) {

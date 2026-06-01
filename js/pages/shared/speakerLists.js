@@ -12,6 +12,7 @@ import {
     calculateClassObstacleStats,
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
+import { formatSpeakerPenalty, getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
 
 export function renderTop3List(className, discipline, ctx) {
     if (!className) return '';
@@ -97,7 +98,7 @@ export function renderTop3List(className, discipline, ctx) {
                     <span class="text-sm font-medium text-gray-900 dark:text-white">${r.name}</span>
                 </div>
                 <div class="text-sm font-bold text-gray-900 dark:text-white">
-                    ${r.penalty.toFixed(2)}
+                    ${formatSpeakerPenalty(r.penalty)}
                 </div>
             </div>
         `;
@@ -114,7 +115,9 @@ export function renderLeaderToBeat(className, ctx) {
     if (!leader) return '';
 
     const label = ctx.currentDiscipline === 'dressyr' ? 'Att slå' : (leader.isLeader ? 'Ledarresultat' : 'Jagar');
-    let val = ctx.currentDiscipline === 'dressyr' ? (leader.score != null ? leader.score.toFixed(1) + '%' : '—') : (leader.score != null ? leader.score.toFixed(2) : '—');
+    let val = ctx.currentDiscipline === 'dressyr'
+        ? (isFiniteSpeakerNumber(leader.score) ? leader.score.toFixed(1) + '%' : '—')
+        : formatSpeakerPenalty(leader.score, { eliminated: leader.score === Infinity });
 
     if (ctx.currentDiscipline === 'precision' && leader.time) {
         val += ` <span class="text-xs font-normal">(${leader.time})</span>`;
@@ -122,12 +125,13 @@ export function renderLeaderToBeat(className, ctx) {
 
     let diffHtml = '';
     if (ctx.currentDiscipline === 'precision' && ctx.currentRider) {
-        const currentPen = ctx.currentRider.data?.liveTotalPenalty || 0;
-        const diff = currentPen - leader.score;
-        if (diff > 0) {
-            diffHtml = `<span class="ml-2 text-xs font-bold text-red-500">(+${(diff != null) ? diff.toFixed(2) : '—'})</span>`;
-        } else if (diff < 0) {
-            diffHtml = `<span class="ml-2 text-xs font-bold text-green-500">(${(diff != null) ? diff.toFixed(2) : '—'})</span>`;
+        const currentPen = getSpeakerPenaltyOrNull(ctx.currentRider.data?.liveTotalPenalty);
+        const leaderScore = getSpeakerPenaltyOrNull(leader.score);
+        const diff = currentPen !== null && leaderScore !== null ? currentPen - leaderScore : null;
+        if (diff !== null && diff > 0) {
+            diffHtml = `<span class="ml-2 text-xs font-bold text-red-500">(+${diff.toFixed(2)})</span>`;
+        } else if (diff !== null && diff < 0) {
+            diffHtml = `<span class="ml-2 text-xs font-bold text-green-500">(${diff.toFixed(2)})</span>`;
         }
     }
 

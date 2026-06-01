@@ -2,15 +2,14 @@ import { getGlobalState } from '../../main.js';
 import { generateDressageListPdf } from '../../pdf/dressagePdf.js';
 import {
   downloadCsv,
-  sanitizeForFilename,
-  isNum
+  sanitizeForFilename
 } from '../../utils/sharedUtils.js';
 import { getMomentHorseLabel } from '../../utils/dressageUtils.js';
 import { t } from '../../utils/i18n.js';
-
-function stripHtml(value) {
-  return String(value || '').replace(/<[^>]*>/g, '').trim();
-}
+import {
+  formatDressageCsvScore,
+  formatDressageCsvStatus
+} from './dressageResultExportUtils.js';
 
 export function setupDressageResultExportButtons({
   getVisibleSortedResults,
@@ -79,8 +78,8 @@ export function setupDressageResultExportButtons({
         const jp = res.judges[j.id];
         if (jp) {
           row.push(
-            isNum(jp.percent) ? jp.percent.toFixed(2) : '-',
-            isNum(jp.penalty) ? jp.penalty.toFixed(1) : '-'
+            formatDressageCsvScore(jp.percent, { eliminated: jp.eliminated }),
+            formatDressageCsvScore(jp.penalty, { eliminated: jp.eliminated, decimals: 1 })
           );
         } else {
           row.push('-', '-');
@@ -88,10 +87,10 @@ export function setupDressageResultExportButtons({
       });
 
       row.push(
-        isNum(res.avgPercent) ? res.avgPercent.toFixed(2) : '-',
-        isNum(res.errorPoints) ? res.errorPoints.toFixed(1) : '0.0',
-        isNum(res.finalPenalty) ? res.finalPenalty.toFixed(2) : '-',
-        res.eliminated ? 'ELIM' : (stripHtml(statusBadgeForDressage(res.startNumber)) || '-')
+        formatDressageCsvScore(res.avgPercent, { eliminated: res.eliminated }),
+        formatDressageCsvScore(res.errorPoints, { decimals: 1, empty: '0.0' }),
+        formatDressageCsvScore(res.finalPenalty, { eliminated: res.eliminated }),
+        formatDressageCsvStatus(res, statusBadgeForDressage(res.startNumber))
       );
       return row;
     });

@@ -1224,6 +1224,12 @@ async function setupPage() {
   boundHandlers.timerClick = () => document.getElementById('manualTimeEditorMar')?.classList.remove('hidden');
   boundHandlers.cancelClick = () => document.getElementById('manualTimeEditorMar')?.classList.add('hidden');
   boundHandlers.applyClick = () => applyManualTime();
+  boundHandlers.manualTimeKeydown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      applyManualTime();
+    }
+  };
   boundHandlers.routeUndo = () => updateRouteString('undo');
   boundHandlers.routeClear = () => updateRouteString('clear');
 
@@ -1243,12 +1249,7 @@ async function setupPage() {
   document.getElementById('liveTimerMar')?.addEventListener('click', boundHandlers.timerClick);
   document.getElementById('btnManualCancelMar')?.addEventListener('click', boundHandlers.cancelClick);
   document.getElementById('btnManualApplyMar')?.addEventListener('click', boundHandlers.applyClick);
-  document.getElementById('manualTimeDigitsMar')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      applyManualTime();
-    }
-  });
+  document.getElementById('manualTimeDigitsMar')?.addEventListener('keydown', boundHandlers.manualTimeKeydown);
 
   document.getElementById('routeUndo')?.addEventListener('click', boundHandlers.routeUndo);
   document.getElementById('routeClear')?.addEventListener('click', boundHandlers.routeClear);
@@ -1698,6 +1699,7 @@ export function __unload() {
     rm('liveTimerMar', 'click', boundHandlers.timerClick);
     rm('btnManualCancelMar', 'click', boundHandlers.cancelClick);
     rm('btnManualApplyMar', 'click', boundHandlers.applyClick);
+    rm('manualTimeDigitsMar', 'keydown', boundHandlers.manualTimeKeydown);
     rm('routeUndo', 'click', boundHandlers.routeUndo);
     rm('routeClear', 'click', boundHandlers.routeClear);
 

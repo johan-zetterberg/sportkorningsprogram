@@ -15,6 +15,19 @@ import { renderDressageContent } from '../../ui/dressageModal.js';
 import { renderMarathonContent, renderTimeCard } from '../../ui/marathonModal.js';
 import { renderPrecisionContent } from '../../ui/precisionModal.js';
 import { getFlagHtml } from '../../services/flagsService.js';
+import {
+    calculatePortalTotalPenaltyLabel,
+    formatPortalPenalty,
+    getPortalPenaltyToneClass
+} from './portalResultFormatUtils.js';
+import {
+    formatPortalTimestamp,
+    getPortalMinutesToNextStart,
+    getPortalStartTimesForEquipage,
+    normalizePortalStartTimesConfig,
+    resolvePortalDisciplinePenalties,
+    sortPortalItemsByTimestampDesc
+} from './portalDataUtils.js';
 
 import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.js';
 import { getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
@@ -27,8 +40,24 @@ import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../
 import { t } from '../../utils/i18n.js';
 
 let messageUnsub = null;
+let dashboardUnsub = null;
+let portalLoadToken = 0;
+
+function cleanupPortalSubscriptions() {
+    if (messageUnsub) {
+        messageUnsub();
+        messageUnsub = null;
+    }
+    if (dashboardUnsub) {
+        dashboardUnsub();
+        dashboardUnsub = null;
+    }
+}
 
 export async function load() {
+    __unload();
+    const currentLoadToken = ++portalLoadToken;
+
     const container = document.getElementById('page-portal');
     if (!container) return;
 
@@ -55,6 +84,8 @@ export async function load() {
     } catch (err) {
         console.warn('Kunde inte hämta användardata:', err);
     }
+
+    if (currentLoadToken !== portalLoadToken) return;
 
     const claims = userData.claimedEquipages || [];
 
@@ -138,10 +169,7 @@ export async function load() {
         }
     });
 
-    if (messageUnsub) {
-        messageUnsub();
-        messageUnsub = null;
-    }
+    cleanupPortalSubscriptions();
 
     // 4. Lyssna och rendera aggregerade meddelanden (Push/Live)
     const unsubs = [];
@@ -157,18 +185,14 @@ export async function load() {
 
         // Helper to re-render all messages from all competitions
         const renderAllMessages = async () => {
+            if (currentLoadToken !== portalLoadToken) return;
             let allMsgs = [];
 
-            // Fetch comp names if missing (could be optimized)
             for (const cid of uniqueCompIds) {
                 const msgs = allMessagesMap.get(cid) || [];
-                // Enhance with compName. We might need to fetch it if not in claim?
-                // Claims usually just have id/startNo. 'renderCompetitionList' fetches names?
-                // Let's assume we can lazily get name or cache it.
-                // For now, use ID or generic name if missing to be fast.
-                // Actually, let's try to get it from DOM or cache.
                 const claim = claims.find(c => c.competitionId === cid);
                 const compName = claim?.competitionName || (await getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${cid}`)).then(d => d.data()?.name)).catch(() => '') || cid;
+                if (currentLoadToken !== portalLoadToken) return;
 
                 // Filter for this user
                 const relevant = msgs
@@ -178,8 +202,7 @@ export async function load() {
                 allMsgs = allMsgs.concat(relevant);
             }
 
-            // Sort desc
-            allMsgs.sort((a, b) => (b.timestamp?.seconds || 0) - (a.timestamp?.seconds || 0));
+            allMsgs = sortPortalItemsByTimestampDesc(allMsgs, 'timestamp');
 
             if (allMsgs.length === 0) {
                 msgContainer.innerHTML = `<p class="text-gray-500 italic text-center py-8">${t('no_new_messages')}</p>`;
@@ -197,7 +220,7 @@ export async function load() {
                 const isUrgent = m.severity === 'urgent' || m.type === 'alert';
                 const colorClass = isUrgent ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-gray-50 border-gray-100 dark:bg-gray-700/50 dark:border-gray-600';
                 const icon = isUrgent ? '⚠️' : '📢';
-                const time = m.timestamp ? new Date(m.timestamp.seconds * 1000).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }) : '';
+                const time = formatPortalTimestamp(m.timestamp, 'sv-SE', { dateStyle: 'short', timeStyle: 'short' });
 
                 return `
                     <div class="p-4 rounded-lg border ${colorClass} relative group transition-all hover:shadow-sm animate-fade-in">
@@ -243,7 +266,9 @@ export async function load() {
             unsubs.push(u);
         });
 
-        messageUnsub = () => unsubs.forEach(u => u());
+        messageUnsub = () => unsubs.forEach(u => {
+            try { if (typeof u === 'function') u(); } catch (err) { console.warn('Portal message cleanup failed:', err); }
+        });
 
         // Initial grace period for "first load" to avoid spamming existing messages
         setTimeout(() => { isFirstLoad = false; }, 2000);
@@ -354,7 +379,7 @@ export async function load() {
         const sno = document.getElementById('adminImpersonateStartNo').value.trim();
         if (cid && sno) {
             setGlobalState({ key: 'currentCompetition', value: { id: cid, name: 'Admin Impersonation' } });
-            renderDashboard(container, cid, sno, user, []);
+            renderDashboard(container, cid, sno, user);
         } else {
             showAlert('Fyll i både Tävlings-ID och Startnummer', false);
         }
@@ -365,13 +390,16 @@ export async function load() {
     if (currentComp && claims.some(c => c.competitionId === currentComp.id)) {
         const claim = claims.find(c => c.competitionId === currentComp.id);
         if (claim) {
-            renderDashboard(container, claim.competitionId, claim.startNumber, user, unsubs);
+            renderDashboard(container, claim.competitionId, claim.startNumber, user);
             return;
         }
     }
 }
 
-async function renderDashboard(container, compId, startNumber, user, unsubs = []) {
+async function renderDashboard(container, compId, startNumber, user) {
+    cleanupPortalSubscriptions();
+    const dashboardUnsubs = [];
+
     container.innerHTML = `
         <div class="container mx-auto p-2 md:p-8 animate-fade-in">
             <button id="backToPortalBtn" class="mb-4 text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium">
@@ -434,33 +462,31 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
         ]);
 
         const allJudges = [...(judges || []), ...(officials || [])];
+        const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
 
         const eq = equipages.find(e => String(e.startNumber) === String(startNumber)) || {};
         const r = computedRes || {};
         const allPrograms = getPrograms();
         const programKey = dressyrProgramMapping[eq.className] || guessProgramKeyFromClass(eq.className, allPrograms);
 
-        let dRes = r.dressage?.totalPenalty ?? r.dressage?.penalty;
-        if (typeof dRes !== 'number' && dressageProtocols?.length) {
+        let calculatedDressagePenalty = null;
+        const computedDressagePenalty = r.dressage?.totalPenalty ?? r.dressage?.penalty;
+        if (computedDressagePenalty == null && dressageProtocols?.length) {
             const allPrograms = getPrograms();
             const result = calculateDressageResult(eq, dressageProtocols, allJudges, allPrograms);
             if (result && result.penalty != null) {
-                dRes = result.penalty;
+                calculatedDressagePenalty = result.penalty;
             }
         }
-        const mRes = r.marathon?.totalPenalty;
-        const pRes = precisionResult?.totalPenalty;
-
-        const safeD = typeof dRes === 'number' ? dRes : 0;
-        const safeM = typeof mRes === 'number' ? mRes : 0;
-        const safeP = typeof pRes === 'number' ? pRes : 0;
+        const { dRes, mRes, pRes } = resolvePortalDisciplinePenalties({
+            computedResult: r,
+            dressagePenalty: calculatedDressagePenalty,
+            marathonTiming,
+            precisionResult
+        });
 
         let totalShow = '—';
-        if (r.totalPenalty != null) {
-            totalShow = r.totalPenalty.toFixed(2);
-        } else if (typeof dRes === 'number' || typeof mRes === 'number' || typeof pRes === 'number') {
-            totalShow = (safeD + safeM + safeP).toFixed(2);
-        }
+        totalShow = calculatePortalTotalPenaltyLabel([dRes, mRes, pRes], r.totalPenalty, { eliminated: r.isEliminated });
 
         const headerEl = document.getElementById('dashboard-header');
         headerEl.innerHTML = `
@@ -491,7 +517,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
         // Inject Language Toggle
         const langContainer = headerEl.querySelector('#lang-toggle-container');
         if (langContainer) {
-            import('../ui/languageToggle.js').then(mod => {
+            import('../../ui/languageToggle.js').then(mod => {
                 mod.renderLanguageToggle(langContainer);
             });
         }
@@ -509,7 +535,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                 const isUrgent = msg.severity === 'urgent' || msg.type === 'alert';
                 const colorClass = isUrgent ? 'bg-red-50 border-red-200 text-red-900' : 'bg-blue-50 border-blue-200 text-blue-900';
                 const icon = isUrgent ? '⚠️' : '📢';
-                const time = msg.timestamp ? new Date(msg.timestamp.seconds * 1000).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' }) : '';
+                const time = formatPortalTimestamp(msg.timestamp, 'sv-SE', { dateStyle: 'short', timeStyle: 'short' });
 
                 return `
                         <div class="p-4 rounded-lg border ${colorClass} flex gap-4 shadow-sm animate-fade-in relative z-10 w-full">
@@ -549,12 +575,13 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
             equipages: equipages,
             precisionConfig: precisionConfig,
             marathonConfig: marathonConfig,
-            startTimes: startTimes,
+            startTimes: portalStartTimes,
             allCompetitionJudges: allJudges
         };
 
         // State for config
         let compMeta = {}; // Initialize as empty to allow first render
+        let activeTabId = 'info';
 
         const renderInfo = () => {
             // If compMeta is not loaded yet, default to safe open or cached defaults.
@@ -566,16 +593,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                         <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
                             <h3 class="text-lg font-bold text-gray-900 dark:text-white">${t('equipage_info', compConfig?.isInternational)}</h3>
                             ${(() => {
-                    const now = new Date();
-                    let startTime = null;
-                    let minutesToStart = 999;
-                    const myTimes = (startTimes?.times || {})[String(startNumber)] || {};
-                    const starts = Object.values(myTimes).filter(v => v && typeof v === 'object' && v.seconds);
-                    if (starts.length > 0) {
-                        const earliest = starts.sort((a, b) => a.seconds - b.seconds)[0];
-                        const startJs = new Date(earliest.seconds * 1000);
-                        minutesToStart = (startJs - now) / 60000;
-                    }
+                    const minutesToStart = getPortalMinutesToNextStart(portalStartTimes, startNumber) ?? 999;
 
                     if (compMeta.manualLockdown) {
                         return `<span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded" title="Sekretariatet har låst portalen">🔒 ${t('locked_manual', compConfig?.isInternational)}</span>`;
@@ -692,7 +710,6 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                     </div>
 
 
-                    <!-- VET CHECK SECTION (New) -->
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 ${(() => {
                     const s = (eq.status || 'anmäld');
                     if (s === 'besiktigad') return 'border-l-green-500';
@@ -911,34 +928,15 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
         // Initialize listener for Config (Lockdown etc)
         const configUnsub = listenForConfig(compId, 'competitionMeta', (newMeta) => {
             compMeta = newMeta || {};
-            // If current tab is Info, re-render it.
-            // Since we don't have explicit tab state inside separate functions easily,
-            // we can check if contentEl contains the Info view or just call renderInfo if it's the active view.
-            // But actually renderDashboard sets up tabs.
-            // Simplified: If we are in "Info" mode (default), re-render.
-            // Since renderInfo is just a function updating contentEl, we can call it if we know we are on that tab.
-            // HOWEVER, renderDashboard logic is linear.
-            // Let's just update `compMeta` and if the current view IS "Info", trigger renderInfo.
-            // For now, let's assume we are on Info tab or allow it to refresh.
-            // Optimization: Only if #btnEditDeclaration or lock badge exists?
-            // Safer: Just set state. But user wants immediate feedback.
-
-            // Re-render Info if we are seemingly on the dashboard info view (which is default).
-            // We can't easily know if user switched to 'dressage' tab unless we track it.
-            // But 'renderInfo' replaces contentEl.HTML, so if we call it, we overwrite whatever tab is open.
-            // This is risky if user is in Dressage tab.
-            // Better: update the specific element if it exists.
-            // Better: Check if we are viewing the Info tab by looking for a specific element
-            // "Ekipageinformation" header is unique to renderInfo
-            if (contentEl.innerHTML.includes('Ekipageinformation')) {
+            if (activeTabId === 'info') {
                 renderInfo();
             }
         });
-        unsubs.push(configUnsub);
+        dashboardUnsubs.push(configUnsub);
+        dashboardUnsub = () => dashboardUnsubs.forEach(u => {
+            try { if (typeof u === 'function') u(); } catch (err) { console.warn('Portal dashboard cleanup failed:', err); }
+        });
 
-        // Initial trigger
-        // renderInfo(); // Don't call immediately to likely avoid overwriting if user is navigating fast? 
-        // Actually, renderDashboard expects to show something.
         renderInfo();
 
         const renderDressage = async () => {
@@ -1038,7 +1036,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
             const safeTiming = marathonTiming || {};
             const marathonData = {
                 ...(liveDoc || {}),
-                ...storedObstacles, // [FIX] Merge stored obstacles to get all data
+                ...storedObstacles,
                 ...safeTiming,
                 duration_A: safeTiming.duration_A,
                 duration_B: safeTiming.duration_B,
@@ -1078,7 +1076,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
         const renderPrecision = async () => {
             contentEl.innerHTML = '<div class="text-center py-12"><div class="spinner"></div> Laddar precision...</div>';
             const latest = await getPrecisionResultForEquipage(compId, startNumber).catch(() => precisionResult);
-            renderPrecisionContent(contentEl, eq, latest || {}, precisionConfig, startTimes, equipages);
+            renderPrecisionContent(contentEl, eq, latest || {}, precisionConfig, portalStartTimes, equipages);
         };
 
         const renderDocuments = async () => {
@@ -1101,9 +1099,9 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                 const isHtml = doc.type === 'html';
 
                 const wrapperStart = isHtml
-                    ? `<div onclick="window.openDocModal('${doc.id}')" class="cursor-pointer block group h-full">`
+                    ? `<button type="button" data-doc-id="${doc.id}" class="cursor-pointer block group h-full text-left w-full">`
                     : `<a href="${doc.url}" target="_blank" class="block group no-underline h-full">`;
-                const wrapperEnd = isHtml ? `</div>` : `</a>`;
+                const wrapperEnd = isHtml ? `</button>` : `</a>`;
 
                 return `
                         ${wrapperStart}
@@ -1121,7 +1119,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                                     </div>
                                 </div>
                                 <div class="mt-auto pt-3 border-t dark:border-gray-700 flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
-                                    <span>${doc.uploadedAt ? new Date(doc.uploadedAt.seconds * 1000).toLocaleDateString() : t('new')}</span>
+                                    <span>${formatPortalTimestamp(doc.uploadedAt || doc.timestamp, 'sv-SE', { dateStyle: 'short' }) || t('new')}</span>
                                     <span class="group-hover:translate-x-1 transition-transform">${isHtml ? `${t('read_btn')} →` : `${t('open_btn')} →`}</span>
                                 </div>
                             </div>
@@ -1131,7 +1129,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                 </div>
              `;
 
-            window.openDocModal = (docId) => {
+            const openDocModal = (docId) => {
                 const d = visibleDocuments.find(x => x.id === docId);
                 if (!d) return;
 
@@ -1140,21 +1138,31 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-fade-in-up border dark:border-gray-700">
                             <div class="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50 rounded-t-xl">
                                 <h3 class="font-bold text-lg text-gray-900 dark:text-white">${d.title}</h3>
-                                <button onclick="document.getElementById('doc-modal-overlay').remove()" class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
+                                <button type="button" data-close-doc-modal class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
                             </div>
                             <div class="p-6 overflow-y-auto prose dark:prose-invert max-w-none text-gray-800 dark:text-gray-200">
                                 ${d.content || `<p class="text-gray-500 italic">${t('no_content')}</p>`}
                             </div>
                             <div class="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-b-xl text-right">
-                                <button onclick="document.getElementById('doc-modal-overlay').remove()" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded font-medium text-sm text-gray-800 dark:text-gray-200 transition">${t('close_btn')}</button>
+                                <button type="button" data-close-doc-modal class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded font-medium text-sm text-gray-800 dark:text-gray-200 transition">${t('close_btn')}</button>
                             </div>
                         </div>
                     </div>
                  `;
                 const div = document.createElement('div');
                 div.innerHTML = modalHtml;
-                document.body.appendChild(div.firstElementChild);
+                const modal = div.firstElementChild;
+                modal.addEventListener('click', (event) => {
+                    if (event.target === modal || event.target.closest('[data-close-doc-modal]')) {
+                        modal.remove();
+                    }
+                });
+                document.body.appendChild(modal);
             };
+
+            contentEl.querySelectorAll('[data-doc-id]').forEach(button => {
+                button.addEventListener('click', () => openDocModal(button.dataset.docId));
+            });
         };
 
         const renderTotal = async () => {
@@ -1176,8 +1184,8 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                                             <div class="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">${t('penalty_points')}</div>
                                         </div>
                                     </div>
-                                    <div class="text-lg md:text-xl font-bold font-mono ${safeD ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-600'}">
-                                        ${typeof dRes === 'number' ? dRes.toFixed(2) : '—'}
+                                    <div class="text-lg md:text-xl font-bold font-mono ${getPortalPenaltyToneClass(dRes)}">
+                                        ${formatPortalPenalty(dRes)}
                                     </div>
                                 </div>
 
@@ -1190,8 +1198,8 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                                             <div class="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">${t('penalty_points')}</div>
                                         </div>
                                     </div>
-                                    <div class="text-lg md:text-xl font-bold font-mono ${safeM ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-600'}">
-                                        ${typeof mRes === 'number' ? mRes.toFixed(2) : '—'}
+                                    <div class="text-lg md:text-xl font-bold font-mono ${getPortalPenaltyToneClass(mRes)}">
+                                        ${formatPortalPenalty(mRes)}
                                     </div>
                                 </div>
 
@@ -1209,8 +1217,8 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
                                             <div class="text-[10px] md:text-xs text-gray-500 dark:text-gray-400">${t('penalty_points')}</div>
                                         </div>
                                     </div>
-                                    <div class="text-lg md:text-xl font-bold font-mono ${safeP ? 'text-gray-900 dark:text-white' : 'text-gray-400 dark:text-gray-600'}">
-                                        ${typeof pRes === 'number' ? pRes.toFixed(2) : '—'}
+                                    <div class="text-lg md:text-xl font-bold font-mono ${getPortalPenaltyToneClass(pRes)}">
+                                        ${formatPortalPenalty(pRes)}
                                     </div>
                                 </div>
                             </div>
@@ -1251,6 +1259,7 @@ async function renderDashboard(container, compId, startNumber, user, unsubs = []
             `).join('');
 
         const switchTab = (id) => {
+            activeTabId = id;
             tabsEl.querySelectorAll('button').forEach(b => {
                 const isActive = b.dataset.tab === id;
                 b.classList.toggle('text-blue-600', isActive);
@@ -1305,4 +1314,8 @@ function renderCompetitionList(claims) {
 }
 
 export function __unload() {
+    portalLoadToken++;
+    cleanupPortalSubscriptions();
+    const modal = document.getElementById('doc-modal-overlay');
+    if (modal) modal.remove();
 }

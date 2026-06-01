@@ -3,7 +3,9 @@ import { getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { formatTotalDisciplinePdfPenalty, formatTotalPdfPenalty } from './resultPdfFormatUtils.js';
+import { resolveTotalResultsJsPdf } from './totalResultsPdfUtils.js';
 
 /**
  * Generates a professional PDF report of total results.
@@ -13,8 +15,8 @@ import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
  */
 export async function generateTotalResultsPdf(rows, competition, options = {}) {
     await loadPdfLibs();
-    const { jsPDF } = window.jspdf;
-    if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
+    const jsPDF = resolveTotalResultsJsPdf({ throwOnMissing: options.throwOnMissingPdfLib === true });
+    if (!jsPDF) return;
 
     const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
     const pageWidth = doc.internal.pageSize.getWidth();
@@ -22,7 +24,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     let y = 40;
 
     // 1. ASSET LOADING (Logos & Flags)
-    const srfLogo = await loadImg('/assets/logos/SRF.png');
+    const srfLogo = await loadStandardHeaderLogos(competition);
 
     // Pre-fetch unique club logos and flags
     const assetMap = new Map();
@@ -96,10 +98,10 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             driverCell,
             displayClass,
             r.clubName || '',
-            r.dressage?.penalty?.toFixed(2) || '—',
-            r.marathon?.totalPenalty?.toFixed(2) || '—',
-            r.precision?.pen?.toFixed(2) || '—',
-            { content: r.totalPenalty?.toFixed(2) || (r.isEliminated ? t('eliminated', isInt).substring(0, 4) : '—'), styles: { fontStyle: 'bold' } }
+            formatTotalDisciplinePdfPenalty(r, 'dressage'),
+            formatTotalDisciplinePdfPenalty(r, 'marathon'),
+            formatTotalDisciplinePdfPenalty(r, 'precision'),
+            { content: formatTotalPdfPenalty(r, isInt), styles: { fontStyle: 'bold' } }
         ]);
     });
 

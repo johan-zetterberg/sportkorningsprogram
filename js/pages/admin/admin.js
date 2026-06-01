@@ -1,41 +1,35 @@
-import { saveEquipage } from '../../services/equipageService.js';
-import { deleteEquipage } from '../../services/equipageService.js';
-import { saveJudge, deleteJudge } from '../../services/adminService.js';
 import { listenForCompetition, getCompetitionById } from '../../services/competitionService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
-import { saveConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
-import { getConfig } from '../../services/competitionService.js';
-import {
-  listenForOfficials,
-  saveOfficial,
-  deleteOfficial,
-  listenForAssignments,
-  saveAssignment,
-  deleteAssignment,
-  listenForLocations,
-  saveLocations
-} from '../../services/officialsService.js';
+import { listenForOfficials } from '../../services/officialsService.js';
 import { finalizeCompetition, reopenCompetition } from '../../services/archivingService.js';
 import { getGlobalState } from '../../main.js';
-import { competitionClasses } from '../../data/competitionData.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 
 
 import { renderCommunicationTab } from './admin-communication.js';
-import { renderOfficialsTab } from './admin-officials.js';
+import { renderOfficialsTab, unloadOfficialsTab } from './admin-officials.js';
 import * as participants from './admin-participants.js';
 import * as settings from './admin-settings.js';
 import { renderClubs } from './admin-clubs.js';
-import { renderTeamsTab } from './admin-teams.js';
+import { renderTeamsTab, unloadTeamsTab } from './admin-teams.js';
+import {
+  buildArchiveErrorMessage,
+  buildArchiveSuccessMessage,
+  renderArchiveStatusMessage
+} from './adminArchivingUiUtils.js';
 
 // --- Lokal state för modulen ---
 let competitionId = null;
 let allEquipages = [];
-let allJudges = [];
-let allOfficials = []; // Managed here for the summary view, syncs with officialsService
-let sortConfig = { key: 'startNumber', direction: 'asc' };
 let currentTab = 'registration'; // 'registration' | 'teams' | 'communication' | 'settings' | 'archiving' | 'officials'
+let adminUnsubscribers = [];
+
+function addAdminUnsubscriber(unsubscribe) {
+  if (typeof unsubscribe === 'function') {
+    adminUnsubscribers.push(unsubscribe);
+  }
+}
 
 // --- HTML-rendering och sidstruktur (Stabil version) ---
 function renderLayout(competition) {
@@ -274,22 +268,25 @@ function renderLayout(competition) {
       if (!confirm('Är du säker på att du vill AVSLUTA tävlingen?\nDetta låser alla ändringar och genererar slutresultatet.')) return;
 
       const statusEl = document.getElementById('archive-status');
-      const actionsEl = document.getElementById('archiving-actions');
 
       statusEl.classList.remove('hidden');
+      renderArchiveStatusMessage(statusEl);
       btnFinalize.disabled = true;
       btnFinalize.classList.add('opacity-50', 'cursor-not-allowed');
 
       try {
-        await finalizeCompetition(competition.id);
-        alert('Tävlingen är nu avslutad och arkiverad! 🏁\nPDF har laddats ner.');
+        const result = await finalizeCompetition(competition.id);
+        const successMessage = buildArchiveSuccessMessage(result);
+        renderArchiveStatusMessage(statusEl, { state: 'success', message: successMessage.replace('\n', ' ') });
+        alert(successMessage);
 
         // Update UI by reloading to get fresh state
         window.location.reload();
       } catch (err) {
         console.error(err);
-        alert(`Ett fel uppstod: ${err.message} `);
-        statusEl.classList.add('hidden');
+        const errorMessage = buildArchiveErrorMessage(err);
+        alert(errorMessage);
+        renderArchiveStatusMessage(statusEl, { state: 'error', message: errorMessage });
         btnFinalize.disabled = false;
         btnFinalize.classList.remove('opacity-50', 'cursor-not-allowed');
       }
@@ -323,6 +320,8 @@ function renderLayout(competition) {
 
 // --- Global Load Function ---
 export async function load() {
+  __unload();
+
   const currentComp = getGlobalState('currentCompetition');
   if (!currentComp || !currentComp.id) {
     showAlert("Ingen tävling vald. Gå via HUB.", false);
@@ -330,10 +329,7 @@ export async function load() {
   }
 
   competitionId = currentComp.id;
-  // Use the global state object directly if it has enough data, 
-  // but to be safe and get fresh data including sub-collections/status, we fetch it.
-  // Actually, getGlobalState usually has what we need, but let's stick to the pattern of ensuring existence.
-
+  // Fetch fresh data so admin always sees the latest competition status.
   const comp = await getCompetitionById(competitionId);
 
   if (!comp) {
@@ -345,11 +341,11 @@ export async function load() {
   renderLayout(comp);
 
   // Update Header (and listen for future updates)
-  listenForCompetition(competitionId, (updatedComp) => {
+  addAdminUnsubscriber(listenForCompetition(competitionId, (updatedComp) => {
     // Optionally update only specific parts if needed, e.g. title
     const headerTitle = document.getElementById('adminHeaderTitle');
     if (headerTitle && updatedComp) headerTitle.textContent = `Admin - ${updatedComp.name}`;
-  });
+  }));
 
   // Setup Participants Module (Registration Tab)
   participants.setupParticipantsLogic(competitionId);
@@ -360,7 +356,7 @@ export async function load() {
   // --- Listeners for Data ---
 
   // Equipages: Pass to Participants Module
-  listenForEquipages(competitionId, (equipages) => {
+  addAdminUnsubscriber(listenForEquipages(competitionId, (equipages) => {
     allEquipages = equipages;
     participants.updateEquipages(equipages);
 
@@ -368,30 +364,37 @@ export async function load() {
       const container = document.getElementById('view-clubs');
       if (container) renderClubs(container, competitionId, allEquipages);
     }
-  });
+  }));
 
   // Officials: Pass to Participants Module (for imports) and Officials Tab
-  listenForOfficials(competitionId, (officials) => {
-    allOfficials = officials;
+  addAdminUnsubscriber(listenForOfficials(competitionId, (officials) => {
     participants.updateOfficials(officials);
-
-    // If we are currently viewing the officials tab, re-render it
-    if (currentTab === 'officials') {
-      renderOfficialsTab(allOfficials, competitionId);
-    }
-  });
+  }));
 
   // Judges: Pass to Participants Module
-  listenForJudges(competitionId, (judges) => {
-    allJudges = judges;
+  addAdminUnsubscriber(listenForJudges(competitionId, (judges) => {
     participants.updateJudges(judges);
-  });
+  }));
 
-  // Initial Tab Selection
-  // updateTabs is defined inside renderLayout closure, so we can't call it here directly 
-  // without exposing it or simulating a click. 
-  // But renderLayout sets up click listeners.
-  // We can trigger the default tab click.
-  const defaultTab = document.getElementById('tab-btn-reg'); // WARNING: ID was tab-btn-reg in HTML, checking...
+  const defaultTab = document.getElementById('tab-btn-reg');
   if (defaultTab) defaultTab.click();
+}
+
+export function __unload() {
+  unloadOfficialsTab();
+  unloadTeamsTab();
+  settings.unloadSettingsTab();
+
+  adminUnsubscribers.forEach((unsubscribe) => {
+    try {
+      unsubscribe();
+    } catch (error) {
+      console.warn('Kunde inte stoppa admin-lyssnare:', error);
+    }
+  });
+  adminUnsubscribers = [];
+
+  competitionId = null;
+  allEquipages = [];
+  currentTab = 'registration';
 }

@@ -1,6 +1,9 @@
 import { dressagePrograms } from '../data/dressagePrograms.js';
 import { buildCompetitionState } from '../core-engine/stateSelector.js';
 import { calculateTotalResult } from '../core-engine/calculation.js';
+import { calculateDressageResult } from '../core-engine/dressage.js';
+import { calculateMarathonResult } from '../core-engine/marathon.js';
+import { calculatePrecisionResult } from '../core-engine/precision.js';
 
 function buildPlacements(rows) {
     const grouped = new Map();
@@ -94,19 +97,28 @@ export function buildArchiveRowsFromData({
                 precisionConfig: normalizedPrecisionConfig
             }
         );
+        const dressage = calculateDressageResult(state);
+        const marathon = calculateMarathonResult(state);
+        const precision = calculatePrecisionResult(state);
         const total = calculateTotalResult(state);
 
         return {
             ...eq,
             dressage: {
                 penalty: total.dressagePenalty,
-                eliminated: total.isEliminated && total.dressagePenalty != null ? undefined : false
+                judgePenalty: dressage.judgePenalty,
+                eliminated: !!dressage.eliminated
             },
             marathon: {
-                totalPenalty: total.marathonPenalty
+                totalPenalty: total.marathonPenalty,
+                eliminated: !!marathon.eliminated,
+                status: marathon.status
             },
             precision: {
-                pen: total.precisionPenalty
+                pen: total.precisionPenalty,
+                totalPenalty: total.precisionPenalty,
+                eliminated: !!precision.eliminated,
+                status: precision.status
             },
             totalPenalty: total.totalPenalty,
             isEliminated: total.isEliminated,

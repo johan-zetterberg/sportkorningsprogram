@@ -15,6 +15,7 @@ import {
     saveOfficial as saveOfficialCore,
     deleteOfficial as deleteOfficialCore
 } from './adminService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 export { serverTimestamp };
 
@@ -53,7 +54,7 @@ export function listenForVolunteerSignups(competitionId, callback) {
         const list = [];
         snapshot.forEach((docSnap) => list.push({ id: docSnap.id, ...docSnap.data() }));
         callback(list);
-    }, (err) => console.error("Error listening for signups:", err));
+    }, buildSnapshotErrorHandler('listenForVolunteerSignups', callback, []));
 }
 
 export async function saveVolunteerSignup(competitionId, data) {
@@ -87,9 +88,7 @@ export function listenForAssignments(competitionId, callback) {
             assignments.push({ id: docSnap.id, ...docSnap.data() });
         });
         callback(assignments);
-    }, (error) => {
-        console.error("Error listening for assignments:", error);
-    });
+    }, buildSnapshotErrorHandler('listenForAssignments', callback, []));
 }
 
 export async function saveAssignment(competitionId, assignment) {
@@ -131,7 +130,7 @@ export function listenForLocations(competitionId, callback) {
         } else {
             callback([]);
         }
-    }, (error) => console.error(error));
+    }, buildSnapshotErrorHandler('listenForLocations', callback, []));
 }
 
 export async function saveLocations(competitionId, locations) {
@@ -152,7 +151,7 @@ export function listenForRoles(competitionId, callback) {
         } else {
             callback([]);
         }
-    }, (error) => console.error(error));
+    }, buildSnapshotErrorHandler('listenForRoles', callback, []));
 }
 
 export async function saveRoles(competitionId, roles) {

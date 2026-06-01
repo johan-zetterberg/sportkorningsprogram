@@ -1,7 +1,8 @@
 import { getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { formatPdfPenalty } from './resultPdfFormatUtils.js';
 
 /**
  * Generates a professional PDF report of TEAM results.
@@ -17,7 +18,7 @@ export async function generateTeamResultsPdf(teams, competition) {
     const pageWidth = doc.internal.pageSize.getWidth();
     const mx = 40;
     // 1. ASSET LOADING (Logos & Flags)
-    const srfLogo = await loadImg('/assets/logos/SRF.png');
+    const srfLogo = await loadStandardHeaderLogos(competition);
 
     // 2. HEADER
     let y = drawStandardHeader(doc, competition, "LAGTÄVLING - TOTALRESULTAT", srfLogo, 30, mx);
@@ -42,10 +43,10 @@ export async function generateTeamResultsPdf(teams, competition) {
         body.push([
             { content: String(rank), styles: { fontStyle: 'bold', halign: 'center', fontSize: 10 } },
             { content: team.teamName, styles: { fontStyle: 'bold', fontSize: 10 } },
-            { content: team.isEliminated ? '-' : team.dressage?.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } },
-            { content: team.isEliminated ? '-' : team.marathon?.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } },
-            { content: team.isEliminated ? '-' : team.precision?.toFixed(2), styles: { fontStyle: 'bold', halign: 'center' } },
-            { content: team.isEliminated ? 'ELIM' : team.total?.toFixed(2), styles: { fontStyle: 'bold', halign: 'center', fillColor: [240, 240, 240] } }
+            { content: formatPdfPenalty(team.dressage, { eliminated: team.isEliminated, empty: '-' }), styles: { fontStyle: 'bold', halign: 'center' } },
+            { content: formatPdfPenalty(team.marathon, { eliminated: team.isEliminated, empty: '-' }), styles: { fontStyle: 'bold', halign: 'center' } },
+            { content: formatPdfPenalty(team.precision, { eliminated: team.isEliminated, empty: '-' }), styles: { fontStyle: 'bold', halign: 'center' } },
+            { content: formatPdfPenalty(team.total, { eliminated: team.isEliminated, empty: '-' }), styles: { fontStyle: 'bold', halign: 'center', fillColor: [240, 240, 240] } }
         ]);
 
         // Members (indented)
@@ -58,10 +59,10 @@ export async function generateTeamResultsPdf(teams, competition) {
                 body.push([
                     '', // No rank for members here
                     { content: `  ${name}`, styles: { textColor: color, fontSize: 8 } },
-                    { content: m.eliminated ? '-' : m.dressage?.toFixed(2), styles: { textColor: color, fontSize: 8, halign: 'center' } },
-                    { content: m.eliminated ? '-' : m.marathon?.toFixed(2), styles: { textColor: color, fontSize: 8, halign: 'center' } },
-                    { content: m.eliminated ? '-' : m.precision?.toFixed(2), styles: { textColor: color, fontSize: 8, halign: 'center' } },
-                    { content: m.eliminated ? '-' : m.penalty?.toFixed(2), styles: { textColor: color, fontSize: 8, halign: 'center' } }
+                    { content: formatPdfPenalty(m.dressage, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } },
+                    { content: formatPdfPenalty(m.marathon, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } },
+                    { content: formatPdfPenalty(m.precision, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } },
+                    { content: formatPdfPenalty(m.penalty, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } }
                 ]);
             });
         }

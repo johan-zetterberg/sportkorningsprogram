@@ -37,6 +37,9 @@ let notes = "";
 
 // Ticker
 let liveTicker = null;
+let unsubscribeGlobalPause = null;
+let observerScrollHandler = null;
+let loadToken = 0;
 
 // Sökväg till vårt globala status-dokument
 function globalStatusDocRef() {
@@ -618,17 +621,21 @@ function wire(container) {
 
   // === Sticky Header Scroll Behavior ===
   const stickyHeader = qs('#stickyHeader', container);
-  window.addEventListener('scroll', () => {
+  if (observerScrollHandler) {
+    window.removeEventListener('scroll', observerScrollHandler);
+  }
+  observerScrollHandler = () => {
     if (stickyHeader && currentSn) {
       if (window.scrollY > 150) {
         stickyHeader.classList.add('py-3', 'shadow-md');
-        stickyHeader.querySelector('div').classList.add('scale-105');
+        stickyHeader.querySelector('div')?.classList.add('scale-105');
       } else {
         stickyHeader.classList.remove('py-3', 'shadow-md');
-        stickyHeader.querySelector('div').classList.remove('scale-105');
+        stickyHeader.querySelector('div')?.classList.remove('scale-105');
       }
     }
-  });
+  };
+  window.addEventListener('scroll', observerScrollHandler, { passive: true });
 
   // === Helper: Auto-Save ===
   async function autoSave() {
@@ -804,6 +811,9 @@ function findEquipageBySn(sn) {
 
 // ---------- Entrypoint ----------
 export async function load() {
+  __unload();
+  const currentLoadToken = ++loadToken;
+
   const root =
     document.getElementById('page-observator-input') ||
     document.getElementById('page-maraton-observator') ||
@@ -815,12 +825,6 @@ export async function load() {
   render(root);
   wire(root);
 
-  listenForGlobalPause();
-  const emPause = qs('#btnEmergencyPause', root);
-  const emResume = qs('#btnEmergencyResume', root);
-  emPause?.addEventListener('click', () => { if (confirm(t('observer_pause_all_confirm'))) setGlobalPause(true); });
-  emResume?.addEventListener('click', () => setGlobalPause(false));
-
   if (!competitionId) {
     const status = qs('#statusMsg', root);
     if (status) status.textContent = t('observer_no_competition');
@@ -828,8 +832,16 @@ export async function load() {
     return;
   }
 
+  unsubscribeGlobalPause = listenForGlobalPause();
+  const emPause = qs('#btnEmergencyPause', root);
+  const emResume = qs('#btnEmergencyResume', root);
+  emPause?.addEventListener('click', () => { if (confirm(t('observer_pause_all_confirm'))) setGlobalPause(true); });
+  emResume?.addEventListener('click', () => setGlobalPause(false));
+
   try {
     const raw = await getEquipages(competitionId);
+    if (currentLoadToken !== loadToken) return;
+
     allEquipages = (raw || []).map(normalizeEquipage).sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
     filtered = allEquipages.slice();
     rebuildComboList(root);
@@ -841,6 +853,36 @@ export async function load() {
     }
     await requestWakeLock();
   } catch (e) {
+    if (currentLoadToken !== loadToken) return;
     console.error(t('observer_load_error'), e);
   }
+}
+
+export function __unload() {
+  loadToken++;
+  stopTicker();
+
+  if (unsubscribeGlobalPause) {
+    unsubscribeGlobalPause();
+    unsubscribeGlobalPause = null;
+  }
+
+  if (observerScrollHandler) {
+    window.removeEventListener('scroll', observerScrollHandler);
+    observerScrollHandler = null;
+  }
+
+  competitionId = null;
+  allEquipages = [];
+  filtered = [];
+  currentSn = null;
+  comboOpen = false;
+  comboActiveIndex = -1;
+  wrongGaitRunning = false;
+  wrongGaitStartTs = 0;
+  wrongGaitAccum = 0;
+  haltRunning = false;
+  haltStartTs = 0;
+  halts = [];
+  notes = "";
 }

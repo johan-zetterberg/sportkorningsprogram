@@ -9,13 +9,18 @@ import { updateEquipage } from '../../services/equipageService.js';
 import { listenForMarathonConfig } from '../../services/marathonService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { calculateTotalCompetitionPenalties, horseLabel, fmt2 } from '../../utils/sharedUtils.js';
+import { horseLabel } from '../../utils/sharedUtils.js';
 import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
 import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeDecorations } from '../../utils/marathonUtils.js';
 import { getFlagHtml } from '../../services/flagsService.js';
-import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosService.js';
+import { ensureClubLogosLoaded } from '../../services/logosService.js';
+import {
+    formatPrizeGivingScore,
+    getPrizeGivingStatus,
+    isPrizeGivingScore
+} from './prizeGivingUtils.js';
 
 let competitionId = null;
 let equipages = [];
@@ -27,12 +32,16 @@ let unsubscribes = [];
 let activeClass = 'all';
 let activeDiscipline = 'total'; // 'total', 'dressage', 'marathon', 'precision'
 let classSettings = {};
+let loadToken = 0;
 
 // Configs
 let marathonConfig = {};
 let precisionConfig = {};
 
 export async function load(container) {
+    __unload();
+    const currentLoadToken = ++loadToken;
+
     const comp = getGlobalState('currentCompetition');
     competitionId = comp?.id;
     if (!competitionId) {
@@ -58,6 +67,7 @@ export async function load(container) {
     `;
 
     await ensureClubLogosLoaded();
+    if (currentLoadToken !== loadToken) return;
 
     try {
         const [eqData, mConfig, pConfig, cSettings] = await Promise.all([
@@ -66,6 +76,7 @@ export async function load(container) {
             getConfig(competitionId, 'precision'),
             getConfig(competitionId, 'classSettings').catch(() => ({}))
         ]);
+        if (currentLoadToken !== loadToken) return;
 
         equipages = eqData || [];
         marathonConfig = mConfig || {};
@@ -84,6 +95,7 @@ export async function load(container) {
         // Start listeners for live updates
         setupListeners();
     } catch (err) {
+        if (currentLoadToken !== loadToken) return;
         console.error("Error loading prize giving:", err);
         container.innerHTML += `<p class="text-red-500 text-center">Ett fel uppstod: ${err.message}</p>`;
     }
@@ -282,6 +294,13 @@ function setupListeners() {
             }
         }
 
+        if (displayScore === Infinity) {
+            isEliminated = true;
+            displayScore = null;
+        } else if (!isPrizeGivingScore(displayScore)) {
+            displayScore = null;
+        }
+
         return {
             ...eq,
             dPen, mPen, pPen,
@@ -297,9 +316,9 @@ function setupListeners() {
         if (a.isEliminated) return 1;
         if (b.isEliminated) return -1;
 
-        if (a.score === null && b.score === null) return Number(a.startNumber) - Number(b.startNumber);
-        if (a.score === null) return 1;
-        if (b.score === null) return -1;
+        if (!isPrizeGivingScore(a.score) && !isPrizeGivingScore(b.score)) return Number(a.startNumber) - Number(b.startNumber);
+        if (!isPrizeGivingScore(a.score)) return 1;
+        if (!isPrizeGivingScore(b.score)) return -1;
 
         const diff = a.score - b.score;
         if (Math.abs(diff) > 0.001) return diff;
@@ -320,8 +339,8 @@ function setupListeners() {
 }
 
 function renderPodiumList(rows, container) {
-    const validRows = rows.filter(r => !r.isEliminated && r.score !== null);
-    const others = rows.filter(r => r.isEliminated || r.score === null);
+    const validRows = rows.filter(r => !r.isEliminated && isPrizeGivingScore(r.score));
+    const others = rows.filter(r => r.isEliminated || !isPrizeGivingScore(r.score));
     
     // Placed count
     const starters = rows.length;
@@ -374,7 +393,7 @@ function renderPodiumList(rows, container) {
                             </div>
 
                             <div class="flex items-end gap-2">
-                                <span class="text-4xl font-black text-blue-900 dark:text-blue-300 tabular-nums leading-none tracking-tighter">${fmt2(row.score)}</span>
+                                <span class="text-4xl font-black text-blue-900 dark:text-blue-300 tabular-nums leading-none tracking-tighter">${formatPrizeGivingScore(row.score)}</span>
                                 <span class="text-[10px] text-gray-500 dark:text-gray-500 uppercase font-black tracking-tighter mb-1">Straff</span>
                             </div>
                         </div>
@@ -400,7 +419,7 @@ function renderPodiumList(rows, container) {
                         </div>
                     </div>
                     <div class="flex items-center gap-3 shrink-0">
-                        <div class="text-base font-black text-gray-800 dark:text-gray-200 tabular-nums">${fmt2(row.score)}</div>
+                        <div class="text-base font-black text-gray-800 dark:text-gray-200 tabular-nums">${formatPrizeGivingScore(row.score)}</div>
                         <div class="shrink-0">
                             ${getPresetCheckbox(row)}
                         </div>
@@ -423,7 +442,7 @@ function renderPodiumList(rows, container) {
 
     if (others.length > 0) {
         others.forEach(row => {
-            const status = row.isEliminated ? 'ELIM' : (row.score === null ? 'Ej Start' : '—');
+            const status = getPrizeGivingStatus(row);
             html += `
              <div class="flex justify-between items-center text-[11px] p-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 opacity-80">
                 <div class="flex gap-2 items-center min-w-0">
@@ -495,6 +514,20 @@ async function togglePresence(sn, isChecked) {
 }
 
 export function __unload() {
-    unsubscribes.forEach(u => u && u());
+    loadToken++;
+    unsubscribes.forEach(u => {
+        try { u && u(); } catch { }
+    });
     unsubscribes = [];
+    competitionId = null;
+    equipages = [];
+    marathonResults.clear();
+    marathonTiming.clear();
+    precisionResults.clear();
+    dressageResults.clear();
+    activeClass = 'all';
+    activeDiscipline = 'total';
+    classSettings = {};
+    marathonConfig = {};
+    precisionConfig = {};
 }

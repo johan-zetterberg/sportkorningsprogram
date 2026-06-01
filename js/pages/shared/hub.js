@@ -197,6 +197,16 @@ let mapInstance = null;
 let markerInstance = null;
 let globalStateChangeHandler = null;
 
+function safeInvalidateMapSize(mapRef = mapInstance) {
+  try {
+    if (!mapRef || mapRef !== mapInstance) return;
+    if (!mapRef.getContainer?.()?.isConnected) return;
+    mapRef.invalidateSize();
+  } catch (_) {
+    // Ignore late Leaflet callbacks after the hub map has been torn down.
+  }
+}
+
 function setupCompetitionListener() {
   if (competitionListenerUnsub) {
     competitionListenerUnsub();
@@ -212,7 +222,8 @@ export function initMap() {
   if (!mapEl) return;
 
   if (mapInstance) {
-    setTimeout(() => { mapInstance?.invalidateSize(); }, 200);
+    const mapRef = mapInstance;
+    setTimeout(() => safeInvalidateMapSize(mapRef), 200);
     return;
   }
 
@@ -228,7 +239,8 @@ export function initMap() {
   }).addTo(mapInstance);
 
   // Fix leaflet size issues in tabs/modals
-  setTimeout(() => { mapInstance.invalidateSize(); }, 200);
+  const mapRef = mapInstance;
+  setTimeout(() => safeInvalidateMapSize(mapRef), 200);
 
   mapInstance.on('click', (e) => {
     const { lat, lng } = e.latlng;
@@ -244,6 +256,7 @@ export function initMap() {
   // Try to get user location
   if (navigator.geolocation) {
     navigator.geolocation.getCurrentPosition((pos) => {
+      if (!mapInstance || !mapInstance.getContainer?.()?.isConnected) return;
       const { latitude, longitude } = pos.coords;
       mapInstance.setView([latitude, longitude], 10);
     });

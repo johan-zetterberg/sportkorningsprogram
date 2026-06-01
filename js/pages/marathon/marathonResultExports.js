@@ -11,6 +11,10 @@ import {
   sanitizeForFilename,
   isNum
 } from '../../utils/sharedUtils.js';
+import {
+  formatMarathonExternalOtherPenalty,
+  formatMarathonPenaltyExportValue
+} from '../../utils/marathonExportUtils.js';
 import { getMomentHorseLabel } from './marathonResultFormatters.js';
 
 export function setupMarathonResultExportButtons({
@@ -88,8 +92,11 @@ export function setupMarathonResultExportButtons({
       const etaLabel = res.eta.B ? fmtClock(res.eta.B) : (res.eta.A ? fmtClock(res.eta.A) : '-');
 
       const place = placeMap.get(sn);
-      const totalPen = res.totalPenalty;
-      const totalLabel = (totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '-');
+      const totalLabel = formatMarathonPenaltyExportValue(res.totalPenalty, {
+        equipage: eq,
+        marathonResult: res,
+        empty: '-'
+      });
 
       const row = [
         isNum(place) ? place : '-',
@@ -104,12 +111,11 @@ export function setupMarathonResultExportButtons({
 
       activeStages.forEach(st => {
         const sData = res.stages[st];
-        let val = '-';
-        if (sData) {
-          if (sData.eliminated) val = 'ELIM';
-          else if (isNum(sData.timePenalty)) val = sData.timePenalty.toFixed(2);
-        }
-        row.push(val);
+        row.push(formatMarathonPenaltyExportValue(sData?.timePenalty, {
+          equipage: eq,
+          marathonResult: sData,
+          empty: '-'
+        }));
       });
 
       const obsArr = getObstacleArray(d);
@@ -125,8 +131,8 @@ export function setupMarathonResultExportButtons({
       }
 
       row.push(
-        isNum(res.obstacles.sum) ? res.obstacles.sum.toFixed(2) : '0.00',
-        isNum(res.otherPenalty) ? res.otherPenalty.toFixed(2) : '0.00',
+        formatMarathonPenaltyExportValue(res.obstacles.sum, { equipage: eq, marathonResult: res, empty: '0.00' }),
+        formatMarathonExternalOtherPenalty(res, { equipage: eq, empty: '0.00' }),
         totalLabel,
         res.status || '-'
       );

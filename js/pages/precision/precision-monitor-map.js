@@ -7,7 +7,16 @@ let staticMarkers = [];
 let currentConfig = null;
 let imageOverlay = null;
 
-const DEFAULT_IMAGE = 'img/precision-map-placeholder.png';
+const DEFAULT_IMAGE = 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(`
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+  <rect width="1920" height="1080" fill="#f1f5f9"/>
+  <g stroke="#cbd5e1" stroke-width="2" opacity="0.8">
+    <path d="M0 180H1920M0 360H1920M0 540H1920M0 720H1920M0 900H1920"/>
+    <path d="M320 0V1080M640 0V1080M960 0V1080M1280 0V1080M1600 0V1080"/>
+  </g>
+  <text x="960" y="520" text-anchor="middle" font-family="Arial, sans-serif" font-size="48" font-weight="700" fill="#64748b">Precision</text>
+  <text x="960" y="585" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#94a3b8">Ingen banbild vald</text>
+</svg>`);
 let hasInitiallyFitted = false;
 let lastSidebarHash = "";
 let animationFrameId = null;
@@ -18,6 +27,22 @@ let currentOrderedGates = [];
 let pathLinePassed = null;
 let pathLineUpcoming = null;
 let currentDensePath = [];
+
+function safeInvalidateMapSize(mapRef = map, bounds = null) {
+    if (!mapRef || mapRef !== map) return false;
+    const mapContainer = mapRef.getContainer?.();
+    if (!mapContainer?.isConnected) return false;
+
+    mapRef.invalidateSize();
+    if (bounds && !hasInitiallyFitted) {
+        const size = mapRef.getSize();
+        if (size.x > 50 && size.y > 50) {
+            mapRef.fitBounds(bounds);
+            hasInitiallyFitted = true;
+        }
+    }
+    return true;
+}
 
 function generateSplinePath(gates, segments = 20) {
     if (!gates || gates.length < 2) return [];
@@ -145,18 +170,8 @@ export function renderMap(container, activeEquipages, mapConfig = null, currentD
             }
         }
         
-        requestAnimationFrame(() => {
-            if (map) {
-                map.invalidateSize();
-                if (!hasInitiallyFitted) {
-                    const size = map.getSize();
-                    if (size.x > 50 && size.y > 50) {
-                        map.fitBounds(bounds);
-                        hasInitiallyFitted = true;
-                    }
-                }
-            }
-        });
+        const mapRef = map;
+        requestAnimationFrame(() => safeInvalidateMapSize(mapRef, bounds));
     }
 
     updateStaticMarkers();
@@ -313,17 +328,9 @@ function initMap(container) {
 
     const mapEl = document.getElementById('precision-live-map');
     if (mapEl && typeof ResizeObserver !== 'undefined' && !resizeObserver) {
+        const mapRef = map;
         resizeObserver = new ResizeObserver(() => {
-            if (map && map.getContainer().isConnected) {
-                map.invalidateSize();
-                if (!hasInitiallyFitted) {
-                    const size = map.getSize();
-                    if (size.x > 50 && size.y > 50) {
-                        map.fitBounds(bounds);
-                        hasInitiallyFitted = true;
-                    }
-                }
-            }
+            safeInvalidateMapSize(mapRef, bounds);
         });
         resizeObserver.observe(mapEl);
     }
@@ -623,7 +630,8 @@ export function destroyMap() {
         map.remove();
         map = null;
         imageOverlay = null;
-        if (pathLine) { pathLine.remove(); pathLine = null; }
+        pathLinePassed = null;
+        pathLineUpcoming = null;
         markers.clear();
         staticMarkers = [];
         currentConfig = null;

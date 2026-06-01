@@ -2264,7 +2264,7 @@ export async function load() {
         return;
     }
 
-    await ensureClubLogosLoaded(); //
+    await ensureClubLogosLoaded(competition.id); //
     setSortFromURL(); //
     const competitionId = competition.id;
 

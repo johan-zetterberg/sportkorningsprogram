@@ -36,12 +36,45 @@ import { calculateDressageResult, calculateMarathonResult } from '../../services
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { t } from '../../utils/i18n.js';
+import {
+    addPauseAfterStartNumber,
+    assignBulkStartTimes,
+    buildLiveStatus,
+    buildMarathonDressageResultRows,
+    buildPrecisionDressageOrderRows,
+    buildPrecisionResultOrderRows,
+    buildStarttiderClassOptions,
+    buildStarttiderMergeMap,
+    byStartNumberAsc,
+    formatDateTime,
+    getStarttiderPublishButtonView,
+    getPublishedState,
+    getTimesOnlyPayload,
+    moveStartTimeRow,
+    parseDateTime,
+    recalculateStartTimesFrom,
+    renderStarttiderActionButtons,
+    renderStarttiderDesktopBody,
+    renderStarttiderDesktopHeader,
+    renderStarttiderDesktopRow,
+    renderStarttiderMobileCard,
+    renderStarttiderNowNextChip,
+    renderStarttiderPublishResetSection,
+    renderStarttiderStatusBadge,
+    renderStarttiderTimeCell,
+    renderStarttiderToolbarSection,
+    reorderStartTimeRow,
+    resolveStarttiderStatus,
+    resolveStarttiderMergeGrouping,
+    toDateTimeLocalString
+} from './starttiderUtils.js';
 
 // ======= Modulstat =======
 let competitionId = null;
 let equipages = [];
 let startTimes = {};
 let unsubscribers = new Map();
+let pendingListenerRenderFrame = null;
 let precisionResultsMap = new Map();
 let marathonMap = new Map();
 let marathonStatusMap = marathonMap;
@@ -56,6 +89,7 @@ let clockTimer = null;
 let currentUserRole = 'publik';
 let viewMode = 'startorder'; // 'startorder' eller 'byclass'
 let searchTerm = '';
+let pdfDropdownOutsideClickHandler = null;
 
 // Mobil-detektering importeras globalt från sharedUtils.js
 
@@ -66,40 +100,6 @@ window.__starttiderResizeHandler = window.__starttiderResizeHandler || null;
 let starttider_displayConfig = {};
 let starttider_MERGE_MAP = new Map();
 
-// Bygger den interna kartan över vilka TDB-nummer som tillhör vilken grupp
-function starttider_buildMergeMap(raw) {
-    starttider_MERGE_MAP.clear();
-    if (!raw) return;
-
-    const maybeDisplay = raw && typeof raw === 'object' && raw.mergeByClassNumber ? raw : null;
-    const source = maybeDisplay ? maybeDisplay.mergeByClassNumber : raw;
-
-    // Nytt format från admin: { "<grpKey>": { label: string, members: number[] } }
-    if (source && typeof source === 'object' && !Array.isArray(source)) {
-        for (const [grpKey, info] of Object.entries(source)) {
-            const members = (info?.members || []).map(Number).filter(n => Number.isFinite(n)).sort((a, b) => a - b);
-            if (!members.length) continue;
-            const label = String(info?.label || `Sammanslagen: TDB #${members.join('/')}`);
-            const key = String(grpKey || `TDBGROUP:${members.join('+')}`);
-            members.forEach(num => starttider_MERGE_MAP.set(num, { key, label }));
-        }
-    }
-}
-
-// Slår upp ETT ekipage och returnerar dess merge-key och label
-function starttider_resolveMergeGrouping(e) {
-    // 1) Per-ekipage flagga (från TDB-test merge i admin)
-    if (e?.useMergedTestForDisplay && e?.mergedTestKey && e?.mergedTestLabel) {
-        return { key: String(e.mergedTestKey), label: String(e.mergedTestLabel) };
-    }
-    // 2) Global TDB-nummer merge (från config)
-    const num = Number(e?.tdbClassNumber);
-    const hit = Number.isFinite(num) ? starttider_MERGE_MAP.get(num) : null;
-
-    // Returnera merge-grupp om den finns, annars default klass
-    if (hit) return { key: String(hit.key), label: String(hit.label) };
-    return { key: String(e?.classId || e?.className || 'okand'), label: String(e?.className || 'Okänd klass') };
-}
 
 function horseLabel(eq) {
     if (!eq) return '—';
@@ -218,35 +218,6 @@ function generateCsvWrapper() {
 }
 
 
-function byStartNumberAsc(a, b) { return (a.startNumber || 0) - (b.startNumber || 0); }
-
-function toDateTimeLocalString(date) {
-    if (!date || isNaN(date.getTime())) return '';
-    const pad = (num) => num.toString().padStart(2, '0');
-    const year = date.getFullYear();
-    const month = pad(date.getMonth() + 1);
-    const day = pad(date.getDate());
-    const hours = pad(date.getHours());
-    const minutes = pad(date.getMinutes());
-    return `${year}-${month}-${day}T${hours}:${minutes}`;
-}
-
-function parseDateTime(dateTimeStr) {
-    if (!dateTimeStr || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(dateTimeStr)) {
-        return null;
-    }
-    return new Date(dateTimeStr);
-}
-
-function formatDateTime(date) {
-    if (!date || isNaN(date.getTime())) return '—';
-    return date.toLocaleString('sv-SE', {
-        day: 'numeric',
-        month: 'short',
-        hour: '2-digit',
-        minute: '2-digit'
-    });
-}
 
 function updateNextStartTimes() {
     const intervalInput = document.getElementById('bulkInterval');
@@ -277,56 +248,19 @@ function updateNextStartTimes() {
 }
 
 function statusBadge(kind, sn) {
-    let state = 'not-started';
+    const state = resolveStarttiderStatus(kind, sn, {
+        dressageStatusMap,
+        dressageFinalizationMap,
+        precisionResultsMap,
+        marathonStatusMap,
+        marathonTimingMap
+    });
 
-    if (kind === 'dressage') {
-        const st = dressageStatusMap.get(String(sn));
-        const fin = dressageFinalizationMap.get(String(sn)); // Ny check för finaliserad
-
-        if (fin && fin.finalized) {
-            state = 'done';
-        } else if (st && st.state === 'finished') {
-            // Fallback: om ritten är klar men inte signerad än, visa som klar? 
-            // Eller vill vi skilja på "Klar" (grön) och "Riden" (kanske också grön)?
-            // Hittills har 'finished' betytt grön. Vi behåller det, men finaliserad är definit.
-            state = 'done';
-        }
-        else if (st && st.state === 'ongoing') state = 'running';
-    }
-
-    if (kind === 'precision') {
-        const res = precisionResultsMap.get(String(sn));
-        if (res) {
-            if (res.finalized) state = 'done';
-            else if (res.running) state = 'running';
-            // Fallback om gamla data saknar flaggor men har resultat
-            else if (res.time || res.obstaclePenalty != null || res.timePenalty != null || res.eliminated) state = 'done';
-        }
-    }
-
-    if (kind === 'marathon') {
-        const mStatus = marathonStatusMap.get(String(sn));
-        // 1. Prioritera finaliserad status
-        if (mStatus && mStatus.finalized) {
-            state = 'done';
-        }
-        // 2. Annars kolla om det pågår (running flagga eller startad tid utan mål)
-        else if (mStatus && (mStatus.running || (mStatus.start_A && !mStatus.finish_B))) {
-            state = 'running';
-        }
-        // 3. Fallback: kolla timing-data om ingen status-flagga finns
-        else {
-            const t = marathonTimingMap.get(String(sn));
-            if (t && (t.duration_B || t.finishTime || t.netTimeSeconds)) state = 'done';
-            // OBS: Vi tar bort marathonObstacleTouch > 0 som indikator för "running", 
-            // då det är globalt och inte per ekipage.
-        }
-    }
-
-    const base = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium';
-    if (state === 'done') return `<span class="${base} bg-green-100 text-green-800">${t('done_status')}</span>`;
-    if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800">${t('running_status')}</span>`;
-    return `<span class="${base} bg-gray-100 text-gray-700">${t('not_started')}</span>`;
+    return renderStarttiderStatusBadge(state, {
+        doneLabel: t('done_status'),
+        runningLabel: t('running_status'),
+        notStartedLabel: t('not_started')
+    });
 }
 
 let liveStatus = {
@@ -335,56 +269,26 @@ let liveStatus = {
 };
 
 function updateLiveStatus() {
-    const now = new Date();
-    const fiveMinutesAgo = new Date(now.getTime() - 5 * 60 * 1000);
-
-    const allStarts = [];
-    for (const sn in startTimes) {
-        for (const discipline of ['dressage', 'marathon', 'precision']) {
-            const dateObj = parseDateTime(startTimes[sn][discipline]);
-            if (dateObj) {
-                allStarts.push({ sn: Number(sn), discipline, dateObj });
-            }
-        }
-    }
-
-    allStarts.sort((a, b) => a.dateObj - b.dateObj);
-
-    const nextStart = allStarts.find(start => start.dateObj > now);
-    const currentStart = allStarts.find(start => start.dateObj >= fiveMinutesAgo && start.dateObj <= now);
-
-    liveStatus.current = currentStart ? { sn: currentStart.sn, discipline: currentStart.discipline } : null;
-    liveStatus.next = nextStart ? { sn: nextStart.sn, discipline: nextStart.discipline } : null;
+    liveStatus = buildLiveStatus(startTimes);
 }
 
 function chipNowNext(discipline, sn) {
-    const base = 'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium';
-    if (liveStatus.current && liveStatus.current.sn === sn && liveStatus.current.discipline === discipline) {
-        return `<span class="${base} bg-red-100 text-red-700">${t('now_chip')}</span>`;
-    }
-    if (liveStatus.next && liveStatus.next.sn === sn && liveStatus.next.discipline === discipline) {
-        return `<span class="${base} bg-blue-100 text-blue-700">${t('next_chip')}</span>`;
-    }
-    return '';
+    return renderStarttiderNowNextChip(discipline, sn, liveStatus, {
+        nowLabel: t('now_chip'),
+        nextLabel: t('next_chip')
+    });
 }
 
 function timeCell(key, sn, value, editable) {
-    const id = `${key}-${sn}`;
-    const badges = `${chipNowNext(key, sn)} <span class="ml-1">${statusBadge(key, sn)}</span>`;
-    const dateObj = parseDateTime(value);
-    const displayValue = formatDateTime(dateObj);
-
-    if (!editable || publicMode) {
-        return `<div class="flex flex-col gap-1 text-gray-900 dark:text-gray-200">${displayValue}<div class="flex items-center gap-1">${badges}</div></div>`;
-    }
-
-    const inputValue = value || '';
-
-    return `
-    <div class="flex flex-col gap-1">
-      <input id="${id}" type="datetime-local" class="w-36 px-1 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500" value="${inputValue}">
-      <div class="flex items-center gap-1">${badges}</div>
-    </div>`;
+    return renderStarttiderTimeCell({
+        discipline: key,
+        startNumber: sn,
+        value,
+        editable,
+        publicMode,
+        nowNextHtml: chipNowNext(key, sn),
+        statusHtml: statusBadge(key, sn)
+    });
 }
 
 
@@ -427,31 +331,6 @@ function handleDrop(e) {
     reorderRow(draggedStartNumber, targetSn);
 }
 
-/* function reorderRow_deprecated(droppedSn, targetSn) {
-    // 1. Get current sorted list
-    const list = getSortedEquipages();
-    const fromIndex = list.findIndex(e => String(e.startNumber) === String(droppedSn));
-    const toIndex = list.findIndex(e => String(e.startNumber) === String(targetSn));
-
-    if (fromIndex === -1 || toIndex === -1) return;
-
-    // 2. Move item in array
-    const item = list.splice(fromIndex, 1)[0];
-    list.splice(toIndex, 0, item);
-
-    // 3. Recalculate times for ALL disciplines
-    // We must find the "earliest" index changed to minimize recalc, which is min(from, to)
-    const recalcIndex = Math.min(fromIndex, toIndex);
-
-    ['dressage', 'marathon', 'precision'].forEach(discipline => {
-        recalculateTimesFrom(list, discipline, recalcIndex);
-    });
-
-    render();
-    updateNextStartTimes();
-} */
-
-
 function reorderRow(droppedSn, targetSn) {
     // 1. Check valid sort configuration for DnD
     const allowedSortKeys = ['dressage', 'marathon', 'precision'];
@@ -469,26 +348,13 @@ function reorderRow(droppedSn, targetSn) {
 
     if (fromIndex === -1 || toIndex === -1) return;
 
-    // 3. CAPTURE TIME of the slot we are disturbing.
-    // We want the new occupant of the 'recalcIndex' slot to inherit its time,
-    // so the schedule stays anchored at that point.
-    const recalcIndex = Math.min(fromIndex, toIndex);
-    const snAtRecalcIndex = String(list[recalcIndex].startNumber);
-    const preservedTime = startTimes[snAtRecalcIndex]?.[discipline];
-
-    // 4. Move item in array to reflect the new desired order
-    const item = list.splice(fromIndex, 1)[0];
-    list.splice(toIndex, 0, item);
-
-    // 5. Apply preserved time to the new occupant of the slot
-    if (preservedTime) {
-        const newSnAtRecalcIndex = String(list[recalcIndex].startNumber);
-        if (!startTimes[newSnAtRecalcIndex]) startTimes[newSnAtRecalcIndex] = {};
-        startTimes[newSnAtRecalcIndex][discipline] = preservedTime;
-    }
-
-    // 6. Recalculate times ONLY for the specific discipline from this point onward
-    recalculateTimesFrom(list, discipline, recalcIndex);
+    const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval')?.value || 7));
+    reorderStartTimeRow(startTimes, list, {
+        discipline,
+        droppedStartNumber: droppedSn,
+        targetStartNumber: targetSn,
+        intervalMin
+    });
 
     render();
     updateNextStartTimes();
@@ -580,6 +446,14 @@ function render() {
     }
 }
 
+function requestListenerRender() {
+    if (pendingListenerRenderFrame) return;
+    pendingListenerRenderFrame = requestAnimationFrame(() => {
+        pendingListenerRenderFrame = null;
+        render();
+    });
+}
+
 function renderDesktop() {
     const container = document.getElementById('startlist-container');
     if (!container) return;
@@ -603,89 +477,37 @@ function renderDesktop() {
     const enableDnD = isEditable && viewMode === 'startorder' && timeSortKeys.includes(sortConfig.key);
 
     const renderEquipageRow = (e, index, totalEquipages) => {
-        const st = startTimes[String(e.startNumber)] || {};
-        const isPub = startTimes.published || {};
-
-        // Helper to check if time should be shown
-        const getVisibleTime = (discipline, timeVal) => {
-            if (isEditable) return timeCell(discipline, e.startNumber, timeVal, true); // Admin editor mode -> always show input
-
-            // Public viewing mode (or admin previewing public)
-            // If not published AND not admin (wait, publicMode toggle implies we simulate public view even for admin)
-            // Actually, if publicMode is ON, we act as public.
-            // If publicMode is OFF, we are admin (and isEditable is true, so we hit the line above).
-            // So if we are here, isEditable is false.
-            if (!isPub[discipline]) {
-                return '<span class="text-xs text-gray-400 italic">Ej publicerad</span>';
-            }
-            return timeCell(discipline, e.startNumber, timeVal, false);
+        const renderActions = (discipline) => {
+            return renderStarttiderActionButtons({
+                discipline,
+                startNumber: e.startNumber,
+                index,
+                totalRows: totalEquipages,
+                variant: 'desktop',
+                labels: {
+                    pause: t('pause_btn'),
+                    moveUp: t('move_up'),
+                    moveDown: t('move_down')
+                }
+            });
         };
 
-        const disciplineStyles = {
-            dressage: { label: 'D', color: 'bg-slate-100', text: 'text-slate-700' },
-            marathon: { label: 'M', color: 'bg-emerald-100', text: 'text-emerald-700' },
-            precision: { label: 'P', color: 'bg-indigo-100', text: 'text-indigo-700' }
-        };
-
-        const actionButtons = (discipline) => {
-            const style = disciplineStyles[discipline];
-            return `
-            <div class="flex items-center justify-between w-full gap-1 py-1 pl-2 pr-1 rounded-full ${style.color}">
-                <span class="font-bold text-xs ${style.text} w-4 text-left">${style.label}</span>
-                <div class="flex items-center gap-1">
-                    <button class="action-btn text-gray-600 hover:text-blue-600" data-action="pause" data-discipline="${discipline}" data-sn="${e.startNumber}" title="${t('pause_btn')}">☕</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 ${index === 0 ? 'opacity-25' : ''}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${e.startNumber}" title="${t('move_up')}">▲</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 ${index === totalEquipages - 1 ? 'opacity-25' : ''}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${e.startNumber}" title="${t('move_down')}">▼</button>
-                </div>
-            </div>`;
-        };
-
-        const isElim = isEliminatedOrIncomplete(e);
-        const elimClass = isElim ? 'bg-red-50 dark:bg-red-900/20' : '';
-        const hoverEffects = publicMode ? 'hover:bg-gray-50 dark:hover:bg-gray-700' : '';
-
-        const dragAttrs = enableDnD
-            ? `draggable="true" class="draggable-row align-top ${elimClass || hoverEffects} border-b dark:border-gray-700 last:border-0" data-sn="${e.startNumber}"`
-            : `class="align-top ${elimClass || hoverEffects} border-b dark:border-gray-700 last:border-0"`;
-
-        const grabHandle = enableDnD
-            ? `<div class="cursor-grab text-gray-400 hover:text-gray-600 mr-2" title="Dra för att flytta">⋮⋮</div>`
-            : '';
-
-        return `
-            <tr ${dragAttrs}>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 text-center select-none align-middle whitespace-nowrap">
-                    <div class="flex items-center justify-center font-bold text-gray-900 dark:text-white">
-                        ${grabHandle}
-                        ${e.startNumber ?? ''}
-                    </div>
-                </td>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm min-w-0 align-middle">
-                  <div class="font-medium text-gray-900 dark:text-white whitespace-nowrap truncate max-w-[140px] md:max-w-none" title="${e.driverName || ''}">${e.driverName || ''}</div>
-                  <div class="text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 italic truncate max-w-[140px] lg:max-w-[200px] xl:max-w-none" title="${horseLabel(e)}">${horseLabel(e)}</div>
-                </td>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle">
-                    <div class="truncate max-w-[80px] md:max-w-[120px] xl:max-w-none" title="${e._mergedLabel || e.className || ''}">${e._mergedLabel || e.className || ''}</div>
-                </td>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle">
-                    <div class="flex items-center gap-1.5 whitespace-nowrap" title="${e.clubName || ''}">
-                        ${getFlagHtml(e)}
-                        ${getClubLogoHtml(e)}
-                        <span class="hidden md:inline-block truncate max-w-[100px] lg:max-w-[150px] xl:max-w-none">${e.clubName || ''}</span>
-                    </div>
-                </td>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 align-middle text-[11px] lg:text-sm whitespace-nowrap">${getVisibleTime('dressage', st.dressage)}</td>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 align-middle text-[11px] lg:text-sm whitespace-nowrap">${getVisibleTime('marathon', st.marathon)}</td>
-                <td class="px-2 py-2 lg:px-3 lg:py-2 align-middle text-[11px] lg:text-sm whitespace-nowrap">${getVisibleTime('precision', st.precision)}</td>
-                ${isEditable ? `
-                <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm align-middle whitespace-nowrap">
-                    <div class="flex flex-col items-center gap-1">
-                        ${actionButtons('dressage')}
-                        ${actionButtons('marathon')}
-                        ${actionButtons('precision')}
-                    </div>
-                </td>` : ''}
-            </tr>`;
+        return renderStarttiderDesktopRow({
+            equipage: e,
+            startTimes,
+            index,
+            totalRows: totalEquipages,
+            isEditable,
+            publicMode,
+            enableDnD,
+            isEliminated: isEliminatedOrIncomplete(e),
+            getHorseLabel: horseLabel,
+            getFlagHtml,
+            getClubLogoHtml,
+            renderTimeCell: timeCell,
+            renderActions,
+            unpublishedHtml: '<span class="text-xs text-gray-400 italic">Ej publicerad</span>'
+        });
     };
 
     const headers = [
@@ -696,29 +518,12 @@ function renderDesktop() {
     ];
     if (isEditable) headers.push({ key: 'actions', label: t('actions') });
 
-    const headerHtml = `<thead class="bg-gray-50 dark:bg-gray-700 text-xs"><tr>${headers.map(h => {
-        const isSortable = !!h.key;
-        const cursor = isSortable ? 'cursor-pointer' : '';
-        const isSorted = sortConfig.key === h.key;
-        const arrow = isSorted ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '';
-        return `<th data-key="${h.key}" class="${isSortable ? 'sortable-header' : ''} px-2 py-2 lg:px-3 lg:py-2 text-left text-[11px] lg:text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider select-none whitespace-nowrap ${cursor}">${h.label} ${arrow}</th>`;
-    }).join('')}</tr></thead>`;
-
-    let bodyHtml = '';
-    const colspan = headers.length;
-    if (viewMode === 'byclass') {
-        const grouped = sortedEquipages.reduce((acc, eq) => {
-            (acc[eq._mergedLabel || eq.className || 'Okänd'] = acc[eq._mergedLabel || eq.className || 'Okänd'] || []).push(eq);
-            return acc;
-        }, {});
-        const sortedClasses = Object.keys(grouped).sort((a, b) => a.localeCompare(b, 'sv'));
-        for (const className of sortedClasses) {
-            bodyHtml += `<tr><td colspan="${colspan}" class="px-3 py-2 bg-gray-100 dark:bg-gray-700 font-bold text-gray-800 dark:text-gray-200 sticky top-0 z-10">${className}</td></tr>`;
-            bodyHtml += grouped[className].map((e, i) => renderEquipageRow(e, i, sortedEquipages.length)).join('');
-        }
-    } else {
-        bodyHtml = sortedEquipages.map((e, i) => renderEquipageRow(e, i, sortedEquipages.length)).join('');
-    }
+    const headerHtml = renderStarttiderDesktopHeader(headers, sortConfig);
+    const bodyHtml = renderStarttiderDesktopBody(sortedEquipages, {
+        viewMode,
+        colspan: headers.length,
+        renderRow: renderEquipageRow
+    });
 
     table.innerHTML = `${headerHtml}<tbody>${bodyHtml}</tbody>`;
 
@@ -757,100 +562,56 @@ function renderMobile() {
 
     const isEditable = !publicMode && currentUserRole === 'admin';
     const sorted = getSortedEquipages();
-    const isPub = startTimes.published || {};
     let lastClass = null;
 
     const cardsHtml = sorted.map((e, index) => {
-        const st = startTimes[String(e.startNumber)] || {};
         let classHeader = '';
         if (viewMode === 'byclass' && (e._mergedLabel || e.className) !== lastClass) {
             lastClass = (e._mergedLabel || e.className);
             classHeader = `<div class="px-2 py-1 mt-2 mb-1 bg-blue-100 text-blue-800 font-bold text-sm rounded-md">${e._mergedLabel || e.className}</div>`;
         }
 
-        const timeRow = (discipline, value) => {
-            // Check visibility
-            if (!isEditable && !isPub[discipline]) {
-                return `<span class="text-gray-400 italic text-[11px]">Ej publicerad</span>`;
-            }
-
-            const dateObj = parseDateTime(value);
-            if (isEditable) {
-                return `<input id="${discipline}-${e.startNumber}" type="datetime-local" class="flex-1 w-full px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-[11px]" value="${value || ''}">`;
-            }
-            return `<span class="font-bold dark:text-white text-[12px]">${formatDateTime(dateObj)}</span>`;
-        };
-
-        const actionButtons = (discipline) => {
+        const renderActions = (discipline) => {
             if (!isEditable) return '';
 
-            const disciplineStyles = {
-                dressage: { label: 'D', color: 'bg-slate-100' },
-                marathon: { label: 'M', color: 'bg-emerald-100' },
-                precision: { label: 'P', color: 'bg-indigo-100' }
-            };
-            const style = disciplineStyles[discipline];
-
-            return `
-            <div class="flex items-center justify-between w-full gap-2 p-0.5 rounded ${style.color}">
-                <span class="font-bold text-[10px] text-gray-600 w-16 text-left">${discipline.charAt(0).toUpperCase() + discipline.slice(1)}:</span>
-                <div class="flex items-center gap-1">
-                    <button class="action-btn text-gray-600 hover:text-blue-600 px-1" data-action="pause" data-discipline="${discipline}" data-sn="${e.startNumber}" title="${t('pause_btn')}">☕</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 px-1 ${index === 0 ? 'opacity-25' : ''}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${e.startNumber}" title="${t('move_up')}">▲</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 px-1 ${index === sorted.length - 1 ? 'opacity-25' : ''}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${e.startNumber}" title="${t('move_down')}">▼</button>
-                </div>
-            </div>`;
+            return renderStarttiderActionButtons({
+                discipline,
+                startNumber: e.startNumber,
+                index,
+                totalRows: sorted.length,
+                variant: 'mobile',
+                labels: {
+                    pause: t('pause_btn'),
+                    moveUp: t('move_up'),
+                    moveDown: t('move_down')
+                }
+            });
         };
 
-        const isElim = isEliminatedOrIncomplete(e);
-        const elimClass = isElim ? 'bg-red-50 dark:bg-red-900/20' : 'bg-white dark:bg-gray-800';
-
-        return `
-            ${classHeader}
-            <div class="mb-1.5 rounded border border-gray-200 dark:border-gray-700 shadow-sm ${elimClass} overflow-hidden">
-                <div class="px-2 py-1.5 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                    <div class="font-bold text-[13px] dark:text-white leading-tight">#${e.startNumber} ${e.driverName}</div>
-                    <div class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-tight">${horseLabel(e)}</div>
-                </div>
-                <div class="px-2 py-1 space-y-0.5 text-[12px]">
-                    <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">Klass:</span><span class="font-medium dark:text-gray-200 text-right">${e._mergedLabel || e.className || '—'}</span></div>
-                    <div class="flex justify-between items-center gap-1 pt-1 border-t dark:border-gray-700/50">
-                        <span class="text-gray-500 dark:text-gray-400 w-14">Dressyr:</span>
-                        <div class="flex-1 text-right">${timeRow('dressage', st.dressage)}</div>
-                        <div class="flex items-center justify-end min-w-[55px]">${statusBadge('dressage', e.startNumber)}</div>
-                    </div>
-                    <div class="flex justify-between items-center gap-1 pt-1 border-t dark:border-gray-700/50">
-                        <span class="text-gray-500 dark:text-gray-400 w-14">Maraton:</span>
-                        <div class="flex-1 text-right">${timeRow('marathon', st.marathon)}</div>
-                        <div class="flex items-center justify-end min-w-[55px]">${statusBadge('marathon', e.startNumber)}</div>
-                    </div>
-                    <div class="flex justify-between items-center gap-1 pt-1 border-t dark:border-gray-700/50">
-                        <span class="text-gray-500 dark:text-gray-400 w-14">Precision:</span>
-                        <div class="flex-1 text-right">${timeRow('precision', st.precision)}</div>
-                        <div class="flex items-center justify-end min-w-[55px]">${statusBadge('precision', e.startNumber)}</div>
-                    </div>
-                </div>
-                ${isEditable ? `
-                <div class="px-2 py-1.5 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 space-y-1">
-                    <div class="text-[10px] font-semibold text-gray-500 uppercase tracking-wider">${t('actions')}</div>
-                    ${actionButtons('dressage')}
-                    ${actionButtons('marathon')}
-                    ${actionButtons('precision')}
-                </div>
-                ` : ''}
-            </div>
-        `;
+        return renderStarttiderMobileCard({
+            equipage: e,
+            startTimes,
+            index,
+            totalRows: sorted.length,
+            isEditable,
+            isEliminated: isEliminatedOrIncomplete(e),
+            classHeaderHtml: classHeader,
+            getHorseLabel: horseLabel,
+            renderStatus: statusBadge,
+            renderActions,
+            labels: {
+                class: 'Klass:',
+                dressage: 'Dressyr:',
+                marathon: 'Maraton:',
+                precision: 'Precision:',
+                actions: t('actions')
+            },
+            unpublishedHtml: '<span class="text-gray-400 italic text-[11px]">Ej publicerad</span>'
+        });
     }).join('');
 
     container.innerHTML = `<div class="bg-transparent py-1">${cardsHtml}</div>`;
 }
-
-
-
-
-// ======= Kontroller och Event Listeners =======
-// ... (rest of the file from lines 561+)
-
 // ======= Kontroller och Event Listeners =======
 function doBulkFill(key) {
     const cls = document.getElementById('bulkClass').value;
@@ -870,18 +631,11 @@ function doBulkFill(key) {
     }
 
     const rows = equipages.filter(e => !cls || (e._mergedLabel || e.className) === cls).sort(byStartNumberAsc);
-    let currentTimestamp = firstDateTime.getTime();
-
-    rows.forEach(e => {
-        const sn = String(e.startNumber);
-        const entry = startTimes[sn] ||= {};
-        if (onlyEmpty && entry[key]) {
-            return;
-        }
-
-        const currentDate = new Date(currentTimestamp);
-        entry[key] = toDateTimeLocalString(currentDate);
-        currentTimestamp += intervalMin * 60 * 1000;
+    assignBulkStartTimes(startTimes, rows, {
+        discipline: key,
+        firstDateTime,
+        intervalMin,
+        onlyEmpty
     });
 
     render();
@@ -935,41 +689,16 @@ function generatePrecisionByDressageOrder() {
     }
     const firstDateTime = new Date(firstDateTimeStr);
 
-    // Filter by class, then sort equipages based on their existing dressage time
-    const filteredEquipages = equipages.filter(e => {
-        if (cls && (e._mergedLabel || e.className) !== cls) return false;
-
-        const time = parseDateTime(startTimes[String(e.startNumber)]?.dressage)?.getTime();
-        // Fall 1: Har en tid -> alltid med
-        if (time) return true;
-        // Fall 2: Saknar tid -> ta bara med om includeElim är sant
-        if (includeElim) return true;
-        return false;
+    const sortedByDressage = buildPrecisionDressageOrderRows(equipages, startTimes, {
+        className: cls,
+        includeEliminated: includeElim
     });
 
-    const sortedByDressage = [...filteredEquipages];
-    sortedByDressage.sort((a, b) => {
-        const timeA = parseDateTime(startTimes[String(a.startNumber)]?.dressage)?.getTime() || -Infinity;
-        const timeB = parseDateTime(startTimes[String(b.startNumber)]?.dressage)?.getTime() || -Infinity;
-        if (timeA === timeB) {
-            return Number(a.startNumber) - Number(b.startNumber);
-        }
-        return timeA - timeB; // -Infinity startar allra först.
-    });
-
-    let currentTimestamp = firstDateTime.getTime();
-    let assignedCount = 0;
-    sortedByDressage.forEach(e => {
-        const sn = String(e.startNumber);
-        if (!startTimes[sn]) startTimes[sn] = {};
-
-        if (onlyEmpty && startTimes[sn].precision) {
-            return;
-        }
-
-        startTimes[sn].precision = toDateTimeLocalString(new Date(currentTimestamp));
-        currentTimestamp += intervalMin * 60 * 1000;
-        assignedCount++;
+    const { assignedCount } = assignBulkStartTimes(startTimes, sortedByDressage, {
+        discipline: 'precision',
+        firstDateTime,
+        intervalMin,
+        onlyEmpty
     });
 
     render();
@@ -1007,60 +736,35 @@ function generateMarathonByDressageResults() {
     }
     const firstDateTime = new Date(firstDateTimeStr);
 
-    const mappedEquipages = equipages.filter(e => !cls || (e._mergedLabel || e.className) === cls).map(e => {
+    const getDressageResultFor = (e) => {
         const sn = String(e.startNumber);
         const rawProtocols = window.__dressageCache?.get(sn);
         const protocols = rawProtocols ? Array.from(rawProtocols.values()) : [];
         const programs = getPrograms();
         const validProtos = deduplicateAndFilterProtocols(protocols, []);
-        const result = calculateDressageResult(e, validProtos, [], programs);
-
-        return {
-            ...e,
-            debugProtoCount: protocols.length,
-            debugResultNull: result == null,
-            debugPenaltyVal: result?.penalty,
-            dressagePenalty: (result && result.penalty != null && !result.eliminated) ? result.penalty : (includeElim ? Infinity : null)
-        };
+        return calculateDressageResult(e, validProtos, [], programs);
+    };
+    const getProtocolCountFor = (e) => {
+        const rawProtocols = window.__dressageCache?.get(String(e.startNumber));
+        return rawProtocols ? Array.from(rawProtocols.values()).length : 0;
+    };
+    const { rankedRows: rankedEquipages, diagnostics } = buildMarathonDressageResultRows(equipages, {
+        className: cls,
+        includeEliminated: includeElim,
+        getDressageResult: getDressageResultFor,
+        getProtocolCount: getProtocolCountFor
     });
 
-    const rankedEquipages = mappedEquipages.filter(e => e.dressagePenalty !== null);
-
     if (rankedEquipages.length === 0) {
-        // DIAGNOSTIC ALERT
-        const totalChecked = mappedEquipages.length;
-        const totalProtos = mappedEquipages.reduce((sum, e) => sum + e.debugProtoCount, 0);
-        const missingPenalties = mappedEquipages.filter(e => e.debugPenaltyVal == null).length;
-
-        showAlert(`Kunde inte generera startlista (0 ekipage hittades).\n\nDiagnosinfo:\nStartnummer dubbelkollade i klassen: ${totalChecked}\nAntal hittade protokoll i cache: ${totalProtos}\nAntal ekipage som saknade straffpoäng (null): ${missingPenalties}`, 'error', 15000);
+        showAlert(`Kunde inte generera startlista (0 ekipage hittades).\n\nDiagnosinfo:\nStartnummer dubbelkollade i klassen: ${diagnostics.totalChecked}\nAntal hittade protokoll i cache: ${diagnostics.totalProtos}\nAntal ekipage som saknade straffpoäng (null): ${diagnostics.missingPenalties}`, 'error', 15000);
         return;
     }
 
-    // Sortera: Högst straffpoäng (sämst resultat) startar först. Infinity startar alltså *allra först*.
-    rankedEquipages.sort((a, b) => {
-        const pA = a.dressagePenalty;
-        const pB = b.dressagePenalty;
-        if (pA === pB) {
-            return Number(a.startNumber) - Number(b.startNumber);
-        }
-        if (pA === Infinity) return -1;
-        if (pB === Infinity) return 1;
-        return pB - pA;
-    });
-
-    let currentTimestamp = firstDateTime.getTime();
-    let assignedCount = 0;
-    rankedEquipages.forEach(e => {
-        const sn = String(e.startNumber);
-        if (!startTimes[sn]) startTimes[sn] = {};
-
-        if (onlyEmpty && startTimes[sn].marathon) {
-            return; // hoppa över om vi bara ska fylla tomma
-        }
-
-        startTimes[sn].marathon = toDateTimeLocalString(new Date(currentTimestamp));
-        currentTimestamp += intervalMin * 60 * 1000;
-        assignedCount++;
+    const { assignedCount } = assignBulkStartTimes(startTimes, rankedEquipages, {
+        discipline: 'marathon',
+        firstDateTime,
+        intervalMin,
+        onlyEmpty
     });
 
     render();
@@ -1084,64 +788,27 @@ function generatePrecisionByResults() {
     }
     const firstDateTime = new Date(firstDateTimeStr);
 
-    // Skapa en lista med ekipage och deras summerade straffpoäng
-    const rankedEquipages = equipages.filter(e => !cls || (e._mergedLabel || e.className) === cls).map(e => {
+    const getDressageResultFor = (e) => {
         const sn = String(e.startNumber);
         const rawProtocols = window.__dressageCache?.get(sn);
         const protocols = rawProtocols ? Array.from(rawProtocols.values()) : [];
         const programs = getPrograms();
         const validProtos = deduplicateAndFilterProtocols(protocols, []);
-        const dRes = calculateDressageResult(e, validProtos, [], programs);
-        const dPenalty = (dRes && dRes.penalty != null) ? dRes.penalty : null;
-
-        const mData = marathonMap.get(sn) || {};
-        const mRes = calculateMarathonResult(e, mData, mData);
-
-        let total = null;
-        const elim = !!dRes?.eliminated || !!mRes?.eliminated || mData.eliminated || mData.status === 'Eliminerad';
-
-        const hasValidDressage = dPenalty !== null;
-        const hasValidMarathon = mRes && mRes.totalPenalty !== null;
-
-        if (!elim && hasValidDressage && hasValidMarathon) {
-            total = dPenalty + mRes.totalPenalty;
-        } else if (includeElim) {
-            total = Infinity; // Eliminated or missing starts first
-        }
-
-        return {
-            ...e,
-            totalPenalty: total
-        };
-    })
-        // Filtrera bort de som är eliminerade/saknar resultat OM includeElim är false (totalPenalty är null)
-        .filter(e => e.totalPenalty !== null);
-
-    // Sortera listan: Högst straffpoäng startar först (omvänd sortering). Infinity startar allra först.
-    rankedEquipages.sort((a, b) => {
-        const pA = a.totalPenalty;
-        const pB = b.totalPenalty;
-        if (pA === pB) {
-            return Number(a.startNumber) - Number(b.startNumber);
-        }
-        if (pA === Infinity) return -1;
-        if (pB === Infinity) return 1;
-        return pB - pA;
+        return calculateDressageResult(e, validProtos, [], programs);
+    };
+    const rankedEquipages = buildPrecisionResultOrderRows(equipages, {
+        className: cls,
+        includeEliminated: includeElim,
+        getDressageResult: getDressageResultFor,
+        getMarathonData: (e) => marathonMap.get(String(e.startNumber)) || {},
+        getMarathonResult: (e, data) => calculateMarathonResult(e, data, data)
     });
 
-    let currentTimestamp = firstDateTime.getTime();
-    let assignedCount = 0;
-    rankedEquipages.forEach(e => {
-        const sn = String(e.startNumber);
-        if (!startTimes[sn]) startTimes[sn] = {};
-
-        if (onlyEmpty && startTimes[sn].precision) {
-            return;
-        }
-
-        startTimes[sn].precision = toDateTimeLocalString(new Date(currentTimestamp));
-        currentTimestamp += intervalMin * 60 * 1000;
-        assignedCount++;
+    const { assignedCount } = assignBulkStartTimes(startTimes, rankedEquipages, {
+        discipline: 'precision',
+        firstDateTime,
+        intervalMin,
+        onlyEmpty
     });
 
     render();
@@ -1170,16 +837,11 @@ function insertPause(discipline, afterStartNumber) {
         return;
     }
 
-    // Loopa igenom alla ekipage EFTER punkten där pausen ska in och addera paustiden
-    for (let i = startIndex + 1; i < sortedEquipages.length; i++) {
-        const sn = String(sortedEquipages[i].startNumber);
-        const currentStartTime = parseDateTime(startTimes[sn]?.[discipline]);
-
-        if (currentStartTime) {
-            const newTimestamp = currentStartTime.getTime() + (pauseMinutes * 60 * 1000);
-            startTimes[sn][discipline] = toDateTimeLocalString(new Date(newTimestamp));
-        }
-    }
+    addPauseAfterStartNumber(startTimes, sortedEquipages, {
+        discipline,
+        afterStartNumber,
+        pauseMinutes
+    });
 
     render();
     updateNextStartTimes();
@@ -1196,29 +858,14 @@ function moveEquipage(discipline, startNumber, direction) {
         return timeA - timeB;
     });
 
-    const currentIndex = sortedEquipages.findIndex(e => e.startNumber == startNumber);
-    if (currentIndex === -1) return;
-
-    const newIndex = direction === 'up' ? currentIndex - 1 : currentIndex + 1;
-    if (newIndex < 0 || newIndex >= sortedEquipages.length) return; // Kan inte flytta utanför listan
-
-    // Capture time of the top-most slot (min index) to preserve the schedule anchor
-    const topIndex = Math.min(currentIndex, newIndex);
-    const snAtTopIndex = String(sortedEquipages[topIndex].startNumber);
-    const preservedTime = startTimes[snAtTopIndex]?.[discipline];
-
-    // Byt plats på de två ekipagen i vår sorterade array
-    [sortedEquipages[currentIndex], sortedEquipages[newIndex]] = [sortedEquipages[newIndex], sortedEquipages[currentIndex]];
-
-    // Apply preserved time to the new occupant of the top slot
-    if (preservedTime) {
-        const newSnAtTopIndex = String(sortedEquipages[topIndex].startNumber);
-        if (!startTimes[newSnAtTopIndex]) startTimes[newSnAtTopIndex] = {};
-        startTimes[newSnAtTopIndex][discipline] = preservedTime;
-    }
-
-    // Nu räknar vi om alla tider från den första av de två som bytte plats
-    recalculateTimesFrom(sortedEquipages, discipline, topIndex);
+    const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval')?.value || 7));
+    const result = moveStartTimeRow(startTimes, sortedEquipages, {
+        discipline,
+        startNumber,
+        direction,
+        intervalMin
+    });
+    if (result.error) return;
 
     render();
     updateNextStartTimes();
@@ -1228,38 +875,10 @@ function moveEquipage(discipline, startNumber, direction) {
  * Hjälpfunktion som räknar om alla starttider från ett visst index i en sorterad lista.
  */
 function recalculateTimesFrom(sortedList, discipline, startIndex) {
-    const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval').value || 7));
-
-    // Hitta startpunkten för omräkningen (ankartiden)
-    let baseTime;
-    if (startIndex > 0) {
-        const anchorSn = String(sortedList[startIndex - 1].startNumber);
-        const anchorTime = parseDateTime(startTimes[anchorSn]?.[discipline]);
-        if (!anchorTime) {
-            showAlert(t('cant_calc_prev_missing'), 'error');
-            return;
-        }
-        // Nästa tid ska vara ankartiden + ett intervall
-        baseTime = anchorTime.getTime() + (intervalMin * 60 * 1000);
-
-    } else {
-        // Om vi börjar från allra första, behåll dess tid och räkna om resten
-        const firstSn = String(sortedList[0].startNumber);
-        baseTime = parseDateTime(startTimes[firstSn]?.[discipline])?.getTime();
-        if (!baseTime) {
-            showAlert(t('cant_calc_first_missing'), 'error');
-            return;
-        }
-    }
-
-    // Loopa från startindex och sätt nya tider
-    for (let i = startIndex; i < sortedList.length; i++) {
-        const sn = String(sortedList[i].startNumber);
-        const newDate = new Date(baseTime + ((i - startIndex) * intervalMin * 60 * 1000));
-
-        if (!startTimes[sn]) startTimes[sn] = {}; // Säkerställ att objektet finns
-        startTimes[sn][discipline] = toDateTimeLocalString(newDate);
-    }
+    const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval')?.value || 7));
+    const result = recalculateStartTimesFrom(startTimes, sortedList, { discipline, startIndex, intervalMin });
+    if (result.error === 'previous-missing') showAlert(t('cant_calc_prev_missing'), 'error');
+    if (result.error === 'first-missing') showAlert(t('cant_calc_first_missing'), 'error');
 }
 
 async function togglePublish(key) {
@@ -1271,11 +890,8 @@ async function togglePublish(key) {
 
     try {
         // Separera times och published för att matcha strukturen i Firestore
-        const timesOnly = { ...startTimes };
-        delete timesOnly.published;
-
         await saveConfig(competitionId, 'startTimes', {
-            times: timesOnly,
+            times: getTimesOnlyPayload(startTimes),
             published: startTimes.published
         });
     } catch (err) {
@@ -1288,7 +904,11 @@ async function togglePublish(key) {
 }
 
 async function saveTimes() {
-    const payload = { times: startTimes, updatedAt: Date.now() };
+    const payload = {
+        times: getTimesOnlyPayload(startTimes),
+        published: getPublishedState(startTimes),
+        updatedAt: Date.now()
+    };
     await saveConfig(competitionId, 'startTimes', payload);
     showAlert(t('times_saved'), 'success');
 }
@@ -1352,16 +972,13 @@ function bindAllControls() {
         return;
     }
 
-    const classes = Array.from(new Set(equipages.map(e => e._mergedLabel || e.className).filter(Boolean))).sort((a, b) => a.localeCompare(b, 'sv'));
-    const classOptions = [`<option value="">${t('all_classes_opt')}</option>`].concat(classes.map(c => `<option value="${c}">${c}</option>`)).join('');
+    const { classes, html: classOptions } = buildStarttiderClassOptions(equipages, t('all_classes_opt'));
 
-    const pubState = startTimes.published || {};
-    const pubBtnClass = (key, colorClass, borderClass) => {
-        const isPub = !!pubState[key];
-        return isPub
-            ? `w-full px-2 py-2 text-sm rounded-md font-bold text-white shadow-sm transition-colors ${colorClass} ring-2 ring-offset-1 ring-${colorClass.split('-')[1]}-500`
-            : `w-full px-2 py-2 text-sm rounded-md bg-white text-gray-700 border ${borderClass} hover:bg-gray-50 transition-colors opacity-80`;
-    };
+    const pubState = getPublishedState(startTimes);
+    const publishButton = (key, options) => getStarttiderPublishButtonView(key, pubState, options);
+    const pubDressage = publishButton('dressage', { colorClass: 'bg-slate-600', borderClass: 'border-slate-300', shortLabel: 'D' });
+    const pubMarathon = publishButton('marathon', { colorClass: 'bg-emerald-600', borderClass: 'border-emerald-300', shortLabel: 'M' });
+    const pubPrecision = publishButton('precision', { colorClass: 'bg-indigo-600', borderClass: 'border-indigo-300', shortLabel: 'P' });
 
     controlsContainer.innerHTML = `
 <!-- 1. BULK GENERATION TOOLS -->
@@ -1441,77 +1058,34 @@ function bindAllControls() {
     </div>
 </div>
 
-<!-- 3. PUBLISHING & RESET  -->
-<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-    <!-- Publishing -->
-    <div class="p-3 bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 shadow-sm border-l-4 border-l-blue-500">
-         <h4 class="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">Publicering av Startlistor</h4>
-         <div class="grid grid-cols-3 gap-2">
-            <button id="pubDressage" class="${pubBtnClass('dressage', 'bg-slate-600', 'border-slate-300')}">
-                ${pubState.dressage ? 'Publicerad (D)' : 'Publicera D'}
-            </button>
-            <button id="pubMarathon" class="${pubBtnClass('marathon', 'bg-emerald-600', 'border-emerald-300')}">
-                 ${pubState.marathon ? 'Publicerad (M)' : 'Publicera M'}
-            </button>
-            <button id="pubPrecision" class="${pubBtnClass('precision', 'bg-indigo-600', 'border-indigo-300')}">
-                 ${pubState.precision ? 'Publicerad (P)' : 'Publicera P'}
-            </button>
-         </div>
-    </div>
+${renderStarttiderPublishResetSection({
+    publishButtons: {
+        dressage: pubDressage,
+        marathon: pubMarathon,
+        precision: pubPrecision
+    },
+    labels: {
+        publishTitle: 'Publicering av Startlistor',
+        resetTitle: t('reset_sections'),
+        clearDressage: t('clear_dressage'),
+        clearMarathon: t('clear_marathon'),
+        clearPrecision: t('clear_precision')
+    }
+})}
 
-    <!-- Reset -->
-    <div class="p-3 bg-red-50 dark:bg-red-900/10 rounded-lg border border-red-100 dark:border-red-900/30">
-        <h4 class="text-xs font-bold uppercase tracking-wider text-red-800 dark:text-red-400 mb-3">${t('reset_sections')}</h4>
-        <div class="grid grid-cols-3 gap-2">
-            <button id="clearDressage" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${t('clear_dressage')}</button>
-            <button id="clearMarathon" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${t('clear_marathon')}</button>
-            <button id="clearPrecision" class="w-full px-2 py-2 text-xs font-semibold rounded-md bg-red-100 text-red-700 border border-red-200 hover:bg-red-200 transition-colors">${t('clear_precision')}</button>
-        </div>
-    </div>
-</div>
-
-<!-- 4. TOOLBAR (Save, Public view, Exports) -->
-<div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-4 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg border dark:border-gray-700">
-    <!-- Left: Modes -->
-    <div class="flex items-center gap-3">
-         <button id="togglePublic" class="px-4 py-2 rounded-md border border-gray-300 bg-white dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors">
-            ${publicMode ? t('editor_mode') : t('public_mode')}
-        </button>
-        ${!publicMode ? `<button id="btnSaveTimes" class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-500 shadow-sm text-sm font-bold transition-colors">${t('save_times')}</button>` : ''}
-    </div>
-
-    <!-- View Modes -->
-     <div class="inline-flex rounded-md shadow-sm" role="group">
-        <button id="viewModeStartOrder" data-mode="startorder" class="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-l-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-10 bg-white dark:bg-gray-800 dark:text-gray-200">
-            ${t('start_order')}
-        </button>
-        <button id="viewModeByClass" data-mode="byclass" class="px-3 py-2 text-sm font-medium border-t border-b border-r border-gray-300 dark:border-gray-600 rounded-r-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-10 bg-white dark:bg-gray-800 dark:text-gray-200">
-            ${t('group_by_class')}
-        </button>
-    </div>
-
-    <!-- Right: Exports -->
-    <div class="flex items-center gap-2">
-        <div class="relative inline-block text-left" id="pdfDropdownContainer">
-             <button id="btnPdfDropdown" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-slate-700 hover:bg-slate-600 focus:outline-none ring-1 ring-slate-900/10">
-                <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                PDF
-                <svg class="-mr-1 ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
-            </button>
-             <div id="pdfDropdownMenu" class="hidden absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
-                <div class="py-1">
-                    <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-dressage">${t('startlist_dressage')}</button>
-                    <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-marathon">${t('startlist_marathon')}</button>
-                    <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-precision">${t('startlist_precision')}</button>
-                </div>
-            </div>
-        </div>
-
-        <button id="btnExportStarttiderCsv" class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
-             <i class="fas fa-file-csv mr-2 text-green-600"></i>CSV
-        </button>
-    </div>
-</div>
+${renderStarttiderToolbarSection({
+    publicMode,
+    labels: {
+        editorMode: t('editor_mode'),
+        publicMode: t('public_mode'),
+        saveTimes: t('save_times'),
+        startOrder: t('start_order'),
+        groupByClass: t('group_by_class'),
+        pdfDressage: t('startlist_dressage'),
+        pdfMarathon: t('startlist_marathon'),
+        pdfPrecision: t('startlist_precision')
+    }
+})}
     `;
 
     document.getElementById('btnSaveTimes')?.addEventListener('click', saveTimes);
@@ -1575,11 +1149,7 @@ function bindAllControls() {
 
 
 
-    // CSV
-    document.getElementById('btnExportStarttiderCsv')?.addEventListener('click', () => {
-        // Logic for CSV...
-        generateCsvWrapper();
-    });
+    document.getElementById('btnExportStarttiderCsv')?.addEventListener('click', generateCsvWrapper);
 
     if (!pageContainer.dataset.listenersBound) {
         // NYTT: Lyssnare på pageContainer istället för tabellen
@@ -1621,45 +1191,6 @@ function bindAllControls() {
         pageContainer.dataset.listenersBound = 'true';
     }
 
-    const btnCsv = document.getElementById('btnExportStarttiderCsv');
-    if (btnCsv) {
-        btnCsv.addEventListener('click', () => {
-            const comp = getGlobalState('currentCompetition');
-            const date = new Date().toISOString().split('T')[0];
-            const filename = `starttider_${sanitizeForFilename(comp?.name || 'tavling')}_${date}.csv`;
-
-            const list = getSortedEquipages();
-
-            const headers = [
-                'Nr', 'Kusk', 'Häst', 'Klass', 'Klubb',
-                'Start Dressyr', 'Start Maraton', 'Start Precision'
-            ];
-
-            const rows = list.map(e => {
-                const sn = String(e.startNumber);
-                const st = startTimes[sn] || {};
-
-                const f = (val) => {
-                    if (!val) return '—';
-                    const obj = parseDateTime(val);
-                    return formatDateTime(obj);
-                };
-
-                return [
-                    sn,
-                    e.driverName || '—',
-                    horseLabel(e),
-                    e._mergedLabel || e.className || '—',
-                    e.clubName || '—',
-                    f(st.dressage),
-                    f(st.marathon),
-                    f(st.precision)
-                ];
-            });
-
-            downloadCsv(filename, headers, rows);
-        });
-    }
 
     // --- PDF Dropdown Logic ---
     const btnPdfDropdown = document.getElementById('btnPdfDropdown');
@@ -1673,12 +1204,16 @@ function bindAllControls() {
             pdfMenu.classList.toggle('hidden');
         });
 
-        // Close when clicking outside
-        document.addEventListener('click', (e) => {
+        if (pdfDropdownOutsideClickHandler) {
+            document.removeEventListener('click', pdfDropdownOutsideClickHandler);
+        }
+
+        pdfDropdownOutsideClickHandler = (e) => {
             if (pdfContainer && !pdfContainer.contains(e.target)) {
                 pdfMenu.classList.add('hidden');
             }
-        });
+        };
+        document.addEventListener('click', pdfDropdownOutsideClickHandler);
 
         // Handle menu actions
         pdfMenu.addEventListener('click', async (e) => {
@@ -1769,7 +1304,7 @@ async function loadData() {
     // === ÄNDRING: Bygg merge-map FÖRST ===
     const cfgData = (displayCfg && displayCfg.exists()) ? (displayCfg.data()?.value ?? displayCfg.data()) : {};
     starttider_displayConfig = cfgData || {};
-    starttider_buildMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || starttider_displayConfig);
+    starttider_MERGE_MAP = buildStarttiderMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || starttider_displayConfig);
 
     // === ÄNDRING: Dekorera ekipage-listan ===
     equipages = (equipagesData || [])
@@ -1779,7 +1314,7 @@ async function loadData() {
         })
         .map(e => {
             const ne = normalizeEquipage(e);
-            const g = starttider_resolveMergeGrouping(ne);
+            const g = resolveStarttiderMergeGrouping(ne, starttider_MERGE_MAP);
             return {
                 ...ne,
                 _mergedKey: g.key,
@@ -1809,7 +1344,7 @@ function attachAllListeners() {
         // Uppdatera window.__dressageCache
         (window.__dressageCache ||= new Map()).clear();
         grouped.forEach((m, sn) => window.__dressageCache.set(sn, m));
-        render();
+        requestListenerRender();
     });
     unsubscribers.set('dressageProtocolsGroup', unProtoGroup);
 
@@ -1821,7 +1356,7 @@ function attachAllListeners() {
             marathonMap.set(id, { ...current, ...d.data() });
             changed = true;
         });
-        if (changed) render();
+        if (changed) requestListenerRender();
     });
     unsubscribers.set('marathonTiming', unTimingCol);
 
@@ -1829,14 +1364,14 @@ function attachAllListeners() {
         docs.forEach(st => {
             if (st) dressageStatusMap.set(String(st.id), st);
         });
-        render();
+        requestListenerRender();
     });
     unsubscribers.set('dressageStatus', unStatusCol);
 
     const unPrec = listenForPrecisionResults(competitionId, (docs) => {
         precisionResultsMap.clear();
         docs.forEach(d => precisionResultsMap.set(String(d.startNumber ?? d.id), d));
-        render();
+        requestListenerRender();
     });
     unsubscribers.set('precision', unPrec);
 
@@ -1850,14 +1385,14 @@ function attachAllListeners() {
             marathonMap.set(sn, { ...current, ...d });
             changed = true;
         });
-        if (changed) render();
+        if (changed) requestListenerRender();
     });
     unsubscribers.set('marathonStatus', unMarStatus);
 
     const unDressFin = listenForDressageFinalizationCollection(competitionId, (docs) => {
         dressageFinalizationMap.clear();
         docs.forEach(d => dressageFinalizationMap.set(String(d.id), d)); // id på doc är startnr
-        render();
+        requestListenerRender();
     });
     unsubscribers.set('dressageFin', unDressFin);
 
@@ -1882,16 +1417,16 @@ function listenMergeConfig(compId) {
         const unsub = onSnapshot(ref, (snap) => {
             const data = snap.exists() ? (snap.data()?.value ?? snap.data()) : null;
 
-            starttider_buildMergeMap(snap.id === 'display' ? { mergeByClassNumber: data?.mergeByClassNumber || {} } : data);
+            starttider_MERGE_MAP = buildStarttiderMergeMap(snap.id === 'display' ? { mergeByClassNumber: data?.mergeByClassNumber || {} } : data);
 
             // Märk om alla ekipage
             equipages = equipages.map(e => ({
                 ...e,
-                _mergedKey: starttider_resolveMergeGrouping(e).key,
-                _mergedLabel: starttider_resolveMergeGrouping(e).label
+                _mergedKey: resolveStarttiderMergeGrouping(e, starttider_MERGE_MAP).key,
+                _mergedLabel: resolveStarttiderMergeGrouping(e, starttider_MERGE_MAP).label
             }));
 
-            render(); // Rita om
+            requestListenerRender(); // Rita om
 
         }, (err) => {
             console.warn('[merge-config] snapshot error', key, err);
@@ -1951,7 +1486,7 @@ export async function load() {
     // (Funktionen injectStarttiderBaseStyles har redan körts via IIFE)
 
     // NYTT: Säkerställ att loggor laddas innan något annat renderas
-    await ensureClubLogosLoaded();
+    await ensureClubLogosLoaded(competitionId);
 
     renderLayout();
     currentUserRole = await getCurrentUserRole();
@@ -1997,6 +1532,16 @@ export function __unload() {
         window.__starttiderResizeHandler = null;
     }
 
+    if (pdfDropdownOutsideClickHandler) {
+        try { document.removeEventListener('click', pdfDropdownOutsideClickHandler); } catch { }
+        pdfDropdownOutsideClickHandler = null;
+    }
+
+    if (pendingListenerRenderFrame) {
+        try { cancelAnimationFrame(pendingListenerRenderFrame); } catch { }
+        pendingListenerRenderFrame = null;
+    }
+
     // 2) Stoppa Firestore-lyssnare
     unsubscribers.forEach(fn => { try { fn && fn(); } catch { } });
     unsubscribers.clear();
@@ -2028,3 +1573,4 @@ export function __unload() {
     window.__setupXbarSync = undefined;
 
 }
+

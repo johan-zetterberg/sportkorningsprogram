@@ -14,6 +14,10 @@ import { showDetailsModal } from '../../ui/precisionModal.js'; // NYTT
 import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionTimePenalty } from '../../utils/precisionUtils.js';
 import { t } from '../../utils/i18n.js';
 import { renderMap, destroyMap } from './precision-monitor-map.js';
+import {
+  formatPrecisionMonitorPartPenalty,
+  formatPrecisionMonitorPenalty
+} from './precisionMonitorFormatUtils.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -30,6 +34,7 @@ let lastRenderedUpcomingHash = null;
 let lastRenderedResultsHash = null;
 let lastDriverSn = "";
 let currentView = 'list'; // 'list' or 'map'
+let loadToken = 0;
 
 // ---------- Helpers ----------
 const formatMsLive = (ms) => {
@@ -331,7 +336,7 @@ function renderCurrentDriver() {
                 <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg mt-4 md:mt-0">
                     <div class="text-center mb-4">
                         <div class="text-sm text-gray-500 dark:text-gray-400 uppercase">${t('total_penalty')} ${showFinal ? '' : t('preliminary_suffix')}</div>
-                        <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-brand-lightblue">${data.eliminated ? 'ELIM' : displayTotal.toFixed(2)}</div>
+                        <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-brand-lightblue">${formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated })}</div>
                     </div>
                     <div class="grid grid-cols-3 gap-2 text-center text-sm border-t dark:border-gray-600 pt-2 dark:text-gray-300">
                         <div><div class="text-gray-500 dark:text-gray-400">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
@@ -417,7 +422,7 @@ function renderCurrentDriver() {
     }
 
     const totalPenaltyEl = document.getElementById('live-total-penalty');
-    if (totalPenaltyEl) totalPenaltyEl.textContent = data.eliminated ? 'ELIM' : displayTotal.toFixed(2);
+    if (totalPenaltyEl) totalPenaltyEl.textContent = formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated });
 
     const timePenaltyEl = document.getElementById('live-time-penalty');
     if (timePenaltyEl) timePenaltyEl.textContent = data.eliminated ? '–' : displayTimePenalty.toFixed(2);
@@ -683,7 +688,7 @@ function ensureTicker() {
           const obst = data.liveObstaclePenalty || 0;
           const extra = data.extraPenalty || 0;
           const total = currentTimePenalty + obst + extra;
-          totalPenaltyEl.textContent = total.toFixed(2);
+          totalPenaltyEl.textContent = formatPrecisionMonitorPenalty(total);
         }
 
         // Röd markering
@@ -858,6 +863,9 @@ function listenForUpdates() {
 
 // ---------- Entrypoint ----------
 export async function load() {
+  __unload();
+  const currentLoadToken = ++loadToken;
+
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id;
   const root = document.getElementById('page-precision-monitor');
@@ -871,6 +879,8 @@ export async function load() {
       getConfig(competitionId, 'precisionConfig').catch(() => ({})),
       getConfig(competitionId, 'startTimes').catch(() => ({}))
     ]);
+    if (currentLoadToken !== loadToken) return;
+
     allEquipages = equipagesRaw;
     precisionConfig = configRaw; // Spara config
     startTimes = startTimesData?.times || {};
@@ -882,8 +892,11 @@ export async function load() {
     document.getElementById('precision-list-view')?.classList.remove('hidden');
     document.getElementById('precision-map-view')?.classList.add('hidden');
     await ensureClubLogosLoaded(competitionId);
+    if (currentLoadToken !== loadToken) return;
+
     listenForUpdates();
   } catch (error) {
+    if (currentLoadToken !== loadToken) return;
     console.error("Kunde inte ladda data för precision-monitor:", error);
     if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">${t('error_loading_data')}</p>`;
   }
@@ -892,9 +905,12 @@ export async function load() {
 
 
 export function __unload() {
+  loadToken++;
   stopTicker();
   destroyMap();
-  unsubscribes.forEach(unsub => unsub());
+  unsubscribes.forEach(unsub => {
+    try { unsub(); } catch { }
+  });
   unsubscribes = [];
   currentDriver = null;
   leaderInClass = null;

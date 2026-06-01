@@ -168,12 +168,14 @@ function getTabContent(tab) {
                         <li><strong>Funktionärslistor (Nytt!):</strong>
                             <ul class="list-circle list-inside ml-4 text-xs mt-1 space-y-1">
                                 <li><strong>Maraton Tider:</strong> Tidslinje med beräknade tider för Start A, Mål A, Start B etc. (Kräver att starttider och sträckor är inställda).</li>
+                                <li><strong>Maratontider per ekipage:</strong> Använd sidan <strong>Maraton &gt; Beräkna tider</strong> för att skriva ut en A/Transport/B-PDF för ett enskilt ekipage. PDF:en tar med tävlingslogga om den är uppladdad.</li>
                                 <li><strong>Maraton Hinder:</strong> Lista för hinderdomare. Inkluderar beräknad starttid för B-sträckan.</li>
                                 <li><strong>Dressyr:</strong> Startordning med program och häst för scribes/ringmaster.</li>
                             </ul>
                             <p class="text-[10px] text-blue-800 mt-1"><em>* Strukna ekipage filtreras automatiskt bort från dessa listor.</em></p>
                         </li>
                         <li><strong>Resultatlistor:</strong> Resultat räknas ut live. På "Total-resultat" kan du nu även klicka på "Skriv ut / PDF" för att få en snyggt formaterad slutlista per klass.</li>
+                        <li><strong>Loggor i PDF:</strong> Tävlingsloggan, klubbloggor och flaggor används automatiskt där de finns tillgängliga. Kontrollera detta innan du skriver ut officiella listor.</li>
                         <li><strong>CSV-export:</strong> Använd knapparna "CSV" för att få ut rådata till Excel om du behöver göra egna analyser.</li>
                     </ul>
                      <p class="text-xs text-blue-900 mt-2 font-bold">
@@ -363,6 +365,7 @@ function getTabContent(tab) {
                     <li><strong>Måste finnas!</strong> För att kunna döma dressyr eller ta tid i maraton MÅSTE personen finnas inlagd här.</li>
                     <li><strong>Roller:</strong> Se till att tilldela rätt roll (t.ex. "Dressyr - C" eller "Start A").</li>
                     <li><strong>Nytt:</strong> Du kan nu lägga in <strong>ICE-kontakt</strong>, <strong>Kost/Allergi</strong> och <strong>Tröjstorlek</strong> för varje funktionär. Detta underlättar säkerhetsarbetet och logistiken.</li>
+                    <li><strong>Funktionärsanmälan:</strong> Under funktionärsfliken finns en länk till en separat anmälningssida. Inkomna anmälningar hamnar i <strong>Inkorg</strong>, där du kan godkänna dem och skapa funktionären direkt.</li>
                 </ul>
 
                 <h5 class="text-sm font-bold text-gray-700 mt-3">Utskrifter & Listor (För Funktionärer)</h5>
@@ -402,6 +405,7 @@ function getTabContent(tab) {
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Inställningar</h4>
                 <div class="space-y-2 text-sm text-gray-600">
                   <p><strong>Tävlingsnivå (FEI/Nationell):</strong> Påverkar vilka PDF-mallar som används. FEI ger engelska rubriker.</p>
+                  <p><strong>Tävlingslogga:</strong> Ladda upp arrangörens eller tävlingens logga här. Loggan används på PDF:er och i utskrifter där det finns plats. PNG, JPG och WebP stöds.</p>
                   <p><strong>Publicering (Visa på startsidan):</strong></p>
                   <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
                     <li><strong>Utkast (Dold):</strong> Tävlingen syns inte för allmänheten. Perfekt medan du sätter upp klasser och resultat.</li>
@@ -446,7 +450,9 @@ function getTabContent(tab) {
                     <ul class="list-disc list-inside space-y-1">
                         <li>Gå till fliken <strong>Maraton</strong> i Admin.</li>
                         <li>Fyll i <strong>Längd (m)</strong> och <strong>Tempo</strong> för Sträcka A, Transport och Sträcka B.</li>
+                        <li>Ange vilka hinder som körs i respektive klass om en klass inte ska köra alla hinder.</li>
                         <li>Systemet räknar automatiskt ut <em>Idealtid</em>, <em>Maxtid</em> och <em>Minimumtid</em>.</li>
+                        <li>Använd <strong>Maraton &gt; Beräkna tider</strong> för kontrollutskrift per ekipage innan tävlingen startar.</li>
                         <li><strong>Viktigt:</strong> Gör detta INNAN tävlingen börjar! Annars får funktionärerna inga tidsfönster.</li>
                     </ul>
                 </div>
@@ -717,6 +723,7 @@ function getTabContent(tab) {
                   <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
                     <li><strong>Väg:</strong> Om kusk kör fel, ange vilken port de missade. Systemet varnar för felkörning.</li>
                     <li><strong>Rivning:</strong> Ange antal nedslagna bollar i fältet "Antal rivningar".</li>
+                    <li><strong>Uppehåll:</strong> Om ekipaget måste vänta innan det får gå in i hindret, ange väntetiden i sekunder i fältet <strong>Uppehåll</strong>. Skriv alltid en kort kommentar som förklarar varför tiden ska dras av.</li>
                     <li><strong>Eliminering:</strong> Kryssa i rutan "Eliminerad" om ekipaget utesluts.</li>
                   </ul>
                 </li>
@@ -725,6 +732,9 @@ function getTabContent(tab) {
                   <br><span class="ml-4">Tryck <span class="font-bold text-white bg-blue-900 px-2 py-0.5 rounded text-xs">SPARA RESULTAT</span> när du är klar. Datan skickas till sekretariatet.</span>
                 </li>
               </ol>
+              <div class="mt-2 text-sm text-blue-900 bg-blue-100 p-2 rounded">
+                <strong>Viktigt:</strong> Uppehållstid dras från B-sträckans tid och visas i resultatmodal/PDF så att sekretariat och kusk kan se var, när och varför avdraget gjordes.
+              </div>
             </div>
           </section>
 
@@ -960,7 +970,7 @@ function getTabContent(tab) {
                         <div class="bg-white p-3 rounded border border-amber-100">
                              <strong class="text-amber-900 block mb-1">✏️ Digital Deklarering</strong>
                              <p class="text-xs text-gray-600">Ändra hästar, vagn och groom direkt i mobilen.</p>
-                             <p class="text-xs text-red-500 mt-1 font-medium">Obs! Låses X minuter före start!</p>
+                             <p class="text-xs text-red-500 mt-1 font-medium">Obs! Låses enligt tävlingens inställning, ofta 60 minuter före start.</p>
                         </div>
                         <div class="bg-white p-3 rounded border border-amber-100">
                              <strong class="text-amber-900 block mb-1">🩺 Veterinärstatus</strong>
@@ -969,6 +979,14 @@ function getTabContent(tab) {
                         <div class="bg-white p-3 rounded border border-amber-100">
                              <strong class="text-amber-900 block mb-1">📢 Speaker-noteringar</strong>
                              <p class="text-xs text-gray-600">Skriv in text som speakern kan läsa upp under din ritt (t.ex. kuriosa).</p>
+                        </div>
+                        <div class="bg-white p-3 rounded border border-amber-100">
+                             <strong class="text-amber-900 block mb-1">📄 Dokument & PM</strong>
+                             <p class="text-xs text-gray-600">Se publicerade dokument, banskisser och meddelanden från arrangören direkt i portalen.</p>
+                        </div>
+                        <div class="bg-white p-3 rounded border border-amber-100">
+                             <strong class="text-amber-900 block mb-1">📝 Protokoll & PDF</strong>
+                             <p class="text-xs text-gray-600">När protokoll och resultat är färdiga kan du öppna eller ladda ner dem från resultatdelen.</p>
                         </div>
                     </div>
                 </div>
@@ -1203,12 +1221,14 @@ function getTabContentEN(tab) {
                         <li><strong>Officials Lists (New!):</strong>
                             <ul class="list-circle list-inside ml-4 text-xs mt-1 space-y-1">
                                 <li><strong>Marathon Times:</strong> Timeline with calculated times for Start A, Finish A, Start B etc. (Requires start times and distances to be set).</li>
+                                <li><strong>Marathon time sheets per entry:</strong> Use <strong>Marathon &gt; Calculate times</strong> to print an A/Transfer/B PDF for a single entry. The PDF includes the competition logo when one is uploaded.</li>
                                 <li><strong>Marathon Obstacles:</strong> List for obstacle judges. Includes calculated start time for Section B.</li>
                                 <li><strong>Dressage:</strong> Start order with program and horse for scribes/ringmaster.</li>
                             </ul>
                             <p class="text-[10px] text-blue-800 mt-1"><em>* Scratched entries are automatically filtered out from these lists.</em></p>
                         </li>
                         <li><strong>Result Lists:</strong> Results are calculated live. You don't need to "calculate" anything manually.</li>
+                        <li><strong>Logos in PDFs:</strong> Competition logo, club logos and flags are used automatically where available. Check this before printing official lists.</li>
                         <li><strong>CSV Export:</strong> Use the "CSV" buttons to get raw data for Excel if you need to perform custom analysis.</li>
                     </ul>
                      <p class="text-xs text-blue-900 mt-2 font-bold">
@@ -1397,6 +1417,7 @@ function getTabContentEN(tab) {
                     <li><strong>Must exist!</strong> To judge dressage or time marathon, the person MUST be added here.</li>
                     <li><strong>Roles:</strong> Ensure correct role assignment (e.g., "Dressage - C" or "Start A").</li>
                     <li><strong>New:</strong> You can now add <strong>ICE Contact</strong>, <strong>Diet/Allergy</strong>, and <strong>T-shirt Size</strong> for each official. This facilitates safety and logistics.</li>
+                    <li><strong>Volunteer signup:</strong> The officials tab contains a link to a separate signup page. New signups appear in the <strong>Inbox</strong>, where you can approve them and create the official directly.</li>
                 </ul>
 
                 <h5 class="text-sm font-bold text-gray-700 mt-3">Prints & Lists (For Officials)</h5>
@@ -1436,6 +1457,7 @@ function getTabContentEN(tab) {
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Settings</h4>
                 <div class="space-y-2 text-sm text-gray-600">
                   <p><strong>Competition Level (FEI/National):</strong> Affects which PDF templates are used. FEI gives English headers.</p>
+                  <p><strong>Competition logo:</strong> Upload the organizer or competition logo here. It is used on PDFs and printed lists where space allows. PNG, JPG and WebP are supported.</p>
                   <p><strong>Digital Declaration & Locking:</strong></p>
                   <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
                     <li><strong>Timer:</strong> Set how many minutes before start the portal should lock (default 60 min).</li>
@@ -1469,7 +1491,9 @@ function getTabContentEN(tab) {
                     <ul class="list-disc list-inside space-y-1">
                         <li>Go to tab <strong>Maraton</strong> in Admin.</li>
                         <li>Fill in <strong>Length (m)</strong> and <strong>Speed</strong> for Section A, Transfer, and Section B.</li>
+                        <li>Set which obstacles are driven for each class if a class does not drive all obstacles.</li>
                         <li>The system automatically calculates <em>Ideal Time</em>, <em>Max Time</em>, and <em>Minimum Time</em>.</li>
+                        <li>Use <strong>Marathon &gt; Calculate times</strong> for per-entry control printouts before the competition starts.</li>
                         <li><strong>Important:</strong> Do this BEFORE competition starts! Otherwise, officials get no time windows.</li>
                     </ul>
                 </div>
@@ -1709,10 +1733,14 @@ function getTabContentEN(tab) {
                      <ul class="list-disc list-inside ml-5 mt-1">
                         <li><strong>Groom Down/Knockdown:</strong> Tap the buttons to log incidents.</li>
                         <li><strong>Wrong Course:</strong> If they drive wrong, mark "Vägfel".</li>
+                        <li><strong>Hold time:</strong> If the entry must wait before entering the obstacle, enter the waiting time in seconds in <strong>Hold</strong> and add a short comment explaining why.</li>
                     </ul>
                 </li>
                 <li><strong>SAVE:</strong> Click "Save Result". The row turns green in the list.</li>
             </ol>
+            <div class="mt-2 text-sm text-blue-900 bg-blue-50 p-3 rounded border border-blue-100">
+              <strong>Important:</strong> Hold time is deducted from Section B and is shown in result modals/PDFs so the secretariat and driver can see where, when and why the deduction was made.
+            </div>
           </section>
 
           <section>
@@ -1829,6 +1857,7 @@ function getTabContentEN(tab) {
                         </li>
                         <li><strong>Vet Control:</strong> See if your horse is "Accepted" or "Holding Box".</li>
                         <li><strong>Speaker Notes:</strong> Write a fun text about your horse/groom for the speaker to read during your drive.</li>
+                        <li><strong>Documents:</strong> Read published course maps, bulletins and organizer messages in the portal.</li>
                         <li><strong>Protocols:</strong> After the class is finished, download your Dressage Protocol (PDF) directly to your phone.</li>
                      </ul>
                  </div>

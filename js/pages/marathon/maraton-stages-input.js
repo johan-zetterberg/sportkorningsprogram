@@ -160,6 +160,8 @@ let unsubAllA = null;  // maratonTiming
 let unsubAllB = null;  // marathonTiming
 let unsubAllC = null;  // maraton
 let unsubAllD = null;  // marathon
+let unsubscribeGlobalPause = null;
+let keyboardShortcutHandler = null;
 
 function extractStageFromDocData(data, stage) {
   const flat = stage === 'warmup' ? 'warmup' : (stage === 'transport' ? 'transfer' : stage);
@@ -2059,7 +2061,11 @@ function gotoRelative(delta) {
 
 // NYTT: Tangentbordsgenvägar (Pilar + Siffror för flikar)
 function wireKeyboardShortcuts() {
-  document.addEventListener('keydown', (e) => {
+  if (keyboardShortcutHandler) {
+    document.removeEventListener('keydown', keyboardShortcutHandler);
+  }
+
+  keyboardShortcutHandler = (e) => {
     // Ignorera om vi skriver i ett input-fält (förutom pilar om det är tomt? Nej, säkrast att ignorera allt)
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
@@ -2072,7 +2078,9 @@ function wireKeyboardShortcuts() {
     // Pilar för navigering
     if (e.key === 'ArrowLeft') gotoRelative(-1);
     if (e.key === 'ArrowRight') gotoRelative(+1);
-  });
+  };
+
+  document.addEventListener('keydown', keyboardShortcutHandler);
 }
 
 // NYTT: Uppdatera status-ikoner på flikarna
@@ -2252,6 +2260,8 @@ function wireTabs() {
 
 // ---------- Lifecycle ----------
 export async function load() {
+  __unload();
+
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id;
   const root = document.getElementById('page-maraton-stages');
@@ -2319,7 +2329,7 @@ export async function load() {
 
   // 6. Starta de globala Firestore-lyssnarna
   subscribeAllActiveTimers();
-  listenForGlobalCompetitionPause();
+  unsubscribeGlobalPause = listenForGlobalCompetitionPause();
 
   if (unsubMaratonList) unsubMaratonList();
   unsubMaratonList = listenForMaratonCollection(competitionId, (maratonDocs) => {
@@ -2360,8 +2370,16 @@ export function __unload() {
   try { unsubAllB && unsubAllB(); } catch { }
   try { unsubAllC && unsubAllC(); } catch { }
   try { unsubAllD && unsubAllD(); } catch { }
+  try { unsubscribeGlobalPause && unsubscribeGlobalPause(); } catch { }
   try { unsubMaratonList && unsubMaratonList(); } catch { }
   unsubAllA = unsubAllB = unsubAllC = unsubAllD = unsubMaratonList = null;
+  unsubscribeGlobalPause = null;
+
+  if (keyboardShortcutHandler) {
+    document.removeEventListener('keydown', keyboardShortcutHandler);
+    keyboardShortcutHandler = null;
+  }
+  document.body.style.filter = '';
 
   // Förstör dropdown-komponenten om den finns
   if (dropdown && typeof dropdown.destroy === 'function') {
@@ -2376,68 +2394,3 @@ export function __unload() {
   listeningStartNumber = null;
 }
 
-// =====================================================
-// Manuell tid för etapper – dubbelklick på stora displayen
-// =====================================================
-
-function parseManualTimeToMs(input) {
-  // accepterar "mm:ss,cc", "mm:ss.cc", "mmsscc" eller "mm:ss"
-  const s = String(input || '').trim().replace('.', ',');
-  if (!s) return null;
-
-  let mm = 0, ss = 0, cc = 0;
-  if (/^\d{1,2}:\d{2}[,]\d{1,2}$/.test(s)) {
-    const [m, rest] = s.split(':');
-    const [s2, c2] = rest.split(',');
-    mm = +m; ss = +s2; cc = +c2.padEnd(2, '0').slice(0, 2);
-  } else if (/^\d{1,2}:\d{2}$/.test(s)) {
-    const [m, s2] = s.split(':'); mm = +m; ss = +s2;
-  } else if (/^\d{3,6}$/.test(s)) {
-    const p = s.padStart(6, '0');
-    mm = +p.slice(0, 2); ss = +p.slice(2, 4); cc = +p.slice(4, 6);
-  } else if (/^\d{1,2}:\d{1,2}[,]?$/.test(s)) {
-    const [m, s2] = s.split(':'); mm = +m; ss = +(s2 || 0);
-  } else {
-    return null;
-  }
-  if (mm < 0 || ss < 0 || ss >= 60 || cc < 0) return null;
-  return (mm * 60 + ss) * 1000 + Math.round(cc * 10);
-}
-
-async function applyManualStageTime(stageKey, ms) {
-  // Vi sätter stop = nu, start = stop - ms. (Behåller ev tidigare start om du vill – byt här.)
-  const dNow = new Date();
-  dNow.setMilliseconds(0);
-  const stopIso = dNow.toISOString();
-  const startIso = new Date(dNow.getTime() - ms).toISOString();
-
-  // Rensa ev. lokala tickers för den här etappen
-  try { stopLocalStageTicker(`${listeningStartNumber}|${stageKey}`); } catch { }
-
-  // Spara snapshot – durationMs + start/stop; nollställ runningStage
-  await saveStageSnapshot(stageKey, {
-    startClock: startIso,
-    stopClock: stopIso,
-    durationMs: ms,
-    runningStage: null
-  });
-}
-
-function wireManualStageEditors() {
-  const ids = ['warmup', 'A', 'transport', 'B'];
-  ids.forEach(k => {
-    const el = document.getElementById(`timer-${k}`);
-    if (!el) return;
-    el.title = t('marathon_stages_manual_time_dblclick');
-    el.addEventListener('dblclick', async (e) => {
-      e.preventDefault();
-      const currentTxt = (el.textContent || '').trim();
-      const inp = prompt(t('marathon_stages_manual_time_prompt').replace('{stage}', k), currentTxt);
-      if (inp == null) return;
-      await applyManualStageTime(k, ms);
-    });
-  });
-}
-
-// kör när DOM finns
-document.addEventListener('DOMContentLoaded', wireManualStageEditors);

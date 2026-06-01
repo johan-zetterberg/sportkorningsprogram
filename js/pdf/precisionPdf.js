@@ -3,11 +3,16 @@ import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService
 import { getClubLogoUrl, fetchImageDataUrl } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
 import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq } from '../utils/precisionUtils.js';
-import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { fitImageDimensions } from './pdfImageUtils.js';
+import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
+import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
 // === HUVUDFUNKTION ===
 
-export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config, startTimes) {
+export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config, startTimes, competition) {
+  const pdfCompetition = await resolvePdfCompetition(competition);
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
   if (!jsPDF) {
@@ -20,6 +25,7 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   const flagDataUrl = (await loadImg(await fetchFlagDataUrl(cc)))?.dataUrl;
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
   const clubLogo = await loadImg(clubLogoUrl); // {dataUrl, w, h}
+  const competitionLogo = await loadImg(getCompetitionLogoUrl(pdfCompetition));
 
   // Hämta beräknad data
   const data = getCalculatedRowData(String(eq.startNumber), new Map(), equipages, precisionMap, config, startTimes);
@@ -31,20 +37,14 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   let y = 40;
 
   // 3. LOGGA & HEADER (Samma logik som maraton)
-  if (clubLogo?.dataUrl) {
-    const maxH = 28, maxW = 110;
-    const ratio = (clubLogo.w && clubLogo.h) ? (clubLogo.w / clubLogo.h) : 1;
-    let drawH = maxH, drawW = Math.round(drawH * ratio);
+  const headerLogo = competitionLogo || clubLogo;
+  if (headerLogo?.dataUrl) {
+    const { w: drawW, h: drawH } = fitImageDimensions(headerLogo, 110, 28);
 
     // Justera om den blir för bred
-    if (drawW > maxW) {
-      drawW = maxW;
-      drawH = Math.round(drawW / ratio);
-    }
-
     const x = pdf.internal.pageSize.getWidth() - 40 - drawW;
     // Rita loggan lite högre upp för att linjera snyggt
-    pdf.addImage(clubLogo.dataUrl, 'PNG', x, y - Math.round(drawH * 0.6), drawW, drawH);
+    pdf.addImage(headerLogo.dataUrl, 'PNG', x, y - (drawH * 0.6), drawW, drawH);
   }
 
   // Rubrik med flagga
@@ -94,10 +94,10 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
     head: [['Summering', 'Värde']],
     body: [
       ['Tid', data.display.timeLabel],
-      ['Hinderstraff', fmt2(data.obstaclePenalty)],
-      ['Tidsstraff', fmt2(data.timePenalty)],
-      ['Övrigt straff', fmt2(data.extraPenalty)],
-      [{ content: 'Totalt straff', styles: { fontStyle: 'bold' } }, { content: fmt2(data.totalPenalty), styles: { fontStyle: 'bold' } }],
+      ['Hinderstraff', formatPdfPenalty(data.obstaclePenalty, { eliminated: data.eliminated })],
+      ['Tidsstraff', formatPdfPenalty(data.timePenalty, { eliminated: data.eliminated })],
+      ['Övrigt straff', formatPdfPenalty(data.extraPenalty, { eliminated: data.eliminated })],
+      [{ content: 'Totalt straff', styles: { fontStyle: 'bold' } }, { content: formatPdfPenalty(data.totalPenalty, { eliminated: data.eliminated }), styles: { fontStyle: 'bold' } }],
     ],
     ...commonTableOpts
   });
@@ -195,7 +195,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
 
   // -- PRE-LOAD ASSETS FOR EQUIPAGES --
   const neededFlags = new Set();
@@ -240,12 +240,14 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   // UPDATED HEADER with START column
   const head = [['Plac', '#', 'Kusk / Häst', 'Klass', 'Land/Klubb', 'Start', 'Tid', 'Hinder', 'Tidfel', 'Totalt']];
 
-  // Calculate placements
-  const placeMap = buildPlaceMap(equipages, precisionMap, config);
+  const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
+  // Calculate placements on the same printable set, so withdrawn rows do not affect places.
+  const placeMap = buildPlaceMap(printableEquipages, precisionMap, config);
 
-  const body = equipages.map(eq => {
+  const body = printableEquipages.map(eq => {
     const sn = String(eq.startNumber);
     const row = getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes);
+    const isElim = row.eliminated || row.d?.eliminated;
 
     return [
       row.place || '–',
@@ -255,9 +257,9 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       eq.clubName || '',
       row.startT || '–', // Start time column
       row.display.timeLabel,
-      fmt2(row.obstaclePenalty),
-      fmt2(row.timePenalty),
-      { content: fmt2(row.totalPenalty), styles: { fontStyle: 'bold' } }
+      formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
+      formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
+      { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } }
     ];
   });
 
@@ -281,7 +283,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
     },
     didDrawCell: (data) => {
       if (data.section === 'body' && data.column.index === 4) {
-        const eq = equipages[data.row.index];
+        const eq = printableEquipages[data.row.index];
         if (!eq) return;
 
         const cc = normalizeCountryCode(eq.country || eq.nation || 'se');
@@ -318,9 +320,9 @@ export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, 
   if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
 
   // Filtrera bort strukna
-  const activeEquipages = equipages.filter(e => e.status !== 'struken');
+  const activeEquipages = equipages.filter(e => !isWithdrawnStatus(e.status));
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -408,7 +410,7 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
 
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
   const pageW = doc.internal.pageSize.getWidth();

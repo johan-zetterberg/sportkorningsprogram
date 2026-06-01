@@ -1,5 +1,4 @@
 // js/pdf/marathonPdf.js
-import { getGlobalState } from '../main.js';
 import { getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import {
@@ -17,7 +16,12 @@ import {
   setMarathonConfig,
 } from '../utils/marathonUtils.js';
 import { calculateMarathonResult } from '../services/calculationService.js';
-import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { fitImageDimensions } from './pdfImageUtils.js';
+import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+import { buildMarathonHoldDeductionRows, formatMarathonStageTimeLabel } from './marathonPdfRows.js';
+import { formatMarathonExternalOtherPenalty, formatMarathonPenaltyExportValue } from '../utils/marathonExportUtils.js';
+import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
 // === HJÄLPFUNKTIONER (Samma som i dressagePdf.js) ===
 
@@ -67,7 +71,8 @@ function formatTimeStr(mins) {
 import { t } from '../utils/i18n.js';
 
 export async function printMarathonPdf(eq, d, competition) {
-  const isInternational = competition?.meta?.isInternational || false;
+  const pdfCompetition = await resolvePdfCompetition(competition);
+  const isInternational = pdfCompetition?.meta?.isInternational || false;
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
@@ -85,14 +90,13 @@ export async function printMarathonPdf(eq, d, competition) {
   const flagDataUrl = (await loadImg(await fetchFlagDataUrl(cc)))?.dataUrl;
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
   const clubLogo = await loadImg(clubLogoUrl);
+  const competitionLogo = await loadImg(getCompetitionLogoUrl(pdfCompetition));
 
-  if (clubLogo?.dataUrl) {
-    const maxH = 28, maxW = 110;
-    const ratio = clubLogo.w / clubLogo.h || 1;
-    let drawH = maxH, drawW = Math.round(drawH * ratio);
-    if (drawW > maxW) { drawW = maxW; drawH = Math.round(drawW / ratio); }
+  const headerLogo = competitionLogo || clubLogo;
+  if (headerLogo?.dataUrl) {
+    const { w: drawW, h: drawH } = fitImageDimensions(headerLogo, 110, 28);
     const x = pdf.internal.pageSize.getWidth() - 40 - drawW;
-    pdf.addImage(clubLogo.dataUrl, 'PNG', x, y - Math.round(drawH * 0.6), drawW, drawH);
+    pdf.addImage(headerLogo.dataUrl, 'PNG', x, y - (drawH * 0.6), drawW, drawH);
   }
 
   pdf.setFontSize(16);
@@ -166,10 +170,7 @@ export async function printMarathonPdf(eq, d, competition) {
 
     if (start || stop || Number.isFinite(displayDurMs)) {
       const holdTimeMs = calculatedStage.holdTimeMs || 0;
-      let timeLabel = Number.isFinite(displayDurMs) ? formatMsLive(displayDurMs) : '—';
-      if (holdTimeMs > 0) {
-        timeLabel += `\n(-${holdTimeMs/1000}s uppehåll)`;
-      }
+      const timeLabel = formatMarathonStageTimeLabel(displayDurMs, holdTimeMs, formatMsLive);
       const durSec = Number.isFinite(displayDurMs) ? Math.round(displayDurMs / 1000) : null;
       const delta = (Number.isFinite(durSec) && Number.isFinite(lim?.ideal)) ? (durSec - lim.ideal) : null;
       const allowed = lim
@@ -190,6 +191,25 @@ export async function printMarathonPdf(eq, d, competition) {
 
   if (stageRowsTimes.length) {
     pdf.autoTable({ head: [[t('stage', isInternational), 'Start', t('finish', isInternational), t('time', isInternational), 'Tillåten tid', 'Avvikelse', t('penalty', isInternational)]], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
+    y = pdf.lastAutoTable.finalY + 12;
+  }
+
+  const obstacleTimes = d.obstacleTimes || {};
+  const holdDeductionRows = buildMarathonHoldDeductionRows(obstacles, obstacleTimes, toTimeLabel);
+  if (holdDeductionRows.length) {
+    pdf.autoTable({
+      head: [['Uppehållsavdrag', 'Tidpunkt in / ut', 'Avdrag på B', 'Orsak / kommentar']],
+      body: holdDeductionRows.map(row => [
+        `Hinder ${row.obstacleNumber}`,
+        row.timeLabel,
+        `-${row.holdTimeSec}s`,
+        row.reason
+      ]),
+      startY: y,
+      theme: 'grid',
+      styles: { fontSize: 9, cellPadding: 4 },
+      headStyles: { fillColor: [219, 234, 254], textColor: [30, 64, 175] }
+    });
     y = pdf.lastAutoTable.finalY + 12;
   }
 
@@ -218,8 +238,6 @@ export async function printMarathonPdf(eq, d, competition) {
 
   // 5. TABELL: HINDER
   // Vi mappar fram alla värden inklusive väg. Tidsstämplar kan ligga i obstacleTimes.
-  const obstacleTimes = d.obstacleTimes || {};
-
   const rowsObs = obstacles.map(o => {
     const { timeSec, penalty, eliminated } = obstacleValues(o);
     const numKey = String(o.number || o.obstacleNumber || o.id);
@@ -268,10 +286,7 @@ export async function printMarathonPdf(eq, d, competition) {
     const outStr = exitAt ? toTimeLabel(exitAt) : '—';
     const combinedTime = `${inStr}\n${outStr}`;
     
-    let komm = o.comment || '';
-    if (Number(o.holdTimeSec) > 0) {
-      komm = (komm ? komm + '\n' : '') + `Uppehåll: ${o.holdTimeSec}s`;
-    }
+    const komm = o.comment || '';
 
     return [
       String(o.number || o.obstacleNumber || ''),             // 0: H
@@ -331,7 +346,7 @@ export async function generateMarathonListPdf(equipages, competition) {
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
   const title = `MARATHON – ${t('results', isInternational).toUpperCase()}`;
   let y = drawStandardHeader(doc, competition, title, srfLogo, 30, 40);
 
@@ -376,19 +391,16 @@ export async function generateMarathonListPdf(equipages, competition) {
       horseText = (eq.horses || []).map(h => h.name).join(', ');
     }
 
-    // Calculate aggregated "Other" penalty (Global + WG + Obstacle Extra)
     const obsItems = mRes.obstacles?.items || [];
-    const obsOtherSum = obsItems.reduce((acc, o) => acc + (Number(o.otherPenalty) || 0), 0);
-    const otherPen = (mRes.otherPenalty || 0) + (mRes.wgPenalty || 0) + obsOtherSum;
 
     const row = [
       eq.place || '–',
       eq.startNumber || '',
       { content: `${eq.driverName}\n${horseText}`, styles: { fontSize: 8 } },
       eq.className || '',
-      (mRes.stages?.A?.timePenalty != null) ? mRes.stages.A.timePenalty.toFixed(2) : '—',
-      (mRes.stages?.transport?.timePenalty != null) ? mRes.stages.transport.timePenalty.toFixed(2) : '—',
-      (mRes.stages?.B?.timePenalty != null) ? mRes.stages.B.timePenalty.toFixed(2) : '—'
+      formatMarathonPenaltyExportValue(mRes.stages?.A?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.A }),
+      formatMarathonPenaltyExportValue(mRes.stages?.transport?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.transport }),
+      formatMarathonPenaltyExportValue(mRes.stages?.B?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.B })
     ];
 
     // Individual Obstacles
@@ -404,9 +416,12 @@ export async function generateMarathonListPdf(equipages, competition) {
     }
 
     // Summary columns
-    row.push((mRes.obstacles?.sum || 0).toFixed(2));
-    row.push(otherPen.toFixed(2));
-    row.push({ content: (mRes.totalPenalty || 0).toFixed(2), styles: { fontStyle: 'bold' } });
+    row.push(formatMarathonPenaltyExportValue(mRes.obstacles?.sum, { equipage: eq, marathonResult: mRes }));
+    row.push(formatMarathonExternalOtherPenalty(mRes, { equipage: eq }));
+    row.push({
+      content: formatMarathonPenaltyExportValue(mRes.totalPenalty, { equipage: eq, marathonResult: mRes }),
+      styles: { fontStyle: 'bold' }
+    });
 
     return row;
   });
@@ -448,7 +463,7 @@ export async function generateMarathonFunctionaryPdf(equipages, marathonConfig, 
   // Ensure marathonUtils has the config
   if (marathonConfig) setMarathonConfig(marathonConfig);
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
   let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA MARATON (TIDER)", srfLogo, 30, 40);
   
   y += 5; // Extra spacing before table
@@ -551,7 +566,7 @@ export async function generateMarathonObstaclePdf(equipages, marathonConfig, sta
   // Ensure marathonUtils has the config
   if (marathonConfig) setMarathonConfig(marathonConfig);
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
   let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA MARATON (HINDER)", srfLogo, 30, 40);
   
   y += 5; // Extra spacing before table

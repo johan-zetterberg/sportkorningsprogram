@@ -1,13 +1,12 @@
 // js/pdf/dressagePdf.js
 // Ansvar: skapa dressyr-PDF för ett ekipage (identisk layout/beräkning som tidigare)
 
-import { getGlobalState } from '../main.js';
 import { getDressageResultsForEquipage } from '../services/dressageService.js';
 import { ensureClubLogosLoaded, getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import {
   getPrograms,
-  // getDressagePenaltyCoeff, // REPLACED by calculationService
+  getDressagePenaltyCoeff,
   fmtPct,
   fmtNum,
   getMomentHorseLabel,
@@ -16,7 +15,11 @@ import {
 import { calculateDressageResult } from '../services/calculationService.js';
 import { isPrivileged } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { fitImageDimensions } from './pdfImageUtils.js';
+import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
+import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
 let __pdfProviders = null;
 export function injectProviders(p) {
@@ -42,6 +45,7 @@ async function fetchImageDataUrl(url) {
 export async function generateDressagePdf(startNumber, processedResultsRef, opts) {
 
   const sn = String(startNumber);
+  const pdfCompetition = await resolvePdfCompetition(opts?.competition);
 
   const providers = opts?.providers || __pdfProviders || null;
   const programs = providers?.getPrograms?.() || (typeof getPrograms === 'function' ? getPrograms() : null) || window.dressagePrograms || {};
@@ -142,8 +146,9 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     throw new Error('Dressyrprogram saknas – kan inte skapa PDF.');
   }
 
+  const pdfLogoUrl = getCompetitionLogoUrl(pdfCompetition) || '/assets/logos/SRF.png';
   const [srfLogo, flagImg, clubImg] = await Promise.all([
-    fetchImageDataUrl('/assets/logos/SRF.png'),
+    fetchImageDataUrl(pdfLogoUrl),
     fetchFlagDataUrl(normalizeCountryCode(data.country) || 'se'),
     fetchImageDataUrl(getClubLogoUrl(data.clubName))
   ]);
@@ -167,8 +172,8 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
     let y = 45;
     if (srfLogo?.dataUrl) {
-      const maxH = 70, ratio = srfLogo.w / srfLogo.h || 1;
-      pdf.addImage(srfLogo.dataUrl, 'PNG', PAGE_W - mx - maxH * ratio, y - 20, maxH * ratio, maxH);
+      const { w, h } = fitImageDimensions(srfLogo, 110, 70);
+      pdf.addImage(srfLogo.dataUrl, 'PNG', PAGE_W - mx - w, y - 20, w, h);
     }
     pdf.setFontSize(16).setFont(undefined, 'bold');
     let currentX = mx;
@@ -180,7 +185,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
     const horses = getMomentHorseLabel(data);
     if (horses && horses !== '—') { pdf.text(horses, mx, y); y += 12; }
-    pdf.text(`${data._mergedLabel || data.className || ''} || ${data.clubName || ''}`, mx, y); y += 25;
+    pdf.text(`${data._mergedLabel || data.className || ''} • ${data.clubName || ''}`, mx, y); y += 25;
 
     const maxScore = (effectiveProgram.movements || []).reduce((s, m) => s + 10 * (m.coeff || 1), 0);
     const penaltyCoeff = getDressagePenaltyCoeff(effectiveProgram);
@@ -314,7 +319,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     y += 18; pdf.setFontSize(10);
     const horses = getMomentHorseLabel(data);
     if (horses && horses !== '—') { pdf.text(horses, mx, y); y += 12; }
-    pdf.text(`${data.className || ''} • ${data.clubName || ''}`, mx, y); y += 25;
+    pdf.text(`${data._mergedLabel || data.className || ''} • ${data.clubName || ''}`, mx, y); y += 25;
 
     const maxScore = (effectiveProgram.movements || []).reduce((s, m) => s + 10 * (m.coeff || 1), 0);
     const penaltyCoeff = getDressagePenaltyCoeff(effectiveProgram);
@@ -392,13 +397,14 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
   const isInt = !!competition?.meta?.isInternational;
   const titleStr = isInt
     ? `DRESSAGE - ${t('results', true).toUpperCase()}: ${currentClass || ''}`
     : `DRESSYR – RESULTATLISTA: ${currentClass || ''}`;
 
   let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40);
+  const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
 
   // 4. Judges List
   // Clean judges list
@@ -415,7 +421,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   doc.setFont(undefined, 'normal');
 
   // Find which classes are actually in this PDF
-  const uniqueClassesInPDF = [...new Set(equipages.map(e => e.className || e._mergedLabel).filter(Boolean))];
+  const uniqueClassesInPDF = [...new Set(printableEquipages.map(e => e._mergedLabel || e.className).filter(Boolean))];
 
   // Group names by position for the header text
   const judgesByPos = {};
@@ -469,7 +475,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   // Collect unique needs
   const neededFlags = new Set();
   const neededClubs = new Set();
-  equipages.forEach(eq => {
+  printableEquipages.forEach(eq => {
     neededFlags.add(normalizeCountryCode(eq.country || 'se'));
     if (eq.clubName) neededClubs.add(eq.clubName);
   });
@@ -536,10 +542,10 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   colIdx++;
   colStyles[colIdx] = { cellWidth: 45, halign: 'center', fontStyle: 'bold' }; // Straff
 
-  const body = equipages.map(eq => {
+  const body = printableEquipages.map(eq => {
     const penalty = Number.isFinite(eq.finalPenalty) ? eq.finalPenalty : eq.results?.dressage?.totalPenalty;
     const percent = Number.isFinite(eq.avgPercent) ? eq.avgPercent : eq.results?.dressage?.percent;
-    const isElim = eq.eliminated;
+    const isElim = eq.eliminated || eq.results?.dressage?.eliminated;
     const errorPoints = (eq.errorPoints != null) ? eq.errorPoints : (eq.results?.dressage?.errorPoints || 0);
 
     // Format Start Time (HH:MM)
@@ -557,7 +563,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
       eq.plac || '–',
       eq.startNumber || '',
       `${eq.driverName}\n${getMomentHorseLabel(eq)}`,
-      eq.className || '',
+      eq._mergedLabel || eq.className || '',
       eq.clubName || '',
       startStr
     ];
@@ -585,7 +591,11 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
 
     row.push(Number(errorPoints) > 0 ? Number(errorPoints).toFixed(1) : '');
     row.push(isElim ? 'ELIM' : (Number.isFinite(percent) ? percent.toFixed(2) + '%' : ''));
-    row.push(isElim ? 'ELIM' : (Number.isFinite(penalty) ? penalty.toFixed(2) : ''));
+    row.push(formatPdfPenalty(penalty, {
+      eliminated: isElim,
+      withdrawn: isWithdrawnStatus(eq.status),
+      empty: ''
+    }));
 
     return row;
   });
@@ -601,7 +611,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     margin: { left: 40, right: 40 },
     didDrawCell: (data) => {
       if (data.section === 'body' && data.column.index === 4) {
-        const eq = equipages[data.row.index];
+        const eq = printableEquipages[data.row.index];
         if (!eq) return;
 
         const flagUrl = assetMap.get(`flag_${normalizeCountryCode(eq.country || 'se')}`);
@@ -641,11 +651,11 @@ export async function generateDressageOfficialsPdf(equipages, startTimes, compet
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
   const pageWidth = doc.internal.pageSize.getWidth();
 
-  const srfLogo = await loadImg('/assets/logos/SRF.png');
+  const srfLogo = await loadStandardHeaderLogos(competition);
   let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA DRESSYR", srfLogo, 30, 40);
 
   // Filter withdrawn
-  const activeEqs = equipages.filter(e => e.status !== 'struken');
+  const activeEqs = equipages.filter(e => !isWithdrawnStatus(e.status));
   const programs = window.dressagePrograms || (typeof getPrograms === 'function' ? getPrograms() : {}) || {};
 
   // Prepare Data
@@ -698,7 +708,7 @@ export async function generateDressageOfficialsPdf(equipages, startTimes, compet
       startNo: eq.startNumber,
       driver: eq.driverName,
       club: eq.clubName || '',
-      class: eq.className,
+      class: eq._mergedLabel || eq.className,
       program: progName,
       horse: horseNames,
       sortVal: sortVal

@@ -1,10 +1,14 @@
-import { getClubLogoUrl } from '../services/logosService.js';
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg } from './pdfBase.js';
+import { fitImageDimensions } from './pdfImageUtils.js';
+import { isWithdrawnStatus } from './resultPdfFormatUtils.js';
+import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
+import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 
 export async function generateTimecardsPdf(equipages, competition) {
+    const pdfCompetition = await resolvePdfCompetition(competition);
     // Check international status
-    const isInternational = competition?.meta?.isInternational || false;
+    const isInternational = pdfCompetition?.meta?.isInternational || false;
 
     await loadPdfLibs();
     const { jsPDF } = window.jspdf;
@@ -20,11 +24,13 @@ export async function generateTimecardsPdf(equipages, competition) {
     const cardHeight = (pageHeight - (margin * 2)) / 2 - 10; // Half page minus gap
     const cardWidth = pageWidth - (margin * 2);
 
-    // Load generic SRF logo
     const srfLogo = await loadImg('/assets/logos/SRF.png');
+    const competitionLogo = await loadImg(getCompetitionLogoUrl(pdfCompetition));
 
     // Sort equipages
-    const sorted = [...equipages].sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
+    const sorted = [...equipages]
+        .filter(eq => !isWithdrawnStatus(eq?.status))
+        .sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
 
     // Helper: Draw one card at yOffset
     const drawCard = (eq, startY) => {
@@ -42,15 +48,17 @@ export async function generateTimecardsPdf(equipages, competition) {
         doc.text(titleTitle, margin, startY + 35);
 
         // Logo (Top Right)
-        if (srfLogo?.data) {
-            const logoH = 40;
-            const logoW = logoH * (srfLogo.w / srfLogo.h);
+        const headerLogo = competitionLogo || srfLogo;
+        if (headerLogo?.data) {
+            const { w: logoW, h: logoH } = fitImageDimensions(headerLogo, 100, 40);
             const logoX = margin + width - logoW;
             const logoY = startY;
-            doc.addImage(srfLogo.data, 'PNG', logoX, logoY, logoW, logoH);
+            doc.addImage(headerLogo.data, 'PNG', logoX, logoY, logoW, logoH);
 
-            doc.setFontSize(6).setFont(undefined, 'normal').setTextColor(0, 50, 150);
-            doc.text("SVENSKA RIDSPORTFÖRBUNDET", logoX + (logoW / 2), logoY + logoH + 6, { align: 'center' });
+            if (!competitionLogo) {
+                doc.setFontSize(6).setFont(undefined, 'normal').setTextColor(0, 50, 150);
+                doc.text("SVENSKA RIDSPORTFÖRBUNDET", logoX + (logoW / 2), logoY + logoH + 6, { align: 'center' });
+            }
         }
 
         // Info Grid Box
@@ -107,9 +115,10 @@ export async function generateTimecardsPdf(equipages, competition) {
         doc.text(t('class', isInternational), x2 + 3, boxY + 10);
         doc.setFontSize(11).setFont(undefined, 'normal');
         // Handle long class names by wrapping or reducing size
-        const clsName = String(eq.className || '');
+        const clsName = String(eq._mergedLabel || eq.className || '');
+        const classLines = doc.splitTextToSize(clsName, col3W - 6).slice(0, 2);
         if (clsName.length > 15) doc.setFontSize(9);
-        doc.text(clsName, x2 + 3, boxY + 28);
+        doc.text(classLines, x2 + 3, boxY + 24);
 
         // 4. Category
         doc.setFontSize(7).setFont(undefined, 'normal');

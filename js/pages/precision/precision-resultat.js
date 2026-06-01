@@ -1,9 +1,8 @@
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { listenForPrecisionResults, getPrecisionResults } from '../../services/precisionService.js';
+import { getPrecisionResults } from '../../services/precisionService.js';
 import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments } from '../../services/marathonService.js';
-import { listenForTeams } from '../../services/teamService.js';
 
 import { getGlobalState } from '../../main.js';
 
@@ -11,13 +10,11 @@ import {
   calculateDressageResult,
   calculateMarathonResult
 } from '../../services/calculationService.js';
-import { collection, onSnapshot, query, getDocs, doc, setDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, onSnapshot, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
-// import { calculatePrecisionResult } from '../../utils/precisionUtils.js'; // REPLACED by calculationService
-import { calculatePrecisionResult } from '../../services/calculationService.js';
 import { t } from '../../utils/i18n.js';
 
 import { initializeScrollSync, injectScrollStyles } from '../../ui/scrollHelper.js';
@@ -27,7 +24,6 @@ import {
   computeMaxSecondsForClass,
   startTimeFor,
   getPortAllowanceCm,
-  trackWidthFromEq,
   statusClass,
   buildOverallStanding,
   getToBeatInfo
@@ -36,12 +32,46 @@ import {
 // IMPORTERA NYA MODALEN
 import { showDetailsModal, closeDetailsModal } from '../../ui/precisionModal.js';
 import { generateAndPrintPdf, generatePrecisionListPdf } from '../../pdf/precisionPdf.js';
+import {
+  buildPrecisionMergeState,
+  groupPrecisionEquipagesForDisplay,
+  resolvePrecisionMergeGrouping
+} from './precisionResultMerge.js';
+import { filterPrecisionEquipages } from './precisionResultFilters.js';
+import { sortPrecisionEquipages } from './precisionResultSort.js';
+import { buildPrecisionLiveTick } from './precisionResultLive.js';
+import {
+  buildPrecisionFinalizePayload,
+  buildPrecisionUnfinalizePayload,
+  isPrecisionFinalized as resolvePrecisionFinalized,
+  patchPrecisionFinalizeBadge as patchPrecisionFinalizeBadgeUi,
+  renderPrecisionFinalizeButtons
+} from './precisionResultFinalize.js';
+import { renderPrecisionResultCard } from './precisionResultMobileCard.js';
+import { renderPrecisionResultDesktopRow } from './precisionResultDesktopRow.js';
+import {
+  renderPrecisionGroupHeader,
+  renderPrecisionTable,
+  renderPrecisionTableHead
+} from './precisionResultTable.js';
+import {
+  renderPrecisionLiveStatusPanel,
+  updatePrecisionLivePanelTimer
+} from './precisionResultLivePanel.js';
+import {
+  formatPrecisionCsvPenalty
+} from './precisionResultExportUtils.js';
+import {
+  applyPrecisionLiveDocChanges,
+  groupDressageProtocolsByStartNumber,
+  normalizeMarathonTimingDocs,
+  unsubscribeAll
+} from './precisionResultListeners.js';
 
 import {
   escapeHtml,
   isMobile,
   debounce,
-  round2,
   msToLabel,
   horseLabel,
   horseLabelStacked,
@@ -50,8 +80,6 @@ import {
   downloadCsv,
   sanitizeForFilename
 } from '../../utils/sharedUtils.js';
-
-let localTickers = {};
 
 const renderLiveDebounce = debounce(render, 60);
 
@@ -148,77 +176,18 @@ let precision_displayConfig = {};
 const precision_activeClassFilters = new Set();
 const MOBILE_BP = 500;
 
-function prec_resolveMergeGrouping(e, mergeCfg) {
-  if (e?.useMergedTestForDisplay && e?.mergedTestKey && e?.mergedTestLabel) {
-    return { key: String(e.mergedTestKey), label: String(e.mergedTestLabel) };
-  }
-  const num = Number(e?.tdbClassNumber);
-  const hit = Number.isFinite(num) ? precision_MERGE_MAP.get(num) : null;
-  if (hit) return hit;
-  const cls = e?.className || '—';
-  return { key: `CLASS:${cls}`, label: cls };
+function prec_resolveMergeGrouping(e) {
+  return resolvePrecisionMergeGrouping(e, precision_MERGE_MAP);
 }
 
-function prec_groupEquipagesForDisplay(equipages = [], mergeCfg) {
-  const map = new Map();
-  for (const e of (equipages || [])) {
-    const g = prec_resolveMergeGrouping(e, mergeCfg);
-    if (!map.has(g.key)) map.set(g.key, { key: g.key, label: g.label, items: [] });
-    map.get(g.key).items.push(e);
-  }
-  return Array.from(map.values())
-    .sort((a, b) => a.label.localeCompare(b.label, 'sv', { numeric: true, sensitivity: 'base' }));
+function prec_groupEquipagesForDisplay(equipages = []) {
+  return groupPrecisionEquipagesForDisplay(equipages, precision_MERGE_MAP);
 }
 
 function prec_buildMergeMap(raw) {
-  precision_MERGE_GROUPS = [];
-  precision_MERGE_MAP.clear();
-  if (!raw) return;
-
-  const maybeDisplay = raw && typeof raw === 'object' && raw.mergeByClassNumber ? raw : null;
-  const source = maybeDisplay ? maybeDisplay.mergeByClassNumber : raw;
-
-  if (source && typeof source === 'object' && !Array.isArray(source)) {
-    for (const [grpKey, info] of Object.entries(source)) {
-      const members = (info?.members || []).map(Number).filter(n => Number.isFinite(n)).sort((a, b) => a - b);
-      if (!members.length) continue;
-      const label = String(info?.label || `Sammanslagen: TDB #${members.join('/')}`);
-      const key = String(grpKey || `TDBGROUP:${members.join('+')}`);
-      precision_MERGE_GROUPS.push({ key, label, members });
-      members.forEach(num => precision_MERGE_MAP.set(num, { key, label }));
-    }
-    return;
-  }
-  if (Array.isArray(source)) {
-    const groups = source
-      .map(arr => (Array.isArray(arr) ? arr.map(Number).filter(n => Number.isFinite(n)) : []))
-      .filter(arr => arr.length > 0)
-      .map(arr => arr.sort((a, b) => a - b));
-    groups.forEach(members => {
-      const key = `TDBGROUP:${members.join('+')}`;
-      const label = `Sammanslagen: TDB #${members.join('/')}`;
-      precision_MERGE_GROUPS.push({ key, label, members });
-      members.forEach(num => precision_MERGE_MAP.set(num, { key, label }));
-    });
-    return;
-  }
-  if (source && typeof source === 'object') {
-    const buckets = new Map();
-    for (const [k, v] of Object.entries(source)) {
-      const num = Number(String(k).replace(/^num:/i, ''));
-      if (!Number.isFinite(num)) continue;
-      const gk = String(v || '').trim() || `TDBGROUP:${num}`;
-      if (!buckets.has(gk)) buckets.set(gk, new Set());
-      buckets.get(gk).add(num);
-    }
-    for (const [gk, set] of buckets) {
-      const members = [...set].sort((a, b) => a - b);
-      const key = String(gk);
-      const label = `Sammanslagen: TDB #${members.join('/')}`;
-      precision_MERGE_GROUPS.push({ key, label, members });
-      members.forEach(num => precision_MERGE_MAP.set(num, { key, label }));
-    }
-  }
+  const mergeState = buildPrecisionMergeState(raw);
+  precision_MERGE_GROUPS = mergeState.groups;
+  precision_MERGE_MAP = mergeState.map;
 }
 
 let competitionId = null;
@@ -260,21 +229,11 @@ function getOverallEntries(equipages) {
 }
 
 function isPrecisionFinalized(sn) {
-  const d = precision_precisionMap.get(String(sn));
-  if (d && typeof d.finalized === 'boolean') return d.finalized;
-  if (precision_finalizeCache.has(String(sn))) return precision_finalizeCache.get(String(sn));
-  return false;
+  return resolvePrecisionFinalized(sn, precision_precisionMap, precision_finalizeCache);
 }
 
 function patchPrecisionFinalizeBadge(sn, finalized) {
-  const root = document;
-  const $final = root.querySelector(`#prec-final-badge-${sn}`);
-  const $btnFin = root.querySelector(`[data-prec-action="finalize"][data-sn="${sn}"]`);
-  const $btnUn = root.querySelector(`[data-prec-action="unfinalize"][data-sn="${sn}"]`);
-
-  if ($final) $final.style.display = finalized ? 'inline-flex' : 'none';
-  if ($btnFin) $btnFin.style.display = finalized ? 'none' : '';
-  if ($btnUn) $btnUn.style.display = finalized ? '' : 'none';
+  patchPrecisionFinalizeBadgeUi(sn, finalized, document);
 }
 
 // Helpers för layout
@@ -307,16 +266,28 @@ function tickPrecisionTimers() {
   precision_precisionMap.forEach((data, sn) => {
     if (data && data.running === true && data.liveStartEpoch) {
       anyRunning = true;
-      const labelAt = data._receivedLocalAt || Date.now();
-      const elapsedMs = (data.livePausedMs || 0) + (labelAt - data.liveStartEpoch) + (Date.now() - labelAt);
-
       const desktopCell = document.querySelector(`td[data-sn="${sn}"].time-cell span`);
       const mobileTimer = document.querySelector(`div[data-sn="${sn}"] .live-time-card`);
 
-      const timeLabel = msToLabel(elapsedMs);
       const eq = precision_equipages.find(e => String(e.startNumber) === sn);
       const maxSec = eq ? computeMaxSecondsForClass(eq.className, precision_precisionConfig) : null;
-      const overTime = isNum(maxSec) && elapsedMs > (maxSec * 1000);
+      const tick = buildPrecisionLiveTick(data, {
+        equipage: eq,
+        maxSec,
+        config: precision_precisionConfig,
+        allEquipages: precision_equipages,
+        precisionMap: precision_precisionMap,
+        getGroupKey: (equipage) => {
+          const startNumber = String(equipage.startNumber);
+          if (precision_MERGE_MAP.has(startNumber)) return precision_MERGE_MAP.get(startNumber).key;
+          if (precision_MERGE_MAP.has(Number(startNumber))) return precision_MERGE_MAP.get(Number(startNumber)).key;
+          return equipage.className;
+        }
+      });
+      if (!tick) return;
+      const elapsedMs = tick.elapsedMs;
+      const timeLabel = msToLabel(elapsedMs);
+      const overTime = tick.overTime;
       const timeClass = overTime ? 'text-red-600 font-semibold animate-pulse' : '';
 
       if (desktopCell) {
@@ -331,22 +302,13 @@ function tickPrecisionTimers() {
       // Live Panel Update
       let penaltyStr = null;
       let rankStr = null;
-      let liveTimePenalty = 0;
+      let liveTimePenalty = tick.penalty.timePenalty;
 
       // Calculate live penalties and rank client-side for immediate feedback
       if (eq) {
-        // 1. Time Penalty
-        // const maxSec = ... already calculated above
-        if (isNum(maxSec) && elapsedMs > maxSec * 1000) {
-          const rate = (precision_precisionConfig.timePenaltyRate != null) ? Number(precision_precisionConfig.timePenaltyRate) : 0.5;
-          liveTimePenalty = ((elapsedMs / 1000) - maxSec) * rate;
-        }
-
         // 2. Obstacle Penalty (from data or knock loop if we had it, but here we trust data for knocks)
-        const obsPenalty = isNum(data.liveObstaclePenalty) ? data.liveObstaclePenalty : (data.obstaclePenalty || 0);
-        const extraPenalty = isNum(data.extraPenalty) ? data.extraPenalty : 0;
-
-        const currentTotal = liveTimePenalty + obsPenalty + extraPenalty;
+        const obsPenalty = tick.penalty.obstaclePenalty;
+        const currentTotal = tick.penalty.totalPenalty;
         penaltyStr = currentTotal.toFixed(2);
 
         // --- Update Main Table Cells & Mobile Cards ---
@@ -369,47 +331,7 @@ function tickPrecisionTimers() {
         if (cardTotalPen) cardTotalPen.textContent = penaltyStr;
         // ------------------------------------------
 
-        // 3. Live Rank (within CLASS or MERGED GROUP)
-        let allResults = [];
-
-        // Helper: get group identifier (merged group key OR className)
-        const getGroupKey = (e) => {
-          const esn = String(e.startNumber);
-          // precision_MERGE_MAP is a global defined in precision-resultat.js
-          if (typeof precision_MERGE_MAP !== 'undefined' && precision_MERGE_MAP.has(esn)) {
-            return precision_MERGE_MAP.get(esn).key;
-          }
-          return e.className;
-        };
-        const myGroupKey = getGroupKey(eq);
-
-        precision_equipages.forEach(e => {
-          const s = String(e.startNumber);
-          if (s === sn) return; // skip self
-
-          // Filter: Must be in same competition group
-          if (getGroupKey(e) !== myGroupKey) return;
-
-          const dd = precision_precisionMap.get(s);
-          if (!dd) return;
-
-          // Must have a total penalty to be ranked (finalized or valid live)
-          let p = null;
-          if (dd.finalized && isNum(dd.totalPenalty)) p = dd.totalPenalty;
-          else if (isNum(dd.liveTotalPenalty)) p = dd.liveTotalPenalty; // if we trust other live results
-
-          // Or use getCalculatedRowData for robust comparison if needed, 
-          // but let's stick to simple totalPenalty for speed
-          if (isNum(p)) allResults.push(p);
-        });
-
-        // Add self
-        allResults.push(currentTotal);
-        // Sort ASC
-        allResults.sort((a, b) => a - b);
-        // Find self index
-        const rank = allResults.indexOf(currentTotal) + 1;
-        rankStr = String(rank);
+        rankStr = tick.rank ? String(tick.rank) : null;
       }
 
       updateLivePanelTimer(sn, timeLabel, penaltyStr, rankStr);
@@ -423,10 +345,8 @@ function renderLiveStatusPanel() {
   const container = document.getElementById('liveStatusPanelContainer');
   if (!container) return;
 
-  // Hitta aktiv förare
   const activeEq = precision_equipages.find(eq => {
     const d = precision_precisionMap.get(String(eq.startNumber));
-    // Check both status string and running flag
     return d && (d.running === true || (d.status && d.status.includes('Påg')));
   });
 
@@ -437,8 +357,6 @@ function renderLiveStatusPanel() {
   }
 
   const sn = String(activeEq.startNumber);
-
-  // Totallista för klassen (för att räkna ut "To Beat" och overall rank)
   const currentClass = activeEq._mergedLabel || activeEq.className;
   const visibleInClass = precision_equipages.filter(e => (e._mergedLabel || e.className) === currentClass);
   const overallEntries = getOverallEntries(visibleInClass);
@@ -446,128 +364,21 @@ function renderLiveStatusPanel() {
   const standings = { results, map: standingsMap };
   const myOverall = standingsMap.get(sn);
   const toBeat = getToBeatInfo(sn, standings);
-
-  // Använd central beräkning för att få formaterad knocksText m.m.
   const data = getCalculatedRowData(sn, new Map(), precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
 
-  const totalPenalty = data.totalPenalty === Infinity ? 'ELIM' : (data.totalPenalty || 0).toFixed(2);
-
   container.classList.remove('hidden');
-  container.innerHTML = `
-    <div class="bg-slate-900 rounded-lg md:rounded-xl p-3 md:p-6 shadow-xl border border-slate-700 relative overflow-hidden text-white">
-      <!-- Background Accents -->
-      <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full mix-blend-overlay filter blur-3xl opacity-10 -translate-y-1/2 translate-x-1/2"></div>
-      
-      <!-- DESKTOP LAYOUT (md and up) -->
-      <div class="relative z-10 hidden md:flex flex-row items-center justify-between gap-6">
-        <!-- Left: Driver Info -->
-        <div class="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
-           <div class="flex flex-col items-center justify-center bg-white/10 w-16 h-16 rounded-lg backdrop-blur-sm border border-white/10 shrink-0">
-              <span class="text-xs text-gray-400 uppercase font-bold tracking-wider">Start</span>
-              <span class="text-3xl font-bold font-mono leading-none">${activeEq.startNumber}</span>
-           </div>
-           
-           <div class="min-w-0">
-             <div class="flex items-center gap-2 mb-1">
-               <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase tracking-wider border border-emerald-500/30">
-                 <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-                 På banan
-               </span>
-               <span class="text-slate-400 text-sm truncate">${activeEq.className}</span>
-             </div>
-             <h2 class="text-2xl md:text-3xl font-bold truncate leading-tight">${activeEq.driverName}</h2>
-             <p class="text-slate-400 text-sm md:text-base truncate">${horseLabel(activeEq)}</p>
-             <div class="flex items-center gap-2 mt-2 text-xs text-slate-500">
-               ${getFlagHtml(activeEq)} ${activeEq.clubName}
-             </div>
-           </div>
-        </div>
-
-        <!-- Right: Stats & Timer -->
-        <div class="flex items-center gap-4 md:gap-8 shrink-0">
-           <div class="text-center px-4 border-r border-white/10 hidden lg:block">
-             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Totalplac.</div>
-             <div class="text-3xl font-bold text-emerald-400 tabular-nums">${myOverall?.rank || '-'}</div>
-             ${toBeat ? `<div class="text-[10px] text-emerald-500 font-bold mt-1">För ${toBeat.targetP < 0 ? 'vinst' : 'nästa'}: < ${toBeat.targetP.toFixed(1)}</div>` : ''}
-           </div>
-
-           <div class="text-center px-4 border-r border-white/10 hidden md:block">
-             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Delplac.</div>
-             <div class="text-3xl font-bold text-yellow-400 tabular-nums" id="livePanelRank-${sn}">-</div>
-           </div>
-
-           <div class="text-center px-4 border-r border-white/10">
-             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Straff</div>
-             <div class="text-3xl font-bold text-blue-300 tabular-nums" id="livePanelPenalty-${sn}">${totalPenalty}</div>
-           </div>
-
-           <div class="text-center min-w-[140px]">
-             <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Tid</div>
-             <div class="text-5xl md:text-6xl font-black tabular-nums leading-none tracking-tight" id="livePanelTimer-${sn}">
-               00:00,00
-             </div>
-           </div>
-        </div>
-      </div>
-
-      <!-- MOBILE LAYOUT (tighter) -->
-      <div class="relative z-10 flex md:hidden flex-col gap-3">
-        <div class="flex items-center justify-between">
-           <div class="flex items-center gap-3 min-w-0">
-             <div class="bg-white/10 px-2 py-1 rounded border border-white/10 font-bold font-mono text-xl">#${activeEq.startNumber}</div>
-             <div class="min-w-0">
-               <h2 class="text-lg font-bold truncate leading-tight">${activeEq.driverName}</h2>
-               <div class="flex items-center gap-2">
-                 <span class="inline-flex items-center gap-1 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold uppercase tracking-wider border border-emerald-500/30 px-1">
-                   <span class="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
-                   Live
-                 </span>
-                 <span class="text-slate-400 text-[10px] truncate">${activeEq.className}</span>
-               </div>
-             </div>
-           </div>
-           <div class="text-right">
-             <div id="livePanelTimer-mob-${sn}" class="text-3xl font-black tabular-nums leading-none text-white tracking-tight">00:00,00</div>
-             <div class="text-[9px] text-slate-400 uppercase font-bold tracking-widest mt-0.5">Löpande tid</div>
-           </div>
-        </div>
-
-        <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
-           <div class="bg-white/5 p-2 rounded text-center">
-             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Straff</div>
-             <div class="text-lg font-bold text-blue-300" id="livePanelPenalty-mob-${sn}">${totalPenalty}</div>
-           </div>
-           <div class="bg-white/5 p-2 rounded text-center">
-             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Delplac.</div>
-             <div class="text-lg font-bold text-yellow-400" id="livePanelRank-mob-${sn}">-</div>
-           </div>
-           <div class="bg-white/5 p-2 rounded text-center">
-             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Totalp.</div>
-             <div class="text-lg font-bold text-emerald-400">${myOverall?.rank || '-'}</div>
-           </div>
-        </div>
-      </div>
-    </div>
-  `;
+  container.innerHTML = renderPrecisionLiveStatusPanel({
+    equipage: activeEq,
+    totalPenalty: data.totalPenalty,
+    overallRank: myOverall?.rank,
+    toBeat,
+    horseLabelHtml: horseLabel(activeEq),
+    flagHtml: getFlagHtml(activeEq)
+  });
 }
 
 function updateLivePanelTimer(sn, label, penaltyDef, rankDef) {
-  const elTimer = document.getElementById(`livePanelTimer-${sn}`);
-  const elPenalty = document.getElementById(`livePanelPenalty-${sn}`);
-  const elRank = document.getElementById(`livePanelRank-${sn}`);
-
-  if (elTimer) elTimer.textContent = label;
-  if (elPenalty && penaltyDef) elPenalty.textContent = penaltyDef;
-  if (elRank && rankDef) elRank.textContent = rankDef;
-
-  // Mobile IDs
-  const elTimerMob = document.getElementById(`livePanelTimer-mob-${sn}`);
-  const elPenaltyMob = document.getElementById(`livePanelPenalty-mob-${sn}`);
-  const elRankMob = document.getElementById(`livePanelRank-mob-${sn}`);
-
-  if (elTimerMob) elTimerMob.textContent = label;
-  if (elPenaltyMob && penaltyDef) elPenaltyMob.textContent = penaltyDef;
-  if (elRankMob && rankDef) elRankMob.textContent = rankDef;
+  updatePrecisionLivePanelTimer(sn, label, penaltyDef, rankDef, document);
 }
 
 function renderLayout() {
@@ -576,9 +387,6 @@ function renderLayout() {
   if (!root) return;
 
   let precisionDateStr = '';
-  // ... (date logic kept simple or reused if I could, but here I'll just keep the existing calculation or simplify it. 
-  // The existing calculation in lines 429-449 is a bit long to copy-paste. I will try to preserve it by not deleting it 
-  // if I can help it, but replace_file_content works on blocks. I'll just copy the logic.)
 
   const dateCounts = {};
   if (precision_startTimes && precision_startTimes.times) {
@@ -728,6 +536,7 @@ function renderLayout() {
         const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
 
         const baseAllowance = getDisplayPortAllowance(data.eq.className);
+        const eliminated = data.d?.eliminated || data.totalPenalty === Infinity;
         const allowanceDisplay = isNum(baseAllowance) ? baseAllowance : '—';
 
         return [
@@ -741,10 +550,10 @@ function renderLayout() {
           allowanceDisplay,
           data.display.timeLabel,           // Tid
           data.display.knocksSimple,        // Rivningar
-          isNum(data.obstaclePenalty) ? data.obstaclePenalty.toFixed(2) : '0,00',
-          isNum(data.timePenalty) ? data.timePenalty.toFixed(2) : '0,00',
-          isNum(data.extraPenalty) ? data.extraPenalty.toFixed(2) : '0,00',
-          (data.d?.eliminated) ? 'ELIM' : (isNum(data.totalPenalty) ? data.totalPenalty.toFixed(2) : '—'),
+          formatPrecisionCsvPenalty(data.obstaclePenalty, { zeroWhenEmpty: true }),
+          formatPrecisionCsvPenalty(data.timePenalty, { zeroWhenEmpty: true }),
+          formatPrecisionCsvPenalty(data.extraPenalty, { zeroWhenEmpty: true }),
+          formatPrecisionCsvPenalty(data.totalPenalty, { eliminated }),
           data.status || '—'
         ];
       });
@@ -798,92 +607,25 @@ function openDetails(sn) {
 }
 
 function filteredSortedEquipages() {
-  let list = precision_equipages.slice();
-  if (precision_searchText) {
-    const s = precision_searchText.toLowerCase();
-    list = list.filter(e =>
-      String(e.startNumber || '').includes(s) ||
-      (e.driverName || '').toLowerCase().includes(s) ||
-      (e.className || '').toLowerCase().includes(s) ||
-      (e._mergedLabel || '').toLowerCase().includes(s)
-    );
-  }
-
-  // Filter out withdrawn/struken
-  list = list.filter(e => {
-    const st = String(e.status || '').toLowerCase();
-    return !['struken', 'withdrawn', 'scratched'].includes(st) && !e.struken && !e.withdrawn;
+  let list = filterPrecisionEquipages(precision_equipages, {
+    searchText: precision_searchText,
+    showOnlyFinalized: precision_showOnlyFinalized,
+    activeClassFilters: precision_activeClassFilters,
+    precisionMap: precision_precisionMap
   });
-
-  if (precision_showOnlyFinalized) {
-    list = list.filter(e => {
-      const d = precision_precisionMap.get(String(e.startNumber)) || {};
-      return d.finalized === true && isNum(d.totalPenalty);
-    });
-  }
-  if (precision_activeClassFilters.size > 0) {
-    list = list.filter(e => precision_activeClassFilters.has(e._mergedLabel || e.className || '—'));
-  }
-
   const placeMap = buildPlaceMap(list, precision_precisionMap, precision_precisionConfig);
-
-  const col = precision_sort.col;
-  const dir = precision_sort.dir === 'desc' ? -1 : 1;
-
-  list.sort((a, b) => {
-    if (precision_viewMode === 'byclass') {
-      const classA = a._mergedLabel || a.className || '';
-      const classB = b._mergedLabel || b.className || '';
-      if (classA !== classB) {
-        return classA.localeCompare(classB, 'sv') * dir;
-      }
-    }
-
-    const dataA = getCalculatedRowData(String(a.startNumber), placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
-    const dataB = getCalculatedRowData(String(b.startNumber), placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
-
-    const val = (colName, data) => {
-      switch (colName) {
-        case 'place': return data.place || Infinity;
-        case 'penalty': return isNum(data.totalPenalty) ? data.totalPenalty : Infinity;
-        case 'time': return data.timeMs;
-        case 'knocks': return data.knocksCount;
-        case 'obstacle': return isNum(data.obstaclePenalty) ? data.obstaclePenalty : Infinity;
-        case 'timePenalty': return isNum(data.timePenalty) ? data.timePenalty : Infinity;
-        case 'extra': return isNum(data.extraPenalty) ? data.extraPenalty : Infinity;
-        case 'overall': {
-              const currentClass = a._mergedLabel || a.className;
-              const visibleInClass = precision_equipages.filter(e => (e._mergedLabel || e.className) === currentClass);
-              const overallEntries = getOverallEntries(visibleInClass);
-              const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
-              return standingsMap.get(String(a.startNumber))?.total ?? Infinity;
-        }
-        case 'status': return { 'Pågår': 1, 'Klar': 2, 'Ej startat': 3, 'Struken': 4 }[data.status] ?? 3;
-        case 'portWidth': return isNum(data.display.portWidth) ? data.display.portWidth : Infinity;
-        case 'startTime': return startTimeFor(data.eq.startNumber, precision_startTimes) || 'ZZZZ';
-        case 'className': return (data.eq._mergedLabel || data.eq.className || '');
-        case 'driverName': return (data.eq.driverName || '');
-        case 'startNumber':
-        default: return data.eq.startNumber || 0;
-      }
-    };
-
-    const va = val(col, dataA);
-    const vb = val(col, dataB);
-
-    if (va < vb) return -1 * dir;
-    if (va > vb) return 1 * dir;
-
-    // Tie-breaker: Time closest to allowed time
-    if (col === 'penalty' || col === 'place') {
-      const diffA = dataA.timeDiffFromAllowed || Infinity;
-      const diffB = dataB.timeDiffFromAllowed || Infinity;
-      if (Math.abs(diffA - diffB) > 1e-6) {
-        return (diffA - diffB) * dir;
-      }
-    }
-
-    return (a.startNumber || 0) - (b.startNumber || 0);
+  list = sortPrecisionEquipages(list, {
+    sort: precision_sort,
+    viewMode: precision_viewMode,
+    getRowData: (eq) => getCalculatedRowData(String(eq.startNumber), placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes),
+    getOverallValue: (eq) => {
+      const currentClass = eq._mergedLabel || eq.className;
+      const visibleInClass = precision_equipages.filter((candidate) => (candidate._mergedLabel || candidate.className) === currentClass);
+      const overallEntries = getOverallEntries(visibleInClass);
+      const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+      return standingsMap.get(String(eq.startNumber))?.total ?? Infinity;
+    },
+    getStartTime: (eq) => startTimeFor(eq.startNumber, precision_startTimes) || 'ZZZZ'
   });
   return list;
 }
@@ -907,7 +649,7 @@ function renderMobile() {
     html = `<div class="p-6 text-center text-gray-500">${t('search_no_match')}</div>`;
   } else {
     if (precision_viewMode === 'byclass') {
-      const groups = prec_groupEquipagesForDisplay(visibleEquipages, precision_displayConfig);
+      const groups = prec_groupEquipagesForDisplay(visibleEquipages);
       for (const group of groups) {
         html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${group.label}</div>`;
         html += group.items.map(eq => renderCard(eq, placeMap, classStarters)).join('');
@@ -939,123 +681,32 @@ function renderMobile() {
 function renderCard(eq, placeMap, classStarters = new Map()) {
   const sn = String(eq.startNumber);
   const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
-  
-  const timeLabel = data.display.timeLabel;
-  const penaltyLabel = data.d?.eliminated ? '<span class="text-red-600 dark:text-red-400 font-bold">ELIM</span>' : fmt2(data.totalPenalty);
-  const obstacleLabel = fmt2(data.obstaclePenalty);
-  const timePenaltyLabel = fmt2(data.timePenalty);
 
-  const isActive = data.d?.running === true || (data.status && data.status.includes('P\u00e5g'));
-  const isStruken = data.status === 'Struken' || eq.status === 'struken';
-
-  // 2. Placement Coloring Logic
-  const cls = data.eq._mergedLabel || data.eq.className || 'Ok\u00e4nd Klass';
-  const startersCount = classStarters.get(cls) || 1;
-  const numPlaced = Math.ceil(startersCount / 4) || 1;
-  const rankNum = Number(data.place);
-  const isPlaced = !isNaN(rankNum) && rankNum > 0 && rankNum <= numPlaced;
-
-  let placColor = 'text-gray-600 dark:text-gray-400';
-  let placBg = 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700';
-
-  if (isStruken) {
-      placBg = 'bg-red-50 dark:bg-red-900/10 border-red-100 opacity-75';
-  } else if (isActive) {
-      placBg = 'bg-yellow-50 dark:bg-yellow-900/40 border-yellow-500 shadow-sm border-l-4 border-2';
-  } else if (isPlaced) {
-      if (rankNum === 1) { placColor = 'text-yellow-600 dark:text-yellow-400 drop-shadow-sm'; placBg = 'bg-yellow-100 dark:bg-yellow-900/30 border-yellow-400 dark:border-yellow-500/80 border-2'; }
-      else if (rankNum === 2) { placColor = 'text-slate-600 dark:text-slate-300 drop-shadow-sm'; placBg = 'bg-slate-100 dark:bg-slate-800/80 border-slate-400 dark:border-slate-500/80 border-2'; }
-      else if (rankNum === 3) { placColor = 'text-orange-700 dark:text-orange-400 drop-shadow-sm'; placBg = 'bg-orange-100 dark:bg-orange-950/40 border-orange-500 dark:border-orange-600/80 border-2'; }
-      else { placColor = 'text-emerald-600 dark:text-emerald-400'; placBg = 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-300 dark:border-emerald-700/50 border-2'; }
-  }
-
-  let placBlock = `
-      <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
-      <div class="text-base font-black ${placColor} leading-none">${data.place || '\u2014'}</div>
-  `;
-
-  return `
-      <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer ${placBg}" data-sn="${sn}" role="button" tabindex="0">
-        
-        <!-- TOP ROW -->
-        <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 ${(isPlaced || isActive || isStruken) ? '' : 'bg-gray-50 dark:bg-gray-800/50'}">
-           <!-- Left: Name & Flags -->
-           <div class="flex flex-col min-w-0 pr-1">
-              <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${data.eq.startNumber}</span> 
-                 <span class="truncate">${data.eq.driverName}</span>
-              </div>
-              <div class="flex items-center gap-1 mt-0.5">
-                 ${getFlagHtml(data.eq)} ${getClubLogoHtml(data.eq)}
-                 ${precision_viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${cls}</span>` : ''}
-              </div>
-           </div>
-           
-           <!-- Right: Stats & Plac -->
-           <div class="flex items-center gap-2 shrink-0">
-              <div class="text-right">
-                  <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Totalt</div>
-                  <div class="font-bold text-[13px] text-blue-800 dark:text-blue-300 leading-none live-total-penalty-card" data-sn="${sn}">${penaltyLabel}</div>
-              </div>
-              <div class="text-right border-l dark:border-gray-300 dark:border-gray-600 pl-2">
-                  ${placBlock}
-              </div>
-           </div>
-        </div>
-
-        <!-- BOTTOM ROW -->
-        <div class="px-1.5 py-1.5 bg-white dark:bg-gray-800">
-           <div class="flex justify-between items-center text-[10px] mb-1">
-              <span class="text-gray-500 dark:text-gray-400">Start: <strong class="text-gray-700 dark:text-gray-200">${data.startT || '\u2014'}</strong></span>
-              ${isActive
-                ? `
-                  <div class="flex items-center gap-1">
-                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">Running</span>
-                  </div>
-                  `
-                : `<span class="text-gray-500 dark:text-gray-400 font-medium">${data.status || '\u2013'}</span>`
-              }
-           </div>
-
-           <div class="flex gap-1 text-[10px] tabular-nums">
-              <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
-                 <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Tid</div>
-                 <div class="font-bold live-time-card text-[10px] leading-tight" data-sn="${sn}">${isActive ? '\u2022\u2022:\u2022\u2022,\u2022\u2022' : timeLabel}</div>
-              </div>
-              <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
-                 <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Hinder</div>
-                 <div class="font-bold live-obstacle-penalty-card text-[10px] leading-tight" data-sn="${sn}">${obstacleLabel}</div>
-              </div>
-              <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
-                 <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Tidsfel</div>
-                 <div class="font-bold live-time-penalty-card text-[10px] leading-tight" data-sn="${sn}">${timePenaltyLabel}</div>
-              </div>
-           </div>
-           ${renderFinalizeButtons(eq) ? `
-             <div class="mt-1 flex justify-end">${renderFinalizeButtons(eq)}</div>
-           ` : ''}
-        </div>
-      </div>
-  `;
+  return renderPrecisionResultCard({
+    data,
+    viewMode: precision_viewMode,
+    classStarters,
+    flagHtml: getFlagHtml(data.eq),
+    clubLogoHtml: getClubLogoHtml(data.eq),
+    finalizeButtonsHtml: renderFinalizeButtons(eq),
+    formatPenalty: fmt2
+  });
 }
 
 function renderFinalizeButtons(eq) {
-  const compId = getGlobalState('currentCompetition')?.id;
   const sn = String(eq.startNumber);
   const can = window.canFinalize && window.canFinalize();
   const finalized = isPrecisionFinalized(sn);
-  if (!can) return '';
-
-  return `
-    <div class="mt-2 flex items-center justify-center gap-2" data-prec-finalize-slot>
-      <span id="prec-final-badge-${sn}"
-            class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800"
-            style="display:${finalized ? 'inline-flex' : 'none'}">
-        ${t('finalized_badge')}
-      </span>
-      <button type="button" data-prec-action="finalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" style="display:${finalized ? 'none' : ''}" >${t('finalize')}</button>
-      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50" style="display:${finalized ? '' : 'none'}" >${t('undo')}</button>
-    </div>`;
+  return renderPrecisionFinalizeButtons({
+    startNumber: sn,
+    finalized,
+    canFinalize: can,
+    labels: {
+      finalizedBadge: t('finalized_badge'),
+      finalize: t('finalize'),
+      undo: t('undo')
+    }
+  });
 }
 
 function renderDesktop() {
@@ -1078,7 +729,7 @@ function renderDesktop() {
     }
 
     if (chipHost) {
-      const gArr = prec_groupEquipagesForDisplay(precision_equipages, precision_displayConfig);
+      const gArr = prec_groupEquipagesForDisplay(precision_equipages);
       const labels = gArr.map(g => g.label);
 
       renderResponsiveClassFilter(chipHost, labels, precision_activeClassFilters, (lbl) => {
@@ -1097,105 +748,59 @@ function renderDesktop() {
   const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
   const standings = standingsMap;
 
-  const thClass = "px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase cursor-pointer bg-white dark:bg-gray-800";
-  const thNoClass = "px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase bg-white dark:bg-gray-800";
-
-  const headHTML = `<thead><tr>
-        <th data-col="place" class="${thClass}">${t('rank')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="startNumber" class="${thClass} sticky-col-start bg-gray-50 dark:bg-gray-700"># <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="driverName" class="${thClass} sticky-col-driver bg-gray-50 dark:bg-gray-700">${t('driver')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="className" class="${thClass}">${t('class')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th class="${thNoClass}">${t('country_club')}</th>
-        <th data-col="startTime" class="${thClass}">${t('start_time')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="portWidth" class="${thClass}">${t('obstacle_width')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="time" class="${thClass}">${t('time')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="knocks" class="${thClass}">${t('knockdowns')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="obstacle" class="${thClass}">${t('obs_penalty')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="timePenalty" class="${thClass}">${t('time_penalty')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="extra" class="${thClass}">${t('other_penalty_short')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="penalty" class="${thClass}">${t('total')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="overall" class="${thClass}">Total ställning <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th data-col="status" class="${thClass}">${t('status')} <span class="ml-1 inline-block align-middle sort-icon"></span></th>
-        <th class="${thNoClass}">${t('final_column')}</th>            
-    </tr></thead>`;
+  const headHTML = renderPrecisionTableHead({
+    rank: t('rank'),
+    driver: t('driver'),
+    className: t('class'),
+    countryClub: t('country_club'),
+    startTime: t('start_time'),
+    obstacleWidth: t('obstacle_width'),
+    time: t('time'),
+    knockdowns: t('knockdowns'),
+    obsPenalty: t('obs_penalty'),
+    timePenalty: t('time_penalty'),
+    otherPenaltyShort: t('other_penalty_short'),
+    total: t('total'),
+    overallStanding: 'Total ställning',
+    status: t('status'),
+    finalColumn: t('final_column')
+  });
 
   const renderRow = (eq, index) => {
     const sn = String(eq.startNumber);
     const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
-
     const baseAllowance = getDisplayPortAllowance(data.eq.className);
     const allowanceDisplay = isNum(baseAllowance) ? `+ ${baseAllowance} cm` : '—';
     const isStruken = data.eq.status === 'struken';
-    const isActive = data.status && data.status.includes('Påg');
     const badgeClass = isStruken ? 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-300' : statusClass(data.status);
 
-    let rowBgClass;
-    if (isStruken) {
-      rowBgClass = 'opacity-50 bg-red-50 dark:bg-red-900/10';
-    } else if (isActive) {
-      // Improved contrast: Darker yellow background in dark mode
-      rowBgClass = 'bg-yellow-50 dark:bg-yellow-900/40 border-l-4 border-yellow-500 shadow-sm relative z-10';
-    } else {
-      rowBgClass = (index % 2 === 0 ? 'bg-white dark:bg-gray-800' : 'bg-gray-50 dark:bg-gray-800/50');
-    }
-
-    // Om active, ta bort border-l-4 från tr och lägg kanske på första td om det strular, 
-    // men vi testar på tr först. border-l funkar ofta på tr om collapse=separate.
-    const overTime = (data.d.finalized && isNum(data.timePenalty) && data.timePenalty > 0);
-    const timeAlertCls = overTime ? 'text-red-600 dark:text-red-400 font-semibold' : '';
-
-    const rowStyle = isActive ? 'border-left: 4px solid #eab308;' : '';
-
-    const resOverall = standings.get(sn);
-
-    return `
-           <tr class="${rowBgClass} hover:bg-blue-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-200" data-sn="${sn}" style="${rowStyle}">
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 font-semibold text-[11px] lg:text-sm">${data.place || '–'}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm sticky-col-start ${rowBgClass || ''}">${data.eq.startNumber}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-left align-top sticky-col-driver ${rowBgClass || ''}">
-                    <button type="button" class="text-xs lg:text-base font-bold text-gray-900 dark:text-white hover:text-blue-700 dark:hover:text-blue-400 hover:underline text-left transition-colors truncate block w-full" title="${data.eq.driverName}">${data.eq.driverName}</button>
-                    <div class="hidden lg:block text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 leading-tight whitespace-nowrap">${horseLabelStacked(data.eq)}</div>
-                </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-none" title="${data.eq._mergedLabel || data.eq.className || ''}">${data.eq._mergedLabel || data.eq.className}</div></td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5">
-                    <div class="flex items-center gap-2">
-                        ${getFlagHtml(data.eq)} ${getClubLogoHtml(data.eq)} <span class="truncate max-w-[80px] lg:max-w-[120px] text-[11px] lg:text-sm" title="${data.eq.clubName || ''}">${data.eq.clubName || ''}</span>
-                    </div>
-                </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${startTimeFor(sn, precision_startTimes)}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${allowanceDisplay}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 time-cell align-top" data-sn="${sn}">
-                    <span class="tabular-nums ${timeAlertCls} text-[11px] lg:text-sm whitespace-nowrap">${(data.d?.running === true) ? '••:••,••' : data.display.timeLabel}</span>
-                </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">${data.display.knocksSimple}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm obstacle-penalty-cell" data-sn="${sn}">${fmt2(data.obstaclePenalty)}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm time-penalty-cell" data-sn="${sn}">${fmt2(data.timePenalty)}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm">${fmt2(data.extraPenalty)}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums font-semibold text-[11px] lg:text-sm total-penalty-cell" data-sn="${sn}">${fmt2(data.totalPenalty)}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums font-bold text-[11px] lg:text-sm text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
-                    ${!resOverall ? '—' : (resOverall.total === Infinity ? 'ELIM' : `${fmt2(resOverall.total)} (${resOverall.rank})`)}
-                </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center">
-                    <span class="inline-block px-1.5 py-0.5 rounded-md text-[10px] lg:text-xs font-medium whitespace-nowrap ${badgeClass}">${data.status}</span>
-                </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right whitespace-nowrap">
-                  ${renderFinalizeButtons(eq)}
-                </td>
-            </tr>`;
+    return renderPrecisionResultDesktopRow({
+      data,
+      index,
+      allowanceDisplay,
+      startTime: startTimeFor(sn, precision_startTimes),
+      horseLabelHtml: horseLabelStacked(data.eq),
+      flagHtml: getFlagHtml(data.eq),
+      clubLogoHtml: getClubLogoHtml(data.eq),
+      overallResult: standings.get(sn),
+      statusBadgeClass: badgeClass,
+      finalizeButtonsHtml: renderFinalizeButtons(eq),
+      formatPenalty: fmt2
+    });
   };
 
   let bodyHTML = '';
   if (precision_viewMode === 'startorder') {
     bodyHTML = visible.map((eq, index) => renderRow(eq, index)).join('');
   } else {
-    const groups = prec_groupEquipagesForDisplay(visible, precision_displayConfig);
+    const groups = prec_groupEquipagesForDisplay(visible);
     for (const group of groups) {
-      bodyHTML += `<tr class="bg-gray-200 dark:bg-gray-700 border-t-2 border-b-2 border-gray-300 dark:border-gray-600 sticky top-0 z-10"><td class="px-3 py-2 font-bold text-gray-800 dark:text-gray-200" colspan="15">${group.label}</td></tr>`;
+      bodyHTML += renderPrecisionGroupHeader(group.label);
       bodyHTML += group.items.map((eq, i) => renderRow(eq, i)).join('');
     }
   }
 
-  container.innerHTML = `<table id="precisionTable" class="pr-table pr-alt">${headHTML}<tbody id="precisionBody">${bodyHTML}</tbody></table>`;
+  container.innerHTML = renderPrecisionTable({ headHtml: headHTML, bodyHtml: bodyHTML });
 
   const xbar = document.querySelector('.fixed-xbar');
   if (xbar) xbar.style.display = 'block';
@@ -1246,42 +851,10 @@ function listenLive() {
   const q = query(colRef);
 
   precision_liveUnsubscribe = onSnapshot(q, (snap) => {
-    let needsFullRender = false;
-    snap.docChanges().forEach(ch => {
-      const id = ch.doc.id;
-      const newData = ch.doc.data();
-      const oldData = precision_precisionMap.get(id) || {};
-      if (ch.type === 'removed') {
-        precision_precisionMap.delete(id);
-      } else {
-        newData._receivedLocalAt = Date.now(); // NYTT: För relativ tidssynk
-        precision_precisionMap.set(id, newData);
-      }
-      if (newData.running === true && oldData.running !== true && newData.liveStartEpoch) {
-        ensureTicker();
-        needsFullRender = true;
-      }
-      else if (newData.running === false && oldData.running === true) {
-        needsFullRender = true;
-      }
-      else if (
-        newData.finalized !== oldData.finalized ||
-        newData.totalPenalty !== oldData.totalPenalty ||
-        newData.liveTotalPenalty !== oldData.liveTotalPenalty ||
-        newData.liveObstaclePenalty !== oldData.liveObstaclePenalty ||
-        JSON.stringify(newData.knocks) !== JSON.stringify(oldData.knocks) ||
-        newData.extraPenalty !== oldData.extraPenalty ||
-        newData.comment !== oldData.comment
-      ) {
-        needsFullRender = true;
-      }
-    });
+    const { needsFullRender, anyRunning } = applyPrecisionLiveDocChanges(snap.docChanges(), precision_precisionMap);
 
     if (needsFullRender) renderLiveDebounce();
-
-    let anyRunningNow = false;
-    precision_precisionMap.forEach(d => { if (d?.running === true) anyRunningNow = true; });
-    if (anyRunningNow) ensureTicker(); else stopTicker();
+    if (anyRunning) ensureTicker(); else stopTicker();
 
   }, (error) => {
     console.error("[listenLive] Fel vid lyssning på Firestore:", error);
@@ -1292,18 +865,12 @@ function listenLive() {
 let overallUnsubs = [];
 function listenOverallData(compId) {
   if (!compId || !appId) return;
-  overallUnsubs.forEach(u => u());
+  unsubscribeAll(overallUnsubs);
   overallUnsubs = [];
 
   // 1) Dressyr - Lyssna på alla protokoll för ekipagen
   const unsubD = listenForDressageProtocolsCollectionGroup(compId, precision_equipages, (docs) => {
-    const grouped = new Map();
-    docs.forEach(d => {
-      const sn = String(d.startNumber);
-      if (!grouped.has(sn)) grouped.set(sn, []);
-      grouped.get(sn).push(d);
-    });
-    precision_dressageMap = grouped;
+    precision_dressageMap = groupDressageProtocolsByStartNumber(docs);
     renderLiveDebounce();
   });
 
@@ -1316,13 +883,7 @@ function listenOverallData(compId) {
 
   // 3) Maraton - Lyssna på tider
   const unsubMT = listenForMarathonTimingUpdates(compId, (docs) => {
-    const list = Array.isArray(docs) ? docs : (Array.isArray(docs?.docs) ? docs.docs : Object.values(docs || {}));
-    precision_marathonTimingMap.clear();
-    for (const doc of list) {
-      const data = typeof doc.data === 'function' ? doc.data() : doc;
-      const id = doc.id || data.id || data.startNumber;
-      if (id) precision_marathonTimingMap.set(String(id), data);
-    }
+    precision_marathonTimingMap = normalizeMarathonTimingDocs(docs);
     renderLiveDebounce();
   });
 
@@ -1331,7 +892,7 @@ function listenOverallData(compId) {
 
 let mergeUnsubs = [];
 function listenMergeConfig(compId) {
-  if (Array.isArray(mergeUnsubs)) mergeUnsubs.forEach(u => { try { u(); } catch { } });
+  if (Array.isArray(mergeUnsubs)) unsubscribeAll(mergeUnsubs);
   mergeUnsubs = [];
   if (!compId || !appId) return;
   const keys = ['display', 'tdbMergeGroups', 'classMergeMap', 'tdbMergeMap'];
@@ -1342,8 +903,8 @@ function listenMergeConfig(compId) {
       prec_buildMergeMap(snap.id === 'display' ? { mergeByClassNumber: data?.mergeByClassNumber || {} } : data);
       precision_equipages = precision_equipages.map(e => ({
         ...e,
-        _mergedKey: prec_resolveMergeGrouping(e, null).key,
-        _mergedLabel: prec_resolveMergeGrouping(e, null).label
+        _mergedKey: prec_resolveMergeGrouping(e).key,
+        _mergedLabel: prec_resolveMergeGrouping(e).label
       }));
       render();
     });
@@ -1500,8 +1061,8 @@ export async function load() {
   prec_buildMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || displayCfg);
   precision_equipages = precision_equipages.map(e => ({
     ...e,
-    _mergedKey: prec_resolveMergeGrouping(e, null).key,
-    _mergedLabel: prec_resolveMergeGrouping(e, null).label
+    _mergedKey: prec_resolveMergeGrouping(e).key,
+    _mergedLabel: prec_resolveMergeGrouping(e).label
   }));
 
   try { await ensureClubLogosLoaded(competitionId); } catch (e) { console.warn('Logo load failed:', e); }
@@ -1531,22 +1092,14 @@ export async function load() {
 // Globala funktioner för finalisera (anropas via onclick i HTML)
 window.__finalizePrecision = async (compId, sn) => {
   if (!compId || !sn) return;
-  // FIX: Rätt collection är 'precision', inte 'results_precision'
   const ref = doc(db, `artifacts/${appId}/public/data/competitions/${compId}/precision/${sn}`);
-  // Läs först nuvarande data för att veta vad vi sparar (säkerhet)
-  // Men vi kan också bara sätta finalized: true och förlita oss på calculatePrecisionResult
-  // Enklare: Vi litar på att live-lyssnaren uppdaterar UI
   try {
-    // Hämta nuvarande data klient-side
     const d = precision_precisionMap.get(String(sn)) || {};
-    // Sätt finalized=true
-    await setDoc(ref, { prioritized: true, ...d, finalized: true }, { merge: true });
+    await setDoc(ref, buildPrecisionFinalizePayload(d), { merge: true });
 
-    // Uppdatera cache direkt för snabb respons
     precision_finalizeCache.set(String(sn), true);
     patchPrecisionFinalizeBadge(String(sn), true);
 
-    // Tvinga omräkning av placeringar
     render();
   } catch (err) {
     console.error("Kunde inte finalisera:", err);
@@ -1556,10 +1109,9 @@ window.__finalizePrecision = async (compId, sn) => {
 
 window.__unfinalizePrecision = async (compId, sn) => {
   if (!compId || !sn) return;
-  // FIX: Rätt collection är 'precision'
   const ref = doc(db, `artifacts/${appId}/public/data/competitions/${compId}/precision/${sn}`);
   try {
-    await setDoc(ref, { finalized: false }, { merge: true });
+    await setDoc(ref, buildPrecisionUnfinalizePayload(), { merge: true });
     precision_finalizeCache.set(String(sn), false);
     patchPrecisionFinalizeBadge(String(sn), false);
     render();
@@ -1574,8 +1126,8 @@ export const _testFinalize = window.__finalizePrecision;
 
 export function __unload() {
   if (precision_liveUnsubscribe) { precision_liveUnsubscribe(); precision_liveUnsubscribe = null; }
-  if (Array.isArray(mergeUnsubs)) { mergeUnsubs.forEach(u => { try { u(); } catch { } }); mergeUnsubs = []; }
-  if (Array.isArray(overallUnsubs)) { overallUnsubs.forEach(u => { try { u(); } catch { } }); overallUnsubs = []; }
+  if (Array.isArray(mergeUnsubs)) { unsubscribeAll(mergeUnsubs); mergeUnsubs = []; }
+  if (Array.isArray(overallUnsubs)) { unsubscribeAll(overallUnsubs); overallUnsubs = []; }
   if (typeof window.__activeScrollCleanup === 'function') { window.__activeScrollCleanup(); window.__activeScrollCleanup = null; }
   if (window.__precisionResizeHandler) { try { window.removeEventListener('resize', window.__precisionResizeHandler); } catch { } window.__precisionResizeHandler = null; }
   if (window.__precisionKeydownHandler) { try { document.removeEventListener('keydown', window.__precisionKeydownHandler); } catch { } window.__precisionKeydownHandler = null; }

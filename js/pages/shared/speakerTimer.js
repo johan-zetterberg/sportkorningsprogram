@@ -1,6 +1,7 @@
 import { computeMaxSecondsForClass, calculatePrecisionTimePenalty } from '../../utils/precisionUtils.js';
 import { stageStartTS } from '../../utils/marathonUtils.js';
 import { calculateLiveInjection, getTotalRanking } from './speakerCalculations.js';
+import { formatSpeakerPenalty, getSpeakerPenaltyOrNull } from './speakerFormatUtils.js';
 
 export function updateLiveClocks(context) {
     const {
@@ -37,16 +38,14 @@ export function updateLiveClocks(context) {
                 const liveTimePen = calculatePrecisionTimePenalty(ms, maxSec);
 
                 // Update Time Penalty Display
-                pPenEl.textContent = liveTimePen > 0 ? liveTimePen.toFixed(2) : (d.timePenalty || 0).toFixed(2);
+                pPenEl.textContent = formatSpeakerPenalty(liveTimePen > 0 ? liveTimePen : (Number(d.timePenalty) || 0));
 
                 // Update Total Penalty Display (Obstacle + Time + Extra)
                 const obsPen = d.liveObstaclePenalty || d.obstaclePenalty || 0;
                 const extraPen = d.extraPenalty || 0;
                 const total = obsPen + liveTimePen + extraPen;
 
-                if (!d.eliminated) {
-                    pTotEl.textContent = total.toFixed(2);
-                }
+                pTotEl.textContent = formatSpeakerPenalty(total, { eliminated: d.eliminated });
             }
         }
     }
@@ -65,28 +64,32 @@ export function updateLiveClocks(context) {
         if (myIdx !== -1) {
             const myR = totalRanking[myIdx];
             if (cardRankEl) cardRankEl.textContent = (myIdx + 1);
-            if (cardTotalEl && myR.total != null && myR.total !== Infinity) cardTotalEl.textContent = myR.total.toFixed(2);
+            if (cardTotalEl) cardTotalEl.textContent = formatSpeakerPenalty(myR.total, { eliminated: myR.total === Infinity || myR.isEliminated });
 
             if (cardMarginEl && totalRanking.length > 1) {
                 const others = totalRanking.filter(r => String(r.sn) !== String(eq.startNumber) && !r.isEliminated);
-                if (others.length > 0 && myR.total != null) {
+                const myTotal = getSpeakerPenaltyOrNull(myR.total);
+                if (others.length > 0 && myTotal !== null) {
                     const leader = others[0];
-                    const diff = myR.total - leader.total;
-                    const isLeader = myIdx === 0;
+                    const leaderTotal = getSpeakerPenaltyOrNull(leader.total);
+                    if (leaderTotal !== null) {
+                        const diff = myTotal - leaderTotal;
+                        const isLeader = myIdx === 0;
 
-                    if (isLeader) {
-                        const nextBest = others[0].total; // Wait, if I'm leader, others[0] IS the next best
-                        if (nextBest != null) {
-                            const margin = nextBest - myR.total;
-                            cardMarginEl.textContent = `Segermarginal: ${Math.abs(margin).toFixed(2)}`;
-                            cardMarginEl.className = "text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200";
-                        }
-                    } else {
-                        const leaderTotal = totalRanking[0].total;
-                        if (leaderTotal != null) {
-                            const behind = myR.total - leaderTotal;
-                            cardMarginEl.textContent = `Upp till ledning: +${behind.toFixed(2)}`;
-                            cardMarginEl.className = "text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200";
+                        if (isLeader) {
+                            const nextBest = leaderTotal; // Wait, if I'm leader, others[0] IS the next best
+                            if (nextBest != null) {
+                                const margin = nextBest - myTotal;
+                                cardMarginEl.textContent = `Segermarginal: ${Math.abs(margin).toFixed(2)}`;
+                                cardMarginEl.className = "text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200";
+                            }
+                        } else {
+                            const topTotal = getSpeakerPenaltyOrNull(totalRanking[0].total);
+                            if (topTotal !== null) {
+                                const behind = myTotal - topTotal;
+                                cardMarginEl.textContent = `Upp till ledning: +${behind.toFixed(2)}`;
+                                cardMarginEl.className = "text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200";
+                            }
                         }
                     }
                 }

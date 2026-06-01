@@ -1,14 +1,15 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, query, serverTimestamp, runTransaction, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';;
+import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { getConfig, listenForConfig } from './competitionService.js';
 import { auth } from '../config/firebase-config.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 export function listenForMarathonObstacles(competitionId, callback) {
   const obstaclesRef = getCompCollectionRef(competitionId, 'maratonObstacles');
   return onSnapshot(query(obstaclesRef), (snapshot) => {
     callback(snapshot.docs.map(d => d.data()).sort((a, b) => a.number - b.number));
-  });
+  }, buildSnapshotErrorHandler('listenForMarathonObstacles', callback, []));
 }
 
 export async function saveMarathonObstacle(competitionId, number, data) {
@@ -58,7 +59,7 @@ export function listenForMarathonObstacleResults(competitionId, equipageId, call
   );
   return onSnapshot(query(colRef), (snapshot) => {
     callback(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-  });
+  }, buildSnapshotErrorHandler(`listenForMarathonObstacleResults:${eid}`, callback, []));
 }
 
 export async function getMarathonResults(competitionId) {
@@ -260,7 +261,7 @@ export function listenForMarathonStateCollectionGroup(competitionId, equipagesOr
       }
     });
     callback(Array.from(map.values()));
-  });
+  }, buildSnapshotErrorHandler('listenForMarathonStateCollectionGroup', callback, []));
 }
 
 export function listenForMarathonTimingUpdates(competitionId, callback) {
@@ -272,10 +273,7 @@ export function listenForMarathonTimingUpdates(competitionId, callback) {
     (snap) => {
       try { callback(snap.docs); } catch (e) { console.error("listenForMarathonTimingUpdates callback error:", e); }
     },
-    (err) => {
-      console.error("listenForMarathonTimingUpdates error:", err);
-      try { callback([]); } catch (_) { }
-    }
+    buildSnapshotErrorHandler('listenForMarathonTimingUpdates', callback, [])
   );
 }
 
@@ -285,5 +283,5 @@ export function listenForMaratonCollection(competitionId, callback) {
   return onSnapshot(query(colRef), (snapshot) => {
     const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
     callback(docs);
-  });
+  }, buildSnapshotErrorHandler('listenForMaratonCollection', callback, []));
 }

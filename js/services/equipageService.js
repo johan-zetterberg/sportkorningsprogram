@@ -1,6 +1,7 @@
 import { db, appId } from '../config/firebase-config.js';
 import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';;
+import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 export async function getEquipages(competitionId) {
   const equipagesRef = getCompCollectionRef(competitionId, 'equipages');
@@ -18,7 +19,7 @@ export function listenForEquipages(competitionId, callback) {
   return onSnapshot(query(equipagesRef), (snapshot) => {
     const equipages = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
     callback(equipages);
-  });
+  }, buildSnapshotErrorHandler('listenForEquipages', callback, []));
 }
 
 export async function updateEquipage(competitionId, equipageId, data) {

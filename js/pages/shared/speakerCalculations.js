@@ -4,6 +4,8 @@ import { calculateDressageResult } from '../../services/calculationService.js';
 import { computeTotalPenalty } from '../../utils/sharedUtils.js';
 import { getSpeakerDisciplineResult } from './speakerResults.js';
 import { matchesDisplayClass } from './speakerHelpers.js';
+import { getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
+import { isLiveInjectionEliminated, toFiniteNumberOrNull, toFiniteNumberOrZero } from './speakerCalculationUtils.js';
 
 export function getLeaderToBeat(className, discipline, context) {
     const { allEquipages, precisionStatusMap, precisionConfig, startTimes } = context;
@@ -24,22 +26,16 @@ export function getLeaderToBeat(className, discipline, context) {
         let score = null;
         if (discipline === 'dressyr') {
             const result = getSpeakerDisciplineResult(eq, 'dressyr', context);
-            if (result.percent != null) score = result.percent;
+            if (!result.eliminated && isFiniteSpeakerNumber(result.percent)) score = result.percent;
         } else if (discipline === 'maraton') {
             const result = getSpeakerDisciplineResult(eq, 'maraton', context);
-            if (result.penalty != null) score = result.penalty;
+            if (!result.eliminated) score = getSpeakerPenaltyOrNull(result.penalty);
         } else if (discipline === 'precision') {
             const result = getSpeakerDisciplineResult(eq, 'precision', context);
-            if (result.penalty != null) score = result.penalty;
+            if (!result.eliminated) score = getSpeakerPenaltyOrNull(result.penalty);
         }
 
-        if (score !== null || discipline === 'precision') {
-            if (discipline === 'precision') {
-                const calc = getSpeakerDisciplineResult(eq, 'precision', context).result;
-                score = calc?.totalPenalty ?? null;
-                if (score === null) return;
-            }
-
+        if (score !== null) {
             if (isBetter(best ? best.score : null, score, discipline)) {
                 let time = '';
                 if (discipline === 'precision') {
@@ -66,11 +62,12 @@ export function getDressageLeaderInClass(className, context) {
         const eq = allEquipages.find(e => String(e.startNumber) === sn);
         if (!eq || !matchesDisplayClass(eq, className)) return;
 
-        if (st.finalPenalty != null) {
-            if (st.finalPenalty < bestPen) {
-                bestPen = st.finalPenalty;
+        const finalPenalty = toFiniteNumberOrNull(st.finalPenalty);
+        if (finalPenalty !== null) {
+            if (finalPenalty < bestPen) {
+                bestPen = finalPenalty;
                 bestName = eq.driverName;
-                bestPercent = st.finalPercent;
+                bestPercent = toFiniteNumberOrNull(st.finalPercent);
             }
         }
     });
@@ -99,14 +96,14 @@ export function calculateLiveInjection(eq, context) {
     
     // 1. Precision Live
     if (pSt && (pSt.running || pSt.inProgress)) {
-        let pen = pSt.totalPenalty || 0;
-        let timeMs = pSt.liveTimeMs || pSt.timeMs || 0;
+        let pen = toFiniteNumberOrZero(pSt.totalPenalty);
+        let timeMs = toFiniteNumberOrZero(pSt.liveTimeMs ?? pSt.timeMs);
         if (pSt.running && pSt.liveStartEpoch) {
             const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
-            const nowMs = (pSt.livePausedMs || 0) + (Date.now() - pSt.liveStartEpoch);
+            const nowMs = toFiniteNumberOrZero(pSt.livePausedMs) + (Date.now() - Number(pSt.liveStartEpoch));
             const lp = calculatePrecisionTimePenalty(nowMs, maxSec);
-            const op = pSt.liveObstaclePenalty || pSt.obstaclePenalty || 0;
-            const ep = pSt.extraPenalty || 0;
+            const op = toFiniteNumberOrZero(pSt.liveObstaclePenalty ?? pSt.obstaclePenalty);
+            const ep = toFiniteNumberOrZero(pSt.extraPenalty);
             pen = op + lp + ep;
             timeMs = nowMs;
         }
@@ -114,7 +111,8 @@ export function calculateLiveInjection(eq, context) {
             sn: eq.startNumber, 
             discipline: 'precision', 
             disciplinePenalty: pen,
-            timeMs: timeMs
+            timeMs: timeMs,
+            eliminated: pSt.eliminated === true || pen === Infinity
         };
     }
     
@@ -126,7 +124,8 @@ export function calculateLiveInjection(eq, context) {
         return { 
             sn: eq.startNumber, 
             discipline: 'maraton', 
-            disciplinePenalty: res.totalPenalty 
+            disciplinePenalty: res.totalPenalty,
+            eliminated: res.eliminated || res.totalPenalty === Infinity
         };
     }
     
@@ -136,7 +135,7 @@ export function calculateLiveInjection(eq, context) {
         const liveProtocols = Array.from(liveMap.values());
         const result = calculateDressageResult(eq, liveProtocols, allJudges, mergedPrograms);
         if (result && result.penalty != null) {
-            return { sn: eq.startNumber, discipline: 'dressyr', disciplinePenalty: result.penalty };
+            return { sn: eq.startNumber, discipline: 'dressyr', disciplinePenalty: result.penalty, eliminated: result.eliminated === true };
         }
     }
     
@@ -159,30 +158,33 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         const mResult = getSpeakerDisciplineResult(e, 'maraton', context);
         const pResult = getSpeakerDisciplineResult(e, 'precision', context);
 
-        let dPen = dResult.penalty;
-        let dPct = dResult.percent;
+        let dPen = getSpeakerPenaltyOrNull(dResult.penalty);
+        let dPct = toFiniteNumberOrNull(dResult.percent);
         const elimD = dResult.eliminated;
 
-        let mPen = mResult.penalty;
+        let mPen = getSpeakerPenaltyOrNull(mResult.penalty);
         const isElimM = mResult.eliminated;
 
-        let pPen = pResult.penalty;
-        let pTimeMs = pResult.timeMs || 0;
+        let pPen = getSpeakerPenaltyOrNull(pResult.penalty);
+        let pTimeMs = toFiniteNumberOrZero(pResult.timeMs);
         const isElimP = pResult.eliminated;
 
-        const totalEliminated = elimD || isElimM || isElimP;
+        let totalEliminated = elimD || isElimM || isElimP;
 
         // Apply Injections (for live rider)
         if (currentRiderInfo && String(currentRiderInfo.sn) === sn) {
             if (currentRiderInfo.discipline === 'precision') {
-                pPen = currentRiderInfo.disciplinePenalty;
-                pTimeMs = currentRiderInfo.timeMs || pTimeMs;
+                pPen = getSpeakerPenaltyOrNull(currentRiderInfo.disciplinePenalty);
+                pTimeMs = toFiniteNumberOrZero(currentRiderInfo.timeMs) || pTimeMs;
             } else if (currentRiderInfo.discipline === 'maraton') {
-                mPen = currentRiderInfo.disciplinePenalty;
+                mPen = getSpeakerPenaltyOrNull(currentRiderInfo.disciplinePenalty);
             } else if (currentRiderInfo.discipline === 'dressyr') {
-                dPen = currentRiderInfo.disciplinePenalty;
+                dPen = getSpeakerPenaltyOrNull(currentRiderInfo.disciplinePenalty);
             }
+            totalEliminated = totalEliminated || isLiveInjectionEliminated(currentRiderInfo);
         }
+
+        const totalPenalty = totalEliminated ? null : computeTotalPenalty(dPen, mPen, pPen);
 
         results.push({
             startNumber: e.startNumber,
@@ -192,8 +194,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             // Compatibility for older sidebar calls
             sn: e.startNumber,
             name: e.driverName,
-            total: totalEliminated ? Infinity : computeTotalPenalty(dPen, mPen, pPen),
-            totalPenalty: totalEliminated ? null : computeTotalPenalty(dPen, mPen, pPen),
+            total: totalEliminated ? Infinity : totalPenalty,
+            totalPenalty: totalPenalty,
             tieBreakerTime: pTimeMs,
             isEliminated: totalEliminated,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD },

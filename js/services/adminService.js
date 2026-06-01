@@ -1,12 +1,13 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDocs, setDoc, onSnapshot, query, deleteDoc, getDoc, updateDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';;
+import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 export function listenForJudges(competitionId, callback) {
   const judgesRef = getCompCollectionRef(competitionId, 'judges');
   return onSnapshot(query(judgesRef), (snapshot) => {
     callback(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-  });
+  }, buildSnapshotErrorHandler('listenForJudges', callback, []));
 }
 
 export async function saveJudge(competitionId, judgeId, data) {
@@ -28,7 +29,7 @@ export function listenForOfficials(competitionId, callback) {
   return onSnapshot(query(officialsRef), (snapshot) => {
     const officials = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
     callback(officials);
-  });
+  }, buildSnapshotErrorHandler('listenForOfficials', callback, []));
 }
 
 export async function getOfficials(competitionId) {
@@ -121,7 +122,7 @@ export function listenForCompetitionAdmins(competitionId, callback) {
   return onSnapshot(ref, (snap) => {
     const list = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
     callback(list);
-  });
+  }, buildSnapshotErrorHandler('listenForCompetitionAdmins', callback, []));
 }
 
 export async function deleteCompetitionAdmin(competitionId, uid) {

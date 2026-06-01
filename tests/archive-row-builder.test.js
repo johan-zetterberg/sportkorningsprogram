@@ -111,6 +111,9 @@ test('buildArchiveRowsFromData builds ranked rows from shared discipline data', 
   assert.equal(row21.className, 'KlassB');
   assert.equal(row21.plac, '');
   assert.equal(row21.isEliminated, true);
+  assert.equal(row21.dressage.eliminated, true);
+  assert.equal(row21.marathon.eliminated, true);
+  assert.equal(row21.precision.eliminated, false);
   assert.equal(row21.totalPenalty, null);
 });
 
@@ -176,4 +179,52 @@ test('buildArchiveRowsFromData keeps incomplete rows after ranked rows and outsi
   assert.equal(row32.dressage.penalty, 4);
   assert.equal(row32.marathon.totalPenalty, 5);
   assert.equal(row32.precision.pen, null);
+});
+
+test('buildArchiveRowsFromData preserves precision elimination on discipline row', () => {
+  const equipages = [
+    { startNumber: 40, className: 'KlassA', category: 'horse', errorPoints: 0, testKey: 'LA' },
+    { startNumber: 41, className: 'KlassA', category: 'horse', errorPoints: 0, testKey: 'LA' }
+  ];
+
+  const dressageProtocols = new Map([
+    ['40', [{ judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] }]],
+    ['41', [{ judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] }]]
+  ]);
+
+  const marathonTimingMap = new Map([
+    ['40', { A: { durationMs: 1200000 }, transport: { durationMs: 300000 }, B: { durationMs: 1200000 } }],
+    ['41', { A: { durationMs: 1200000 }, transport: { durationMs: 300000 }, B: { durationMs: 1200000 } }]
+  ]);
+
+  const marathonObstacleRows = [
+    { equipageId: '40', obstacleNumber: 1, timeSeconds: 20, knockdownPenalty: 0, otherPenalty: 0 },
+    { equipageId: '41', obstacleNumber: 1, timeSeconds: 20, knockdownPenalty: 0, otherPenalty: 0 }
+  ];
+
+  const precisionRows = [
+    { startNumber: 40, finalized: true, timeMs: 100000, knocks: [] },
+    { startNumber: 41, finalized: true, eliminated: true, timeMs: 100000, knocks: [] }
+  ];
+
+  const rows = buildArchiveRowsFromData({
+    equipages,
+    dressageProtocols,
+    marathonTimingMap,
+    marathonObstacleRows,
+    precisionRows,
+    marathonConfig,
+    precisionConfig,
+    allPrograms
+  });
+
+  const row40 = rows.find(row => row.startNumber === 40);
+  const row41 = rows.find(row => row.startNumber === 41);
+
+  assert.equal(row40.isEliminated, false);
+  assert.equal(row40.precision.eliminated, false);
+  assert.equal(row41.isEliminated, true);
+  assert.equal(row41.precision.eliminated, true);
+  assert.equal(row41.precision.pen, 0);
+  assert.equal(row41.totalPenalty, null);
 });

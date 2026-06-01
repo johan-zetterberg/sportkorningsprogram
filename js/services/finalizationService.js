@@ -1,4 +1,4 @@
-import { getCompDocRef, trackWrite } from './firestoreService.js';;
+import { getCompDocRef, trackWrite } from './firestoreService.js';
 import { doc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';

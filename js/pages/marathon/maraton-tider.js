@@ -7,6 +7,22 @@ import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../..
 import { ensureClubLogosLoaded, getClubLogoUrl, getClubLogoHtml } from '../../services/logosService.js';
 import { fetchFlagDataUrl, getFlagHtml, normalizeCountryCode } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { getCompetitionLogoUrl } from '../../utils/competitionLogo.js';
+import { resolvePdfCompetition } from '../../pdf/pdfCompetitionUtils.js';
+import {
+  buildStageTimingRows,
+  calculateTransportTiming,
+  formatMaratonDuration,
+  parseExtraDistancesInput,
+  resolveWarmupMinutes
+} from './maratonTiderUtils.js';
+import {
+  buildMarathonPdfFileName,
+  buildMarathonPdfSections,
+  drawMarathonPdfHeader,
+  getMarathonPdfBaseStyles,
+  renderMarathonPdfPages
+} from './maratonTiderPdfUtils.js';
 import { 
   setMarathonConfig, 
   detectTRCategoryFromEquipage, 
@@ -20,19 +36,7 @@ import {
 // === ETA helpers ===
 let MARATHON_CONFIG = {};
 let CURRENT_EQUIPAGE = null;
-
-function horseLabel(eq) {
-  if (!eq) return '—';
-  // Stöd lite olika fält – räcker gott för utskriften
-  const candidates = [];
-  const take = v => { if (v && String(v).trim()) candidates.push(String(v).trim()); };
-  if (Array.isArray(eq.horses)) {
-    eq.horses.forEach(h => take(h?.name || h?.horseName || h?.hästnamn));
-  }
-  take(eq.horseName); take(eq.hästnamn); take(eq.hastnamn);
-  const s = candidates.join(' & ');
-  return s || '—';
-}
+let loadToken = 0;
 
 /**
  * Hämtar hästnamn för ett ekipage för ett specifikt moment.
@@ -98,32 +102,6 @@ function getClassDistancesFromConfig(className) {
   };
 }
 
-// TR-tempo (m/min) för A/B – fyll på vid behov
-const TR_TEMPO = {
-  // exempel (justera efter TR V 2025):
-  ponyCD: { A: 14 * 60 / 100, B: 14 * 60 / 100 },  // ersätt med korrekta tal
-  horse: { A: 14 * 60 / 100, B: 14 * 60 / 100 },
-};
-function tempoFor(stage, className, categoryKey, cfg) {
-  if (stage === 'T') return cfg?.T?.tempo_mpm ?? null;
-  // A/B: försök hämta från TR-tabell via categoryKey (ponyCD, horse, osv)
-  const tr = TR_TEMPO[categoryKey]?.[stage];
-  return Number.isFinite(tr) ? tr : null;
-}
-function idealMillis(stage, className, categoryKey) {
-  const cfg = getClassDistancesFromConfig(className);
-  if (!cfg) return null;
-  const dist = (stage === 'A' ? cfg.A?.distance : stage === 'B' ? cfg.B?.distance : cfg.T?.distance) || 0;
-  const tempo = tempoFor(stage, className, categoryKey, cfg); // m/min
-  if (!Number.isFinite(dist) || !Number.isFinite(tempo) || tempo <= 0) return null;
-  const minutes = dist / tempo;
-  return Math.round(minutes * 60 * 1000);
-}
-function fmtClock(ts) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
 // TRV_2025_MARATON_TEMPOS_KMH is now imported as DEFAULT_TRV_TEMPOS_KMH from marathonUtils.js
 const TRV_2025_MARATON_TEMPOS_KMH = DEFAULT_TRV_TEMPOS_KMH;
 
@@ -149,8 +127,6 @@ function resolveTempoClassKey(table, className) {
   if (table?.[className]) return className;
   return normalizeClassKey(className) || className;
 }
-
-const kmhToMmin = (kmh) => (kmh * 1000) / 60;
 
 function injectPrintStyles() {
   const styleId = 'maraton-print-styles';
@@ -209,7 +185,7 @@ async function fetchImageDataUrl(url) {
   } catch { return null; }
 }
 
-async function setupPage(competitionId) {
+async function setupPage(competitionId, currentLoadToken) {
   CURRENT_EQUIPAGE = null;
   const root = document.getElementById('page-maraton-tider');
   const searchContainer = document.getElementById('maratonTiderEquipageSearch');
@@ -220,10 +196,12 @@ async function setupPage(competitionId) {
     (await getConfig(competitionId, 'maratonConfig'))
     || (await getConfig(competitionId, 'marathonConfig'))
     || {};
+  if (currentLoadToken !== loadToken) return;
   setMarathonConfig(MARATHON_CONFIG);
   let equipageSearchDropdown;
   try {
     const rawEquipages = await getEquipages(competitionId);
+    if (currentLoadToken !== loadToken) return;
     allEquipages = ensureMergeDecorations(rawEquipages);
     const sortedEquipages = allEquipages.sort((a, b) => a.startNumber - b.startNumber);
     equipageSearchDropdown = createSearchableDropdown(searchContainer, sortedEquipages, onEquipageSelectionChange);
@@ -393,22 +371,13 @@ async function setupPage(competitionId) {
       // merged classes compete together.
       const configClassName = isAutoMode ? (equipage.className || className) : className;
       const classDataFromConfig = getClassSettings(configClassName) || {};
-      const formatMaratonTid = (ms) => {
-        if (!isFinite(ms) || ms < 0) return "-";
-        const totalSeconds = Math.round(ms / 1000);
-        const m = Math.floor(totalSeconds / 60);
-        const s = totalSeconds % 60;
-        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-      };
+      const formatMaratonTid = formatMaratonDuration;
 
       const cfg = getClassDistancesFromConfig(configClassName);
       transportTempoMpm = (typeof transportTempoMpm === 'number')
         ? transportTempoMpm
         : (cfg?.T?.tempo_mpm ?? null);
-      const getExtra = (id) => {
-        const val = document.getElementById(id)?.value || '';
-        return val.split(',').map(s => parseInt(s.trim())).filter(n => Number.isFinite(n) && n > 0);
-      };
+      const getExtra = (id) => parseExtraDistancesInput(document.getElementById(id)?.value || '');
       const extraDistances = {
         A: getExtra('maratonTiderExtraDistancesA'),
         T: getExtra('maratonTiderExtraDistancesT'),
@@ -457,8 +426,10 @@ function generateResultHtml(equipage, distances, args, type) {
   const { classKey, categoryKey, classDataFromConfig, transportTempoMpm, formatMaratonTid, overrideTemposKmH, includeWarmup, manualWarmupMin } = args;
   const { distA, distT, distB } = distances;
   const { className } = equipage;
-  const isBarnLB = /barn/i.test(className) && /l[aA ]tt\s*b/i.test(className);
-  const warmupMinutes = Number.isFinite(manualWarmupMin) ? manualWarmupMin : (isBarnLB ? 10 : 20);
+  const startNumber = equipage?.startNumber || equipage?.no || '';
+  const driverName = equipage?.driverName || equipage?.driver || '';
+  const warmupMinutes = resolveWarmupMinutes(className, manualWarmupMin);
+  const tableClasses = getMarathonTimingTableClasses(type);
 
   const generateTable = (distM, stage) => {
     if (!(distM > 0) || !classKey) return '';
@@ -471,46 +442,13 @@ function generateResultHtml(equipage, distances, args, type) {
     if (!tempoKmh) return '';
 
     {
-      const tempoMpmNew = kmhToMmin(tempoKmh);
       const windowMinutesNew = (stage === 'A' ? classDataFromConfig.windowA : classDataFromConfig.windowB) ?? (stage === 'A' ? 2 : 3);
-      const windowMsNew = windowMinutesNew * 60000;
-      const totalAllowedMsNew = (distM / tempoMpmNew) * 60000;
-      const totalMinMsNew = Math.max(0, totalAllowedMsNew - windowMsNew);
-      const totalAvgMsNew = (totalMinMsNew + totalAllowedMsNew) / 2;
-      const totalTimeLimitMsNew = totalAllowedMsNew * (stage === 'A' ? 1.2 : 2.0);
-      const checkpointsNew = [];
-      const kmCountNew = Math.floor(distM / 1000);
-      for (let i = 1; i <= kmCountNew; i++) checkpointsNew.push(i * 1000);
-      if (distM > 300 && !checkpointsNew.includes(distM - 300)) checkpointsNew.push(distM - 300);
-      if (args.extraDistances && args.extraDistances[stage]) {
-        args.extraDistances[stage].forEach(d => {
-          if (d > 0 && d < distM && !checkpointsNew.includes(d)) checkpointsNew.push(d);
-        });
-      }
-      checkpointsNew.sort((a, b) => a - b);
+      const timing = buildStageTimingRows(distM, tempoKmh, windowMinutesNew, stage, args.extraDistances?.[stage] || []);
+      if (!timing) return '';
+      const totalMinMsNew = timing.minMs;
+      const totalAllowedMsNew = timing.allowedMs;
+      const totalTimeLimitMsNew = timing.timeLimitMs;
 
-      const rowsNew = checkpointsNew.map(cp => {
-        const allowedAtCp = (cp / tempoMpmNew) * 60000;
-        const minAtCp = (cp / distM) * totalMinMsNew;
-        const avgAtCp = (minAtCp + allowedAtCp) / 2;
-        let label = cp % 1000 === 0 ? `${cp / 1000} km` : `${cp} m`;
-        if (cp === (distM - 300)) label = t('300m_remaining') + ` (${cp} m)`;
-        return { label, min: minAtCp, avg: avgAtCp, allowed: allowedAtCp };
-      });
-      rowsNew.push({
-        label: `${t('finish')} (${distM} m)`,
-        min: totalMinMsNew,
-        avg: totalAvgMsNew,
-        allowed: totalAllowedMsNew,
-        isFinal: true
-      });
-
-      const headerClassNew = type === 'screen' ? 'font-semibold dark:text-gray-100' : '';
-      const tableClassNew = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '';
-      const theadClassNew = type === 'screen' ? 'bg-gray-100 dark:bg-gray-700' : '';
-      const thClassNew = type === 'screen' ? 'p-2 dark:text-gray-200' : '';
-      const tdClassNew = type === 'screen' ? 'p-2 border-b dark:border-gray-600' : '';
-      const containerClassNew = type === 'screen' ? 'bg-white dark:bg-gray-800 p-3 rounded shadow dark:border dark:border-gray-700' : 'p-3';
       const notesBlockNew = (type === 'print')
         ? `<div class="notes-title">${t('notes_header').replace('{stage}', stage === 'T' ? t('transport') : t('stage') + ' ' + stage)}</div><div class="notes-block"></div>`
         : '';
@@ -521,22 +459,27 @@ function generateResultHtml(equipage, distances, args, type) {
       const beforeStartRowNew = type === 'print'
         ? `<tr><td>${t('before_start')}</td><td colspan="4"><div class="comment-box"></div></td></tr>`
         : '';
-      const bodyNew = rowsNew.map(row => {
+      const bodyNew = timing.rows.map(row => {
         const rowClass = row.isFinal && type === 'screen' ? ' class="font-bold bg-gray-50 dark:bg-gray-700/50"' : '';
+        const label = row.isFinal
+          ? `${t('finish')} (${distM} m)`
+          : row.isFinal300
+            ? `${t('300m_remaining')} (${row.distance} m)`
+            : row.distance % 1000 === 0 ? `${row.distance / 1000} km` : `${row.distance} m`;
         const commentCell = type === 'print' ? '<td><div class="comment-box"></div></td>' : '';
-        return `<tr${rowClass}><td class="${tdClassNew}">${row.label}</td><td class="${tdClassNew}">${formatMaratonTid(row.min)}</td><td class="${tdClassNew}">${formatMaratonTid(row.avg)}</td><td class="${tdClassNew} ${type === 'screen' ? 'text-right' : ''}">${formatMaratonTid(row.allowed)}</td>${commentCell}</tr>${printBlankRowsNew}`;
+        return `<tr${rowClass}><td class="${tableClasses.td}">${label}</td><td class="${tableClasses.td}">${formatMaratonTid(row.minMs)}</td><td class="${tableClasses.td}">${formatMaratonTid(row.avgMs)}</td><td class="${tableClasses.td} ${type === 'screen' ? 'text-right' : ''}">${formatMaratonTid(row.allowedMs)}</td>${commentCell}</tr>${printBlankRowsNew}`;
       }).join('');
 
-      return `<div class="${containerClassNew}">
-                     <h3 class="${headerClassNew}">${t('stage_header_format').replace('{stage}', stage).replace('{dist}', distM).replace('{tempo}', tempoKmh)}</h3>
+      return `<div class="${tableClasses.container}">
+                     <h3 class="${tableClasses.header}">${t('stage_header_format').replace('{stage}', stage).replace('{dist}', distM).replace('{tempo}', tempoKmh)}</h3>
                     ${summaryLineNew}
                     ${notesBlockNew}
-                     <table class="${tableClassNew}">
-                        <thead class="${theadClassNew}"><tr>
-                            <th class="${thClassNew}">${t('checkpoint')}</th>
-                            <th class="${thClassNew}">Minimitid</th>
-                            <th class="${thClassNew}">Riktid</th>
-                            <th class="${thClassNew} ${type === 'screen' ? 'text-right' : ''}">Tillåten tid</th>
+                     <table class="${tableClasses.table}">
+                        <thead class="${tableClasses.thead}"><tr>
+                            <th class="${tableClasses.th}">${t('checkpoint')}</th>
+                            <th class="${tableClasses.th}">Minimitid</th>
+                            <th class="${tableClasses.th}">Riktid</th>
+                            <th class="${tableClasses.th} ${type === 'screen' ? 'text-right' : ''}">Tillåten tid</th>
                             ${type === 'print' ? `<th class="comment-header">${t('comment')}</th>` : ''}
                         </tr></thead>
                         <tbody>${beforeStartRowNew}${bodyNew}</tbody>
@@ -544,81 +487,6 @@ function generateResultHtml(equipage, distances, args, type) {
                 </div>`;
     }
 
-    const tempoMpm = kmhToMmin(tempoKmh);
-    const windowMinutes = (stage === 'A' ? classDataFromConfig.windowA : classDataFromConfig.windowB) ?? (stage === 'A' ? 2 : 3);
-    const windowMs = windowMinutes * 60000;
-    const addBlankRows = () => {
-      return type === 'print'
-        ? `<tr class="print-blank"><td colspan="5"><div class="comment-box"></div></td></tr>
-        <tr class="print-blank"><td colspan="5"><div class="comment-box"></div></td></tr>`
-        : '';
-    };
-
-    let tableContent = '';
-    if (type === 'print') {
-      tableContent += `<tr><td>${t('before_start')}</td><td colspan="4"><div class="comment-box"></div></td></tr>`;
-    }
-
-    const totalAllowedMs = (distM / tempoMpm) * 60000;
-    const totalMinMs = Math.max(0, totalAllowedMs - windowMs);
-    const totalAvgMs = (totalMinMs + totalAllowedMs) / 2;
-    const timeLimitFactor = stage === 'A' ? 1.2 : 2.0;
-    const totalTimeLimitMs = totalAllowedMs * timeLimitFactor;
-    const idealHeader = stage === 'A' || stage === 'B' ? 'Tillåten tid' : (t('ideal_time') || 'Idealtid');
-    const windowHeader = stage === 'A' || stage === 'B' ? 'Tidsfönster (Min - Tillåten)' : t('time_window');
-
-    const checkpoints = [];
-    const kmCount = Math.floor(distM / 1000);
-    for (let i = 1; i <= kmCount; i++) {
-      checkpoints.push(i * 1000);
-    }
-    if (distM > 300 && !checkpoints.includes(distM - 300)) {
-      checkpoints.push(distM - 300);
-    }
-    if (args.extraDistances && args.extraDistances[stage]) {
-      args.extraDistances[stage].forEach(d => {
-        if (d > 0 && d < distM && !checkpoints.includes(d)) {
-          checkpoints.push(d);
-        }
-      });
-    }
-    checkpoints.sort((a, b) => a - b);
-
-    checkpoints.forEach(cp => {
-      const timeAtCp = (cp / tempoMpm) * 60000;
-      const minTimeAtCp = (cp / distM) * totalMinMs;
-      const timeText = `${formatMaratonTid(minTimeAtCp)} – ${formatMaratonTid(timeAtCp)}`;
-      let label = cp % 1000 === 0 ? `${cp / 1000} km` : `${cp} m`;
-      if (cp === (distM - 300)) label = t('300m_remaining') + ` (${cp} m)`;
-      tableContent += `<tr><td>${label}</td><td>${formatMaratonTid(timeAtCp)}</td><td class="${type === 'screen' ? 'text-right' : ''}">${timeText}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
-    });
-
-    const timeTextFinal = `${formatMaratonTid(totalMinMs)} – ${formatMaratonTid(totalAllowedMs)}`;
-    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM} m)</td><td>${formatMaratonTid(totalAllowedMs)}</td><td class="${type === 'screen' ? 'text-right' : ''}">${timeTextFinal}</td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
-    const headerClass = type === 'screen' ? 'font-semibold dark:text-gray-100' : '';
-    const tableClass = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '';
-    const theadClass = type === 'screen' ? 'bg-gray-100 dark:bg-gray-700' : '';
-    const thClass = type === 'screen' ? 'p-2 dark:text-gray-200' : '';
-    const tdClass = type === 'screen' ? 'p-2 border-b dark:border-gray-600' : '';
-    const containerClass = type === 'screen' ? 'bg-white dark:bg-gray-800 p-3 rounded shadow dark:border dark:border-gray-700' : 'p-3';
-
-    // Extra ”block” för fria anteckningar i utskriften (mellan tabellsektionerna)
-    const notesBlock = (type === 'print')
-      ? `<div class="notes-title">${t('notes_header').replace('{stage}', stage === 'T' ? t('transport') : t('stage') + ' ' + stage)}</div><div class="notes-block"></div>`
-      : '';
-    return `<div class="${containerClass}">
-                     <h3 class="${headerClass}">${t('stage_header_format').replace('{stage}', stage).replace('{dist}', distM).replace('{tempo}', tempoKmh)}</h3>
-                    ${notesBlock}
-                     <table class="${tableClass}">
-                        <thead class="${theadClass}"><tr>
-                            <th class="${thClass}">${t('checkpoint')}</th>
-                            <th class="${thClass}">${idealHeader}</th>
-                            <th class="${thClass} ${type === 'screen' ? 'text-right' : ''}">${windowHeader}</th>
-                            ${type === 'print' ? `<th class="comment-header">${t('comment')}</th>` : ''}
-                        </tr></thead>
-                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tdClass}">`)}</tbody>
-                    </table>
-                </div>`;
   };
 
   const generateTransportTable = (distM) => {
@@ -640,49 +508,29 @@ function generateResultHtml(equipage, distances, args, type) {
     let tableContent = '';
     if (type === 'print') tableContent += `<tr><td>${t('before_start')}</td><td colspan="2"><div class="comment-box"></div></td></tr>`;
 
-    const checkpoints = [];
-    const kmCount = Math.floor(distM / 1000);
-    for (let i = 1; i <= kmCount; i++) {
-      checkpoints.push(i * 1000);
-    }
-    if (args.extraDistances && args.extraDistances['T']) {
-      args.extraDistances['T'].forEach(d => {
-        if (d > 0 && d < distM && !checkpoints.includes(d)) {
-          checkpoints.push(d);
-        }
-      });
-    }
-    checkpoints.sort((a, b) => a - b);
+    const timing = calculateTransportTiming(distM, tempoMpm, args.extraDistances?.T || []);
+    if (!timing) return '';
 
-    checkpoints.forEach(cp => {
-      const timeAtCp = (cp / tempoMpm) * 60000;
-      let label = cp % 1000 === 0 ? `${cp / 1000} km` : `${cp} m`;
-      tableContent += `<tr><td>${label}</td><td>${formatMaratonTid(timeAtCp)}</td><td class="${type === 'screen' ? 'text-right' : ''}"></td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
+    timing.checkpoints.forEach(row => {
+      const label = row.distance % 1000 === 0 ? `${row.distance / 1000} km` : `${row.distance} m`;
+      tableContent += `<tr><td>${label}</td><td>${formatMaratonTid(row.timeMs)}</td><td class="${type === 'screen' ? 'text-right' : ''}"></td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>` + addBlankRows();
     });
-    const totalAllowedMs = (distM / tempoMpm) * 60000;
-    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM}m)</td><td>${formatMaratonTid(totalAllowedMs)}</td><td class="${type === 'screen' ? 'text-right' : ''}"></td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
-
-    const headerClass = type === 'screen' ? 'font-semibold dark:text-gray-100' : '';
-    const tableClass = type === 'screen' ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '';
-    const theadClass = type === 'screen' ? 'bg-gray-100 dark:bg-gray-700' : '';
-    const thClass = type === 'screen' ? 'p-2 dark:text-gray-200' : '';
-    const tdClass = type === 'screen' ? 'p-2 border-b dark:border-gray-600' : '';
-    const containerClass = type === 'screen' ? 'bg-white dark:bg-gray-800 p-3 rounded shadow dark:border dark:border-gray-700' : 'p-3';
+    tableContent += `<tr class="${type === 'screen' ? 'font-bold bg-gray-50 dark:bg-gray-700/50' : ''}"><td>${t('finish')} (${distM}m)</td><td>${formatMaratonTid(timing.allowedMs)}</td><td class="${type === 'screen' ? 'text-right' : ''}"></td>${type === 'print' ? '<td><div class="comment-box"></div></td>' : ''}</tr>`;
 
     const notesBlock = (type === 'print')
       ? `<div class="notes-title">${t('notes_header').replace('{stage}', t('transport'))}</div><div class="notes-block"></div>`
       : '';
-    return `<div class="${containerClass}">
-                     <h3 class="${headerClass}">${t('transport_header_format').replace('{dist}', distM).replace('{tempo}', tempoMpm)}</h3>
+    return `<div class="${tableClasses.container}">
+                     <h3 class="${tableClasses.header}">${t('transport_header_format').replace('{dist}', distM).replace('{tempo}', tempoMpm)}</h3>
                     ${notesBlock}
-                     <table class="${tableClass}">
-                        <thead class="${theadClass}"><tr>
-                            <th class="${thClass}">${t('checkpoint')}</th>
-                            <th class="${thClass}">${t('max_time') || 'Idealtid (Max)'}</th>
-                            <th class="${thClass} ${type === 'screen' ? 'text-right' : ''}"></th>
+                     <table class="${tableClasses.table}">
+                        <thead class="${tableClasses.thead}"><tr>
+                            <th class="${tableClasses.th}">${t('checkpoint')}</th>
+                            <th class="${tableClasses.th}">${t('max_time') || 'Idealtid (Max)'}</th>
+                            <th class="${tableClasses.th} ${type === 'screen' ? 'text-right' : ''}"></th>
                             ${type === 'print' ? `<th class="comment-header">${t('comment')}</th>` : ''}
                         </tr></thead>
-                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tdClass}">`)}</tbody>
+                        <tbody>${tableContent.replaceAll('<td>', `<td class="${tableClasses.td}">`)}</tbody>
                     </table>
                 </div>`;
   };
@@ -727,6 +575,18 @@ function generateResultHtml(equipage, distances, args, type) {
                 ${generateTable(distB, 'B')}
             </div>
             ${type === 'screen' ? '</div>' : ''}`;
+}
+
+function getMarathonTimingTableClasses(type) {
+  const isScreen = type === 'screen';
+  return {
+    container: isScreen ? 'bg-white dark:bg-gray-800 p-3 rounded shadow dark:border dark:border-gray-700' : 'p-3',
+    header: isScreen ? 'font-semibold dark:text-gray-100' : '',
+    table: isScreen ? 'w-full mt-2 text-sm text-left text-gray-800 dark:text-gray-200 border-collapse' : '',
+    thead: isScreen ? 'bg-gray-100 dark:bg-gray-700' : '',
+    th: isScreen ? 'p-2 dark:text-gray-200' : '',
+    td: isScreen ? 'p-2 border-b dark:border-gray-600' : ''
+  };
 }
 
 function openHoldtimesPrintView({ equipage, className, categoryKey, distA, distT, distB, tablesHtml }) {
@@ -829,10 +689,6 @@ async function generateMarathonPdfFromCurrent() {
   if (!equipage) { showAlert(t('select_equipage_or_manual'), false); return; }
   const driverName = equipage?.driverName || equipage?.driver || '';
   const startNumber = equipage?.startNumber || equipage?.no || '';
-  if (!equipage) {
-    showAlert(t('select_equipage_calculate_first'), false);
-    return;
-  }
   const displayClassName = equipage?._mergedLabel || equipage?.mergedTestLabel || equipage?.className || equipage?.klass || '';
   const className = equipage?.className || displayClassName;
   const clubName = equipage?.clubName || equipage?.club || '';
@@ -861,7 +717,9 @@ async function generateMarathonPdfFromCurrent() {
 
   const tempoTm = Number.isFinite(fallbackTtempo) ? fallbackTtempo : (cfg.T?.tempo_mpm ?? null);
   // 3) Hämta loggor/flagga (SRF + klubb + flagga)
-  const srfLogo = await fetchImageDataUrl('/assets/logos/SRF.png');
+  const compForLogo = await resolvePdfCompetition(getGlobalState('currentCompetition') || {});
+  const competitionLogo = await fetchImageDataUrl(getCompetitionLogoUrl(compForLogo));
+  const srfLogo = competitionLogo || await fetchImageDataUrl('/assets/logos/SRF.png');
   let clubImg = null, flagImg = null;
   try {
     if (startNumber) {
@@ -875,19 +733,7 @@ async function generateMarathonPdfFromCurrent() {
 
   // 4) Hämta tabellerna vi redan renderat (A/Transport/B)
   //    Vi letar efter H3-rubrikerna och tar första <table> efter varje rubrik.
-  const sections = Array.from(host.children).filter(el => el && el.querySelector)
-    .map(node => {
-      const title = node.querySelector('h3')?.textContent?.trim() || '';
-      const tbl = node.querySelector('table');
-      return { title, table: tbl };
-    })
-    .filter(s => s.table);
-
-  // robust stage-taggar
-  const findSection = (key) => sections.find(s => new RegExp(`\\b${key}\\b`, 'i').test(s.title));
-  const secA = findSection('Sträcka A');
-  const secT = findSection('Transport');
-  const secB = findSection('Sträcka B');
+  const sections = buildMarathonPdfSections(host);
 
   // 5) Initiera jsPDF
   const jsPDFCtor = (window?.jspdf && window.jspdf.jsPDF) || window.jsPDF;
@@ -900,128 +746,48 @@ async function generateMarathonPdfFromCurrent() {
   const mx = 40; // vänster/höger marginal
 
   // Standardstilar
-  const base = {
-    font: 'helvetica',
-    headFontSize: 12,
-    bodyFontSize: 11,     // större text
-    timeFontSize: 12,     // extra stor för tider
-    rowMinH: 28,          // minst dubbelt radavstånd jämfört med tidigare
-    cellPad: 4
-  };
+  const base = getMarathonPdfBaseStyles();
 
   // Header-ritare enligt din önskade layout:
   // SRF-logga uppe till höger, till vänster: Namn (störst),
   // under det: flagga + klubb-logga, och därefter klassrad.
-  function drawHeader(stageLabel, distMeters, tempoLabel) {
-    pdf.setFont(base.font, 'bold').setFontSize(18);
-    pdf.text(`${driverName ? `#${startNumber} ${driverName}` : t('driver')}`, mx, 60);
+  const drawHeader = (stageLabel, distMeters, tempoLabel) => drawMarathonPdfHeader(pdf, {
+    base,
+    marginX: mx,
+    pageWidth: PAGE_W,
+    stageLabel,
+    distMeters,
+    tempoLabel,
+    driverName,
+    startNumber,
+    displayClassName,
+    className,
+    clubName,
+    flagImg,
+    clubImg,
+    logoImg: srfLogo,
+    title: t('marathon_holdtimes_title'),
+    driverFallback: t('driver')
+  });
 
-    // Flagga + klubb under namnet
-    let x = mx, y = 80;
-    if (flagImg?.dataUrl) {
-      const fh = 16, fw = fh * (flagImg.w / flagImg.h);
-      pdf.addImage(flagImg.dataUrl, 'PNG', x, y - fh + 2, fw, fh);
-      x += fw + 8;
-    }
-    if (clubImg?.dataUrl) {
-      const ch = 16, cw = ch * ((clubImg.w || ch) / (clubImg.h || ch));
-      pdf.addImage(clubImg.dataUrl, 'PNG', x, y - ch + 2, cw, ch);
-      x += cw + 8;
-    }
-
-    pdf.setFont(base.font, 'normal').setFontSize(11);
-    pdf.text(`${displayClassName || className || ''}${clubName ? ` • ${clubName}` : ''}`, mx, y + 16);
-
-    // SRF-logga uppe till höger
-    if (srfLogo?.dataUrl) {
-      const maxH = 70, ratio = srfLogo.w / srfLogo.h || 1;
-      const h = maxH, w = h * ratio;
-      pdf.addImage(srfLogo.dataUrl, 'PNG', PAGE_W - mx - w, 32, w, h);
-    }
-
-    // Titelbadge (vilken sida)
-    pdf.setFont(base.font, 'bold').setFontSize(12);
-    pdf.text(`${t('marathon_holdtimes_title')} (${stageLabel})`, mx, y + 36);
-    // Liten rad med tempo + distans för sidan
-    const info = []
-    if (Number.isFinite(distMeters) && distMeters > 0) info.push(`${(distMeters).toLocaleString('sv-SE')} m`);
-    if (tempoLabel) info.push(tempoLabel);
-    if (info.length) {
-      pdf.setFont(base.font, 'normal').setFontSize(11);
-      pdf.text(info.join(' • '), mx, y + 52);
-    }
-  }
-
-  // AutoTable-options med extra luft och större typografi
-  function tableOpts(startY) {
-    return {
-      startY,
-      html: null,           // (vi sätter den per tabell)
-      theme: 'grid',
-      styles: {
-        font: base.font,
-        fontSize: base.bodyFontSize,
-        cellPadding: base.cellPad,
-        minCellHeight: base.rowMinH,
-        valign: 'middle'
-      },
-      headStyles: { fillColor: [245, 246, 248], textColor: 0, fontStyle: 'bold', fontSize: base.headFontSize },
-      bodyStyles: {},
-      didParseCell: (data) => {
-        // Gör kolumnen med tider ännu större – sök på rubriken
-        const colHeader = (txt) => (data.table.head?.[0]?.cells?.[data.column.index]?.raw?.textContent || '').toLowerCase().includes(txt);
-        if (colHeader('tid') || colHeader('tidsfönster') || colHeader('min') || colHeader('max')) {
-          data.cell.styles.fontSize = base.timeFontSize;
-          data.cell.styles.fontStyle = 'bold';
-        }
-      },
-      margin: { left: mx, right: mx }
-    };
-  }
-
-  // Hjälpare för att köra en tabell som redan finns i DOM
-  function addTableFromDom(tableEl, startY) {
-    const opt = tableOpts(startY);
-    opt.html = tableEl;
-    pdf.autoTable(opt);
-    return pdf.lastAutoTable ? pdf.lastAutoTable.finalY : (startY + 100);
-  }
-
-  // ============== SIDA 1 – STRÄCKA A (ev. Transport) =================
-  drawHeader('Sträcka A', distA, tempoALabel);
-  let y = 150;
-
-  if (secA?.table) {
-    y = addTableFromDom(secA.table, y);
-  }
-  // ============== SIDA 2 – STRÄCKA B =================
-  pdf.addPage();
-  drawHeader('Sträcka B', distB, tempoBLabel);
-  y = 150;
-  if (secB?.table) {
-    addTableFromDom(secB.table, y);
-  }
-
-  // ============== SIDA 3 – TRANSPORT (om finns) =================
-  if (secT?.table) {
-    pdf.addPage();
-    // Visa tempo i “badge”-raden (m/min) om vi har det
-    const tLbl = tempoTm ? `${tempoTm} m/min` : null;
-    drawHeader('Transport', distT, tLbl);
-    addTableFromDom(secT.table, 150);
-  }
-
-  if (!secA?.table && typeof pdf.deletePage === 'function') {
-    pdf.deletePage(1);
-  }
+  renderMarathonPdfPages({
+    pdf,
+    sections,
+    base,
+    marginX: mx,
+    drawHeader,
+    distances: { A: distA, T: distT, B: distB },
+    tempoLabels: { A: tempoALabel, T: tempoTm ? `${tempoTm} m/min` : null, B: tempoBLabel }
+  });
 
   // 6) Spara
-  const safeName = (driverName || 'ekipage').replace(/\s+/g, '_');
-  pdf.save(`maraton_hallttider_${startNumber}_${safeName}.pdf`);
+  pdf.save(buildMarathonPdfFileName(startNumber, driverName));
 }
 
 
 export async function load() {
+  __unload();
+  const currentLoadToken = ++loadToken;
   const competition = getGlobalState('currentCompetition');
   const page = document.getElementById('page-maraton-tider');
   if (!competition) {
@@ -1030,6 +796,7 @@ export async function load() {
   }
 
   try { await ensureClubLogosLoaded(); } catch { }
+  if (currentLoadToken !== loadToken) return;
 
   page.innerHTML = `
         <div class="container mx-auto p-4 md:p-8">
@@ -1138,7 +905,13 @@ export async function load() {
                 <div id="printable-area" class="hidden"></div>
             </div>
         </div>
-    `;
+  `;
   injectPrintStyles();
-  await setupPage(competition.id);
+  await setupPage(competition.id, currentLoadToken);
+}
+
+export function __unload() {
+  loadToken++;
+  MARATHON_CONFIG = {};
+  CURRENT_EQUIPAGE = null;
 }

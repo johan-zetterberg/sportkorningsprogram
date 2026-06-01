@@ -1,5 +1,9 @@
 // js/pdf/pdfBase.js
 
+import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
+import { fitImageDimensions } from './pdfImageUtils.js';
+import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+
 export async function loadPdfLibs() {
   if (window.jspdf && window.jspdf.jsPDF) return;
   // Fallback om de inte finns laddade globalt
@@ -24,17 +28,38 @@ export async function loadImg(path) {
   } catch { return null; }
 }
 
+export async function loadStandardHeaderLogos(competition) {
+  const resolvedCompetition = await resolvePdfCompetition(competition);
+  const [srfLogo, competitionLogo] = await Promise.all([
+    loadImg('/assets/logos/SRF.png'),
+    loadImg(getCompetitionLogoUrl(resolvedCompetition))
+  ]);
+  const headerLogo = srfLogo || { w: 1, h: 1 };
+  if (competitionLogo) {
+    headerLogo.competitionLogo = competitionLogo;
+  }
+  return headerLogo;
+}
+
 export function drawStandardHeader(doc, competition, titleText, srfLogo, startY = 30, margin = 40) {
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = startY;
 
   // 1. Logo
   if (srfLogo) {
-    const h = 50; 
-    const w = h * (srfLogo.w / srfLogo.h);
+    const { w, h } = fitImageDimensions(srfLogo, 90, 50);
     const logoData = srfLogo.dataUrl || srfLogo.data;
     if (logoData) {
       doc.addImage(logoData, 'PNG', margin, y, w, h);
+    }
+  }
+
+  const competitionLogo = srfLogo?.competitionLogo;
+  if (competitionLogo) {
+    const { w, h } = fitImageDimensions(competitionLogo, 90, 50);
+    const logoData = competitionLogo.dataUrl || competitionLogo.data;
+    if (logoData) {
+      doc.addImage(logoData, 'PNG', pageWidth - margin - w, y, w, h);
     }
   }
 

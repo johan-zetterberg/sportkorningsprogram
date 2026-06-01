@@ -4,6 +4,7 @@ import { saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 
 let competitionId = null;
+let unsubscribeEquipages = null;
 
 let allEquipages = []; // En cachad lista över alla ekipage
 let searchTerm = '';
@@ -453,6 +454,8 @@ function updateFilterButtonsUI() {
  * Huvudfunktionen som anropas av routern.
  */
 export function load() {
+    __unload();
+
     const competition = getGlobalState('currentCompetition');
     const page = document.getElementById('page-ekipage');
 
@@ -497,7 +500,7 @@ export function load() {
     // --- UPPDATERAD LYSSNARE ---
     // Starta realtids-lyssnaren.
     // Den uppdaterar bara den globala listan och anropar sedan renderList.
-    listenForEquipages(competitionId, (equipages) => {
+    unsubscribeEquipages = listenForEquipages(competitionId, (equipages) => {
         allEquipages = equipages;
         renderList(); // renderList kommer nu själv att applicera filter
     });
@@ -519,4 +522,20 @@ export function load() {
 
     // Funktion för att uppdatera knapparnas utseende
     updateFilterButtonsUI();
+}
+
+export function __unload() {
+    if (unsubscribeEquipages) {
+        try {
+            unsubscribeEquipages();
+        } catch (error) {
+            console.warn('Kunde inte stoppa ekipage-lyssnare:', error);
+        }
+    }
+
+    unsubscribeEquipages = null;
+    competitionId = null;
+    allEquipages = [];
+    searchTerm = '';
+    filterStatus = 'alla';
 }

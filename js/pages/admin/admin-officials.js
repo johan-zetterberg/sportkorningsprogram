@@ -33,44 +33,79 @@ let overviewMode = 'cards'; // 'cards' | 'table'
 let overviewSortCol = 'location'; // 'location' | 'role' | 'person' | 'date' | 'time'
 let overviewSortAsc = true;
 let checkInFilter = 'all'; // 'all' | 'not-checked-in'
+let officialsUnsubscribers = [];
+let activeOfficialsCompetitionId = null;
+let activeOfficialsContainer = null;
+let activeOfficialsCompetition = null;
+
+function addOfficialsUnsubscriber(unsubscribe) {
+    if (typeof unsubscribe === 'function') {
+        officialsUnsubscribers.push(unsubscribe);
+    }
+}
+
+export function unloadOfficialsTab() {
+    officialsUnsubscribers.forEach((unsubscribe) => {
+        try {
+            unsubscribe();
+        } catch (error) {
+            console.warn('Kunde inte stoppa funktionars-lyssnare:', error);
+        }
+    });
+    officialsUnsubscribers = [];
+    activeOfficialsCompetitionId = null;
+    activeOfficialsContainer = null;
+    activeOfficialsCompetition = null;
+
+    delete window.toggleCheckInFilter;
+    delete window.renderOverviewView;
+    delete window.toggleOverviewMode;
+    delete window.sortOverview;
+    delete window.exportOverviewPdf;
+    delete window.exportOverviewCsv;
+}
 
 export function renderOfficialsTab(container, competition) {
-    if (!container) return;
+    if (!container || !competition?.id) return;
+    activeOfficialsContainer = container;
+    activeOfficialsCompetition = competition;
 
-    // Load data listeners if not already loaded? 
-    // Ideally we should manage listeners properly, but for now we re-trigger.
-    // In a full app we might cache these unsubscribers.
-    listenForOfficials(competition.id, (data) => {
-        officials = data;
-        refreshUI(container, competition);
-    });
+    if (activeOfficialsCompetitionId !== competition.id) {
+        unloadOfficialsTab();
+        activeOfficialsCompetitionId = competition.id;
 
-    listenForAssignments(competition.id, (data) => {
-        assignments = data;
-        refreshUI(container, competition);
-    });
+        addOfficialsUnsubscriber(listenForOfficials(competition.id, (data) => {
+            officials = data;
+            refreshUI(container, competition);
+        }));
 
-    listenForLocations(competition.id, (data) => {
-        if (!data || data.length === 0) {
-            // Default generation if empty
-            locations = generateDefaultLocations();
-            saveLocations(competition.id, locations);
-        } else {
-            locations = data;
-        }
-        refreshUI(container, competition);
-    });
+        addOfficialsUnsubscriber(listenForAssignments(competition.id, (data) => {
+            assignments = data;
+            refreshUI(container, competition);
+        }));
 
-    listenForVolunteerSignups(competition.id, (data) => {
-        volunteerSignups = data;
-        updateSignupBadge(); // New helper to show count
-        refreshUI(container, competition);
-    });
+        addOfficialsUnsubscriber(listenForLocations(competition.id, (data) => {
+            if (!data || data.length === 0) {
+                // Default generation if empty
+                locations = generateDefaultLocations();
+                saveLocations(competition.id, locations);
+            } else {
+                locations = data;
+            }
+            refreshUI(container, competition);
+        }));
 
-    listenForRoles(competition.id, (data) => {
-        customRoles = data;
-        refreshUI(container, competition);
-    });
+        addOfficialsUnsubscriber(listenForVolunteerSignups(competition.id, (data) => {
+            volunteerSignups = data;
+            updateSignupBadge(); // New helper to show count
+            refreshUI(container, competition);
+        }));
+
+        addOfficialsUnsubscriber(listenForRoles(competition.id, (data) => {
+            customRoles = data;
+            refreshUI(container, competition);
+        }));
+    }
 
     // Initial Render Structure
     refreshUI(container, competition);
@@ -200,7 +235,9 @@ function renderCheckInView(competition) {
     // Toggle global filter
     window.toggleCheckInFilter = (val) => {
         checkInFilter = val;
-        refreshUI(document.getElementById('reportsContainer')?.parentNode?.parentNode, competition);
+        if (activeOfficialsContainer && activeOfficialsCompetition) {
+            refreshUI(activeOfficialsContainer, activeOfficialsCompetition);
+        }
     };
 
     return `

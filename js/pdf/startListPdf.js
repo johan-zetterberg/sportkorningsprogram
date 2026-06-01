@@ -1,8 +1,8 @@
 import { getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
-import { horseLabelStacked, horseLabel } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { buildStartListPdfBody } from './startListPdfRows.js';
 
 /**
  * Generates a start list PDF.
@@ -21,7 +21,7 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     let y = 30;
 
     // 1. ASSET LOADING
-    const srfLogo = await loadImg('/assets/logos/SRF.png');
+    const srfLogo = await loadStandardHeaderLogos(competition);
 
     const assetMap = new Map();
     const uniqueClubs = [...new Set(rows.map(r => r.clubName).filter(Boolean))];
@@ -107,60 +107,7 @@ export async function generateStartListPdf(rows, type, competition, options = {}
         };
     }
 
-    let body = [];
-    let lastClass = null;
-
-    rows.forEach(r => {
-        // Class Grouping Row (skip for horselist if unwanted, or handle if needed. Default assumes no class grouping for flat horse list)
-
-        // --- HORSE LIST HANDLING ---
-        if (type === 'horselist') {
-            const row = [];
-            row.push(r.name || '');
-            row.push(r.breed || '');
-            row.push(r.gender || '');
-            row.push(r.age || '');
-            row.push(r.category || (r.height ? '?' : '')); // If cat calculated elsewhere
-
-            // Härstamning
-            const lineage = [r.sire, r.dam].filter(v => v && v !== '-').join(' x ');
-            row.push(r.lineage || lineage || '');
-
-            row.push(r.owner || '');
-            row.push(r.driverName || '');
-
-            body.push(row);
-            return; // Skip normal startlist logic
-        }
-
-
-        // --- REGULAR STARTLIST / PARTICIPANT LIST HANDLING ---
-        if (options.viewMode === 'byclass' || options.viewMode === 'class') {
-            const currentClass = r._mergedLabel || r.className || 'Okänd klass';
-            if (currentClass !== lastClass) {
-                const colSpan = type === 'participants' ? 4 : 5;
-                body.push([
-                    { content: currentClass, colSpan: colSpan, styles: { fillColor: [240, 240, 240], fontStyle: 'bold' } }
-                ]);
-                lastClass = currentClass;
-            }
-        }
-
-        const timeStr = r.startTime ? r.startTime.split('T')[1]?.slice(0, 5) || r.startTime : '—';
-        const hLabel = horseLabel(r);
-
-        const row = [];
-        if (type !== 'participants') {
-            row.push({ content: timeStr, styles: { fontStyle: 'bold', halign: 'center' } });
-        }
-
-        row.push(r.startNumber || '');
-        row.push(`${r.driverName || ''}\n${hLabel}`);
-        row.push(r._mergedLabel || r.className || '');
-        row.push(r.clubName || '');
-
-        body.push(row);
-    });
+    const { body, rowSources } = buildStartListPdfBody(rows, type, options);
 
     doc.autoTable({
         startY: y,
@@ -181,19 +128,7 @@ export async function generateStartListPdf(rows, type, competition, options = {}
                 const cellText = data.cell.text[0]; // Club name usually
                 if (!cellText) return;
 
-                const rowRaw = data.row.raw;
-                if (!Array.isArray(rowRaw)) return; // Grouping row
-
-                // Match by driver name. Driver is always in the raw row data, but index varies.
-                // Startlist: Start(0), Nr(1), Driver(2)
-                // Participants: Nr(0), Driver(1)
-                const driverColIdx = type === 'participants' ? 1 : 2;
-
-                const driverFull = rowRaw[driverColIdx];
-                if (typeof driverFull !== 'string') return;
-                const driverName = driverFull.split('\n')[0];
-
-                const matchedRow = rows.find(r => r.clubName === cellText && r.driverName === driverName);
+                const matchedRow = rowSources[data.row.index];
                 if (matchedRow) {
                     const cc = normalizeCountryCode(matchedRow.country || 'se');
                     const flagUrl = assetMap.get(`flag_${cc}`);

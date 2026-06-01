@@ -10,6 +10,7 @@ import { t } from '../../utils/i18n.js';
 let allHorses = [];
 let searchTerm = '';
 let viewMode = 'grid'; // 'grid' | 'table'
+let loadToken = 0;
 
 // --- Hjälpfunktioner ---
 const exists = (v) => v && v !== '' && v !== '-';
@@ -301,6 +302,8 @@ async function handleExportPdf() {
 
 
 export async function load() {
+    __unload();
+    const currentLoadToken = ++loadToken;
     const competition = getGlobalState('currentCompetition');
     const page = document.getElementById('page-hastar');
 
@@ -385,6 +388,7 @@ export async function load() {
 
     try {
         const equipages = await getEquipages(competition.id);
+        if (currentLoadToken !== loadToken) return;
 
         let flattened = [];
         equipages.forEach(e => {
@@ -401,10 +405,18 @@ export async function load() {
         renderContent();
 
     } catch (error) {
+        if (currentLoadToken !== loadToken) return;
         console.error("Kunde inte ladda data: ", error);
         const container = document.getElementById('horseListContainer');
         if (container) container.innerHTML = `<p class="col-span-full text-red-500 text-center">Kunde inte ladda data.</p>`;
     }
+}
+
+export function __unload() {
+    loadToken++;
+    try { window.__teardownXbarSync?.(); } catch { }
+    allHorses = [];
+    searchTerm = '';
 }
 
 function updateViewButtons() {

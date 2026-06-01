@@ -112,6 +112,7 @@ let pauseStartTime = 0;
 let viewMode = 'map'; // 'map' as default
 let maratonConfig = null; // Local copy for map settings
 let lastRenderedGridHash = ""; // To prevent flickering
+let loadToken = 0;
 
 
 // ---------- Helpers ----------
@@ -865,6 +866,9 @@ function rebuildMarathonData(sn) {
 
 // ---------- Entrypoint ----------
 export async function load() {
+  __unload();
+  const currentLoadToken = ++loadToken;
+
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id;
   const root = document.getElementById('page-maraton-monitor');
@@ -883,6 +887,7 @@ export async function load() {
       getConfig(competitionId, 'startTimes').catch(() => ({})),
       getConfig(competitionId, 'maratonConfig').catch(() => null)
     ]);
+    if (currentLoadToken !== loadToken) return;
 
     allEquipages = equipagesRaw || [];
     startTimes = startTimesData || {};
@@ -890,6 +895,7 @@ export async function load() {
     if (maratonConfig) setMarathonConfig(maratonConfig);
 
     await ensureClubLogosLoaded();
+    if (currentLoadToken !== loadToken) return;
 
     // START LISTENERS
     // 1. Equipages / Status
@@ -994,6 +1000,7 @@ export async function load() {
     ensureTicker();
 
   } catch (err) {
+    if (currentLoadToken !== loadToken) return;
     console.error("Error loading Marathon Monitor:", err);
     if (root) root.innerHTML = '<p class="text-red-600 p-4">Kunde inte ladda data.</p>';
   }
@@ -1138,13 +1145,27 @@ function evaluateActiveState(sn, data) {
 
 
 export function __unload() {
-  unsubscribes.forEach(u => u && u());
+  loadToken++;
+  unsubscribes.forEach(u => {
+    try { u && u(); } catch { }
+  });
   unsubscribes = [];
   if (tickerInterval) {
     clearInterval(tickerInterval);
     tickerInterval = null;
   }
   destroyMap();
+  competitionId = null;
+  allEquipages = [];
+  startTimes = {};
+  allMarathonData.clear();
+  marathonStateMap.clear();
+  marathonTimingMap.clear();
+  activeEquipages.clear();
+  isGloballyPaused = false;
+  pauseStartTime = 0;
+  maratonConfig = null;
+  lastRenderedGridHash = "";
 }
 
 

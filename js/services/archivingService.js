@@ -13,6 +13,12 @@ import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults } 
 import { getPrecisionResults } from './precisionService.js';
 import { generateTotalResultsPdf } from '../pdf/totalResultsPdf.js';
 import { buildArchiveRowsFromData } from './archiveRowBuilder.js';
+import {
+    assertArchiveCanFinalize,
+    buildArchiveCompetition,
+    buildFinalizeCompetitionPatch,
+    buildReopenCompetitionPatch
+} from './archivingUtils.js';
 
 async function buildArchiveRows(competitionId) {
     const equipages = await getEquipages(competitionId);
@@ -54,8 +60,6 @@ async function buildArchiveRows(competitionId) {
 }
 
 export async function finalizeCompetition(competitionId) {
-    if (!competitionId) throw new Error("Competition ID required");
-
     try {
         const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
         const metaRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/config/competitionMeta`);
@@ -65,22 +69,25 @@ export async function finalizeCompetition(competitionId) {
             buildArchiveRows(competitionId)
         ]);
 
-        const competition = {
-            ...(compSnap.exists() ? compSnap.data() : {}),
-            meta: archiveData.competitionMeta || {}
-        };
-
-        await generateTotalResultsPdf(archiveData.rows, competition, { viewMode: 'byclass', officials: '' });
-
-        await updateDoc(compRef, {
-            status: 'completed',
-            locked: true,
-            finalizedAt: serverTimestamp()
+        assertArchiveCanFinalize({
+            competitionId,
+            competitionExists: compSnap.exists(),
+            rows: archiveData.rows
         });
+
+        const competition = buildArchiveCompetition(compSnap.data(), archiveData.competitionMeta);
+
+        await generateTotalResultsPdf(archiveData.rows, competition, {
+            viewMode: 'byclass',
+            officials: '',
+            throwOnMissingPdfLib: true
+        });
+
+        await updateDoc(compRef, buildFinalizeCompetitionPatch(serverTimestamp()));
 
         await setDoc(metaRef, { manualLockdown: true }, { merge: true });
 
-        return { success: true };
+        return { success: true, rows: archiveData.rows.length };
     } catch (err) {
         console.error("Finalize Failed:", err);
         throw err;
@@ -92,10 +99,7 @@ export async function reopenCompetition(competitionId) {
 
     try {
         const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
-        await updateDoc(compRef, {
-            status: 'active',
-            locked: false,
-        });
+        await updateDoc(compRef, buildReopenCompetitionPatch());
 
         const metaRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/config/competitionMeta`);
         await setDoc(metaRef, { manualLockdown: false }, { merge: true });

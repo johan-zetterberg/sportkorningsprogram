@@ -125,6 +125,7 @@ function fmtClock(ts) {
 // ---------- Global state ----------
 let competitionId = null;
 let isGloballyPaused = false;
+let marathonResultsLoadToken = 0;
 
 // Debounce för live-snapshots så UI inte re-rendras för ofta
 const renderLiveDebounce = debounce(render, 60);
@@ -625,6 +626,9 @@ function listenMergeConfig() {
 // === MAIN LOAD ===
 
 export async function load() {
+  __unload();
+  const currentLoadToken = ++marathonResultsLoadToken;
+
   initializeScrollSync(window.location.pathname);
   const comp = getGlobalState('currentCompetition');
   if (!comp || !comp.id) {
@@ -645,6 +649,7 @@ export async function load() {
     getMarathonTimingData(competitionId),
     ensureClubLogosLoaded(competitionId)
   ]);
+  if (currentLoadToken !== marathonResultsLoadToken) return;
 
 
   // maraton_marathonConfig is imported, so we cannot assign to it.
@@ -703,9 +708,23 @@ export async function load() {
 }
 
 export function __unload() {
-  if (window.__marathonUnsub) window.__marathonUnsub();
+  marathonResultsLoadToken++;
+  if (window.__marathonUnsub) {
+    try { window.__marathonUnsub(); } catch { }
+  }
   window.__marathonUnsub = null;
   window.__teardownXbarSync?.();
+  clearMarathonLiveTickers();
+  document.body.style.filter = '';
+  competitionId = null;
+  isGloballyPaused = false;
+  maraton_equipages = [];
+  maraton_marathonMap.clear();
+  maraton_startTimes = {};
+  stageCols = [];
+  lastStructuralHash = '';
+  lastHeaderHash = '';
+  window.__marathonModalBridge = null;
 }
 
 // === BRIDGE FÖR MODAL (Navigering) ===

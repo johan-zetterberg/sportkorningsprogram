@@ -1,7 +1,7 @@
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { savePrecisionResult, getPrecisionResults } from '../../services/precisionService.js';
+import { getPrecisionResults } from '../../services/precisionService.js';
 import { getStartTimes } from '../../services/marathonService.js';
 import { db, appId } from '../../config/firebase-config.js';
 import {
@@ -703,7 +703,6 @@ async function loadDriverData(equipage) {
 
             if (docSnap.exists()) {
                 const data = docSnap.data();
-                // console.log('[PrecisionInput] Live update for', equipage.startNumber, data);
 
                 // Kolla om klart
                 const isFinalized = !!data.finalized || data.status === 'Klar';

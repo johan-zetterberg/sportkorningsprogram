@@ -8,6 +8,30 @@ import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/fl
 let currentTeams = [];
 let currentEquipages = [];
 let currentCompetitionId = null;
+let unsubscribeTeams = null;
+let unsubscribeEquipages = null;
+
+export function unloadTeamsTab() {
+  if (unsubscribeTeams) {
+    try { unsubscribeTeams(); } catch (error) { console.warn('Kunde inte stoppa lag-lyssnare:', error); }
+  }
+  if (unsubscribeEquipages) {
+    try { unsubscribeEquipages(); } catch (error) { console.warn('Kunde inte stoppa lag-ekipage-lyssnare:', error); }
+  }
+
+  unsubscribeTeams = null;
+  unsubscribeEquipages = null;
+  currentTeams = [];
+  currentEquipages = [];
+  currentCompetitionId = null;
+
+  if (window.deleteTeamHandler === deleteTeamHandler) {
+    delete window.deleteTeamHandler;
+  }
+  if (window.removeMemberHandler === removeMemberHandler) {
+    delete window.removeMemberHandler;
+  }
+}
 
 export function renderTeamsTab(container, competition) {
   if (!container || !competition) return;
@@ -111,10 +135,6 @@ function setupEventListeners() {
     renderPool(e.target.value);
   });
 }
-
-// Globala lyssnare
-let unsubscribeTeams = null;
-let unsubscribeEquipages = null;
 
 function startListeners(competition) {
   if (unsubscribeTeams) unsubscribeTeams();
@@ -342,13 +362,13 @@ async function handleMove(equipageId, targetTeamId) {
 }
 
 // --- Global Handlers for inline onclicks ---
-window.deleteTeamHandler = async (teamId, teamName) => {
+async function deleteTeamHandler(teamId, teamName) {
   if (confirm(`Är du säker på att du vill ta bort laget "${teamName}" ? `)) {
     await deleteTeam(currentCompetitionId, teamId);
   }
-};
+}
 
-window.removeMemberHandler = async (teamId, memberId) => {
+async function removeMemberHandler(teamId, memberId) {
   // Move to pool logic essentially
   // Just remove from team.
   const team = currentTeams.find(t => t.id === teamId);
@@ -356,4 +376,7 @@ window.removeMemberHandler = async (teamId, memberId) => {
     const newMembers = team.members.filter(m => String(m) !== String(memberId));
     await saveTeam(currentCompetitionId, { id: teamId, members: newMembers });
   }
-};
+}
+
+window.deleteTeamHandler = deleteTeamHandler;
+window.removeMemberHandler = removeMemberHandler;

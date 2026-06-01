@@ -1,8 +1,9 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, query, orderBy, limit, addDoc, serverTimestamp, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { trackWrite, getCompDocRef, getCompCollectionRef } from './firestoreService.js';;
+import { trackWrite, getCompDocRef, getCompCollectionRef } from './firestoreService.js';
 import { auth } from '../config/firebase-config.js';
 import { getExpectedDressageJudgePositions, isDressageReadyToFinalize } from './competitionStatusService.js';
+import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 const CONFIG_CACHE_PREFIX = 'configCache:';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 timme
@@ -99,10 +100,7 @@ export function listenForCompetitions(callback) {
   return onSnapshot(q, (snap) => {
     const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
     callback(items);
-  }, (err) => {
-    console.error('listenForCompetitions error:', err);
-    callback([]);
-  });
+  }, buildSnapshotErrorHandler('listenForCompetitions', callback, []));
 }
 
 export async function getCompetitionById(competitionId) {
@@ -115,7 +113,7 @@ export function listenForCompetition(competitionId, callback) {
   const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
   return onSnapshot(ref, (snap) => {
     callback(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-  });
+  }, buildSnapshotErrorHandler('listenForCompetition', callback, null));
 }
 
 export async function updateCompetition(competitionId, data) {
@@ -238,7 +236,7 @@ export function listenForConfig(competitionId, configName, callback) {
   const configRef = getCompDocRef(competitionId, 'config', configName);
   return onSnapshot(configRef, (docSnap) => {
     callback(docSnap.exists() ? docSnap.data() : {});
-  });
+  }, buildSnapshotErrorHandler(`listenForConfig:${configName}`, callback, {}));
 }
 
 export async function getCompetitionStatistics(competitionId) {

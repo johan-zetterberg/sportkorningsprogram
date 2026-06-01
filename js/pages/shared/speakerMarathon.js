@@ -1,5 +1,6 @@
 import { getObstacleArray, stageStartTS, stageStopTS, analyzeSectorProgress } from '../../utils/marathonUtils.js';
 import { msToLabel } from '../../utils/sharedUtils.js';
+import { formatSpeakerPenalty } from './speakerFormatUtils.js';
 
 export function renderObstacleFocus(obstacleFocusVal, context) {
     if (!obstacleFocusVal || context.currentDiscipline !== 'maraton') {
@@ -53,7 +54,7 @@ export function renderObstacleLeaderboard(obstacleNum, context) {
                         <div class="font-bold text-gray-800 dark:text-gray-200">${r.name}</div>
                         <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.class} • ${r.club}</div>
                     </td>
-                    <td class="px-3 py-2 text-right tabular-nums tracking-wide font-black text-gray-900 dark:text-white">${(r.penalty != null) ? r.penalty.toFixed(2) : '—'}</td>
+                    <td class="px-3 py-2 text-right tabular-nums tracking-wide font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(r.penalty)}</td>
                 </tr>
                 `).join('')}
             </tbody>

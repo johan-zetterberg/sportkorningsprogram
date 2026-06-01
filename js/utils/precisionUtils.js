@@ -16,7 +16,11 @@ import {
     fmt2
 } from './sharedUtils.js';
 import { getGlobalState } from '../main.js';
-import { calculatePrecisionTimePenalty as _coreCalcTime, computeMaxSecondsForClass as _coreMaxSec } from '../core-engine/precision.js';
+import {
+    calculatePrecisionResult as _calculatePrecisionResult,
+    calculatePrecisionTimePenalty as _calculatePrecisionTimePenalty,
+    computeMaxSecondsForClass as _pureComputeMaxSecondsForClass
+} from './precisionCalculation.js';
 
 const _norm = (s) => String(s || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 
@@ -46,7 +50,7 @@ export function trackWidthFromEq(eq) {
 // Straffberäkning (Tid)
 // -------------------------------------------------------------
 export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = 0.5) {
-    return _coreCalcTime(timeMs, maxTimeSec, timePenaltyRate);
+    return _calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate);
 }
 
 // -------------------------------------------------------------
@@ -164,7 +168,7 @@ export function getClassTempoMpm(cls, config) {
 }
 
 export function computeMaxSecondsForClass(cls, config) {
-    const coreVal = _coreMaxSec(cls, config);
+    const coreVal = _pureComputeMaxSecondsForClass(cls, config);
     if (coreVal !== null) return coreVal;
     
     // Fallback: Use track length and TR tempo from klassTempoData
@@ -198,120 +202,8 @@ export function startTimeFor(startNumber, startTimes) {
  * @returns {Object} Calculated result object.
  */
 export function calculatePrecisionResult(data, equipage, config = {}) {
-    const d = data || {};
-
-    // Basic status
-    const finalized = d.finalized === true;
-    const eliminated = !!d.eliminated;
-    const running = d.running === true;
-
-    // Time
-    const liveMs = isNum(d.liveTimeMs) ? d.liveTimeMs : null;
-    const finalMs = isNum(d.timeMs) ? d.timeMs : null;
-    const timeMs = finalized ? finalMs : (liveMs ?? null);
-
-    // Penalties
-    // Knocks: array of port numbers
-    const knocksArr = Array.isArray(d.knocks) ? d.knocks.slice() : [];
-    const knocksCount = knocksArr.length;
-
-    // Obstacle Penalty
-    // Priority: 1. Explicit obstaclePenalty, 2. Calculated from knocks (config pts/knock), 3. Live value
-    const kp = (config.knockdownPenalty != null) ? Number(config.knockdownPenalty) : 3;
-    const inferredObstacle = knocksCount > 0 ? knocksCount * kp : null;
-    const obstaclePenalty = isNum(d.obstaclePenalty) ? d.obstaclePenalty
-        : (isNum(inferredObstacle) ? inferredObstacle
-            : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
-
-    // Time Penalty
-    // Always recalculate from timeMs so a stale stored 0 can't suppress a real penalty.
-    // We then take the MAX of the calculated value and whatever is stored (so manually
-    // added admin penalties above the calculated value are preserved).
-    const maxSec = computeMaxSecondsForClass(equipage?.className, config);
-    
-    // Future-Proofing: Priority -> 1. Admin config, 2. Rule Settings, 3. TR Default
     const comp = getGlobalState ? getGlobalState('currentCompetition') : null;
-    let rate = 0.5; // TR default
-    if (Number.isFinite(config?.timePenaltyRate)) {
-        rate = config.timePenaltyRate;
-    } else if (Number.isFinite(comp?.ruleSettings?.precisionTimePenaltyRate)) {
-        rate = comp.ruleSettings.precisionTimePenaltyRate;
-    }
-    
-    const calculatedTimePenalty = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
-
-    const storedTimePenalty = isNum(d.timePenalty) ? d.timePenalty
-        : (isNum(d.liveTimePenalty) ? d.liveTimePenalty : 0);
-    const timePenalty = Math.max(storedTimePenalty, calculatedTimePenalty) || null;
-
-    // Extra Penalty
-    const extraPenalty = isNum(d.extraPenalty) ? d.extraPenalty : null;
-
-    // Total Penalty
-    // We only calculate a numeric total if we have evidence of actual performance
-    // or if the result is explicitly finalized, eliminated, or currently running.
-    // (A default extraPenalty: 0 or obstaclePenalty: 0 without time is NOT enough).
-    const hasPerformance = (isNum(timeMs) && timeMs > 0) || (isNum(obstaclePenalty) && obstaclePenalty > 0) || (isNum(extraPenalty) && extraPenalty !== 0);
-    const hasValidResult = hasPerformance || finalized || eliminated || running;
-    
-    const sumParts = hasValidResult
-        ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
-        : null;
-
-    // We prioritize sumParts to ensure correctness if data just changed,
-    // but we fall back to stored values for finalized results if sumParts is somehow null.
-    let totalPenalty = sumParts;
-    if (totalPenalty === null) {
-        if (finalized) {
-            totalPenalty = isNum(d.totalPenalty) ? d.totalPenalty : null;
-        } else if (running) {
-            totalPenalty = isNum(d.liveTotalPenalty) ? d.liveTotalPenalty : null;
-        }
-    }
-
-    // Status string (UI helper, but logic related)
-    let status = 'Ej startat';
-
-    // TR: Auto-elimination if time exceeds 2x allowed time
-    let autoEliminated = false;
-    if (isNum(timeMs) && isNum(maxSec) && timeMs > (maxSec * 2 * 1000)) {
-        autoEliminated = true;
-    }
-
-    const isInitiallyEliminated = eliminated || autoEliminated;
-
-    if (equipage?.status === 'struken') status = 'Struken';
-    else if (running) status = 'Pågår';
-    else if (finalized || (isNum(timeMs) && timeMs > 0)) {
-        status = isInitiallyEliminated ? 'Utesluten' : 'Klar';
-    }
-
-    // Tie-breaker: Time closest to allowed time
-    const timeDiffFromAllowed = (isNum(timeMs) && isNum(maxSec)) 
-        ? Math.abs(timeMs - (maxSec * 1000)) 
-        : Infinity;
-
-    return {
-        finalized,
-        eliminated: isInitiallyEliminated,
-        autoEliminated,
-        running,
-        status,
-
-        timeMs,
-        liveMs,
-        finalMs,
-        timeDiffFromAllowed,
-
-        knocks: knocksArr,
-        knockDownTimes: d.knockDownTimes || {},
-        knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / ((config.knockdownPenalty != null) ? Number(config.knockdownPenalty) : 3)) : 0),
-
-        obstaclePenalty: isNum(obstaclePenalty) ? round2(obstaclePenalty) : null,
-        timePenalty: isNum(timePenalty) ? round2(timePenalty) : null,
-        extraPenalty: round2(extraPenalty),
-        totalPenalty: isNum(totalPenalty) ? round2(totalPenalty) : null
-    };
+    return _calculatePrecisionResult(data, equipage, config, { currentCompetition: comp });
 }
 
 export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes) {

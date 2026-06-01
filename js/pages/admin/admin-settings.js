@@ -1,13 +1,38 @@
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
-import { getCompetitionById, deleteCompetition } from '../../services/competitionService.js';
+import { getCompetitionById, deleteCompetition, updateCompetition } from '../../services/competitionService.js';
 import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
+import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getGlobalState } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
+import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
 
 let mapInstance = null;
 let markerInstance = null;
+let activeAdminsUnsub = null;
+
+export function unloadSettingsTab() {
+    if (activeAdminsUnsub) {
+        try {
+            activeAdminsUnsub();
+        } catch (error) {
+            console.warn('Kunde inte stoppa installnings-lyssnare:', error);
+        }
+        activeAdminsUnsub = null;
+    }
+
+    if (mapInstance) {
+        try {
+            mapInstance.remove();
+        } catch (error) {
+            console.warn('Kunde inte ta bort installningskarta:', error);
+        }
+        mapInstance = null;
+        markerInstance = null;
+    }
+}
 
 export function getSettingsHtml() {
     return `
@@ -54,6 +79,31 @@ export function getSettingsHtml() {
             </p>
         </div>
         <!-- PUBLICERING SLUT -->
+
+        <!-- TÄVLINGENS LOGGA -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+            <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Tävlingslogga</h2>
+            <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">Ladda upp en logga för tävlingen, arrangören eller föreningen. Den visas i sidhuvuden och i PDF-exporter.</p>
+
+            <div class="flex items-center gap-4">
+                <div id="competitionLogoPreview" class="w-20 h-20 rounded-lg border dark:border-gray-600 bg-gray-50 dark:bg-gray-900 flex items-center justify-center overflow-hidden">
+                    <span class="text-xs text-gray-400 text-center px-2">Ingen logga</span>
+                </div>
+                <div class="flex-1 min-w-0">
+                    <div id="competitionLogoName" class="text-sm font-semibold text-gray-800 dark:text-gray-100 truncate">Ingen logga vald</div>
+                    <div id="competitionLogoStatus" class="text-xs text-gray-500 dark:text-gray-400 mt-1">PNG, JPG eller WebP, max 2 MB.</div>
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <input id="competitionLogoFileInput" type="file" class="hidden" accept="image/png,image/jpeg,image/webp">
+                        <button id="uploadCompetitionLogoBtn" type="button" class="px-3 py-2 bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-200 rounded text-sm font-semibold">
+                            Ladda upp logga
+                        </button>
+                        <button id="removeCompetitionLogoBtn" type="button" class="px-3 py-2 bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 rounded text-sm font-semibold hidden">
+                            Ta bort logga
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
 
         <!-- DIGITAL DEKLARERING -->
         <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
@@ -261,6 +311,8 @@ export async function setupSettingsLogic(competitionId) {
             document.getElementById('settingsPlaceInput').value = compDoc.place || '';
         }
 
+        setupCompetitionLogoControls(competitionId, compDoc, meta);
+
         // --- 1.5 Publishing Status (Root Doc) ---
         // Defaults to TRUE if undefined (backward compatibility)
         const isPub = (compDoc.published !== false);
@@ -284,9 +336,6 @@ export async function setupSettingsLogic(competitionId) {
 
                 // Save immediately (separate from global save button to be responsive)
                 try {
-                    // Dynamic import to avoid circular dependency issues if any, though we imported deleteCompetition etc.
-                    // We need updateCompetition from services.
-                    const { updateCompetition } = await import('../services/firestoreService.js');
                     await updateCompetition(competitionId, { published: newState });
 
                     // Show small toast or just rely on toggle state
@@ -460,7 +509,10 @@ export async function setupSettingsLogic(competitionId) {
             });
 
             // Lyssna på anslutna admins
-            let activeAdminsUnsub = null;
+            if (activeAdminsUnsub) {
+                try { activeAdminsUnsub(); } catch { }
+                activeAdminsUnsub = null;
+            }
             const listEl = document.getElementById('pinAdminsList');
             
             const renderAdmins = (admins) => {
@@ -503,15 +555,6 @@ export async function setupSettingsLogic(competitionId) {
             };
 
             activeAdminsUnsub = listenForCompetitionAdmins(competitionId, renderAdmins);
-            
-            // Städa upp lyssnare vid unmount
-            const oldUnload = window.__currentPageModule?.__unload;
-            if (window.__currentPageModule) {
-                window.__currentPageModule.__unload = () => {
-                    if (activeAdminsUnsub) activeAdminsUnsub();
-                    if (oldUnload) oldUnload();
-                };
-            }
         }
     } catch (e) {
         console.warn("Kunde inte ladda behörigheter:", e);
@@ -564,6 +607,159 @@ export async function setupSettingsLogic(competitionId) {
         }
     } catch (err) {
         console.warn('Error checking danger zone permissions:', err);
+    }
+}
+
+function setupCompetitionLogoControls(competitionId, compDoc = {}, meta = {}) {
+    const preview = document.getElementById('competitionLogoPreview');
+    const nameEl = document.getElementById('competitionLogoName');
+    const statusEl = document.getElementById('competitionLogoStatus');
+    const fileInput = document.getElementById('competitionLogoFileInput');
+    const uploadBtn = document.getElementById('uploadCompetitionLogoBtn');
+    const removeBtn = document.getElementById('removeCompetitionLogoBtn');
+
+    if (!preview || !fileInput || !uploadBtn) return;
+
+    const merged = { ...(compDoc || {}), meta: { ...(meta || {}), ...(compDoc?.meta || {}) } };
+
+    const renderLogo = (competitionLike = {}) => {
+        const url = getCompetitionLogoUrl(competitionLike);
+        const name = getCompetitionLogoName(competitionLike);
+        if (url) {
+            preview.innerHTML = `<img src="${escapeHtml(url)}" alt="${escapeHtml(name)}" class="max-w-full max-h-full object-contain">`;
+            if (nameEl) nameEl.textContent = name;
+            if (statusEl) statusEl.textContent = 'Loggan är sparad för tävlingen.';
+            if (removeBtn) removeBtn.classList.remove('hidden');
+        } else {
+            preview.innerHTML = '<span class="text-xs text-gray-400 text-center px-2">Ingen logga</span>';
+            if (nameEl) nameEl.textContent = 'Ingen logga vald';
+            if (statusEl) statusEl.textContent = 'PNG, JPG eller WebP, max 2 MB.';
+            if (removeBtn) removeBtn.classList.add('hidden');
+        }
+    };
+
+    renderLogo(merged);
+
+    uploadBtn.onclick = () => fileInput.click();
+    fileInput.onchange = async (event) => {
+        const file = event.target.files?.[0];
+        if (!file) return;
+
+        const originalText = uploadBtn.textContent;
+        uploadBtn.textContent = 'Laddar upp...';
+        uploadBtn.disabled = true;
+
+        try {
+            let logoUrl = '';
+            try {
+                logoUrl = await uploadCompetitionLogo(competitionId, file);
+            } catch (uploadError) {
+                if (uploadError?.code !== 'storage/unauthorized') throw uploadError;
+                console.warn('Storage blockerade tävlingsloggan, sparar nedskalad bild i config istället:', uploadError);
+                logoUrl = await fileToLogoDataUrl(file);
+            }
+            const logoName = file.name;
+            const logoUpdatedAt = new Date().toISOString();
+            const isInlineLogo = String(logoUrl).startsWith('data:');
+            const logoStorageMode = isInlineLogo ? 'configDataUrl' : 'storageUrl';
+            const payload = { logoUrl, logoName, logoUpdatedAt, logoStorageMode };
+            const rootPayload = isInlineLogo
+                ? { logoUrl: '', logoName, logoUpdatedAt, logoStorageMode }
+                : payload;
+
+            await Promise.all([
+                updateCompetition(competitionId, rootPayload).catch(error => {
+                    console.warn('Kunde inte spara logga på tävlingsdokumentet:', error);
+                    return null;
+                }),
+                saveConfig(competitionId, 'competitionMeta', payload)
+            ]);
+
+            const currentComp = getGlobalState('currentCompetition');
+            if (currentComp?.id === competitionId) {
+                Object.assign(currentComp, rootPayload);
+                currentComp.meta = { ...(currentComp.meta || {}), ...payload };
+            }
+
+            renderLogo({ ...payload, meta: payload });
+            showAlert('Loggan är uppladdad och sparad.', true);
+        } catch (error) {
+            console.error('Kunde inte ladda upp tavlingslogga:', error);
+            showAlert(error.message || 'Kunde inte ladda upp loggan.', false);
+        } finally {
+            uploadBtn.textContent = originalText;
+            uploadBtn.disabled = false;
+            fileInput.value = '';
+        }
+    };
+
+    if (removeBtn) {
+        removeBtn.onclick = async () => {
+            if (!confirm('Vill du ta bort tävlingsloggan från denna tävling?')) return;
+            const payload = { logoUrl: '', logoName: '', logoUpdatedAt: new Date().toISOString(), logoStorageMode: '' };
+            removeBtn.disabled = true;
+            try {
+                await Promise.all([
+                    updateCompetition(competitionId, payload).catch(error => {
+                        console.warn('Kunde inte rensa logga på tävlingsdokumentet:', error);
+                        return null;
+                    }),
+                    saveConfig(competitionId, 'competitionMeta', payload)
+                ]);
+
+                const currentComp = getGlobalState('currentCompetition');
+                if (currentComp?.id === competitionId) {
+                    Object.assign(currentComp, payload);
+                    currentComp.meta = { ...(currentComp.meta || {}), ...payload };
+                }
+
+                renderLogo({});
+                showAlert('Loggan är borttagen.', true);
+            } catch (error) {
+                console.error('Kunde inte ta bort tavlingslogga:', error);
+                showAlert('Kunde inte ta bort loggan.', false);
+            } finally {
+                removeBtn.disabled = false;
+            }
+        };
+    }
+}
+
+async function fileToLogoDataUrl(file) {
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+        throw new Error('Loggan måste vara PNG, JPG eller WebP.');
+    }
+
+    const objectUrl = URL.createObjectURL(file);
+    try {
+        const img = new Image();
+        img.src = objectUrl;
+        await new Promise((resolve, reject) => {
+            img.onload = resolve;
+            img.onerror = reject;
+        });
+
+        const maxSize = 420;
+        const scale = Math.min(1, maxSize / Math.max(img.naturalWidth || 1, img.naturalHeight || 1));
+        const width = Math.max(1, Math.round((img.naturalWidth || 1) * scale));
+        const height = Math.max(1, Math.round((img.naturalHeight || 1) * scale));
+
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, width, height);
+        ctx.drawImage(img, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL('image/jpeg', 0.82);
+        if (dataUrl.length > 260000) {
+            throw new Error('Loggan är för stor även efter nedskalning. Välj en mindre bild.');
+        }
+        return dataUrl;
+    } finally {
+        URL.revokeObjectURL(objectUrl);
     }
 }
 

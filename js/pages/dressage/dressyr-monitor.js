@@ -24,6 +24,11 @@ import {
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { mergeDressageProtocols } from './dressageResultBuilder.js';
+import {
+  formatDressageMonitorPenalty,
+  formatDressageMonitorScore,
+  isDressageMonitorEliminated
+} from './dressageMonitorFormatUtils.js';
 
 import { setupDressageModalOnce, openDetails as openDetailsModal } from '../../ui/dressageModal.js';
 
@@ -478,7 +483,7 @@ function renderResultsPanel() {
     if (activeClass) list = list.filter(r => r.className === activeClass);
     list.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
-    const currentHash = list.map(r => `${r.sn}:${r.finalPenalty}:${r.finalPercent}`).join('|');
+    const currentHash = list.map(r => `${r.sn}:${r.finalPenalty}:${r.finalPercent}:${r.eliminated}`).join('|');
     if (currentHash === lastRenderedResultsHash) return;
     lastRenderedResultsHash = currentHash;
 
@@ -491,9 +496,9 @@ function renderResultsPanel() {
       <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${res.sn}</span><span class="truncate max-w-[22ch] dark:text-gray-300">${res.name || ''}</span><span class="text-gray-400 shrink-0">•</span><span class="hidden sm:inline text-gray-600 dark:text-gray-400 truncate max-w-[20ch]">${res.className || ''}</span></div>
       <div class="flex items-center gap-3 shrink-0">
         <div class="hidden md:flex items-center gap-1" title="${res.clubName || ''}">${getFlagHtml({ country: res.country })}${getClubLogoHtml({ clubName: res.clubName })}</div>
-        <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${Number.isFinite(res.finalPercent) ? res.finalPercent.toFixed(1) + ' %' : '—'}</span>
-        <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${Number.isFinite(res.finalPoints) ? res.finalPoints.toFixed(1) + ' p' : '—'}</span>
-        <span class="font-bold text-blue-700 dark:text-blue-400 w-18 text-right tabular-nums">${Number.isFinite(res.finalPenalty) ? res.finalPenalty.toFixed(2) + ' p' : '—'}</span>
+        <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${formatDressageMonitorScore(res.finalPercent, { eliminated: isDressageMonitorEliminated(res), suffix: ' %' })}</span>
+        <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${formatDressageMonitorScore(res.finalPoints, { eliminated: isDressageMonitorEliminated(res), suffix: ' p' })}</span>
+        <span class="font-bold text-blue-700 dark:text-blue-400 w-18 text-right tabular-nums">${formatDressageMonitorPenalty(res.finalPenalty, res)}</span>
       </div>
     </div>`).join('');
     const container = el;
@@ -666,6 +671,7 @@ function maybePushRecent(sn) {
     finalPercent: hasMeaningfulData ? st.finalPercent : null,
     finalPoints: hasMeaningfulData ? st.finalPoints : null,
     finalPenalty: hasMeaningfulData ? st.finalPenalty : null,
+    eliminated: st.eliminated === true || computed?.eliminated === true,
     updatedAt: st.updatedAt || Date.now()
   };
 
@@ -675,7 +681,8 @@ function maybePushRecent(sn) {
     const old = recentResults[idx];
     const diff = (old.finalPercent !== entry.finalPercent) ||
       (old.finalPoints !== entry.finalPoints) ||
-      (old.finalPenalty !== entry.finalPenalty);
+      (old.finalPenalty !== entry.finalPenalty) ||
+      (old.eliminated !== entry.eliminated);
     if (diff) {
       recentResults[idx] = entry;
       changed = true;
