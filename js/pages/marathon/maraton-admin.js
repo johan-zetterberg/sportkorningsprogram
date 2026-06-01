@@ -297,7 +297,7 @@ function renderLayout(competition) {
         <input type="number" step="0.01" id="obstaclePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 0.25 (Default: 0.25)">
       </div>
       <div>
-        <label for="knockdownPenaltyDefault" class="block text-sm font-medium dark:text-gray-300">Standardstraff per knockdown (sek)</label>
+        <label for="knockdownPenaltyDefault" class="block text-sm font-medium dark:text-gray-300">Standardstraff per knockdown (straffpoäng)</label>
         <input type="number" id="knockdownPenaltyDefault" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 5">
       </div>
       <div>
@@ -317,7 +317,6 @@ function renderLayout(competition) {
         Spara Globala Inställningar
       </button>
     </form>
-  </form>
 </div>
 
 <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md lg:col-span-3">
@@ -460,8 +459,8 @@ function renderLayout(competition) {
                 <label for="newObstacleHasKD" class="text-sm dark:text-gray-300">Detta hinder har knockdown/bollar</label>
               </div>
               <div>
-                <label for="newObstacleKDpen" class="block text-sm dark:text-gray-300">Straff/knockdown (sek) – tomt = använd globalt värde</label>
-                <input type="number" id="newObstacleKDpen" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 5">
+                <label for="newObstacleKDpen" class="block text-sm dark:text-gray-300">Straff/knockdown (straffpoäng) - tomt = använd globalt värde</label>
+                <input type="number" id="newObstacleKDpen" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 5 straffpoäng">
               </div>
             </div>
 
@@ -549,7 +548,7 @@ async function setupGlobalSettingsForm() {
     }
   });
 
-  form.addEventListener('submit', async (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     let parsedRules = null;
     try {
@@ -572,7 +571,7 @@ async function setupGlobalSettingsForm() {
     } catch (err) {
       showAlert('Kunde inte spara globala inställningar.', false);
     }
-  });
+  };
 
   // Bind print button
   const printBtn = pageRoot.querySelector('#btnPrintTimecards');
@@ -663,7 +662,7 @@ async function setupMapSettings() {
     uploadMapBtn.disabled = true;
 
     try {
-      const { uploadCompetitionDocument } = await import('../services/storageService.js');
+      const { uploadCompetitionDocument } = await import('../../services/storageService.js');
       // Use efficient path grouping: competitions/<id>/maps/<filename>
       // But storageService currently uses 'documents'. We might want to make it generic or just use it.
       // Let's use the existing function but maybe we should tweak it or add a generic one?
@@ -839,7 +838,7 @@ async function setupMapSettings() {
     syncMarkers();
   });
 
-  form.addEventListener('submit', async (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
 
     let entities = {};
@@ -870,7 +869,7 @@ async function setupMapSettings() {
       console.error('[MaratonAdmin] save mapSettings error:', err);
       showAlert('Kunde inte spara kartinställningar. Fel: ' + err.message, false);
     }
-  });
+  };
 
   fixAspectBtn?.addEventListener('click', () => {
     const url = imgUrlInput.value.trim() || 'img/marathon-course-new.png';
@@ -1058,7 +1057,7 @@ async function setupMarathonSettings() {
   container.innerHTML = html;
 
   // Spara-logiken och realtids-uppdateringen är oförändrade och korrekta
-  form.addEventListener('submit', async (e) => {
+  form.onsubmit = async (e) => {
     e.preventDefault();
     const newClassData = {};
     container.querySelectorAll('.marathon-class-input').forEach(input => {
@@ -1111,9 +1110,9 @@ async function setupMarathonSettings() {
     } catch (err) {
       showAlert('Kunde inte spara maratoninställningarna.', false);
     }
-  });
+  };
 
-  container.addEventListener('input', (e) => {
+  container.oninput = (e) => {
     if (!(e.target instanceof HTMLInputElement)) return;
     const cls = e.target.dataset.className;
     if (!cls) return;
@@ -1154,10 +1153,10 @@ async function setupMarathonSettings() {
 
     container.querySelector(`[data-ideal-for="${cls}|A"]`).textContent = idealA;
     container.querySelector(`[data-ideal-for="${cls}|B"]`).textContent = idealB;
-  });
+  };
 
   // NYTT: Specifik lyssnare för TR Template-ändringar för att auto-fylla defaults (t.ex. Fixed Time för Children)
-  container.addEventListener('change', (e) => {
+  container.onchange = (e) => {
     if (!(e.target instanceof HTMLSelectElement)) return;
     const t = e.target;
     if (t.dataset.field !== 'trTemplate') return;
@@ -1175,7 +1174,7 @@ async function setupMarathonSettings() {
         fixedInput.dispatchEvent(new Event('input', { bubbles: true }));
       }
     }
-  });
+  };
 }
 
 function setupObstacleForm() {

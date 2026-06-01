@@ -187,7 +187,7 @@ export function filterAndSortMarathonEquipages({
     if (k.startsWith('obs-')) {
       const n = parseInt(k.split('obs-')[1]);
       const item = (res.obstacles.items || []).find(o => Number(o.number) === n);
-      return (item && isNum(item.penalty)) ? Number(item.penalty) : 9999;
+      return (item && isNum(item.timeSec)) ? Number(item.timeSec) : 9999;
     }
     return 0;
   };

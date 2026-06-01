@@ -5,6 +5,7 @@
 import { getGlobalState } from '../../main.js';
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
+import { replaceConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
@@ -671,7 +672,7 @@ function wire(root) {
         if (guess) { mapping[cls] = guess; changes++; }
       }
     });
-    await saveConfig(competitionId, 'dressyrProgramMapping', mapping);
+    await replaceConfig(competitionId, 'dressyrProgramMapping', mapping);
     rebuildMappingTable(root, qs('#classFilter', root)?.value || '');
     const tag = qs('#mapSaved', root);
     if (tag) { tag.textContent = `Auto-fix klart: ${changes} ändring(ar).`; setTimeout(() => tag.textContent = '', 3000); }
@@ -699,8 +700,8 @@ function wire(root) {
       return; // avbryt sparning
     }
     try {
-      await saveConfig(competitionId, 'dressyrProgramMapping', mapping);
-      await saveConfig(competitionId, 'dressyrClassConfig', classConfig); // Save CR config
+      await replaceConfig(competitionId, 'dressyrProgramMapping', mapping);
+      await replaceConfig(competitionId, 'dressyrClassConfig', classConfig); // Save CR config
       const msg = qs('#mapSaved', root);
       if (msg) { msg.textContent = 'Sparat (Program & CR).'; setTimeout(() => msg.textContent = '', 2000); }
     } catch (e) {
@@ -775,7 +776,7 @@ function wire(root) {
 
   // ta bort rad (delegat)
   qs('#programForm', root)?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.btnDelRow');
+    const btn = e.target.closest('.mv-del');
     if (!btn) return;
     const tr = btn.closest('tr');
     tr?.parentNode?.removeChild(tr);
@@ -838,7 +839,7 @@ function wire(root) {
     }
 
     try {
-      await saveConfig(competitionId, 'dressageJudgeMapping', judgeMapping);
+      await replaceConfig(competitionId, 'dressageJudgeMapping', judgeMapping);
       renderJudgeAssignmentSummary(root); // Update summary list
       const msg = qs('#judgeMapMsg', root);
       if (msg) { msg.textContent = 'Sparat.'; setTimeout(() => msg.textContent = '', 2000); }
@@ -979,14 +980,18 @@ export async function load() {
 
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id || window.currentCompetitionId || window.competitionId || localStorage.getItem('lastCompetitionId') || null;
+  if (!competitionId) {
+    root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-300">Ingen tävling vald.</p>';
+    return;
+  }
 
   // bygga programindex = global (statisk) + overrides från config
   const globalPrograms = await loadGlobalPrograms();
-  const overrides = competitionId ? (await getConfig(competitionId, 'dressagePrograms') || {}) : {};
+  const overrides = await getConfig(competitionId, 'dressagePrograms') || {};
   mergedPrograms = { ...globalPrograms, ...overrides };
 
   // hämta mapping + ekipage
-  const rawMapping = competitionId ? (await getConfig(competitionId, 'dressyrProgramMapping') || {}) : {};
+  const rawMapping = await getConfig(competitionId, 'dressyrProgramMapping') || {};
   // Hantera äldre, felaktigt kapslat format och säkerställ att vi har ett rent objekt.
   if (rawMapping && typeof rawMapping.mapping === 'object' && Object.keys(rawMapping).length === 1) {
     mapping = rawMapping.mapping;
@@ -996,11 +1001,11 @@ export async function load() {
     mapping = {}; // Fallback till tomt objekt
   }
 
-  allEquipages = competitionId ? (await getEquipages(competitionId) || []) : [];
-  mappingLocks = competitionId ? (await getConfig(competitionId, 'dressyrLocks') || {}) : {};
-  judgeMapping = competitionId ? (await getConfig(competitionId, 'dressageJudgeMapping') || {}) : {};
-  dressageRules = competitionId ? (await getConfig(competitionId, 'dressageRules') || {}) : {};
-  classConfig = competitionId ? (await getConfig(competitionId, 'dressyrClassConfig') || {}) : {}; // Load class config
+  allEquipages = await getEquipages(competitionId) || [];
+  mappingLocks = await getConfig(competitionId, 'dressyrLocks') || {};
+  judgeMapping = await getConfig(competitionId, 'dressageJudgeMapping') || {};
+  dressageRules = await getConfig(competitionId, 'dressageRules') || {};
+  classConfig = await getConfig(competitionId, 'dressyrClassConfig') || {}; // Load class config
 
   // Listen for judges (global pool)
   if (judgeListenerUnsub) judgeListenerUnsub();

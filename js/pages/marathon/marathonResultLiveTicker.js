@@ -1,5 +1,5 @@
 import { isNum } from '../../utils/sharedUtils.js';
-import { formatMsMMSS } from './marathonResultFormatters.js';
+import { formatMsMMSS, formatObstacleSeconds } from './marathonResultFormatters.js';
 
 const localLiveTickers = {};
 
@@ -147,7 +147,7 @@ export function startOrUpdateMarathonLiveTicker(sn, {
 
       if (d.running === true && Number.isFinite(obsNr)) {
         document.querySelectorAll(`td[data-sn="${key}"][data-obs="${obsNr}"] span[data-cell="obsVal"]`).forEach(el => {
-          el.textContent = liveObsP.toFixed(2);
+          el.textContent = formatObstacleSeconds(obsTimeMs / 1000);
           el.classList.add('text-amber-700', 'animate-pulse', 'font-bold');
         });
       }

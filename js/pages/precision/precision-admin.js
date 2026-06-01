@@ -1,6 +1,3 @@
-// js/pages/precision-admin.js
-// --- KOMPLETT OCH KORRIGERAD VERSION ---
-
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
@@ -12,6 +9,13 @@ import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 let competitionId = null;
 let activeClasses = [];
 let precisionConfig = {};
+
+function parseOptionalNumber(value) {
+    const text = String(value ?? '').trim().replace(',', '.');
+    if (text === '') return null;
+    const number = Number(text);
+    return Number.isFinite(number) ? number : null;
+}
 
 function secondsToMMSS(seconds) {
     if (isNaN(seconds) || seconds < 0) return "--:--";
@@ -256,7 +260,7 @@ function renderClassCards() {
     container.innerHTML = activeClasses.map(className => {
         const classId = className.replace(/[^a-zA-Z0-9]/g, '_');
         const courseData = precisionConfig.courses?.[className] || {};
-        const trackLength = courseData.trackLengthMeters || '';
+        const trackLength = courseData.trackLengthMeters ?? '';
         const labels = courseData.obstacleLabels || [];
         const specialPortAllowance = courseData.specialPortAllowance || {};
 
@@ -306,7 +310,7 @@ function renderClassCards() {
                         <label class="block text-sm font-medium dark:text-gray-300">Port-tillägg (cm)</label>
                         <div class="flex items-center mt-1 p-2 bg-white border rounded-md dark:bg-gray-700 dark:border-gray-600">
                             <span class="flex-1 text-gray-700 dark:text-gray-300">Standard: <strong>${stdAllowance}</strong></span>
-                            <input type="number" value="${manualAllowance || ''}" class="allowance-override-input w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
+                            <input type="number" value="${manualAllowance ?? ''}" class="allowance-override-input w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
                         </div>
                     </div>
                     <div>
@@ -317,7 +321,7 @@ function renderClassCards() {
                         <label class="block text-sm font-medium dark:text-gray-300">Tempo & Maxtid</label>
                         <div class="flex items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
                            <div class="flex items-center gap-1">
-                               <input type="number" value="${savedTempo || ''}" class="tempo-override-input w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${stdTempo > 0 ? stdTempo : '???'}">
+                               <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${stdTempo > 0 ? stdTempo : '???'}">
                                <span class="text-xs text-gray-600 dark:text-gray-400">m/min</span>
                            </div>
                            <span class="flex-1 text-right text-xs text-gray-500">Maxtid:</span>
@@ -344,7 +348,6 @@ function renderClassCards() {
                         </div>
                     </details>
                 </div>
-                </div>
             </div>
         `;
     }).join('');
@@ -355,10 +358,10 @@ function renderClassCards() {
         const classId = className.replace(/[^a-zA-Z0-9]/g, '_');
 
         const stdTempo = findTempoForClass(className, klassTempoData);
-        const overrideTempo = parseFloat(card.querySelector('.tempo-override-input').value);
+        const overrideTempo = parseOptionalNumber(card.querySelector('.tempo-override-input').value);
         const activeTempo = overrideTempo > 0 ? overrideTempo : stdTempo;
 
-        const trackLength = parseFloat(card.querySelector('.track-length-input').value) || 0;
+        const trackLength = parseOptionalNumber(card.querySelector('.track-length-input').value) || 0;
         const maxTimeOutput = document.getElementById(`maxtime_${classId}`);
 
         if (trackLength > 0 && activeTempo > 0 && maxTimeOutput) {
@@ -421,22 +424,27 @@ async function saveData() {
         const comp = getGlobalState('currentCompetition');
         const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
         
+        const knockdownPenalty = parseOptionalNumber(document.getElementById('globalKnockdownPenalty')?.value);
+        const timePenaltyRate = parseOptionalNumber(document.getElementById('globalTimePenaltyRate')?.value);
+
         const newConfig = {
+            ...precisionConfig,
             portAllowanceByClass: {},
             courses: {},
-            knockdownPenalty: parseFloat(document.getElementById('globalKnockdownPenalty').value) || 3,
-            timePenaltyRate: parseFloat(document.getElementById('globalTimePenaltyRate').value) || defRate
+            knockdownPenalty: knockdownPenalty ?? 3,
+            timePenaltyRate: timePenaltyRate ?? defRate
         };
 
         document.querySelectorAll('#classConfigsContainer [data-class-name]').forEach(card => {
             const className = card.dataset.className;
             const overrideInput = card.querySelector('.allowance-override-input');
-            if (overrideInput && overrideInput.value) {
-                newConfig.portAllowanceByClass[className] = parseFloat(overrideInput.value);
+            const allowanceOverride = parseOptionalNumber(overrideInput?.value);
+            if (allowanceOverride != null) {
+                newConfig.portAllowanceByClass[className] = allowanceOverride;
             }
 
-            const trackLength = parseFloat(card.querySelector('.track-length-input').value) || null;
-            const tempo = parseFloat(card.querySelector('.tempo-override-input').value) || null;
+            const trackLength = parseOptionalNumber(card.querySelector('.track-length-input')?.value);
+            const tempo = parseOptionalNumber(card.querySelector('.tempo-override-input')?.value);
 
             // Hinderetiketter
             const labelsText = card.querySelector('.obstacle-labels-input').value;
@@ -453,8 +461,8 @@ async function saveData() {
                 if (!label) return;
                 const val = input.value.trim();
                 if (val === '') return;
-                const num = parseFloat(val.replace(',', '.'));
-                if (!isNaN(num) && num !== 0) {
+                const num = parseOptionalNumber(val);
+                if (num != null && num !== 0) {
                     specialPortAllowance[label] = num;
                 }
             });
@@ -543,21 +551,23 @@ export async function load() {
         if (toggleMap) {
             toggleMap.checked = mapSettings.enabled || false;
             if (toggleMap.checked) mapContainer?.classList.remove('hidden');
-            toggleMap.addEventListener('change', () => {
+            toggleMap.onchange = () => {
                 if (toggleMap.checked) {
                     mapContainer?.classList.remove('hidden');
                     initPrecPickerMap();
                 } else {
                     mapContainer?.classList.add('hidden');
                 }
-            });
+            };
         }
         
         setupPrecMapSettings(mapSettings);
 
-        document.getElementById('btnSaveAll').addEventListener('click', saveData);
+        const saveButton = document.getElementById('btnSaveAll');
+        if (saveButton) saveButton.onclick = saveData;
 
-        document.getElementById('btnPrintCourse')?.addEventListener('click', async () => {
+        const printButton = document.getElementById('btnPrintCourse');
+        if (printButton) printButton.onclick = async () => {
             const btn = document.getElementById('btnPrintCourse');
             const orig = btn.innerHTML;
             btn.disabled = true;
@@ -572,7 +582,7 @@ export async function load() {
                 btn.disabled = false;
                 btn.innerHTML = orig;
             }
-        });
+        };
 
     } catch (error) {
         console.error("Kunde inte ladda data för precision-admin:", error);
@@ -585,6 +595,8 @@ export function __unload() {
         precPickerMap.remove();
         precPickerMap = null;
     }
+    precPickerMarkers.clear();
+    currentPrecEntities = {};
 }
 
 // --- Map Picker Logic ---
@@ -622,20 +634,20 @@ function setupPrecMapSettings(mapSettings) {
         initPrecPickerMap();
     }
 
-    imgUrlInput.addEventListener('change', () => initPrecPickerMap());
-    boundsXInput.addEventListener('change', () => initPrecPickerMap());
-    boundsYInput.addEventListener('change', () => initPrecPickerMap());
-    coordsJsonInput.addEventListener('change', () => {
+    imgUrlInput.onchange = () => initPrecPickerMap();
+    boundsXInput.onchange = () => initPrecPickerMap();
+    boundsYInput.onchange = () => initPrecPickerMap();
+    coordsJsonInput.onchange = () => {
         try {
             currentPrecEntities = JSON.parse(coordsJsonInput.value);
             updateGateSelector(currentPrecEntities);
             syncPrecMarkers();
         } catch(e) {}
-    });
+    };
 
-    entitySelector.addEventListener('change', () => syncPrecMarkers());
+    entitySelector.onchange = () => syncPrecMarkers();
 
-    btnGenerateGates?.addEventListener('click', () => {
+    if (btnGenerateGates) btnGenerateGates.onclick = () => {
         // Hämta unika gates från alla klasser
         const uniqueGates = new Set();
         document.querySelectorAll('.obstacle-labels-input').forEach(textarea => {
@@ -674,10 +686,10 @@ function setupPrecMapSettings(mapSettings) {
         coordsJsonInput.value = JSON.stringify(currentPrecEntities, null, 2);
         updateGateSelector(currentPrecEntities);
         syncPrecMarkers();
-    });
+    };
 
-    uploadMapBtn?.addEventListener('click', () => uploadMapInput.click());
-    uploadMapInput?.addEventListener('change', async (e) => {
+    if (uploadMapBtn) uploadMapBtn.onclick = () => uploadMapInput?.click();
+    if (uploadMapInput) uploadMapInput.onchange = async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         if (file.size > 5 * 1024 * 1024) {
@@ -697,9 +709,9 @@ function setupPrecMapSettings(mapSettings) {
             uploadMapBtn.textContent = 'Ladda upp bildfil';
             uploadMapInput.value = '';
         }
-    });
+    };
 
-    driveHelperBtn?.addEventListener('click', () => {
+    if (driveHelperBtn) driveHelperBtn.onclick = () => {
         const rawUrl = imgUrlInput.value.trim();
         let fileId = null;
         const fileDMatch = rawUrl.match(/\/file\/d\/([a-zA-Z0-9_-]{25,})/);
@@ -714,9 +726,9 @@ function setupPrecMapSettings(mapSettings) {
         } else {
             showAlert('Detta ser inte ut som en Google Drive-länk.', 'error');
         }
-    });
+    };
     
-    fixAspectBtn?.addEventListener('click', () => {
+    if (fixAspectBtn) fixAspectBtn.onclick = () => {
         const url = imgUrlInput.value.trim();
         if(!url) return;
         const img = new Image();
@@ -727,7 +739,7 @@ function setupPrecMapSettings(mapSettings) {
             showAlert(`Mått uppdaterade till ${img.width}x${img.height}`);
         };
         img.src = url;
-    });
+    };
 }
 
 function updateGateSelector(entities) {

@@ -68,8 +68,6 @@ export const competitionClasses = {
  */
 export const klassProgramMapping = {
   // Lätta klasser
-  "Lätt C Enbet Ponny": 'SvLC',
-  "Lätt C Enbet Häst": 'SvLC',
   "Lätt B Enbet Ponny": 'SvLB',
   "Lätt B Enbet Häst": 'SvLB',
   "Lätt A Enbet Ponny": 'SvLA',
@@ -77,30 +75,29 @@ export const klassProgramMapping = {
   "Lätt A Par Ponny": 'SvLA',
   "Lätt A Par Häst": 'SvLA',
   // Medelsvåra klasser
-  "MSV 2 Enbet Ponny": 'SvMSVC',
-  "MSV 2 Enbet Häst": 'SvMSVC',
-  "MSV 3 Enbet Ponny": 'SvMSVB',
-  "MSV 3 Enbet Häst": 'SvMSVB',
-  "MSV 3 Par Ponny": 'SvMSVB',
-  "MSV 3 Par Häst": 'SvMSVB',
-  "MSV 4 Enbet Ponny": 'FEI3AHP1',
-  "MSV 4 Enbet Häst": 'FEI3AHP1', // Not: Antar samma program som ponny för enkelhetens skull, kan behöva justeras
-  "MSV 4 Par Ponny": 'FEI3BHP24',
-  "MSV 4 Par Häst": 'FEI3BHP24',
+  "MSV 2 Enbet Ponny": 'SvMsvC',
+  "MSV 2 Enbet Häst": 'SvMsvC',
+  "MSV 3 Enbet Ponny": 'SvMsvB',
+  "MSV 3 Enbet Häst": 'SvMsvB',
+  "MSV 3 Par Ponny": 'SvMsvB',
+  "MSV 3 Par Häst": 'SvMsvB',
+  "MSV 4 Enbet Ponny": 'sv_msv_4_enb_2025',
+  "MSV 4 Enbet Häst": 'sv_msv_4_enb_2025',
+  "MSV 4 Par Ponny": 'sv_msv_4_par_2025',
+  "MSV 4 Par Häst": 'sv_msv_4_par_2025',
   // Svåra klasser
   "Svår Enbet Ponny": 'FEI3AHP1',
-  "Svår Enbet Häst": 'FEI4HP1',
-  "Svår Par Ponny": 'FEI3BHP24',
-  "Svår Par Häst": 'FEI4HP24',
+  "Svår Enbet Häst": 'FEI3AHP1',
+  "Svår Par Ponny": 'FEI_3star_HP2_P2_2025',
+  "Svår Par Häst": 'FEI_3star_HP2_P2_2025',
   // Barnklasser
-  "Lätt C Barn Ponny": 'SvLC',
   "Lätt B Barn Ponny": 'SvLB',
   "Lätt A Barn Ponny": 'SvLA',
   // Fyrspann
-  "MSV Fyrspann Ponny": 'FEI3BHP24',
-  "MSV Fyrspann Häst": 'FEI3BHP24',
-  "Svår Fyrspann Ponny": 'FEI4HP24',
-  "Svår Fyrspann Häst": 'FEI4HP24',
+  "MSV Fyrspann Ponny": 'sv_msv_4_par_2025',
+  "MSV Fyrspann Häst": 'sv_msv_4_par_2025',
+  "Svår Fyrspann Ponny": 'FEI_3star_HP4_2025',
+  "Svår Fyrspann Häst": 'FEI_3star_B_HP4_2022',
 
   // NYTT: Mappning för Paraklasser
   "Lätt A Para Häst": 'FEIParaG1',

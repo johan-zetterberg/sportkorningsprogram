@@ -231,6 +231,18 @@ export async function saveConfig(competitionId, configName, data) {
   })());
 }
 
+export async function replaceConfig(competitionId, configName, data) {
+  return trackWrite(`Ersätter config ${configName}`, (async () => {
+    const configRef = getCompDocRef(competitionId, 'config', configName);
+    await setDoc(configRef, data || {});
+
+    try {
+      const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;
+      localStorage.removeItem(cacheKey);
+    } catch (e) { }
+  })());
+}
+
 export function listenForConfig(competitionId, configName, callback) {
   if (!competitionId || !configName) return () => { };
   const configRef = getCompDocRef(competitionId, 'config', configName);

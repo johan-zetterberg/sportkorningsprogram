@@ -99,13 +99,37 @@ export function guessProgramKeyFromClass(className, allPrograms) {
     if (!className || !allPrograms) return null;
     const s = String(className).toLowerCase();
 
-    // Mapping based on common structured class names rather than complex regex
-    if (s.includes('lätt b') || s.includes('lb')) return 'LB';
-    if (s.includes('lätt a') || s.includes('la')) return 'LA';
-    if (s.includes('msv a') || s.includes('medelsvår a')) return 'MSV_A_4';
-    if (s.includes('msv') || s.includes('medelsvår')) return 'MSV_B_3';
-    if (s.includes('svår')) return 'FEI';
-    
+    const firstExisting = (...keys) => keys.find((key) => allPrograms[key]) || null;
+
+    // Mapping based on common structured class names. Return only keys that
+    // actually exist in the supplied program dictionary.
+    if (s.includes('children')) return firstExisting('FEI_Children_2025_sv');
+    if (s.includes('junior')) return firstExisting('FEI_Junior_2025', 'FEIJunior');
+    if (s.includes('u25')) return firstExisting('FEI_2star_HP2_2024');
+    if (s.includes('para')) return firstExisting('FEIParaG1', 'FEIParaG2', 'FEI_CAI1_Para');
+
+    if (s.includes('lätt b') || s.includes('lb')) return firstExisting('SvLB', 'LB');
+    if (s.includes('lätt a') || s.includes('la')) return firstExisting('SvLA', 'LA');
+    if (s.includes('lätt c')) return firstExisting('SvLC');
+
+    if (s.includes('msv 4') || s.includes('msv a') || s.includes('medelsvår a')) {
+        if (s.includes('par') || s.includes('fyrspann')) {
+            return firstExisting('sv_msv_4_par_2025', 'FEI_3star_HP2_P2_2025', 'FEI_3star_HP4_2025');
+        }
+        return firstExisting('sv_msv_4_enb_2025', 'FEI3AHP1', 'MSV_A_4');
+    }
+    if (s.includes('msv 3') || s.includes('msv b') || s.includes('medelsvår b')) return firstExisting('SvMsvB', 'SvMSVB', 'MSV_B_3');
+    if (s.includes('msv 2') || s.includes('msv c') || s.includes('medelsvår c')) return firstExisting('SvMsvC', 'SvMSVC');
+    if (s.includes('msv') || s.includes('medelsvår')) return firstExisting('SvMsvB', 'SvMsvC');
+    if (s.includes('svår')) {
+        if (s.includes('fyrspann')) {
+            if (s.includes('häst')) return firstExisting('FEI_3star_B_HP4_2022', 'FEI_3star_HP4_2025', 'SvSvar');
+            return firstExisting('FEI_3star_HP4_2025', 'FEI_3star_B_HP4_2022', 'SvSvar');
+        }
+        if (s.includes('par')) return firstExisting('FEI_3star_HP2_P2_2025', 'FEI_3star_B_HP4_2022', 'SvSvar');
+        return firstExisting('FEI3AHP1', 'SvSvar');
+    }
+
     return null;
 }
 

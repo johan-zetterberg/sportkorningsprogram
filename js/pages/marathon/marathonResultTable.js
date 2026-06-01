@@ -1,11 +1,19 @@
+import { formatObstacleSeconds } from './marathonResultFormatters.js';
+
 export function rowObstacleCells(res, maxObs) {
   return Array.from({ length: maxObs }, (_, i) => {
     const n = i + 1;
     const obsItem = (res.obstacles.items || []).find(o => Number(o.number) === n);
+    const timeSec = (obsItem && Number.isFinite(Number(obsItem.timeSec))) ? Number(obsItem.timeSec) : null;
     const finalP = (obsItem && Number.isFinite(Number(obsItem.penalty))) ? Number(obsItem.penalty) : null;
-    const label = (finalP !== null) ? finalP.toFixed(2) : '\u2014';
+    const label = timeSec !== null ? formatObstacleSeconds(timeSec) : (obsItem?.eliminated ? 'ELIM' : '\u2014');
+    const title = [
+      `Hinder ${n}`,
+      timeSec !== null ? `Tid: ${formatObstacleSeconds(timeSec)} s` : null,
+      finalP !== null ? `Straff: ${finalP.toFixed(2)}` : null
+    ].filter(Boolean).join(' | ');
 
-    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${res.startNumber}" data-obs="${n}">
+    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${res.startNumber}" data-obs="${n}" title="${title}">
                     <span data-cell="obsVal">${label}</span>
                 </td>`;
   }).join('');
@@ -47,7 +55,8 @@ export function renderTableHead(thead, {
     .map(st => thSort(thCenter, `stage-${st}`, stageLabel(st)))
     .join('');
   const obsHead = Array.from({ length: maxObs }, (_, i) =>
-    thSort(thCenter, `obs-${i + 1}`, `${t('obstacle_lbl')} ${i + 1}`)
+    thSort(thCenter, `obs-${i + 1}`, `${t('obstacle_lbl')} ${i + 1} (<span class="normal-case lowercase">s</span>)`)
+      .replace('<th ', '<th title="Hindertid i sekunder" ')
   ).join('');
   const klassTH = isClass ? '' : thSort(thClass, 'className', t('class'));
 

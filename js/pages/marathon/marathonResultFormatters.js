@@ -7,6 +7,12 @@ export function formatMsMMSS(ms) {
   return `${mm}:${ss}`;
 }
 
+export function formatObstacleSeconds(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value)) return '\u2014';
+  return value.toFixed(2).replace('.', ',');
+}
+
 export function formatStartTimeLabel(val) {
   if (!val) return '\u2014';
   if (typeof val === 'string' && /^\d{2}:\d{2}$/.test(val)) return val;

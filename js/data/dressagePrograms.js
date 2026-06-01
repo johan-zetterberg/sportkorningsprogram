@@ -80,28 +80,31 @@ export const dressagePrograms = {
 
     'SvMsvB': {
         penaltyCoeff: 0.80,
-        name: 'Msv 3 (B) (2020) (nr 525)',
+        name: 'Svenskt MSV nr 3 (2020) (nr 524)',
         category: 'Svenska Program',
         calculationType: 'national',
         verified: true,
         movements: [
-            { no: 1, text: 'A-X, Vid X: Inkörning i arbetstrav, Halt-hälsning', judge: 'Rakhet, halt, hälsning', coeff: 1 },
-            { no: 2, text: 'X-C-M: Arbetstrav', judge: 'Takt, ställning', coeff: 1 },
-            { no: 3, text: 'M-E-F: Mellantrav', judge: 'Mellantravens kvalitet', coeff: 1 },
-            { no: 4, text: 'F-A-K: Arbetstrav', judge: 'Takt, ställning', coeff: 1 },
-            { no: 5, text: 'K-X-H: Vänd snett igenom, ökad skritt', judge: 'Ökad skrits kvalitet', coeff: 1 },
-            { no: 6, text: 'H-C-M: Arbetstrav', judge: 'Övergång, takt, ställning', coeff: 1 },
-            { no: 7, text: 'M-R-P: Serpentin 3 bågar, den mellersta i samlad trav', judge: 'Bågar, övergångar, samling', coeff: 1 },
-            { no: 8, text: 'P-F: Arbetstrav', judge: 'Takt', coeff: 1 },
-            { no: 9, text: 'F-E-K: Mellantrav', judge: 'Mellantravens kvalitet', coeff: 1 },
-            { no: 10, text: 'K-A: Arbetstrav', judge: 'Övergång, takt', coeff: 1 },
-            { no: 11, text: 'A-D-X: Vänd rätt upp, halt, ryggning 5 steg', judge: 'Rakhet, halt, ryggning', coeff: 1 },
-            { no: 12, text: 'XG, G: Arbetstrav, Halt, hälsning', judge: 'Igångsättning, rakhet, halt', coeff: 1 },
-            { no: 13, text: 'Gångarter (frihet, regelbundenhet)', judge: 'Kvalitet på gångarterna', coeff: 2 },
-            { no: 14, text: 'Framåtbjudning (impuls, lydnad, lösgjordhet)', judge: 'Energi, lydnad, kontakt', coeff: 2 },
-            { no: 15, text: 'Samling (endast häst)', judge: 'Kvalitet på samlingen', coeff: 1 },
-            { no: 16, text: 'Kusken', judge: 'Sits, hjälper, inverkan', coeff: 2 },
-            { no: 17, text: 'Helhetsintryck (precision, harmoni, elegans)', judge: 'Allmänt intryck', coeff: 1 }
+            { no: 1, text: 'A-X, Vid X: Inkörning i arbetstrav, Halt-hälsning', judge: 'Inkörning rak linje. Halt på bettet. Övergångarna.', coeff: 1 },
+            { no: 2, text: 'XCH, HP: Arbetstrav, Vänd snett igenom i mellantrav', judge: 'Övergång till mellantrav, framåtbjudning, regelbundenhet.', coeff: 1 },
+            { no: 3, text: 'PFA, vid A, L: Arbetstrav, Vänd rätt upp, Volt till höger 20 m', judge: 'Regelbundenhet, noggrannhet och ställning vid figurens utförande.', coeff: 1 },
+            { no: 4, text: 'LI: Mellantrav', judge: 'Övergångar, framåtbjudning, regelbundenhet. Längningens kvalitet.', coeff: 1 },
+            { no: 5, text: 'I, ICM: Arbetstrav, volt till vänster 20 m, Arbetstrav', judge: 'Regelbundenhet, noggrannhet och ställning vid figurens utförande.', coeff: 1 },
+            { no: 6, text: 'MEV: Skritt med kontakt', judge: 'Övergång till skritt. Framåtbjudning. Skrittens kvalitet, övertramp.', coeff: 1 },
+            { no: 7, text: 'VE, vid E: Halvvolt till vänster 10 m, Arbetstrav', judge: 'Figuren, ställning och böjning, framåtbjudning. Skrittens kvalitet. Övergång till trav.', coeff: 1 },
+            { no: 8, text: 'EHCM, MXK: Arbetstrav, Vänd snett igenom i ökad trav', judge: 'Ställning. Framåtbjudning, regelbundenhet, längningens kvalitet.', coeff: 1 },
+            { no: 9, text: 'KA, AI: Arbetstrav, Serpentin 3 lika stora bågar', judge: 'Övergången till arbetstrav. Noggrannhet, regelbundenhet, ställning och figurens utförande.', coeff: 1 },
+            { no: 10, text: 'I: Halt, kusk på medellinjen, ryggning 4 steg', judge: 'Övergång till halt, halt på bettet, orörlighet. Framåtbjudning, takt i ryggningen.', coeff: 1 },
+            { no: 11, text: 'ISHC: Arbetstrav', judge: 'Övergång till arbetstrav, framåtbjudning.', coeff: 1 },
+            { no: 12, text: 'CMI: Samlad trav', judge: 'Övergång till samlad trav, framåtbjudning. Aktivitet. Bakbensarbete.', coeff: 1 },
+            { no: 13, text: 'ISVL: Arbetstrav', judge: 'Övergång till arbetstrav, framåtbjudning.', coeff: 1 },
+            { no: 14, text: 'LFA: Samlad trav', judge: 'Övergång till samlad trav, framåtbjudning. Aktivitet. Bakbensarbete.', coeff: 1 },
+            { no: 15, text: 'AK, KXH, HC: Arbetstrav, båge med enhandsfattning, Arbetstrav', judge: 'Övergång till arbetstrav. Noggrannhet, regelbundenhet, ställning och figurens utförande.', coeff: 1 },
+            { no: 16, text: 'C: Halt 6 sek', judge: 'Övergång till halt på bettet, orörlighet.', coeff: 1 },
+            { no: 17, text: 'CMBXG, G: Arbetstrav, Halt hälsning', judge: 'Övergång, framåtbjudning, regelbundenhet, halt på bettet, orörlighet. Utkörning i arbetstrav.', coeff: 1 },
+            { no: 18, text: 'Lydnad, framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda. Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 1 },
+            { no: 19, text: 'Kusken', judge: 'Användning av hjälper. Hantering av tömmar och piska. Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
@@ -116,28 +119,24 @@ export const dressagePrograms = {
         "movements": [
             { "no": 1, "letters": "AX, CH", "text": "Inkörning i arbetstrav, Vänster varv", "judge": "Rakhet, takt, Ställning", "coeff": 1 },
             { "no": 2, "letters": "HS, SV, VKA", "text": "Arbetstrav, Samlad trav 10m avvikelse, Arbetstrav", "judge": "Takt, Övergång till samling, bärighet, ställning och bjudning i bågen. Figurens rätta utförande. Övergång.", "coeff": 1 },
-            { "no": 3, "letters": "AFP, PXS", "text": "Arbetstrav, Mellantrav", "judge": "Takt, ställning, form, Övergång till mellantrav, bärighet, längning av steg.", "coeff": 1 },
-            { "no": 4, "letters": "SHC", "text": "Arbetstrav", "judge": "bakbensaktivitet. Övergång till arbetstrav, ställning.", "coeff": 1 },
-            { "no": 5, "letters": "CI, IE", "text": "Arbetstrav, 25m båge höger, 15m båge till vänster", "judge": "Takt, ställning, böjning och figurens rätta utförande.", "coeff": 1 },
-            { "no": 6, "letters": "EXE, EVL", "text": "Samlad trav, 20m volt till vänster, Samlad trav", "judge": "Övergång till samling, bärighet, bakbensaktivitet, takt och ställning.", "coeff": 1 },
-            { "no": 7, "letters": "L", "text": "Halt 8 sek, kusk på L", "judge": "Övergång till halt, uppställning, stillhet på töm.", "coeff": 1 },
-            { "no": 8, "letters": "LPFAKV", "text": "Arbetstrav", "judge": "Igångsättning till arbetstrav, takt, ställning.", "coeff": 1 },
-            { "no": 9, "letters": "VXR", "text": "Mellantrav", "judge": "Övergång till mellantrav, bärighet, längning av steget, bakbensaktivitet.", "coeff": 1 },
-            { "no": 10, "letters": "RMC", "text": "Arbetstrav", "judge": "Övergång till arbetstrav, ställning, takt.", "coeff": 1 },
-            { "no": 11, "letters": "CXC", "text": "Vänster arbetsgalopp, fattning CH, 40m volt vänster", "judge": "Övergång till arbetsgalopp, bärighet, takt, bakbensaktivitet, ställning.", "coeff": 1 },
-            { "no": 12, "letters": "LVKA", "text": "Arbetstrav", "judge": "Övergång för enbet till arbetstrav.", "coeff": 1 },
-            { "no": 13, "letters": "AFP", "text": "Skritt", "judge": "Övergång till skritt. Takt, energi, övertramp och kontakt.", "coeff": 1 },
-            { "no": 14, "letters": "PXS", "text": "Fri skritt", "judge": "Övergång till fri skritt, takt, övertramp, avspänt, energi.", "coeff": 1 },
-            { "no": 15, "letters": "SHC", "text": "Arbetstrav", "judge": "Övergång till arbetstrav, takt och ställning.", "coeff": 1 },
-            { "no": 16, "letters": "CXC", "text": "Höger arbetsgalopp, fattning CM, 40m volt till höger", "judge": "Övergång till galopp, Balans, bärighet, bakbensaktivitet, ställning, övergång till arbetstrav.", "coeff": 1 },
-            { "no": 17, "letters": "CMR, RP", "text": "Arbetstrav, Samlad trav, 10m avvikelse", "judge": "Övergång till samling. Bjudning, bärighet, ställning, böjning i bågen. Figurens rätta utförande.", "coeff": 1 },
-            { "no": 18, "letters": "PFA, AKV", "text": "Arbetstrav", "judge": "Övergång till arbetstrav.", "coeff": 1 },
-            { "no": 19, "letters": "VP", "text": "½ 40m volt, längning av överlinjen", "judge": "Takt, ställning, form. Längning av överlinjen. Hästen ska söka sig framåt och nedåt med bibehållen kontakt och tempo.", "coeff": 1 },
-            { "no": 20, "letters": "PFAD", "text": "Arbetstrav", "judge": "Övergång till arbetstrav på töm, ställning och takt.", "coeff": 1 },
-            { "no": 21, "letters": "DXG", "text": "Ökad trav", "judge": "Övergång till ökad trav, bärighet, takt, energi, rakhet.", "coeff": 1 },
-            { "no": 22, "letters": "G", "text": "Halt, hälsning. Utkörning i arbetstrav.", "judge": "Stillhet på töm.", "coeff": 1 },
-            { "no": 23, "text": "Kusken", "judge": "Användning av hjälper, hantering av tömmar/körspö, ställning, noggrannhet.", "coeff": 2 },
-            { "no": 24, "text": "Presentation", "judge": "Uppträdande, puts, tillpassning, kondition av hästar/seldon/vagn.", "coeff": 2 }
+            { "no": 3, "letters": "AFP, PXS, SHC", "text": "Arbetstrav, Mellantrav, Arbetstrav", "judge": "Takt, ställning, form. Övergång till mellantrav, bärighet, längning av steg, bakbensaktivitet. Övergång till arbetstrav, ställning.", "coeff": 1 },
+            { "no": 4, "letters": "CI, IE", "text": "Arbetstrav, 25m båge höger, 15m båge till vänster", "judge": "Takt, ställning, böjning och figurens rätta utförande.", "coeff": 1 },
+            { "no": 5, "letters": "EXE, EVL", "text": "Samlad trav, 20m volt till vänster, Samlad trav", "judge": "Övergång till samling, bärighet, bakbensaktivitet, takt och ställning.", "coeff": 1 },
+            { "no": 6, "letters": "L", "text": "Halt 8 sek, kusk på L", "judge": "Övergång till halt, uppställning, stillhet på töm.", "coeff": 1 },
+            { "no": 7, "letters": "LPFAKV", "text": "Arbetstrav", "judge": "Igångsättning till arbetstrav, takt, ställning.", "coeff": 1 },
+            { "no": 8, "letters": "VXR, RMC", "text": "Mellantrav, Arbetstrav", "judge": "Övergång till mellantrav, bärighet, längning av steget, bakbensaktivitet. Övergång till arbetstrav, ställning, takt.", "coeff": 1 },
+            { "no": 9, "letters": "CXC", "text": "Vänster arbetsgalopp, fattning C-H, 40m volt vänster", "judge": "Övergång till arbetsgalopp, bärighet, takt, bakbensaktivitet, ställning.", "coeff": 1 },
+            { "no": 10, "letters": "CI, IB", "text": "Arbetstrav, 25m båge vänster, 15m båge höger", "judge": "Övergång till arbetstrav, takt och ställning. Figurens rätta utförande.", "coeff": 1 },
+            { "no": 11, "letters": "BXB, BPL", "text": "Samlad trav till höger 20m, Samlad trav", "judge": "Övergång till samling, bärighet, bakbensaktivitet, takt och bjudning.", "coeff": 1 },
+            { "no": 12, "letters": "L", "text": "Halt, kusk på L, stillhet, ryggning 4-5 steg", "judge": "Övergång till halt, stillhet, uppställning. Övergång till ryggning. Takt i ryggning, rakhet. Övergång till arbetstrav.", "coeff": 1 },
+            { "no": 13, "letters": "LVKA, AFP", "text": "Arbetstrav, Skritt", "judge": "Takt, ställning. Övergång till skritt. Takt, energi, övertramp och kontakt.", "coeff": 1 },
+            { "no": 14, "letters": "PXS, SHC", "text": "Fri skritt, Arbetstrav", "judge": "Övergång till fri skritt, takt, övertramp, avspänt, energi. Övergång till arbetstrav, takt och ställning.", "coeff": 1 },
+            { "no": 15, "letters": "CXC", "text": "Höger arbetsgalopp, fattning C-M, 40m volt till höger", "judge": "Övergång till galopp, balans, bärighet, bakbensaktivitet, ställning, övergång till arbetstrav.", "coeff": 1 },
+            { "no": 16, "letters": "CMR, RP, PFA", "text": "Arbetstrav, Samlad trav, 10m avvikelse, Arbetstrav", "judge": "Övergång för enbet till arbetstrav. Övergång till samling. Bjudning, bärighet, ställning, böjning i bågen. Figurens rätta utförande. Övergång till arbetstrav.", "coeff": 1 },
+            { "no": 17, "letters": "AKV, VP", "text": "Arbetstrav, Längning av överlinjen, ½ 40m volt", "judge": "Takt, ställning, form. Övergång till längning av överlinjen. Hästen ska söka sig framåt och nedåt med bibehållen kontakt och tempo.", "coeff": 1 },
+            { "no": 18, "letters": "PFAD, DXG, G", "text": "Arbetstrav, Ökad trav, Halt, hästen på G, hälsning", "judge": "Övergång till arbetstrav på töm, ställning och takt. Övergång till ökad trav, bärighet, takt, energi, rakhet. Stillhet på töm. Utkörning i arbetstrav.", "coeff": 1 },
+            { "no": 19, "text": "Kusken", "judge": "Användning av hjälper, hantering av tömmar/körspö, ställning på kuskbocken, noggrannhet.", "coeff": 1 },
+            { "no": 20, "text": "Presentation", "judge": "Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.", "coeff": 1 }
         ]
     },
 
@@ -158,20 +157,18 @@ export const dressagePrograms = {
             { "no": 6, "letters": "EXE, EVL", "text": "Samlad trav, 20m volt till vänster, Samlad trav", "judge": "Övergång till samling, bärighet, bakbensaktivitet, takt och ställning.", "coeff": 1 },
             { "no": 7, "letters": "L", "text": "Halt 8 sek, kusk på L", "judge": "Övergång till halt, uppställning, stillhet på töm.", "coeff": 1 },
             { "no": 8, "letters": "LPFAKV", "text": "Arbetstrav", "judge": "Igångsättning till arbetstrav, takt, ställning.", "coeff": 1 },
-            { "no": 9, "letters": "VXR", "text": "Mellantrav", "judge": "Övergång till mellantrav, bärighet, längning av steget, bakbensaktivitet.", "coeff": 1 },
-            { "no": 10, "letters": "RMC", "text": "Arbetstrav", "judge": "Övergång till arbetstrav, ställning, takt.", "coeff": 1 },
-            { "no": 11, "letters": "CXC", "text": "40m volt vänster: ½ volt arbetstrav, 1½ volt mellantrav, ½ volt arbetstrav", "judge": "Takt, ställning, form. Övergång till mellantrav, bärighet, förlängning av steg, bakbensaktivitet, balans och form. Övergång till arbetstrav, takt, bärighet och ställning.", "coeff": 2 },
-            { "no": 12, "letters": "CI, IB", "text": "Arbetstrav, 25m båge vänster, 15m båge höger", "judge": "Övergång till arbetstrav, takt och ställning. Figurens rätta utförande.", "coeff": 1 },
-            { "no": 13, "letters": "BXB, BPL", "text": "Samlad trav till höger, 20m", "judge": "Övergång till samling, bärighet, bakbensaktivitet, takt och bjudning.", "coeff": 1 },
-            { "no": 14, "letters": "L", "text": "Halt, stillhet, ryggning 4-5 steg", "judge": "Övergång till halt, stillhet, uppställning. Övergång till ryggning. Takt i ryggning, rakhet. Övergång till arbetstrav.", "coeff": 2 },
-            { "no": 15, "letters": "LPFAKV", "text": "Arbetstrav", "judge": "Takt, ställning.", "coeff": 1 },
-            { "no": 16, "letters": "VXR", "text": "Mellantrav", "judge": "Övergång, bärighet, längning av steget.", "coeff": 1 },
-            { "no": 17, "letters": "RMC", "text": "Arbetstrav", "judge": "Övergång, ställning, takt.", "coeff": 1 },
-            { "no": 18, "letters": "CXC", "text": "40m volt höger: ½ volt arbetstrav, 1½ volt mellantrav, ½ volt arbetstrav", "judge": "Takt, ställning, form. Övergång till mellantrav, bärighet, förlängning av steg, bakbensaktivitet, balans och form. Övergång till arbetstrav, takt, bärighet och ställning.", "coeff": 2 },
-            { "no": 19, "letters": "DXG", "text": "Ökad trav", "judge": "Övergång till ökad trav, bärighet, takt, energi, rakhet.", "coeff": 1 },
-            { "no": 20, "letters": "G", "text": "Halt, hälsning. Utkörning i arbetstrav.", "judge": "Stillhet på töm.", "coeff": 1 },
-            { "no": 21, "text": "Kusken", "judge": "Användning av hjälper, hantering av tömmar/körspö, ställning, noggrannhet.", "coeff": 2 },
-            { "no": 22, "text": "Presentation", "judge": "Uppträdande, puts, tillpassning, kondition av hästar/seldon/vagn.", "coeff": 2 }
+            { "no": 9, "letters": "CXC", "text": "40m volt till vänster. 1/4 volt arbetstrav, 1/2 volt mellantrav, 1/4 volt arbetstrav", "judge": "Takt, ställning, form. Övergång till mellantrav, bärighet, förlängning av steg, bakbensaktivitet, balans och form. Övergång till arbetstrav, takt, bärighet och ställning.", "coeff": 1 },
+            { "no": 10, "letters": "CI, IB", "text": "Arbetstrav, 25m båge vänster, 15m båge höger", "judge": "Övergång till arbetstrav, takt och ställning. Figurens rätta utförande.", "coeff": 1 },
+            { "no": 11, "letters": "BXB, BPL", "text": "Samlad trav till höger, 20m volt, arbetstrav", "judge": "Övergång till samling, bärighet, bakbensaktivitet, takt och bjudning.", "coeff": 1 },
+            { "no": 12, "letters": "L", "text": "Halt, kusk på L, stillhet, ryggning 4-5 steg", "judge": "Övergång till halt, stillhet, uppställning. Övergång till ryggning. Takt i ryggning, rakhet. Övergång till arbetstrav.", "coeff": 1 },
+            { "no": 13, "letters": "LVKA, AFP", "text": "Arbetstrav, vänster varv, vänster volt 40m, arbetstrav", "judge": "Igångsättning till arbetstrav, takt, ställning och figurens rätta utförande.", "coeff": 1 },
+            { "no": 14, "letters": "PXS, SHC", "text": "Mellantrav, arbetstrav", "judge": "Övergång till mellantrav, bärighet, längning av steget, bakbensaktivitet. Övergång till arbetstrav, ställning och takt.", "coeff": 1 },
+            { "no": 15, "letters": "CXC", "text": "40m volt till höger. 1/4 volt arbetstrav, 1/2 volt mellantrav, 1/4 volt arbetstrav", "judge": "Takt, ställning, form. Övergång till mellantrav, bärighet, förlängning av steg, bakbensaktivitet, balans och form. Övergång till arbetstrav, takt, bärighet och ställning.", "coeff": 1 },
+            { "no": 16, "letters": "CMR, RP, PFA", "text": "Arbetstrav, samlad trav, 20m volt till vänster, arbetstrav", "judge": "Takt, ställning, övergång till samling, bärighet och figurens rätta utförande.", "coeff": 1 },
+            { "no": 17, "letters": "AKV, VP", "text": "Arbetstrav, längning av överlinjen, 1/2 40m volt", "judge": "Takt, ställning, form. Övergång till längning av överlinjen. Hästen ska söka sig framåt och nedåt med bibehållen kontakt och tempo.", "coeff": 1 },
+            { "no": 18, "letters": "PFAD, DXG, G", "text": "Arbetstrav, ökad trav, halt, hästen på G, hälsning", "judge": "Övergång till arbetstrav på töm, ställning och takt. Övergång till ökad trav, bärighet, takt, energi, rakhet. Stillhet på töm. Utkörning i arbetstrav.", "coeff": 1 },
+            { "no": 19, "text": "Kusken", "judge": "Användning av hjälper, hantering av tömmar/körspö, ställning på kuskbocken, noggrannhet.", "coeff": 1 },
+            { "no": 20, "text": "Presentation", "judge": "Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.", "coeff": 1 }
         ]
     },
 
@@ -235,8 +232,8 @@ export const dressagePrograms = {
             { no: 16, text: 'IL: Båge vänster 30m, Längning av överlinjen', judge: 'Längning gradvis framåt nedåt, nosen framför lodlinjen, stadig kontakt, framåtbjudning, korrekthet, balans, rytm.', coeff: 1 },
             { no: 17, text: 'LA, AD: Arbetstrav, båge höger 25m, Arbetstrav', judge: 'Regelbundenhet, ställning, framåtbjudning, kontakt, kvaliteten på figuren.', coeff: 1 },
             { no: 18, text: 'DXG, G: Mellantrav, Progressiv halt, hälsning', judge: 'Övergång till mellantrav, regelbundenhet, längning av överlinjen och steg, framåtbjudning. Mjuk övergång till halt, stillhet, uppställning, på töm.', coeff: 1 },
-            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, hantering av tömmar och körspö, ställning på kuskbocken, betygen ska spegla noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn. Harmonin mellan kusk och häst.', coeff: 2 }
+            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, hantering av tömmar och körspö, ställning på kuskbocken, betygen ska spegla noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn. Harmonin mellan kusk och häst.', coeff: 1 }
         ]
     },
 
@@ -266,8 +263,8 @@ export const dressagePrograms = {
             { no: 16, text: 'SHC, CA, AD: Arbetstrav, Serpentin med 3 bågar, Arbetstrav', judge: 'Övergång till arbetstrav. Rörelsens korrekta utförande, böjning och kontakten med bettet.', coeff: 1 },
             { no: 17, text: 'DXI: Ökad trav', judge: 'Övergång till ökad trav, framåtbjudning och regelbundenhet.', coeff: 1 },
             { no: 18, text: 'IG, G: Arbetstrav, Halt, hälsning, Utkörning i arbetstrav', judge: 'Övergång till arbetstrav. Rakhet och övergång till halt, orörlighet, på bettet.', coeff: 1 },
-            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning. kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning. kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
@@ -388,8 +385,8 @@ export const dressagePrograms = {
             { no: 16, text: 'SI, IK: Arbetstrav, Halv volt höger, 20m, Arbetstrav', judge: 'Övergång till arbetstrav. Böjning, ställning, kontakt, bakbensaktivitet och elasticitet. Noggrannhet genom hela figuren.', coeff: 1 },
             { no: 17, text: 'KAD, DG: Arbetstrav, Ökad trav', judge: 'Arbetstrav. Ställning, framåtbjudning. Övergång till ökad trav. Längning, framåtbjudning, balans, taktmässighet.', coeff: 1 },
             { no: 18, text: 'G: Halt, hälsning, Utkörning i arbetstrav', judge: 'Övergången till halt. Hästens nos vid G. Orörlighet, korrekt uppställd på töm.', coeff: 1 },
-            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, tömmar och piska, position på vagnen. Noggrannhet av figurer och övergångar.', coeff: 2 },
-            { no: 20, text: 'Presentation', judge: 'Helhetsintrycket av kusken och groomen, korrekthet och i harmoni med sele och vagn. Kondition och helhetsintryck för häst(ar), samt harmoni mellan häst(ar) och kusk.', coeff: 2 }
+            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, tömmar och piska, position på vagnen. Noggrannhet av figurer och övergångar.', coeff: 1 },
+            { no: 20, text: 'Presentation', judge: 'Helhetsintrycket av kusken och groomen, korrekthet och i harmoni med sele och vagn. Kondition och helhetsintryck för häst(ar), samt harmoni mellan häst(ar) och kusk.', coeff: 1 }
         ]
     },
 
@@ -421,8 +418,8 @@ export const dressagePrograms = {
             { no: 17, text: 'MCH: Arbetsgalopp vänster', judge: 'Ställning och eftergift. Balans, bärighet och form. Bjudning och rytm.', coeff: 1 },
             { no: 18, text: 'HF: Ökad galopp vänster', judge: 'Övergång till ökad galopp. Längning av språng och form. Rakhet.', coeff: 1 },
             { no: 19, text: 'FAD, DXG, G: Arbetstrav, Ökad trav, Halt, Hälsning, Utkörning i arbetstrav', judge: 'Övergång till arbetstrav. Eftergift. Övergång till ökad trav. Längning och rytm. Övergång till halt. Stillhet. Uppställning och form.', coeff: 1 },
-            { no: 20, text: 'Kusken', judge: 'Användning av tömmar, röst och pisk. Figurernas rätta utförande. Ställning på kuskbock. Poäng ska reflektera kvalitet på övergångar.', coeff: 2 },
-            { no: 21, text: 'Presentation', judge: 'Uppträdande av kusk och groom. Rent och prydligt. Harmonin mellan sele och vagn. Kondition på hästen. Kontakten mellan häst och kusk. Helheten på ekipaget.', coeff: 2 }
+            { no: 20, text: 'Kusken', judge: 'Användning av tömmar, röst och pisk. Figurernas rätta utförande. Ställning på kuskbock. Poäng ska reflektera kvalitet på övergångar.', coeff: 1 },
+            { no: 21, text: 'Presentation', judge: 'Uppträdande av kusk och groom. Rent och prydligt. Harmonin mellan sele och vagn. Kondition på hästen. Kontakten mellan häst och kusk. Helheten på ekipaget.', coeff: 1 }
         ]
     },
 
@@ -454,13 +451,13 @@ export const dressagePrograms = {
             { no: 17, text: 'L: Halt, Ryggning 3 m', judge: 'Kusken på medellinjen. Takt, lydnad, på töm, kvalitet på diagonala steg, kontakt och rakhet.', coeff: 1 },
             { no: 18, text: 'LKAD: Samlad trav', judge: 'Övergång till samlad trav. Ställning och kontakt. Eftergivenhet. Framåtbjudning. Rörelsens rätta utförande.', coeff: 1 },
             { no: 19, text: 'DXG, G: Ökad trav, Halt. Hälsning', judge: 'Övergång till ökad trav. Längning, Framåtbjudning, schwung, takt, balans och rakhet. Övergång till halt. Stillhet, rätt uppställd, på töm.', coeff: 1 },
-            { no: 20, text: 'Kusken', judge: 'Användning av hjälper. Hantering av tömmar och piska. Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 21, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 20, text: 'Kusken', judge: 'Användning av hjälper. Hantering av tömmar och piska. Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 21, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
     'FEI3AHP1': {
-        penaltyCoeff: 0.73,
+        penaltyCoeff: 0.666,
         name: 'FEI Test 3* HP1 (Enbet)',
         category: 'FEI Senior',
         arena: "80x40",
@@ -490,18 +487,18 @@ export const dressagePrograms = {
             { no: 20, text: 'RV, VK: Extended Trot, Collected Trot', judge: 'Transition to Extended Trot. Lengthening, impulsion, rhythm, balance and straightness, impulsion, quality of the extension. Transition to Collected Trot.', coeff: 1 },
             { no: 21, text: 'KAI: Working Canter left', judge: 'Transition to Working Canter. Balance, hock action, impulsion. Activity of the hindquarters. Remaining on the bit, forward.', coeff: 1 },
             { no: 22, text: 'IG, G: Collected Trot, Halt & Salute', judge: 'Transition to Collected Trot. Transition to Halt. Immobility, square, on the bit.', coeff: 1 },
-            { no: 23, text: 'ATHLETE', judge: 'Use of aids, handling of reins and whip, position on the box, accuracy of figures and transitions.', coeff: 2 },
-            { no: 24, text: 'GENERAL IMPRESSION & PRESENTATION', judge: 'Appearance of athlete and grooms, correctness, cleanliness harmonizing with of harness and carriage. Fitness, matching and condition of Horse(s), balanced picture of the complete turnout.', coeff: 2 }
+            { no: 23, text: 'ATHLETE', judge: 'Use of aids, handling of reins and whip, position on the box, accuracy of figures and transitions.', coeff: 1 },
+            { no: 24, text: 'GENERAL IMPRESSION & PRESENTATION', judge: 'Appearance of athlete and grooms, correctness, cleanliness harmonizing with of harness and carriage. Fitness, matching and condition of Horse(s), balanced picture of the complete turnout.', coeff: 1 }
         ]
     },
 
     'FEI_3star_B_HP4_2022': {
-        penaltyCoeff: 0.615,
-        name: 'FEI Test 3*B HP4 (Par/Fyrspann)',
+        penaltyCoeff: 0.666,
+        name: 'FEI Test 3* B H4 (nr 518)',
         category: 'FEI Senior',
         arena: "100x40",
-        source: "Dressage_test_2022_Senior_Test_3_B_H4-CAI3_100x40_0.pdf",
-        version: "2022",
+        source: "518. FEI Dressage Senior 3 B HP4 40x80/40x100",
+        version: "2024",
         verified: true,
         movements: [
             { no: 1, text: 'A-X, X: Inkörning i arbetstrav, Halt hälsning', judge: 'Inkörning på rak linje, övergång till halt, orörlighet.', coeff: 1 },
@@ -526,8 +523,8 @@ export const dressagePrograms = {
             { no: 20, text: 'LH, HCM: Ökad trav, tömmarna i en hand, Arbetstrav', judge: 'Övergångarna och kvalitén i stegen.', coeff: 1 },
             { no: 21, text: 'MEV: Fri skritt', judge: 'Övergång till skritt. Frigjordhet, rytm, avslappnat med energi. Kvalité i skritten.', coeff: 1 },
             { no: 22, text: 'VKAD, DXG, G: Samlad trav, Ökad trav, Halt hälsning, Utkörning i arbetstrav', judge: 'Övergångarna, ställning, framåtbjudning, rytm. Rakhet och orörlighet i halten.', coeff: 1 },
-            { no: 23, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 24, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 23, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 24, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
@@ -564,8 +561,8 @@ export const dressagePrograms = {
             { no: 22, text: '5m down from I-X: Collected Trot, Loop left 20m', judge: 'Transition. Balance. Impulsion. Bending. Accuracy. Cadence.', coeff: 1 },
             { no: 23, text: 'X: Halt, driver on centre line, Rein Back 4-6m', judge: 'Obedience. Quality of steps in two time diagonal footfall. Maintaining roundness.', coeff: 1 },
             { no: 24, text: 'X-B-P-F-A-D, D-X-G, G: Collected Trot, Extended Trot, Halt. Salute', judge: 'Transitions. Impulsion. Cadence. Rhythm. Straightness. Immobility.', coeff: 1 },
-            { no: 25, text: 'ATHLETE', judge: 'Use of aids, handling of reins and whip, position on the box, accuracy of figures and transitions.', coeff: 2 },
-            { no: 26, text: 'GENERAL IMPRESSION & PRESENTATION', judge: 'Appearance of athlete and grooms, correctness, cleanliness harmonizing with of harness and carriage. Fitness, matching and condition of Horse(s), balanced picture of the complete turnout.', coeff: 2 }
+            { no: 25, text: 'ATHLETE', judge: 'Use of aids, handling of reins and whip, position on the box, accuracy of figures and transitions.', coeff: 1 },
+            { no: 26, text: 'GENERAL IMPRESSION & PRESENTATION', judge: 'Appearance of athlete and grooms, correctness, cleanliness harmonizing with of harness and carriage. Fitness, matching and condition of Horse(s), balanced picture of the complete turnout.', coeff: 1 }
         ]
     },
 
@@ -602,8 +599,8 @@ export const dressagePrograms = {
             { no: 22, text: 'L: Halt, kusken på medellinjen, Ryggning 3m', judge: 'Övergång till halt, stillhet, övergång till ryggning, kvaliteten på diagonala steg. kontakt, lydnad, rakhet.', coeff: 1 },
             { no: 23, text: 'LA, AD: Samlad trav, Båge till höger, Samlad trav', judge: 'Övergång till samlad trav, framåtbjudning, ställning. korrekthet, bakbensaktivitet.', coeff: 1 },
             { no: 24, text: 'DXG, G: Ökad trav, Halt hälsning', judge: 'Övergång till ökad trav, framåtbjudning, rakhet, taktmässighet. Övergång till halt, stillhet, uppställning, på töm.', coeff: 1 },
-            { no: 25, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och körspö, ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 26, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 25, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och körspö, ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 26, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
@@ -633,8 +630,8 @@ export const dressagePrograms = {
             { no: 15, text: 'PXS: Ökad trav', judge: 'Övergångarna, framåtbjudning och regelbundenhet. Frihet i rörelserna.', coeff: 1 },
             { no: 16, text: 'SHC, CMSBV, FAD: Arbetstrav, Serpentin med 5 bågar', judge: 'Övergången till arbetstrav. Noggrannhet och figurernas utförande, regelbundenheten.', coeff: 1 },
             { no: 17, text: 'DG, G: Ökad trav, Halt hälsning', judge: 'Övergång till ökad trav, halt på bettet, orörlighet.', coeff: 1 },
-            { no: 18, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 19, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 18, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 19, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
@@ -779,8 +776,8 @@ export const dressagePrograms = {
             { no: 16, text: 'IL: Arbetstrav, båge till vänster, 30m, längning av överlinje', judge: 'Övergång till arbetstrav, längning gradvis framåt nedåt, nosen framför lodlinjen, stadig kontakt, framåtbjudning, korrekthet, balans, rakhet, rytm.', coeff: 1 },
             { no: 17, text: 'LA, AD: Samlad trav, båge till höger, 25m, Samlad trav', judge: 'Övergång till samling, eftergift, ställning korrekthet, framåtbjudning, kvalitet, taktmässighet.', coeff: 1 },
             { no: 18, text: 'DXG, G: Ökad trav, Progressiv halt, hälsning', judge: 'Övergång till ökad trav, längning, framåtbjudning, taktmässighet, balans. Mjuk övergång till halt, stillhet, uppställning, på töm.', coeff: 1 },
-            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, hantering av tömmar och körspö, ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn. Harmonin mellan kusk och häst.', coeff: 2 }
+            { no: 19, text: 'Kusken', judge: 'Användning av hjälper, hantering av tömmar och körspö, ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 20, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn. Harmonin mellan kusk och häst.', coeff: 1 }
         ]
     },
 

@@ -7,6 +7,7 @@ import {
 } from '../js/core-engine/stateSelector.js';
 import {
   getDressagePenaltyCoeff,
+  guessProgramKeyFromClass,
   calculateDressageResult
 } from '../js/core-engine/dressage.js';
 import { calculateMarathonResult } from '../js/core-engine/marathon.js';
@@ -119,6 +120,32 @@ test('buildEquipageState normalizes common equipage fields', () => {
 test('getDressagePenaltyCoeff resolves explicit and fallback coefficients', () => {
   assert.equal(getDressagePenaltyCoeff({ penaltyCoeff: '0.8' }, allPrograms), 0.8);
   assert.equal(getDressagePenaltyCoeff('LA', allPrograms), 1);
+});
+
+test('guessProgramKeyFromClass only returns keys present in the program dictionary', () => {
+  const programs = {
+    SvLB: {},
+    SvLA: {},
+    SvMsvB: {},
+    SvMsvC: {},
+    sv_msv_4_enb_2025: {},
+    sv_msv_4_par_2025: {},
+    FEI3AHP1: {},
+    FEI_3star_HP2_P2_2025: {},
+    FEI_3star_HP4_2025: {},
+    FEI_3star_B_HP4_2022: {}
+  };
+
+  assert.equal(guessProgramKeyFromClass('Lätt B Enbet Häst', programs), 'SvLB');
+  assert.equal(guessProgramKeyFromClass('MSV 2 Enbet Ponny', programs), 'SvMsvC');
+  assert.equal(guessProgramKeyFromClass('MSV 3 Par Häst', programs), 'SvMsvB');
+  assert.equal(guessProgramKeyFromClass('MSV 4 Enbet Häst', programs), 'sv_msv_4_enb_2025');
+  assert.equal(guessProgramKeyFromClass('MSV 4 Par Ponny', programs), 'sv_msv_4_par_2025');
+  assert.equal(guessProgramKeyFromClass('Svår Enbet Häst', programs), 'FEI3AHP1');
+  assert.equal(guessProgramKeyFromClass('Svår Par Häst', programs), 'FEI_3star_HP2_P2_2025');
+  assert.equal(guessProgramKeyFromClass('Svår Fyrspann Ponny', programs), 'FEI_3star_HP4_2025');
+  assert.equal(guessProgramKeyFromClass('Svår Fyrspann Häst', programs), 'FEI_3star_B_HP4_2022');
+  assert.equal(guessProgramKeyFromClass('Lätt C Enbet Ponny', programs), null);
 });
 
 test('calculateDressageResult computes judge penalty plus equipage error points', () => {

@@ -12,14 +12,14 @@ import {
     query,
     where,
     getDocs,
-    onSnapshot
+    onSnapshot,
+    runTransaction
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
-import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { downloadJson, round2 } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
-import { computeMaxSecondsForClass, calculatePrecisionTimePenalty } from '../../utils/precisionUtils.js';
+import { computeMaxSecondsForClass, calculatePrecisionTimePenalty, getPortAllowanceCm } from '../../utils/precisionUtils.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -117,11 +117,7 @@ function normalizeEquipage(e) {
 }
 
 function getAllowanceForClass(cls) {
-    const manualOverride = precisionConfig?.portAllowanceByClass?.[cls];
-    if (Number.isFinite(manualOverride)) return manualOverride;
-    const standardValue = standardPortAllowance[cls];
-    if (Number.isFinite(standardValue)) return standardValue;
-    return standardPortAllowance['*'] || null;
+    return getPortAllowanceCm(cls, precisionConfig);
 }
 function computePortWidthForEquipage(eq) {
     const trackWidth = Number(eq?.trackWidth);
@@ -162,8 +158,6 @@ function getLivePayload() {
         // ---
         liveTimePenalty: round2(liveTimePenalty),
         liveObstaclePenalty: liveObstaclePenalty,
-        knocks: Array.from(knocks),
-        knockDownTimes: { ...knockDownTimes }, // NYTT
         extraPenalty: extraPenaltyVal,
         liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal),
         // NYTT:
@@ -176,6 +170,65 @@ function pushImmediateState() {
     if (!currentEquipage) return;
     // Anropar den nya funktionen för att få ett komplett och korrekt live-paket
     pushLiveSafe(getLivePayload());
+}
+
+function updateObstaclePenaltySummary() {
+    const summaryEl = document.getElementById('uiObstaclePenaltySummary');
+    if (!summaryEl) return;
+
+    const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+    const totalP = knocks.size * kp;
+    summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
+}
+
+async function saveKnockToggle(gateLabel, shouldAdd, elapsedMs) {
+    if (!currentEquipage) return;
+
+    const ref = precisionDocRef(currentEquipage.startNumber);
+    const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+    const liveTimePenalty = calculatePrecisionTimePenalty(getElapsedMs(), maxSec, rate);
+    const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
+    const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+
+    const saved = await runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(ref);
+        const current = snap.exists() ? snap.data() : {};
+        const mergedKnocks = new Set(Array.isArray(current.knocks) ? current.knocks.map(String) : []);
+        const mergedTimes = current.knockDownTimes && typeof current.knockDownTimes === 'object'
+            ? { ...current.knockDownTimes }
+            : {};
+
+        if (shouldAdd) {
+            mergedKnocks.add(gateLabel);
+            if (!Number.isFinite(Number(mergedTimes[gateLabel]))) {
+                mergedTimes[gateLabel] = elapsedMs;
+            }
+        } else {
+            mergedKnocks.delete(gateLabel);
+            delete mergedTimes[gateLabel];
+        }
+
+        const knocksArray = Array.from(mergedKnocks).sort((a, b) => String(a).localeCompare(String(b), 'sv', { numeric: true }));
+        const liveObstaclePenalty = knocksArray.length * kp;
+        const liveTotalPenalty = round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal);
+
+        transaction.set(ref, {
+            startNumber: currentEquipage.startNumber,
+            className: currentEquipage.className,
+            knocks: knocksArray,
+            knockDownTimes: mergedTimes,
+            liveObstaclePenalty,
+            liveTotalPenalty,
+            extraPenalty: extraPenaltyVal,
+            updatedAt: Date.now()
+        }, { merge: true });
+
+        return { knocksArray, mergedTimes };
+    });
+
+    knocks = new Set(saved.knocksArray);
+    knockDownTimes = saved.mergedTimes;
 }
 
 function stringTimeToMs(label) {
@@ -400,38 +453,39 @@ function renderGates() {
     }).join('');
 
     host.querySelectorAll('.gateBtn').forEach(btn => {
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', async () => {
             const g = btn.dataset.g;
-            if (knocks.has(g)) {
+            const shouldAdd = !knocks.has(g);
+            const elapsedMs = getElapsedMs();
+
+            if (shouldAdd) {
+                knocks.add(g);
+                knockDownTimes[g] = elapsedMs;
+            } else {
                 knocks.delete(g);
                 delete knockDownTimes[g];
-            } else {
-                knocks.add(g);
-                knockDownTimes[g] = getElapsedMs();
-            }
-            renderGates(); // uppdatera stil
-            
-            // Uppdatera summering i hedern om den finns
-            const summaryEl = document.getElementById('uiObstaclePenaltySummary');
-            if (summaryEl) {
-                const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
-                const totalP = knocks.size * kp;
-                summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
             }
 
-            const t = getElapsedMs();
-            const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
-            const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-            const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
+            renderGates();
+            updateObstaclePenaltySummary();
 
-            const liveObstaclePenalty = obstaclePenalty();
-            const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-            pushLiveSafe({
-                knocks: Array.from(knocks),
-                knockDownTimes, // NYTT
-                liveObstaclePenalty,
-                liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal)
-            });
+            try {
+                await saveKnockToggle(g, shouldAdd, elapsedMs);
+                renderGates();
+                updateObstaclePenaltySummary();
+            } catch (err) {
+                console.error('Kunde inte spara rivning transaktionssäkert:', err);
+                if (shouldAdd) {
+                    knocks.delete(g);
+                    delete knockDownTimes[g];
+                } else {
+                    knocks.add(g);
+                    knockDownTimes[g] = elapsedMs;
+                }
+                renderGates();
+                updateObstaclePenaltySummary();
+                showAlert(t('precision_save_error'), false);
+            }
         });
     });
 }
@@ -625,6 +679,8 @@ function resetTimer() {
     // Vi skickar med explicit nollställning av "slutgiltiga" fält för att undvika att de hänger kvar i Firestore (merge:true)
     pushLiveSafe({
         ...getLivePayload(),
+        knocks: [],
+        knockDownTimes: {},
         finalized: false,
         status: t('precision_not_started'),
         time: null,
