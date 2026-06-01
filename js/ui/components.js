@@ -203,19 +203,25 @@ export function renderResponsiveClassFilter(container, labels, activeSet, onTogg
     // Spara öppet-tillstånd för dropdown (mobil)
     const existingDetails = container.querySelector('.mobile-filter-dropdown');
     const wasOpen = existingDetails ? existingDetails.hasAttribute('open') : false;
+    const portalId = container.dataset.responsiveClassFilterId
+        || `class-filter-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    container.dataset.responsiveClassFilterId = portalId;
+    container.__classFilterPortalCleanup?.();
+    container.__classFilterPortalCleanup = null;
+    document.querySelector(`[data-class-filter-portal="${portalId}"]`)?.remove();
 
     // CSS-klasser
-    const chipBase = "px-2 py-1 rounded border text-sm cursor-pointer transition-colors select-none";
+    const chipBase = "max-w-full truncate px-2 py-1 rounded border text-sm cursor-pointer transition-colors select-none";
     const chipOn = "bg-gray-800 text-white border-gray-800 shadow-sm dark:bg-gray-200 dark:text-gray-900 dark:border-gray-200";
     const chipOff = "bg-white text-gray-700 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600";
 
     // Desktop: Chips
     // Vi använder 'hidden md:flex' för att dölja på mobil och visa på desktop
     const desktopHtml = `
-        <div class="hidden md:flex flex-wrap gap-2">
+        <div class="hidden md:flex flex-wrap gap-2 max-w-full min-w-0 overflow-hidden">
             ${labels.map(lbl => {
         const active = activeSet.has(lbl);
-        return `<button type="button" data-filter-val="${escapeHtml(lbl)}" class="${chipBase} ${active ? chipOn : chipOff}">${escapeHtml(lbl)}</button>`;
+        return `<button type="button" data-filter-val="${escapeHtml(lbl)}" title="${escapeHtml(lbl)}" class="${chipBase} ${active ? chipOn : chipOff}">${escapeHtml(lbl)}</button>`;
     }).join('')}
         </div>
     `;
@@ -235,24 +241,95 @@ export function renderResponsiveClassFilter(container, labels, activeSet, onTogg
         return `
             <div data-filter-val="${escapeHtml(lbl)}" class="flex items-center gap-3 px-4 py-3 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-600 ${rowBg}">
                 <div class="w-5 text-center">${checkIcon}</div>
-                <span class="text-sm font-medium ${txtColor}">${escapeHtml(lbl)}</span>
+                <span class="text-sm font-medium ${txtColor} min-w-0 truncate" title="${escapeHtml(lbl)}">${escapeHtml(lbl)}</span>
             </div>
          `;
     }).join('');
 
     const mobileHtml = `
-        <details class="mobile-filter-dropdown md:hidden w-full group relative" ${wasOpen ? 'open' : ''}>
+        <details class="mobile-filter-dropdown md:hidden w-full max-w-full group relative z-[90]" ${wasOpen ? 'open' : ''}>
             <summary class="list-none px-3 py-1.5 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-xs md:text-sm font-medium text-gray-700 dark:text-gray-200 cursor-pointer flex items-center justify-between select-none hover:bg-gray-50 dark:hover:bg-gray-600">
-                <span>${summaryText}</span>
+                <span class="min-w-0 truncate">${summaryText}</span>
                 <i class="fas fa-chevron-down text-gray-400 text-[10px] ml-2 transition-transform group-open:rotate-180"></i>
             </summary>
-            <div class="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg z-50 max-h-80 overflow-y-auto w-[250px]">
+            <div data-class-filter-menu data-class-filter-portal="${portalId}" class="fixed bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-md shadow-lg max-h-80 overflow-y-auto w-[250px] max-w-[calc(100vw-1rem)]" style="z-index: 2147483647; top: 0; left: 0;" hidden>
                 ${mobileItems.length > 0 ? mobileItems : '<div class="p-4 text-gray-500 text-sm italic text-center">Inga klasser tillgängliga</div>'}
             </div>
         </details>
     `;
 
     container.innerHTML = desktopHtml + mobileHtml;
+
+    const mobileDetails = container.querySelector('.mobile-filter-dropdown');
+    const mobileSummary = mobileDetails?.querySelector('summary');
+    const mobileMenu = mobileDetails?.querySelector('[data-class-filter-menu]');
+    if (mobileMenu) document.body.appendChild(mobileMenu);
+    const positionMobileDropdown = () => {
+        if (!mobileDetails || !mobileSummary || !mobileMenu || !mobileDetails.open) return;
+
+        const margin = 8;
+        const rect = mobileSummary.getBoundingClientRect();
+        const menuWidth = Math.min(
+            Math.max(rect.width, 250),
+            Math.max(250, window.innerWidth - margin * 2)
+        );
+        const menuHeight = Math.min(mobileMenu.scrollHeight || 320, 320);
+        const spaceBelow = window.innerHeight - rect.bottom - margin;
+        const top = spaceBelow >= Math.min(menuHeight, 180)
+            ? rect.bottom + 4
+            : Math.max(margin, rect.top - menuHeight - 4);
+        const left = Math.min(
+            Math.max(margin, rect.left),
+            Math.max(margin, window.innerWidth - menuWidth - margin)
+        );
+
+        mobileMenu.hidden = false;
+        mobileMenu.style.top = `${Math.round(top)}px`;
+        mobileMenu.style.left = `${Math.round(left)}px`;
+        mobileMenu.style.width = `${Math.round(menuWidth)}px`;
+    };
+
+    const hideMobileDropdown = () => {
+        if (mobileMenu) mobileMenu.hidden = true;
+    };
+    const toggleMobileDropdown = () => {
+        if (mobileDetails?.open) requestAnimationFrame(positionMobileDropdown);
+        else hideMobileDropdown();
+    };
+    const handlePortalClick = (e) => {
+        const target = e.target.closest('[data-filter-val]');
+        if (!target) return;
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        const val = target.getAttribute('data-filter-val');
+        if (val && onToggle) onToggle(val);
+    };
+    const handleWindowMove = () => {
+        if (mobileDetails?.open) requestAnimationFrame(positionMobileDropdown);
+    };
+    const removalObserver = new MutationObserver(() => {
+        if (!document.body.contains(container)) {
+            container.__classFilterPortalCleanup?.();
+        }
+    });
+
+    mobileDetails?.addEventListener('toggle', toggleMobileDropdown);
+    mobileSummary?.addEventListener('click', () => requestAnimationFrame(positionMobileDropdown));
+    mobileMenu?.addEventListener('click', handlePortalClick);
+    window.addEventListener('resize', handleWindowMove);
+    window.addEventListener('scroll', handleWindowMove, true);
+    removalObserver.observe(document.body, { childList: true, subtree: true });
+    container.__classFilterPortalCleanup = () => {
+        mobileDetails?.removeEventListener('toggle', toggleMobileDropdown);
+        mobileMenu?.removeEventListener('click', handlePortalClick);
+        window.removeEventListener('resize', handleWindowMove);
+        window.removeEventListener('scroll', handleWindowMove, true);
+        removalObserver.disconnect();
+        mobileMenu?.remove();
+    };
+    if (wasOpen) requestAnimationFrame(positionMobileDropdown);
 
     // Koppla händelselyssnare (om ej redan gjort på containern)
     if (!container.dataset.wiredResponsive) {

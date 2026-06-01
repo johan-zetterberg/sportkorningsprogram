@@ -1,5 +1,5 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v30'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v31'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
@@ -19,47 +19,56 @@ const urlsToCache = [
   abs('/js/data/competitionData.js'),
   abs('/js/data/dressagePrograms.js'),
   abs('/js/main.js'),
-  abs('/js/pages/admin-clubs.js'),
-  abs('/js/pages/admin-communication.js'),
-  abs('/js/pages/admin-officials.js'),
-  abs('/js/pages/admin-participants.js'),
-  abs('/js/pages/admin-settings.js'),
-  abs('/js/pages/admin-teams.js'),
-  abs('/js/pages/admin.js'),
-  abs('/js/pages/deltagare.js'),
-  abs('/js/pages/dressyr-admin.js'),
-  abs('/js/pages/dressyr-input.js'),
-  abs('/js/pages/dressyr-monitor.js'),
-  abs('/js/pages/dressyr-resultat.js'),
-  abs('/js/pages/ekipage.js'),
-  abs('/js/pages/hastar.js'),
-  abs('/js/pages/hub.js'),
-  abs('/js/pages/manual.js'),
-  abs('/js/pages/maraton-admin.js'),
-  abs('/js/pages/maraton-input.js'),
-  abs('/js/pages/maraton-monitor-map.js'),
-  abs('/js/pages/maraton-monitor.js'),
-  abs('/js/pages/maraton-resultat-chips-full.js'),
-  abs('/js/pages/maraton-resultat-chips.js'),
-  abs('/js/pages/maraton-resultat-helpers.js'),
-  abs('/js/pages/maraton-resultat.js'),
-  abs('/js/pages/maraton-stages-input.js'),
-  abs('/js/pages/maraton-tider.js'),
-  abs('/js/pages/observator-input.js'),
-  abs('/js/pages/official.js'),
-  abs('/js/pages/portal.js'),
-  abs('/js/pages/precision-admin.js'),
-  abs('/js/pages/precision-input.js'),
-  abs('/js/pages/precision-monitor.js'),
-  abs('/js/pages/precision-resultat.js'),
-  abs('/js/pages/prize-giving.js'),
-  abs('/js/pages/reports.js'),
-  abs('/js/pages/speaker.js'),
-  abs('/js/pages/starttider.js'),
-  abs('/js/pages/total-resultat.js'),
-  abs('/js/pages/vagnbredd.js'),
-  abs('/js/pages/vet-check.js'),
-  abs('/js/pages/volunteer-signup.js'),
+  abs('/js/pages/admin/admin.js'),
+  abs('/js/pages/admin/admin-clubs.js'),
+  abs('/js/pages/admin/admin-communication.js'),
+  abs('/js/pages/admin/admin-communication-view.js'),
+  abs('/js/pages/admin/admin-officials.js'),
+  abs('/js/pages/admin/admin-participants.js'),
+  abs('/js/pages/admin/admin-settings.js'),
+  abs('/js/pages/admin/admin-teams.js'),
+  abs('/js/pages/admin/deltagare.js'),
+  abs('/js/pages/admin/ekipage.js'),
+  abs('/js/pages/admin/hastar.js'),
+  abs('/js/pages/admin/starttider.js'),
+  abs('/js/pages/dressage/dressyr-admin.js'),
+  abs('/js/pages/dressage/dressyr-input.js'),
+  abs('/js/pages/dressage/dressyr-monitor.js'),
+  abs('/js/pages/dressage/dressyr-resultat.js'),
+  abs('/js/pages/marathon/marathonResultControls.js'),
+  abs('/js/pages/marathon/marathonResultData.js'),
+  abs('/js/pages/marathon/marathonResultExports.js'),
+  abs('/js/pages/marathon/marathonResultFormatters.js'),
+  abs('/js/pages/marathon/marathonResultLiveTicker.js'),
+  abs('/js/pages/marathon/marathonResultMobile.js'),
+  abs('/js/pages/marathon/marathonResultRanking.js'),
+  abs('/js/pages/marathon/marathonResultShell.js'),
+  abs('/js/pages/marathon/marathonResultTable.js'),
+  abs('/js/pages/marathon/marathonResultTiming.js'),
+  abs('/js/pages/marathon/maraton-admin.js'),
+  abs('/js/pages/marathon/maraton-input.js'),
+  abs('/js/pages/marathon/maraton-monitor-map.js'),
+  abs('/js/pages/marathon/maraton-monitor.js'),
+  abs('/js/pages/marathon/maraton-resultat.js'),
+  abs('/js/pages/marathon/maraton-stages-input.js'),
+  abs('/js/pages/marathon/maraton-tider.js'),
+  abs('/js/pages/marathon/observator-input.js'),
+  abs('/js/pages/precision/precision-admin.js'),
+  abs('/js/pages/precision/precision-input.js'),
+  abs('/js/pages/precision/precision-monitor-map.js'),
+  abs('/js/pages/precision/precision-monitor.js'),
+  abs('/js/pages/precision/precision-resultat.js'),
+  abs('/js/pages/shared/hub.js'),
+  abs('/js/pages/shared/manual.js'),
+  abs('/js/pages/shared/official.js'),
+  abs('/js/pages/shared/portal.js'),
+  abs('/js/pages/shared/prize-giving.js'),
+  abs('/js/pages/shared/reports.js'),
+  abs('/js/pages/shared/speaker.js'),
+  abs('/js/pages/shared/total-resultat.js'),
+  abs('/js/pages/shared/vagnbredd.js'),
+  abs('/js/pages/shared/vet-check.js'),
+  abs('/js/pages/shared/volunteer-signup.js'),
   abs('/js/pdf/pdfBase.js'),
   abs('/js/pdf/dressagePdf.js'),
   abs('/js/pdf/marathonPdf.js'),
@@ -69,7 +78,6 @@ const urlsToCache = [
   abs('/js/pdf/timecardsPdf.js'),
   abs('/js/pdf/totalResultsPdf.js'),
   abs('/js/pdf/teamResultsPdf.js'),
-  abs('/js/services/aggregateService.js'),
   abs('/js/services/archivingService.js'),
   abs('/js/services/authService.js'),
   abs('/js/services/calculationService.js'),
@@ -191,8 +199,26 @@ self.addEventListener('install', (event) => {
 
     // 1. Cacha alla interna filer "atomärt"
     try {
-      await cache.addAll(internalUrls);
-      console.log('[SW] Interna filer cachade OK.');
+      const criticalInternalUrls = [
+        abs('/index.html'),
+        abs('/manifest.json'),
+        abs('/js/main.js'),
+        abs('/css/style.css')
+      ];
+      await cache.addAll(criticalInternalUrls);
+
+      const optionalInternalUrls = internalUrls.filter(url => !criticalInternalUrls.includes(url));
+      const results = await Promise.allSettled(optionalInternalUrls.map(u => cache.add(u)));
+      const failed = results
+        .map((r, i) => ({ result: r, url: optionalInternalUrls[i] }))
+        .filter(item => item.result.status === 'rejected');
+
+      if (failed.length > 0) {
+        console.warn(`[SW] ${failed.length} optional internal files could not be precached.`);
+        failed.forEach(item => console.warn(`    -> Skipping: ${item.url}`, item.result.reason));
+      } else {
+        console.log('[SW] Interna filer cachade OK.');
+      }
     } catch (e) {
       console.error('[SW] CRITICAL: Misslyckades med cache.addAll för interna filer. Avbryter installation.', e);
       const results = await Promise.allSettled(internalUrls.map(u => cache.add(u)));

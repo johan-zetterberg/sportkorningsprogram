@@ -8,7 +8,10 @@ export function injectScrollStyles() {
     const style = document.createElement('style');
     style.id = 'shared-scroll-styles';
     style.textContent = `
-      body.has-fixed-xbar { padding-bottom: 22px; }
+      body.has-fixed-xbar {
+        padding-bottom: 22px;
+        overflow-x: hidden;
+      }
       
       /* Hide native scrollbars on the wrapper but allow scrolling */
       .x-scroll-wrap {
@@ -21,15 +24,22 @@ export function injectScrollStyles() {
       .x-scroll-wrap::-webkit-scrollbar { height: 0; width: 0; } /* WebKit */
   
       .fixed-xbar {
-        position: fixed; bottom: 0; left: 0; width: 100%;
+        position: fixed; bottom: 0; left: 0; right: 0;
+        width: auto;
+        max-width: 100vw;
+        box-sizing: border-box;
         background: rgba(255,255,255,0.9);
         backdrop-filter: blur(2px);
         border-top: 1px solid #e5e7eb;
         overflow-x: auto;
+        overflow-y: hidden;
         z-index: 50;
         display: none; /* Hidden by default, shown via JS or media queries */
       }
-      .fixed-xbar-inner { height: 16px; }
+      .fixed-xbar-inner {
+        height: 16px;
+        min-width: 100%;
+      }
       
       /* Show bar on desktop/non-touch usually */
       @media (min-width: 768px), (orientation: landscape) and (hover: none) {
