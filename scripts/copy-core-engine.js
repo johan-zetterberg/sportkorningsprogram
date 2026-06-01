@@ -33,6 +33,17 @@ try {
     console.log(`Copying core-engine from ${sourceDir} to ${targetDir}...`);
     copyFolderSync(sourceDir, targetDir);
     console.log('Successfully copied core-engine to functions directory.');
+
+    const utilsSource = path.resolve(__dirname, '../js/utils/precisionCalculation.js');
+    const utilsTargetDir = path.resolve(__dirname, '../functions/src/utils');
+    const utilsTarget = path.resolve(utilsTargetDir, 'precisionCalculation.js');
+    
+    if (!fs.existsSync(utilsTargetDir)) {
+        fs.mkdirSync(utilsTargetDir, { recursive: true });
+    }
+    fs.copyFileSync(utilsSource, utilsTarget);
+    console.log('Successfully copied precisionCalculation.js to functions/src/utils directory.');
+
 } catch (error) {
     console.error('Error copying core-engine:', error);
     process.exit(1);
