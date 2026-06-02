@@ -1397,7 +1397,7 @@ export async function load(el) {
   competitionId = comp?.id || null;
 
   if (!competitionId) {
-    console.error('Ingen tävling vald!');
+    console.warn('Ingen tävling vald!');
     if (el) el.innerHTML = '<div class="p-8 text-center text-red-600 font-bold">Ingen tävling vald. Gå tillbaka till startsidan och välj en tävling.</div>';
     return;
   }

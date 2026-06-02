@@ -632,7 +632,7 @@ export async function load() {
   initializeScrollSync(window.location.pathname);
   const comp = getGlobalState('currentCompetition');
   if (!comp || !comp.id) {
-    console.error('MaratonResults: No competition loaded.');
+    console.warn('MaratonResults: No competition loaded.');
     return;
   }
   competitionId = comp.id;

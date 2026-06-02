@@ -58,7 +58,7 @@ let marathonObsMap = new Map();
 export async function load() {
     competitionId = resolveCurrentCompId();
     if (!competitionId) {
-        console.error('reports.js: No competitionId found');
+        console.warn('reports.js: No competitionId found');
         return;
     }
 
