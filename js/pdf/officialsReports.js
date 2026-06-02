@@ -1,5 +1,6 @@
 
 import { loadPdfLibs } from './pdfBase.js';
+import { buildCheckInPdfRows } from './officialsReportUtils.js';
 
 export async function generateOfficialsPdf(type, competition, officials, assignments = [], locations = [], filter = 'all') {
     await loadPdfLibs();
@@ -87,14 +88,7 @@ export async function generateOfficialsPdf(type, competition, officials, assignm
 
         filename = `incheckning_${dateStr}.pdf`;
 
-        const body = sorted.map(p => [
-            p.isCheckedIn ? '[ X ]' : '[   ]',
-            p.name,
-            p.role || '',
-            p.hasVest ? '[ X ]' : (p.shirtSize ? `( ${p.shirtSize} )` : '[   ]'),
-            p.hasRadio ? '[ X ]' : '[   ]',
-            '' // Notes placeholder
-        ]);
+        const body = buildCheckInPdfRows(sorted);
 
         doc.autoTable({
             startY: 35,
@@ -122,7 +116,7 @@ export async function generateOfficialsPdf(type, competition, officials, assignm
             if (filter === 'all') return true;
             if (locType === 'general') return true;
             if (filter === 'marathon' && (locType === 'obstacle' || locType.includes('_m'))) return true;
-            if (filter === 'dressage' && (locType === 'court' || locType === 'warmup')) return true;
+            if (filter === 'dressage' && (locType === 'court' || locType === 'warmup' || locType === 'dressage_func' || locType.includes('_d'))) return true;
             if (filter === 'precision' && (locType === 'course' || locType.includes('_p'))) return true;
             return false;
         };
@@ -259,7 +253,7 @@ export function exportAssignmentsCsv(assignments, officials, locations, competit
         if (filter === 'all') return true;
         if (locType === 'general') return true;
         if (filter === 'marathon' && (locType === 'obstacle' || locType.includes('_m'))) return true;
-        if (filter === 'dressage' && (locType === 'court' || locType === 'warmup')) return true;
+        if (filter === 'dressage' && (locType === 'court' || locType === 'warmup' || locType === 'dressage_func' || locType.includes('_d'))) return true;
         if (filter === 'precision' && (locType === 'course' || locType.includes('_p'))) return true;
         return false;
     };

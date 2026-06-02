@@ -7,6 +7,7 @@ import { listenForMarathonObstacles, saveMarathonObstacle, deleteMarathonObstacl
 import { getEquipages } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { generateTimecardsPdf } from '../../pdf/timecardsPdf.js';
+import { hasMarathonValidationErrors, validateMarathonAdminSettings } from './marathonAdminValidation.js';
 
 let competitionId = null;
 let allEquipages = [];
@@ -16,6 +17,7 @@ let unsubscribeObstacles = null;
 let pageRoot = null;
 let currentCompetition = null;
 let pickerMap = null; // Global reference for cleanup
+let marathonValidationErrors = {};
 
 
 // ------------------------------
@@ -895,6 +897,180 @@ function extractCategory(eq) {
   return '';
 }
 
+function getFieldError(className, field) {
+  return marathonValidationErrors?.[className]?.find(error => error.field === field) || null;
+}
+
+function getMarathonInputClass(className, field, extraClass = '') {
+  const hasError = !!getFieldError(className, field);
+  const base = `marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white ${extraClass}`;
+  return hasError
+    ? `${base} border-red-500 bg-red-50 dark:border-red-500 dark:bg-red-900/20 ring-1 ring-red-500`
+    : base;
+}
+
+function renderFieldError(className, field) {
+  const error = getFieldError(className, field);
+  return error ? `<div class="mt-1 text-[11px] font-medium text-red-600 dark:text-red-300">${error.message}</div>` : '';
+}
+
+function renderClassValidationSummary(className) {
+  const errors = marathonValidationErrors?.[className] || [];
+  if (!errors.length) return '';
+
+  return `
+    <div class="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-900/25 dark:text-red-200">
+      <div class="font-semibold">Kontrollera denna klass innan du sparar:</div>
+      <ul class="mt-1 list-disc pl-5 space-y-0.5">
+        ${errors.map(error => `<li>${error.message}</li>`).join('')}
+      </ul>
+    </div>
+  `;
+}
+
+function escapeAttr(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  }[char]));
+}
+
+function clearMarathonFieldError(input) {
+  const cls = input?.dataset?.className;
+  const field = input?.dataset?.field;
+  if (!cls || !field || !marathonValidationErrors?.[cls]) return;
+
+  marathonValidationErrors[cls] = marathonValidationErrors[cls].filter(error => error.field !== field);
+  if (!marathonValidationErrors[cls].length) delete marathonValidationErrors[cls];
+  input.classList.remove('border-red-500', 'bg-red-50', 'dark:border-red-500', 'dark:bg-red-900/20', 'ring-1', 'ring-red-500');
+  input.parentElement?.querySelectorAll('.marathon-field-error').forEach(el => el.remove());
+}
+
+function wrapMarathonField(input, labelText) {
+  if (!input || input.dataset.labelWrapped === 'true') return;
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'min-w-0';
+
+  const label = document.createElement('label');
+  label.className = 'block text-[11px] text-gray-500 dark:text-gray-400 mb-1';
+  label.textContent = labelText;
+
+  input.parentNode.insertBefore(wrapper, input);
+  wrapper.appendChild(label);
+  wrapper.appendChild(input);
+  input.classList.add('w-full');
+  input.dataset.labelWrapped = 'true';
+}
+
+function enhanceMarathonSettingsFields(container) {
+  const labels = {
+    distanceA: 'Distans (m)',
+    tempoA: 'Tempo (m/min)',
+    windowA: 'Tidsfönster (min)',
+    distanceB: 'Distans (m)',
+    tempoB: 'Tempo (m/min)',
+    windowB: 'Tidsfönster (min)'
+  };
+
+  Object.entries(labels).forEach(([field, label]) => {
+    container.querySelectorAll(`[data-field="${field}"]`).forEach(input => {
+      wrapMarathonField(input, label);
+      if (field === 'windowA') {
+        input.title = 'Tillåten marginal runt idealtiden i minuter. Standard: 2 för A.';
+        input.placeholder = 'min';
+      }
+      if (field === 'windowB') {
+        input.title = 'Tillåten marginal runt idealtiden i minuter. Standard: 3 för B.';
+        input.placeholder = 'min';
+      }
+    });
+  });
+
+  container.querySelectorAll('[data-field="distanceT"]').forEach(distanceInput => {
+    const className = distanceInput.dataset.className;
+    if (!className || distanceInput.dataset.transportToggleAdded === 'true') return;
+
+    const tempoInput = container.querySelector(`[data-field="tempoT"][data-class-name="${CSS.escape(className)}"]`);
+    const transportSection = distanceInput.closest('.grid')?.parentElement;
+    if (!transportSection) return;
+
+    const hasSavedTransport = distanceInput.dataset.includeTransport === 'true'
+      || Number(distanceInput.value) > 0
+      || Number(tempoInput?.value) > 0;
+    const checkbox = document.createElement('label');
+    checkbox.className = 'mb-2 flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300';
+    checkbox.innerHTML = `
+      <input type="checkbox" class="marathon-class-input include-transport-check rounded border-gray-300 text-brand-darkblue dark:bg-gray-700 dark:border-gray-600"
+             data-class-name="${escapeAttr(className)}" data-field="includeTransport" ${hasSavedTransport ? 'checked' : ''}>
+      <span>Denna klass har transportsträcka</span>
+    `;
+
+    const title = transportSection.querySelector('p');
+    title?.insertAdjacentElement('afterend', checkbox);
+    distanceInput.dataset.transportToggleAdded = 'true';
+
+    const toggleFields = () => {
+      const enabled = checkbox.querySelector('input')?.checked === true;
+      [distanceInput, tempoInput].forEach(input => {
+        if (!input) return;
+        input.disabled = !enabled;
+        input.classList.toggle('opacity-50', !enabled);
+        input.classList.toggle('cursor-not-allowed', !enabled);
+      });
+      if (!enabled) {
+        clearMarathonFieldError(distanceInput);
+        if (tempoInput) clearMarathonFieldError(tempoInput);
+      }
+    };
+
+    checkbox.querySelector('input')?.addEventListener('change', toggleFields);
+    toggleFields();
+  });
+}
+
+function clearMarathonValidationDom(container) {
+  container.querySelectorAll('.marathon-validation-summary').forEach(el => el.remove());
+  container.querySelectorAll('.marathon-field-error').forEach(el => el.remove());
+  container.querySelectorAll('.marathon-class-input').forEach(input => {
+    input.classList.remove('border-red-500', 'bg-red-50', 'dark:border-red-500', 'dark:bg-red-900/20', 'ring-1', 'ring-red-500');
+  });
+}
+
+function applyMarathonValidationDom(container, validationErrors) {
+  clearMarathonValidationDom(container);
+
+  for (const [className, errors] of Object.entries(validationErrors || {})) {
+    const firstInput = container.querySelector(`.marathon-class-input[data-class-name="${CSS.escape(className)}"]`);
+    const card = firstInput?.closest('.border.rounded-lg');
+    if (card && errors.length) {
+      const title = card.querySelector('h4');
+      const summary = document.createElement('div');
+      summary.className = 'marathon-validation-summary rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-900/25 dark:text-red-200';
+      summary.innerHTML = `
+        <div class="font-semibold">Kontrollera denna klass innan du sparar:</div>
+        <ul class="mt-1 list-disc pl-5 space-y-0.5">${errors.map(error => `<li>${error.message}</li>`).join('')}</ul>
+      `;
+      title?.insertAdjacentElement('afterend', summary);
+    }
+
+    errors.forEach((error) => {
+      const input = container.querySelector(`.marathon-class-input[data-class-name="${CSS.escape(className)}"][data-field="${CSS.escape(error.field)}"]`);
+      if (!input) return;
+      input.classList.add('border-red-500', 'bg-red-50', 'dark:border-red-500', 'dark:bg-red-900/20', 'ring-1', 'ring-red-500');
+
+      const wrapper = input.parentElement;
+      const errorEl = document.createElement('div');
+      errorEl.className = 'marathon-field-error mt-1 text-[11px] font-medium text-red-600 dark:text-red-300';
+      errorEl.textContent = error.message;
+      wrapper?.appendChild(errorEl);
+    });
+  }
+}
+
 
 async function setupMarathonSettings() {
   if (!pageRoot) return;
@@ -967,6 +1143,7 @@ async function setupMarathonSettings() {
     html += `
       <div class="border rounded-lg p-4 space-y-4 mb-4 bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700">
         <h4 class="font-semibold text-lg text-gray-800 dark:text-white">${cn}</h4>
+        ${renderClassValidationSummary(cn)}
         
         <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 border-b dark:border-gray-600 pb-4">
           <div>
@@ -1001,7 +1178,7 @@ async function setupMarathonSettings() {
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Transport</p>
             <div class="grid grid-cols-2 gap-2">
-              <input type="number" data-class-name="${cn}" data-field="distanceT" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceT ?? ''}" placeholder="Distans (m)">
+              <input type="number" data-class-name="${cn}" data-field="distanceT" data-include-transport="${data.includeTransport === true ? 'true' : 'false'}" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceT ?? ''}" placeholder="Distans (m)">
               <input type="number" data-class-name="${cn}" data-field="tempoT" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoT ?? ''}" placeholder="Tempo (m/min)">
             </div>
           </div>
@@ -1055,6 +1232,7 @@ async function setupMarathonSettings() {
     `;
   });
   container.innerHTML = html;
+  enhanceMarathonSettingsFields(container);
 
   // Spara-logiken och realtids-uppdateringen är oförändrade och korrekta
   form.onsubmit = async (e) => {
@@ -1066,7 +1244,9 @@ async function setupMarathonSettings() {
       if (!newClassData[cls]) newClassData[cls] = {};
 
       // Specialhantering för sträng-fält (som trTemplate och drivenObstacles)
-      if (field === 'trTemplate') {
+      if (field === 'includeTransport') {
+        newClassData[cls][field] = input.checked === true;
+      } else if (field === 'trTemplate') {
         newClassData[cls][field] = input.value || null;
       } else if (field === 'drivenObstacles') {
         const str = (input.value || '').trim();
@@ -1076,6 +1256,35 @@ async function setupMarathonSettings() {
         newClassData[cls][field] = Number.isFinite(val) ? val : null;
       }
     });
+
+    Object.values(newClassData).forEach(row => {
+      if (row.includeTransport !== true) {
+        row.distanceT = null;
+        row.tempoT = null;
+      }
+    });
+
+    marathonValidationErrors = validateMarathonAdminSettings(newClassData, (className, row) => {
+      const catKey = classCatMap.get(className) || 'horse';
+      const manualTempoA = Number(row.tempoA);
+      const manualTempoB = Number(row.tempoB);
+
+      return {
+        hasTempoA: (Number.isFinite(manualTempoA) && manualTempoA > 0)
+          || !!trTempoMminForWithCat(row.trTemplate || className, 'A', catKey),
+        hasTempoB: (Number.isFinite(manualTempoB) && manualTempoB > 0)
+          || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey)
+      };
+    });
+
+    if (hasMarathonValidationErrors(marathonValidationErrors)) {
+      applyMarathonValidationDom(container, marathonValidationErrors);
+      const firstError = container.querySelector('.ring-red-500') || container.querySelector('.marathon-validation-summary');
+      firstError?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      showAlert('Maratoninställningarna saknar obligatoriska fält. Kontrollera röda markeringar.', false);
+      return;
+    }
+
     const pauseVal = parseInt(pageRoot.querySelector('#pauseTime')?.value) || 10;
     const oldCfg = await getConfig(competitionId, 'maratonConfig') || {};
 
@@ -1083,9 +1292,9 @@ async function setupMarathonSettings() {
     const marathonClassDistances = {};
     for (const [className, row] of Object.entries(newClassData)) {
       const A = Math.max(0, Number(row.distanceA) || 0);
-      const T = Math.max(0, Number(row.distanceT) || 0);
+      const T = row.includeTransport === true ? Math.max(0, Number(row.distanceT) || 0) : 0;
       const B = Math.max(0, Number(row.distanceB) || 0);
-      const tempoT = Number.isFinite(row.tempoT) ? Number(row.tempoT) : null;
+      const tempoT = row.includeTransport === true && Number.isFinite(row.tempoT) ? Number(row.tempoT) : null;
       const tempoA = Number.isFinite(row.tempoA) ? Number(row.tempoA) : null;
       const tempoB = Number.isFinite(row.tempoB) ? Number(row.tempoB) : null;
 
@@ -1114,6 +1323,7 @@ async function setupMarathonSettings() {
 
   container.oninput = (e) => {
     if (!(e.target instanceof HTMLInputElement)) return;
+    clearMarathonFieldError(e.target);
     const cls = e.target.dataset.className;
     if (!cls) return;
     const q = (field) => {

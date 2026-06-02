@@ -28,7 +28,7 @@ test('tdb class number helpers normalize positive class numbers', () => {
 test('imported status and payment helpers normalize common TDB variants', () => {
   assert.equal(resolveImportedEntryStatus('WITHDRAWN'), 'struken');
   assert.equal(resolveImportedEntryStatus('removed'), 'struken');
-  assert.equal(resolveImportedEntryStatus('PAID'), 'anmÃ¤ld');
+  assert.equal(resolveImportedEntryStatus('PAID'), 'anmäld');
 
   assert.equal(resolveImportedPaymentStatus('PAID', null), 'paid');
   assert.equal(resolveImportedPaymentStatus('', '100,50'), 'paid');

@@ -98,6 +98,7 @@ export async function saveAssignment(competitionId, assignment) {
 
     const data = {
         officialId: assignment.officialId,
+        officialName: assignment.officialName || '',
         role: assignment.role,
         roleLabel: assignment.roleLabel || assignment.role,
         locationType: assignment.locationType,

@@ -36,6 +36,8 @@ export function unloadTeamsTab() {
 export function renderTeamsTab(container, competition) {
   if (!container || !competition) return;
   currentCompetitionId = competition.id;
+  window.deleteTeamHandler = deleteTeamHandler;
+  window.removeMemberHandler = removeMemberHandler;
 
   // Ensure logos are loaded
   ensureClubLogosLoaded().then(() => renderAll());

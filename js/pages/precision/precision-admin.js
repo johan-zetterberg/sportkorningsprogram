@@ -5,10 +5,26 @@ import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
+import {
+    hasPrecisionValidationErrors,
+    parsePrecisionObstacleLabels,
+    validatePrecisionAdminSettings
+} from './precisionAdminValidation.js';
 
 let competitionId = null;
 let activeClasses = [];
 let precisionConfig = {};
+
+const PRECISION_ERROR_CLASSES = ['border-red-500', 'ring-2', 'ring-red-300', 'bg-red-50', 'dark:bg-red-950/30'];
+
+function escapeHtml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
 
 function parseOptionalNumber(value) {
     const text = String(value ?? '').trim().replace(',', '.');
@@ -146,12 +162,12 @@ function renderLayout() {
                     Dessa inställningar gäller för hela tävlingen om inget annat anges.
                 </p>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
+                    <div class="precision-field-wrap">
                         <label class="block text-sm font-medium dark:text-gray-300">Straff per nedslag (p)</label>
                         <input type="number" step="0.5" id="globalKnockdownPenalty" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="3">
                         <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Standard: 3 p (FEI/Nationellt). TR förr: 4 p? Ändra här vid behov.</p>
                     </div>
-                    <div>
+                    <div class="precision-field-wrap">
                         <label class="block text-sm font-medium dark:text-gray-300">Tidsstraff per sekund (p/s)</label>
                         <input type="number" step="0.1" id="globalTimePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${defRate}">
                         <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Standard: ${defRate} straff per påbörjad sekund över maxtiden.</p>
@@ -177,7 +193,7 @@ function renderLayout() {
                 
                 <div id="mapSettingsContainer" class="space-y-4 hidden">
                   <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
+                    <div class="precision-field-wrap">
                       <label for="precMapImageUrl" class="block text-sm font-medium dark:text-gray-300">Bild-URL för karta</label>
                       <div class="flex gap-2">
                         <input type="text" id="precMapImageUrl" class="flex-1 p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. img/precision-map.png">
@@ -223,8 +239,10 @@ function renderLayout() {
                         </div>
                       </div>
                       
-                      <label for="precMapCoordsJson" class="block text-sm font-medium text-gray-600 dark:text-gray-400">Koordinater (JSON)</label>
-                      <textarea id="precMapCoordsJson" rows="6" class="mt-1 w-full p-2 border rounded-md font-mono text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" placeholder='{"start": [100, 200], ...}'></textarea>
+                      <div class="precision-field-wrap">
+                        <label for="precMapCoordsJson" class="block text-sm font-medium text-gray-600 dark:text-gray-400">Koordinater (JSON)</label>
+                        <textarea id="precMapCoordsJson" rows="6" class="mt-1 w-full p-2 border rounded-md font-mono text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" placeholder='{"start": [100, 200], ...}'></textarea>
+                      </div>
                     </div>
 
                     <div class="h-[400px] border-2 border-gray-100 rounded-xl overflow-hidden bg-gray-50 relative shadow-inner z-0 dark:border-gray-700 dark:bg-gray-900">
@@ -329,7 +347,7 @@ function renderClassCards() {
                         </div>
                     </div>
                 </div>
-                <div class="mt-4">
+                <div class="precision-field-wrap mt-4">
                     <label for="labels_${classId}" class="block text-sm font-medium dark:text-gray-300">Hinderetiketter</label>
                     <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${labels.join(', ')}</textarea>
                 </div>
@@ -421,11 +439,14 @@ function renderClassCards() {
 
 async function saveData() {
     try {
+        clearPrecisionValidationDom();
         const comp = getGlobalState('currentCompetition');
         const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
         
-        const knockdownPenalty = parseOptionalNumber(document.getElementById('globalKnockdownPenalty')?.value);
-        const timePenaltyRate = parseOptionalNumber(document.getElementById('globalTimePenaltyRate')?.value);
+        const knockdownPenaltyRaw = document.getElementById('globalKnockdownPenalty')?.value ?? '';
+        const timePenaltyRateRaw = document.getElementById('globalTimePenaltyRate')?.value ?? '';
+        const knockdownPenalty = parseOptionalNumber(knockdownPenaltyRaw);
+        const timePenaltyRate = parseOptionalNumber(timePenaltyRateRaw);
 
         const newConfig = {
             ...precisionConfig,
@@ -434,32 +455,35 @@ async function saveData() {
             knockdownPenalty: knockdownPenalty ?? 3,
             timePenaltyRate: timePenaltyRate ?? defRate
         };
+        const validationClassRows = {};
 
         document.querySelectorAll('#classConfigsContainer [data-class-name]').forEach(card => {
             const className = card.dataset.className;
             const overrideInput = card.querySelector('.allowance-override-input');
-            const allowanceOverride = parseOptionalNumber(overrideInput?.value);
+            const allowanceOverrideRaw = overrideInput?.value ?? '';
+            const allowanceOverride = parseOptionalNumber(allowanceOverrideRaw);
             if (allowanceOverride != null) {
                 newConfig.portAllowanceByClass[className] = allowanceOverride;
             }
 
-            const trackLength = parseOptionalNumber(card.querySelector('.track-length-input')?.value);
-            const tempo = parseOptionalNumber(card.querySelector('.tempo-override-input')?.value);
+            const trackLengthRaw = card.querySelector('.track-length-input')?.value ?? '';
+            const tempoRaw = card.querySelector('.tempo-override-input')?.value ?? '';
+            const trackLength = parseOptionalNumber(trackLengthRaw);
+            const tempo = parseOptionalNumber(tempoRaw);
 
             // Hinderetiketter
             const labelsText = card.querySelector('.obstacle-labels-input').value;
-            const labels = labelsText
-                .split(/[,\n\r]+/)
-                .map(s => s.trim())
-                .filter(Boolean);
+            const labels = parsePrecisionObstacleLabels(labelsText);
 
             // Särskilda portar per hinder (± cm)
             const specialInputs = card.querySelectorAll('.special-port-input');
             const specialPortAllowance = {};
+            const specialPortAllowanceRaw = {};
             specialInputs.forEach(input => {
                 const label = input.dataset.label;
                 if (!label) return;
                 const val = input.value.trim();
+                specialPortAllowanceRaw[label] = val;
                 if (val === '') return;
                 const num = parseOptionalNumber(val);
                 if (num != null && num !== 0) {
@@ -479,8 +503,24 @@ async function saveData() {
             }
 
             newConfig.courses[className] = courseConfig;
+            validationClassRows[className] = {
+                trackLengthMeters: trackLengthRaw,
+                tempo: tempoRaw,
+                obstacleLabelsText: labelsText,
+                allowanceOverride: allowanceOverrideRaw,
+                specialPortAllowance: specialPortAllowanceRaw
+            };
 
         });
+
+        const mapJsonRaw = document.getElementById('precMapCoordsJson')?.value || '{}';
+        let mapEntitiesParseError = false;
+        let mapEntities = {};
+        try {
+            mapEntities = JSON.parse(mapJsonRaw);
+        } catch(e) {
+            mapEntitiesParseError = true;
+        }
 
         const mapSettings = {
             enabled: document.getElementById('toggleMapFeature')?.checked || false,
@@ -491,14 +531,33 @@ async function saveData() {
                 parseInt(document.getElementById('precMapBoundsY')?.value) || 1080,
                 parseInt(document.getElementById('precMapBoundsX')?.value) || 1920
             ],
-            entities: {}
+            entities: mapEntitiesParseError ? {} : mapEntities
         };
-        try {
-            mapSettings.entities = JSON.parse(document.getElementById('precMapCoordsJson')?.value || '{}');
-        } catch(e) {}
         newConfig.mapSettings = mapSettings;
 
+        const validation = validatePrecisionAdminSettings({
+            classes: validationClassRows,
+            global: {
+                knockdownPenalty: knockdownPenaltyRaw,
+                timePenaltyRate: timePenaltyRateRaw
+            },
+            map: {
+                enabled: mapSettings.enabled,
+                entities: mapSettings.entities,
+                entitiesParseError: mapEntitiesParseError
+            }
+        }, (className) => ({
+            hasStandardTempo: findTempoForClass(className, klassTempoData) > 0
+        }));
+
+        if (hasPrecisionValidationErrors(validation)) {
+            applyPrecisionValidationDom(validation);
+            showAlert('Precisionens inställningar saknar obligatoriska värden. Kontrollera rödmarkerade fält.', 'error');
+            return;
+        }
+
         await saveConfig(competitionId, 'precisionConfig', newConfig);
+        clearPrecisionValidationDom();
         showAlert('Inställningar för precision har sparats!', 'success');
         precisionConfig = newConfig;
 
@@ -518,6 +577,7 @@ export async function load() {
     }
 
     renderLayout();
+    setupPrecisionValidationListeners(root);
 
     try {
         const [equipagesData, configData] = await Promise.all([
@@ -597,6 +657,90 @@ export function __unload() {
     }
     precPickerMarkers.clear();
     currentPrecEntities = {};
+}
+
+function clearPrecisionFieldError(input) {
+    if (!input) return;
+    input.classList.remove('precision-validation-error', ...PRECISION_ERROR_CLASSES);
+    input.closest('.precision-field-wrap')?.querySelector('.precision-field-error')?.remove();
+}
+
+function markPrecisionFieldError(input, message) {
+    if (!input) return;
+    input.classList.add('precision-validation-error', ...PRECISION_ERROR_CLASSES);
+    const wrapper = input.closest('.precision-field-wrap') || input.parentElement;
+    if (!wrapper || wrapper.querySelector('.precision-field-error')) return;
+    wrapper.insertAdjacentHTML('beforeend', `<p class="precision-field-error mt-1 text-xs font-semibold text-red-600 dark:text-red-300">${escapeHtml(message)}</p>`);
+}
+
+function clearPrecisionValidationDom() {
+    document.querySelectorAll('.precision-validation-summary, .precision-field-error').forEach(el => el.remove());
+    document.querySelectorAll('.precision-validation-error').forEach(el => {
+        el.classList.remove('precision-validation-error', ...PRECISION_ERROR_CLASSES);
+    });
+}
+
+function fieldSelectorForPrecisionError(field) {
+    return {
+        trackLengthMeters: '.track-length-input',
+        tempo: '.tempo-override-input',
+        obstacleLabels: '.obstacle-labels-input',
+        allowanceOverride: '.allowance-override-input'
+    }[field];
+}
+
+function applyPrecisionValidationDom(result) {
+    clearPrecisionValidationDom();
+
+    const globalTargets = {
+        knockdownPenalty: document.getElementById('globalKnockdownPenalty'),
+        timePenaltyRate: document.getElementById('globalTimePenaltyRate')
+    };
+
+    (result.global || []).forEach(error => markPrecisionFieldError(globalTargets[error.field], error.message));
+    (result.map || []).forEach(error => markPrecisionFieldError(document.getElementById('precMapCoordsJson'), error.message));
+
+    const summaryItems = [];
+    Object.entries(result.classes || {}).forEach(([className, errors]) => {
+        const card = document.querySelector(`#classConfigsContainer [data-class-name="${CSS.escape(className)}"]`);
+        if (!card) return;
+
+        const messages = errors.map(error => error.message);
+        summaryItems.push(`${className}: ${messages.join(' ')}`);
+        card.insertAdjacentHTML('afterbegin', `
+            <div class="precision-validation-summary mb-3 rounded-md border border-red-300 bg-red-50 p-3 text-sm font-semibold text-red-700 dark:border-red-700 dark:bg-red-950/30 dark:text-red-200">
+                Kontrollera: ${escapeHtml(messages.join(' '))}
+            </div>
+        `);
+
+        errors.forEach(error => {
+            const selector = fieldSelectorForPrecisionError(error.field);
+            if (selector) markPrecisionFieldError(card.querySelector(selector), error.message);
+        });
+    });
+
+    const container = document.getElementById('classConfigsContainer');
+    if (container && summaryItems.length) {
+        container.insertAdjacentHTML('afterbegin', `
+            <div class="precision-validation-summary rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-700 dark:border-red-700 dark:bg-red-950/30 dark:text-red-200">
+                <strong>Inställningarna kan inte sparas ännu.</strong> Fyll i markerade fält för varje klass.
+            </div>
+        `);
+    }
+}
+
+function setupPrecisionValidationListeners(root) {
+    if (!root) return;
+    root.addEventListener('input', event => {
+        if (event.target instanceof HTMLElement) {
+            clearPrecisionFieldError(event.target);
+        }
+    });
+    root.addEventListener('change', event => {
+        if (event.target instanceof HTMLElement) {
+            clearPrecisionFieldError(event.target);
+        }
+    });
 }
 
 // --- Map Picker Logic ---

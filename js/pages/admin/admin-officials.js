@@ -19,6 +19,7 @@ import {
 import { showAlert } from '../../ui/components.js';
 import { getGlobalState } from '../../main.js';
 import { generateOfficialsPdf, exportOfficialsCsv, exportAssignmentsCsv } from '../../pdf/officialsReports.js';
+import { normalizeOfficialTimestamp } from './adminOfficialDateUtils.js';
 
 let officials = [];
 let volunteerSignups = [];
@@ -37,6 +38,18 @@ let officialsUnsubscribers = [];
 let activeOfficialsCompetitionId = null;
 let activeOfficialsContainer = null;
 let activeOfficialsCompetition = null;
+
+function findOfficialById(officialId) {
+    return officials.find(official => String(official.id) === String(officialId));
+}
+
+function getAssignmentPerson(assignment) {
+    return findOfficialById(assignment.officialId);
+}
+
+function getAssignmentPersonName(assignment) {
+    return getAssignmentPerson(assignment)?.name || assignment.officialName || 'Okänd';
+}
 
 function addOfficialsUnsubscriber(unsubscribe) {
     if (typeof unsubscribe === 'function') {
@@ -270,11 +283,13 @@ function renderCheckInView(competition) {
             <div class="grid grid-cols-1 gap-3">
                 ${displayList.map(p => {
         const statusClass = p.isCheckedIn ? 'bg-green-50 border-green-200 dark:bg-green-900/20 dark:border-green-800' : 'bg-white border-gray-200 dark:bg-gray-800 dark:border-gray-700';
+        if (p.isCheckedIn) p.checkInTime = normalizeOfficialTimestamp(p.checkInTime) || Date.now();
         return `
                     <div class="border rounded-lg p-3 shadow-sm ${statusClass} transition-colors flex flex-col sm:flex-row justify-between items-center gap-3">
                         <div class="flex-grow text-center sm:text-left">
                             <div class="font-bold text-lg dark:text-white">${p.name}</div>
                             <div class="text-sm text-gray-600 dark:text-gray-400">${p.role || p.notes || '-'}</div>
+                            <input type="text" data-checkin-note="${p.id}" value="${String(p.checkInNotes || '').replace(/"/g, '&quot;')}" placeholder="Notering för incheckning..." class="mt-2 w-full max-w-md px-2 py-1 text-sm border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
                             ${p.isCheckedIn ? `<div class="text-xs text-green-700 dark:text-green-400 font-medium">🕒 ${new Date(p.checkInTime || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>` : ''}
                         </div>
                         
@@ -576,11 +591,11 @@ function renderAssignView() {
                         </thead>
                         <tbody class="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
                             ${assignments.map(a => {
-        const person = officials.find(o => o.id === a.officialId);
+        const personName = getAssignmentPersonName(a);
         const locale = locations.find(l => l.id === a.locationId);
         return `
                                 <tr class="dark:text-gray-200">
-                                    <td class="px-4 py-2 font-medium">${person ? person.name : 'Okänd'}</td>
+                                    <td class="px-4 py-2 font-medium">${personName}</td>
                                     <td class="px-4 py-2">${a.roleLabel}</td>
                                     <td class="px-4 py-2 text-gray-500 dark:text-gray-400">${locale ? locale.label : '-'}</td>
                                     <td class="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono text-xs">${a.dateString || '-'}</td>
@@ -629,7 +644,7 @@ function renderOverviewView() {
         if (currentFilter === 'all') return true;
         if (type === 'general') return true; // Always show general
         if (currentFilter === 'marathon' && (type === 'obstacle' || type.includes('_m'))) return true;
-        if (currentFilter === 'dressage' && (type === 'court' || type === 'warmup')) return true;
+        if (currentFilter === 'dressage' && (type === 'court' || type === 'warmup' || type === 'dressage_func' || type.includes('_d'))) return true;
         if (currentFilter === 'precision' && (type === 'course' || type.includes('_p'))) return true;
         return false;
     };
@@ -699,10 +714,10 @@ function renderOverviewView() {
         // Only process if location is visible
         if (!byLocation[key]) return;
 
-        const person = officials.find(o => o.id === a.officialId);
+        const person = getAssignmentPerson(a);
 
         byLocation[key].folks.push({
-            pName: person ? person.name : '???',
+            pName: getAssignmentPersonName(a),
             role: a.roleLabel,
             shift: a.startTime ? `${a.startTime}-${a.endTime}` : (a.shift !== 'all' ? a.shift : ''),
             startTime: a.startTime || '00:00',
@@ -1138,6 +1153,7 @@ function bindContentEvents(container, competition) {
         const btnSave = container.querySelector('#btnSaveAssignment');
         if (btnSave) btnSave.onclick = async () => {
             const officialId = container.querySelector('#assignOfficial').value;
+            const selectedOfficial = findOfficialById(officialId);
             let role = assignRole.value;
             let locationId = selLocation.value;
             const startTime = container.querySelector('#assignStartTime').value;
@@ -1191,6 +1207,7 @@ function bindContentEvents(container, competition) {
 
             const assignment = {
                 officialId,
+                officialName: selectedOfficial?.name || '',
                 role,
                 locationId: locationId || null,
                 locationType: locObj ? locObj.type : 'general',
@@ -1315,6 +1332,16 @@ function bindContentEvents(container, competition) {
                 if (person) {
                     updateOfficialStatus(competition.id, id, { hasRadio: !person.hasRadio });
                 }
+            };
+        });
+
+        container.querySelectorAll('[data-checkin-note]').forEach(input => {
+            input.onchange = (e) => {
+                const id = e.currentTarget.dataset.checkinNote;
+                updateOfficialStatus(competition.id, id, { checkInNotes: e.currentTarget.value.trim() });
+            };
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') e.currentTarget.blur();
             };
         });
     }

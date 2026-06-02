@@ -10,6 +10,7 @@ import { listenForJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { getCompetitionHeader } from '../../ui/components.js';
+import { formatDressageProgramOptionLabel, getDressageProgramTrNumber, sortDressageProgramKeys } from './dressageAdminProgramOptions.js';
 
 let competitionId = null;
 let allEquipages = [];
@@ -31,6 +32,40 @@ const normKey = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '_').r
 const unique = a => Array.from(new Set(a));
 const toNumber = v => Number.isFinite(+v) ? +v : 0;
 const sortBy = (arr, f) => arr.slice().sort((a, b) => (f(a) > f(b) ? 1 : (f(a) < f(b) ? -1 : 0)));
+
+function renderProgramOptions(selectedKey = '') {
+  const options = ['<option value="">-- Välj dressyrprogram --</option>'];
+  sortDressageProgramKeys(mergedPrograms).forEach((key) => {
+    const selected = key === selectedKey ? ' selected' : '';
+    options.push(`<option value="${esc(key)}"${selected}>${esc(formatDressageProgramOptionLabel(key, mergedPrograms[key]))}</option>`);
+  });
+  return options.join('');
+}
+
+function renderSelectedProgramInfo(key, program) {
+  if (!key || !program) {
+    return '<div class="text-xs text-amber-700 dark:text-amber-300">Inget giltigt program valt.</div>';
+  }
+
+  const trNumber = getDressageProgramTrNumber(program);
+  const warn = program.verified === false
+    ? '<span class="ml-2 text-xs text-amber-700 dark:text-amber-300">(Ej verifierat)</span>'
+    : '';
+  const meta = [
+    trNumber ? `TR nr ${trNumber}` : '',
+    program.version ? `Version ${program.version}` : '',
+    program.arena || '',
+    program.category || ''
+  ].filter(Boolean).join(' · ');
+
+  return `
+    <div class="rounded border border-gray-200 dark:border-gray-600 bg-gray-50 dark:bg-gray-700/40 px-3 py-2">
+      <div class="text-sm font-semibold text-gray-900 dark:text-white">${esc(program.name || key)}${warn}</div>
+      <div class="text-xs text-gray-500 dark:text-gray-300 mt-0.5">${esc(meta || 'Programmetadata saknas')}</div>
+      <div class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">Intern nyckel: ${esc(key)}</div>
+    </div>
+  `;
+}
 
 // ---- Heuristik flyttad till dressageUtils.js ----
 
@@ -533,9 +568,8 @@ function render(root) {
 function rebuildProgramDatalist(root) {
   const dl = root.querySelector('#programKeysList');
   if (!dl) return;
-  dl.innerHTML = Object.keys(mergedPrograms)
-    .sort()
-    .map(k => `<option value="${esc(k)}">${esc(mergedPrograms[k].name || k)}</option>`).join('');
+  dl.innerHTML = sortDressageProgramKeys(mergedPrograms)
+    .map(k => `<option value="${esc(k)}">${esc(formatDressageProgramOptionLabel(k, mergedPrograms[k]))}</option>`).join('');
 }
 
 function rebuildMappingTable(root, filter = '') {
@@ -547,9 +581,6 @@ function rebuildMappingTable(root, filter = '') {
       const locked = !!mappingLocks[cls]?.locked;
       const val = mapping[cls] || '';
       const prog = mergedPrograms[val];
-      const lbl = prog?.name || '';
-      const warn = (val && prog && prog.verified === false) ?
-        `<span class="ml-2 text-xs text-amber-700">(Ej verifierat)</span>` : '';
 
       return `
         <div class="grid grid-cols-1 md:grid-cols-3 gap-2 items-center border-b py-2 dark:border-gray-700 ${locked ? 'opacity-60' : ''}">
@@ -558,10 +589,14 @@ function rebuildMappingTable(root, filter = '') {
             ${locked ? '<span class="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200">Låst</span>' : ''}
           </div>
           <div class="space-y-2">
-            <input class="mapInput border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" list="programKeysList" 
+            <select class="programSelect border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    data-cls="${esc(cls)}" ${locked ? 'disabled' : ''}>
+              ${renderProgramOptions(val)}
+            </select>
+            <input class="mapInput hidden border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" list="programKeysList" 
                    data-cls="${esc(cls)}" value="${esc(val)}" ${locked ? 'disabled' : ''}
                    placeholder="välj/skriv program-nyckel..."/>
-            ${lbl ? `<div class="text-xs text-gray-500 dark:text-gray-400">${esc(lbl)} ${warn}</div>` : ''}
+            ${renderSelectedProgramInfo(val, prog)}
             
             <!-- Clear Round Config -->
             <div class="flex items-center gap-3 text-sm bg-gray-50 p-2 rounded dark:bg-gray-700/50">
@@ -586,6 +621,17 @@ function rebuildMappingTable(root, filter = '') {
       `;
     }).join('');
   host.innerHTML = rows || `<div class="text-gray-600 dark:text-gray-400">Inga klasser hittades.</div>`;
+
+  host.querySelectorAll('.programSelect').forEach(sel => {
+    sel.addEventListener('change', (e) => {
+      const c = e.target.dataset.cls;
+      const val = e.target.value.trim();
+      const hidden = host.querySelector(`.mapInput[data-cls="${CSS.escape(c)}"]`);
+      if (hidden) hidden.value = val;
+      if (val) mapping[c] = val; else delete mapping[c];
+      rebuildMappingTable(root, filter);
+    });
+  });
 
   // Add listeners for local boolean toggle re-render (optional for better UX)
   host.querySelectorAll('.cr-check').forEach(chk => {

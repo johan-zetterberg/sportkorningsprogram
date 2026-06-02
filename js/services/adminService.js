@@ -27,7 +27,7 @@ export async function deleteJudge(competitionId, judgeId) {
 export function listenForOfficials(competitionId, callback) {
   const officialsRef = getCompCollectionRef(competitionId, 'officials');
   return onSnapshot(query(officialsRef), (snapshot) => {
-    const officials = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+    const officials = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
     callback(officials);
   }, buildSnapshotErrorHandler('listenForOfficials', callback, []));
 }
@@ -35,7 +35,7 @@ export function listenForOfficials(competitionId, callback) {
 export async function getOfficials(competitionId) {
   const officialsRef = getCompCollectionRef(competitionId, 'officials');
   const snapshot = await getDocs(query(officialsRef));
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
 }
 
 export async function getJudges(competitionId) {
@@ -54,6 +54,7 @@ export async function saveOfficial(competitionId, data) {
 
     await setDoc(officialRef, {
       ...data,
+      id: officialId,
       updatedAt: Date.now()
     }, { merge: true });
 

@@ -25,7 +25,7 @@ export function isAdministrativeFeeClass(value) {
 
 export function resolveImportedEntryStatus(status) {
     const normalized = String(status || '').trim().toUpperCase();
-    return ['REMOVED', 'WITHDRAWN', 'STRUKEN'].includes(normalized) ? 'struken' : 'anmÃ¤ld';
+    return ['REMOVED', 'WITHDRAWN', 'STRUKEN'].includes(normalized) ? 'struken' : 'anmäld';
 }
 
 export function resolveImportedPaymentStatus(entryStatus, paidAmount) {
