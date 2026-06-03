@@ -22,6 +22,32 @@ import {
     computeMaxSecondsForClass as _pureComputeMaxSecondsForClass
 } from './precisionCalculation.js';
 
+function getClassName(value) {
+    return typeof value === 'string' ? value : (value?.className || '');
+}
+
+function getMergedClassName(value) {
+    return typeof value === 'string'
+        ? ''
+        : (value?._mergedLabel || (value?.useMergedTestForDisplay && value?.mergedTestLabel) ? String(value._mergedLabel || value.mergedTestLabel) : '');
+}
+
+export function getPrecisionDisplayClassName(value) {
+    return getMergedClassName(value) || getClassName(value);
+}
+
+export function getPrecisionCourseCandidates(value) {
+    const className = getClassName(value);
+    const mergedClassName = getMergedClassName(value);
+    return [className, mergedClassName].filter(Boolean);
+}
+
+export function getPrecisionCourseData(value, config = {}) {
+    const courses = config?.courses || {};
+    const key = getPrecisionCourseCandidates(value).find((candidate) => courses[candidate]);
+    return key ? { key, course: courses[key] || {} } : { key: null, course: {} };
+}
+
 const _norm = (s) => String(s || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 
 // -------------------------------------------------------------
@@ -101,9 +127,7 @@ export function allowanceForClass(className, precisionConfig = {}) {
 
 // Porttillägg givet antingen ett ekipage eller ett klassnamn
 export function getPortAllowanceCm(eqOrClass, precisionConfig = {}) {
-    const cls = (typeof eqOrClass === 'string')
-        ? eqOrClass
-        : (eqOrClass?.className || '');
+    const cls = getClassName(eqOrClass);
     return allowanceForClass(cls, precisionConfig);
 }
 
@@ -119,8 +143,7 @@ export function computePortWidth(eqOrDoc, precisionConfig = {}) {
 // Bana, tempo & maxtid
 // -------------------------------------------------------------
 export function getTrackLengthMeters(cls, config) {
-    const courses = config?.courses || {};
-    const c = courses[cls] || {};
+    const c = getPrecisionCourseData(cls, config).course;
     const n = Number(c.trackLengthMeters ?? c.length ?? c.trackLength);
     return Number.isFinite(n) && n > 0 ? n : null;
 }
@@ -128,7 +151,11 @@ export function getTrackLengthMeters(cls, config) {
 export function getClassTempoMpm(cls, config) {
     const c = config || {};
     const byClass = c.tempoByClass || c.classTempo || {};
-    const courses = (c.courses && c.courses[cls]) || {};
+    const className = getClassName(cls);
+    const mergedClassName = getMergedClassName(cls);
+    const allCourses = c.courses || {};
+    const courses = allCourses[className] || {};
+    const mergedCourses = mergedClassName ? (allCourses[mergedClassName] || {}) : {};
     const tryNum = (v) => {
         const n = Number(v);
         return Number.isFinite(n) && n > 0 ? n : null;
@@ -136,8 +163,8 @@ export function getClassTempoMpm(cls, config) {
 
     // 1) i precisionConfig
     const confCand = tryNum(
-        byClass[cls]
-        ?? byClass[_norm(cls)]
+        byClass[className]
+        ?? byClass[_norm(className)]
         ?? courses.tempo
         ?? courses.tempoMpm
         ?? courses.mPerMin
@@ -146,7 +173,7 @@ export function getClassTempoMpm(cls, config) {
 
     // 2) i klassTempoData (som i admin: .precision + bästa match)
     const keys = Object.keys(klassTempoData || {});
-    const normCls = _norm(cls);
+    const normCls = _norm(className);
     // exakt
     let key = keys.find((k) => _norm(k) === normCls);
     // prefix-match, längsta först
@@ -164,7 +191,7 @@ export function getClassTempoMpm(cls, config) {
     if (key && klassTempoData[key]?.precision) {
         return klassTempoData[key].precision;
     }
-    return null;
+    return tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
 }
 
 export function computeMaxSecondsForClass(cls, config) {
@@ -216,9 +243,9 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
 
     // Bana/klassdata
     const cls = eq?.className || '';
-    const trackLength = getTrackLengthMeters(cls, config);
-    const tempo = getClassTempoMpm(cls, config);
-    const maxSec = computeMaxSecondsForClass(cls, config);
+    const trackLength = getTrackLengthMeters(eq || cls, config);
+    const tempo = getClassTempoMpm(eq || cls, config);
+    const maxSec = computeMaxSecondsForClass(eq || cls, config);
     const allowanceCm = getPortAllowanceCm(eq, config);
 
     const trackW = trackWidthFromEq(eq);                       // cm vagn

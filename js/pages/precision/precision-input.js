@@ -19,7 +19,7 @@ import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../..
 import { t } from '../../utils/i18n.js';
 import { downloadJson, round2 } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
-import { computeMaxSecondsForClass, calculatePrecisionTimePenalty, getPortAllowanceCm } from '../../utils/precisionUtils.js';
+import { computeMaxSecondsForClass, calculatePrecisionTimePenalty, getPortAllowanceCm, getPrecisionCourseData } from '../../utils/precisionUtils.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -126,7 +126,10 @@ function computePortWidthForEquipage(eq) {
     return trackWidth + allowance;
 }
 function getLabelsForClass(cls) {
-    const courseData = precisionConfig.courses?.[cls];
+    const courseData = getPrecisionCourseData(
+        currentEquipage && currentEquipage.className === cls ? currentEquipage : cls,
+        precisionConfig
+    ).course;
     if (courseData && Array.isArray(courseData.obstacleLabels) && courseData.obstacleLabels.length > 0) {
         return courseData.obstacleLabels;
     }
@@ -141,7 +144,7 @@ function obstaclePenalty() {
 function getLivePayload() {
     const t = getElapsedMs();
     
-    const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
     const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
     const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
 
@@ -185,7 +188,7 @@ async function saveKnockToggle(gateLabel, shouldAdd, elapsedMs) {
     if (!currentEquipage) return;
 
     const ref = precisionDocRef(currentEquipage.startNumber);
-    const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
     const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
     const liveTimePenalty = calculatePrecisionTimePenalty(getElapsedMs(), maxSec, rate);
     const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
@@ -430,7 +433,7 @@ function updateHeaderInfo() {
     }
 
     const portWidth = computePortWidthForEquipage(eq);
-    const maxSeconds = computeMaxSecondsForClass(eq.className, precisionConfig);
+    const maxSeconds = computeMaxSecondsForClass(eq, precisionConfig);
 
     equipageEl.textContent = `#${eq.startNumber} ${eq.driverName || ''} (${eq.className})`;
     portEl.textContent = Number.isFinite(portWidth) ? `${portWidth} cm` : t('precision_not_specified');
@@ -504,7 +507,7 @@ function renderTimerUI(t) {
     if (timerEl) {
         timerEl.textContent = timerStr;
         // Visuell feedback om vi kört över maxtid (valfritt)
-        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
         if (maxSec > 0 && (t / 1000) > maxSec) {
             timerEl.classList.add('text-red-600', 'dark:text-red-400');
         } else {
@@ -515,7 +518,7 @@ function renderTimerUI(t) {
     // --- 2) "Tidsfel" i topp-panelen ---
     const topTP = document.getElementById('uiTimePenaltyTop');
     if (topTP) {
-        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
         if (maxSec > 0) {
             const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
             const liveTimePenaltyTop = calculatePrecisionTimePenalty(t, maxSec, rate);
@@ -537,7 +540,7 @@ function renderTimerUI(t) {
     const ttEl = document.getElementById('uiTotalPenalty');
 
     if (tpEl || opEl || epEl || ttEl) {
-        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
         const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
         const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
 
@@ -587,7 +590,7 @@ function updateTimerView() {
     if (tick !== lastPushedTick) {
         lastPushedTick = tick;
         
-        const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
         const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
         const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
 
@@ -900,7 +903,7 @@ async function saveFinal() {
     const timeMs = getElapsedMs();
     const timeStr = partsToString(msToParts(timeMs));
     
-    const maxSec = computeMaxSecondsForClass(currentEquipage.className, precisionConfig);
+    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
     const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
     const timePenaltyValue = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
 
@@ -1040,7 +1043,7 @@ export async function load() {
         document.getElementById('btnSave').addEventListener('click', saveFinal);
         document.getElementById('extraPenaltyInput').addEventListener('input', () => {
             const t = getElapsedMs();
-            const maxSec = computeMaxSecondsForClass(currentEquipage?.className, precisionConfig);
+            const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
             const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
             const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
 

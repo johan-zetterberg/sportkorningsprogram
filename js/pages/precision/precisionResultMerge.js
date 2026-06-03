@@ -27,8 +27,9 @@ export function buildPrecisionMergeState(raw) {
   const map = new Map();
   if (!raw) return { groups, map };
 
-  const maybeDisplay = raw && typeof raw === 'object' && raw.mergeByClassNumber ? raw : null;
-  const source = maybeDisplay ? maybeDisplay.mergeByClassNumber : raw;
+  const normalizedRaw = raw?.value && typeof raw.value === 'object' ? raw.value : raw;
+  const maybeDisplay = normalizedRaw && typeof normalizedRaw === 'object' && normalizedRaw.mergeByClassNumber ? normalizedRaw : null;
+  const source = maybeDisplay ? maybeDisplay.mergeByClassNumber : normalizedRaw;
 
   if (source && typeof source === 'object' && !Array.isArray(source)) {
     for (const [groupKey, info] of Object.entries(source)) {

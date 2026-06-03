@@ -220,10 +220,9 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
     if (!data) throw new Error(t('no_data'));
 
     const programs = getPrograms();
-    let programKey = data.testKey || data.programKey;
-    if (!programKey && data.__savedProtocols && data.__savedProtocols.length) {
-      programKey = data.__savedProtocols[0]?.testKey || data.__savedProtocols[0]?.programKey;
-    }
+    const protocolProgramKey = (data.__savedProtocols || [])
+      .find(p => p && p.id !== 'general' && (p.testKey || p.programKey));
+    let programKey = protocolProgramKey?.testKey || protocolProgramKey?.programKey || data.testKey || data.programKey;
     if (!programKey && window.klassProgramMapping) {
       // Prioritate original class name which usually holds the mapping
       const mapped = window.klassProgramMapping[data.originalClassName] || window.klassProgramMapping[data.className] || window.klassProgramMapping[data._mergedLabel];

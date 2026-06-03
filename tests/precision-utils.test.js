@@ -118,3 +118,22 @@ test('precision max time can be derived from course length and tempo', () => {
 
   assert.equal(maxSeconds, 180);
 });
+
+test('precision max time uses merged course length with original class tempo', () => {
+  const maxSeconds = computeMaxSecondsForClass({
+    className: 'Originalklass',
+    useMergedTestForDisplay: true,
+    mergedTestLabel: 'Sammanslagen klass'
+  }, {
+    classTempo: {
+      Originalklass: 150
+    },
+    courses: {
+      'Sammanslagen klass': {
+        trackLengthMeters: 450
+      }
+    }
+  });
+
+  assert.equal(maxSeconds, 180);
+});

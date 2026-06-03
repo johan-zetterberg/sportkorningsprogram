@@ -19,11 +19,36 @@ test('mergeDressageProtocols lets live protocol replace saved protocol for same 
         movements: [{ momentNo: 1, score: 8 }],
         runningTotalPoints: 8
       }]
-    ])
+    ]),
+    preferLiveOverSaved: true
   });
 
   assert.equal(merged.length, 1);
   assert.equal(merged[0].movements[0].score, 8);
+  assert.equal(merged[0].position, 'C');
+});
+
+test('mergeDressageProtocols preserves saved protocol over stale live protocol by default', () => {
+  const merged = mergeDressageProtocols({
+    savedProtocols: [
+      {
+        judgeId: 'c',
+        position: 'C',
+        movements: [{ momentNo: 1, score: 7 }]
+      }
+    ],
+    liveProtocols: new Map([
+      ['c', {
+        judgeId: 'c',
+        judgePosition: 'C',
+        movements: [{ momentNo: 1, score: 4 }],
+        runningTotalPoints: 4
+      }]
+    ])
+  });
+
+  assert.equal(merged.length, 1);
+  assert.equal(merged[0].movements[0].score, 7);
   assert.equal(merged[0].position, 'C');
 });
 

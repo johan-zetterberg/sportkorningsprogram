@@ -79,15 +79,12 @@ function __validateMapping(mapping) {
 }
 
 async function loadGlobalPrograms() {
-  // 0) Om redan på fönstret
   if (window.dressagePrograms && Object.keys(window.dressagePrograms).length) {
     return window.dressagePrograms;
   }
-  // 1) Försök importera från vanliga sökvägar
   const candidates = [
-    '../data/dressagePrograms.js',
     '../../data/dressagePrograms.js',
-    '/data/dressagePrograms.js'
+    '/js/data/dressagePrograms.js'
   ];
   for (const url of candidates) {
     try {
@@ -98,7 +95,6 @@ async function loadGlobalPrograms() {
       }
     } catch (_) { /* prova nästa */ }
   }
-  // 2) Inget hittades – lämna tomt
   return {};
 }
 
@@ -1060,6 +1056,9 @@ export async function load() {
     // Om vi har en vald klass, rendera om assignments
     const sel = qs('#judgeClassSelect', root);
     if (sel && sel.value) renderJudgeAssignment(root, sel.value);
+    
+    // NYTT: Rendera om summary när domarna har laddats!
+    renderJudgeAssignmentSummary(root);
   });
 
   render(root);

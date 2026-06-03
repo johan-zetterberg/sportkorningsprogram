@@ -2,7 +2,7 @@
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { getClubLogoUrl, fetchImageDataUrl } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
-import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq } from '../utils/precisionUtils.js';
+import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getPrecisionDisplayClassName } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
@@ -134,32 +134,32 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   const splits = d.gateSplits || {};
   const splitKeys = Object.keys(splits).filter(k => k === 'start' || k === 'finish' || k.startsWith('gate_'))
     .sort((a, b) => {
-        if (a === 'start') return -1;
-        if (b === 'start') return 1;
-        if (a === 'finish') return 1;
-        if (b === 'finish') return -1;
-        return (parseInt(a.replace('gate_', '')) || 0) - (parseInt(b.replace('gate_', '')) || 0);
+      if (a === 'start') return -1;
+      if (b === 'start') return 1;
+      if (a === 'finish') return 1;
+      if (b === 'finish') return -1;
+      return (parseInt(a.replace('gate_', '')) || 0) - (parseInt(b.replace('gate_', '')) || 0);
     });
 
   if (splitKeys.length > 0) {
     const startAbs = splits['start'] || d.liveStartEpoch;
     const splitRows = splitKeys.map(k => {
-        let label = k;
-        if (label === 'start') label = 'Start';
-        else if (label === 'finish') label = 'Mål';
-        else label = 'Gate ' + label.replace('gate_', '');
-        
-        let timeStr = '';
-        if (k === 'start' || !startAbs) {
-            timeStr = 'kl. ' + new Date(splits[k]).toLocaleTimeString('sv-SE', {hour12: false, hour:'2-digit', minute:'2-digit', second:'2-digit'});
-        } else {
-            const elapsed = Math.max(0, splits[k] - startAbs);
-            const m = Math.floor(elapsed / 60000);
-            const s = Math.floor((elapsed % 60000) / 1000);
-            const ds = Math.floor((elapsed % 1000) / 100);
-            timeStr = `+${m > 0 ? m + ':' : ''}${String(s).padStart(m > 0 ? 2 : 1, '0')},${ds}s`;
-        }
-        return [label, timeStr];
+      let label = k;
+      if (label === 'start') label = 'Start';
+      else if (label === 'finish') label = 'Mål';
+      else label = 'Gate ' + label.replace('gate_', '');
+
+      let timeStr = '';
+      if (k === 'start' || !startAbs) {
+        timeStr = 'kl. ' + new Date(splits[k]).toLocaleTimeString('sv-SE', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      } else {
+        const elapsed = Math.max(0, splits[k] - startAbs);
+        const m = Math.floor(elapsed / 60000);
+        const s = Math.floor((elapsed % 60000) / 1000);
+        const ds = Math.floor((elapsed % 1000) / 100);
+        timeStr = `+${m > 0 ? m + ':' : ''}${String(s).padStart(m > 0 ? 2 : 1, '0')},${ds}s`;
+      }
+      return [label, timeStr];
     });
 
     pdf.autoTable({
@@ -340,7 +340,7 @@ export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, 
     const stdStart = startTimeFor(eq.startNumber, startTimes);
 
     // Maxtid
-    const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
+    const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
     const maxTimeLabel = maxSec ? `${Math.floor(maxSec / 60)}:${String(maxSec % 60).padStart(2, '0')}` : '-';
 
     // Bredder
@@ -415,30 +415,46 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
   const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
   const pageW = doc.internal.pageSize.getWidth();
   const mx = 40;
-  
+
   let y = drawStandardHeader(doc, competition, "PRECISION – BANA & PORTAR PER KLASS", srfLogo, 30, 40);
   y += 5;
 
-  // Derive allClasses from equipages
-  // Course setup must stay on the original class, since merged display
-  // groups may still have different gate widths and max times.
-  const allClasses = [...new Set(equipages.map(e => e.className).filter(Boolean))].sort();
+  const classGroups = new Map();
+  equipages.forEach(eq => {
+    const label = getPrecisionDisplayClassName(eq);
+    if (!label) return;
+    if (!classGroups.has(label)) classGroups.set(label, { label, sourceClasses: new Set(), equipages: [] });
+    const group = classGroups.get(label);
+    group.equipages.push(eq);
+    if (eq.className) group.sourceClasses.add(eq.className);
+  });
+  const allClasses = Array.from(classGroups.values())
+    .map(group => ({ ...group, sourceClasses: Array.from(group.sourceClasses).sort() }))
+    .sort((a, b) => a.label.localeCompare(b.label, 'sv'));
 
   // --- ONE SECTION PER CLASS ---
-  for (const className of allClasses) {
-    const courseData = precisionConfig?.courses?.[className] || {};
+  for (const group of allClasses) {
+    const className = group.label;
+    const sourceClasses = group.sourceClasses.length ? group.sourceClasses : [className];
+    const courseData = precisionConfig?.courses?.[className]
+      || sourceClasses.map(sourceClassName => precisionConfig?.courses?.[sourceClassName]).find(Boolean)
+      || {};
     const labels = courseData.obstacleLabels || [];
     const specialPortAllowance = courseData.specialPortAllowance || {};
     const trackLength = courseData.trackLengthMeters || null;
 
     // Standard gate allowance for this class (manual override or TR default)
-    const { getPortAllowanceCm } = await import('../utils/precisionUtils.js');
     const baseAllowanceCm = Number(precisionConfig?.portAllowanceByClass?.[className] ?? getPortAllowanceCm(className, precisionConfig) ?? 35);
 
     // Maxtid
-    const { computeMaxSecondsForClass } = await import('../utils/precisionUtils.js');
-    const maxSec = computeMaxSecondsForClass(className, precisionConfig);
-    const maxTimeLabel = maxSec ? secondsToMMSS(maxSec) : '–';
+    const maxTimeLabels = sourceClasses.map(sourceClassName => {
+      const eqForClass = group.equipages.find(eq => eq.className === sourceClassName) || { className: sourceClassName };
+      const maxSec = computeMaxSecondsForClass(eqForClass, precisionConfig);
+      return maxSec ? `${sourceClassName}: ${secondsToMMSS(maxSec)}` : null;
+    }).filter(Boolean);
+    const maxTimeLabel = maxTimeLabels.length === 1
+      ? maxTimeLabels[0].replace(/^[^:]+:\s*/, '')
+      : maxTimeLabels.join('   |   ');
 
     // Section heading
     if (y > doc.internal.pageSize.getHeight() - 80) { doc.addPage(); y = 40; }
@@ -455,11 +471,13 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
     const infoLine = [
       trackLength ? `Banlängd: ${trackLength} m` : null,
       `Standardtillägg: +${baseAllowanceCm} cm`,
-      maxTimeLabel !== '–' ? `Maxtid: ${maxTimeLabel}` : null
+      maxTimeLabel ? `Maxtid: ${maxTimeLabel}` : null
     ].filter(Boolean).join('   |   ');
-    doc.text(infoLine, mx, y + 10);
+    
+    const lines = doc.splitTextToSize(infoLine, pageW - mx * 2);
+    doc.text(lines, mx, y + 10);
     doc.setTextColor(0, 0, 0);
-    y += 18;
+    y += 10 + (lines.length * 12);
 
     if (labels.length === 0) {
       doc.setFontSize(9);

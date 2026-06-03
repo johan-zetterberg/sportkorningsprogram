@@ -48,7 +48,7 @@ function sameJudge(a, b) {
   return !!aPos && !!bPos && aPos === bPos;
 }
 
-export function mergeDressageProtocols({ savedProtocols = [], liveProtocols = null, judges = [] } = {}) {
+export function mergeDressageProtocols({ savedProtocols = [], liveProtocols = null, judges = [], preferLiveOverSaved = false } = {}) {
   const merged = deduplicateAndFilterProtocols(asArray(savedProtocols), judges);
 
   getLiveEntries(liveProtocols).forEach(([rawId, liveProtocol]) => {
@@ -57,7 +57,9 @@ export function mergeDressageProtocols({ savedProtocols = [], liveProtocols = nu
 
     const existingIndex = merged.findIndex(protocol => sameJudge(protocol, normalizedLive));
     if (existingIndex >= 0) {
-      merged[existingIndex] = normalizedLive;
+      if (preferLiveOverSaved) {
+        merged[existingIndex] = normalizedLive;
+      }
     } else {
       merged.push(normalizedLive);
     }

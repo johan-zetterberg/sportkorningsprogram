@@ -15,6 +15,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
 
 let competitionId = null;
 let equipages = [];
@@ -153,8 +154,7 @@ function renderGates() {
     const entities = mapSettings.entities || {};
     let keys = Object.keys(entities).filter(k => k.startsWith('gate_'));
     
-    const cls = currentEquipage?.className;
-    const courseData = precisionConfig?.courses?.[cls];
+    const courseData = getPrecisionCourseData(currentEquipage, precisionConfig).course;
     if (courseData && Array.isArray(courseData.obstacleLabels) && courseData.obstacleLabels.length > 0) {
         const allowedLabels = new Set(courseData.obstacleLabels.map(l => String(l).trim()));
         keys = keys.filter(k => {

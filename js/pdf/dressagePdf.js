@@ -41,6 +41,14 @@ async function fetchImageDataUrl(url) {
   } catch { return null; }
 }
 
+function firstFinite(...values) {
+  for (const value of values) {
+    const number = Number(value);
+    if (Number.isFinite(number)) return number;
+  }
+  return null;
+}
+
 // === Publik API ===
 export async function generateDressagePdf(startNumber, processedResultsRef, opts) {
 
@@ -273,9 +281,9 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
     let totalPoints = 0, percent = 0, penalty = 0;
     if (!jr.eliminated && !judgeRes.eliminated) {
-      totalPoints = judgeRes.points || 0;
-      percent = judgeRes.percent || 0;
-      penalty = judgeRes.penalty || 0;
+      totalPoints = firstFinite(jr.totalPoints, jr.points, judgeRes.points) || 0;
+      percent = firstFinite(jr.percent, judgeRes.percent) || 0;
+      penalty = firstFinite(jr.penalty, judgeRes.penalty) || 0;
     }
 
     const summaryData = [
@@ -369,13 +377,13 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
     const finalRes = calculateDressageResult(data, allProtocols, [], programs);
 
-    const avgPercent = (finalRes && finalRes.percent) ? finalRes.percent : 0;
-    const finalPenalty = (finalRes && finalRes.penalty != null) ? finalRes.penalty : 0;
+    const avgPercent = firstFinite(data.finalPercent, data.avgPercent, finalRes?.percent) || 0;
+    const finalPenalty = firstFinite(data.finalPenalty, data.totalPenalty, data.results?.dressage?.penalty, data.results?.dressage?.totalPenalty, finalRes?.penalty) || 0;
     // Note: sum logic earlier in the file (lines 323-333) calculates "average total points" manually to display row-by-row.
     // That is fine to keep for the Table Display, but for the FINAL summary numbers we trust the service.
     // Just ensuring `sum` (used in table generation) matches `finalRes.points` if we wanted to be strict,
     // but replacing the final derivation is the goal here.
-    const displaySum = (finalRes && finalRes.points) ? finalRes.points : 0;
+    const displaySum = firstFinite(data.finalPoints, data.totalPoints, finalRes?.points, sum) || 0;
 
     const summary = [
       ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : displaySum.toFixed(1)],

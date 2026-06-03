@@ -29,6 +29,12 @@ const allPrograms = {
       { no: 1, coeff: 1 },
       { no: 2, coeff: 1 }
     ]
+  },
+  PE_A: {
+    id: 'PE_A',
+    name: 'FEI Dressage Test FU',
+    penaltyCoeff: 0.84,
+    movements: Array.from({ length: 19 }, (_, idx) => ({ no: idx + 1, coeff: 1 }))
   }
 };
 
@@ -171,6 +177,57 @@ test('calculateDressageResult averages multiple judges', () => {
   assert.equal(result.eliminated, false);
   assert.equal(result.judgePenalty, 6);
   assert.equal(result.penalty, 8);
+});
+
+test('calculateDressageResult applies dressage coefficient to error points', () => {
+  const state = createBaseState();
+  state.config.allPrograms = {
+    ...state.config.allPrograms,
+    LA: {
+      ...state.config.allPrograms.LA,
+      penaltyCoeff: 0.8
+    }
+  };
+  state.dressage.protocols.push({
+    judgeId: 'e',
+    movements: [
+      { momentNo: 1, score: 6 },
+      { momentNo: 2, score: 7 }
+    ]
+  });
+
+  const result = calculateDressageResult(state);
+
+  assert.equal(result.eliminated, false);
+  assert.equal(result.judgePenalty, 4.8);
+  assert.equal(result.penalty, 6.4);
+});
+
+test('calculateDressageResult prefers saved protocol program over equipage class fallback', () => {
+  const judgeC = Array.from({ length: 19 }, () => 6);
+  const judgeE = Array.from({ length: 19 }, () => 8);
+  const protocols = [
+    { judgeId: 'c', testKey: 'PE_A', movements: judgeC.map((score, idx) => ({ momentNo: idx + 1, score })) },
+    { judgeId: 'e', testKey: 'PE_A', movements: judgeE.map((score, idx) => ({ momentNo: idx + 1, score })) }
+  ];
+  const equipage = {
+    startNumber: 11,
+    className: 'MSV 3',
+    testKey: 'LA',
+    errorPoints: 0
+  };
+  const state = buildCompetitionState(
+    equipage,
+    protocols,
+    { obstacles: [] },
+    {},
+    {},
+    { allPrograms, marathonConfig, precisionConfig }
+  );
+
+  const coreResult = calculateDressageResult(state);
+  assert.equal(coreResult.judgePenalty, 47.88);
+  assert.equal(coreResult.penalty, 47.88);
 });
 
 test('calculateDressageResult marks eliminated dressage without numeric penalty', () => {

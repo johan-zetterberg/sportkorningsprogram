@@ -22,6 +22,19 @@ test('buildPrecisionMergeState builds configured TDB merge groups', () => {
   assert.deepEqual(map.get(2), { key: 'groupA', label: 'Lätt klass' });
 });
 
+test('buildPrecisionMergeState accepts value wrapped display config', () => {
+  const { map } = buildPrecisionMergeState({
+    value: {
+      mergeByClassNumber: {
+        wrapped: { label: 'Sammanslagen', members: [9, 10] }
+      }
+    }
+  });
+
+  assert.deepEqual(map.get(9), { key: 'wrapped', label: 'Sammanslagen' });
+  assert.deepEqual(map.get(10), { key: 'wrapped', label: 'Sammanslagen' });
+});
+
 test('resolvePrecisionMergeGrouping prefers explicit equipage display merge', () => {
   const result = resolvePrecisionMergeGrouping({
     className: 'Ordinarie klass',

@@ -27,6 +27,25 @@ import { round2, isNum } from '../utils/sharedUtils.js';
 
 // --- DRESSAGE ---
 
+function getProtocolProgramKey(protocols = [], allPrograms = {}) {
+    const counts = new Map();
+    (protocols || []).forEach(protocol => {
+        if (!protocol || protocol.id === 'general') return;
+        const key = protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey;
+        if (key && allPrograms[key]) counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    let bestKey = null;
+    let bestCount = 0;
+    counts.forEach((count, key) => {
+        if (count > bestCount) {
+            bestKey = key;
+            bestCount = count;
+        }
+    });
+    return bestKey;
+}
+
 /**
  * Calculates the final dressage result for an equipage based on their protocols.
  * @param {Object} equipage - The equipage object (should contain errorPoints).
@@ -41,13 +60,9 @@ export function calculateDressageResult(equipage, protocols, validJudges = [], p
     // 1. Get Programs
     const allPrograms = programsOverride || getPrograms();
 
-    // 2. Determine Program
-    let programKey = equipage.testKey || equipage.programKey;
-    if (!programKey || !allPrograms[programKey]) {
-        // Fallback: search protocols if not on equipage
-        const protoWithKey = (protocols || []).find(p => p.testKey || p.programKey);
-        if (protoWithKey) programKey = protoWithKey.testKey || protoWithKey.programKey;
-    }
+    // 2. Determine Program. Saved protocols are authoritative because a single
+    // equipage/class can intentionally use a different program than the class fallback.
+    let programKey = getProtocolProgramKey(protocols || [], allPrograms) || equipage.testKey || equipage.programKey;
 
     if (!programKey || !allPrograms[programKey]) {
         programKey = guessProgramKeyFromClass(equipage.className, allPrograms);
@@ -152,7 +167,7 @@ export function calculateDressageResult(equipage, protocols, validJudges = [], p
         coeff: coeff,
         errorPoints: effectiveErrorPoints,
         errorPenalty: errorPenalty,
-        judgeCount: cleanProtocols.length,
+        judgeCount: judgeProtocols.length,
         pointsNow: pointsNow, // Added for Monitor
         // TR Tie-breaker
         generalImpressionsSum: result ? result.generalImpressionsSum : null

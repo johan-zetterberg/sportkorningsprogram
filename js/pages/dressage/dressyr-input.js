@@ -14,6 +14,7 @@ import { db, appId } from '../../config/firebase-config.js';
 import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { klassProgramMapping } from '../../data/competitionData.js';
+import { formatDressageProgramOptionLabel, getDressageProgramTrNumber, sortDressageProgramKeys } from './dressageAdminProgramOptions.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 
@@ -184,10 +185,16 @@ function findProgramKeyForClass(classOrEquipage) {
 
 function getProgramMeta(key) {
   const p = getPrograms()[key] || null;
+  const maxScore = p?.movements?.reduce((sum, movement) => sum + 10 * (Number(movement.coeff) || 1), 0) || 0;
   return p ? {
+    key,
     name: p.name || key,
     version: p.version || '',
     source: p.source || '',
+    category: p.category || '',
+    arena: p.arena || '',
+    trNumber: getDressageProgramTrNumber(p),
+    maxScore,
     verified: !!p.verified
   } : null;
 }
@@ -349,11 +356,11 @@ function populateSelectors() {
   const src = getPrograms();
   testSelector.innerHTML = '';
   const categories = {};
-  Object.keys(src).forEach(key => {
+  sortDressageProgramKeys(src).forEach(key => {
     const p = src[key] || {};
     const cat = p.category || 'Övrigt';
     if (!categories[cat]) categories[cat] = [];
-    categories[cat].push({ key, name: p.name || key });
+    categories[cat].push({ key, name: formatDressageProgramOptionLabel(key, p) });
   });
 
   const preferred = ['Svenskt', 'FEI', 'Övrigt'];
@@ -419,7 +426,7 @@ function clearForm() {
   calculateTotals();
 }
 
-function updateProgramMeta(key) {
+function updateProgramMetaLegacy(key) {
   const host = document.getElementById('programMeta');
   if (!host) return;
   const meta = getProgramMeta(key);
@@ -430,6 +437,28 @@ function updateProgramMeta(key) {
   const coeff = getDressagePenaltyCoeff(key);
   const coeffLabel = /fei/i.test((getPrograms()[key]?.name || '') + ' ' + (getPrograms()[key]?.category || '')) ? 'Coefficient' : 'Koeff';
   host.innerHTML = `${badge}${meta.name}${ver}${src} • <span class="ml-1">${coeffLabel}: <strong>${coeff.toFixed(3)}</strong></span>`;
+}
+
+function updateProgramMeta(key) {
+  const host = document.getElementById('programMeta');
+  if (!host) return;
+  const meta = getProgramMeta(key);
+  if (!meta) { host.innerHTML = ''; return; }
+
+  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${meta.verified ? t('input_verified') : t('input_not_verified')}</span>`;
+  const coeff = getDressagePenaltyCoeff(key);
+  const coeffLabel = /fei/i.test((getPrograms()[key]?.name || '') + ' ' + (getPrograms()[key]?.category || '')) ? 'Coefficient' : 'Koeff';
+  const parts = [
+    meta.trNumber ? `TR nr ${meta.trNumber}` : '',
+    meta.version ? `v${meta.version}` : '',
+    meta.arena || '',
+    meta.maxScore ? `Maxpoäng: ${meta.maxScore}` : '',
+    `${coeffLabel}: <strong>${coeff.toFixed(3)}</strong>`,
+    `Nyckel: <code>${meta.key}</code>`,
+    meta.source || ''
+  ].filter(Boolean);
+
+  host.innerHTML = `${badge}${meta.name} <span class="ml-1">${parts.join(' • ')}</span>`;
 }
 
 function renderProtocol(testKey) {
@@ -1189,11 +1218,11 @@ export function load() {
 
     <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
       
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
-        <div class="md:col-span-1">
+      <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
+        <div class="md:col-span-2">
           <label for="testSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_program')}</label>
           <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
-          <div id="programMeta" class="text-xs text-gray-600 mt-1 truncate dark:text-gray-400"></div>
+          <div id="programMeta" class="text-xs text-gray-600 mt-1 leading-snug whitespace-normal break-words dark:text-gray-400"></div>
         </div>
         <div class="md:col-span-1">
           <label for="judgeSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_judge')}</label>

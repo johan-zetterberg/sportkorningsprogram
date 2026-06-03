@@ -263,10 +263,10 @@ function renderCurrentDriver() {
   }
 
   // Hämta baninformation
-  const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
-  const trackLength = getTrackLengthMeters(eq.className, precisionConfig);
+  const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
+  const trackLength = getTrackLengthMeters(eq, precisionConfig);
   // Använd "allowance" istället för tot bredd
-  const allowance = getPortAllowanceCm(eq.className, precisionConfig);
+  const allowance = getPortAllowanceCm(eq, precisionConfig);
   const portDisplay = isNum(allowance) ? `+ ${allowance} cm` : '–';
 
   // Om klart/uteslutet, använd de slutgiltiga värdena, annars live
@@ -661,7 +661,7 @@ function ensureTicker() {
         // LIVE-STRAFF UPPDATERING
         if (data.eliminated) return;
 
-        const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
+        const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
         let currentTimePenalty = 0;
 
         if (isNum(maxSec) && maxSec > 0) {

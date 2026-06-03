@@ -10,10 +10,16 @@ import {
     parsePrecisionObstacleLabels,
     validatePrecisionAdminSettings
 } from './precisionAdminValidation.js';
+import {
+    buildPrecisionMergeState,
+    resolvePrecisionMergeGrouping
+} from './precisionResultMerge.js';
 
 let competitionId = null;
 let activeClasses = [];
+let activeClassGroups = [];
 let precisionConfig = {};
+let precisionMergeMap = new Map();
 
 const PRECISION_ERROR_CLASSES = ['border-red-500', 'ring-2', 'ring-red-300', 'bg-red-50', 'dark:bg-red-950/30'];
 
@@ -270,12 +276,13 @@ function renderClassCards() {
     const container = document.getElementById('classConfigsContainer');
     if (!container) return;
 
-    if (activeClasses.length === 0) {
+    if (activeClassGroups.length === 0) {
         container.innerHTML = '<p class="text-gray-500">Inga ekipage anmälda till några klasser ännu.</p>';
         return;
     }
 
-    container.innerHTML = activeClasses.map(className => {
+    container.innerHTML = activeClassGroups.map(group => {
+        const className = group.label;
         const classId = className.replace(/[^a-zA-Z0-9]/g, '_');
         const courseData = precisionConfig.courses?.[className] || {};
         const trackLength = courseData.trackLengthMeters ?? '';
@@ -310,12 +317,16 @@ function renderClassCards() {
     `;
 
 
-        const stdTempo = findTempoForClass(className, klassTempoData);
+        const tempoState = getTempoStateForGroup(group);
+        const stdTempo = tempoState.displayTempo;
         const savedTempo = precisionConfig.courses?.[className]?.tempo;
         // Use saved override if available, otherwise the TR standard tempo.
         const activeTempo = savedTempo > 0 ? savedTempo : stdTempo;
+        const sourceClassLabel = group.isMerged && group.sourceClasses.length
+            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">IngÃ¥r: ${group.sourceClasses.join(', ')}. Tempo rÃ¤knas per ursprungsklass om inget manuellt tempo anges.</p>`
+            : '';
 
-        let maxTime = '--:--';
+        let maxTime = tempoState.hasMixedTempo && !(savedTempo > 0) ? 'Klassvis' : '--:--';
         if (trackLength > 0 && activeTempo > 0) {
             maxTime = secondsToMMSS((trackLength / activeTempo) * 60);
         }
@@ -323,6 +334,7 @@ function renderClassCards() {
         return `
             <div class="p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}">
                 <h4 class="text-lg font-bold text-gray-800 dark:text-white">${className}</h4>
+                ${sourceClassLabel}
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Port-tillägg (cm)</label>
@@ -375,7 +387,9 @@ function renderClassCards() {
         const className = card.dataset.className;
         const classId = className.replace(/[^a-zA-Z0-9]/g, '_');
 
-        const stdTempo = findTempoForClass(className, klassTempoData);
+        const group = activeClassGroups.find(item => item.label === className);
+        const tempoState = getTempoStateForGroup(group || { label: className, sourceClasses: [className] });
+        const stdTempo = tempoState.displayTempo;
         const overrideTempo = parseOptionalNumber(card.querySelector('.tempo-override-input').value);
         const activeTempo = overrideTempo > 0 ? overrideTempo : stdTempo;
 
@@ -385,6 +399,10 @@ function renderClassCards() {
         if (trackLength > 0 && activeTempo > 0 && maxTimeOutput) {
             maxTimeOutput.textContent = secondsToMMSS((trackLength / activeTempo) * 60);
         } else if (maxTimeOutput) {
+            if (tempoState.hasMixedTempo && !(overrideTempo > 0) && trackLength > 0) {
+                maxTimeOutput.textContent = 'Klassvis';
+                return;
+            }
             maxTimeOutput.textContent = '--:--';
         }
     };
@@ -437,12 +455,113 @@ function renderClassCards() {
     });
 }
 
+function buildPrecisionConfigFromForm() {
+    const comp = getGlobalState('currentCompetition');
+    const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
+
+    const knockdownPenaltyRaw = document.getElementById('globalKnockdownPenalty')?.value ?? '';
+    const timePenaltyRateRaw = document.getElementById('globalTimePenaltyRate')?.value ?? '';
+    const knockdownPenalty = parseOptionalNumber(knockdownPenaltyRaw);
+    const timePenaltyRate = parseOptionalNumber(timePenaltyRateRaw);
+
+    const newConfig = {
+        ...precisionConfig,
+        portAllowanceByClass: {},
+        courses: {},
+        knockdownPenalty: knockdownPenalty ?? 3,
+        timePenaltyRate: timePenaltyRate ?? defRate
+    };
+    const validationClassRows = {};
+
+    document.querySelectorAll('#classConfigsContainer [data-class-name]').forEach(card => {
+        const className = card.dataset.className;
+        const allowanceOverrideRaw = card.querySelector('.allowance-override-input')?.value ?? '';
+        const allowanceOverride = parseOptionalNumber(allowanceOverrideRaw);
+        if (allowanceOverride != null) newConfig.portAllowanceByClass[className] = allowanceOverride;
+
+        const trackLengthRaw = card.querySelector('.track-length-input')?.value ?? '';
+        const tempoRaw = card.querySelector('.tempo-override-input')?.value ?? '';
+        const labelsText = card.querySelector('.obstacle-labels-input')?.value ?? '';
+        const labels = parsePrecisionObstacleLabels(labelsText);
+        const specialPortAllowance = {};
+        const specialPortAllowanceRaw = {};
+
+        card.querySelectorAll('.special-port-input').forEach(input => {
+            const label = input.dataset.label;
+            if (!label) return;
+            const val = input.value.trim();
+            specialPortAllowanceRaw[label] = val;
+            const num = parseOptionalNumber(val);
+            if (num != null && num !== 0) specialPortAllowance[label] = num;
+        });
+
+        const courseConfig = {
+            trackLengthMeters: parseOptionalNumber(trackLengthRaw),
+            obstacleLabels: labels,
+            tempo: parseOptionalNumber(tempoRaw)
+        };
+        if (Object.keys(specialPortAllowance).length > 0) courseConfig.specialPortAllowance = specialPortAllowance;
+
+        const group = activeClassGroups.find(item => item.label === className);
+        newConfig.courses[className] = courseConfig;
+        (group?.sourceClasses || []).forEach(sourceClassName => {
+            if (!sourceClassName || sourceClassName === className) return;
+            newConfig.courses[sourceClassName] = { ...courseConfig, tempo: null };
+            if (allowanceOverride != null) newConfig.portAllowanceByClass[sourceClassName] = allowanceOverride;
+        });
+
+        validationClassRows[className] = {
+            trackLengthMeters: trackLengthRaw,
+            tempo: tempoRaw,
+            obstacleLabelsText: labelsText,
+            allowanceOverride: allowanceOverrideRaw,
+            specialPortAllowance: specialPortAllowanceRaw
+        };
+    });
+
+    const mapJsonRaw = document.getElementById('precMapCoordsJson')?.value || '{}';
+    let mapEntitiesParseError = false;
+    let mapEntities = {};
+    try {
+        mapEntities = JSON.parse(mapJsonRaw);
+    } catch (e) {
+        mapEntitiesParseError = true;
+    }
+
+    newConfig.mapSettings = {
+        enabled: document.getElementById('toggleMapFeature')?.checked || false,
+        hideBackground: document.getElementById('precMapHideBackground')?.checked || false,
+        imageUrl: document.getElementById('precMapImageUrl')?.value || '',
+        bounds: [
+            0, 0,
+            parseInt(document.getElementById('precMapBoundsY')?.value) || 1080,
+            parseInt(document.getElementById('precMapBoundsX')?.value) || 1920
+        ],
+        entities: mapEntitiesParseError ? {} : mapEntities
+    };
+
+    const validation = validatePrecisionAdminSettings({
+        classes: validationClassRows,
+        global: { knockdownPenalty: knockdownPenaltyRaw, timePenaltyRate: timePenaltyRateRaw },
+        map: {
+            enabled: newConfig.mapSettings.enabled,
+            entities: newConfig.mapSettings.entities,
+            entitiesParseError: mapEntitiesParseError
+        }
+    }, (className) => {
+        const group = activeClassGroups.find(item => item.label === className);
+        return { hasStandardTempo: getTempoStateForGroup(group || { label: className, sourceClasses: [className] }).hasStandardTempo };
+    });
+
+    return { config: newConfig, validation };
+}
+
 async function saveData() {
     try {
         clearPrecisionValidationDom();
         const comp = getGlobalState('currentCompetition');
         const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
-        
+
         const knockdownPenaltyRaw = document.getElementById('globalKnockdownPenalty')?.value ?? '';
         const timePenaltyRateRaw = document.getElementById('globalTimePenaltyRate')?.value ?? '';
         const knockdownPenalty = parseOptionalNumber(knockdownPenaltyRaw);
@@ -502,7 +621,18 @@ async function saveData() {
                 courseConfig.specialPortAllowance = specialPortAllowance;
             }
 
+            const group = activeClassGroups.find(item => item.label === className);
             newConfig.courses[className] = courseConfig;
+            (group?.sourceClasses || []).forEach(sourceClassName => {
+                if (!sourceClassName || sourceClassName === className) return;
+                newConfig.courses[sourceClassName] = {
+                    ...courseConfig,
+                    tempo: null
+                };
+                if (allowanceOverride != null) {
+                    newConfig.portAllowanceByClass[sourceClassName] = allowanceOverride;
+                }
+            });
             validationClassRows[className] = {
                 trackLengthMeters: trackLengthRaw,
                 tempo: tempoRaw,
@@ -518,7 +648,7 @@ async function saveData() {
         let mapEntities = {};
         try {
             mapEntities = JSON.parse(mapJsonRaw);
-        } catch(e) {
+        } catch (e) {
             mapEntitiesParseError = true;
         }
 
@@ -546,9 +676,10 @@ async function saveData() {
                 entities: mapSettings.entities,
                 entitiesParseError: mapEntitiesParseError
             }
-        }, (className) => ({
-            hasStandardTempo: findTempoForClass(className, klassTempoData) > 0
-        }));
+        }, (className) => {
+            const group = activeClassGroups.find(item => item.label === className);
+            return { hasStandardTempo: getTempoStateForGroup(group || { label: className, sourceClasses: [className] }).hasStandardTempo };
+        });
 
         if (hasPrecisionValidationErrors(validation)) {
             applyPrecisionValidationDom(validation);
@@ -580,26 +711,24 @@ export async function load() {
     setupPrecisionValidationListeners(root);
 
     try {
-        const [equipagesData, configData] = await Promise.all([
+        const [equipagesData, configData, displayConfig] = await Promise.all([
             getEquipages(competitionId),
-            getConfig(competitionId, 'precisionConfig')
+            getConfig(competitionId, 'precisionConfig'),
+            getConfig(competitionId, 'display', true).catch(() => ({}))
         ]);
 
         precisionConfig = configData || {};
+        precisionMergeMap = buildPrecisionMergeState(displayConfig || {}).map;
 
-        activeClasses = [...new Set(equipagesData.map(e => {
-            if (e.useMergedTestForDisplay && e.mergedTestLabel) {
-                return e.mergedTestLabel;
-            }
-            return e.className;
-        }).filter(Boolean))].sort();
+        activeClassGroups = buildPrecisionClassGroups(equipagesData, precisionMergeMap);
+        activeClasses = activeClassGroups.map(group => group.label);
 
         // Populate global inputs
         const kpInput = document.getElementById('globalKnockdownPenalty');
         const tpInput = document.getElementById('globalTimePenaltyRate');
-        
+
         const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
-        
+
         if (kpInput) kpInput.value = precisionConfig.knockdownPenalty != null ? precisionConfig.knockdownPenalty : 3;
         if (tpInput) tpInput.value = precisionConfig.timePenaltyRate != null ? precisionConfig.timePenaltyRate : defRate;
 
@@ -620,7 +749,7 @@ export async function load() {
                 }
             };
         }
-        
+
         setupPrecMapSettings(mapSettings);
 
         const saveButton = document.getElementById('btnSaveAll');
@@ -634,7 +763,20 @@ export async function load() {
             btn.textContent = 'Genererar PDF...';
             try {
                 const comp = getGlobalState('currentCompetition');
-                await generatePrecisionCourseSetupPdf(precisionConfig, equipagesData, comp);
+                const { config, validation } = buildPrecisionConfigFromForm();
+                if (hasPrecisionValidationErrors(validation)) {
+                    applyPrecisionValidationDom(validation);
+                    showAlert('Banlayouten saknar obligatoriska värden. Kontrollera rödmarkerade fält innan PDF skapas.', 'error');
+                    return;
+                }
+                const pdfEquipages = equipagesData.map(eq => ({
+                    ...eq,
+                    _mergedLabel: (eq?.mergedTestLabel && String(eq.mergedTestLabel) !== String(eq?.className || ''))
+                        ? String(eq.mergedTestLabel)
+                        : resolvePrecisionMergeGrouping(eq, precisionMergeMap).label
+                }));
+                console.info('[PrecisionAdmin] Banlayout PDF grupper', Array.from(new Set(pdfEquipages.map(eq => eq._mergedLabel || eq.className))).sort());
+                await generatePrecisionCourseSetupPdf(config, pdfEquipages, comp);
             } catch (e) {
                 console.error('PDF fel:', e);
                 showAlert('Kunde inte skapa PDF.', 'error');
@@ -657,6 +799,49 @@ export function __unload() {
     }
     precPickerMarkers.clear();
     currentPrecEntities = {};
+}
+
+function buildPrecisionClassGroups(equipages = [], mergeMap = new Map()) {
+    const groups = new Map();
+    for (const equipage of equipages) {
+        const resolved = resolvePrecisionMergeGrouping(equipage, mergeMap);
+        const hasExplicitMergedLabel = equipage?.mergedTestLabel && String(equipage.mergedTestLabel) !== String(equipage?.className || '');
+        const groupInfo = hasExplicitMergedLabel
+            ? { key: String(equipage.mergedTestKey || equipage.mergedTestLabel), label: String(equipage.mergedTestLabel) }
+            : resolved;
+        const label = String(groupInfo?.label || equipage?.className || '');
+        if (!label) continue;
+
+        if (!groups.has(label)) {
+            groups.set(label, { label, sourceClasses: new Set(), isMerged: false });
+        }
+
+        const group = groups.get(label);
+        if (equipage?.className) group.sourceClasses.add(String(equipage.className));
+        if (label !== String(equipage?.className || '')) group.isMerged = true;
+    }
+
+    return Array.from(groups.values())
+        .map(group => ({
+            label: group.label,
+            sourceClasses: Array.from(group.sourceClasses).sort(),
+            isMerged: group.isMerged
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'sv'));
+}
+
+function getTempoStateForGroup(group) {
+    const sourceClasses = group?.sourceClasses?.length ? group.sourceClasses : [group?.label].filter(Boolean);
+    const tempos = sourceClasses
+        .map(className => findTempoForClass(className, klassTempoData))
+        .filter(tempo => tempo > 0);
+    const uniqueTempos = [...new Set(tempos)];
+
+    return {
+        hasStandardTempo: sourceClasses.length > 0 && tempos.length === sourceClasses.length,
+        displayTempo: uniqueTempos.length === 1 ? uniqueTempos[0] : 0,
+        hasMixedTempo: uniqueTempos.length > 1
+    };
 }
 
 function clearPrecisionFieldError(input) {
@@ -786,7 +971,7 @@ function setupPrecMapSettings(mapSettings) {
             currentPrecEntities = JSON.parse(coordsJsonInput.value);
             updateGateSelector(currentPrecEntities);
             syncPrecMarkers();
-        } catch(e) {}
+        } catch (e) { }
     };
 
     entitySelector.onchange = () => syncPrecMarkers();
@@ -799,26 +984,26 @@ function setupPrecMapSettings(mapSettings) {
             labels.forEach(l => uniqueGates.add(l));
         });
 
-        const newEntities = { start: currentPrecEntities.start || [0,0], finish: currentPrecEntities.finish || [0,0] };
-        
+        const newEntities = { start: currentPrecEntities.start || [0, 0], finish: currentPrecEntities.finish || [0, 0] };
+
         const count = parseInt(gateCountInput.value) || 0;
-        
+
         if (uniqueGates.size > 0 && count === 0) {
             // Använd gates från klasser
-            const sortedGates = Array.from(uniqueGates).sort((a,b) => {
+            const sortedGates = Array.from(uniqueGates).sort((a, b) => {
                 const numA = parseInt(a) || 0;
                 const numB = parseInt(b) || 0;
                 if (numA === numB) return a.localeCompare(b);
                 return numA - numB;
             });
             sortedGates.forEach(g => {
-                newEntities['gate_'+g] = currentPrecEntities['gate_'+g] || [0,0];
+                newEntities['gate_' + g] = currentPrecEntities['gate_' + g] || [0, 0];
             });
             showAlert(`Skapade ${sortedGates.length} gates från klasskonfigurationer.`);
         } else if (count > 0) {
             // Fallback till manuellt antal om ingen klass har gates, eller om man skrivit i Antal-rutan
-            for(let i=1; i<=count; i++) {
-                newEntities['gate_'+i] = currentPrecEntities['gate_'+i] || [0,0];
+            for (let i = 1; i <= count; i++) {
+                newEntities['gate_' + i] = currentPrecEntities['gate_' + i] || [0, 0];
             }
             showAlert(`Skapade ${count} gates manuellt.`);
         } else {
@@ -871,10 +1056,10 @@ function setupPrecMapSettings(mapSettings) {
             showAlert('Detta ser inte ut som en Google Drive-länk.', 'error');
         }
     };
-    
+
     if (fixAspectBtn) fixAspectBtn.onclick = () => {
         const url = imgUrlInput.value.trim();
-        if(!url) return;
+        if (!url) return;
         const img = new Image();
         img.onload = () => {
             boundsXInput.value = img.width;
@@ -890,12 +1075,12 @@ function updateGateSelector(entities) {
     const selector = document.getElementById('precMapEntitySelector');
     if (!selector) return;
     const currentVal = selector.value;
-    
+
     let optionsHtml = `
         <option value="start">🚩 Start</option>
         <option value="finish">🏆 Mål (Finish)</option>
     `;
-    const gates = Object.keys(entities).filter(k => k.startsWith('gate_')).sort((a,b) => {
+    const gates = Object.keys(entities).filter(k => k.startsWith('gate_')).sort((a, b) => {
         const valA = a.replace('gate_', '');
         const valB = b.replace('gate_', '');
         const numA = parseInt(valA) || 0;
@@ -906,7 +1091,7 @@ function updateGateSelector(entities) {
     if (gates.length > 0) {
         optionsHtml += `<optgroup label="Gates">`;
         gates.forEach(g => {
-            optionsHtml += `<option value="${g}">Port ${g.replace('gate_','')}</option>`;
+            optionsHtml += `<option value="${g}">Port ${g.replace('gate_', '')}</option>`;
         });
         optionsHtml += `</optgroup>`;
     }
@@ -949,7 +1134,7 @@ function initPrecPickerMap() {
         if (!key) return;
         currentPrecEntities[key] = [lat, lng];
         const input = document.getElementById('precMapCoordsJson');
-        if(input) input.value = JSON.stringify(currentPrecEntities, null, 2);
+        if (input) input.value = JSON.stringify(currentPrecEntities, null, 2);
         syncPrecMarkers();
 
         selector.classList.add('ring-2', 'ring-green-500');
@@ -970,9 +1155,9 @@ function syncPrecMarkers() {
         const isSelected = key === selectorVal;
         const color = isSelected ? '#ef4444' : '#3b82f6';
         let label = '';
-        if(key === 'start') label = 'S';
+        if (key === 'start') label = 'S';
         else if (key === 'finish') label = 'M';
-        else if (key.startsWith('gate_')) label = key.replace('gate_','');
+        else if (key.startsWith('gate_')) label = key.replace('gate_', '');
 
         const icon = L.divIcon({
             className: 'custom-prec-admin-marker',

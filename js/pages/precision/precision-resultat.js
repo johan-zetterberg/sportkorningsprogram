@@ -270,7 +270,7 @@ function tickPrecisionTimers() {
       const mobileTimer = document.querySelector(`div[data-sn="${sn}"] .live-time-card`);
 
       const eq = precision_equipages.find(e => String(e.startNumber) === sn);
-      const maxSec = eq ? computeMaxSecondsForClass(eq.className, precision_precisionConfig) : null;
+      const maxSec = eq ? computeMaxSecondsForClass(eq, precision_precisionConfig) : null;
       const tick = buildPrecisionLiveTick(data, {
         equipage: eq,
         maxSec,

@@ -44,6 +44,25 @@ function expandDressagePosition(j) {
   return r ? String(r.position).toUpperCase() : (j?.position ? String(j.position).toUpperCase() : '');
 }
 
+function getProtocolProgramKey(protocols = [], programs = {}) {
+  const counts = new Map();
+  (protocols || []).forEach(protocol => {
+    if (!protocol || protocol.id === 'general') return;
+    const key = protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey;
+    if (key && programs[key]) counts.set(key, (counts.get(key) || 0) + 1);
+  });
+
+  let bestKey = null;
+  let bestCount = 0;
+  counts.forEach((count, key) => {
+    if (count > bestCount) {
+      bestKey = key;
+      bestCount = count;
+    }
+  });
+  return bestKey;
+}
+
 // --- Modalens egna stilar (injiceras en gång) ---
 function injectModalStyles() {
   if (document.getElementById('equipage-modal-styles')) return;
@@ -209,9 +228,10 @@ export async function openEquipageModal(startNumber, ctx) {
     }
 
     async function renderDressyrTab() {
+      const programs = getPrograms();
+      const validProtocols = deduplicateAndFilterProtocols(dressageProtocols || [], ctx.allCompetitionJudges || []);
       // Försök hitta programnyckel från ekipaget, eller från första protokollet
-      const p1 = dressageProtocols[0] || {};
-      let programKey = eq.dressageProgramKey || eq.testKey || eq.programKey || p1.programKey || p1.testKey || p1.protocol?.testKey;
+      let programKey = getProtocolProgramKey(validProtocols, programs) || eq.dressageProgramKey || eq.testKey || eq.programKey;
 
       // Fallback: Slå upp via klassnamn från config (om definierat)
       // Fallback: Slå upp via klassnamn från config (om definierat)
@@ -234,7 +254,7 @@ export async function openEquipageModal(startNumber, ctx) {
       // Fallback: Gissa via heuristik (fuzzy match)
       if (!programKey) {
         const cls = eq.className || eq._mergedLabel || '';
-        const guessed = guessProgramKeyFromClass(cls, getPrograms());
+        const guessed = guessProgramKeyFromClass(cls, programs);
         if (guessed) {
           programKey = guessed;
         }
@@ -242,11 +262,7 @@ export async function openEquipageModal(startNumber, ctx) {
 
       // Logga vad vi hittade
 
-      const programs = getPrograms();
       const program = programKey ? programs[programKey] : null;
-
-      // 1. Clean Protocols
-      const validProtocols = deduplicateAndFilterProtocols(dressageProtocols || [], ctx.allCompetitionJudges || []);
 
       // 2. Build Judges Map using Service
       const judgesMap = {};
@@ -317,6 +333,8 @@ export async function openEquipageModal(startNumber, ctx) {
         driverName: r.driverName || eq.driverName,
         clubName: r.clubName || eq.clubName,
         className: r.className || eq.className,
+        testKey: programKey,
+        programKey,
         country: eq.country,
         _mergedLabel: eq._mergedLabel,
         horseName: horsesLabel,

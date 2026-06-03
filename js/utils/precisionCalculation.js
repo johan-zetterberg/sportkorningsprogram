@@ -5,6 +5,22 @@ const norm = (value) => String(value || '').replace(/^[\d\s\.,&\;-]+/, '').toLow
 const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
 const round2 = (value) => isNum(value) ? Math.round(value * 100) / 100 : value;
 
+function getClassName(value) {
+    return typeof value === 'string' ? value : (value?.className || '');
+}
+
+function getMergedClassName(value) {
+    return typeof value === 'string'
+        ? ''
+        : (value?.useMergedTestForDisplay && value?.mergedTestLabel ? String(value.mergedTestLabel) : '');
+}
+
+function getCourseCandidates(value) {
+    const className = getClassName(value);
+    const mergedClassName = getMergedClassName(value);
+    return [className, mergedClassName].filter(Boolean);
+}
+
 export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = 0.5) {
     if (!Number.isFinite(timeMs) || !Number.isFinite(maxTimeSec) || maxTimeSec <= 0) return 0;
     const maxMs = maxTimeSec * 1000;
@@ -14,22 +30,27 @@ export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRat
 
 export function getTrackLengthMeters(cls, config = {}) {
     const courses = config?.courses || {};
-    const course = courses[cls] || {};
+    const courseKey = getCourseCandidates(cls).find((key) => courses[key]);
+    const course = courses[courseKey] || {};
     const value = Number(course.trackLengthMeters ?? course.length ?? course.trackLength);
     return Number.isFinite(value) && value > 0 ? value : null;
 }
 
 export function getClassTempoMpm(cls, config = {}) {
     const byClass = config?.tempoByClass || config?.classTempo || {};
-    const courses = (config?.courses && config.courses[cls]) || {};
+    const className = getClassName(cls);
+    const mergedClassName = getMergedClassName(cls);
+    const allCourses = config?.courses || {};
+    const courses = allCourses[className] || {};
+    const mergedCourses = mergedClassName ? (allCourses[mergedClassName] || {}) : {};
     const tryNum = (value) => {
         const num = Number(value);
         return Number.isFinite(num) && num > 0 ? num : null;
     };
 
     const configured = tryNum(
-        byClass[cls]
-        ?? byClass[norm(cls)]
+        byClass[className]
+        ?? byClass[norm(className)]
         ?? courses.tempo
         ?? courses.tempoMpm
         ?? courses.mPerMin
@@ -37,7 +58,7 @@ export function getClassTempoMpm(cls, config = {}) {
     if (configured) return configured;
 
     const keys = Object.keys(klassTempoData || {});
-    const normalizedClass = norm(cls);
+    const normalizedClass = norm(className);
     let key = keys.find((candidate) => norm(candidate) === normalizedClass);
     if (!key) {
         key = keys
@@ -49,11 +70,14 @@ export function getClassTempoMpm(cls, config = {}) {
             .filter((candidate) => normalizedClass.includes(norm(candidate)))
             .sort((a, b) => norm(b).length - norm(a).length)[0];
     }
-    return key && klassTempoData[key]?.precision ? klassTempoData[key].precision : null;
+    if (key && klassTempoData[key]?.precision) return klassTempoData[key].precision;
+
+    return tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
 }
 
 export function computeMaxSecondsForClass(cls, config = {}) {
-    const direct = config?.maxTimeByClass?.[cls] || config?.maxTimeByClass?.[norm(cls)];
+    const className = getClassName(cls);
+    const direct = config?.maxTimeByClass?.[className] || config?.maxTimeByClass?.[norm(className)];
     if (direct) {
         const value = Number(direct);
         if (Number.isFinite(value) && value > 0) return value;
@@ -87,7 +111,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         : (isNum(inferredObstacle) ? inferredObstacle
             : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
 
-    const maxSec = computeMaxSecondsForClass(equipage?.className, config);
+    const maxSec = computeMaxSecondsForClass(equipage, config);
     const comp = options.currentCompetition || null;
     let rate = PRECISION_TIME_PENALTY_RATE;
     if (Number.isFinite(config?.timePenaltyRate)) {
