@@ -232,6 +232,36 @@ const maraton_activeClassFilters = window.maraton_activeClassFilters;
 let stageCols = [];              // vilka kolumner som ska visas, t.ex. ['A','transport','B']
 let lastStructuralHash = '';
 let lastHeaderHash = '';
+function timestampComparable(value) {
+  if (!value) return 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (value instanceof Date) return value.getTime();
+  if (typeof value === 'string') {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : value;
+  }
+  return value;
+}
+
+function hasRenderableSummaryChange(prevData, nextData) {
+  const prev = prevData || {};
+  const next = nextData || {};
+
+  if ((prev.running === true) !== (next.running === true)) return true;
+  if ((prev.inProgress === true) !== (next.inProgress === true)) return true;
+  if (String(prev.currentObstacle ?? '') !== String(next.currentObstacle ?? '')) return true;
+  if (timestampComparable(prev.liveObstacleStartAt) !== timestampComparable(next.liveObstacleStartAt)) return true;
+  if (timestampComparable(prev.live_staticStartAt) !== timestampComparable(next.live_staticStartAt)) return true;
+  if ((prev.finalized === true) !== (next.finalized === true)) return true;
+  if (String(prev.status ?? '') !== String(next.status ?? '')) return true;
+  if (String(prev.state ?? '') !== String(next.state ?? '')) return true;
+  if ((prev.eliminated === true) !== (next.eliminated === true)) return true;
+
+  if (JSON.stringify(prev.obstacles || []) !== JSON.stringify(next.obstacles || [])) return true;
+  if (JSON.stringify(prev.observerLog || {}) !== JSON.stringify(next.observerLog || {})) return true;
+
+  return false;
+}
 
 function normalizeEquipage(e) {
   return normalizeMarathonEquipage(e);
@@ -528,6 +558,7 @@ function renderTable() {
 function wireControls() {
   wireMarathonResultControls({
     setViewMode: (value) => { maraton_viewMode = value; },
+    setSearchQuery: (value) => { maraton_searchQuery = value; },
     toggleFinalized: () => { maraton_showOnlyFinalized = !maraton_showOnlyFinalized; },
     toggleOnB: () => { maraton_showOnlyOnB = !maraton_showOnlyOnB; },
     setShowOnlyFinalized: (value) => { maraton_showOnlyFinalized = value; },
@@ -587,8 +618,11 @@ function listenLive() {
       const id = String(change.doc.id);
       if (change.type === 'added' || change.type === 'modified') {
         const current = maraton_marathonMap.get(id) || {};
-        maraton_marathonMap.set(id, { ...current, ...change.doc.data() });
-        changed = true;
+        const next = { ...current, ...change.doc.data() };
+        maraton_marathonMap.set(id, next);
+        if (change.type === 'added' || hasRenderableSummaryChange(current, next)) {
+          changed = true;
+        }
       }
       if (change.type === 'removed') {
         maraton_marathonMap.delete(id);
@@ -630,6 +664,7 @@ export async function load() {
   const currentLoadToken = ++marathonResultsLoadToken;
 
   initializeScrollSync(window.location.pathname);
+  injectScrollStyles();
   const comp = getGlobalState('currentCompetition');
   if (!comp || !comp.id) {
     console.warn('MaratonResults: No competition loaded.');
@@ -637,7 +672,7 @@ export async function load() {
   }
   competitionId = comp.id;
 
-  if (!document.getElementById('marathonResultsTableStyles')) {
+  if (!document.getElementById('maraton-table-styles')) {
     injectMaratonTableStyles(); // Ensure CSS injected
   }
 

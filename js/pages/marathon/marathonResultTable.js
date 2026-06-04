@@ -1,4 +1,4 @@
-import { formatObstacleSeconds } from './marathonResultFormatters.js';
+import { formatObstacleClock, formatObstacleSeconds } from './marathonResultFormatters.js';
 
 export function rowObstacleCells(res, maxObs) {
   return Array.from({ length: maxObs }, (_, i) => {
@@ -9,7 +9,7 @@ export function rowObstacleCells(res, maxObs) {
     const label = timeSec !== null ? formatObstacleSeconds(timeSec) : (obsItem?.eliminated ? 'ELIM' : '\u2014');
     const title = [
       `Hinder ${n}`,
-      timeSec !== null ? `Tid: ${formatObstacleSeconds(timeSec)} s` : null,
+      timeSec !== null ? `Tid: ${formatObstacleSeconds(timeSec)} s (${formatObstacleClock(timeSec)})` : null,
       finalP !== null ? `Straff: ${finalP.toFixed(2)}` : null
     ].filter(Boolean).join(' | ');
 

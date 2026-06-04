@@ -1056,7 +1056,7 @@ export async function load() {
     // Om vi har en vald klass, rendera om assignments
     const sel = qs('#judgeClassSelect', root);
     if (sel && sel.value) renderJudgeAssignment(root, sel.value);
-    
+
     // NYTT: Rendera om summary när domarna har laddats!
     renderJudgeAssignmentSummary(root);
   });

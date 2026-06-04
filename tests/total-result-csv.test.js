@@ -32,7 +32,7 @@ test('buildTotalCsvExport builds filename, headers and rows', () => {
         className: 'Latt A',
         dressage: { penalty: 45.123, percentAvg: 67.89 },
         marathon: { timePenalty: 3, obstaclePenalty: 4.5, totalPenalty: 7.5 },
-        precision: { pen: 1 },
+        precision: { pen: 1, timeMs: 82300 },
         totalPenalty: 54.123,
         plac: 2,
         isEliminated: false
@@ -53,6 +53,7 @@ test('buildTotalCsvExport builds filename, headers and rows', () => {
     '4.50',
     '7.50',
     '1.00',
+    '82.30',
     '54.12',
     2,
     ''
@@ -65,8 +66,8 @@ test('buildTotalCsvExport marks eliminated rows', () => {
     rows: [{ startNumber: 1, totalPenalty: Infinity, isEliminated: true, plac: 3 }]
   });
 
-  assert.equal(csv.rows[0][10], 'ELIM');
-  assert.equal(csv.rows[0][11], '');
+  assert.equal(csv.rows[0][11], 'ELIM');
+  assert.equal(csv.rows[0][12], '');
   assert.equal(csv.rows[0].at(-1), 'JA');
 });
 

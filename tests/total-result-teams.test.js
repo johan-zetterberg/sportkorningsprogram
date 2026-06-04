@@ -16,6 +16,7 @@ import {
   renderTeamRankBadge,
   renderTeamSummaryFooter
 } from '../js/pages/shared/totalResultTeams.js';
+import { calculateTeamResults } from '../js/services/teamCalculationService.js';
 
 test('buildProcessedTotalTeams delegates to team calculation service', () => {
   const rawTeams = [{ id: 'team-1' }];
@@ -37,6 +38,27 @@ test('buildProcessedTotalTeams delegates to team calculation service', () => {
 
 test('buildProcessedTotalTeams requires a calculation function', () => {
   assert.throws(() => buildProcessedTotalTeams(), /calculateTeamResults saknas/);
+});
+
+test('calculateTeamResults keeps dressage-only teams incomplete instead of eliminated', () => {
+  const teams = [{
+    id: 'team-1',
+    name: 'Dressyrklubb',
+    members: ['eq-1', 'eq-2']
+  }];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'Anna', dressage: { penalty: 42.5 }, marathon: {}, precision: {}, totalPenalty: null, isEliminated: false },
+    { id: 'eq-2', startNumber: 2, driverName: 'Bo', dressage: { penalty: 40 }, marathon: {}, precision: {}, totalPenalty: null, isEliminated: false }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows);
+
+  assert.equal(team.isEliminated, false);
+  assert.equal(team.isIncomplete, true);
+  assert.equal(team.total, null);
+  assert.equal(team.dressage, 82.5);
+  assert.equal(team.members[0].isCounting, true);
+  assert.equal(team.members[0].penalty, null);
 });
 
 test('buildTeamDisciplineBests ignores eliminated teams', () => {
@@ -64,6 +86,7 @@ test('isBestTeamDiscipline matches finite best values with tolerance', () => {
 
 test('renderTeamRankBadge renders elimination, podium and numeric rank states', () => {
   assert.match(renderTeamRankBadge({ isEliminated: true }, 0), /ELIM/);
+  assert.match(renderTeamRankBadge({ isEliminated: false, isIncomplete: true }, 0), /Pågår/);
   assert.match(renderTeamRankBadge({ isEliminated: false, rank: 1 }, 0), /1:a plats/);
   assert.match(renderTeamRankBadge({ isEliminated: false, rank: 2 }, 1), /2:a plats/);
   assert.match(renderTeamRankBadge({ isEliminated: false, rank: 3 }, 2), /3:e plats/);
@@ -81,6 +104,7 @@ test('getTeamCardBorderClass highlights only the leading active team', () => {
   assert.match(getTeamCardBorderClass({ isEliminated: false }, 0), /border-amber/);
   assert.equal(getTeamCardBorderClass({ isEliminated: false }, 1), 'dark:border-gray-700');
   assert.equal(getTeamCardBorderClass({ isEliminated: true }, 0), 'dark:border-gray-700');
+  assert.equal(getTeamCardBorderClass({ isEliminated: false, isIncomplete: true }, 0), 'dark:border-gray-700');
 });
 
 test('renderTeamMemberStatusIcon renders eliminated, counting and non-counting states', () => {

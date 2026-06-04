@@ -109,7 +109,13 @@ export function renderPrecisionLiveStatusPanel({
   `;
 }
 
-export function updatePrecisionLivePanelTimer(sn, label, penalty, rank, root = document) {
+export function updatePrecisionLivePanelTimer(sn, label, penalty, rank, timeTitle = '', root = null) {
+  if (timeTitle && typeof timeTitle === 'object' && typeof timeTitle.getElementById === 'function' && !root) {
+    root = timeTitle;
+    timeTitle = '';
+  }
+  const targetRoot = root || globalThis.document;
+  if (!targetRoot) return;
   const ids = [
     [`livePanelTimer-${sn}`, label],
     [`livePanelTimer-mob-${sn}`, label],
@@ -121,7 +127,14 @@ export function updatePrecisionLivePanelTimer(sn, label, penalty, rank, root = d
 
   ids.forEach(([id, value]) => {
     if (!value) return;
-    const el = root.getElementById(id);
+    const el = targetRoot.getElementById(id);
     if (el) el.textContent = value;
   });
+
+  if (timeTitle) {
+    ['livePanelTimer-' + sn, 'livePanelTimer-mob-' + sn].forEach((id) => {
+      const el = targetRoot.getElementById(id);
+      if (el) el.title = timeTitle;
+    });
+  }
 }

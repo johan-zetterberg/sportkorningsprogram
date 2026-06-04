@@ -1,7 +1,56 @@
 import { db, appId } from '../config/firebase-config.js';
-import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+
+function normalizeDocumentId(value, label) {
+  const id = String(value ?? '').trim();
+  if (!id) throw new Error(`${label} saknas.`);
+  if (id.includes('/')) throw new Error(`${label} får inte innehålla '/'.`);
+  return id;
+}
+
+function cleanFirestoreString(value) {
+  const text = String(value ?? '');
+  let clean = '';
+  for (let i = 0; i < text.length; i += 1) {
+    const code = text.charCodeAt(i);
+    if (code >= 0xD800 && code <= 0xDBFF) {
+      const next = text.charCodeAt(i + 1);
+      if (next >= 0xDC00 && next <= 0xDFFF) {
+        clean += text[i] + text[i + 1];
+        i += 1;
+      }
+      continue;
+    }
+    if (code >= 0xDC00 && code <= 0xDFFF) continue;
+    clean += text[i];
+  }
+  return clean;
+}
+
+function cleanFirestoreData(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'string') return cleanFirestoreString(value);
+  if (Array.isArray(value)) {
+    return value.map(item => {
+      const cleaned = cleanFirestoreData(item);
+      return cleaned === undefined ? null : cleaned;
+    });
+  }
+  if (typeof value === 'object') {
+    const proto = Object.getPrototypeOf(value);
+    if (proto !== Object.prototype && proto !== null) return value;
+    const out = {};
+    Object.entries(value).forEach(([key, item]) => {
+      const cleaned = cleanFirestoreData(item);
+      if (cleaned !== undefined) out[key] = cleaned;
+    });
+    return out;
+  }
+  return value;
+}
 
 export async function getEquipages(competitionId) {
   const equipagesRef = getCompCollectionRef(competitionId, 'equipages');
@@ -23,24 +72,26 @@ export function listenForEquipages(competitionId, callback) {
 }
 
 export async function updateEquipage(competitionId, equipageId, data) {
+  const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
+  const safeEquipageId = normalizeDocumentId(equipageId, 'Equipage ID');
+  const safeData = cleanFirestoreData(data || {});
   return trackWrite(`Uppdaterar ekipage ${equipageId}`, (async () => {
-    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/equipages/${equipageId}`);
+    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${safeCompetitionId}/equipages/${safeEquipageId}`);
     await runTransaction(db, async (transaction) => {
       const fresh = await transaction.get(ref);
       if (!fresh.exists()) throw new Error("Equipage does not exist!");
-      transaction.update(ref, data);
+      transaction.update(ref, safeData);
     });
   })());
 }
 
 export async function saveEquipage(competitionId, startNumber, equipageData) {
+  const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
+  const safeStartNumber = normalizeDocumentId(startNumber, 'Startnummer');
+  const safeData = cleanFirestoreData(equipageData || {});
   return trackWrite(`Sparar ekipage #${startNumber}`, (async () => {
-    const equipageRef = getCompDocRef(competitionId, 'equipages', startNumber.toString());
-    await runTransaction(db, async (transaction) => {
-      // eslint-disable-next-line no-unused-vars
-      const _ignored = await transaction.get(equipageRef);
-      transaction.set(equipageRef, equipageData, { merge: true });
-    });
+    const equipageRef = getCompDocRef(safeCompetitionId, 'equipages', safeStartNumber);
+    await setDoc(equipageRef, safeData, { merge: true });
   })());
 }
 

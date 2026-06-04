@@ -45,6 +45,14 @@ function formatCsvNumber(value, { decimals = 2, eliminated = false } = {}) {
   return Number.isFinite(value) ? value.toFixed(decimals) : '';
 }
 
+function formatCsvTimeSeconds(value, { eliminated = false } = {}) {
+  if (eliminated) return 'ELIM';
+  if (value == null || value === '') return '';
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return '';
+  return (seconds / 1000).toFixed(2);
+}
+
 export function buildTotalCsvExport({
   rows = [],
   equipages = [],
@@ -57,7 +65,7 @@ export function buildTotalCsvExport({
     t('startno'), t('driver'), t('class'), t('club'),
     `${t('dressage')} (${t('penalty')})`, `${t('dressage')} %`,
     `${t('marathon')} (${t('time')})`, `${t('marathon')} (${t('obs_penalty')})`, `${t('marathon')} (${t('total')})`,
-    `${t('precision')} (${t('penalty')})`,
+    `${t('precision')} (${t('penalty')})`, `${t('precision')} (${t('time')} s)`,
     t('total'), t('ranking'), t('elim')
   ];
 
@@ -78,6 +86,7 @@ export function buildTotalCsvExport({
       formatCsvNumber(row?.marathon?.obstaclePenalty, { eliminated: row?.marathon?.eliminated }),
       formatCsvNumber(row?.marathon?.totalPenalty, { eliminated: row?.marathon?.eliminated }),
       formatCsvNumber(row?.precision?.pen, { eliminated: row?.precision?.eliminated }),
+      formatCsvTimeSeconds(row?.precision?.timeMs, { eliminated: row?.precision?.eliminated }),
       formatCsvNumber(row?.totalPenalty, { eliminated: row?.isEliminated }),
       row?.isEliminated ? '' : (row?.plac ?? ''),
       row?.isEliminated ? 'JA' : ''

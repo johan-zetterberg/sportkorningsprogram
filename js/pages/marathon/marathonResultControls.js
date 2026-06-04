@@ -2,6 +2,7 @@ import { setupMarathonResultExportButtons } from './marathonResultExports.js';
 
 export function wireMarathonResultControls({
   setViewMode,
+  setSearchQuery,
   toggleFinalized,
   toggleOnB,
   setShowOnlyFinalized,
@@ -42,6 +43,14 @@ export function wireMarathonResultControls({
   if (mobileFin) {
     mobileFin.onchange = (e) => {
       setShowOnlyFinalized(e.target.checked);
+      render();
+    };
+  }
+
+  const searchBox = document.getElementById('marSearchBox');
+  if (searchBox) {
+    searchBox.oninput = (e) => {
+      setSearchQuery(e.target.value || '');
       render();
     };
   }

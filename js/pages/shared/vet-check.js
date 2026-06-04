@@ -1,12 +1,15 @@
-import { getGlobalState } from '../../main.js';
+﻿import { getGlobalState } from '../../main.js';
 import { listenForEquipages, saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import {
     buildVetDatalistOptions,
+    deriveVetStatusFromHorses,
+    getHorseStableKey,
+    getHorseVetStatus,
     getVetRemainingCount,
-    normalizeVetStatus,
-    resolveVetFilteredState
+    resolveVetFilteredState,
+    updateHorseVetStatus
 } from './vetCheckUtils.js';
 
 let competitionId = null;
@@ -172,7 +175,10 @@ function renderCard() {
     attachCardHandlers(container, eq);
 }
 
-function renderHorseCard(horse = {}) {
+function renderHorseCard(horse = {}, index = 0) {
+    const horseKey = getHorseStableKey(horse, index);
+    const horseStatus = getHorseVetStatus(horse);
+    const conf = statusConfig[horseStatus] || statusConfig.incheckad;
     const ids = [];
     if (horse.chipNumber) ids.push(`Chip: ${horse.chipNumber}`);
     else if (horse.chip) ids.push(`Chip: ${horse.chip}`);
@@ -195,19 +201,25 @@ function renderHorseCard(horse = {}) {
                     <div class="text-[10px] font-mono text-gray-500 mt-0.5">${idString}</div>
                 </div>
                 <div class="text-right shrink-0">
+                    <div class="mb-1 px-1.5 py-0.5 rounded border text-[9px] font-black uppercase ${conf.border} ${conf.color}">${conf.label}</div>
                     <div class="text-[10px] font-bold text-gray-400 uppercase">${escapeHtml(horse.age ? `${horse.age} år` : '')} ${escapeHtml(horse.gender ? horse.gender.slice(0, 1).toUpperCase() : '')}</div>
                     ${vaccination}
                 </div>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5 mt-2 pt-2 border-t dark:border-gray-700">
+                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'besiktigad' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="besiktigad">Godkänd</button>
+                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'ombesiktning' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="ombesiktning">Ombesikt</button>
+                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'struken' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="struken">Stryk</button>
             </div>
         </div>
     `;
 }
 
 function renderVetCard(eq = {}) {
-    const status = normalizeVetStatus(eq.status);
+    const status = deriveVetStatusFromHorses(eq.horses, eq.status);
     const conf = statusConfig[status] || statusConfig['anmäld'];
     const horses = Array.isArray(eq.horses) ? eq.horses : [];
-    const horsesHtml = horses.map(renderHorseCard).join('');
+    const horsesHtml = horses.map((horse, index) => renderHorseCard(horse, index)).join('');
     const isProcessable = ['anmäld', 'incheckad', 'ombesiktning'].includes(status);
     const cardOpacity = !isProcessable ? 'opacity-70' : '';
 
@@ -276,6 +288,10 @@ function attachCardHandlers(container, eq) {
     container.querySelectorAll('.vet-status-btn').forEach(button => {
         button.addEventListener('click', () => setVetStatus(eq.startNumber, button.dataset.status));
     });
+
+    container.querySelectorAll('.vet-horse-status-btn').forEach(button => {
+        button.addEventListener('click', () => setHorseVetStatus(eq, button.dataset.horseKey, button.dataset.status));
+    });
 }
 
 async function saveVetNote(startNumber, note, saveBtn) {
@@ -299,10 +315,39 @@ async function setVetStatus(startNumber, status) {
     }
 
     try {
-        await saveEquipage(competitionId, startNumber, { status });
+        const eq = allEquipages.find(item => String(item.startNumber) === String(startNumber));
+        const horses = Array.isArray(eq?.horses) && eq.horses.length
+            ? eq.horses.map(horse => ({
+                ...horse,
+                vetStatus: status,
+                vetCheckedAt: new Date().toISOString()
+            }))
+            : null;
+        await saveEquipage(competitionId, startNumber, horses ? { status, horses } : { status });
         showAlert(`Ekipage #${startNumber}: ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet update failed', error);
         showAlert('Kunde inte uppdatera status', false);
     }
 }
+
+async function setHorseVetStatus(eq = {}, horseKey, status) {
+    if (!competitionId || !eq.startNumber) return;
+    if (status === 'struken' && !confirm(`Ska vald häst i ekipage #${eq.startNumber} strykas/ej godkännas?`)) {
+        return;
+    }
+
+    try {
+        const horses = updateHorseVetStatus(eq.horses, horseKey, status);
+        const derivedStatus = deriveVetStatusFromHorses(horses, eq.status);
+        await saveEquipage(competitionId, eq.startNumber, {
+            horses,
+            status: derivedStatus
+        });
+        showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
+    } catch (error) {
+        console.error('Vet horse update failed', error);
+        showAlert('Kunde inte uppdatera häststatus', false);
+    }
+}
+

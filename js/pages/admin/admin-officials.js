@@ -39,6 +39,53 @@ let activeOfficialsCompetitionId = null;
 let activeOfficialsContainer = null;
 let activeOfficialsCompetition = null;
 
+const SYSTEM_ROLE_LABELS = {
+    admin: 'Sekretariat / Admin',
+    dressage: 'Dressyr',
+    marathon: 'Maraton',
+    precision: 'Precision',
+    speaker: 'Speaker'
+};
+const SYSTEM_ROLE_KEYS = Object.keys(SYSTEM_ROLE_LABELS);
+
+function isEmailInList(email, list) {
+    const normalizedEmail = String(email || '').toLowerCase().trim();
+    if (!normalizedEmail || !Array.isArray(list)) return false;
+    return list.some(item => String(item || '').toLowerCase().trim() === normalizedEmail);
+}
+
+function normalizeOfficialSystemRoles(official = {}, competition = {}) {
+    const roles = Array.isArray(official.roles) ? [...official.roles] : [];
+    if (SYSTEM_ROLE_KEYS.includes(official.role)) roles.push(official.role);
+    if (isEmailInList(official.email, competition.adminEmails) || isEmailInList(official.email, competition.officialEmails)) roles.push('admin');
+    if (isEmailInList(official.email, competition.dressageEmails)) roles.push('dressage');
+    if (isEmailInList(official.email, competition.marathonEmails)) roles.push('marathon');
+    if (isEmailInList(official.email, competition.precisionEmails)) roles.push('precision');
+    if (isEmailInList(official.email, competition.speakerEmails)) roles.push('speaker');
+    return Array.from(new Set(roles.filter(role => SYSTEM_ROLE_KEYS.includes(role))));
+}
+
+function getSelectedSystemRoles(container) {
+    return Array.from(container.querySelectorAll('input[name="sysRole"]:checked'))
+        .map(input => input.value)
+        .filter(role => SYSTEM_ROLE_KEYS.includes(role));
+}
+
+function setSelectedSystemRoles(container, roles = []) {
+    const selected = new Set(roles);
+    container.querySelectorAll('input[name="sysRole"]').forEach(input => {
+        input.checked = selected.has(input.value);
+    });
+}
+
+function renderSystemRoleBadges(official, competition = {}) {
+    return normalizeOfficialSystemRoles(official, competition).map(role => `
+        <span class="inline-flex items-center rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide">
+            ${SYSTEM_ROLE_LABELS[role]}
+        </span>
+    `).join('');
+}
+
 function findOfficialById(officialId) {
     return officials.find(official => String(official.id) === String(officialId));
 }
@@ -170,7 +217,8 @@ function generateDefaultLocations() {
 }
 
 function refreshUI(container, competition) {
-    container.innerHTML = `
+    try {
+        container.innerHTML = `
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <!-- Sidebar / Sub-nav -->
             <div class="lg:col-span-1 space-y-2">
@@ -201,20 +249,29 @@ function refreshUI(container, competition) {
         </div>
     `;
 
-    // Bind events
-    document.getElementById('subtab-people').onclick = () => { currentSubTab = 'people'; refreshUI(container, competition); };
-    document.getElementById('subtab-assign').onclick = () => { currentSubTab = 'assign'; refreshUI(container, competition); };
-    document.getElementById('subtab-checkin').onclick = () => { currentSubTab = 'checkin'; refreshUI(container, competition); };
-    document.getElementById('subtab-overview').onclick = () => { currentSubTab = 'overview'; refreshUI(container, competition); };
-    document.getElementById('subtab-signups').onclick = () => { currentSubTab = 'signups'; refreshUI(container, competition); };
-    document.getElementById('subtab-reports').onclick = () => { currentSubTab = 'reports'; refreshUI(container, competition); };
+        // Bind events
+        document.getElementById('subtab-people').onclick = () => { currentSubTab = 'people'; refreshUI(container, competition); };
+        document.getElementById('subtab-assign').onclick = () => { currentSubTab = 'assign'; refreshUI(container, competition); };
+        document.getElementById('subtab-checkin').onclick = () => { currentSubTab = 'checkin'; refreshUI(container, competition); };
+        document.getElementById('subtab-overview').onclick = () => { currentSubTab = 'overview'; refreshUI(container, competition); };
+        document.getElementById('subtab-signups').onclick = () => { currentSubTab = 'signups'; refreshUI(container, competition); };
+        document.getElementById('subtab-reports').onclick = () => { currentSubTab = 'reports'; refreshUI(container, competition); };
 
-    // Inner Events
-    bindContentEvents(container, competition);
+        // Inner Events
+        bindContentEvents(container, competition);
 
-    // If overview, render it now that container exists
-    if (currentSubTab === 'overview') {
-        renderOverviewView();
+        // If overview, render it now that container exists
+        if (currentSubTab === 'overview') {
+            renderOverviewView();
+        }
+    } catch (error) {
+        console.error('Kunde inte rendera funktionärsfliken:', error);
+        container.innerHTML = `
+            <div class="p-4 rounded border border-red-300 bg-red-50 text-red-800 dark:bg-red-900/20 dark:border-red-700 dark:text-red-100">
+                <h3 class="font-bold mb-2">Kunde inte visa funktionärssidan</h3>
+                <p class="text-sm">${error?.message || 'Okänt fel'}</p>
+            </div>
+        `;
     }
 }
 
@@ -317,7 +374,7 @@ function renderCheckInView(competition) {
 
 // --- VIEWS ---
 
-function renderPeopleView() {
+function renderPeopleView(_officials = officials, competition = {}) {
     // Definiera nyckelroller
     const keyRoles = ['Tävlingsledare', 'Domarordförande', 'Banbyggare', 'Säkerhetsansvarig', 'Pressansvarig', 'Veterinär', 'Resultatansvarig'];
 
@@ -364,15 +421,22 @@ function renderPeopleView() {
                             <option value="XXL">XXL</option>
                         </select>
                     </div>
-                    <div class="col-span-2 grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <select id="newOffRole" class="p-2 border rounded dark:bg-gray-600 dark:border-gray-500 dark:text-white">
-                            <option value="admin">Sekretariat / Full Admin</option>
-                            <option value="dressage">Dressyr (Domare/Skrivare)</option>
-                            <option value="marathon">Maraton (Hinderdomare etc)</option>
-                            <option value="precision">Precision</option>
-                            <option value="speaker">Speaker</option>
-                        </select>
-                         <input type="text" id="newOffNotes" placeholder="Notering / Kompetens / Titel" class="w-full p-2 border rounded dark:bg-gray-600 dark:border-gray-500 dark:text-white dark:placeholder-gray-400">
+                    <div class="col-span-2 space-y-3">
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">Systemrättigheter</label>
+                            <div class="flex flex-wrap gap-3 rounded border dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm dark:text-gray-200">
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="admin" class="rounded"> Sekretariat / Admin</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="dressage" class="rounded"> Dressyr</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="marathon" class="rounded"> Maraton</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="precision" class="rounded"> Precision</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="speaker" class="rounded"> Speaker</label>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Styr vilka sidor personen får komma åt. Kan vara tomt för funktionärer utan inloggningsbehörighet.</p>
+                        </div>
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <input type="text" id="newOffRole" placeholder="Titel / Visningsroll (t.ex. Domarordförande)" class="p-2 border rounded dark:bg-gray-600 dark:border-gray-500 dark:text-white dark:placeholder-gray-400">
+                            <input type="text" id="newOffNotes" placeholder="Övrig notering / kompetens" class="w-full p-2 border rounded dark:bg-gray-600 dark:border-gray-500 dark:text-white dark:placeholder-gray-400">
+                        </div>
                     </div>
                 </div>
                 <div class="flex gap-2">
@@ -398,7 +462,10 @@ function renderPeopleView() {
                             ${keyOfficials.length > 0 ? keyOfficials.map(p => `
                                 <tr>
                                     <td class="px-3 py-2 font-bold text-blue-900 dark:text-blue-300">${p.role}</td>
-                                    <td class="px-3 py-2 dark:text-gray-300">${p.name} ${p.club ? `<span class="text-xs text-gray-500 dark:text-gray-400">(${p.club})</span>` : ''}</td>
+                                    <td class="px-3 py-2 dark:text-gray-300">
+                                        <div>${p.name} ${p.club ? `<span class="text-xs text-gray-500 dark:text-gray-400">(${p.club})</span>` : ''}</div>
+                                        <div class="mt-1 flex flex-wrap gap-1">${renderSystemRoleBadges(p, competition)}</div>
+                                    </td>
                                     <td class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">${p.phone || '-'} <br> <a href="mailto:${p.email}" class="text-xs text-blue-600 hover:underline dark:text-blue-400">${p.email || ''}</a></td>
                                     <td class="px-3 py-2 text-right">
                                         <button class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" data-edit-official="${p.id}">✏️</button>
@@ -431,6 +498,7 @@ function renderPeopleView() {
                                 <td class="px-3 py-2 align-top">
                                     <div class="font-bold text-gray-900 dark:text-white">${p.name}</div>
                                     ${p.club ? `<div class="text-xs text-gray-500 dark:text-gray-400">${p.club}</div>` : ''}
+                                    <div class="mt-1 flex flex-wrap gap-1">${renderSystemRoleBadges(p, competition)}</div>
                                 </td>
                                 <td class="px-3 py-2 align-top">
                                     <div class="dark:text-gray-300">${p.phone || '-'}</div>
@@ -992,6 +1060,7 @@ function bindContentEvents(container, competition) {
             container.querySelector('#editOfficialId').value = '';
             container.querySelector('#formTitle').textContent = 'Ny Funktionär';
             container.querySelector('#btnSaveNewOfficial').textContent = 'Spara';
+            setSelectedSystemRoles(container, []);
             form.classList.remove('hidden');
         };
         if (btnCancel) btnCancel.onclick = () => {
@@ -1002,7 +1071,8 @@ function bindContentEvents(container, competition) {
             container.querySelector('#newOffPhone').value = '';
             container.querySelector('#newOffClub').value = '';
             container.querySelector('#newOffNotes').value = '';
-            container.querySelector('#newOffRole').value = 'admin';
+            container.querySelector('#newOffRole').value = '';
+            setSelectedSystemRoles(container, []);
             form.classList.add('hidden');
         };
     }
@@ -1022,6 +1092,7 @@ function bindContentEvents(container, competition) {
             phone: container.querySelector('#newOffPhone').value,
             club: container.querySelector('#newOffClub').value,
             role: container.querySelector('#newOffRole').value,
+            roles: getSelectedSystemRoles(container),
             notes: container.querySelector('#newOffNotes').value,
             // New Fields
             iceName: container.querySelector('#newOffIceName').value,
@@ -1044,7 +1115,8 @@ function bindContentEvents(container, competition) {
         container.querySelector('#newOffEmail').value = '';
         container.querySelector('#newOffPhone').value = '';
         container.querySelector('#newOffClub').value = '';
-        container.querySelector('#newOffRole').value = 'admin';
+        container.querySelector('#newOffRole').value = '';
+        setSelectedSystemRoles(container, []);
         container.querySelector('#newOffNotes').value = '';
         container.querySelector('#newOffIceName').value = '';
         container.querySelector('#newOffIcePhone').value = '';
@@ -1060,7 +1132,7 @@ function bindContentEvents(container, competition) {
     // Edit buttons
     container.querySelectorAll('[data-edit-official]').forEach(btn => {
         btn.onclick = (e) => {
-            const id = e.target.dataset.editOfficial;
+            const id = e.currentTarget.dataset.editOfficial;
             const person = officials.find(p => p.id === id);
             if (person) {
                 container.querySelector('#editOfficialId').value = person.id;
@@ -1068,7 +1140,8 @@ function bindContentEvents(container, competition) {
                 container.querySelector('#newOffEmail').value = person.email || '';
                 container.querySelector('#newOffPhone').value = person.phone || '';
                 container.querySelector('#newOffClub').value = person.club || '';
-                container.querySelector('#newOffRole').value = person.role || 'admin';
+                container.querySelector('#newOffRole').value = SYSTEM_ROLE_KEYS.includes(person.role) ? '' : (person.role || '');
+                setSelectedSystemRoles(container, normalizeOfficialSystemRoles(person, competition));
                 container.querySelector('#newOffNotes').value = person.notes || '';
 
                 container.querySelector('#newOffIceName').value = person.iceName || '';
@@ -1089,7 +1162,7 @@ function bindContentEvents(container, competition) {
     container.querySelectorAll('[data-delete-official]').forEach(btn => {
         btn.onclick = async (e) => {
             if (confirm('Ta bort person?')) {
-                await deleteOfficial(competition.id, e.target.dataset.deleteOfficial);
+                await deleteOfficial(competition.id, e.currentTarget.dataset.deleteOfficial);
             }
         };
     });
@@ -1279,6 +1352,7 @@ function bindContentEvents(container, competition) {
                         container.querySelector('#newOffIcePhone').value = signup.icePhone || '';
                         container.querySelector('#newOffDiet').value = signup.diet || '';
                         container.querySelector('#newOffShirt').value = signup.shirtSize || '';
+                        setSelectedSystemRoles(container, []);
 
                         container.querySelector('#editOfficialId').value = ''; // New ID will be gen
                         container.querySelector('#linkSignupId').value = signup.id; // Correctly link

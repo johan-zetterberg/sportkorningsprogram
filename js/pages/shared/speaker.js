@@ -119,6 +119,12 @@ let obstacleFocusVal = null; // New: Selected obstacle number for "Obstacle Focu
 let sidebarClassFocus = null; // New: Manually selected class for the sidebar leaderboard
 
 let lastFullRenderTime = 0;
+
+function formatSpeakerObstacleClock(seconds) {
+    const value = Number(seconds);
+    if (!Number.isFinite(value)) return '—';
+    return msToLabel(value * 1000);
+}
 let lastActiveRiderId = null;
 let lastActiveDiscipline = null;
 
@@ -179,18 +185,33 @@ let pauseStartTime = 0;
 let unsubscribes = [];
 
 
-window.handleSpeakerSearch = (val) => {
-    if (!val) return;
-    val = val.toLowerCase().trim();
+function findSpeakerSearchMatch(val) {
+    if (!val) return null;
+    val = String(val).toLowerCase().trim();
     // Try to find exact start number
     let match = allEquipages.find(e => String(e.startNumber) === val);
     // If not, try name match
     if (!match) match = allEquipages.find(e => (e.driverName || '').toLowerCase().includes(val));
-    
+    return match || null;
+}
+
+window.handleSpeakerSearch = (val) => {
+    const match = findSpeakerSearchMatch(val);
     if (match) {
         window.selectSpeakerRider(match.startNumber);
+        document.getElementById('current-rider-card')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     } else {
         alert('Hittade inget ekipage som matchar: ' + val);
+    }
+};
+
+window.openSpeakerSearchDetails = (val) => {
+    const match = findSpeakerSearchMatch(val) || (manualFocusId ? allEquipages.find(e => String(e.startNumber) === String(manualFocusId)) : null);
+    if (match) {
+        window.selectSpeakerRider(match.startNumber);
+        window.showRiderDetails(match.startNumber);
+    } else {
+        alert('Sök fram ett ekipage först.');
     }
 };
 
@@ -418,9 +439,9 @@ function renderLayout() {
 
     if (!document.getElementById('unified-grid-layout')) {
         container.innerHTML = `
-        <div id="unified-grid-layout" class="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-8 h-full">
+        <div id="unified-grid-layout" class="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-8 items-start">
             <!-- Left Main Column (9) -->
-            <div class="lg:col-span-9 flex flex-col gap-6 h-full overflow-hidden">
+            <div class="lg:col-span-9 flex flex-col gap-6 min-h-0">
                 <!-- Top Left: Current Rider Card + Obstacles/Sectors -->
                 <div class="flex flex-col shrink-0 gap-6">
                     <!-- Main Rider Card -->
@@ -444,7 +465,7 @@ function renderLayout() {
                       </div>
 
                     <!-- Marathon Specific: Sector Analysis -->
-                    <div id="marathon-sector-analysis" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex-col h-fit ${currentDiscipline === 'maraton' ? 'flex' : 'hidden'}">
+                    <div id="marathon-sector-analysis" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden flex-col h-fit ${currentDiscipline === 'maraton' ? 'flex order-4' : 'hidden'}">
                         <div class="bg-indigo-50 dark:bg-indigo-900/30 px-4 py-2 border-b border-indigo-100 dark:border-indigo-800 flex justify-between items-center">
                             <h3 class="font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wide text-xs">Sektoranalys (Vägsträckor A / T)</h3>
                         </div>
@@ -452,7 +473,7 @@ function renderLayout() {
                     </div>
 
                      <!-- Speaker Notes -->
-                     <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl shadow-sm border border-yellow-200 dark:border-yellow-800/50 p-4 shrink-0 h-fit min-h-[150px]">
+                     <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl shadow-sm border border-yellow-200 dark:border-yellow-800/50 p-4 shrink-0 h-fit min-h-[150px] ${currentDiscipline === 'maraton' ? 'order-3' : ''}">
                         <div class="flex justify-between items-center mb-2">
                             <h3 class="font-bold text-yellow-800 dark:text-yellow-200 uppercase tracking-wide text-xs">Speaker Noteringar</h3>
                              <button onclick="window.editSpeakerNotes(currentRider?.eq?.startNumber)" class="text-yellow-600 hover:text-yellow-800 dark:text-yellow-300 dark:hover:text-yellow-100 text-xs font-bold px-2 py-1 bg-yellow-100 dark:bg-yellow-800/50 rounded">✎ Ändra</button>
@@ -473,7 +494,7 @@ function renderLayout() {
             </div>
 
             <!-- Right Sidebar Column (3) -->
-            <div class="lg:col-span-3 flex flex-col gap-4 h-full overflow-hidden">
+            <div class="lg:col-span-3 flex flex-col gap-4 min-h-0">
                  <!-- Active List -->
                 <div id="active-list-container" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col shrink-0 max-h-[50%]">
                     <div class="bg-amber-50 dark:bg-amber-900/30 px-4 py-2 border-b border-amber-100 dark:border-amber-800 flex justify-between items-center shrink-0">
@@ -641,8 +662,9 @@ function updateDisciplineUI() {
             <button onclick="if(confirm('Starta Stress-test?')) window.startStressTest()" class="text-xs px-2 py-1 text-red-300 hover:text-red-500 hover:bg-red-50 rounded hidden" title="Simulera">⚡</button>
             
             <div class="flex items-center gap-2 ml-4 relative">
-                <input type="text" id="speaker-search-input" placeholder="Sök # eller Namn..." class="px-2 py-1 text-xs border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900" onkeyup="if(event.key==='Enter') window.handleSpeakerSearch(this.value)">
+                <input type="text" id="speaker-search-input" placeholder="Sök # eller namn..." class="px-2 py-1 text-xs border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900" onkeyup="if(event.key==='Enter') window.handleSpeakerSearch(this.value)">
                 <button onclick="window.handleSpeakerSearch(document.getElementById('speaker-search-input').value)" class="bg-blue-600 text-white px-2 py-1 text-xs rounded font-bold hover:bg-blue-700">Sök</button>
+                <button onclick="window.openSpeakerSearchDetails(document.getElementById('speaker-search-input').value)" class="bg-gray-700 text-white px-2 py-1 text-xs rounded font-bold hover:bg-gray-800" title="Öppna detaljer för sökt ekipage">Info</button>
                 <button id="speaker-clear-focus-btn" onclick="window.clearSpeakerFocus()" class="${manualFocusId ? 'block animate-pulse' : 'hidden'} absolute -right-[110px] bg-red-600 text-white px-2 py-1 text-xs rounded font-bold hover:bg-red-700 whitespace-nowrap z-50">Återgå till Live</button>
             </div>
 
@@ -1237,7 +1259,7 @@ function renderCurrentRiderCard() {
             }
 
             const bestTimeHtml = (stats && Number.isFinite(stats.bestTime))
-                ? `<div class="text-2xl font-black text-green-700 tabular-nums tracking-wide">${stats.bestTime.toFixed(2)}s</div>`
+                ? `<div class="text-2xl font-black text-green-700 tabular-nums tracking-wide" title="${formatSpeakerObstacleClock(stats.bestTime)}">${stats.bestTime.toFixed(2)}s</div>`
                 : `<div class="text-sm font-bold text-gray-400">Inget ref.</div>`;
 
             targetHtml = `
@@ -1261,7 +1283,7 @@ function renderCurrentRiderCard() {
                 if (p <= stats.bestTime + 0.01) colorClass = 'bg-green-100 text-green-800 font-bold border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800';
                 else if (stats.avg && p < stats.avg) colorClass = 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/50 dark:text-yellow-300 dark:border-yellow-800';
             }
-            return `<span class="px-1.5 py-0.5 rounded text-[10px] tabular-nums tracking-wide border ${colorClass}">H${o.number}: ${Number.isFinite(p) ? p.toFixed(2) : '-'}</span>`;
+            return `<span class="px-1.5 py-0.5 rounded text-[10px] tabular-nums tracking-wide border ${colorClass}" title="${Number.isFinite(p) ? formatSpeakerObstacleClock(p) : ''}">H${o.number}: ${Number.isFinite(p) ? p.toFixed(2) : '-'}</span>`;
         }).join('');
 
         contentHtml = `

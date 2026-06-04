@@ -7,6 +7,13 @@ import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } fro
 import { formatTotalDisciplinePdfPenalty, formatTotalPdfPenalty } from './resultPdfFormatUtils.js';
 import { resolveTotalResultsJsPdf } from './totalResultsPdfUtils.js';
 
+function formatPrecisionTimePdfLabel(timeMs, eliminated = false) {
+    if (eliminated) return 'ELIM';
+    const value = Number(timeMs);
+    if (!Number.isFinite(value) || value < 0) return '';
+    return `${(value / 1000).toFixed(2).replace('.', ',')} s`;
+}
+
 /**
  * Generates a professional PDF report of total results.
  * @param {Array} rows - The data rows to display (already filtered and sorted).
@@ -100,7 +107,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             r.clubName || '',
             formatTotalDisciplinePdfPenalty(r, 'dressage'),
             formatTotalDisciplinePdfPenalty(r, 'marathon'),
-            formatTotalDisciplinePdfPenalty(r, 'precision'),
+            `${formatTotalDisciplinePdfPenalty(r, 'precision')}${formatPrecisionTimePdfLabel(r?.precision?.timeMs, r?.precision?.eliminated) ? `\n${formatPrecisionTimePdfLabel(r?.precision?.timeMs, r?.precision?.eliminated)}` : ''}`,
             { content: formatTotalPdfPenalty(r, isInt), styles: { fontStyle: 'bold' } }
         ]);
     });
@@ -120,7 +127,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             4: { cellPadding: { left: 30, top: 4, bottom: 4, right: 4 } }, // Space for flag/logo
             5: { cellWidth: 50, halign: 'center' },
             6: { cellWidth: 50, halign: 'center' },
-            7: { cellWidth: 50, halign: 'center' },
+            7: { cellWidth: 60, halign: 'center' },
             8: { cellWidth: 50, halign: 'center' }
         },
         margin: { left: mx, right: mx },

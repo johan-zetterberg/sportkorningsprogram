@@ -59,7 +59,8 @@ import {
   updatePrecisionLivePanelTimer
 } from './precisionResultLivePanel.js';
 import {
-  formatPrecisionCsvPenalty
+  formatPrecisionCsvPenalty,
+  formatPrecisionTimeSeconds
 } from './precisionResultExportUtils.js';
 import {
   applyPrecisionLiveDocChanges,
@@ -82,6 +83,12 @@ import {
 } from '../../utils/sharedUtils.js';
 
 const renderLiveDebounce = debounce(render, 60);
+
+function formatPrecisionTimeTooltip(label, elapsedMs) {
+  return Number.isFinite(elapsedMs)
+    ? `${label} (${(elapsedMs / 1000).toFixed(2)} s)`
+    : label;
+}
 
 function render() {
   if (isMobile()) {
@@ -287,16 +294,19 @@ function tickPrecisionTimers() {
       if (!tick) return;
       const elapsedMs = tick.elapsedMs;
       const timeLabel = msToLabel(elapsedMs);
+      const timeTooltip = formatPrecisionTimeTooltip(timeLabel, elapsedMs);
       const overTime = tick.overTime;
       const timeClass = overTime ? 'text-red-600 font-semibold animate-pulse' : '';
 
       if (desktopCell) {
         desktopCell.textContent = timeLabel;
         desktopCell.className = `tabular-nums ${timeClass}`;
+        if (desktopCell.parentElement) desktopCell.parentElement.title = timeTooltip;
       }
       if (mobileTimer) {
         mobileTimer.textContent = timeLabel;
         mobileTimer.className = `font-semibold text-lg live-time-card ${timeClass}`;
+        mobileTimer.title = timeTooltip;
       }
 
       // Live Panel Update
@@ -334,7 +344,7 @@ function tickPrecisionTimers() {
         rankStr = tick.rank ? String(tick.rank) : null;
       }
 
-      updateLivePanelTimer(sn, timeLabel, penaltyStr, rankStr);
+      updateLivePanelTimer(sn, timeLabel, penaltyStr, rankStr, timeTooltip);
     }
   });
 
@@ -377,8 +387,8 @@ function renderLiveStatusPanel() {
   });
 }
 
-function updateLivePanelTimer(sn, label, penaltyDef, rankDef) {
-  updatePrecisionLivePanelTimer(sn, label, penaltyDef, rankDef, document);
+function updateLivePanelTimer(sn, label, penaltyDef, rankDef, timeTitle = '') {
+  updatePrecisionLivePanelTimer(sn, label, penaltyDef, rankDef, timeTitle, document);
 }
 
 function renderLayout() {
@@ -526,7 +536,7 @@ function renderLayout() {
 
       const headers = [
         t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'),
-        t('start_time'), `${t('obstacle_width')} (cm)`, t('time'), t('knockdowns'),
+        t('start_time'), `${t('obstacle_width')} (cm)`, t('time'), 'Tid (s)', t('knockdowns'),
         t('obs_penalty'), t('time_penalty'), t('other_penalty_short'),
         t('total'), t('status')
       ];
@@ -549,6 +559,7 @@ function renderLayout() {
           data.startT || '—',
           allowanceDisplay,
           data.display.timeLabel,           // Tid
+          formatPrecisionTimeSeconds(data.d?.timeMs),
           data.display.knocksSimple,        // Rivningar
           formatPrecisionCsvPenalty(data.obstaclePenalty, { zeroWhenEmpty: true }),
           formatPrecisionCsvPenalty(data.timePenalty, { zeroWhenEmpty: true }),

@@ -30,6 +30,8 @@ import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { calculateDressageResult } from '../../services/calculationService.js'; // [NEW] // [NEW]
 import {
+    buildDressageCsvExport,
+    buildMarathonCsvExport,
     filterReportData,
     formatReportCsvPenalty,
     formatReportCsvPercent,
@@ -40,6 +42,11 @@ import {
 
 // Global strings for CSV
 const SEPARATOR = ';';
+
+function finiteOrNull(value) {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+}
 
 let equipages = [];
 let reportRows = []; // Enriched data for reports
@@ -139,12 +146,32 @@ export async function load() {
         // Calculate from fetched protocols
         const protos = protocolMap.get(sn) || [];
         const dCalc = calculateDressageResult(eq, protos);
+        const dressageJudges = {};
+        protos.forEach((proto) => {
+            if (!proto || proto.id === 'general') return;
+            const id = String(proto.judgeId || proto.id || '').replace(/^judge_/i, '').trim();
+            const position = String(proto.position || proto.judgePosition || '').trim().toUpperCase();
+            if (!id && !position) return;
+            const key = id || position;
+            const singleJudgeResult = calculateDressageResult({ ...eq, errorPoints: 0 }, [proto]);
+            dressageJudges[key] = {
+                id,
+                name: proto.judgeName || proto.name || id || position,
+                position,
+                movements: Array.isArray(proto.movements) ? proto.movements : [],
+                totalPoints: Number.isFinite(singleJudgeResult?.points) ? singleJudgeResult.points : finiteOrNull(proto.totalPoints ?? proto.points),
+                percent: Number.isFinite(singleJudgeResult?.percent) ? singleJudgeResult.percent : finiteOrNull(proto.percent),
+                penalty: Number.isFinite(singleJudgeResult?.penalty) ? singleJudgeResult.penalty : finiteOrNull(proto.penalty),
+                eliminated: !!proto.eliminated
+            };
+        });
 
         // We can also look at status for "live" info, but result comes from protos
         const dSt = dStatus.find(d => d.id === sn);
 
         const dressageRes = {
             ...dCalc,
+            judges: dressageJudges,
             // Ensure compatibility with UI/PDF
             totalPenalty: dCalc.penalty,
             totalPercent: dCalc.percent,
@@ -201,6 +228,11 @@ export async function load() {
         // Return enriched row
         return {
             ...eq,
+            startTime: startTimes?.[sn]?.dressage || startTimes?.[sn]?.dressyr || eq.startTime || null,
+            judges: dressageJudges,
+            avgPercent: dressageRes.percent,
+            finalPenalty: dressageRes.penalty,
+            errorPoints: dressageRes.errorPoints,
             dressage: dressageRes,
             marathon: mCalc,
             precision: pCalc,
@@ -410,6 +442,71 @@ function getHorseNames(eq) {
     return getReportHorseNames(eq);
 }
 
+function compareReportDisplayClass(a, b) {
+    return String(getReportDisplayClass(a) || '').localeCompare(
+        String(getReportDisplayClass(b) || ''),
+        'sv',
+        { numeric: true, sensitivity: 'base' }
+    );
+}
+
+function sortRowsForDressageReportPdf(rows = []) {
+    return [...rows].sort((a, b) => {
+        const classCompare = compareReportDisplayClass(a, b);
+        if (classCompare !== 0) return classCompare;
+
+        const aPenalty = Number(a.finalPenalty ?? a.dressage?.penalty ?? a.dressage?.totalPenalty);
+        const bPenalty = Number(b.finalPenalty ?? b.dressage?.penalty ?? b.dressage?.totalPenalty);
+        const aHasPenalty = Number.isFinite(aPenalty);
+        const bHasPenalty = Number.isFinite(bPenalty);
+        if (aHasPenalty && bHasPenalty && aPenalty !== bPenalty) return aPenalty - bPenalty;
+        if (aHasPenalty !== bHasPenalty) return aHasPenalty ? -1 : 1;
+
+        return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
+    });
+}
+
+function applyDressagePlacementsForReportPdf(rows = []) {
+    const grouped = new Map();
+    rows.forEach((row) => {
+        const key = getReportDisplayClass(row) || row.className || '';
+        if (!grouped.has(key)) grouped.set(key, []);
+        grouped.get(key).push(row);
+    });
+
+    const placementByStart = new Map();
+    grouped.forEach((classRows) => {
+        const rankedRows = classRows
+            .filter(row => {
+                const penalty = Number(row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty);
+                const eliminated = !!(row.eliminated || row.dressage?.eliminated || row.results?.dressage?.eliminated);
+                return Number.isFinite(penalty) && !eliminated;
+            })
+            .sort((a, b) => {
+                const pa = Number(a.finalPenalty ?? a.dressage?.penalty ?? a.dressage?.totalPenalty);
+                const pb = Number(b.finalPenalty ?? b.dressage?.penalty ?? b.dressage?.totalPenalty);
+                if (pa !== pb) return pa - pb;
+                return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
+            });
+
+        let place = 0;
+        let previousPenalty = null;
+        rankedRows.forEach((row, index) => {
+            const penalty = Number(row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty);
+            if (previousPenalty == null || Math.abs(penalty - previousPenalty) > 0.0001) {
+                place = index + 1;
+            }
+            placementByStart.set(String(row.startNumber), place);
+            previousPenalty = penalty;
+        });
+    });
+
+    return rows.map(row => ({
+        ...row,
+        plac: placementByStart.get(String(row.startNumber)) ?? row.plac ?? ''
+    }));
+}
+
 window.reports_generateStartListPdf = function (type) {
     const { eqs } = getFilteredData();
     if (!eqs || !eqs.length) { alert('Inga ekipage matchar urvalet.'); return; }
@@ -451,6 +548,7 @@ window.reports_generateStartListCsv = function () {
 window.reports_generateDressagePdf = function () {
     const { eqs, rows: enrichedRows } = getFilteredData();
     if (!enrichedRows || !enrichedRows.length) { alert('Inga ekipage matchar urvalet.'); return; }
+    const sortedRows = applyDressagePlacementsForReportPdf(sortRowsForDressageReportPdf(enrichedRows));
 
     // 1. Extract current filter class name for title
     const filterVal = document.getElementById('report-class-filter')?.value || 'Alla klasser';
@@ -458,11 +556,11 @@ window.reports_generateDressagePdf = function () {
     // 2. Derive Judges List dynamically from the data
     const judgeMap = new Map();
     // Scan all rows to find all judges that have scored
-    enrichedRows.forEach(r => {
+    sortedRows.forEach(r => {
         if (r.dressage && r.dressage.judges) {
             Object.values(r.dressage.judges).forEach(j => {
                 if (j.id && j.position) {
-                    judgeMap.set(j.position, { position: j.position, name: j.name || j.id, id: j.id });
+                    judgeMap.set(`${j.position}:${j.id}`, { position: j.position, name: j.name || j.id, id: j.id });
                 }
             });
         }
@@ -472,10 +570,18 @@ window.reports_generateDressagePdf = function () {
     const judgesList = Array.from(judgeMap.values()).sort((a, b) => (sortOrder[a.position] || 99) - (sortOrder[b.position] || 99));
 
     // 3. Call Generator
-    generateDressageListPdf(enrichedRows, filterVal, getGlobalState('currentCompetition'), judgesList);
+    generateDressageListPdf(sortedRows, filterVal, getGlobalState('currentCompetition'), judgesList);
 }
 
 window.reports_generateDressageCsv = function () {
+    const { rows: filteredDressageRows } = getFilteredData();
+    if (filteredDressageRows && filteredDressageRows.length) {
+        const csvExport = buildDressageCsvExport(filteredDressageRows, {
+            filename: `dressyr_resultat_${competitionId}.csv`
+        });
+        downloadCsv(csvExport.filename, csvExport.headers, csvExport.rows);
+        return;
+    }
     const { rows: filteredRows } = getFilteredData();
     if (!filteredRows || !filteredRows.length) { alert('Inga resultat matchar urvalet.'); return; }
     const headers = ['StartNr', 'Kusk', 'Klass', 'Häst', 'Domare C', 'Domare R', 'Domare S', 'Straff', 'Procent'];
@@ -537,6 +643,37 @@ window.reports_generateMarathonObstaclePdf = function () {
 }
 
 window.reports_generateMarathonCsv = function () {
+    const { eqs } = getFilteredData();
+    if (eqs && eqs.length) {
+        const printableList = prepareMarathonResults(eqs, marathonConfig, {
+            timingMap: marathonTimingMap,
+            stateMap: marathonStateMap,
+            obstaclesMap: marathonObsMap
+        });
+        const exportRows = printableList.map((row) => {
+            const sn = String(row.startNumber);
+            const stateDoc = marathonStateMap.get(sn) || {};
+            const rawObstacleItems = marathonObsMap.get(sn) || (Array.isArray(stateDoc.obstacles) ? stateDoc.obstacles : []);
+            return {
+                ...row,
+                _csvObstacleItems: rawObstacleItems
+            };
+        });
+        const maxObstacleCount = exportRows.reduce((max, row) => {
+            const items = Array.isArray(row._csvObstacleItems) ? row._csvObstacleItems : [];
+            const rowMax = items.reduce((innerMax, obstacle) => {
+                const number = Number(obstacle?.number ?? obstacle?.obstacleNumber ?? obstacle?.nr ?? obstacle?.hinderNr);
+                return Number.isFinite(number) && number > innerMax ? number : innerMax;
+            }, 0);
+            return rowMax > max ? rowMax : max;
+        }, 0);
+        const csvExport = buildMarathonCsvExport(exportRows, {
+            filename: `maraton_resultat_${competitionId}.csv`,
+            maxObstacleCount
+        });
+        downloadCsv(csvExport.filename, csvExport.headers, csvExport.rows);
+        return;
+    }
     const { rows: filteredRows } = getFilteredData();
     if (!filteredRows || !filteredRows.length) { alert('Inga resultat matchar urvalet.'); return; }
     const headers = ['StartNr', 'Kusk', 'Klass', 'Häst', 'Straff A', 'Straff T', 'Straff B', 'Hinderstraff', 'Övrigt', 'Totalt'];

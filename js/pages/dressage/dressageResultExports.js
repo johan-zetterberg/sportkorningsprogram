@@ -11,6 +11,50 @@ import {
   formatDressageCsvStatus
 } from './dressageResultExportUtils.js';
 
+function getDressagePdfClassLabel(row = {}) {
+  return row._mergedLabel || row.displayClass || row._displayClass || row.className || '';
+}
+
+function getDressagePdfClassOrder(row = {}, rows = []) {
+  const label = getDressagePdfClassLabel(row);
+  const classRows = rows.filter(r => getDressagePdfClassLabel(r) === label);
+  const numbers = classRows
+    .map(r => Number(r.tdbClassNumber))
+    .filter(Number.isFinite);
+  if (numbers.length) return Math.min(...numbers);
+
+  const match = String(label).match(/^\s*(\d+)/);
+  return match ? Number(match[1]) : Infinity;
+}
+
+function getDressagePdfPenalty(row = {}) {
+  const penalty = Number(row.finalPenalty ?? row.dressage?.penalty ?? row.results?.dressage?.totalPenalty);
+  return Number.isFinite(penalty) ? penalty : Infinity;
+}
+
+function sortDressageResultsForPdf(rows = []) {
+  return [...rows].sort((a, b) => {
+    const aOrder = getDressagePdfClassOrder(a, rows);
+    const bOrder = getDressagePdfClassOrder(b, rows);
+    if (aOrder !== bOrder) return aOrder - bOrder;
+
+    const classCompare = getDressagePdfClassLabel(a).localeCompare(getDressagePdfClassLabel(b), 'sv', {
+      numeric: true,
+      sensitivity: 'base'
+    });
+    if (classCompare !== 0) return classCompare;
+
+    const aElim = !!(a.eliminated || a.dressage?.eliminated || a.results?.dressage?.eliminated);
+    const bElim = !!(b.eliminated || b.dressage?.eliminated || b.results?.dressage?.eliminated);
+    if (aElim !== bElim) return aElim ? 1 : -1;
+
+    const penaltyCompare = getDressagePdfPenalty(a) - getDressagePdfPenalty(b);
+    if (penaltyCompare !== 0) return penaltyCompare;
+
+    return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
+  });
+}
+
 export function setupDressageResultExportButtons({
   getVisibleSortedResults,
   getCurrentClassLabel,
@@ -31,7 +75,7 @@ export function setupDressageResultExportButtons({
       const judges = getJudges();
 
       try {
-        await generateDressageListPdf(list, currentClass, comp, judges);
+        await generateDressageListPdf(sortDressageResultsForPdf(list), currentClass, comp, judges);
       } catch (e) {
         console.error(e);
         alert('Fel vid PDF-generering: ' + e.message);

@@ -1,4 +1,4 @@
-export const VET_STATUS_PRIORITY = {
+﻿export const VET_STATUS_PRIORITY = {
   ombesiktning: 0,
   incheckad: 1,
   'anmäld': 2,
@@ -7,13 +7,56 @@ export const VET_STATUS_PRIORITY = {
 };
 
 export function normalizeVetStatus(status) {
-  return String(status || 'anmäld').trim().toLowerCase();
+  const value = String(status || 'anmäld').trim().toLowerCase();
+  if (value === 'anmÃ¤ld' || value === 'anmÃƒÂ¤ld') return 'anmäld';
+  return value;
+}
+
+export function getHorseVetStatus(horse = {}) {
+  return normalizeVetStatus(horse.vetStatus || horse.inspectionStatus || horse.status || '');
+}
+
+export function getHorseStableKey(horse = {}, index = 0) {
+  return String(
+    horse.id
+    || horse.uid
+    || horse.chipNumber
+    || horse.chip
+    || horse.lic
+    || horse.license
+    || horse.name
+    || horse.horseName
+    || index
+  );
+}
+
+export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld') {
+  const list = Array.isArray(horses) ? horses : [];
+  if (!list.length) return normalizeVetStatus(fallbackStatus);
+
+  const statuses = list.map(getHorseVetStatus);
+  if (statuses.some(status => status === 'struken')) return 'struken';
+  if (statuses.some(status => status === 'ombesiktning')) return 'ombesiktning';
+  if (statuses.every(status => status === 'besiktigad')) return 'besiktigad';
+  return normalizeVetStatus(fallbackStatus);
+}
+
+export function updateHorseVetStatus(horses = [], horseKey, status) {
+  const key = String(horseKey || '');
+  return (Array.isArray(horses) ? horses : []).map((horse, index) => {
+    if (getHorseStableKey(horse, index) !== key) return horse;
+    return {
+      ...horse,
+      vetStatus: normalizeVetStatus(status),
+      vetCheckedAt: new Date().toISOString()
+    };
+  });
 }
 
 export function sortVetEquipages(equipages = []) {
   return [...(equipages || [])].sort((a, b) => {
-    const statusA = normalizeVetStatus(a?.status);
-    const statusB = normalizeVetStatus(b?.status);
+    const statusA = deriveVetStatusFromHorses(a?.horses, a?.status);
+    const statusB = deriveVetStatusFromHorses(b?.horses, b?.status);
     const priorityA = VET_STATUS_PRIORITY[statusA] ?? VET_STATUS_PRIORITY['anmäld'];
     const priorityB = VET_STATUS_PRIORITY[statusB] ?? VET_STATUS_PRIORITY['anmäld'];
     if (priorityA !== priorityB) return priorityA - priorityB;
@@ -23,7 +66,7 @@ export function sortVetEquipages(equipages = []) {
 
 export function getVetRemainingCount(equipages = []) {
   return (equipages || []).filter(eq => {
-    const status = normalizeVetStatus(eq?.status);
+    const status = deriveVetStatusFromHorses(eq?.horses, eq?.status);
     return status !== 'besiktigad' && status !== 'struken';
   }).length;
 }
@@ -76,3 +119,4 @@ export function resolveVetFilteredState(equipages = [], searchTerm = '') {
     clearSearch: false
   };
 }
+

@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import {
   formatPrecisionCsvPenalty,
-  formatPrecisionCsvText
+  formatPrecisionCsvText,
+  formatPrecisionTimeSeconds
 } from '../js/pages/precision/precisionResultExportUtils.js';
 
 test('formatPrecisionCsvPenalty formats finite and empty precision values', () => {
@@ -21,4 +22,10 @@ test('formatPrecisionCsvText uses a stable empty fallback', () => {
   assert.equal(formatPrecisionCsvText('Klar'), 'Klar');
   assert.equal(formatPrecisionCsvText(''), '-');
   assert.equal(formatPrecisionCsvText(null), '-');
+});
+
+test('formatPrecisionTimeSeconds formats milliseconds as raw seconds', () => {
+  assert.equal(formatPrecisionTimeSeconds(82300), '82.30');
+  assert.equal(formatPrecisionTimeSeconds(null), '-');
+  assert.equal(formatPrecisionTimeSeconds(-1), '-');
 });

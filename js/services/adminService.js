@@ -3,6 +3,48 @@ import { collection, doc, getDocs, setDoc, onSnapshot, query, deleteDoc, getDoc,
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
+const OFFICIAL_SYSTEM_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+const ROLE_EMAIL_FIELDS = {
+  admin: ['adminEmails', 'officialEmails'],
+  dressage: ['dressageEmails'],
+  marathon: ['marathonEmails'],
+  precision: ['precisionEmails'],
+  speaker: ['speakerEmails']
+};
+
+function normalizeEmail(email) {
+  return typeof email === 'string' ? email.toLowerCase().trim() : '';
+}
+
+function normalizeOfficialRoles(data = {}) {
+  const roleValues = Array.isArray(data.roles) ? [...data.roles] : [];
+  if (OFFICIAL_SYSTEM_ROLES.includes(data.role)) roleValues.push(data.role);
+  return Array.from(new Set(roleValues.filter(role => OFFICIAL_SYSTEM_ROLES.includes(role))));
+}
+
+function buildOfficialEmailSyncUpdate(email, roles) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  const selected = new Set(roles);
+  return OFFICIAL_SYSTEM_ROLES.reduce((patch, role) => {
+    ROLE_EMAIL_FIELDS[role].forEach(field => {
+      patch[field] = selected.has(role) ? arrayUnion(normalizedEmail) : arrayRemove(normalizedEmail);
+    });
+    return patch;
+  }, {});
+}
+
+function buildOfficialEmailRemoveUpdate(email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return null;
+
+  return Object.values(ROLE_EMAIL_FIELDS).flat().reduce((patch, field) => {
+    patch[field] = arrayRemove(normalizedEmail);
+    return patch;
+  }, {});
+}
+
 export function listenForJudges(competitionId, callback) {
   const judgesRef = getCompCollectionRef(competitionId, 'judges');
   return onSnapshot(query(judgesRef), (snapshot) => {
@@ -51,22 +93,38 @@ export async function saveOfficial(competitionId, data) {
     const officialsRef = getCompCollectionRef(competitionId, 'officials');
     const officialId = data.id || doc(officialsRef).id;
     const officialRef = doc(officialsRef, officialId);
+    const roles = normalizeOfficialRoles(data);
+    const email = normalizeEmail(data.email);
+
+    let previousEmail = '';
+    try {
+      const previousSnap = await getDoc(officialRef);
+      if (previousSnap.exists()) {
+        previousEmail = normalizeEmail(previousSnap.data().email);
+      }
+    } catch (_) { }
 
     await setDoc(officialRef, {
       ...data,
       id: officialId,
+      email,
+      roles,
       updatedAt: Date.now()
     }, { merge: true });
 
-    if (data.email) {
-      try {
-        const roleKey = data.role === 'admin' ? 'officialEmails' : `${data.role}Emails`;
-        await updateDoc(doc(db, `artifacts/${appId}/public/data/competitions`, competitionId), {
-          [roleKey]: arrayUnion(data.email.toLowerCase().trim())
-        });
-      } catch (e) {
-        console.warn("Kunde inte synka official email", e);
+    const competitionRef = doc(db, `artifacts/${appId}/public/data/competitions`, competitionId);
+    try {
+      if (previousEmail && previousEmail !== email) {
+        const removeOldEmailPatch = buildOfficialEmailRemoveUpdate(previousEmail);
+        if (removeOldEmailPatch) await updateDoc(competitionRef, removeOldEmailPatch);
       }
+
+      const currentEmailPatch = email
+        ? buildOfficialEmailSyncUpdate(email, roles)
+        : buildOfficialEmailRemoveUpdate(previousEmail);
+      if (currentEmailPatch) await updateDoc(competitionRef, currentEmailPatch);
+    } catch (e) {
+      console.warn("Kunde inte synka official email", e);
     }
 
     return officialId;
@@ -78,23 +136,21 @@ export async function deleteOfficial(competitionId, officialId) {
     const officialRef = getCompDocRef(competitionId, 'officials', officialId);
 
     let emailToRemove = null;
-    let roleToRemove = 'admin';
     try {
       const snap = await getDoc(officialRef);
       if (snap.exists() && snap.data().email) {
-        emailToRemove = snap.data().email.toLowerCase().trim();
-        roleToRemove = snap.data().role || 'admin';
+        emailToRemove = normalizeEmail(snap.data().email);
       }
-    } catch (_) {}
+    } catch (_) { }
 
     await deleteDoc(officialRef);
 
     if (emailToRemove) {
       try {
-        const roleKey = roleToRemove === 'admin' ? 'officialEmails' : `${roleToRemove}Emails`;
-        await updateDoc(doc(db, `artifacts/${appId}/public/data/competitions`, competitionId), {
-          [roleKey]: arrayRemove(emailToRemove)
-        });
+        await updateDoc(
+          doc(db, `artifacts/${appId}/public/data/competitions`, competitionId),
+          buildOfficialEmailRemoveUpdate(emailToRemove)
+        );
       } catch (e) {
         console.warn("Kunde inte synka borttagning av official email", e);
       }

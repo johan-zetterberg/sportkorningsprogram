@@ -94,6 +94,25 @@ export function deduplicateAndFilterProtocols(protocols, validJudgesList) {
     });
 }
 
+function getProtocolProgramKey(protocols = [], allPrograms = {}) {
+    const counts = new Map();
+    (protocols || []).forEach(protocol => {
+        if (!protocol || protocol.id === 'general') return;
+        const key = protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey;
+        if (key && allPrograms[key]) counts.set(key, (counts.get(key) || 0) + 1);
+    });
+
+    let bestKey = null;
+    let bestCount = 0;
+    counts.forEach((count, key) => {
+        if (count > bestCount) {
+            bestKey = key;
+            bestCount = count;
+        }
+    });
+    return bestKey;
+}
+
 // Replaced complex regex with a simpler heuristic matching standard enum-like strings
 export function guessProgramKeyFromClass(className, allPrograms) {
     if (!className || !allPrograms) return null;
@@ -137,10 +156,12 @@ export function calculateDressageResult(state) {
     const { equipage, dressage, config } = state;
     if (!equipage) return { penalty: null, eliminated: false };
 
-    const progKey = equipage.testKey || guessProgramKeyFromClass(equipage.className, config.allPrograms);
-    const program = config.allPrograms[progKey];
-
     const clean = deduplicateAndFilterProtocols(dressage.protocols || [], config.judges);
+    const progKey = getProtocolProgramKey(clean, config.allPrograms)
+        || equipage.testKey
+        || equipage.programKey
+        || guessProgramKeyFromClass(equipage.className, config.allPrograms);
+    const program = config.allPrograms[progKey];
     const isElim = clean.some(p => p.eliminated);
 
     if (!program || clean.length === 0) return { penalty: null, eliminated: isElim };
@@ -151,12 +172,12 @@ export function calculateDressageResult(state) {
     if (result) {
         const coeff = getDressagePenaltyCoeff(program, config.allPrograms);
         const err = Number(equipage.errorPoints) || 0;
-        penalty = isElim ? null : round2(result.penalty + err);
+        penalty = isElim ? null : round2(result.penalty + (err * coeff));
     }
     
     return { 
         penalty, 
         eliminated: isElim, 
-        judgePenalty: isElim ? null : result?.penalty 
+        judgePenalty: isElim ? null : (result ? round2(result.penalty) : null)
     };
 }

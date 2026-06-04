@@ -3,6 +3,27 @@ import { formatMsMMSS, formatObstacleSeconds } from './marathonResultFormatters.
 
 const localLiveTickers = {};
 
+function ensureTickerState(key) {
+  if (!localLiveTickers[key]) {
+    localLiveTickers[key] = {
+      intervalId: null,
+      activeObstacle: null
+    };
+  }
+  return localLiveTickers[key];
+}
+
+function timestampToMs(value) {
+  if (!value) return 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value === 'string' || value instanceof Date) {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  const asNumber = Number(value);
+  return Number.isFinite(asNumber) ? asNumber : 0;
+}
+
 export function rowStageCellsHTML(res, stageCols) {
   return (stageCols || []).map(stKey => {
     const sData = res.stages[stKey];
@@ -20,14 +41,17 @@ export function rowStageCellsHTML(res, stageCols) {
 
 export function stopMarathonLiveTicker(sn) {
   const key = String(sn);
-  if (localLiveTickers[key]) {
-    clearInterval(localLiveTickers[key]);
+  if (localLiveTickers[key]?.intervalId) {
+    clearInterval(localLiveTickers[key].intervalId);
+    localLiveTickers[key].intervalId = null;
     delete localLiveTickers[key];
   }
 }
 
 export function clearMarathonLiveTickers() {
-  Object.values(localLiveTickers).forEach(clearInterval);
+  Object.values(localLiveTickers).forEach((ticker) => {
+    if (ticker?.intervalId) clearInterval(ticker.intervalId);
+  });
   Object.keys(localLiveTickers).forEach(k => delete localLiveTickers[k]);
 }
 
@@ -49,9 +73,31 @@ export function startOrUpdateMarathonLiveTicker(sn, {
   calculateResult
 }) {
   const key = String(sn);
-  if (localLiveTickers[key]) return;
+  const tickerState = ensureTickerState(key);
+  if (tickerState.intervalId) return;
 
   const eq = equipages.find(e => String(e.startNumber) === key);
+
+  const setTextIfChanged = (selector, value) => {
+    document.querySelectorAll(selector).forEach((el) => {
+      if (el.textContent !== value) el.textContent = value;
+    });
+  };
+
+  const clearObstacleHighlight = (obstacleNumber) => {
+    if (!Number.isFinite(obstacleNumber)) return;
+    document.querySelectorAll(`td[data-sn="${key}"][data-obs="${obstacleNumber}"] span[data-cell="obsVal"]`).forEach((el) => {
+      el.classList.remove('text-amber-700', 'animate-pulse', 'font-bold');
+    });
+  };
+
+  const highlightObstacle = (obstacleNumber, label) => {
+    if (!Number.isFinite(obstacleNumber)) return;
+    document.querySelectorAll(`td[data-sn="${key}"][data-obs="${obstacleNumber}"] span[data-cell="obsVal"]`).forEach((el) => {
+      if (el.textContent !== label) el.textContent = label;
+      el.classList.add('text-amber-700', 'animate-pulse', 'font-bold');
+    });
+  };
 
   const run = () => {
     if (getIsGloballyPaused()) {
@@ -88,9 +134,10 @@ export function startOrUpdateMarathonLiveTicker(sn, {
 
         const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, stage);
         liveStageP = elim ? Infinity : (isNum(points) ? points : 0);
-        document.querySelectorAll(`[data-stage-pts="${key}"][data-stage="${stage}"]`).forEach(el => {
-          el.textContent = elim ? 'ELIM' : (isNum(points) ? points.toFixed(2) : '\u2014');
-        });
+        setTextIfChanged(
+          `[data-stage-pts="${key}"][data-stage="${stage}"]`,
+          elim ? 'ELIM' : (isNum(points) ? points.toFixed(2) : '\u2014')
+        );
         break;
       }
     }
@@ -116,12 +163,30 @@ export function startOrUpdateMarathonLiveTicker(sn, {
     }
 
     let liveObsP = 0;
+    let obsTimeMs = null;
     const obsNr = Number(d.currentObstacle);
     if (d.running === true && Number.isFinite(obsNr)) {
       isAnythingRunning = true;
-      const lastUpdateMs = Number(d.liveObstacleTimeMs) || 0;
-      const lastUpdateTime = d.updatedAt?.toMillis ? d.updatedAt.toMillis() : Date.now();
-      const obsTimeMs = lastUpdateMs + (Date.now() - lastUpdateTime - pausedMsSince(lastUpdateTime));
+      const accumulatedMs = Number(d.liveObstacleTimeMs) || 0;
+      let obsStartMs = timestampToMs(d.liveObstacleStartAt);
+      let useVirtualStart = false;
+
+      if (!obsStartMs) {
+        obsStartMs = timestampToMs(d.live_staticStartAt);
+        useVirtualStart = !!obsStartMs;
+      }
+
+      if (!obsStartMs && d.obstacleTimes && d.obstacleTimes[d.currentObstacle]) {
+        const ot = d.obstacleTimes[d.currentObstacle];
+        obsStartMs = timestampToMs(ot?.enteredAt || ot?.enteredAtClient);
+      }
+
+      if (!obsStartMs) {
+        obsStartMs = timestampToMs(d.updatedAt) || Date.now();
+      }
+
+      const pauseOffsetMs = useVirtualStart ? 0 : pausedMsSince(obsStartMs);
+      obsTimeMs = accumulatedMs + Math.max(0, Date.now() - obsStartMs - pauseOffsetMs);
 
       labelText = `H${d.currentObstacle}`;
       timeText = formatMsLive(obsTimeMs);
@@ -132,24 +197,22 @@ export function startOrUpdateMarathonLiveTicker(sn, {
       liveObsP = (obsTimeMs / 1000) * obsCoeff;
     }
 
-    document.querySelectorAll(`td[data-sn="${key}"] span[data-cell="obsVal"]`).forEach(el => {
-      el.classList.remove('text-amber-700', 'animate-pulse', 'font-bold');
-    });
-
     if (isAnythingRunning) {
-      document.querySelectorAll(`[data-live-label="${key}"]`).forEach(el => {
-        el.textContent = labelText;
-      });
+      setTextIfChanged(`[data-live-label="${key}"]`, labelText);
       document.querySelectorAll(`[data-live-time="${key}"]`).forEach(el => {
-        el.textContent = timeText;
+        if (el.textContent !== timeText) el.textContent = timeText;
         el.classList.add('text-amber-700', 'animate-pulse', 'font-semibold');
       });
 
-      if (d.running === true && Number.isFinite(obsNr)) {
-        document.querySelectorAll(`td[data-sn="${key}"][data-obs="${obsNr}"] span[data-cell="obsVal"]`).forEach(el => {
-          el.textContent = formatObstacleSeconds(obsTimeMs / 1000);
-          el.classList.add('text-amber-700', 'animate-pulse', 'font-bold');
-        });
+      if (d.running === true && Number.isFinite(obsNr) && Number.isFinite(obsTimeMs)) {
+        if (tickerState.activeObstacle !== obsNr) {
+          clearObstacleHighlight(tickerState.activeObstacle);
+          tickerState.activeObstacle = obsNr;
+        }
+        highlightObstacle(obsNr, formatObstacleSeconds(obsTimeMs / 1000));
+      } else if (tickerState.activeObstacle != null) {
+        clearObstacleHighlight(tickerState.activeObstacle);
+        tickerState.activeObstacle = null;
       }
 
       try {
@@ -173,26 +236,23 @@ export function startOrUpdateMarathonLiveTicker(sn, {
 
         const liveTotalLabel = (liveTotal === Infinity) ? 'ELIM' : (isNum(liveTotal) ? liveTotal.toFixed(2) : '\u2014');
 
-        document.querySelectorAll(`td[data-sn="${key}"][data-cell="obsSum"]`).forEach(el => {
-          el.textContent = liveObsSum.toFixed(2);
-        });
-
-        document.querySelectorAll(`[data-total-pen="${key}"]`).forEach(el => {
-          el.textContent = liveTotalLabel;
-        });
+        setTextIfChanged(`td[data-sn="${key}"][data-cell="obsSum"]`, liveObsSum.toFixed(2));
+        setTextIfChanged(`[data-total-pen="${key}"]`, liveTotalLabel);
       } catch (err) {
         console.error('Total penalty tick error:', err);
       }
     } else {
+      clearObstacleHighlight(tickerState.activeObstacle);
+      tickerState.activeObstacle = null;
       document.querySelectorAll(`[data-live-time="${key}"]`).forEach(el => {
         el.textContent = '\u2014';
         el.classList.remove('text-amber-700', 'animate-pulse', 'font-semibold');
       });
-      document.querySelectorAll(`[data-live-label="${key}"]`).forEach(el => el.textContent = '');
+      setTextIfChanged(`[data-live-label="${key}"]`, '');
       stopMarathonLiveTicker(key);
     }
   };
 
   run();
-  localLiveTickers[key] = setInterval(run, 95);
+  tickerState.intervalId = setInterval(run, 95);
 }

@@ -9,6 +9,12 @@ import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
+function formatPrecisionPdfTimeSeconds(timeMs, empty = '—') {
+  const value = Number(timeMs);
+  if (!Number.isFinite(value) || value < 0) return empty;
+  return `${(value / 1000).toFixed(2).replace('.', ',')} s`;
+}
+
 // === HUVUDFUNKTION ===
 
 export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config, startTimes, competition) {
@@ -93,7 +99,7 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
     startY: y,
     head: [['Summering', 'Värde']],
     body: [
-      ['Tid', data.display.timeLabel],
+      ['Tid', `${data.display.timeLabel} (${formatPrecisionPdfTimeSeconds(data.d?.timeMs)})`],
       ['Hinderstraff', formatPdfPenalty(data.obstaclePenalty, { eliminated: data.eliminated })],
       ['Tidsstraff', formatPdfPenalty(data.timePenalty, { eliminated: data.eliminated })],
       ['Övrigt straff', formatPdfPenalty(data.extraPenalty, { eliminated: data.eliminated })],
@@ -238,7 +244,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   doc.setFont(undefined, 'normal'); // Reset font for table
 
   // UPDATED HEADER with START column
-  const head = [['Plac', '#', 'Kusk / Häst', 'Klass', 'Land/Klubb', 'Start', 'Tid', 'Hinder', 'Tidfel', 'Totalt']];
+  const head = [['Plac', '#', 'Kusk / Häst', 'Klass', 'Land/Klubb', 'Start', 'Tid / s', 'Hinder', 'Tidfel', 'Totalt']];
 
   const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
   // Calculate placements on the same printable set, so withdrawn rows do not affect places.
@@ -256,7 +262,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       eq._mergedLabel || eq.className,
       eq.clubName || '',
       row.startT || '–', // Start time column
-      row.display.timeLabel,
+      `${row.display.timeLabel}\n${formatPrecisionPdfTimeSeconds(row.d?.timeMs)}`,
       formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
       formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
       { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } }

@@ -10,6 +10,33 @@ let allEquipages = []; // En cachad lista över alla ekipage
 let searchTerm = '';
 let filterStatus = 'alla'; // 'alla', 'anmäld', 'incheckad', 'besiktigad', 'ombesiktning', 'struken';
 
+const vetStatusLabels = {
+    besiktigad: { label: 'Veterinär: Godkänd', cls: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 border-green-200 dark:border-green-800' },
+    ombesiktning: { label: 'Veterinär: Ombesiktning', cls: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-200 border-yellow-200 dark:border-yellow-800' },
+    struken: { label: 'Veterinär: Struken', cls: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-200 border-red-200 dark:border-red-800' },
+    incheckad: { label: 'Veterinär: Ej besiktigad', cls: 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 border-blue-200 dark:border-blue-800' },
+    anmäld: { label: 'Veterinär: Ej besiktigad', cls: 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border-gray-200 dark:border-gray-700' }
+};
+
+function normalizeVetStatusLabel(status) {
+    const value = String(status || 'anmäld').trim().toLowerCase();
+    if (value === 'anm\u00c3\u00a4ld' || value === 'anm\u00c3\u0192\u00c2\u00a4ld') return 'anmäld';
+    return value;
+}
+
+function normalizeEquipageStatus(status) {
+    const value = String(status || 'anmäld').trim().toLowerCase();
+    if (value === 'anm\u00c3\u00a4ld' || value === 'anm\u00c3\u0192\u00c2\u00a4ld') return 'anmäld';
+    return value;
+}
+
+function renderHorseVetStatusBadge(horse = {}) {
+    const status = normalizeVetStatusLabel(horse.vetStatus || horse.inspectionStatus || horse.status || '');
+    const conf = vetStatusLabels[status] || vetStatusLabels.anmäld;
+    return `<span class="inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${conf.cls}">${conf.label}</span>`;
+}
+
+
 /**
  * Visar en detaljerad modal-vy med information om ett specifikt ekipage.
  * @param {object} equipage - Det valda ekipageobjektet.
@@ -54,7 +81,7 @@ function showEquipageDetailsModal(equipage) {
                 <span class="font-medium text-gray-600 dark:text-gray-300">E-post:</span> <span class="dark:text-gray-100">${equipage.email || '<span class="text-gray-400 italic">Saknas</span>'}</span>
                 <span class="font-medium text-gray-600 dark:text-gray-300">Klubb:</span> <span class="dark:text-gray-100">${equipage.clubName}</span>
                 <span class="font-medium text-gray-600 dark:text-gray-300">Klass:</span> <span class="dark:text-gray-100">${equipage.className}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Status:</span> <span class="font-semibold ${equipage.status === 'struken' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${equipage.status || 'anmäld'}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Status:</span> <span class="font-semibold ${normalizeEquipageStatus(equipage.status) === 'struken' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${normalizeEquipageStatus(equipage.status)}</span>
                 
                 <span class="font-medium text-gray-600 dark:text-gray-300 mt-2 border-t pt-2 dark:border-gray-600">Vagnbredd (D/P):</span> 
                 <span class="dark:text-gray-100 mt-2 border-t pt-2 dark:border-gray-600">${equipage.trackWidth ? `${equipage.trackWidth} cm` : 'Ej angivet'}</span>
@@ -82,12 +109,13 @@ function showEquipageDetailsModal(equipage) {
         allHorses.forEach((horse, index) => {
             contentHtml += `
                 <div class="border-t dark:border-gray-600 pt-2">
-                    <p class-><span class="font-semibold text-base dark:text-gray-200">${horse.name || 'Namn saknas'}</span> <span class="text-sm text-gray-600 dark:text-gray-400">(${horse.id || 'ID saknas'})</span></p>
+                    <p><span class="font-semibold text-base dark:text-gray-200">${horse.name || 'Namn saknas'}</span> <span class="text-sm text-gray-600 dark:text-gray-400">(${horse.id || 'ID saknas'})</span></p>
                     <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-1">
                         <span class="font-medium text-gray-600 dark:text-gray-400">Typ:</span> <span class="dark:text-gray-300">${horse.type || '-'}</span>
                         <span class="font-medium text-gray-600 dark:text-gray-400">Ålder:</span> <span class="dark:text-gray-300">${horse.age || '-'}</span>
                         <span class="font-medium text-gray-600 dark:text-gray-400">Härstamning:</span> <span class="dark:text-gray-300">${horse.lineage || '-'}</span>
                         <span class="font-medium text-gray-600 dark:text-gray-400">Ägare:</span> <span class="dark:text-gray-300">${horse.owner || '-'}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Veterinär:</span> <span>${renderHorseVetStatusBadge(horse)}</span>
                     </div>
                 </div>
             `;
@@ -321,7 +349,7 @@ function renderList() {
 
     // 1. Applicera status-filter
     if (filterStatus !== 'alla') {
-        filteredEquipages = filteredEquipages.filter(e => (e.status || 'anmäld') === filterStatus);
+        filteredEquipages = filteredEquipages.filter(e => normalizeEquipageStatus(e.status) === filterStatus);
     }
 
     // 2. Applicera sökterm
@@ -364,7 +392,7 @@ function renderList() {
     ];
 
     sortedEquipages.forEach(e => {
-        const currentStatus = e.status || 'anmäld';
+        const currentStatus = normalizeEquipageStatus(e.status);
         const isStruken = currentStatus === 'struken';
 
         // Bestäm bakgrundsfärg baserat på status
@@ -539,3 +567,4 @@ export function __unload() {
     searchTerm = '';
     filterStatus = 'alla';
 }
+

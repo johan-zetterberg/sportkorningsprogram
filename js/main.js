@@ -17,42 +17,117 @@ const globalState = {
 import { db, appId } from './config/firebase-config.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+const OFFICIAL_ROLE_FIELDS = {
+    admin: 'adminEmails',
+    speaker: 'speakerEmails',
+    dressage: 'dressageEmails',
+    marathon: 'marathonEmails',
+    precision: 'precisionEmails'
+};
+const adminRoleCache = new Map();
+let roleRefreshInFlight = null;
+let roleRefreshInFlightKey = '';
+
+function normalizeEmail(value) {
+    return String(value || '').toLowerCase().trim();
+}
+
+function normalizeRoleList(roles) {
+    return [...new Set((Array.isArray(roles) ? roles : []).filter(Boolean))].sort();
+}
+
+function getRoleListSignature(roles) {
+    return normalizeRoleList(roles).join('|');
+}
+
+function buildRoleContextKey(comp, user) {
+    return [comp?.id || '', user?.uid || '', normalizeEmail(user?.email)].join('|');
+}
+
+function hasEmailInList(email, list) {
+    if (!email || !Array.isArray(list)) return false;
+    return list.some((entry) => normalizeEmail(entry) === email);
+}
+
+function getDirectCompetitionRoles(comp, user) {
+    const email = normalizeEmail(user?.email);
+    if (!comp || !email) return [];
+
+    return Object.entries(OFFICIAL_ROLE_FIELDS)
+        .filter(([, field]) => hasEmailInList(email, comp[field]))
+        .map(([role]) => role);
+}
+
+function applyCompetitionRoles(contextKey, roles) {
+    const currentComp = globalState.currentCompetition;
+    const currentUser = globalState.currentUser;
+    if (!currentComp || !currentUser || buildRoleContextKey(currentComp, currentUser) !== contextKey) {
+        return normalizeRoleList(roles);
+    }
+
+    const normalizedRoles = normalizeRoleList(roles);
+    if (getRoleListSignature(currentUser.compRoles) !== getRoleListSignature(normalizedRoles)) {
+        currentUser.compRoles = normalizedRoles;
+        updateUIVisibility();
+    }
+    return normalizedRoles;
+}
+
+async function fetchCompetitionAdminRoles(compId, userId) {
+    const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'admins', userId));
+    if (!snap.exists()) return [];
+
+    const data = snap.data();
+    if (Array.isArray(data.roles)) return data.roles;
+    if (data.role) return [data.role];
+    return [];
+}
+
 // Exportera funktioner för att andra moduler ska kunna interagera med state.
 export async function refreshUserCompRole() {
     const comp = globalState['currentCompetition'];
     const user = globalState['currentUser'];
-    if (!comp || !user || !user.uid) return;
+    if (!user) return [];
 
-    let compRoles = [];
-
-    // 1. Check direct arrays on comp document
-    const email = (user.email || '').toLowerCase();
-    if (email) {
-        if (comp.adminEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('admin');
-        if (comp.speakerEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('speaker');
-        if (comp.dressageEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('dressage');
-        if (comp.marathonEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('marathon');
-        if (comp.precisionEmails?.map(e=>e.toLowerCase()).includes(email)) compRoles.push('precision');
-    }
-
-    // 2. Check admins subcollection
-    try {
-        const snap = await getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', comp.id, 'admins', user.uid));
-        if (snap.exists()) {
-            const data = snap.data();
-            if (Array.isArray(data.roles)) {
-                compRoles.push(...data.roles);
-            } else if (data.role) {
-                compRoles.push(data.role);
-            }
+    if (!comp || !user.uid) {
+        if (getRoleListSignature(user.compRoles) !== '') {
+            user.compRoles = [];
+            updateUIVisibility();
         }
-    } catch (e) {
-        console.warn("Could not fetch compRoles", e);
+        return [];
     }
 
-    // Deduplicate and assign
-    user.compRoles = [...new Set(compRoles)];
-    updateUIVisibility();
+    const contextKey = buildRoleContextKey(comp, user);
+    const directRoles = getDirectCompetitionRoles(comp, user);
+    const cachedAdminRoles = adminRoleCache.get(contextKey);
+
+    if (cachedAdminRoles) {
+        return applyCompetitionRoles(contextKey, [...directRoles, ...cachedAdminRoles]);
+    }
+
+    if (roleRefreshInFlight && roleRefreshInFlightKey === contextKey) {
+        return roleRefreshInFlight;
+    }
+
+    roleRefreshInFlightKey = contextKey;
+    roleRefreshInFlight = (async () => {
+        let adminRoles = [];
+        try {
+            adminRoles = normalizeRoleList(await fetchCompetitionAdminRoles(comp.id, user.uid));
+            adminRoleCache.set(contextKey, adminRoles);
+        } catch (e) {
+            console.warn("Could not fetch compRoles", e);
+        }
+
+        return applyCompetitionRoles(contextKey, [...directRoles, ...adminRoles]);
+    })().finally(() => {
+        if (roleRefreshInFlightKey === contextKey) {
+            roleRefreshInFlight = null;
+            roleRefreshInFlightKey = '';
+        }
+    });
+
+    return roleRefreshInFlight;
 }
 
 export function setGlobalState({ key, value }) {

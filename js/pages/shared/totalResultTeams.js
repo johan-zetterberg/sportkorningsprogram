@@ -39,6 +39,9 @@ export function renderTeamRankBadge(team, index = 0) {
   if (team?.isEliminated) {
     return '<span class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-bold uppercase tracking-wider">ELIM</span>';
   }
+  if (team?.isIncomplete) {
+    return '<span class="px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold uppercase tracking-wider">Pågår</span>';
+  }
 
   if (index === 0) {
     return '<div class="w-10 h-10 flex items-center justify-center text-2xl" title="1:a plats">🥇</div>';
@@ -59,7 +62,7 @@ export function formatTeamScore(value, { eliminated = false, eliminatedLabel = '
 }
 
 export function getTeamCardBorderClass(team, index = 0) {
-  return index === 0 && !team?.isEliminated
+  return index === 0 && !team?.isEliminated && !team?.isIncomplete
     ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50'
     : 'dark:border-gray-700';
 }

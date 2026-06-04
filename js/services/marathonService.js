@@ -62,30 +62,50 @@ export function listenForMarathonObstacleResults(competitionId, equipageId, call
   }, buildSnapshotErrorHandler(`listenForMarathonObstacleResults:${eid}`, callback, []));
 }
 
+function normalizeObstacleResultRow(equipageId, data = {}, fallbackId = '') {
+  const obstacleNumber = Number(data.obstacleNumber ?? data.number ?? fallbackId);
+  return {
+    equipageId: String(equipageId),
+    obstacleNumber: Number.isFinite(obstacleNumber) ? obstacleNumber : 0,
+    timeInSeconds: Number(data.timeInSeconds ?? data.timeSeconds ?? 0),
+    penalty: Number(data.penalty || 0),
+    eliminated: !!data.eliminated,
+    comment: data.comment || '',
+    routeString: data.routeString || '',
+    updatedAt: data.updatedAt || null
+  };
+}
+
 export async function getMarathonResults(competitionId) {
   if (!competitionId) throw new Error("getMarathonResults: competitionId saknas");
   const baseCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults`);
   const equipageDocs = await getDocs(baseCol);
-  const out = [];
+  const byObstacleKey = new Map();
 
   for (const d of equipageDocs.docs) {
     const equipageId = d.id; 
     const obstaclesCol = collection(db, `${baseCol.path}/${equipageId}/obstacles`);
     const obsSnap = await getDocs(obstaclesCol);
     obsSnap.forEach(o => {
-      const data = o.data() || {};
-      out.push({
-        equipageId,
-        obstacleNumber: Number(data.obstacleNumber ?? o.id),
-        timeInSeconds: Number(data.timeInSeconds || 0),
-        penalty: Number(data.penalty || 0),
-        eliminated: !!data.eliminated,
-        comment: data.comment || '',
-        routeString: data.routeString || '',
-        updatedAt: data.updatedAt || null,
-      });
+      const row = normalizeObstacleResultRow(equipageId, o.data() || {}, o.id);
+      byObstacleKey.set(`${row.equipageId}:${row.obstacleNumber}`, row);
     });
   }
+
+  // Fallback: summary docs in `maraton/{startnr}` also contain the current obstacle array.
+  const stateCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
+  const stateSnap = await getDocs(stateCol);
+  stateSnap.forEach(docSnap => {
+    const equipageId = String(docSnap.id);
+    const obstacles = Array.isArray(docSnap.data()?.obstacles) ? docSnap.data().obstacles : [];
+    obstacles.forEach((obstacle, index) => {
+      const row = normalizeObstacleResultRow(equipageId, obstacle, obstacle?.number ?? index + 1);
+      const key = `${row.equipageId}:${row.obstacleNumber}`;
+      if (!byObstacleKey.has(key)) byObstacleKey.set(key, row);
+    });
+  });
+
+  const out = Array.from(byObstacleKey.values());
 
   out.sort((a, b) => {
     const ea = String(a.equipageId).localeCompare(String(b.equipageId));
@@ -152,6 +172,12 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
         live_gateSplits: []
       }, { merge: true });
     });
+    const obstacleDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults/${eid}/obstacles/${on}`);
+    await setDoc(obstacleDocRef, {
+      ...resultData,
+      obstacleNumber: on,
+      updatedAt: serverTimestamp()
+    }, { merge: true });
     return { ok: true, path: summaryDocRef.path };
   })());
 }

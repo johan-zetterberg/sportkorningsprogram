@@ -14,6 +14,10 @@ export function renderPrecisionResultCard({
   const eq = data.eq;
   const sn = String(eq.startNumber);
   const timeLabel = data.display.timeLabel;
+  const timeMs = Number(data.d?.timeMs);
+  const timeTitle = Number.isFinite(timeMs)
+    ? `${timeLabel} (${(timeMs / 1000).toFixed(2)} s)`
+    : timeLabel;
   const penaltyLabel = data.d?.eliminated
     ? '<span class="text-red-600 dark:text-red-400 font-bold">ELIM</span>'
     : formatPenalty(data.totalPenalty);
@@ -97,7 +101,7 @@ export function renderPrecisionResultCard({
            <div class="flex gap-1 text-[10px] tabular-nums">
               <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
                  <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Tid</div>
-                 <div class="font-bold live-time-card text-[10px] leading-tight" data-sn="${sn}">${isActive ? '••:••,••' : timeLabel}</div>
+                 <div class="font-bold live-time-card text-[10px] leading-tight" data-sn="${sn}" title="${timeTitle}">${isActive ? '••:••,••' : timeLabel}</div>
               </div>
               <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
                  <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Hinder</div>

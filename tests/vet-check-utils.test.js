@@ -3,9 +3,11 @@ import assert from 'node:assert/strict';
 
 import {
   buildVetDatalistOptions,
+  deriveVetStatusFromHorses,
   filterVetEquipages,
   getVetRemainingCount,
   getVetSearchStartNumber,
+  updateHorseVetStatus,
   resolveVetFilteredState,
   sortVetEquipages
 } from '../js/pages/shared/vetCheckUtils.js';
@@ -49,4 +51,32 @@ test('buildVetDatalistOptions builds stable datalist labels in sorted order', ()
     '3 - Clara',
     '4 - Dan'
   ]);
+});
+
+test('deriveVetStatusFromHorses summarizes per-horse inspection state', () => {
+  assert.equal(deriveVetStatusFromHorses([
+    { name: 'A', vetStatus: 'besiktigad' },
+    { name: 'B', vetStatus: 'ombesiktning' }
+  ], 'incheckad'), 'ombesiktning');
+
+  assert.equal(deriveVetStatusFromHorses([
+    { name: 'A', vetStatus: 'besiktigad' },
+    { name: 'B', vetStatus: 'besiktigad' }
+  ], 'incheckad'), 'besiktigad');
+
+  assert.equal(deriveVetStatusFromHorses([
+    { name: 'A', vetStatus: 'besiktigad' },
+    { name: 'B', vetStatus: 'struken' }
+  ], 'incheckad'), 'struken');
+});
+
+test('updateHorseVetStatus updates only the selected horse', () => {
+  const updated = updateHorseVetStatus([
+    { id: 'a', name: 'A' },
+    { id: 'b', name: 'B' }
+  ], 'b', 'ombesiktning');
+
+  assert.equal(updated[0].vetStatus, undefined);
+  assert.equal(updated[1].vetStatus, 'ombesiktning');
+  assert.ok(updated[1].vetCheckedAt);
 });

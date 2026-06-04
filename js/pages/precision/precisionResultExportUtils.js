@@ -11,3 +11,10 @@ export function formatPrecisionCsvPenalty(value, {
 export function formatPrecisionCsvText(value, empty = '-') {
   return value == null || value === '' ? empty : value;
 }
+
+export function formatPrecisionTimeSeconds(timeMs, { empty = '-' } = {}) {
+  if (timeMs == null || timeMs === '') return empty;
+  const value = Number(timeMs);
+  if (!Number.isFinite(value) || value < 0) return empty;
+  return (value / 1000).toFixed(2);
+}

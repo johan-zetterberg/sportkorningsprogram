@@ -66,6 +66,20 @@ function formatTimeStr(mins) {
   return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
 }
 
+function getEquipageClassLabel(eq = {}) {
+  const classNumberRaw = String(eq?.tdbClassNumber ?? '').trim();
+  const classNumber = classNumberRaw ? `#${classNumberRaw}` : '';
+  const className = String(
+    eq?.tdbClassLabel
+    || eq?.className
+    || eq?._mergedLabel
+    || eq?.mergedTestLabel
+    || ''
+  ).trim();
+
+  return [classNumber, className].filter(Boolean).join(' ') || '-';
+}
+
 // === HUVUDFUNKTION ===
 
 import { t } from '../utils/i18n.js';
@@ -613,19 +627,21 @@ export async function generateMarathonObstaclePdf(equipages, marathonConfig, sta
 
     return {
       startNo: eq.startNumber,
-      driver: eq.driverName,
-      class: eq.className,
+      driver: [eq.driverName, eq.clubName].filter(Boolean).join('\n'),
+      classLabel: getEquipageClassLabel(eq),
       cat: cat,
       width: width,
       startB: startB_Str
     };
   }).sort((a, b) => (parseTimeStr(a.startB) || 99999) - (parseTimeStr(b.startB) || 99999));
 
-  const head = [['Start B (Est)', '#', 'Kusk / Klubb', 'Kat', 'Vagnbredd (cm)']];
+  const head = [['Start B (Est)', 'Manuell tid', '#', 'Kusk / Klubb', 'Klass', 'Kat', 'Vagnbredd (cm)']];
   const body = rows.map(r => [
     r.startB,
+    '',
     r.startNo,
     r.driver,
+    r.classLabel,
     r.cat,
     r.width
   ]);
@@ -635,12 +651,14 @@ export async function generateMarathonObstaclePdf(equipages, marathonConfig, sta
     head: head,
     body: body,
     theme: 'grid',
-    styles: { fontSize: 10, cellPadding: 4 },
+    styles: { fontSize: 8, cellPadding: 3.5 },
     headStyles: { fillColor: [50, 50, 50] },
     columnStyles: {
       0: { fontStyle: 'bold', halign: 'center' },
-      1: { halign: 'center', cellWidth: 30 },
-      4: { halign: 'center', fontStyle: 'bold', fontSize: 11, cellWidth: 80 }
+      1: { halign: 'center', cellWidth: 58 },
+      2: { halign: 'center', cellWidth: 28 },
+      4: { cellWidth: 105 },
+      6: { halign: 'center', fontStyle: 'bold', fontSize: 9, cellWidth: 58 }
     }
   });
 

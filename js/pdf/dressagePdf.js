@@ -2,6 +2,7 @@
 // Ansvar: skapa dressyr-PDF för ett ekipage (identisk layout/beräkning som tidigare)
 
 import { getDressageResultsForEquipage } from '../services/dressageService.js';
+import { getConfig } from '../services/competitionService.js';
 import { ensureClubLogosLoaded, getClubLogoUrl } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import {
@@ -47,6 +48,105 @@ function firstFinite(...values) {
     if (Number.isFinite(number)) return number;
   }
   return null;
+}
+
+function normalizeJudgeId(id) {
+  return String(id || '').replace(/^judge_/i, '').trim();
+}
+
+function normalizeJudgeMapping(rawMapping = {}) {
+  const mapping = rawMapping?.value || rawMapping?.mapping || rawMapping || {};
+  return mapping && typeof mapping === 'object' ? mapping : {};
+}
+
+function normalizeJudgePosition(position) {
+  return String(position || '').trim().toUpperCase();
+}
+
+function getRowClassAliases(row = {}) {
+  return [
+    row.className,
+    row.originalClassName,
+    row._mergedLabel,
+    row._displayClass,
+    row.displayClass,
+    row.results?.displayClass
+  ].filter(Boolean).map(String);
+}
+
+function getRowDisplayClass(row = {}) {
+  return row._mergedLabel || row.displayClass || row._displayClass || row.className || row.originalClassName || '';
+}
+
+function collectDressageJudges(equipages = [], judgesList = []) {
+  const byKey = new Map();
+  const addJudge = (judge = {}) => {
+    const id = normalizeJudgeId(judge.id || judge.judgeId);
+    const position = normalizeJudgePosition(judge.position || judge.judgePosition);
+    if (!id && !position) return;
+    const key = `${position || '?'}:${id || judge.name || '?'}`;
+    const existing = byKey.get(key) || {};
+    byKey.set(key, {
+      ...existing,
+      ...judge,
+      id: id || existing.id || '',
+      position: position || existing.position || '',
+      name: judge.name || judge.judgeName || existing.name || id || position || ''
+    });
+  };
+
+  (Array.isArray(judgesList) ? judgesList : []).forEach(addJudge);
+  (equipages || []).forEach(eq => {
+    Object.values(eq.judges || eq.dressage?.judges || eq.results?.dressage?.judges || {}).forEach(addJudge);
+  });
+
+  const order = { C: 0, E: 1, B: 2, H: 3, M: 4, R: 5, S: 6, V: 7, P: 8 };
+  return Array.from(byKey.values()).sort((a, b) => {
+    const oa = order[normalizeJudgePosition(a.position)] ?? 99;
+    const ob = order[normalizeJudgePosition(b.position)] ?? 99;
+    if (oa !== ob) return oa - ob;
+    return String(a.name || '').localeCompare(String(b.name || ''), 'sv');
+  });
+}
+
+function buildDressageJudgeSummary({ equipages = [], judges = [], judgeMapping = {} } = {}) {
+  const mapping = normalizeJudgeMapping(judgeMapping);
+  const classLookup = new Map();
+  (equipages || []).forEach(row => {
+    const displayClass = getRowDisplayClass(row);
+    getRowClassAliases(row).forEach(alias => {
+      if (!classLookup.has(alias)) classLookup.set(alias, displayClass || alias);
+    });
+  });
+
+  const classesForJudge = new Map();
+  Object.entries(mapping).forEach(([className, positions]) => {
+    if (!positions || typeof positions !== 'object') return;
+    const displayClass = classLookup.get(className);
+    if (!displayClass) return;
+    Object.entries(positions).forEach(([position, judgeId]) => {
+      const normalizedPosition = normalizeJudgePosition(position);
+      const normalizedJudgeId = normalizeJudgeId(judgeId);
+      if (!normalizedPosition || !normalizedJudgeId) return;
+      const key = `${normalizedPosition}:${normalizedJudgeId}`;
+      if (!classesForJudge.has(key)) classesForJudge.set(key, new Set());
+      classesForJudge.get(key).add(displayClass);
+    });
+  });
+
+  const byPosition = new Map();
+  judges.forEach(judge => {
+    const position = normalizeJudgePosition(judge.position);
+    if (!position) return;
+    const key = `${position}:${normalizeJudgeId(judge.id || judge.judgeId)}`;
+    const classLabels = Array.from(classesForJudge.get(key) || []).sort((a, b) => a.localeCompare(b, 'sv', { numeric: true }));
+    const name = judge.name || judge.judgeName || judge.id || position;
+    const label = classLabels.length ? `${name} (${classLabels.join(', ')})` : name;
+    if (!byPosition.has(position)) byPosition.set(position, []);
+    if (!byPosition.get(position).includes(label)) byPosition.get(position).push(label);
+  });
+
+  return Array.from(byPosition.entries()).map(([position, labels]) => `${position}: ${labels.join(', ')}`).join('   ');
 }
 
 // === Publik API ===
@@ -414,64 +514,27 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40);
   const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
 
-  // 4. Judges List
-  // Clean judges list
-  const allJudges = Array.isArray(judgesList) ? judgesList : [];
-  // Sort C, E, B, H, M (standard order if possible, or just as passed)
-  const order = { C: 0, E: 1, B: 2, H: 3, M: 4 };
-  allJudges.sort((a, b) => (order[a.position] ?? 99) - (order[b.position] ?? 99));
-
-  // Deduplicate positions for the columns
-  const activePositions = [...new Set(allJudges.map(j => (j.position || '').toUpperCase()).filter(p => p))];
+  const allJudges = collectDressageJudges(printableEquipages, judgesList);
+  const activePositions = [...new Set(allJudges.map(j => normalizeJudgePosition(j.position)).filter(Boolean))];
 
   y += 30;
   doc.setFontSize(9);
   doc.setFont(undefined, 'normal');
 
-  // Find which classes are actually in this PDF
-  const uniqueClassesInPDF = [...new Set(printableEquipages.map(e => e._mergedLabel || e.className).filter(Boolean))];
-
-  // Group names by position for the header text
-  const judgesByPos = {};
-  allJudges.forEach(j => {
-    const pos = (j.position || '').toUpperCase();
-    if (!pos) return;
-    if (!judgesByPos[pos]) judgesByPos[pos] = new Map();
-
-    let classesForJudge = [];
-    const cleanJid = String(j.id || '').replace(/^judge_/i, '');
-
-    if (window.dressageJudgeMapping) {
-      for (const [cls, mapping] of Object.entries(window.dressageJudgeMapping)) {
-        for (const [mPos, mJid] of Object.entries(mapping)) {
-          const cleanMapJid = String(mJid || '').replace(/^judge_/i, '');
-          if (cleanMapJid === cleanJid && String(mPos).toUpperCase() === pos) {
-            classesForJudge.push(cls);
-          }
-        }
-      }
+  let localJudgeMapping = window.dressageJudgeMapping;
+  if (!localJudgeMapping && competition?.id) {
+    try {
+      localJudgeMapping = await getConfig(competition.id, 'dressageJudgeMapping') || {};
+    } catch(e) {
+      localJudgeMapping = {};
     }
+  }
 
-    // Only keep classes that are actively being printed in this document
-    classesForJudge = classesForJudge.filter(c => uniqueClassesInPDF.includes(c));
-
-    let nameStr = j.name;
-    // Only append class names if we are printing an aggregated list (more than 1 class)
-    if (classesForJudge.length > 0 && uniqueClassesInPDF.length > 1) {
-      nameStr += ` (${classesForJudge.join(', ')})`;
-    }
-
-    if (j.name) judgesByPos[pos].set(j.name, nameStr);
+  const judgesStr = buildDressageJudgeSummary({
+    equipages: printableEquipages,
+    judges: allJudges,
+    judgeMapping: localJudgeMapping
   });
-
-  const judgesStrParts = [];
-  activePositions.forEach(pos => {
-    if (judgesByPos[pos]) {
-      const names = Array.from(judgesByPos[pos].values()).join(', ');
-      if (names) judgesStrParts.push(`${pos}: ${names}`);
-    }
-  });
-  const judgesStr = judgesStrParts.join('   ');
 
   if (judgesStr) {
     const textLines = doc.splitTextToSize(`Domare: ${judgesStr}`, pageWidth - 80); // Margin 40 on each side
@@ -550,11 +613,33 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   colIdx++;
   colStyles[colIdx] = { cellWidth: 45, halign: 'center', fontStyle: 'bold' }; // Straff
 
-  const body = printableEquipages.map(eq => {
+  const classLabelsInBody = [...new Set(printableEquipages.map(eq => getRowDisplayClass(eq)).filter(Boolean))];
+  const includeClassSeparators = classLabelsInBody.length > 1;
+  const bodyEquipages = [];
+  const body = [];
+  let lastBodyClassLabel = null;
+
+  printableEquipages.forEach(eq => {
     const penalty = Number.isFinite(eq.finalPenalty) ? eq.finalPenalty : eq.results?.dressage?.totalPenalty;
     const percent = Number.isFinite(eq.avgPercent) ? eq.avgPercent : eq.results?.dressage?.percent;
     const isElim = eq.eliminated || eq.results?.dressage?.eliminated;
     const errorPoints = (eq.errorPoints != null) ? eq.errorPoints : (eq.results?.dressage?.errorPoints || 0);
+    const classLabel = getRowDisplayClass(eq);
+
+    if (includeClassSeparators && classLabel !== lastBodyClassLabel) {
+      body.push([{
+        content: `Klass: ${classLabel || 'Okänd klass'}`,
+        colSpan: headerRow.length,
+        styles: {
+          fillColor: [238, 238, 238],
+          textColor: 20,
+          fontStyle: 'bold',
+          halign: 'left'
+        }
+      }]);
+      bodyEquipages.push(null);
+      lastBodyClassLabel = classLabel;
+    }
 
     // Format Start Time (HH:MM)
     let startStr = '';
@@ -578,7 +663,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
 
     // Per Judge Scores
     activePositions.forEach(pos => {
-      const jRecords = Object.values(eq.judges || {});
+      const jRecords = Object.values(eq.judges || eq.dressage?.judges || eq.results?.dressage?.judges || {});
       // Note: judges might not have their position explicitly defined in eq.judges, but typically it is.
       // E.g. j.position, or expandDressagePosition(j). Since expandDressagePosition is not imported here,
       // we can match based on it explicitly if 'position' is missing but usually it is injected by now.
@@ -605,7 +690,8 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
       empty: ''
     }));
 
-    return row;
+    body.push(row);
+    bodyEquipages.push(eq);
   });
 
   doc.autoTable({
@@ -619,7 +705,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     margin: { left: 40, right: 40 },
     didDrawCell: (data) => {
       if (data.section === 'body' && data.column.index === 4) {
-        const eq = printableEquipages[data.row.index];
+        const eq = bodyEquipages[data.row.index];
         if (!eq) return;
 
         const flagUrl = assetMap.get(`flag_${normalizeCountryCode(eq.country || 'se')}`);

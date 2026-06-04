@@ -13,6 +13,16 @@ export function formatObstacleSeconds(seconds) {
   return value.toFixed(2).replace('.', ',');
 }
 
+export function formatObstacleClock(seconds) {
+  const value = Number(seconds);
+  if (!Number.isFinite(value)) return '\u2014';
+  const totalMs = Math.max(0, Math.round(value * 1000));
+  const mm = String(Math.floor(totalMs / 60000)).padStart(2, '0');
+  const ss = String(Math.floor((totalMs % 60000) / 1000)).padStart(2, '0');
+  const cs = String(Math.floor((totalMs % 1000) / 10)).padStart(2, '0');
+  return `${mm}:${ss},${cs}`;
+}
+
 export function formatStartTimeLabel(val) {
   if (!val) return '\u2014';
   if (typeof val === 'string' && /^\d{2}:\d{2}$/.test(val)) return val;

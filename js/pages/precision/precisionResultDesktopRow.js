@@ -18,6 +18,10 @@ export function renderPrecisionResultDesktopRow({
   const sn = String(data.eq.startNumber);
   const isStruken = data.eq.status === 'struken';
   const isActive = data.status && data.status.includes('Påg');
+  const timeMs = Number(data.d?.timeMs);
+  const timeTitle = Number.isFinite(timeMs)
+    ? `${data.display.timeLabel} (${(timeMs / 1000).toFixed(2)} s)`
+    : data.display.timeLabel;
 
   let rowBgClass;
   if (isStruken) {
@@ -51,7 +55,7 @@ export function renderPrecisionResultDesktopRow({
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${startTime}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${allowanceDisplay}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 time-cell align-top" data-sn="${sn}">
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 time-cell align-top" data-sn="${sn}" title="${timeTitle}">
                     <span class="tabular-nums ${timeAlertCls} text-[11px] lg:text-sm whitespace-nowrap">${data.d?.running === true ? '••:••,••' : data.display.timeLabel}</span>
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">${data.display.knocksSimple}</td>

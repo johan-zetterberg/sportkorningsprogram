@@ -29,9 +29,12 @@ let equipageSearchDropdownMar = null;
 let marathonConfigCache = null;     // för att veta hur många portar klassen har
 let unsubObstacles = null;   // återkallare för lyssnaren
 let boundHandlers = {};      // samlar på oss event-handlers att kunna ta bort
+let unsubGlobalPause = null;
 let obstacleList = []; // Sparar listan med hinderkonfiguration
 let marathonStateDocsMap = new Map();
 let currentStartTimesData = null;
+let isGloballyPaused = false;
+let globalPauseStartTime = 0;
 
 // ---- LIVE state (återanvänder precisionens modell) ----
 let currentEquipage = null;
@@ -45,8 +48,58 @@ let currentObstacleNumber = null; // vilken hinderpost vi mäter live på just n
 let extraPenaltyLive = 0;         // frivillig snabb-”annat” under pågående mätning
 
 // ---- Tidshjälpare (kopierat från precision) ----
+let pendingLiveComment = null;
+let liveCommentSaveTimer = null;
+
+const LIVE_COMMENT_SAVE_DEBOUNCE_MS = 500;
+
+function clearLiveCommentSaveTimer() {
+  if (liveCommentSaveTimer) {
+    clearTimeout(liveCommentSaveTimer);
+    liveCommentSaveTimer = null;
+  }
+}
+
+function cancelPendingLiveCommentSave() {
+  clearLiveCommentSaveTimer();
+  pendingLiveComment = null;
+}
+
+async function flushPendingLiveComment() {
+  clearLiveCommentSaveTimer();
+  if (pendingLiveComment == null) return;
+
+  const valueToSave = pendingLiveComment;
+  pendingLiveComment = null;
+
+  if (!currentEquipage || currentObstacleNumber == null) return;
+  if ((currentLiveState?.live_comment || '') === valueToSave) return;
+
+  await pushLiveSafe({ live_comment: valueToSave });
+}
+
+function scheduleLiveCommentSave(value) {
+  pendingLiveComment = value;
+  clearLiveCommentSaveTimer();
+  liveCommentSaveTimer = setTimeout(() => {
+    flushPendingLiveComment().catch((error) => {
+      console.error('Kunde inte spara hinderkommentar live:', error);
+    });
+  }, LIVE_COMMENT_SAVE_DEBOUNCE_MS);
+}
+
 const pad2 = (n) => String(n).padStart(2, '0');
 const nowMs = () => Date.now();
+function timestampToMs(value) {
+  if (!value) return 0;
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value === 'string' || value instanceof Date) {
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : 0;
+  }
+  const ms = Number(value);
+  return Number.isFinite(ms) ? ms : 0;
+}
 function msToParts(ms) {
   const t = Math.max(0, Math.floor(ms || 0));
   const m = Math.floor(t / 60000);
@@ -74,8 +127,9 @@ function getElapsedMsFromState(state) {
   const accumulated = state.liveObstacleTimeMs || 0;
   if (state.running && state.liveObstacleStartAt) {
     // Klockan går: ackumulerad tid + tid sedan senaste start
-    const startTime = state.liveObstacleStartAt.toMillis();
-    const elapsedSinceStart = Date.now() - startTime;
+    const startTime = timestampToMs(state.liveObstacleStartAt);
+    const tickNow = isGloballyPaused && globalPauseStartTime > 0 ? globalPauseStartTime : Date.now();
+    const elapsedSinceStart = Math.max(0, tickNow - startTime);
     return accumulated + elapsedSinceStart;
   }
   // Klockan är pausad: visa bara ackumulerad tid
@@ -122,30 +176,89 @@ function digitsToMs(d) {
 }
 
 // NY FUNKTION FÖR ATT HANTERA GLOBAL PAUS
+function syncGlobalPauseUiState() {
+  const lockTiming = isGloballyPaused === true;
+  [
+    'btnStartMar',
+    'btnStopMar',
+    'btnResetMar',
+    'btnManualApplyMar',
+    'maratonObstacleSelect',
+    'routeUndo',
+    'routeClear',
+    'maratonKnockdowns',
+    'maratonPenalty',
+    'maratonHoldTime',
+    'maratonEliminated',
+    'maratonComment'
+  ].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.disabled = lockTiming;
+    el.classList.toggle('opacity-50', lockTiming);
+    el.classList.toggle('cursor-not-allowed', lockTiming);
+  });
+
+  const timerEl = document.getElementById('liveTimerMar');
+  if (timerEl) {
+    timerEl.classList.toggle('pointer-events-none', lockTiming);
+    timerEl.classList.toggle('opacity-70', lockTiming);
+    timerEl.title = lockTiming ? 'Global paus aktiv' : 'Ändra tid';
+  }
+
+  const saveBtn = document.querySelector('#addMaratonResultForm button[type="submit"]');
+  if (saveBtn) {
+    saveBtn.disabled = lockTiming;
+    saveBtn.classList.toggle('opacity-50', lockTiming);
+    saveBtn.classList.toggle('cursor-not-allowed', lockTiming);
+  }
+
+  const routeButtons = document.getElementById('routeButtons');
+  if (routeButtons) {
+    routeButtons.classList.toggle('pointer-events-none', lockTiming);
+    routeButtons.classList.toggle('opacity-60', lockTiming);
+  }
+}
+
 function listenForGlobalCompetitionPause_Obstacles() {
   if (!competitionId || !appId) return;
   const statusRef = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus');
   let lastPauseState = false;
-  let pauseStartTime = 0;
-
   return onSnapshot(statusRef, (docSnap) => {
-    const isPaused = docSnap.exists() && docSnap.data().isPaused === true;
+    const data = docSnap.exists() ? (docSnap.data() || {}) : {};
+    const isPaused = data.isPaused === true;
+    const pauseLog = Array.isArray(data.pauseLog) ? data.pauseLog : [];
+    const openPause = pauseLog.find(p => p && p.end == null);
+
+    isGloballyPaused = isPaused;
+    globalPauseStartTime = isPaused
+      ? (openPause?.start ? new Date(openPause.start).getTime() : Date.now())
+      : 0;
+    syncGlobalPauseUiState();
 
     if (isPaused && !lastPauseState) {
       // TÄVLINGEN PAUSAS NU
 
       if (timerInterval) clearInterval(timerInterval);
       timerInterval = null;
-      pauseStartTime = Date.now();
 
       // Pausa den pågående mätningen i Firestore
       if (currentLiveState.running) {
         const pausedTime = getElapsedMsFromState(currentLiveState);
+        currentLiveState = {
+          ...currentLiveState,
+          running: false,
+          liveObstacleTimeMs: pausedTime,
+          liveObstacleStartAt: null
+        };
+        updateTimerViewMar();
         pushLiveSafe({
           running: false, // Markera som pausad
           liveObstacleTimeMs: pausedTime, // Spara ackumulerad tid
           liveObstacleStartAt: null
         });
+      } else {
+        updateTimerViewMar();
       }
       document.body.style.filter = 'grayscale(80%)';
 
@@ -256,6 +369,7 @@ function applyLiveStateToUI(data) {
 
   if (!data || !currentEquipage) {
     // Om inget ekipage är valt eller data är tom, återställ allt
+    cancelPendingLiveCommentSave();
     currentLiveState = {};
     if (timerInterval) clearInterval(timerInterval);
     document.getElementById('maratonObstacleSelect').value = '';
@@ -310,7 +424,7 @@ function applyLiveStateToUI(data) {
 
   // 2. Synka Timern (NU ROBUST)
   if (timerInterval) clearInterval(timerInterval);
-  if (data.running) {
+  if (data.running && !isGloballyPaused) {
     // Starta en lokal renderingsloop BARA för att uppdatera texten på skärmen
     timerInterval = setInterval(updateTimerViewMar, 90);
   }
@@ -321,7 +435,9 @@ function applyLiveStateToUI(data) {
   document.getElementById('maratonKnockdowns').value = String(effective.live_knockdowns ?? '0');
   document.getElementById('maratonPenalty').value = String(effective.live_otherPenalty ?? '0');
   document.getElementById('maratonHoldTime').value = String(effective.live_holdTimeSec ?? '');
-  if (commentInput) commentInput.value = effective.live_comment || '';
+  if (commentInput && document.activeElement !== commentInput && pendingLiveComment == null) {
+    commentInput.value = effective.live_comment || '';
+  }
   if (commentBtn) commentBtn.classList.toggle('has-comment', !!(effective.live_comment || ''));
   document.getElementById('maratonEliminated').checked = !!effective.live_eliminated;
 
@@ -553,6 +669,10 @@ function updateTotalPenaltyDisplay() {
 }
 
 function startTimerMar() {
+  if (isGloballyPaused) {
+    showAlert('Tävlingen är globalt pausad. Hindertimern kan inte startas förrän pausen är hävd.', false);
+    return;
+  }
   if (!currentEquipage || !currentObstacleNumber) {
     showAlert(t('marathon_select_equipage_and_obstacle'), false);
     return;
@@ -594,6 +714,10 @@ function startTimerMar() {
 }
 
 function stopTimerMar() {
+  if (isGloballyPaused) {
+    showAlert('Tävlingen är globalt pausad. Hindertimern är låst tills tävlingen återupptas.', false);
+    return;
+  }
   if (!currentEquipage || !currentLiveState.running) return;
 
   // 1. Beräkna den slutgiltiga tiden *lokalt*
@@ -625,10 +749,15 @@ function stopTimerMar() {
 }
 
 function resetTimerMar(force = false) {
+  if (isGloballyPaused) {
+    showAlert('Tävlingen är globalt pausad. Nollställning är låst tills tävlingen återupptas.', false);
+    return;
+  }
   if (!currentEquipage) return;
   if (force || confirm(t('marathon_confirm_reset'))) {
 
     // 1. Definiera exakt vad som ska skickas till servern för nollställning
+    cancelPendingLiveCommentSave();
     const serverUpdatePayload = {
       running: false,
       inProgress: false,
@@ -670,6 +799,7 @@ function pushFormField(fieldName, value) {
 }
 
 async function onMarathonEquipageSelected(equipage) {
+  await flushPendingLiveComment();
   currentEquipage = equipage || null;
 
   // Stäng gammal lyssnare
@@ -731,6 +861,7 @@ async function autoSelectRunningDriverMar(obstacleNo) {
  * Hanterar byte av hinder (från dropdown).
  */
 async function handleObstacleChange() {
+  await flushPendingLiveComment();
   const newVal = this.value;
   // 1. Spara valet lokalt
   if (newVal) {
@@ -1027,6 +1158,11 @@ function renderRoutePreview() {
  */
 async function saveResult(e) {
   e.preventDefault();
+  if (isGloballyPaused) {
+    showAlert('Tävlingen är globalt pausad. Spara hinderresultat när pausen är hävd eller efter manuell hantering.', false);
+    return;
+  }
+  await flushPendingLiveComment();
   const equipageId = equipageSearchDropdownMar.getValue();
   const obstacleNumber = document.getElementById('maratonObstacleSelect').value;
   if (!equipageId || !obstacleNumber) {
@@ -1190,9 +1326,17 @@ async function setupPage() {
     } else if (target.id === 'maratonComment') {
       const btn = document.querySelector('.comment-toggle-btn');
       if (btn) btn.classList.toggle('has-comment', target.value.trim() !== '');
-      pushFormField('live_comment', target.value);
+      scheduleLiveCommentSave(target.value);
     } else if (target.id === 'maratonEliminated') {
       pushFormField('live_eliminated', target.checked);
+    }
+  };
+
+  boundHandlers.commentBlurHandler = (e) => {
+    if (e.target?.id === 'maratonComment') {
+      flushPendingLiveComment().catch((error) => {
+        console.error('Kunde inte spara hinderkommentar live:', error);
+      });
     }
   };
 
@@ -1210,6 +1354,11 @@ async function setupPage() {
   };
 
   unsubObstacles = listenForMarathonObstacles(competitionId, populateObstacleSelector);
+  if (typeof unsubGlobalPause === 'function') {
+    try { unsubGlobalPause(); } catch { }
+  }
+  unsubGlobalPause = listenForGlobalCompetitionPause_Obstacles();
+  syncGlobalPauseUiState();
 
   // Koppla alla knappar och event
 
@@ -1238,6 +1387,7 @@ async function setupPage() {
     form.addEventListener('submit', boundHandlers.submitHandler);
     form.addEventListener('input', boundHandlers.formInputHandler);
     form.addEventListener('click', boundHandlers.formClickHandler); // För kommentarsknappen
+    form.addEventListener('focusout', boundHandlers.commentBlurHandler);
   }
 
   document.getElementById('maratonObstacleSelect')?.addEventListener('change', boundHandlers.obstacleChange);
@@ -1305,6 +1455,10 @@ function navigateEquipage(delta) {
 
 // Hanterar när man matar in tid manuellt
 function applyManualTime() {
+  if (isGloballyPaused) {
+    showAlert('Tävlingen är globalt pausad. Manuell hindertid kan inte ändras förrän pausen är hävd.', false);
+    return;
+  }
   const digits = (document.getElementById('manualTimeDigitsMar')?.value || '');
   pausedMs = digitsToMs(digits);
   isRunning = false;
@@ -1664,6 +1818,10 @@ export function __unload() {
       try { unsubObstacles(); } catch { }
       unsubObstacles = null;
     }
+    if (typeof unsubGlobalPause === 'function') {
+      try { unsubGlobalPause(); } catch { }
+      unsubGlobalPause = null;
+    }
     if (unsubMaratonDoc) {
       try { unsubMaratonDoc(); } catch { }
       unsubMaratonDoc = null;
@@ -1688,6 +1846,7 @@ export function __unload() {
       if (boundHandlers.submitHandler) form.removeEventListener('submit', boundHandlers.submitHandler);
       if (boundHandlers.formInputHandler) form.removeEventListener('input', boundHandlers.formInputHandler);
       if (boundHandlers.formClickHandler) form.removeEventListener('click', boundHandlers.formClickHandler);
+      if (boundHandlers.commentBlurHandler) form.removeEventListener('focusout', boundHandlers.commentBlurHandler);
     }
 
     rm('maratonObstacleSelect', 'change', boundHandlers.obstacleChange);
@@ -1708,6 +1867,7 @@ export function __unload() {
       try { equipageSearchDropdownMar.destroy(); } catch { }
     }
     equipageSearchDropdownMar = null;
+    cancelPendingLiveCommentSave();
 
     boundHandlers = {};
   } catch (e) {

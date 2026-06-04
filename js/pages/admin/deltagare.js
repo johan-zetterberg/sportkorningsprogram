@@ -90,7 +90,7 @@ async function ensureUserRoleLoaded() {
     const snap = await getDoc(doc(db, 'users', user.uid));
     const role = (snap.exists() ? (snap.data()?.role || '') : '').toLowerCase();
     // uppdatera global state så alla sidor får tillgång till rollen
-    setGlobalState('currentUser', { ...user, role });
+    setGlobalState({ key: 'currentUser', value: { ...user, role } });
     return role;
   } catch (e) {
     console.warn('Kunde inte läsa users/{uid}.role:', e);
