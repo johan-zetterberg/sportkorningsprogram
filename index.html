@@ -152,7 +152,7 @@
                 class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
                 data-role-required="publik,funktionar,domare,admin" data-i18n="menu_participants">Deltagare ▼</button>
               <div
-                class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
+                class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#deltagare"
                   class="nav-link block px-4 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                   data-role-required="publik,funktionar,domare,admin"
@@ -160,9 +160,6 @@
                 <a href="#hastar"
                   class="nav-link block px-4 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_horse_list">Hästlista</a>
-                <a href="#reports"
-                  class="nav-link block px-4 py-2 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700"
-                  data-role-required="funktionar,domare,admin" data-i18n="menu_reports">Rapportcenter</a>
               </div>
             </div>
 
@@ -173,7 +170,7 @@
               <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
                 data-role-required="publik,funktionar,domare,admin" data-i18n="menu_dressage">Dressyr ▼</button>
               <div
-                class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
+                class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#dressyr-monitor" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
                 <a href="#dressyr-input" class="nav-link block px-4 py-2" data-role-required="dressage,domare,admin"
@@ -223,26 +220,47 @@
               <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
                 data-role-required="funktionar,domare,admin" data-i18n="menu_admin">Admin ▼</button>
               <div
-                class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
+                class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#official" class="nav-link block px-4 py-2 font-bold text-blue-600 dark:text-blue-400"
                   data-role-required="funktionar,domare,admin">Funktionärsportal</a>
+                <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-4 p-2 xl:p-4">
+                  <div>
+                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Portal &amp; Drift</div>
                 <a href="#admin" class="nav-link block px-4 py-2" data-role-required="admin"
                   data-i18n="menu_admin_dashboard">Admin Dashboard</a>
+                <a href="#reports" class="nav-link block px-4 py-2" data-role-required="funktionar,domare,admin"
+                  data-i18n="menu_reports">Rapportcenter</a>
+                  </div>
+                  <div>
+                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Administration</div>
                 <a href="#ekipage" class="nav-link block px-4 py-2" data-role-required="admin"
                   data-i18n="menu_manage_equipage">Hantera Ekipage</a>
                 <a href="#vet-check" class="nav-link block px-4 py-2"
                   data-role-required="admin,funktionar">Veterinär</a>
                 <a href="#vagnbredd" class="nav-link block px-4 py-2"
                   data-role-required="funktionar,domare,admin">Mätning Vagnbredd</a>
+                  </div>
+                  <div>
+                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Grenadmin</div>
                 <a href="#dressyr-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin Dressyr</a>
                 <a href="#maraton-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin Maraton</a>
                 <a href="#precision-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin
                   Precision</a>
+                  </div>
+                  <div>
+                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Sekretariat</div>
+                <a href="#sekretariat-precision" class="nav-link block px-4 py-2" data-role-required="admin,precision">Sekretariat Precision</a>
+                <a href="#sekretariat-maraton" class="nav-link block px-4 py-2" data-role-required="admin,marathon">Sekretariat Maraton</a>
+                <a href="#sekretariat-dressyr" class="nav-link block px-4 py-2" data-role-required="admin,dressage">Sekretariat Dressyr</a>
+                  </div>
+                  <div>
+                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Ceremoni</div>
                 <a href="#speaker" class="nav-link block px-4 py-2" data-role-required="speaker,domare,admin">Speaker
                   Dashboard</a>
                 <a href="#prize-giving" class="nav-link block px-4 py-2"
                   data-role-required="funktionar,domare,admin,speaker">Prisutdelning 🏆</a>
-
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -298,6 +316,9 @@
     <div id="page-precision-results" class="page"></div>
     <div id="page-maraton-admin" class="page"></div>
     <div id="page-precision-admin" class="page"></div>
+    <div id="page-sekretariat-precision" class="page"></div>
+    <div id="page-sekretariat-maraton" class="page"></div>
+    <div id="page-sekretariat-dressyr" class="page"></div>
     <div id="page-total-resultat" class="page"></div>
     <div id="page-maraton-monitor" class="page"></div>
     <div id="page-precision-monitor" class="page"></div>
