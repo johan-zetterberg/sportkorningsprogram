@@ -144,8 +144,8 @@ export function ensureMarathonResultShell({
 
   const t = translate;
   root.innerHTML = `
-        <div id="${shellId}" class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
-          <div class="mb-8">
+        <div id="${shellId}" class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-8 md:py-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
+          <div class="competition-page-header-shell mb-4 md:mb-8">
              ${getCompetitionHeader(currentCompetition, t('marathon_results_title'))}
              <h3 id="maratonDateHeader" class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center"></h3>
           </div>

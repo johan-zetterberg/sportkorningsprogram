@@ -2393,9 +2393,8 @@ export async function load() {
 
         pageEl.innerHTML = `
     <div class="max-w-8xl mx-auto px-2 sm:px-6 lg:px-8 py-3 md:py-6 min-h-screen dark:bg-gray-900 transition-colors duration-500">
-      <div class="mb-2 md:mb-8">
+      <div class="competition-page-header-shell mb-2 md:mb-8">
                 ${getCompetitionHeader(competition, t('dressage') + ' – ' + t('start_list_and_results'))}
-        ${dressageDateStr ? `<h3 class="text-xs md:text-lg text-gray-500 dark:text-gray-400 mt-0.5 md:mt-1 font-medium text-center">${dressageDateStr}</h3>` : ''}
       </div>
       <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap gap-2 md:gap-3 items-center justify-start transition-colors" id="modeToggle">
         

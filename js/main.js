@@ -155,6 +155,7 @@ export function setGlobalState({ key, value }) {
             compNameEl.textContent = 'Ingen tävling vald';
             if (infoBtn) infoBtn.style.display = 'none'; // Hide button
         }
+        updateCompactPageContext();
     }
 
     // --- NYTT: Hämta tävlingsspecifik roll om tävling eller användare ändras ---
@@ -206,6 +207,26 @@ function getRequestedCompetitionIdFromUrl() {
         return null;
     }
 }
+
+function updateCompactPageContext() {
+    const compEl = document.getElementById('mobile-page-context-comp');
+    const titleEl = document.getElementById('mobile-page-context-title');
+    if (!compEl || !titleEl) return;
+
+    const activePage = document.querySelector('.page.active');
+    const header = activePage?.querySelector('.competition-page-header');
+    const currentComp = globalState.currentCompetition;
+
+    const competitionName = header?.dataset.competitionName
+        || currentComp?.name
+        || '';
+    const pageTitle = header?.dataset.pageTitle
+        || '';
+
+    compEl.textContent = competitionName;
+    titleEl.textContent = pageTitle;
+}
+
 function initialize() {
     initLanguageToggle();
     initTheme();
@@ -220,6 +241,13 @@ function initialize() {
             detailsModal.style.display = 'none';
         }
     });
+
+    window.updateCompactPageContext = updateCompactPageContext;
+    const mainEl = document.querySelector('main');
+    if (mainEl) {
+        const observer = new MutationObserver(() => updateCompactPageContext());
+        observer.observe(mainEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-competition-name', 'data-page-title'] });
+    }
 
     // 🆕 Offline/Online-badge i nav
     (function wireNetworkBadge() {

@@ -21,6 +21,7 @@ export function renderToolbar(options = {}) {
     classValue = 'all',
     classOptions = [],
   } = options;
+  const mobileExpanded = statusValue !== 'all' || classValue !== 'all';
 
   const classOptionsHtml = [
     '<option value="all">Alla klasser</option>',
@@ -40,6 +41,17 @@ export function renderToolbar(options = {}) {
             class="w-full rounded-md border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
           >
         </label>
+        <div class="flex items-end md:hidden">
+          <button
+            id="secretariatFilterToggle"
+            type="button"
+            aria-expanded="${mobileExpanded ? 'true' : 'false'}"
+            class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700"
+          >
+            Filter
+          </button>
+        </div>
+        <div id="secretariatFilterPanel" class="${mobileExpanded ? '' : 'hidden '}grid gap-3 md:contents">
         <label class="block">
           <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Status</span>
           <select
@@ -62,9 +74,52 @@ export function renderToolbar(options = {}) {
             ${classOptionsHtml}
           </select>
         </label>
+        </div>
+      </div>
+      <div class="mt-2 md:hidden text-xs text-gray-500 dark:text-gray-400">
+        Aktiva filter: <span id="secretariatFilterSummary"></span>
       </div>
     </section>
   `;
+}
+
+export function initializeToolbarInteractions(rootEl) {
+  if (!rootEl) return;
+
+  const toggleBtn = rootEl.querySelector('#secretariatFilterToggle');
+  const panel = rootEl.querySelector('#secretariatFilterPanel');
+  const statusSelect = rootEl.querySelector('#secretariatStatusFilter');
+  const classSelect = rootEl.querySelector('#secretariatClassFilter');
+  const summaryEl = rootEl.querySelector('#secretariatFilterSummary');
+  if (!panel || !summaryEl) return;
+
+  const updateSummary = () => {
+    const parts = [];
+    if (statusSelect && statusSelect.value !== 'all') {
+      parts.push(statusSelect.options[statusSelect.selectedIndex]?.text || 'Status');
+    }
+    if (classSelect && classSelect.value !== 'all') {
+      parts.push(classSelect.options[classSelect.selectedIndex]?.text || 'Klass');
+    }
+    summaryEl.textContent = parts.length > 0 ? parts.join(' • ') : 'Alla';
+  };
+
+  const updateExpandedState = () => {
+    if (toggleBtn) {
+      toggleBtn.setAttribute('aria-expanded', panel.classList.contains('hidden') ? 'false' : 'true');
+    }
+  };
+
+  toggleBtn?.addEventListener('click', () => {
+    panel.classList.toggle('hidden');
+    updateExpandedState();
+  });
+
+  statusSelect?.addEventListener('change', updateSummary);
+  classSelect?.addEventListener('change', updateSummary);
+
+  updateSummary();
+  updateExpandedState();
 }
 
 export function renderStatusBadge(status, finalized) {
@@ -225,8 +280,13 @@ function ensureStickyCloneStyles() {
 function getStickyTopOffset() {
   const nav = document.querySelector('nav.sticky');
   const offlineBanner = document.getElementById('offline-banner');
-  const navHeight = nav ? nav.getBoundingClientRect().height : 0;
-  const bannerHeight = offlineBanner && getComputedStyle(offlineBanner).display !== 'none'
+  const navStyle = nav ? getComputedStyle(nav) : null;
+  const bannerStyle = offlineBanner ? getComputedStyle(offlineBanner) : null;
+  const navHeight = nav && navStyle && (navStyle.position === 'sticky' || navStyle.position === 'fixed')
+    ? nav.getBoundingClientRect().height
+    : 0;
+  const bannerHeight = offlineBanner && bannerStyle && bannerStyle.display !== 'none'
+    && (bannerStyle.position === 'sticky' || bannerStyle.position === 'fixed')
     ? offlineBanner.getBoundingClientRect().height
     : 0;
   return Math.round(navHeight + bannerHeight);

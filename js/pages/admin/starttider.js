@@ -384,19 +384,19 @@ function renderLayout() {
         ${getCompetitionHeader(competition, t('startlist_live_title'))}
         
         <div class="${publicMode ? 'text-[15px]' : ''}">
-          <div class="flex flex-col md:flex-row gap-2 mb-4 justify-between items-center w-full">
+          <div class="flex flex-col gap-3 mb-4 w-full">
              <div id="controlsContainer" class="w-full"></div>
              
              <!-- Public Search & View Filters -->
-             <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto mt-2 lg:mt-0 p-2 lg:p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
-                  <div class="search-input-wrap flex-1 min-w-[200px] relative">
+             <div class="flex flex-nowrap items-center gap-2 w-full p-2 lg:p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
+                  <div class="search-input-wrap flex-1 min-w-0 relative">
                       <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
                       <input id="startlistSearch" type="search" placeholder="${t('search') || 'Sök ekipage...'}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" autocomplete="off">
                   </div>
                       
-                  <select id="publicViewModeSelect" class="border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
-                      <option value="startorder">Startordning</option>
-                      <option value="byclass">Per klass</option>
+                  <select id="publicViewModeSelect" class="flex-shrink-0 border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+                      <option value="startorder"${viewMode === 'startorder' ? ' selected' : ''}>Startordning</option>
+                      <option value="byclass"${viewMode === 'byclass' ? ' selected' : ''}>Per klass</option>
                   </select>
              </div>
           </div>
@@ -444,6 +444,35 @@ function render() {
     } else {
         renderDesktop();
     }
+    syncViewModeControls();
+}
+
+function applyViewMode(nextMode) {
+    viewMode = nextMode === 'byclass' ? 'byclass' : 'startorder';
+    sortConfig = viewMode === 'byclass'
+        ? { key: 'className', direction: 'asc' }
+        : { key: 'startNumber', direction: 'asc' };
+
+    if (viewMode === 'byclass' && document.getElementById('bulkClass')) {
+        const classes = Array.from(new Set(equipages.map(eq => eq._mergedLabel || eq.className).filter(Boolean)))
+            .sort((a, b) => a.localeCompare(b, 'sv'));
+        document.getElementById('bulkClass').value = classes[0] || '';
+    }
+}
+
+function syncViewModeControls() {
+    const publicSelect = document.getElementById('publicViewModeSelect');
+    if (publicSelect && publicSelect.value !== viewMode) {
+        publicSelect.value = viewMode;
+    }
+
+    document.querySelectorAll('[data-mode]').forEach(btn => {
+        const isActive = btn.dataset.mode === viewMode;
+        btn.classList.toggle('bg-gray-100', isActive);
+        btn.classList.toggle('dark:bg-gray-700', isActive);
+        btn.classList.toggle('text-blue-700', isActive);
+        btn.classList.toggle('dark:text-white', isActive);
+    });
 }
 
 function requestListenerRender() {
@@ -967,11 +996,9 @@ function bindAllControls() {
 
     const userRole = currentUserRole;
     controlsContainer.innerHTML = '';
+    const isAdminUser = userRole === 'admin' || userRole === 'superadmin';
 
-    if (userRole !== 'admin') {
-        return;
-    }
-
+    if (isAdminUser) {
     const { classes, html: classOptions } = buildStarttiderClassOptions(equipages, t('all_classes_opt'));
 
     const pubState = getPublishedState(startTimes);
@@ -1087,6 +1114,7 @@ ${renderStarttiderToolbarSection({
     }
 })}
     `;
+    }
 
     document.getElementById('btnSaveTimes')?.addEventListener('click', saveTimes);
     document.getElementById('bulkDressage')?.addEventListener('click', () => doBulkFill('dressage'));
@@ -1111,11 +1139,7 @@ ${renderStarttiderToolbarSection({
     });
 
     document.getElementById('publicViewModeSelect')?.addEventListener('change', (e) => {
-        viewMode = e.target.value;
-        const classes = Array.from(new Set(equipages.map(eq => eq._mergedLabel || eq.className).filter(Boolean))).sort((a,b) => a.localeCompare(b, 'sv'));
-        if (viewMode === 'byclass' && document.getElementById('bulkClass')) {
-            document.getElementById('bulkClass').value = classes[0] || ''; 
-        }
+        applyViewMode(e.target.value);
         render();
     });
     document.getElementById('bulkInterval')?.addEventListener('input', updateNextStartTimes);
@@ -1124,28 +1148,15 @@ ${renderStarttiderToolbarSection({
     document.getElementById('clearPrecision')?.addEventListener('click', () => clearDisciplineTimes('precision'));
 
     // Fix View Mode Buttons (Active State)
-    const updateViewModeButtons = () => {
-        document.querySelectorAll('[data-mode]').forEach(btn => {
-            const isActive = btn.dataset.mode === viewMode;
-            btn.classList.toggle('bg-gray-100', isActive); // Light mode active
-            btn.classList.toggle('dark:bg-gray-700', isActive); // Dark mode active
-            btn.classList.toggle('text-blue-700', isActive);
-            btn.classList.toggle('dark:text-white', isActive);
-        });
-    };
     document.getElementById('viewModeStartOrder')?.addEventListener('click', () => {
-        viewMode = 'startorder';
-        sortConfig = { key: 'startNumber', direction: 'asc' };
-        updateViewModeButtons();
+        applyViewMode('startorder');
         render();
     });
     document.getElementById('viewModeByClass')?.addEventListener('click', () => {
-        viewMode = 'byclass';
-        sortConfig = { key: 'className', direction: 'asc' };
-        updateViewModeButtons();
+        applyViewMode('byclass');
         render();
     });
-    updateViewModeButtons();
+    syncViewModeControls();
 
 
 

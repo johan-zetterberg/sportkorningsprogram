@@ -3,6 +3,44 @@ body {
     font-family: 'Inter', sans-serif;
 }
 
+.app-nav-bar {
+    transition: min-height 0.2s ease, padding 0.2s ease;
+}
+
+.app-mobile-page-context {
+    display: none;
+}
+
+.app-brand-logo {
+    display: none;
+}
+
+.app-brand-wordmark {
+    display: block;
+}
+
+.app-main-nav {
+    isolation: isolate;
+    z-index: 2147482000 !important;
+}
+
+.app-main-nav #nav-links {
+    z-index: 2147483000 !important;
+}
+
+.app-main-nav .dropdown-menu {
+    z-index: 2147483100 !important;
+}
+
+#userInfo {
+    min-width: 0;
+}
+
+#userRole {
+    display: block;
+    min-width: 0;
+}
+
 .page {
     display: none;
 }
@@ -171,4 +209,133 @@ html.dark .clickable-row:hover {
 
 html.dark .sortable-header:hover {
     background-color: #374151;
+}
+
+@media (max-width: 640px) and (orientation: portrait) {
+    #competition-nav-info {
+        display: none !important;
+    }
+
+    .app-nav-bar {
+        min-height: 3.75rem;
+    }
+
+    .app-brand-wordmark {
+        font-size: 0.95rem !important;
+        line-height: 1.1;
+    }
+
+    .app-nav-actions {
+        gap: 0.35rem;
+    }
+
+    .app-nav-divider {
+        margin-left: 0.35rem !important;
+        margin-right: 0.35rem !important;
+    }
+
+    #userInfo {
+        margin-right: 0.25rem !important;
+        max-width: 5.5rem;
+        font-size: 0.8rem !important;
+    }
+
+    #userRole {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .app-nav-auth-btn {
+        padding: 0.35rem 0.55rem !important;
+        font-size: 0.8rem !important;
+        line-height: 1.1;
+        white-space: nowrap;
+    }
+
+    .app-menu-toggle {
+        padding: 0.2rem;
+    }
+}
+
+@media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+    .app-offline-banner,
+    .app-main-nav {
+        position: relative !important;
+        top: auto !important;
+    }
+
+    .app-nav-bar {
+        height: auto !important;
+        min-height: 3.25rem;
+        padding-top: 0.35rem;
+        padding-bottom: 0.35rem;
+    }
+
+    .app-brand-title {
+        font-size: 0.95rem !important;
+        line-height: 1.1;
+    }
+
+    .app-brand-logo {
+        display: block;
+        width: 2rem;
+        height: 2rem;
+        border-radius: 0.4rem;
+    }
+
+    .app-brand-wordmark {
+        display: none !important;
+    }
+
+    #competition-nav-info,
+    #userInfo,
+    #theme-toggle-container,
+    .app-nav-divider,
+    #net-badge {
+        display: none !important;
+    }
+
+    .competition-page-header {
+        display: none !important;
+    }
+
+    .competition-page-header-shell {
+        display: none !important;
+        margin: 0 !important;
+    }
+
+    .competition-page-subline {
+        display: none !important;
+    }
+
+    .app-mobile-page-context {
+        display: block !important;
+        min-width: 0;
+        max-width: min(52vw, 22rem);
+    }
+
+    .app-nav-actions {
+        gap: 0.5rem;
+    }
+
+    .app-nav-auth-btn {
+        padding: 0.35rem 0.55rem !important;
+        font-size: 0.8rem !important;
+    }
+
+    .app-menu-toggle {
+        padding: 0.25rem;
+    }
+
+    #nav-links {
+        top: 3.5rem !important;
+        max-height: calc(100vh - 3.5rem) !important;
+    }
+
+    #nav-links .nav-link,
+    #nav-links .dropdown-toggle {
+        padding-top: 0.55rem !important;
+        padding-bottom: 0.55rem !important;
+    }
 }

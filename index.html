@@ -76,16 +76,17 @@
 
   <!-- Global Offline Banner -->
   <div id="offline-banner"
-    class="hidden bg-yellow-500 text-white text-center py-2 px-4 shadow-md sticky top-0 z-[60] font-bold">
+    class="app-offline-banner hidden bg-yellow-500 text-white text-center py-2 px-4 shadow-md sticky top-0 z-[60] font-bold">
     ⚠️ Du är offline. Ändringar sparas lokalt och synkas när anslutningen återkommer.
   </div>
 
-  <nav class="bg-white shadow-md sticky top-0 z-50 dark:bg-gray-800 dark:border-gray-700">
+  <nav class="app-main-nav bg-white shadow-md sticky top-0 z-50 dark:bg-gray-800 dark:border-gray-700">
     <div class="container mx-auto px-4">
-      <div class="flex items-center justify-between h-16 relative">
-        <div class="flex items-center gap-4">
-          <div>
-            <span class="font-bold text-lg md:text-xl text-brand-lightblue leading-tight block">DriveLive</span>
+      <div class="app-nav-bar flex items-center justify-between h-16 relative">
+        <div class="flex items-center gap-4 min-w-0">
+          <div class="flex items-center">
+            <img src="/icons/DriveLive_512.png" alt="DriveLive" class="app-brand-logo h-10 w-10 rounded-md object-contain">
+            <span class="app-brand-title app-brand-wordmark font-bold text-lg md:text-xl text-brand-lightblue leading-tight block">DriveLive</span>
             <div id="competition-nav-info"
               class="text-xs text-gray-500 leading-tight flex items-center gap-2 dark:text-gray-400"
               style="display: none;">
@@ -100,23 +101,27 @@
               </button>
             </div>
           </div>
+          <div id="mobile-page-context" class="app-mobile-page-context hidden min-w-0">
+            <div id="mobile-page-context-comp" class="truncate text-sm font-semibold text-white"></div>
+            <div id="mobile-page-context-title" class="truncate text-xs text-brand-lightblue dark:text-blue-300"></div>
+          </div>
         </div>
 
-        <div class="flex items-center gap-2">
+        <div class="app-nav-actions flex items-center gap-2">
           <!-- Dark Mode Toggle Container -->
           <div id="theme-toggle-container"></div>
 
-          <div class="h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
+          <div class="app-nav-divider h-6 w-px bg-gray-200 dark:bg-gray-700 mx-2"></div>
 
           <div id="userInfo"
             class="hidden items-center mr-2 text-sm font-semibold capitalize text-blue-700 dark:text-blue-400">
             <span id="userRole"></span>
           </div>
           <button id="loginButton"
-            class="hidden bg-blue-500 hover:bg-brand-darkblue text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga
+            class="app-nav-auth-btn hidden bg-blue-500 hover:bg-brand-darkblue text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga
             in</button>
           <button id="logoutButton"
-            class="hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga
+            class="app-nav-auth-btn hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga
             ut</button>
           <!-- Offline-badge -->
           <span id="net-badge"
@@ -125,7 +130,7 @@
           </span>
 
           <div class="xl:hidden ml-2">
-            <button id="menu-toggle" class="text-gray-600 hover:text-gray-800 focus:outline-none">
+            <button id="menu-toggle" class="app-menu-toggle text-gray-600 hover:text-gray-800 focus:outline-none">
               <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16">

@@ -172,14 +172,17 @@ export async function navigateTo(hash) {
         // gör även globalt (om någon annan vill städa)
         window.__currentPageModule = pageModule;
         pageInitializers[pageId] = true;
+        window.updateCompactPageContext?.();
       }
     } catch (error) {
       console.error(`Kunde inte ladda modulen för sidan '${pageKey}':`, error);
       const pageElement = document.getElementById(pageId);
       if (pageElement) pageElement.innerHTML = `<p class="text-red-500 p-8 text-center">Ett fel uppstod vid laddning av sidan.</p>`;
+      window.updateCompactPageContext?.();
     }
   } else {
     console.warn(`Ingen pageLoader definierad för '${pageKey}'.`);
+    window.updateCompactPageContext?.();
   }
 }
 

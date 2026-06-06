@@ -49,7 +49,11 @@ export function getCompetitionHeader(competition, pageTitle) {
     }
 
     return `
-        <header class="bg-gradient-to-r from-brand-darkblue to-indigo-950 dark:from-gray-900 dark:to-gray-800 border-b-4 border-brand-gold dark:border-brand-gold/70 p-2 md:p-4 rounded-t-lg mb-2 md:mb-4 shadow-xl flex items-center gap-3 md:gap-4 transition-colors">
+        <header
+            class="competition-page-header bg-gradient-to-r from-brand-darkblue to-indigo-950 dark:from-gray-900 dark:to-gray-800 border-b-4 border-brand-gold dark:border-brand-gold/70 p-2 md:p-4 rounded-t-lg mb-2 md:mb-4 shadow-xl flex items-center gap-3 md:gap-4 transition-colors"
+            data-competition-name="${escapeHtml(competition.name || 'Tävling')}"
+            data-page-title="${escapeHtml(pageTitle || '')}"
+        >
             
             ${getCompetitionLogoHtml(competition, {
                 fallbackHtml: '<img src="/icons/DriveLive_512.png" alt="DriveLive Logga" class="h-12 w-12 md:h-16 md:w-16 rounded-md flex-shrink-0">'

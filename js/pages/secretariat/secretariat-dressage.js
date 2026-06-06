@@ -6,6 +6,7 @@ import {
   deriveDressageStatus,
   escapeHtml,
   filterRows,
+  initializeToolbarInteractions,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -644,6 +645,7 @@ function render() {
     </div>
   `;
 
+  initializeToolbarInteractions(rootEl);
   wireEvents();
   teardownStickyHeaders = setupStickyTableHeaders(rootEl);
   if (modalEl?.classList.contains('visible')) {

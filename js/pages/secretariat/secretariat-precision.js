@@ -6,6 +6,7 @@ import {
   escapeHtml,
   filterRows,
   formatEditableTime,
+  initializeToolbarInteractions,
   markRowDirty,
   parseEditableTime,
   renderStatusBadge,
@@ -162,6 +163,7 @@ function render() {
     </div>
   `;
 
+  initializeToolbarInteractions(rootEl);
   wireEvents();
   teardownStickyHeaders = setupStickyTableHeaders(rootEl);
 }
