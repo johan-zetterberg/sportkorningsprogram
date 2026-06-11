@@ -1,5 +1,5 @@
 // js/pdf/marathonPdf.js
-import { getClubLogoUrl } from '../services/logosService.js';
+import { getClubLogoUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import {
   maraton_marathonConfig,
@@ -100,6 +100,7 @@ export async function printMarathonPdf(eq, d, competition) {
   // 1. LOGGOR & HEADER
   const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
   const flagDataUrl = (await loadImg(await fetchFlagDataUrl(cc)))?.dataUrl;
+  await ensureClubLogosLoaded();
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
   const clubLogo = await loadImg(clubLogoUrl);
   const competitionLogo = await loadImg(getCompetitionLogoUrl(pdfCompetition));
@@ -362,6 +363,7 @@ export async function generateMarathonListPdf(equipages, competition) {
     t('startno', isInternational),
     t('driver', isInternational) + ' / ' + t('horse', isInternational),
     t('class', isInternational),
+    t('club', isInternational) + ' / NF',
     (isInternational ? 'Pen A' : 'Straff A'),
     (isInternational ? 'Pen T' : 'Straff T'),
     (isInternational ? 'Pen B' : 'Straff B')
@@ -372,6 +374,35 @@ export async function generateMarathonListPdf(equipages, competition) {
   headerRow.push('H-' + t('total', isInternational).substring(0, 1));
   headerRow.push(t('other', isInternational));
   headerRow.push(t('total', isInternational));
+
+  await ensureClubLogosLoaded();
+
+  // -- PRE-LOAD IMAGES --
+  const neededFlags = new Set();
+  const neededClubs = new Set();
+  equipages.forEach(eq => {
+    neededFlags.add(normalizeCountryCode(eq.country || eq.nation || eq.nationality || 'se'));
+    if (eq.clubName) neededClubs.add(eq.clubName);
+  });
+
+  const assetMap = new Map();
+  const promises = [];
+  for (const cc of neededFlags) {
+    promises.push(fetchFlagDataUrl(cc).then(url => {
+      if (url) {
+        return loadImg(url).then(img => {
+          if (img) assetMap.set(`flag_${cc}`, img.dataUrl);
+        });
+      }
+    }));
+  }
+  for (const club of neededClubs) {
+    promises.push(loadImg(getClubLogoUrl(club)).then(img => {
+      if (img) assetMap.set(`club_${club}`, img.dataUrl);
+    }));
+  }
+  await Promise.all(promises);
+
 
   const body = equipages.map(eq => {
     const mRes = eq.results?.marathon || {};
@@ -393,6 +424,7 @@ export async function generateMarathonListPdf(equipages, competition) {
       eq.startNumber || '',
       { content: `${eq.driverName}\n${horseText}`, styles: { fontSize: 8 } },
       eq.className || '',
+      eq.clubName || '',
       formatMarathonPenaltyExportValue(mRes.stages?.A?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.A }),
       formatMarathonPenaltyExportValue(mRes.stages?.transport?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.transport }),
       formatMarathonPenaltyExportValue(mRes.stages?.B?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.B })
@@ -433,10 +465,36 @@ export async function generateMarathonListPdf(equipages, competition) {
     columnStyles: {
       0: { halign: 'center', cellWidth: 25 },
       1: { halign: 'center', cellWidth: 25 },
-      2: { cellWidth: 120 },
+      2: { cellWidth: 100 },
+      4: { cellWidth: 120, cellPadding: { top: 3, bottom: 3, left: 35, right: 3 } }, // Land/Klubb
       [totalColIndex]: { fontStyle: 'bold', halign: 'right' },
       [otherColIndex]: { halign: 'right' },
       [obsTotalColIndex]: { halign: 'right' }
+    },
+    didDrawCell: (data) => {
+      if (data.section === 'body' && data.column.index === 4) {
+        const eq = equipages[data.row.index];
+        if (!eq) return;
+
+        const flagUrl = assetMap.get(`flag_${normalizeCountryCode(eq.country || eq.nation || eq.nationality || 'se')}`);
+        const clubUrl = assetMap.get(`club_${eq.clubName}`);
+
+        let xPos = data.cell.x + 2; 
+        const yPos = data.cell.y + 2; 
+        const flagHeight = 8;
+        const flagWidth = 12;
+        const clubLogoHeight = 12;
+        const clubLogoWidth = 12;
+
+        if (flagUrl) {
+          doc.addImage(flagUrl, 'JPEG', xPos, yPos + (clubLogoHeight - flagHeight) / 2, flagWidth, flagHeight);
+          xPos += flagWidth + 4; 
+        }
+
+        if (clubUrl) {
+          doc.addImage(clubUrl, 'JPEG', xPos, yPos, clubLogoWidth, clubLogoHeight);
+        }
+      }
     }
   });
 

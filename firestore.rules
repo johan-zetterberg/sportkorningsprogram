@@ -114,9 +114,10 @@ service cloud.firestore {
     }
 
     function isSensitiveArtifactsPublicPath(documentPath) {
-      return documentPath.matches('data/competitions/[^/]+/config/secrets')
-        || documentPath.matches('data/competitions/[^/]+/auditLog/[^/]+')
-        || documentPath.matches('data/competitions/[^/]+/admins/[^/]+');
+      let pathStr = string(documentPath);
+      return pathStr.matches('.*data/competitions/[^/]+/config/secrets.*')
+        || pathStr.matches('.*data/competitions/[^/]+/auditLog/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/admins/[^/]+.*');
     }
 
     // ------------------------------------------------------------------------
@@ -537,6 +538,10 @@ service cloud.firestore {
         && (
           isMarathonResultUnlocked(compId, equipageId)
         );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/maratonResults/{equipageId} {
+      allow read: if true;
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonResults/{equipageId}/obstacles/{obstacleId} {

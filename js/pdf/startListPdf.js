@@ -1,4 +1,4 @@
-import { getClubLogoUrl } from '../services/logosService.js';
+import { getClubLogoUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
@@ -22,6 +22,8 @@ export async function generateStartListPdf(rows, type, competition, options = {}
 
     // 1. ASSET LOADING
     const srfLogo = await loadStandardHeaderLogos(competition);
+
+    await ensureClubLogosLoaded();
 
     const assetMap = new Map();
     const uniqueClubs = [...new Set(rows.map(r => r.clubName).filter(Boolean))];

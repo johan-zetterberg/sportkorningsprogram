@@ -1,5 +1,5 @@
 // js/pdf/totalResultsPdf.js
-import { getClubLogoUrl } from '../services/logosService.js';
+import { getClubLogoUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
@@ -37,6 +37,8 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     const assetMap = new Map();
     const uniqueClubs = [...new Set(rows.map(r => r.clubName).filter(Boolean))];
     const uniqueNations = [...new Set(rows.map(r => r.country || 'se').map(normalizeCountryCode))];
+
+    await ensureClubLogosLoaded();
 
     const assetPromises = [
         ...uniqueClubs.map(club => loadImg(getClubLogoUrl(club)).then(res => {

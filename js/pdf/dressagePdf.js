@@ -582,6 +582,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   });
 
   // Fetch assets
+  await ensureClubLogosLoaded();
   const assetMap = new Map(); // key -> dataUrl
   const promises = [];
 

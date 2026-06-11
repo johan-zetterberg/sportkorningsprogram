@@ -1,6 +1,6 @@
 // js/pdf/precisionPdf.js
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
-import { getClubLogoUrl, fetchImageDataUrl } from '../services/logosService.js';
+import { getClubLogoUrl, fetchImageDataUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
 import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getPrecisionDisplayClassName } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
@@ -29,6 +29,7 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   // 1. FÖRBERED DATA
   const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
   const flagDataUrl = (await loadImg(await fetchFlagDataUrl(cc)))?.dataUrl;
+  await ensureClubLogosLoaded();
   const clubLogoUrl = getClubLogoUrl(eq?.clubName);
   const clubLogo = await loadImg(clubLogoUrl); // {dataUrl, w, h}
   const competitionLogo = await loadImg(getCompetitionLogoUrl(pdfCompetition));
@@ -206,6 +207,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
     if (eq.clubName) neededClubs.add(eq.clubName);
   });
 
+  await ensureClubLogosLoaded();
   const assetMap = new Map();
   const promises = [];
 
