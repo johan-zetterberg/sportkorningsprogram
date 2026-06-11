@@ -1,5 +1,6 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 import {
   clearRowDirty,
   deriveMarathonStatus,
@@ -9,6 +10,7 @@ import {
   initializeToolbarInteractions,
   markRowDirty,
   parseEditableTime,
+  renderFieldModeBanner,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -238,10 +240,10 @@ function buildTimingRows() {
         <td class="px-3 py-3 text-sm whitespace-nowrap">
           <div class="flex flex-col gap-2">
             ${readOnly ? `
-              <button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">Lås upp</button>
+              <button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">${escapeHtml(t('unlock'))}</button>
             ` : `
               <button data-action="save-timing" class="rounded bg-brand-darkblue text-white px-3 py-1.5 text-xs font-semibold hover:opacity-90">Spara</button>
-              <button data-action="reset-timing" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Ångra</button>
+              <button data-action="reset-timing" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">${escapeHtml(t('undo'))}</button>
               <button data-action="finalize" class="rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">Finalisera</button>
             `}
           </div>
@@ -274,8 +276,8 @@ function renderTimingTab() {
         </div>
         <div class="flex flex-wrap items-center gap-2">
           <div class="text-sm text-gray-500 dark:text-gray-400">${visibleRows.length} av ${rows.length} ekipage visas</div>
-          <button data-action="save-all-timing" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">Spara alla</button>
-          <button data-action="reset-all-timing" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">Ångra alla</button>
+          <button data-action="save-all-timing" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('save_all'))}</button>
+          <button data-action="reset-all-timing" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('undo_all'))}</button>
         </div>
       </div>
     </section>
@@ -289,7 +291,7 @@ function renderTimingTab() {
               <th class="px-3 py-3">Tid A</th>
               <th class="px-3 py-3">Tid B</th>
               <th class="px-3 py-3">Hinder</th>
-              <th class="px-3 py-3">Status</th>
+              <th class="px-3 py-3">${escapeHtml(t('status'))}</th>
               <th class="px-3 py-3">Åtgärder</th>
               <th class="px-3 py-3">Detalj</th>
             </tr>
@@ -345,11 +347,11 @@ function buildObstacleRows() {
         </td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">
           ${readOnly ? `
-            <span class="text-xs text-gray-500 dark:text-gray-400">Lås upp i headern</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t('unlock_in_header'))}</span>
           ` : `
             <div class="flex flex-col gap-2">
               <button data-action="save-obstacle" class="rounded bg-brand-darkblue text-white px-3 py-1.5 text-xs font-semibold hover:opacity-90">Spara</button>
-              <button data-action="reset-obstacle" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Ångra</button>
+              <button data-action="reset-obstacle" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">${escapeHtml(t('undo'))}</button>
             </div>
           `}
         </td>
@@ -399,10 +401,10 @@ function renderObstacleTab() {
         </div>
         ${baseRow ? `
           <div class="flex flex-wrap gap-2">
-            <button data-action="save-all-obstacles" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">Spara alla</button>
-            <button data-action="reset-all-obstacles" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">Ångra alla</button>
+            <button data-action="save-all-obstacles" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('save_all'))}</button>
+            <button data-action="reset-all-obstacles" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('undo_all'))}</button>
             ${baseRow.finalized
-              ? '<button data-action="unlock-selected" class="rounded bg-amber-600 text-white px-3 py-2 text-xs font-semibold hover:bg-amber-700">Lås upp ekipage</button>'
+              ? `<button data-action="unlock-selected" class="rounded bg-amber-600 text-white px-3 py-2 text-xs font-semibold hover:bg-amber-700">${escapeHtml(t('unlock_entry'))}</button>`
               : '<button data-action="finalize-selected" class="rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-2 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">Finalisera ekipage</button>'}
             <button data-action="back-to-timing" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Till etapptider</button>
           </div>
@@ -423,7 +425,10 @@ function render() {
 
   rootEl.innerHTML = `
     <div class="min-w-[1240px] max-w-7xl mx-auto px-4 py-4">
-      ${getCompetitionHeader(competition, 'Sekretariat Maraton')}
+      ${getCompetitionHeader(competition, t('secretariat_marathon_title'))}
+      ${renderFieldModeBanner(competition, {
+        message: 'Tävlingen körs i fältläge. Etapptider och hinder registreras manuellt, och sekretariatet används för kontroll, korrigering och finalisering.',
+      })}
       ${renderTabs()}
       ${activeTab === 'timing' ? renderTimingTab() : renderObstacleTab()}
     </div>

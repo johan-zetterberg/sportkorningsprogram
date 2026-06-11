@@ -1,7 +1,8 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { auth, db, appId } from '../config/firebase-config.js';
-import { setGlobalState, getGlobalState } from '../main.js'; // <-- NYTT: Importera setGlobalState
+import { setGlobalState, getGlobalState, getCompetitionMode } from '../main.js'; // <-- NYTT: Importera setGlobalState
+import { t } from '../utils/i18n.js';
 // Lokal state för denna modul
 let currentUserRole = 'publik'; // 'publik' är standardrollen
 let currentUserId = null;
@@ -11,6 +12,7 @@ let onAuthReadyCallback = null;
  * Uppdaterar synligheten för olika UI-element baserat på användarens roll och inloggningsstatus.
  */
 export function updateUIVisibility() {
+    const competitionMode = getCompetitionMode();
     // --- NYTT: Hämta användaren från global state istället för lokala variabler ---
     const currentUser = getGlobalState('currentUser');
     const userCompRoles = currentUser?.compRoles && currentUser.compRoles.length > 0 ? currentUser.compRoles : [];
@@ -44,6 +46,7 @@ export function updateUIVisibility() {
 
     navLinks.forEach(link => {
         const requiredRoles = (link.dataset.roleRequired || 'publik,funktionar,domare,admin').split(',');
+        const requiredMode = (link.dataset.competitionMode || '').trim();
         
         // Mappa specifika funktionärsroller till den generella "funktionar"-nivån
         const roleHierarchy = {
@@ -63,6 +66,10 @@ export function updateUIVisibility() {
                 hasAccess = true;
                 break;
             }
+        }
+
+        if (hasAccess && requiredMode && requiredMode !== competitionMode) {
+            hasAccess = false;
         }
         
         link.style.display = hasAccess ? 'block' : 'none';
@@ -128,10 +135,10 @@ export async function registerUser(email, password) {
 
     } catch (error) {
         console.error("Registration failed:", error.code);
-        let msg = 'Registrering misslyckades.';
-        if (error.code === 'auth/email-already-in-use') msg = 'E-postadressen används redan. Logga in istället.';
-        else if (error.code === 'auth/weak-password') msg = 'Lösenordet är för svagt (minst 6 tecken).';
-        else if (error.code === 'auth/invalid-email') msg = 'Ogiltig e-postadress.';
+        let msg = t('registration_failed');
+        if (error.code === 'auth/email-already-in-use') msg = t('email_already_in_use');
+        else if (error.code === 'auth/weak-password') msg = t('weak_password');
+        else if (error.code === 'auth/invalid-email') msg = t('invalid_email');
         throw new Error(msg);
     }
 }
@@ -151,39 +158,57 @@ export function initAuth(callback) {
     const closeLoginModalButton = document.getElementById('closeLoginModal');
     const toggleAuthModeBtn = document.getElementById('toggleAuthMode');
     const modalTitle = document.querySelector('#loginModal h2');
+    const modalLead = document.querySelector('#loginModal p.text-center.text-gray-600');
+    const emailLabel = document.querySelector('label[for="email"]');
+    const passwordLabel = document.querySelector('label[for="password"]');
+    const forgotPwBtn = document.getElementById('forgotPasswordLink');
     const loginSubmitBtn = document.querySelector('#loginForm button[type="submit"]');
 
     let isRegisterMode = false;
+
+    const syncAuthUiTexts = () => {
+        if (modalLead) modalLead.textContent = t('login_required_page');
+        if (emailLabel) emailLabel.textContent = t('email_address');
+        if (passwordLabel) passwordLabel.textContent = t('password');
+        if (forgotPwBtn) forgotPwBtn.textContent = t('forgot_password');
+        if (modalTitle) modalTitle.textContent = isRegisterMode ? t('register_account') : t('login');
+        if (loginSubmitBtn) loginSubmitBtn.textContent = isRegisterMode ? t('register') : t('login');
+        if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = isRegisterMode ? t('have_account_login_here') : t('no_account_register_here');
+    };
+
+    syncAuthUiTexts();
 
     if (toggleAuthModeBtn) {
         toggleAuthModeBtn.addEventListener('click', () => {
             isRegisterMode = !isRegisterMode;
             if (isRegisterMode) {
-                modalTitle.textContent = 'Registrera konto';
-                loginSubmitBtn.textContent = 'Registrera';
-                toggleAuthModeBtn.textContent = 'Har du redan ett konto? Logga in här.';
+                modalTitle.textContent = t('register_account');
+                loginSubmitBtn.textContent = t('register');
+                toggleAuthModeBtn.textContent = t('have_account_login_here');
             } else {
-                modalTitle.textContent = 'Logga in';
-                loginSubmitBtn.textContent = 'Logga in';
-                toggleAuthModeBtn.textContent = 'Har du inget konto? Registrera dig här.';
+                modalTitle.textContent = t('login');
+                loginSubmitBtn.textContent = t('login');
+                toggleAuthModeBtn.textContent = t('no_account_register_here');
             }
             const errorP = document.getElementById('loginError');
             if (errorP) errorP.textContent = '';
         });
+        toggleAuthModeBtn.addEventListener('click', () => {
+            setTimeout(syncAuthUiTexts, 0);
+        });
     }
 
-    const forgotPwBtn = document.getElementById('forgotPasswordLink');
     if (forgotPwBtn) {
         forgotPwBtn.addEventListener('click', async () => {
             const emailField = document.getElementById('email');
             const currentEmail = emailField ? emailField.value : '';
-            const email = prompt('Ange din e-postadress för att återställa lösenordet:', currentEmail);
+            const email = prompt(t('prompt_reset_password_email'), currentEmail);
             if (email) {
                 try {
                     await resetPassword(email);
-                    alert('Återställningslänk har skickats till din e-post.');
+                    alert(t('reset_password_sent'));
                 } catch (e) {
-                    alert('Fel: ' + e.message);
+                    alert(`${t('error_prefix')} ${e.message}`);
                 }
             }
         });
@@ -220,11 +245,12 @@ export function initAuth(callback) {
 
         // Reset to login mode
         isRegisterMode = false;
-        if (modalTitle) modalTitle.textContent = 'Logga in';
-        if (loginSubmitBtn) loginSubmitBtn.textContent = 'Logga in';
-        if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = 'Har du inget konto? Registrera dig här.';
+        if (modalTitle) modalTitle.textContent = t('login');
+        if (loginSubmitBtn) loginSubmitBtn.textContent = t('login');
+        if (toggleAuthModeBtn) toggleAuthModeBtn.textContent = t('no_account_register_here');
         if (document.getElementById('loginError')) document.getElementById('loginError').textContent = '';
         if (loginForm) loginForm.reset();
+        setTimeout(syncAuthUiTexts, 0);
     });
 
     onAuthStateChanged(auth, async (user) => {
@@ -244,31 +270,46 @@ export function initAuth(callback) {
             // 2. Hämta riktig roll asynkront med retry-logik
             let userRole = 'publik';
 
-            // --- SUPERADMIN OVERRIDE ---
-            const SUPER_ADMIN_EMAILS = ['admin@demo.se', 'johan.zetterberg@gmail.com'];
-            if (user.email && SUPER_ADMIN_EMAILS.includes(user.email.toLowerCase())) {
+            // Permanent fallback för ägarens e-post
+            if (user.email && user.email.toLowerCase() === 'johan.zetterberg@gmail.com') {
                 userRole = 'superadmin';
             } else {
-                let retries = 3;
-                while (retries > 0) {
-                    try {
-                        const userDocRef = doc(db, "users", user.uid);
-                        const userDoc = await getDoc(userDocRef);
-                        if (userDoc.exists()) {
-                            userRole = userDoc.data().role;
-                        }
-                        // Om vi lyckas, bryt loopen
-                        break;
-                    } catch (err) {
-                        console.warn(`Försök att hämta användarroll misslyckades (${4 - retries}/3):`, err);
-                        retries--;
-                        if (retries === 0) {
-                            console.error('Kunde inte hämta användarroll efter flera försök:', err);
-                            // Visa ett felmeddelande eller notifiering om att behörigheter kan saknas
-                            alert("Kunde inte ladda din profil fullständigt. Vissa funktioner kanske inte fungerar. Prova att ladda om sidan.");
-                        } else {
-                            // Vänta lite innan nästa försök (exponential backoff eller fast tid)
-                            await new Promise(res => setTimeout(res, 500));
+                // Hämta rollen från Firebase ID-token custom claims först
+                try {
+                    const tokenResult = await user.getIdTokenResult();
+                    if (tokenResult.claims.superadmin === true) {
+                        userRole = 'superadmin';
+                    } else if (tokenResult.claims.role) {
+                        userRole = tokenResult.claims.role;
+                    }
+                } catch (tokenErr) {
+                    console.warn('Kunde inte läsa custom claims:', tokenErr);
+                }
+
+                // Hämta rollen från Firestore-dokumentet om den inte redan satts till superadmin
+                if (userRole !== 'superadmin') {
+                    let retries = 3;
+                    while (retries > 0) {
+                        try {
+                            const userDocRef = doc(db, "users", user.uid);
+                            const userDoc = await getDoc(userDocRef);
+                            if (userDoc.exists()) {
+                                const dbRole = userDoc.data().role;
+                                if (dbRole) {
+                                    userRole = dbRole;
+                                }
+                            }
+                            // Om vi lyckas, bryt loopen
+                            break;
+                        } catch (err) {
+                            console.warn(`Försök att hämta användarroll misslyckades (${4 - retries}/3):`, err);
+                            retries--;
+                            if (retries === 0) {
+                                console.error('Kunde inte hämta användarroll efter flera försök:', err);
+                                alert("Kunde inte ladda din profil fullständigt. Vissa funktioner kanske inte fungerar. Prova att ladda om sidan.");
+                            } else {
+                                await new Promise(res => setTimeout(res, 500));
+                            }
                         }
                     }
                 }
@@ -298,10 +339,16 @@ export function initAuth(callback) {
         }
     });
 }
+
 export async function getCurrentUserRole() {
     const user = auth.currentUser;
     // Oinloggad publik
     if (!user) return 'publik';
+
+    // Permanent fallback för ägarens e-post
+    if (user.email && user.email.toLowerCase() === 'johan.zetterberg@gmail.com') {
+        return 'superadmin';
+    }
 
     // Läs roll från root-kollektionen 'users' (matchar dina regler)
     const snap = await getDoc(doc(db, 'users', user.uid));

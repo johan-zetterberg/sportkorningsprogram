@@ -13,7 +13,7 @@ import {
     updateDoc,
     deleteField
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
 
@@ -33,34 +33,42 @@ function precisionDocRef(startNumber) {
 
 export function renderLayout() {
     const comp = getGlobalState('currentCompetition');
+    const isFieldMode = comp?.competitionMode === 'field';
     const root = document.getElementById('page-precision-split-input');
     if (!root) return;
 
     root.innerHTML = `
         <div class="container mx-auto p-4 md:p-8 max-w-xl">
             <div class="mb-4">
-                ${getCompetitionHeader(comp, t('precision_split_header'))} 
+                ${getCompetitionHeader(comp, isFieldMode
+                    ? 'Precision - manuell passagerapportering'
+                    : t('precision_split_header'))}
             </div>
+            ${renderCompetitionModeBanner(comp, {
+                message: 'Tävlingen körs i fältläge. Passager och delhändelser kan rapporteras manuellt här utan full livekarta.'
+            })}
 
             <div class="bg-white dark:bg-gray-800 p-4 rounded-xl shadow-md space-y-6 border dark:border-gray-700">
                 <div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
                     <p class="text-sm text-blue-800 dark:text-blue-300">
-                        ${t('precision_split_info_text')}
+                        ${isFieldMode
+                            ? 'VÃ¤lj ekipage och registrera start, mÃ¥l och eventuella passager manuellt.'
+                            : t('precision_split_info_text')}
                     </p>
                 </div>
 
                 <div class="flex items-center gap-2">
                     <div id="splitEquipageSearchContainer" class="flex-grow"></div>
-                    <button id="btnAutoFind" class="p-2 border rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" title="${t('precision_split_auto_find_title')}">${t('precision_split_auto_find_btn')}</button>
+                    ${isFieldMode ? '' : `<button id="btnAutoFind" class="p-2 border rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" title="${t('precision_split_auto_find_title')}">${t('precision_split_auto_find_btn')}</button>`}
                 </div>
                 
                 <div class="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border dark:border-gray-700 text-center">
                     <div id="infoEquipageLine" class="font-bold dark:text-white text-lg md:text-xl">–</div>
-                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">${t('precision_split_current_equipage')}</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">${isFieldMode ? 'Valt ekipage' : t('precision_split_current_equipage')}</div>
                 </div>
 
                 <div id="gatesListContainer" class="space-y-3">
-                    <p class="text-center text-gray-500 text-sm">${t('precision_split_select_to_log')}</p>
+                    <p class="text-center text-gray-500 text-sm">${isFieldMode ? 'VÃ¤lj ekipage fÃ¶r att registrera start och mÃ¥l.' : t('precision_split_select_to_log')}</p>
                 </div>
             </div> 
         </div> 
@@ -139,6 +147,7 @@ async function undoSplit(gateId) {
 function renderGates() {
     const container = document.getElementById('gatesListContainer');
     if (!container) return;
+    const isFieldMode = getGlobalState('currentCompetition')?.competitionMode === 'field';
 
     if (!currentEquipage) {
         container.innerHTML = `<p class="text-center text-gray-500 text-sm">${t('precision_split_select_to_log')}</p>`;
@@ -146,16 +155,18 @@ function renderGates() {
     }
 
     const mapSettings = precisionConfig?.mapSettings || {};
-    if (!mapSettings.enabled) {
+    if (!mapSettings.enabled && !isFieldMode) {
         container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded text-center text-sm dark:bg-red-900/30 dark:text-red-300">${t('precision_split_live_map_disabled')}</div>`;
         return;
     }
 
     const entities = mapSettings.entities || {};
-    let keys = Object.keys(entities).filter(k => k.startsWith('gate_'));
+    let keys = mapSettings.enabled
+        ? Object.keys(entities).filter(k => k.startsWith('gate_'))
+        : ['start', 'finish'];
     
     const courseData = getPrecisionCourseData(currentEquipage, precisionConfig).course;
-    if (courseData && Array.isArray(courseData.obstacleLabels) && courseData.obstacleLabels.length > 0) {
+    if (mapSettings.enabled && courseData && Array.isArray(courseData.obstacleLabels) && courseData.obstacleLabels.length > 0) {
         const allowedLabels = new Set(courseData.obstacleLabels.map(l => String(l).trim()));
         keys = keys.filter(k => {
             const gateNum = k.replace('gate_', '');
@@ -177,7 +188,11 @@ function renderGates() {
     let html = '<div class="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 sm:gap-3">';
 
     keys.forEach(k => {
-        let label = k.replace('gate_', '');
+        let label = k === 'start'
+            ? 'Start'
+            : k === 'finish'
+                ? 'Mål'
+                : k.replace('gate_', '');
 
         const hasSplit = !!gateSplits[k];
         let timeStr = '';
@@ -268,6 +283,7 @@ async function autoSelectRunningDriver() {
 
 export async function load() {
     const comp = getGlobalState('currentCompetition');
+    const isFieldMode = comp?.competitionMode === 'field';
     competitionId = comp?.id;
     if (!competitionId) return;
 
@@ -300,15 +316,17 @@ export async function load() {
             }
         );
 
-        document.getElementById('btnAutoFind')?.addEventListener('click', autoSelectRunningDriver);
+        if (!isFieldMode) {
+            document.getElementById('btnAutoFind')?.addEventListener('click', autoSelectRunningDriver);
 
-        // Auto-poll for running driver every 15 seconds if no driver is selected
-        autoSyncInterval = setInterval(() => {
-            if (!currentEquipage) autoSelectRunningDriver();
-        }, 15000);
+            // Auto-poll for running driver every 15 seconds if no driver is selected
+            autoSyncInterval = setInterval(() => {
+                if (!currentEquipage) autoSelectRunningDriver();
+            }, 15000);
 
-        // Try once immediately
-        autoSelectRunningDriver();
+            // Try once immediately
+            autoSelectRunningDriver();
+        }
 
     } catch (e) {
         console.error('Error in precision-split-input load:', e);

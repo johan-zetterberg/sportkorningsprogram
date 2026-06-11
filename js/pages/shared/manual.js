@@ -2,8 +2,217 @@ import { isMobile } from '../../utils/sharedUtils.js';
 
 let activeTab = 'admin'; // 'admin', 'official', 'judge', 'driver'
 
+function ensureManualThemeStyles() {
+  if (document.getElementById('manual-theme-styles')) return;
+  const style = document.createElement('style');
+  style.id = 'manual-theme-styles';
+  style.textContent = `
+    html.dark .manual-theme {
+      color: #e5e7eb;
+    }
+    html.dark .manual-theme .manual-shell-title,
+    html.dark .manual-theme .manual-section-title,
+    html.dark .manual-theme .manual-card-title {
+      color: #f3f4f6 !important;
+    }
+    html.dark .manual-theme h2,
+    html.dark .manual-theme h3,
+    html.dark .manual-theme h4 {
+      color: #f3f4f6 !important;
+    }
+    html.dark .manual-theme p,
+    html.dark .manual-theme li,
+    html.dark .manual-theme dt,
+    html.dark .manual-theme dd,
+    html.dark .manual-theme summary,
+    html.dark .manual-theme span:not(.live-dot):not(.legend-label) {
+      color: inherit;
+    }
+    html.dark .manual-theme .manual-surface {
+      background: #111827 !important;
+      border-color: #374151 !important;
+      color: #e5e7eb !important;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+    }
+    html.dark .manual-theme .manual-tabbar {
+      border-color: #374151 !important;
+    }
+    html.dark .manual-theme .manual-tab-btn:not(.manual-tab-btn-active) {
+      background: #1f2937 !important;
+      color: #d1d5db !important;
+    }
+    html.dark .manual-theme .manual-tab-btn:not(.manual-tab-btn-active):hover {
+      background: #374151 !important;
+    }
+    html.dark .manual-theme .bg-white,
+    html.dark .manual-theme .bg-gray-50,
+    html.dark .manual-theme .bg-gray-100 {
+      background: #1f2937 !important;
+      border-color: #374151 !important;
+    }
+    html.dark .manual-theme .border,
+    html.dark .manual-theme .border-gray-200,
+    html.dark .manual-theme .border-yellow-100,
+    html.dark .manual-theme .border-indigo-100,
+    html.dark .manual-theme .border-purple-100,
+    html.dark .manual-theme .border-blue-100,
+    html.dark .manual-theme .border-red-100 {
+      border-color: #374151 !important;
+    }
+    html.dark .manual-theme .text-gray-800,
+    html.dark .manual-theme .text-gray-700 {
+      color: #e5e7eb !important;
+    }
+    html.dark .manual-theme .text-gray-600,
+    html.dark .manual-theme .text-gray-500,
+    html.dark .manual-theme .text-slate-400 {
+      color: #cbd5e1 !important;
+    }
+    html.dark .manual-theme .text-blue-900,
+    html.dark .manual-theme .text-blue-800 {
+      color: #bfdbfe !important;
+    }
+    html.dark .manual-theme .text-blue-700,
+    html.dark .manual-theme .text-blue-600 {
+      color: #93c5fd !important;
+    }
+    html.dark .manual-theme .text-red-800 {
+      color: #fecaca !important;
+    }
+    html.dark .manual-theme .text-red-600 {
+      color: #fca5a5 !important;
+    }
+    html.dark .manual-theme .text-yellow-800,
+    html.dark .manual-theme .text-amber-900 {
+      color: #fde68a !important;
+    }
+    html.dark .manual-theme .text-yellow-700,
+    html.dark .manual-theme .text-amber-700,
+    html.dark .manual-theme .text-amber-600,
+    html.dark .manual-theme .text-orange-700 {
+      color: #fcd34d !important;
+    }
+    html.dark .manual-theme .text-indigo-800 {
+      color: #c7d2fe !important;
+    }
+    html.dark .manual-theme .text-indigo-700,
+    html.dark .manual-theme .text-indigo-600 {
+      color: #a5b4fc !important;
+    }
+    html.dark .manual-theme .text-purple-900 {
+      color: #e9d5ff !important;
+    }
+    html.dark .manual-theme .text-purple-700,
+    html.dark .manual-theme .text-purple-600 {
+      color: #d8b4fe !important;
+    }
+    html.dark .manual-theme .text-green-700,
+    html.dark .manual-theme .text-green-600,
+    html.dark .manual-theme .text-emerald-700,
+    html.dark .manual-theme .text-emerald-600 {
+      color: #86efac !important;
+    }
+    html.dark .manual-theme .text-cyan-700,
+    html.dark .manual-theme .text-cyan-600 {
+      color: #67e8f9 !important;
+    }
+    html.dark .manual-theme .text-orange-800 {
+      color: #fdba74 !important;
+    }
+    html.dark .manual-theme .bg-blue-50,
+    html.dark .manual-theme .bg-blue-100 {
+      background: rgba(30, 64, 175, 0.22) !important;
+      border-color: rgba(96, 165, 250, 0.35) !important;
+    }
+    html.dark .manual-theme .bg-indigo-50 {
+      background: rgba(67, 56, 202, 0.2) !important;
+      border-color: rgba(129, 140, 248, 0.35) !important;
+    }
+    html.dark .manual-theme .bg-purple-50 {
+      background: rgba(107, 33, 168, 0.2) !important;
+      border-color: rgba(192, 132, 252, 0.35) !important;
+    }
+    html.dark .manual-theme .bg-green-50,
+    html.dark .manual-theme .bg-emerald-50 {
+      background: rgba(6, 95, 70, 0.22) !important;
+      border-color: rgba(52, 211, 153, 0.3) !important;
+    }
+    html.dark .manual-theme .bg-yellow-50,
+    html.dark .manual-theme .bg-amber-50 {
+      background: rgba(120, 53, 15, 0.22) !important;
+      border-color: rgba(251, 191, 36, 0.3) !important;
+    }
+    html.dark .manual-theme .bg-red-50 {
+      background: rgba(127, 29, 29, 0.22) !important;
+      border-color: rgba(248, 113, 113, 0.3) !important;
+    }
+    html.dark .manual-theme .bg-cyan-50 {
+      background: rgba(14, 116, 144, 0.2) !important;
+      border-color: rgba(34, 211, 238, 0.3) !important;
+    }
+    html.dark .manual-theme .bg-orange-50 {
+      background: rgba(124, 45, 18, 0.24) !important;
+      border-color: rgba(251, 146, 60, 0.32) !important;
+    }
+    html.dark .manual-theme .from-blue-50,
+    html.dark .manual-theme .to-indigo-50 {
+      background-image: linear-gradient(135deg, rgba(30, 64, 175, 0.24), rgba(67, 56, 202, 0.18)) !important;
+      border-color: rgba(96, 165, 250, 0.3) !important;
+    }
+    html.dark .manual-theme .border-blue-200,
+    html.dark .manual-theme .border-blue-500,
+    html.dark .manual-theme .border-blue-600,
+    html.dark .manual-theme .border-blue-900 {
+      border-color: rgba(96, 165, 250, 0.4) !important;
+    }
+    html.dark .manual-theme .border-green-200,
+    html.dark .manual-theme .border-green-500,
+    html.dark .manual-theme .border-green-600,
+    html.dark .manual-theme .border-emerald-200,
+    html.dark .manual-theme .border-emerald-500 {
+      border-color: rgba(52, 211, 153, 0.35) !important;
+    }
+    html.dark .manual-theme .border-yellow-200,
+    html.dark .manual-theme .border-yellow-400,
+    html.dark .manual-theme .border-yellow-500,
+    html.dark .manual-theme .border-amber-500 {
+      border-color: rgba(251, 191, 36, 0.35) !important;
+    }
+    html.dark .manual-theme .border-indigo-200,
+    html.dark .manual-theme .border-indigo-500,
+    html.dark .manual-theme .border-indigo-600 {
+      border-color: rgba(129, 140, 248, 0.35) !important;
+    }
+    html.dark .manual-theme .border-purple-200,
+    html.dark .manual-theme .border-purple-500,
+    html.dark .manual-theme .border-purple-600 {
+      border-color: rgba(192, 132, 252, 0.35) !important;
+    }
+    html.dark .manual-theme .border-cyan-200,
+    html.dark .manual-theme .border-cyan-500 {
+      border-color: rgba(34, 211, 238, 0.35) !important;
+    }
+    html.dark .manual-theme .border-orange-200,
+    html.dark .manual-theme .border-orange-500 {
+      border-color: rgba(251, 146, 60, 0.35) !important;
+    }
+    html.dark .manual-theme .border-red-500,
+    html.dark .manual-theme .border-red-600 {
+      border-color: rgba(248, 113, 113, 0.35) !important;
+    }
+    html.dark .manual-theme code {
+      background: #0f172a;
+      color: #e5e7eb;
+      padding: 0.1rem 0.3rem;
+      border-radius: 0.25rem;
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 export async function load(container) {
   if (!container) return;
+  ensureManualThemeStyles();
   render(container);
 }
 
@@ -28,12 +237,12 @@ function render(container) {
   };
 
   const content = `
-    <div class="max-w-4xl mx-auto px-4 py-6">
-      <h1 class="text-2xl font-bold mb-4 text-gray-800">${ui.title}</h1>
+    <div class="manual-theme max-w-4xl mx-auto px-4 py-6">
+      <h1 class="manual-shell-title text-2xl font-bold mb-4 text-gray-800 dark:text-gray-100">${ui.title}</h1>
       <p class="text-gray-600 mb-6">${ui.sub}</p>
 
       <!-- TABS -->
-      <div class="flex flex-wrap gap-2 mb-6 border-b border-gray-200 pb-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
+      <div class="manual-tabbar flex flex-wrap gap-2 mb-6 border-b border-gray-200 pb-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
         ${renderTabBtn('overview', ui.tabs.overview)}
         ${renderTabBtn('admin', ui.tabs.admin)}
         ${renderTabBtn('official', ui.tabs.official)}
@@ -46,7 +255,7 @@ function render(container) {
       </div>
 
       <!-- CONTENT AREA -->
-      <div class="bg-white rounded-lg shadow p-6 min-h-[400px]">
+      <div class="manual-surface bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-h-[400px] border border-gray-200 dark:border-gray-700">
         ${getTabContent(activeTab)}
       </div>
     </div>
@@ -66,7 +275,7 @@ function render(container) {
 function renderTabBtn(id, label) {
   const active = activeTab === id;
   const classes = active
-    ? 'bg-blue-600 text-white shadow-sm ring-1 ring-blue-700'
+    ? 'manual-tab-btn-active bg-blue-600 text-white shadow-sm ring-1 ring-blue-700'
     : 'bg-gray-100 text-gray-700 hover:bg-gray-200';
 
   return `<button class="manual-tab-btn px-4 py-2 rounded-full text-sm font-medium transition-colors ${classes}" data-tab="${id}">
@@ -177,10 +386,23 @@ function getTabContent(tab) {
                         <li><strong>Resultatlistor:</strong> Resultat räknas ut live. På "Total-resultat" kan du nu även klicka på "Skriv ut / PDF" för att få en snyggt formaterad slutlista per klass.</li>
                         <li><strong>Loggor i PDF:</strong> Tävlingsloggan, klubbloggor och flaggor används automatiskt där de finns tillgängliga. Kontrollera detta innan du skriver ut officiella listor.</li>
                         <li><strong>CSV-export:</strong> Använd knapparna "CSV" för att få ut rådata till Excel om du behöver göra egna analyser.</li>
+                        <li><strong>Sekretariat (Dressyr/Maraton/Precision):</strong> Använd sekretariatssidorna för att rätta tider, straff och protokoll utan att gå tillbaka till ordinarie inmatningssidor. Finaliserade resultat måste först låsas upp.</li>
                     </ul>
                      <p class="text-xs text-blue-900 mt-2 font-bold">
-                        Tips: Använd "Filtrera på klass" högst upp för att skriva ut listor för en klass i taget.
+                        Tips: De flesta resultat- och listvyer har nu en kompakt rad högst upp med Sök, Sortering, Klass, CSV och PDF. Använd klassfiltret för att skriva ut en klass i taget.
                      </p>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="font-bold text-lg mb-2 text-emerald-700 border-l-4 border-emerald-500 pl-2">Fältläge & Sekretariat</h3>
+                <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-200 space-y-2 text-sm text-gray-700">
+                    <p><strong>Fältläge</strong> är till för tävlingar med dålig täckning eller få funktionärer. Monitorer och andra tydliga live-sidor döljs då, men resultat kan fortfarande rapporteras manuellt.</p>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Live-läge:</strong> Används när ni kör med monitorer, live-timers och publikflöde i realtid.</li>
+                        <li><strong>Fältläge:</strong> Funktionärer matar in tider och poäng manuellt, och sekretariatet rättar samt finaliserar vid behov.</li>
+                        <li><strong>Val i Admin &gt; Inställningar:</strong> Tävlingsläget styr vilka sidor som syns i menyn.</li>
+                    </ul>
                 </div>
             </section>
 
@@ -212,7 +434,7 @@ function getTabContent(tab) {
                         <li><strong>Monitor Precision:</strong> Visar tid, fel och <strong>Maximaltid</strong> (gräns för uteslutning) direkt vid målgång.</li>
                     </ul>
                     <p class="text-xs text-indigo-800 mt-2 font-bold">
-                        Tips: Koppla in en dator/iPad till TV:n och navigera till respektive sida via huvudmenyn. Tryck F11 för helskärm!
+                        Tips: Monitorerna används i första hand i <strong>Live-läge</strong>. I <strong>Fältläge</strong> döljs de normalt från menyn för att förenkla driften.
                     </p>
                 </div>
             </section>
@@ -406,6 +628,7 @@ function getTabContent(tab) {
                 <div class="space-y-2 text-sm text-gray-600">
                   <p><strong>Tävlingsnivå (FEI/Nationell):</strong> Påverkar vilka PDF-mallar som används. FEI ger engelska rubriker.</p>
                   <p><strong>Tävlingslogga:</strong> Ladda upp arrangörens eller tävlingens logga här. Loggan används på PDF:er och i utskrifter där det finns plats. PNG, JPG och WebP stöds.</p>
+                  <p><strong>Tävlingsläge (Live / Fältläge):</strong> Välj <strong>Live</strong> när ni använder monitorer, live-timers och realtidsflöden. Välj <strong>Fältläge</strong> när ni vill arbeta enklare med manuell rapportering och sekretariatssidorna som huvudverktyg.</p>
                   <p><strong>Publicering (Visa på startsidan):</strong></p>
                   <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
                     <li><strong>Utkast (Dold):</strong> Tävlingen syns inte för allmänheten. Perfekt medan du sätter upp klasser och resultat.</li>
@@ -1230,10 +1453,23 @@ function getTabContentEN(tab) {
                         <li><strong>Result Lists:</strong> Results are calculated live. You don't need to "calculate" anything manually.</li>
                         <li><strong>Logos in PDFs:</strong> Competition logo, club logos and flags are used automatically where available. Check this before printing official lists.</li>
                         <li><strong>CSV Export:</strong> Use the "CSV" buttons to get raw data for Excel if you need to perform custom analysis.</li>
+                        <li><strong>Secretariat (Dressage/Marathon/Precision):</strong> Use the secretariat pages to correct times, penalties and protocols without going back to the ordinary input pages. Finalized results must be unlocked first.</li>
                     </ul>
                      <p class="text-xs text-blue-900 mt-2 font-bold">
-                        Tip: Use "Filter by Class" at the top to print lists for one class at a time.
+                        Tip: Most result and list pages now use a compact top bar with Search, Sort, Class, CSV and PDF. Use the class filter to print one class at a time.
                      </p>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="font-bold text-lg mb-2 text-emerald-700 border-l-4 border-emerald-500 pl-2">Field Mode & Secretariat</h3>
+                <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-200 space-y-2 text-sm text-gray-700">
+                    <p><strong>Field mode</strong> is intended for competitions with poor connectivity or too few staff to run full live production. Monitor pages and other clearly live-oriented pages are hidden, but results can still be reported manually.</p>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Live mode:</strong> Use when you rely on monitors, live timers and real-time public display.</li>
+                        <li><strong>Field mode:</strong> Officials enter times and scores manually, and the secretariat corrects and finalizes if needed.</li>
+                        <li><strong>Choose it in Admin &gt; Settings:</strong> The competition mode controls which pages are shown in the menu.</li>
+                    </ul>
                 </div>
             </section>
 
@@ -1265,7 +1501,7 @@ function getTabContentEN(tab) {
                         <li><strong>Monitor Precision:</strong> Shows time, faults, and <strong>Max Time</strong> (elimination limit) immediately at the finish.</li>
                     </ul>
                     <p class="text-xs text-indigo-800 mt-2 font-bold">
-                        Tip: Connect a laptop/iPad to the TV and navigate to the respective page via the main menu. Press F11 for fullscreen!
+                        Tip: The monitor pages are mainly intended for <strong>Live mode</strong>. In <strong>Field mode</strong> they are normally hidden from the menu to simplify the workflow.
                     </p>
                 </div>
             </section>
@@ -1458,6 +1694,7 @@ function getTabContentEN(tab) {
                 <div class="space-y-2 text-sm text-gray-600">
                   <p><strong>Competition Level (FEI/National):</strong> Affects which PDF templates are used. FEI gives English headers.</p>
                   <p><strong>Competition logo:</strong> Upload the organizer or competition logo here. It is used on PDFs and printed lists where space allows. PNG, JPG and WebP are supported.</p>
+                  <p><strong>Competition Mode (Live / Field):</strong> Choose <strong>Live</strong> when you use monitors, live timers and real-time workflows. Choose <strong>Field</strong> when you want a simpler setup with manual reporting and the secretariat pages as the primary tool.</p>
                   <p><strong>Digital Declaration & Locking:</strong></p>
                   <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
                     <li><strong>Timer:</strong> Set how many minutes before start the portal should lock (default 60 min).</li>

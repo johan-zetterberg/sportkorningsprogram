@@ -91,8 +91,10 @@ export async function fetchFlagDataUrl(cc) {
     canvas.width = img.naturalWidth;
     canvas.height = img.naturalHeight;
     const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, img.naturalWidth, img.naturalHeight);
     ctx.drawImage(img, 0, 0);
-    return canvas.toDataURL('image/png');
+    return canvas.toDataURL('image/jpeg', 0.85);
   } catch {
     return null;
   }

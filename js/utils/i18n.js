@@ -62,6 +62,23 @@ export const DICTIONARY = {
     'start_list': { sv: 'Startlista', en: 'Start List' },
     'results': { sv: 'Resultat', en: 'Results' },
     'logout': { sv: 'Logga ut', en: 'Log out' },
+    'login': { sv: 'Logga in', en: 'Log in' },
+    'register_account': { sv: 'Registrera konto', en: 'Register account' },
+    'register': { sv: 'Registrera', en: 'Register' },
+    'no_account_register_here': { sv: 'Har du inget konto? Registrera dig här.', en: 'No account? Register here.' },
+    'have_account_login_here': { sv: 'Har du redan ett konto? Logga in här.', en: 'Already have an account? Log in here.' },
+    'forgot_password': { sv: 'Glömt lösenordet?', en: 'Forgot your password?' },
+    'email_address': { sv: 'E-postadress', en: 'Email address' },
+    'password': { sv: 'Lösenord', en: 'Password' },
+    'login_required_page': { sv: 'Du måste logga in för att se denna sida.', en: 'You must log in to view this page.' },
+    'details': { sv: 'Detaljer', en: 'Details' },
+    'registration_failed': { sv: 'Registrering misslyckades.', en: 'Registration failed.' },
+    'email_already_in_use': { sv: 'E-postadressen används redan. Logga in istället.', en: 'This email address is already in use. Log in instead.' },
+    'weak_password': { sv: 'Lösenordet är för svagt (minst 6 tecken).', en: 'The password is too weak (at least 6 characters).' },
+    'invalid_email': { sv: 'Ogiltig e-postadress.', en: 'Invalid email address.' },
+    'prompt_reset_password_email': { sv: 'Ange din e-postadress för att återställa lösenordet:', en: 'Enter your email address to reset the password:' },
+    'reset_password_sent': { sv: 'Återställningslänk har skickats till din e-post.', en: 'A reset link has been sent to your email.' },
+    'error_prefix': { sv: 'Fel:', en: 'Error:' },
     'edit': { sv: 'Ändra', en: 'Edit' },
     'save': { sv: 'Spara', en: 'Save' },
     'cancel': { sv: 'Avbryt', en: 'Cancel' },
@@ -209,6 +226,40 @@ export const DICTIONARY = {
     'startnr': { sv: 'Startnr', en: 'Start No' },
     'klass': { sv: 'Klass', en: 'Class' },
     'alla_klasser': { sv: 'Alla klasser', en: 'All classes' },
+    'all_classes': { sv: 'Alla klasser', en: 'All classes' },
+    'all': { sv: 'Alla', en: 'All' },
+    'filter': { sv: 'Filter', en: 'Filter' },
+    'active_filters': { sv: 'Aktiva filter', en: 'Active filters' },
+    'ongoing_short': { sv: 'Pågående', en: 'Ongoing' },
+    'finalized_short': { sv: 'Finaliserade', en: 'Finalized' },
+    'status_not_started': { sv: 'Ej startad', en: 'Not started' },
+    'status_running': { sv: 'Pågår', en: 'Running' },
+    'status_done': { sv: 'Klar', en: 'Finished' },
+    'status_finalized': { sv: 'Finaliserad', en: 'Finalized' },
+    'search_startnumber_or_name': { sv: 'Startnummer eller namn', en: 'Start number or name' },
+    'no_results': { sv: 'Inga träffar', en: 'No results' },
+    'field_mode': { sv: 'Fältläge', en: 'Field mode' },
+    'field_mode_active': { sv: 'Fältläge aktivt', en: 'Field mode active' },
+    'field_mode_secretariat_message': { sv: 'Live-monitorer är avstängda. Använd denna sekretariatssida för manuell registrering, korrigering och finalisering.', en: 'Live monitors are disabled. Use this secretariat page for manual entry, corrections, and finalization.' },
+    'field_mode_general_message': { sv: 'Tävlingen körs utan full liveproduktion. Använd sidan för manuell registrering och låt sekretariatet sköta korrigering och finalisering.', en: 'This competition is running without full live production. Use this page for manual entry and let the secretariat handle corrections and finalization.' },
+    'competition_mode': { sv: 'Driftläge', en: 'Operating mode' },
+    'competition_mode_label': { sv: 'Hur tävlingen körs', en: 'How the competition runs' },
+    'competition_mode_live': { sv: 'Full live-tävling', en: 'Full live competition' },
+    'competition_mode_field': { sv: 'Fältläge / manuell drift', en: 'Field mode / manual operation' },
+    'competition_mode_live_hint': { sv: 'Full live-tävling visar monitorer, liveflöden och hela ordinarie navigeringen.', en: 'Full live competition shows monitors, live feeds, and the full standard navigation.' },
+    'competition_mode_field_hint': { sv: 'Fältläge döljer monitorer och andra live-only sidor. Funktionärer kan fortfarande rapportera in resultat manuellt.', en: 'Field mode hides monitors and other live-only pages. Officials can still report results manually.' },
+    'competition_mode_intro_hint': { sv: 'Full live-tävling visar monitorer och liveflöden. Fältläge döljer live-only sidor och lyfter fram sekretariatet.', en: 'Full live competition shows monitors and live feeds. Field mode hides live-only pages and highlights the secretariat.' },
+    'secretariat_precision_title': { sv: 'Sekretariat Precision', en: 'Secretariat Precision' },
+    'secretariat_marathon_title': { sv: 'Sekretariat Maraton', en: 'Secretariat Marathon' },
+    'secretariat_dressage_title': { sv: 'Sekretariat Dressyr', en: 'Secretariat Dressage' },
+    'secretariat': { sv: 'Sekretariat', en: 'Secretariat' },
+    'dressage_role': { sv: 'Dressyr', en: 'Dressage' },
+    'marathon_role': { sv: 'Maraton', en: 'Marathon' },
+    'save_all': { sv: 'Spara alla', en: 'Save all' },
+    'undo_all': { sv: 'Ångra alla', en: 'Undo all' },
+    'unlock_entry': { sv: 'Lås upp ekipage', en: 'Unlock entry' },
+    'unlock_in_header': { sv: 'Lås upp i headern', en: 'Unlock in the header' },
+    'secretariat_dressage_details': { sv: 'Sekretariat Dressyr Detaljer', en: 'Secretariat Dressage Details' },
     'kusk': { sv: 'Kusk', en: 'Driver' },
     'klubb': { sv: 'Klubb', en: 'Club' },
     'hast_ponny': { sv: 'Häst/Ponny', en: 'Horse/Pony' },
@@ -969,26 +1020,31 @@ export function toggleLanguage() {
     location.reload();
 }
 
+export function setLanguage(next) {
+    const normalized = next === 'en' ? 'en' : 'sv';
+    const current = localStorage.getItem('user_lang_pref') || 'sv';
+    if (current === normalized) return;
+    localStorage.setItem('user_lang_pref', normalized);
+    location.reload();
+}
+
 /**
  * Initializes the language toggle button state.
  */
 export function initLanguageToggle() {
-    const btn = document.getElementById('langToggle');
-    if (!btn) return;
+    const host = document.getElementById('langToggle');
+    if (!host) return;
 
     const current = localStorage.getItem('user_lang_pref') || 'sv';
     const isEn = current === 'en';
 
-    // SVG Flags (Data URIs or inline helper)
-    // Sweden: Blue background, yellow cross
-    const svFlag = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-6 rounded-sm shadow-sm" viewBox="0 0 16 10">
+    const svFlag = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-6 rounded-sm shadow-sm" viewBox="0 0 16 10" aria-hidden="true">
         <rect width="16" height="10" fill="#006aa7"/>
         <rect width="2" height="10" x="5" fill="#fecc00"/>
         <rect width="16" height="2" y="4" fill="#fecc00"/>
     </svg>`;
 
-    // UK: Union Jack (Simplified for icon scale)
-    const enFlag = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-6 rounded-sm shadow-sm" viewBox="0 0 60 30">
+    const enFlag = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-6 rounded-sm shadow-sm" viewBox="0 0 60 30" aria-hidden="true">
         <clipPath id="t"><path d="M30,15h30v15zv15h-30zh-30v-15zv-15h30z"/></clipPath>
         <path d="M0,0v30h60v-30z" fill="#00247d"/>
         <path d="M0,0l60,30m0-30l-60,30" stroke="#fff" stroke-width="6"/>
@@ -997,18 +1053,29 @@ export function initLanguageToggle() {
         <path d="M30,0v30m-30-15h60" stroke="#cf142b" stroke-width="6"/>
     </svg>`;
 
-    // Show current language state
-    const flag = isEn ? enFlag : svFlag;
-    const text = isEn ? 'English' : 'Svenska';
+    host.innerHTML = `
+      <button type="button"
+        class="lang-flag-btn ${!isEn ? 'is-active' : ''}"
+        data-lang="sv"
+        title="Byt till svenska"
+        aria-label="Byt till svenska"
+        aria-pressed="${!isEn}">
+        ${svFlag}
+      </button>
+      <button type="button"
+        class="lang-flag-btn ${isEn ? 'is-active' : ''}"
+        data-lang="en"
+        title="Switch to English"
+        aria-label="Switch to English"
+        aria-pressed="${isEn}">
+        ${enFlag}
+      </button>
+    `;
 
-    // Use innerHTML to support the styling structure
-    btn.innerHTML = `${flag} <span class="font-bold text-gray-700">${text}</span>`;
-
-    // Add tooltip
-    btn.title = isEn ? 'Switch to Swedish' : 'Switch to English';
-
-    btn.onclick = (e) => {
-        e.preventDefault();
-        toggleLanguage();
-    };
+    host.querySelectorAll('.lang-flag-btn').forEach((btn) => {
+        btn.onclick = (e) => {
+            e.preventDefault();
+            setLanguage(btn.dataset.lang);
+        };
+    });
 }

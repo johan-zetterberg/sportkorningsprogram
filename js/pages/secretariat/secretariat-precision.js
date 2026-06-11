@@ -1,5 +1,6 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
 import {
   clearRowDirty,
   derivePrecisionStatus,
@@ -9,6 +10,7 @@ import {
   initializeToolbarInteractions,
   markRowDirty,
   parseEditableTime,
+  renderFieldModeBanner,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -96,10 +98,10 @@ function buildTableRows() {
         <td class="px-3 py-3 text-sm whitespace-nowrap">
           <div class="flex flex-col gap-2">
             ${readOnly ? `
-              <button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">Lås upp</button>
+              <button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">${escapeHtml(t('unlock'))}</button>
             ` : `
               <button data-action="save" class="rounded bg-brand-darkblue text-white px-3 py-1.5 text-xs font-semibold hover:opacity-90">Spara</button>
-              <button data-action="reset" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Ångra</button>
+              <button data-action="reset" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">${escapeHtml(t('undo'))}</button>
               <button data-action="finalize" class="rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">Finalisera</button>
             `}
           </div>
@@ -120,7 +122,10 @@ function render() {
 
   rootEl.innerHTML = `
     <div class="min-w-[1520px] max-w-none mx-auto px-4 py-4">
-      ${getCompetitionHeader(competition, 'Sekretariat Precision')}
+      ${getCompetitionHeader(competition, t('secretariat_precision_title'))}
+      ${renderFieldModeBanner(competition, {
+        message: 'Tävlingen körs i fältläge. Registrera tider och straff manuellt här och använd sekretariatet för upplåsning och återfinalisering.',
+      })}
       <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
         <div class="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
           <div>
@@ -150,7 +155,7 @@ function render() {
                 <th class="px-3 py-3">Totalt</th>
                 <th class="px-3 py-3">Elim.</th>
                 <th class="px-3 py-3">Kommentar</th>
-                <th class="px-3 py-3">Status</th>
+                <th class="px-3 py-3">${escapeHtml(t('status'))}</th>
                 <th class="px-3 py-3">Åtgärder</th>
               </tr>
             </thead>

@@ -133,16 +133,46 @@ export function updateClubLogo(name, url) {
   _clubLogoMap[String(name || '').trim().toLowerCase()] = url;
 }
 
+function shouldUseCors(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url, window.location.href);
+    return u.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 export async function fetchImageDataUrl(url) {
   if (!url) return null;
   try {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (shouldUseCors(url)) {
+      img.crossOrigin = 'anonymous';
+    }
     img.src = url;
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+
+    // Skala ner bilder till max 300px för att undvika gigantiska PDF-filer
+    const maxDim = 300;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+
     const c = document.createElement('canvas');
-    c.width = img.naturalWidth; c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img, 0, 0);
-    return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return { dataUrl: c.toDataURL('image/jpeg', 0.85), w, h };
   } catch { return null; }
 }

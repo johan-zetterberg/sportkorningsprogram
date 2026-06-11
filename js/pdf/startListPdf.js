@@ -16,7 +16,7 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     const { jsPDF } = window.jspdf;
     if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
 
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', compress: true });
     const pageWidth = doc.internal.pageSize.getWidth();
     let y = 30;
 
@@ -46,8 +46,8 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     if (type === 'dressage') disciplineTitle = `DRESSAGE - ${t('startlist', isInt).toUpperCase()}`;
     else if (type === 'marathon') disciplineTitle = `MARATHON - ${t('startlist', isInt).toUpperCase()}`;
     else if (type === 'precision') disciplineTitle = `CONES - ${t('startlist', isInt).toUpperCase()}`;
-    else if (type === 'participants') disciplineTitle = t('startlist', isInt).toUpperCase(); // Or "PARTICIPANTS" if key added
-    else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA'; // Keep Swedish/Custom for now or add key
+    else if (type === 'participants') disciplineTitle = t('startlist', isInt).toUpperCase();
+    else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA';
 
     // Override for Swedish if not Int
     if (!isInt) {
@@ -93,7 +93,6 @@ export async function generateStartListPdf(rows, type, competition, options = {}
             3: { cellWidth: 180, cellPadding: { top: 3, bottom: 3, left: 35, right: 3 } } // Land/Klubb
         };
     } else if (type === 'horselist') {
-        // Kolumner: Häst, Ras, Kön, Ålder, Kategori, Härstamning, Ägare, Kusk
         headers = [['Häst', 'Ras', 'Kön', 'Ålder', 'Kat', 'Härstamning', 'Ägare', 'Kusk']];
         colStyles = {
             0: { cellWidth: 90, fontStyle: 'bold' }, // Häst
@@ -119,13 +118,10 @@ export async function generateStartListPdf(rows, type, competition, options = {}
         columnStyles: colStyles,
         margin: { left: 40, right: 40 },
         didDrawCell: (data) => {
-            // Draw Logos in 'Land/Klubb' column
-            // index 4 in startlist, index 3 in participants
-            // Logic: if type is participants, club col is index 3.
             const clubColIdx = type === 'participants' ? 3 : 4;
 
             if (data.section === 'body' && data.column.index === clubColIdx) {
-                const cellText = data.cell.text[0]; // Club name usually
+                const cellText = data.cell.text[0];
                 if (!cellText) return;
 
                 const matchedRow = rowSources[data.row.index];
@@ -140,11 +136,11 @@ export async function generateStartListPdf(rows, type, competition, options = {}
                     const clubW = 12, clubH = 12;
 
                     if (flagUrl) {
-                        doc.addImage(flagUrl, 'PNG', xPos, yPos + (clubH - flagH) / 2, flagW, flagH);
+                        doc.addImage(flagUrl, 'JPEG', xPos, yPos + (clubH - flagH) / 2, flagW, flagH);
                         xPos += flagW + 4;
                     }
                     if (clubUrl) {
-                        doc.addImage(clubUrl, 'PNG', xPos, yPos, clubW, clubH);
+                        doc.addImage(clubUrl, 'JPEG', xPos, yPos, clubW, clubH);
                     }
                 }
             }

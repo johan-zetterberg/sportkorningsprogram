@@ -1,4 +1,5 @@
-import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
+import { getCompetitionHeader } from '../../ui/components.js';
+import { t as translate } from '../../utils/i18n.js';
 
 const MOBILE_BP = 500;
 
@@ -121,14 +122,19 @@ export function renderMaratonClassChips({
   activeClassFilters,
   onChange
 }) {
-  const chipHost = document.getElementById('maratonClassChips');
-  if (!chipHost) return;
+  const select = document.getElementById('marClassFilterSelect');
+  if (!select) return;
 
   const labels = [...new Set(equipages.map(e => e._mergedLabel || e.className || '\u2014'))]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'sv'));
-
-  renderResponsiveClassFilter(chipHost, labels, activeClassFilters, onChange);
+  const currentValue = activeClassFilters.size === 1 ? Array.from(activeClassFilters)[0] : '';
+  select.innerHTML = [
+    `<option value="">${translate('all_classes')}</option>`,
+    ...labels.map((label) => `<option value="${label.replace(/"/g, '&quot;')}">${label}</option>`)
+  ].join('');
+  select.value = labels.includes(currentValue) ? currentValue : '';
+  select.onchange = (e) => onChange(e.target.value || '');
 }
 
 export function ensureMarathonResultShell({
@@ -150,8 +156,8 @@ export function ensureMarathonResultShell({
              <h3 id="maratonDateHeader" class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center"></h3>
           </div>
 
-          <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap gap-2 md:gap-3 items-center justify-start transition-colors" id="modeToggle">
-            <div class="relative flex-grow max-w-full sm:max-w-[200px] flex-shrink-0">
+          <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
+            <div class="relative w-full md:w-[240px] flex-shrink-0 min-w-0">
                  <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
                     <svg class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                  </div>
@@ -161,35 +167,32 @@ export function ensureMarathonResultShell({
                   >
             </div>
 
-            <div class="hidden md:inline-flex shadow-sm rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex-shrink-0">
-                <button id="marBtnStartOrder" data-mode="startorder" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('start_order')}</button>
-                <button id="marBtnByClass" data-mode="byclass" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('view_by_class_short')}</button>
-            </div>
-
-            <div class="md:hidden relative w-[110px] flex-shrink-0">
-                 <select id="mobileSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs appearance-none">
-                     <option value="byclass">${t('view_by_class_short')}</option>
+            <div class="relative w-[150px] flex-shrink-0">
+                 <select id="marSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
                      <option value="startorder">${t('start_order')}</option>
+                     <option value="byclass">${t('view_by_class_short')}</option>
                  </select>
                  <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                  </div>
             </div>
 
-            <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1 hidden md:block"></div>
+            <div class="relative w-[180px] flex-shrink-0">
+                 <select id="marClassFilterSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
+                     <option value="">${t('all_classes')}</option>
+                 </select>
+                 <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+                     <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                 </div>
+            </div>
 
             <button id="marToggleOnB" class="px-2 py-1.5 md:px-3 text-xs md:text-sm font-medium rounded border transition-colors flex-shrink-0"></button>
-            <button id="marToggleFinalized" class="hidden md:inline-flex px-3 py-1.5 text-xs md:text-sm font-medium rounded border transition-colors"></button>
-
-            <label class="md:hidden flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0">
-                 <input type="checkbox" id="mobileFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5" />
-                 <span id="mobileFinalizedLabel">${t('filter_finished')}</span>
+            <label class="flex items-center gap-1.5 text-xs md:text-sm text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0 whitespace-nowrap">
+                 <input type="checkbox" id="marFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
+                 <span>${t('finalized_short')}</span>
             </label>
 
-            <div id="maratonClassChips" class="flex-shrink-0 z-10 w-[130px] sm:w-auto"></div>
-            <div class="flex-grow hidden sm:block"></div>
-
-            <div class="flex-shrink-0 flex items-center gap-2 justify-end border-t border-gray-100 sm:border-0 pt-2 sm:pt-0 dark:border-gray-700 w-full sm:w-auto">
+            <div class="flex-shrink-0 flex items-center gap-2 justify-end md:ml-auto w-auto">
                 <button id="marBtnExportCsv"
                   class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
                    <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
@@ -198,7 +201,7 @@ export function ensureMarathonResultShell({
                 <button id="marBtnExportMarathonPdf"
                   class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
                   <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                   Skriv ut PDF
+                   PDF
                 </button>
             </div>
           </div>

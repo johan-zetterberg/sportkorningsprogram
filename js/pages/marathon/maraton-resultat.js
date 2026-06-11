@@ -1,6 +1,7 @@
 // js/pages/maraton-resultat.js
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
+import { finalizeMarathon, unfinalizeMarathon } from '../../services/finalizationService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getMarathonTimingData, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
 import { collection, onSnapshot, updateDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -107,9 +108,8 @@ function renderMaratonClassChips() {
     equipages: maraton_equipages,
     activeClassFilters: maraton_activeClassFilters,
     onChange: (lbl) => {
-      if (maraton_activeClassFilters.has(lbl)) {
-        maraton_activeClassFilters.delete(lbl);
-      } else {
+      maraton_activeClassFilters.clear();
+      if (lbl) {
         maraton_activeClassFilters.add(lbl);
       }
       render();
@@ -198,8 +198,7 @@ function isMarathonFinalized(sn) {
 
 // Åtgärder (samma behörighetskontroll som i dressyr)
 export function __finalizeMaraton(compId, sn) {
-  const ref = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'maraton', String(sn));
-  updateDoc(ref, { finalized: true, status: 'Klar', updatedAt: serverTimestamp() })
+  finalizeMarathon(compId, sn)
     .catch(err => {
       console.error('Finalize failed:', err);
       if (window.showAlert) window.showAlert('Kunde inte finalisera resultatet.', false);
@@ -208,8 +207,7 @@ export function __finalizeMaraton(compId, sn) {
 window.__finalizeMaraton = __finalizeMaraton;
 
 export function __unfinalizeMaraton(compId, sn) {
-  const ref = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'maraton', String(sn));
-  updateDoc(ref, { finalized: false, updatedAt: serverTimestamp() })
+  unfinalizeMarathon(compId, sn)
     .catch(err => {
       console.error('Unfinalize failed:', err);
       if (window.showAlert) window.showAlert('Kunde inte ångra finalisering.', false);
@@ -364,35 +362,21 @@ function renderTable() {
   const dateEl = document.getElementById('maratonDateHeader');
   if (dateEl) dateEl.innerText = marathonDateStr || '';
 
-  const btnStartOrder = document.getElementById('marBtnStartOrder');
-  const btnByClass = document.getElementById('marBtnByClass');
-  if (btnStartOrder) {
-    btnStartOrder.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${!isClass ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
-  }
-  if (btnByClass) {
-    btnByClass.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${isClass ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
-  }
-
   const btnOnB = document.getElementById('marToggleOnB');
   if (btnOnB) {
     btnOnB.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${isOnB ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
-    btnOnB.innerText = isOnB ? t('show_all') : t('filter_on_course');
+    btnOnB.innerText = isOnB ? t('show_all') : 'På B';
   }
 
-  const btnFin = document.getElementById('marToggleFinalized');
-  if (btnFin) {
-    btnFin.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${isFin ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
-    btnFin.innerText = isFin ? t('show_all') : t('filter_finished');
+  const sortSelect = document.getElementById('marSortSelect');
+  if (sortSelect && sortSelect.value !== maraton_viewMode) {
+      sortSelect.value = maraton_viewMode;
   }
-
-  const mobSort = document.getElementById('mobileSortSelect');
-  if (mobSort && mobSort.value !== maraton_viewMode) {
-      mobSort.value = maraton_viewMode;
+  const finCheck = document.getElementById('marFinalizedCheck');
+  if (finCheck && finCheck.checked !== isFin) {
+      finCheck.checked = isFin;
   }
-  const mobFin = document.getElementById('mobileFinalizedCheck');
-  if (mobFin && mobFin.checked !== isFin) {
-      mobFin.checked = isFin;
-  }
+  renderMaratonClassChips();
 
   // --- 3. DYNAMIC CONTENT ---
   const tableHead = document.getElementById('marathonTableHead');
@@ -559,7 +543,6 @@ function wireControls() {
   wireMarathonResultControls({
     setViewMode: (value) => { maraton_viewMode = value; },
     setSearchQuery: (value) => { maraton_searchQuery = value; },
-    toggleFinalized: () => { maraton_showOnlyFinalized = !maraton_showOnlyFinalized; },
     toggleOnB: () => { maraton_showOnlyOnB = !maraton_showOnlyOnB; },
     setShowOnlyFinalized: (value) => { maraton_showOnlyFinalized = value; },
     render,

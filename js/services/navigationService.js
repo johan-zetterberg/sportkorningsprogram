@@ -1,4 +1,5 @@
-import { getGlobalState, setGlobalState } from '../main.js';
+import { getCompetitionMode, getGlobalState, refreshUserCompRole, setGlobalState } from '../main.js';
+import { getCompetitionById } from './competitionService.js';
 import { getPageUnloadFunction, isStaleNavigation } from './navigationLifecycleUtils.js';
 
 let __currentPageModule = null; // spåra aktiv modul
@@ -82,7 +83,37 @@ const pageLoaders = {
   'official': () => import('../pages/shared/official.js'),
 };
 
+const pageModeRequirements = {
+  'dressyr-monitor': 'live',
+  'maraton-monitor': 'live',
+  'precision-monitor': 'live',
+  'observator-input': 'live',
+  'precision-split-input': 'live'
+};
+
+const pageModeRedirects = {
+  'dressyr-monitor': '#dressyr-results',
+  'maraton-monitor': '#maraton-results',
+  'precision-monitor': '#precision-results',
+  'observator-input': '#maraton-results',
+  'precision-split-input': '#precision-input'
+};
+
 let pageInitializers = {};
+
+function getRequestedCompetitionIdFromHash(hash) {
+  try {
+    const hashQuery = String(hash || '').split('?')[1] || '';
+    const hashParams = new URLSearchParams(hashQuery);
+    const hashId = hashParams.get('id');
+    if (hashId) return hashId;
+
+    const searchParams = new URLSearchParams(window.location.search || '');
+    return searchParams.get('id');
+  } catch {
+    return null;
+  }
+}
 
 export async function navigateTo(hash) {
   const navigationId = ++__navigationId;
@@ -94,10 +125,27 @@ export async function navigateTo(hash) {
 
   try { localStorage.setItem('lastPageId', routeHash || '#hub'); } catch (_) { }
 
+  if (pageKey !== 'hub' && !getGlobalState('currentCompetition')) {
+    try {
+      const requestedCompetitionId = getRequestedCompetitionIdFromHash(normalizedHash);
+      const fallbackCompetitionId = localStorage.getItem('lastCompetitionId');
+      const competitionId = requestedCompetitionId || fallbackCompetitionId;
+      if (competitionId) {
+        const comp = await getCompetitionById(competitionId);
+        if (comp) {
+          setGlobalState({ key: 'currentCompetition', value: comp });
+          await refreshUserCompRole();
+        }
+      }
+    } catch (error) {
+      console.warn('Kunde inte återställa tävlingskontext vid navigering:', error);
+    }
+  }
+
   const user = getGlobalState('currentUser');
   const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
   const globalRole = user?.role || 'publik';
-  const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [globalRole];
+  const rolesToCheck = [...new Set([...userCompRoles, globalRole].filter(Boolean))];
   const requiredRoles = pagePermissions[pageId] || [];
 
   // Mappa specifika funktionärsroller till den generella "funktionar"-nivån för page routing
@@ -129,6 +177,17 @@ export async function navigateTo(hash) {
     return;
   }
   document.getElementById('loginModal').style.display = 'none';
+
+  const requiredMode = pageModeRequirements[pageKey];
+  const competitionMode = getCompetitionMode();
+  if (requiredMode && requiredMode !== competitionMode) {
+    const redirectHash = pageModeRedirects[pageKey] || '#hub';
+    if (window.location.hash !== redirectHash) {
+      window.location.hash = redirectHash;
+      return;
+    }
+    return navigateTo(redirectHash);
+  }
 
   if (pageKey === 'hub') {
     pageInitializers = {};

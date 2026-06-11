@@ -177,7 +177,7 @@
               <div
                 class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#dressyr-monitor" class="nav-link block px-4 py-2"
-                  data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
+                  data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
                 <a href="#dressyr-input" class="nav-link block px-4 py-2" data-role-required="dressage,domare,admin"
                   data-i18n="menu_input">Inmatning
                   Dressyr</a>
@@ -192,7 +192,7 @@
               <div
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#maraton-monitor" class="nav-link block px-4 py-2"
-                  data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
+                  data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
                 <a href="#maraton-input" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
                   data-i18n="menu_input_obstacles">Inmatning Hinder</a>
                 <a href="#maraton-tider" class="nav-link block px-4 py-2"
@@ -200,7 +200,7 @@
                 <a href="#maraton-stages" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
                   data-i18n="menu_stages">Maraton – Etapper</a>
                 <a href="#observator-input" class="nav-link block px-4 py-2"
-                  data-role-required="marathon,domare,admin" data-i18n="menu_observer">Observatör</a>
+                  data-role-required="marathon,domare,admin" data-competition-mode="live" data-i18n="menu_observer">Observatör</a>
                 <a href="#maraton-results" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Maraton</a>
               </div>
@@ -212,10 +212,10 @@
               <div
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#precision-monitor" class="nav-link block px-4 py-2"
-                  data-role-required="publik,funktionar,domare,admin" data-i18n="menu_monitor">Live Monitor</a>
+                  data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
                 <a href="#precision-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin"
                   data-i18n="menu_input">Inmatning Precision</a>
-                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin">Inmatning (Observer/Karta)</a>
+                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin" data-competition-mode="live">Inmatning (Observer/Karta)</a>
                 <a href="#precision-results" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Precision</a>
               </div>
@@ -277,11 +277,11 @@
               data-role-required="publik,funktionar,domare,admin" data-i18n="menu_manual">Hjälp / Manual</a>
 
             <!-- Language Toggle (Desktop: Far Right / Mobile: Bottom) -->
-            <button id="langToggle"
-              class="ml-4 flex items-center gap-2 bg-white hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded-full border border-gray-300 shadow-sm transition-all text-sm font-medium"
+            <div id="langToggle"
+              class="app-lang-toggle ml-3 flex items-center gap-1.5"
               title="Byt språk / Switch Language">
               <!-- Content injected by JS -->
-            </button>
+            </div>
 
 
           </div>

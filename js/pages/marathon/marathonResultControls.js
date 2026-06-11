@@ -3,7 +3,6 @@ import { setupMarathonResultExportButtons } from './marathonResultExports.js';
 export function wireMarathonResultControls({
   setViewMode,
   setSearchQuery,
-  toggleFinalized,
   toggleOnB,
   setShowOnlyFinalized,
   render,
@@ -20,29 +19,31 @@ export function wireMarathonResultControls({
   fmtClock,
   sortState
 }) {
-  const btnStart = document.getElementById('marBtnStartOrder');
-  const btnClass = document.getElementById('marBtnByClass');
-  const btnFin = document.getElementById('marToggleFinalized');
   const btnOnB = document.getElementById('marToggleOnB');
-
-  if (btnStart) btnStart.onclick = () => { setViewMode('startorder'); render(); };
-  if (btnClass) btnClass.onclick = () => { setViewMode('byclass'); render(); };
-
-  if (btnFin) btnFin.onclick = () => { toggleFinalized(); render(); };
   if (btnOnB) btnOnB.onclick = () => { toggleOnB(); render(); };
 
-  const mobileSort = document.getElementById('mobileSortSelect');
-  if (mobileSort) {
-    mobileSort.onchange = (e) => {
+  const sortSelect = document.getElementById('marSortSelect');
+  if (sortSelect) {
+    sortSelect.onchange = (e) => {
       setViewMode(e.target.value);
       render();
     };
   }
 
-  const mobileFin = document.getElementById('mobileFinalizedCheck');
-  if (mobileFin) {
-    mobileFin.onchange = (e) => {
+  const finCheck = document.getElementById('marFinalizedCheck');
+  if (finCheck) {
+    finCheck.onchange = (e) => {
       setShowOnlyFinalized(e.target.checked);
+      render();
+    };
+  }
+
+  const classSelect = document.getElementById('marClassFilterSelect');
+  if (classSelect) {
+    classSelect.onchange = (e) => {
+      const value = e.target.value || '';
+      window.maraton_activeClassFilters?.clear();
+      if (value) window.maraton_activeClassFilters?.add(value);
       render();
     };
   }

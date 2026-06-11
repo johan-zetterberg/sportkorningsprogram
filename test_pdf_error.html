@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>PDF Image Diagnostic</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+</head>
+<body style="font-family: monospace; padding: 20px; background: #f3f4f6; color: #1f2937;">
+  <h1>PDF Image Diagnostic</h1>
+  <div id="output" style="white-space: pre; background: #fff; border: 1px solid #ccc; padding: 15px; border-radius: 4px;">Loading...</div>
+
+  <script>
+    const logDiv = document.getElementById('output');
+    function log(msg) {
+      logDiv.textContent += msg + '\n';
+      console.log(msg);
+    }
+    logDiv.textContent = ''; // clear loading
+
+    async function run() {
+      const { jsPDF } = window.jspdf;
+      
+      const tests = [
+        { name: 'SRF Logo (local same-origin)', url: '/assets/logos/SRF.png' },
+        { name: 'Swedish Flag (local same-origin)', url: '/assets/config/../assets/logos/SRF.png' }, // approximation
+      ];
+
+      for (const t of tests) {
+        log(`--- Running test: ${t.name} from URL: ${t.url} ---`);
+        try {
+          const img = new Image();
+          img.crossOrigin = 'anonymous';
+          img.src = t.url;
+          
+          await new Promise((res, rej) => {
+            img.onload = res;
+            img.onerror = (e) => rej(new Error('Image failed to load via src'));
+          });
+          
+          log(`  Image loaded successfully. Dimensions: ${img.naturalWidth}x${img.naturalHeight}`);
+
+          // Try canvas resizing
+          const maxDim = 300;
+          let w = img.naturalWidth;
+          let h = img.naturalHeight;
+          if (w > maxDim || h > maxDim) {
+            if (w > h) {
+              h = Math.round((h * maxDim) / w);
+              w = maxDim;
+            } else {
+              w = Math.round((w * maxDim) / h);
+              h = maxDim;
+            }
+          }
+
+          const c = document.createElement('canvas');
+          c.width = w; c.height = h;
+          c.getContext('2d').drawImage(img, 0, 0, w, h);
+          const dataUrl = c.toDataURL('image/png');
+          log(`  Canvas toDataURL successful. Length: ${dataUrl.length} chars`);
+
+          // Try adding to jsPDF
+          const doc = new jsPDF({ compress: true });
+          doc.addImage(dataUrl, 'PNG', 10, 10, w / 2, h / 2);
+          log(`  jsPDF addImage (PNG) successful.`);
+
+          // Try without canvas (using raw image)
+          const doc2 = new jsPDF({ compress: true });
+          doc2.addImage(img, 'PNG', 10, 10, w / 2, h / 2);
+          log(`  jsPDF addImage (img element directly) successful.`);
+
+        } catch (err) {
+          log(`  ERROR: ${err.message}\n  Stack: ${err.stack}`);
+        }
+      }
+      log('\nDiagnostic complete!');
+    }
+
+    run();
+  </script>
+</body>
+</html>

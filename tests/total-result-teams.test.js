@@ -233,3 +233,116 @@ test('renderTeamCard renders eliminated team total label', () => {
   assert.match(html, /ELIM/);
   assert.doesNotMatch(html, /Lagtotal/);
 });
+
+test('calculateTeamResults calculates team results per discipline separately (different members counting)', () => {
+  const teams = [{
+    id: 'team-1',
+    name: 'Blandklubb',
+    members: ['eq-1', 'eq-2', 'eq-3', 'eq-4']
+  }];
+  const rows = [
+    // eq-1 is best in dressage (30), bad in marathon (90), ok in cones (5)
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 30 }, marathon: { totalPenalty: 90 }, precision: { totalPenalty: 5 }, totalPenalty: 125, isEliminated: false },
+    // eq-2 is ok in dressage (40), best in marathon (40), bad in cones (15)
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 40 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 15 }, totalPenalty: 95, isEliminated: false },
+    // eq-3 is ok in dressage (50), ok in marathon (50), best in cones (2)
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 50 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 2 }, totalPenalty: 102, isEliminated: false },
+    // eq-4 is average (45, 60, 8)
+    { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 45 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 8 }, totalPenalty: 113, isEliminated: false }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows);
+
+  // Best 3 dressage should be: eq-1 (30), eq-2 (40), eq-4 (45) = 115
+  // Best 3 marathon should be: eq-2 (40), eq-3 (50), eq-4 (60) = 150
+  // Best 3 precision should be: eq-3 (2), eq-1 (5), eq-4 (8) = 15
+  // Total: 115 + 150 + 15 = 280
+  assert.equal(team.dressage, 115);
+  assert.equal(team.marathon, 150);
+  assert.equal(team.precision, 15);
+  assert.equal(team.total, 280);
+
+  // Check which members are counting in which disciplines
+  const m1 = team.members.find(m => m.memberId === 'eq-1');
+  const m2 = team.members.find(m => m.memberId === 'eq-2');
+  const m3 = team.members.find(m => m.memberId === 'eq-3');
+  const m4 = team.members.find(m => m.memberId === 'eq-4');
+
+  assert.equal(m1.isCountingDressage, true);
+  assert.equal(m1.isCountingMarathon, false);
+  assert.equal(m1.isCountingPrecision, true);
+  assert.equal(m1.isCounting, true);
+
+  assert.equal(m2.isCountingDressage, true);
+  assert.equal(m2.isCountingMarathon, true);
+  assert.equal(m2.isCountingPrecision, false);
+  assert.equal(m2.isCounting, true);
+
+  assert.equal(m3.isCountingDressage, false);
+  assert.equal(m3.isCountingMarathon, true);
+  assert.equal(m3.isCountingPrecision, true);
+  assert.equal(m3.isCounting, true);
+
+  assert.equal(m4.isCountingDressage, true);
+  assert.equal(m4.isCountingMarathon, true);
+  assert.equal(m4.isCountingPrecision, true);
+  assert.equal(m4.isCounting, true);
+});
+
+test('calculateTeamResults handles partially eliminated members (eliminated in one discipline but counting in another)', () => {
+  const teams = [{
+    id: 'team-1',
+    name: 'Klubb A',
+    members: ['eq-1', 'eq-2', 'eq-3', 'eq-4']
+  }];
+  const rows = [
+    // eq-1 is eliminated in dressage but has 40 in marathon, 5 in cones
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: null }, dressageStatus: 'elim', marathon: { totalPenalty: 40 }, precision: { totalPenalty: 5 }, totalPenalty: null, isEliminated: true },
+    // eq-2 has 40, 50, 10
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 }, totalPenalty: 100, isEliminated: false },
+    // eq-3 has 50, 60, 15
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 50 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 15 }, totalPenalty: 125, isEliminated: false },
+    // eq-4 has 45, 70, 20
+    { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 45 }, marathon: { totalPenalty: 70 }, precision: { totalPenalty: 20 }, totalPenalty: 135, isEliminated: false }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows);
+
+  // Dressage: eq-1 is elim, so only eq-2 (40), eq-3 (50), eq-4 (45) count = 135
+  // Marathon: eq-1 (40) is valid and best! eq-1 (40) + eq-2 (50) + eq-3 (60) = 150
+  // Precision: eq-1 (5) is valid and best! eq-1 (5) + eq-2 (10) + eq-3 (15) = 30
+  // Total should be: 135 + 150 + 30 = 315
+  assert.equal(team.dressage, 135);
+  assert.equal(team.marathon, 150);
+  assert.equal(team.precision, 30);
+  assert.equal(team.total, 315);
+  assert.equal(team.isEliminated, false);
+});
+
+test('calculateTeamResults correctly ranks teams with tie-breakers', () => {
+  const teams = [
+    { id: 'team-tied-1', name: 'Tied Team 1', members: ['eq-1', 'eq-2', 'eq-3'] },
+    { id: 'team-tied-2', name: 'Tied Team 2', members: ['eq-4', 'eq-5', 'eq-6'] }
+  ];
+  const rows = [
+    // Team 1 members
+    { id: 'eq-1', startNumber: 1, driverName: 'A1', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 }, totalPenalty: 100, isEliminated: false, plac: 3 },
+    { id: 'eq-2', startNumber: 2, driverName: 'B1', dressage: { penalty: 45 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 15 }, totalPenalty: 115, isEliminated: false, plac: 5 },
+    { id: 'eq-3', startNumber: 3, driverName: 'C1', dressage: { penalty: 50 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 20 }, totalPenalty: 130, isEliminated: false, plac: 8 },
+
+    // Team 2 members (same totals for dressage, marathon, precision sum, but best individual placement is better: 2nd place vs 3rd place)
+    { id: 'eq-4', startNumber: 4, driverName: 'A2', dressage: { penalty: 35 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 5 }, totalPenalty: 100, isEliminated: false, plac: 2 },
+    { id: 'eq-5', startNumber: 5, driverName: 'B2', dressage: { penalty: 50 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 15 }, totalPenalty: 115, isEliminated: false, plac: 6 },
+    { id: 'eq-6', startNumber: 6, driverName: 'C2', dressage: { penalty: 50 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 25 }, totalPenalty: 130, isEliminated: false, plac: 9 }
+  ];
+
+  // Team 1: dressage = 135, marathon = 165, precision = 45. Total = 345. Best individual plac = 3.
+  // Team 2: dressage = 135, marathon = 165, precision = 45. Total = 345. Best individual plac = 2.
+  // Team 2 should rank first (rank 1) due to better best individual member placement (2 < 3).
+  const sortedTeams = calculateTeamResults(teams, rows);
+
+  assert.equal(sortedTeams[0].teamId, 'team-tied-2');
+  assert.equal(sortedTeams[0].rank, 1);
+  assert.equal(sortedTeams[1].teamId, 'team-tied-1');
+  assert.equal(sortedTeams[1].rank, 2);
+});

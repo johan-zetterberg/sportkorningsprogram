@@ -15,7 +15,7 @@ export async function generateTimecardsPdf(equipages, competition) {
     if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
 
     // A4 Portrait: 595.28 x 841.89 pt
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' });
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4', compress: true });
     const pageWidth = doc.internal.pageSize.getWidth();
     const pageHeight = doc.internal.pageSize.getHeight();
 
@@ -53,7 +53,7 @@ export async function generateTimecardsPdf(equipages, competition) {
             const { w: logoW, h: logoH } = fitImageDimensions(headerLogo, 100, 40);
             const logoX = margin + width - logoW;
             const logoY = startY;
-            doc.addImage(headerLogo.data, 'PNG', logoX, logoY, logoW, logoH);
+            doc.addImage(headerLogo.data, 'JPEG', logoX, logoY, logoW, logoH);
 
             if (!competitionLogo) {
                 doc.setFontSize(6).setFont(undefined, 'normal').setTextColor(0, 50, 150);

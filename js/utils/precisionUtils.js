@@ -4,7 +4,6 @@
 // (Borttagen import från calculationService)
 import { klassTempoData, standardPortAllowance } from '../data/competitionData.js';
 import { getFlagHtml } from '../services/flagsService.js';
-import { getClubLogoHtml } from '../services/logosService.js';
 import {
     isNum,
     msToLabel,
@@ -15,12 +14,18 @@ import {
     computeTotalPenalty,
     fmt2
 } from './sharedUtils.js';
-import { getGlobalState } from '../main.js';
 import {
     calculatePrecisionResult as _calculatePrecisionResult,
     calculatePrecisionTimePenalty as _calculatePrecisionTimePenalty,
     computeMaxSecondsForClass as _pureComputeMaxSecondsForClass
 } from './precisionCalculation.js';
+
+function getBrowserGlobalState(key) {
+    if (typeof window !== 'undefined' && typeof window.getGlobalState === 'function') {
+        return window.getGlobalState(key);
+    }
+    return null;
+}
 
 function getClassName(value) {
     return typeof value === 'string' ? value : (value?.className || '');
@@ -229,7 +234,7 @@ export function startTimeFor(startNumber, startTimes) {
  * @returns {Object} Calculated result object.
  */
 export function calculatePrecisionResult(data, equipage, config = {}) {
-    const comp = getGlobalState ? getGlobalState('currentCompetition') : null;
+    const comp = getBrowserGlobalState('currentCompetition');
     return _calculatePrecisionResult(data, equipage, config, { currentCompetition: comp });
 }
 

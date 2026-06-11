@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DriveLive - Test Runner</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-pass: #10b981;
+            --accent-fail: #ef4444;
+            --accent-blue: #3b82f6;
+            --accent-yellow: #eab308;
+            --card-border: rgba(255, 255, 255, 0.05);
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            padding: 2rem;
+            min-height: 100vh;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        header {
+            margin-bottom: 2rem;
+            text-align: center;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #60a5fa, #3b82f6, #1d4ed8);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 0.5rem;
+        }
+
+        p.subtitle {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .summary-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--card-border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 2rem;
+            display: flex;
+            justify-content: space-around;
+            text-align: center;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        .summary-stat {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .stat-value {
+            font-size: 2.5rem;
+            font-weight: 800;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-top: 0.25rem;
+        }
+
+        .test-list {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .test-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--card-border);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .test-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.3);
+        }
+
+        .test-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .test-name {
+            font-size: 1.1rem;
+            font-weight: 600;
+        }
+
+        .badge {
+            padding: 0.25rem 0.75rem;
+            border-radius: 2rem;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .badge-pass {
+            background-color: rgba(16, 185, 129, 0.15);
+            color: var(--accent-pass);
+            border: 1px solid rgba(16, 185, 129, 0.3);
+        }
+
+        .badge-fail {
+            background-color: rgba(239, 68, 68, 0.15);
+            color: var(--accent-fail);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+        }
+
+        .test-error {
+            font-family: 'JetBrains Mono', monospace;
+            background-color: rgba(0, 0, 0, 0.2);
+            padding: 0.75rem;
+            border-radius: 0.5rem;
+            font-size: 0.85rem;
+            color: #fca5a5;
+            border-left: 3px solid var(--accent-fail);
+            white-space: pre-wrap;
+            word-break: break-all;
+            margin-top: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>DriveLive Test Runner</h1>
+            <p class="subtitle">Kör enhetstester för lagberäkning och rendering i webbläsaren</p>
+        </header>
+
+        <div class="summary-card">
+            <div class="summary-stat">
+                <span class="stat-value" id="stat-total">0</span>
+                <span class="stat-label">Totalt</span>
+            </div>
+            <div class="summary-stat">
+                <span class="stat-value" id="stat-passed" style="color: var(--accent-pass)">0</span>
+                <span class="stat-label">Passerade</span>
+            </div>
+            <div class="summary-stat">
+                <span class="stat-value" id="stat-failed" style="color: var(--accent-fail)">0</span>
+                <span class="stat-label">Misslyckade</span>
+            </div>
+        </div>
+
+        <div class="test-list" id="test-list">
+            <!-- Tests will render here -->
+        </div>
+    </div>
+
+    <script type="module">
+        import {
+          buildProcessedTotalTeams,
+          buildTeamDisciplineBests,
+          formatTeamScore,
+          getTeamCardBorderClass,
+          getTeamMemberTextClass,
+          getTeamMemberTotalTextClass,
+          isBestTeamDiscipline,
+          renderTeamDisciplineSummaryCell,
+          renderTeamCard,
+          renderTeamMemberRow,
+          renderTeamMemberStatusIcon,
+          renderTeamRankBadge,
+          renderTeamSummaryFooter
+        } from '../js/pages/shared/totalResultTeams.js';
+        
+        import { calculateTeamResults } from '../js/services/teamCalculationService.js';
+
+        // Quick assertion helpers
+        const assert = {
+            equal(a, b, msg = '') {
+                if (a !== b) {
+                    throw new Error(`Förväntade [${a}] (av typ ${typeof a}) att vara lika med [${b}] (av typ ${typeof b}). ${msg}`);
+                }
+            },
+            deepEqual(a, b, msg = '') {
+                const strA = JSON.stringify(a);
+                const strB = JSON.stringify(b);
+                if (strA !== strB) {
+                    throw new Error(`Förväntade [${strA}] att vara djupt lika med [${strB}]. ${msg}`);
+                }
+            },
+            throws(fn, regex, msg = '') {
+                try {
+                    fn();
+                } catch (err) {
+                    if (regex && !regex.test(err.message)) {
+                        throw new Error(`Fel kastades, men meddelandet "${err.message}" matchade inte regex ${regex}. ${msg}`);
+                    }
+                    return; // Pass
+                }
+                throw new Error(`Förväntade att funktionen skulle kasta ett fel, men det gjorde den inte. ${msg}`);
+            },
+            match(str, regex, msg = '') {
+                if (!regex.test(str)) {
+                    throw new Error(`Förväntade "${str}" att matcha regex ${regex}. ${msg}`);
+                }
+            },
+            doesNotMatch(str, regex, msg = '') {
+                if (regex.test(str)) {
+                    throw new Error(`Förväntade "${str}" att INTE matcha regex ${regex}. ${msg}`);
+                }
+            }
+        };
+
+        const testSuite = [];
+        function test(name, fn) {
+            testSuite.push({ name, fn });
+        }
+
+        // --- Ported Test Definitions ---
+
+        test('buildProcessedTotalTeams delegates to team calculation service', () => {
+            const rawTeams = [{ id: 'team-1' }];
+            const processedResults = [{ id: 'eq-1', totalPenalty: 10 }];
+            const calls = [];
+
+            const result = buildProcessedTotalTeams({
+                rawTeams,
+                processedResults,
+                calculateTeamResults: (...args) => {
+                    calls.push(args);
+                    return [{ teamId: 'team-1', total: 10 }];
+                }
+            });
+
+            assert.deepEqual(calls[0], [rawTeams, processedResults]);
+            assert.deepEqual(result, [{ teamId: 'team-1', total: 10 }]);
+        });
+
+        test('buildProcessedTotalTeams requires a calculation function', () => {
+            assert.throws(() => buildProcessedTotalTeams(), /calculateTeamResults saknas/);
+        });
+
+        test('calculateTeamResults keeps dressage-only teams incomplete instead of eliminated', () => {
+            const teams = [{
+                id: 'team-1',
+                name: 'Dressyrklubb',
+                members: ['eq-1', 'eq-2']
+            }];
+            const rows = [
+                { id: 'eq-1', startNumber: 1, driverName: 'Anna', dressage: { penalty: 42.5 }, marathon: {}, precision: {}, totalPenalty: null, isEliminated: false },
+                { id: 'eq-2', startNumber: 2, driverName: 'Bo', dressage: { penalty: 40 }, marathon: {}, precision: {}, totalPenalty: null, isEliminated: false }
+            ];
+
+            const [team] = calculateTeamResults(teams, rows);
+
+            assert.equal(team.isEliminated, false);
+            assert.equal(team.isIncomplete, true);
+            assert.equal(team.total, null);
+            assert.equal(team.dressage, 82.5);
+            assert.equal(team.members[0].isCounting, true);
+            assert.equal(team.members[0].penalty, null);
+        });
+
+        test('buildTeamDisciplineBests ignores eliminated teams', () => {
+            const bests = buildTeamDisciplineBests([
+                { teamName: 'A', dressage: 30, marathon: 40, precision: 5, isEliminated: false },
+                { teamName: 'B', dressage: 20, marathon: 30, precision: 4, isEliminated: true },
+                { teamName: 'C', dressage: 28, marathon: 42, precision: 3, isEliminated: false }
+            ]);
+
+            assert.deepEqual(bests, {
+                dressage: 28,
+                marathon: 40,
+                precision: 3
+            });
+        });
+
+        test('isBestTeamDiscipline matches finite best values with tolerance', () => {
+            const bests = { dressage: 28 };
+
+            assert.equal(isBestTeamDiscipline({ dressage: 28.004, isEliminated: false }, 'dressage', bests), true);
+            assert.equal(isBestTeamDiscipline({ dressage: 28.02, isEliminated: false }, 'dressage', bests), false);
+            assert.equal(isBestTeamDiscipline({ dressage: 28, isEliminated: true }, 'dressage', bests), true);
+            assert.equal(isBestTeamDiscipline({ dressage: 0, isEliminated: true }, 'dressage', bests), false);
+        });
+
+        test('renderTeamRankBadge renders elimination, podium and numeric rank states', () => {
+            assert.match(renderTeamRankBadge({ isEliminated: true }, 0), /ELIM/);
+            assert.match(renderTeamRankBadge({ isEliminated: false, isIncomplete: true }, 0), /Pågår/);
+            assert.match(renderTeamRankBadge({ isEliminated: false, rank: 1 }, 0), /1:a plats/);
+            assert.match(renderTeamRankBadge({ isEliminated: false, rank: 2 }, 1), /2:a plats/);
+            assert.match(renderTeamRankBadge({ isEliminated: false, rank: 3 }, 2), /3:e plats/);
+            assert.match(renderTeamRankBadge({ isEliminated: false, rank: 4 }, 3), />4</);
+        });
+
+        test('formatTeamScore handles eliminated and missing values', () => {
+            assert.equal(formatTeamScore(12.345), '12.35');
+            assert.equal(formatTeamScore(12.345, { eliminated: true }), '-');
+            assert.equal(formatTeamScore(12.345, { eliminated: true, eliminatedLabel: 'ELIM' }), 'ELIM');
+            assert.equal(formatTeamScore(null), '-');
+        });
+
+        test('getTeamCardBorderClass highlights only the leading active team', () => {
+            assert.match(getTeamCardBorderClass({ isEliminated: false }, 0), /border-amber/);
+            assert.equal(getTeamCardBorderClass({ isEliminated: false }, 1), 'dark:border-gray-700');
+            assert.equal(getTeamCardBorderClass({ isEliminated: true }, 0), 'dark:border-gray-700');
+            assert.equal(getTeamCardBorderClass({ isEliminated: false, isIncomplete: true }, 0), 'dark:border-gray-700');
+        });
+
+        test('renderTeamMemberStatusIcon renders eliminated, counting and non-counting states', () => {
+            assert.match(renderTeamMemberStatusIcon({ eliminated: true }), /fa-times/);
+            assert.match(renderTeamMemberStatusIcon({ isCounting: true }), /fa-check-circle/);
+            assert.match(renderTeamMemberStatusIcon({ isCounting: false }), /text-gray-300/);
+        });
+
+        test('team member class helpers distinguish counting and non-counting members', () => {
+            assert.match(getTeamMemberTextClass({ isCounting: true }), /font-semibold/);
+            assert.match(getTeamMemberTextClass({ isCounting: false }), /italic/);
+            assert.match(getTeamMemberTotalTextClass({ isCounting: true }), /text-gray-800/);
+            assert.equal(getTeamMemberTotalTextClass({ isCounting: false }), 'text-gray-400');
+        });
+
+        test('renderTeamMemberRow renders member details and injected assets', () => {
+            const html = renderTeamMemberRow({
+                startNumber: 12,
+                name: 'Anna Andersson',
+                penalty: 15.5,
+                dressage: 8,
+                marathon: 5,
+                precision: 2.5,
+                isCounting: true,
+                eliminated: false
+            }, {
+                flagHtml: '<span>SE</span>',
+                clubLogoHtml: '<img alt="club">',
+                clubName: 'Lunds KK'
+            });
+
+            assert.match(html, /data-start="12"/);
+            assert.match(html, /Anna Andersson/);
+            assert.match(html, /Lunds KK/);
+            assert.match(html, /15.50/);
+            assert.match(html, /<span>SE<\/span>/);
+            assert.match(html, /<img alt="club">/);
+        });
+
+        test('renderTeamMemberRow renders eliminated member scores', () => {
+            const html = renderTeamMemberRow({
+                startNumber: 13,
+                name: 'Bo',
+                penalty: 15.5,
+                dressage: 8,
+                marathon: 5,
+                precision: 2.5,
+                eliminated: true
+            });
+
+            assert.match(html, /ELIM/);
+            assert.match(html, /fa-times/);
+        });
+
+        test('renderTeamDisciplineSummaryCell highlights best score', () => {
+            const html = renderTeamDisciplineSummaryCell({
+                value: 12.3,
+                isBest: true,
+                title: 'Best'
+            });
+
+            assert.match(html, /12.30/);
+            assert.match(html, /fa-star/);
+            assert.match(html, /Best/);
+        });
+
+        test('renderTeamSummaryFooter renders team sums and eliminated totals', () => {
+            const active = renderTeamSummaryFooter({
+                dressage: 10,
+                marathon: 20,
+                precision: 3,
+                total: 33,
+                isEliminated: false
+            }, {
+                isBestDressage: true
+            });
+
+            assert.match(active, /Bästa 3/);
+            assert.match(active, /10.00/);
+            assert.match(active, /33.00/);
+            assert.match(active, /fa-star/);
+
+            const eliminated = renderTeamSummaryFooter({
+                dressage: 10,
+                marathon: 20,
+                precision: 3,
+                total: 33,
+                isEliminated: true
+            });
+
+            assert.doesNotMatch(eliminated, /33.00/);
+            assert.match(eliminated, />\s*-\s*<\/div>/);
+        });
+
+        test('renderTeamCard renders header, members and summary footer', () => {
+            const html = renderTeamCard({
+                teamName: 'Lunds KK',
+                rank: 1,
+                total: 33,
+                dressage: 10,
+                marathon: 20,
+                precision: 3,
+                isEliminated: false
+            }, {
+                index: 0,
+                teamBests: { dressage: 10, marathon: 20, precision: 3 },
+                teamAssetHtml: '<img alt="team">',
+                membersHtml: '<div data-start="12">Anna</div>'
+            });
+
+            assert.match(html, /Lunds KK/);
+            assert.match(html, /Lagtotal/);
+            assert.match(html, /33.00/);
+            assert.match(html, /<img alt="team">/);
+            assert.match(html, /data-start="12"/);
+            assert.match(html, /fa-star/);
+        });
+
+        test('renderTeamCard renders eliminated team total label', () => {
+            const html = renderTeamCard({
+                teamName: 'Eliminerat lag',
+                total: 33,
+                isEliminated: true
+            });
+
+            assert.match(html, /ELIM/);
+            assert.doesNotMatch(html, /Lagtotal/);
+        });
+
+        test('calculateTeamResults calculates team results per discipline separately (different members counting)', () => {
+            const teams = [{
+                id: 'team-1',
+                name: 'Blandklubb',
+                members: ['eq-1', 'eq-2', 'eq-3', 'eq-4']
+            }];
+            const rows = [
+                { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 30 }, marathon: { totalPenalty: 90 }, precision: { totalPenalty: 5 }, totalPenalty: 125, isEliminated: false },
+                { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 40 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 15 }, totalPenalty: 95, isEliminated: false },
+                { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 50 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 2 }, totalPenalty: 102, isEliminated: false },
+                { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 45 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 8 }, totalPenalty: 113, isEliminated: false }
+            ];
+
+            const [team] = calculateTeamResults(teams, rows);
+
+            assert.equal(team.dressage, 115);
+            assert.equal(team.marathon, 150);
+            assert.equal(team.precision, 15);
+            assert.equal(team.total, 280);
+
+            const m1 = team.members.find(m => m.memberId === 'eq-1');
+            const m2 = team.members.find(m => m.memberId === 'eq-2');
+            const m3 = team.members.find(m => m.memberId === 'eq-3');
+            const m4 = team.members.find(m => m.memberId === 'eq-4');
+
+            assert.equal(m1.isCountingDressage, true);
+            assert.equal(m1.isCountingMarathon, false);
+            assert.equal(m1.isCountingPrecision, true);
+            assert.equal(m1.isCounting, true);
+
+            assert.equal(m2.isCountingDressage, true);
+            assert.equal(m2.isCountingMarathon, true);
+            assert.equal(m2.isCountingPrecision, false);
+            assert.equal(m2.isCounting, true);
+
+            assert.equal(m3.isCountingDressage, false);
+            assert.equal(m3.isCountingMarathon, true);
+            assert.equal(m3.isCountingPrecision, true);
+            assert.equal(m3.isCounting, true);
+
+            assert.equal(m4.isCountingDressage, true);
+            assert.equal(m4.isCountingMarathon, true);
+            assert.equal(m4.isCountingPrecision, true);
+            assert.equal(m4.isCounting, true);
+        });
+
+        test('calculateTeamResults handles partially eliminated members (eliminated in one discipline but counting in another)', () => {
+            const teams = [{
+                id: 'team-1',
+                name: 'Klubb A',
+                members: ['eq-1', 'eq-2', 'eq-3', 'eq-4']
+            }];
+            const rows = [
+                { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: null }, dressageStatus: 'elim', marathon: { totalPenalty: 40 }, precision: { totalPenalty: 5 }, totalPenalty: null, isEliminated: true },
+                { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 }, totalPenalty: 100, isEliminated: false },
+                { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 50 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 15 }, totalPenalty: 125, isEliminated: false },
+                { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 45 }, marathon: { totalPenalty: 70 }, precision: { totalPenalty: 20 }, totalPenalty: 135, isEliminated: false }
+            ];
+
+            const [team] = calculateTeamResults(teams, rows);
+
+            assert.equal(team.dressage, 135);
+            assert.equal(team.marathon, 150);
+            assert.equal(team.precision, 30);
+            assert.equal(team.total, 315);
+            assert.equal(team.isEliminated, false);
+        });
+
+        test('calculateTeamResults correctly ranks teams with tie-breakers', () => {
+            const teams = [
+                { id: 'team-tied-1', name: 'Tied Team 1', members: ['eq-1', 'eq-2', 'eq-3'] },
+                { id: 'team-tied-2', name: 'Tied Team 2', members: ['eq-4', 'eq-5', 'eq-6'] }
+            ];
+            const rows = [
+                { id: 'eq-1', startNumber: 1, driverName: 'A1', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 }, totalPenalty: 100, isEliminated: false, plac: 3 },
+                { id: 'eq-2', startNumber: 2, driverName: 'B1', dressage: { penalty: 45 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 15 }, totalPenalty: 115, isEliminated: false, plac: 5 },
+                { id: 'eq-3', startNumber: 3, driverName: 'C1', dressage: { penalty: 50 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 20 }, totalPenalty: 130, isEliminated: false, plac: 8 },
+                
+                { id: 'eq-4', startNumber: 4, driverName: 'A2', dressage: { penalty: 35 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 5 }, totalPenalty: 100, isEliminated: false, plac: 2 },
+                { id: 'eq-5', startNumber: 5, driverName: 'B2', dressage: { penalty: 50 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 15 }, totalPenalty: 115, isEliminated: false, plac: 6 },
+                { id: 'eq-6', startNumber: 6, driverName: 'C2', dressage: { penalty: 50 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 25 }, totalPenalty: 130, isEliminated: false, plac: 9 }
+            ];
+
+            const sortedTeams = calculateTeamResults(teams, rows);
+
+            assert.equal(sortedTeams[0].teamId, 'team-tied-2');
+            assert.equal(sortedTeams[0].rank, 1);
+            assert.equal(sortedTeams[1].teamId, 'team-tied-1');
+            assert.equal(sortedTeams[1].rank, 2);
+        });
+
+        // --- Run Suite ---
+
+        let passed = 0;
+        let failed = 0;
+        const listEl = document.getElementById('test-list');
+
+        for (const t of testSuite) {
+            const card = document.createElement('div');
+            card.className = 'test-card';
+            
+            const header = document.createElement('div');
+            header.className = 'test-header';
+            
+            const nameEl = document.createElement('span');
+            nameEl.className = 'test-name';
+            nameEl.textContent = t.name;
+            
+            const badge = document.createElement('span');
+            badge.className = 'badge';
+            
+            header.appendChild(nameEl);
+            header.appendChild(badge);
+            card.appendChild(header);
+            
+            try {
+                t.fn();
+                badge.className += ' badge-pass';
+                badge.textContent = 'PASS';
+                passed++;
+            } catch (err) {
+                badge.className += ' badge-fail';
+                badge.textContent = 'FAIL';
+                
+                const errEl = document.createElement('div');
+                errEl.className = 'test-error';
+                errEl.textContent = err.stack || err.message || err;
+                card.appendChild(errEl);
+                failed++;
+            }
+            listEl.appendChild(card);
+        }
+
+        document.getElementById('stat-total').textContent = testSuite.length;
+        document.getElementById('stat-passed').textContent = passed;
+        document.getElementById('stat-failed').textContent = failed;
+    </script>
+</body>
+</html>

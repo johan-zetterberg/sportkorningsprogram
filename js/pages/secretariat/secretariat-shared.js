@@ -1,3 +1,5 @@
+import { t } from '../../utils/i18n.js';
+
 function toComparableStartNumber(value) {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : String(value ?? '');
@@ -14,6 +16,25 @@ export function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+export function renderFieldModeBanner(competition, options = {}) {
+  if ((competition?.competitionMode || 'live') !== 'field') return '';
+
+  const {
+    title = t('field_mode_active'),
+    message = t('field_mode_secretariat_message'),
+  } = options;
+
+  return `
+    <section class="rounded-xl border border-amber-300/80 bg-amber-50 text-amber-950 shadow-sm p-4 mb-4 dark:border-amber-700/70 dark:bg-amber-900/20 dark:text-amber-100">
+      <div class="flex flex-col gap-1">
+        <div class="text-sm font-semibold uppercase tracking-wide">${escapeHtml(t('field_mode'))}</div>
+        <h2 class="text-base font-semibold">${escapeHtml(title)}</h2>
+        <p class="text-sm opacity-90">${escapeHtml(message)}</p>
+      </div>
+    </section>
+  `;
+}
+
 export function renderToolbar(options = {}) {
   const {
     searchValue = '',
@@ -24,7 +45,7 @@ export function renderToolbar(options = {}) {
   const mobileExpanded = statusValue !== 'all' || classValue !== 'all';
 
   const classOptionsHtml = [
-    '<option value="all">Alla klasser</option>',
+    `<option value="all">${escapeHtml(t('all_classes'))}</option>`,
     ...classOptions.map(className => `<option value="${escapeHtml(className)}"${classValue === className ? ' selected' : ''}>${escapeHtml(className)}</option>`)
   ].join('');
 
@@ -32,12 +53,12 @@ export function renderToolbar(options = {}) {
     <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
       <div class="grid gap-3 md:grid-cols-3">
         <label class="block">
-          <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Sök</span>
+          <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">${escapeHtml(t('search'))}</span>
           <input
             id="secretariatSearch"
             type="text"
             value="${escapeHtml(searchValue)}"
-            placeholder="Startnummer eller namn"
+            placeholder="${escapeHtml(t('search_startnumber_or_name'))}"
             class="w-full rounded-md border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
           >
         </label>
@@ -48,25 +69,25 @@ export function renderToolbar(options = {}) {
             aria-expanded="${mobileExpanded ? 'true' : 'false'}"
             class="w-full rounded-md border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700"
           >
-            Filter
+            ${escapeHtml(t('filter'))}
           </button>
         </div>
         <div id="secretariatFilterPanel" class="${mobileExpanded ? '' : 'hidden '}grid gap-3 md:contents">
         <label class="block">
-          <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Status</span>
+          <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">${escapeHtml(t('status'))}</span>
           <select
             id="secretariatStatusFilter"
             class="w-full rounded-md border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
           >
-            <option value="all"${statusValue === 'all' ? ' selected' : ''}>Alla</option>
-            <option value="not-started"${statusValue === 'not-started' ? ' selected' : ''}>Ej startad</option>
-            <option value="running"${statusValue === 'running' ? ' selected' : ''}>Pågår</option>
-            <option value="done"${statusValue === 'done' ? ' selected' : ''}>Klar</option>
-            <option value="finalized"${statusValue === 'finalized' ? ' selected' : ''}>Finaliserad</option>
+            <option value="all"${statusValue === 'all' ? ' selected' : ''}>${escapeHtml(t('all'))}</option>
+            <option value="not-started"${statusValue === 'not-started' ? ' selected' : ''}>${escapeHtml(t('status_not_started'))}</option>
+            <option value="running"${statusValue === 'running' ? ' selected' : ''}>${escapeHtml(t('status_running'))}</option>
+            <option value="done"${statusValue === 'done' ? ' selected' : ''}>${escapeHtml(t('status_done'))}</option>
+            <option value="finalized"${statusValue === 'finalized' ? ' selected' : ''}>${escapeHtml(t('status_finalized'))}</option>
           </select>
         </label>
         <label class="block">
-          <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Klass</span>
+          <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">${escapeHtml(t('class'))}</span>
           <select
             id="secretariatClassFilter"
             class="w-full rounded-md border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100"
@@ -77,7 +98,7 @@ export function renderToolbar(options = {}) {
         </div>
       </div>
       <div class="mt-2 md:hidden text-xs text-gray-500 dark:text-gray-400">
-        Aktiva filter: <span id="secretariatFilterSummary"></span>
+        ${escapeHtml(t('active_filters'))}: <span id="secretariatFilterSummary"></span>
       </div>
     </section>
   `;
@@ -96,12 +117,12 @@ export function initializeToolbarInteractions(rootEl) {
   const updateSummary = () => {
     const parts = [];
     if (statusSelect && statusSelect.value !== 'all') {
-      parts.push(statusSelect.options[statusSelect.selectedIndex]?.text || 'Status');
+      parts.push(statusSelect.options[statusSelect.selectedIndex]?.text || t('status'));
     }
     if (classSelect && classSelect.value !== 'all') {
-      parts.push(classSelect.options[classSelect.selectedIndex]?.text || 'Klass');
+      parts.push(classSelect.options[classSelect.selectedIndex]?.text || t('class'));
     }
-    summaryEl.textContent = parts.length > 0 ? parts.join(' • ') : 'Alla';
+    summaryEl.textContent = parts.length > 0 ? parts.join(' • ') : t('all');
   };
 
   const updateExpandedState = () => {
@@ -124,18 +145,18 @@ export function initializeToolbarInteractions(rootEl) {
 
 export function renderStatusBadge(status, finalized) {
   if (finalized) {
-    return '<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">Finaliserad</span>';
+    return `<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300">${escapeHtml(t('status_finalized'))}</span>`;
   }
 
   if (status === 'running') {
-    return '<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">Pågår</span>';
+    return `<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">${escapeHtml(t('status_running'))}</span>`;
   }
 
   if (status === 'done') {
-    return '<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">Klar</span>';
+    return `<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">${escapeHtml(t('status_done'))}</span>`;
   }
 
-  return '<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200">Ej startad</span>';
+  return `<span class="inline-flex items-center px-2 py-1 rounded text-xs font-semibold bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200">${escapeHtml(t('status_not_started'))}</span>`;
 }
 
 export function filterRows(rows, filters = {}) {

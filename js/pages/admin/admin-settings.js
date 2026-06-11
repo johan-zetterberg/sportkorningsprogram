@@ -4,10 +4,11 @@ import { getCompetitionById, deleteCompetition, updateCompetition } from '../../
 import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { uploadCompetitionLogo } from '../../services/storageService.js';
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, setGlobalState } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
+import { t } from '../../utils/i18n.js';
 
 let mapInstance = null;
 let markerInstance = null;
@@ -54,6 +55,18 @@ export function getSettingsHtml() {
                 </label>
             </div>
             <div class="mt-3 text-sm text-gray-600 dark:text-gray-400" id="intlStatusHint"></div>
+        </div>
+
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+            <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">${t('competition_mode')}</h2>
+            <label for="competitionModeSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">${t('competition_mode_label')}</label>
+            <select id="competitionModeSelect" class="block w-full p-3 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                <option value="live">${t('competition_mode_live')}</option>
+                <option value="field">${t('competition_mode_field')}</option>
+            </select>
+            <p id="competitionModeHint" class="mt-3 text-sm text-gray-600 dark:text-gray-400">
+                ${t('competition_mode_intro_hint')}
+            </p>
         </div>
 
         <!-- PUBLICERING START -->
@@ -311,6 +324,24 @@ export async function setupSettingsLogic(competitionId) {
             document.getElementById('settingsPlaceInput').value = compDoc.place || '';
         }
 
+        const competitionMode = compDoc?.competitionMode === 'field' ? 'field' : 'live';
+        const competitionModeSelect = document.getElementById('competitionModeSelect');
+        const competitionModeHint = document.getElementById('competitionModeHint');
+        const updateCompetitionModeHint = (mode) => {
+            if (!competitionModeHint) return;
+            competitionModeHint.textContent = mode === 'field'
+                ? t('competition_mode_field_hint')
+                : t('competition_mode_live_hint');
+        };
+
+        if (competitionModeSelect) {
+            competitionModeSelect.value = competitionMode;
+            updateCompetitionModeHint(competitionMode);
+            competitionModeSelect.addEventListener('change', () => {
+                updateCompetitionModeHint(competitionModeSelect.value);
+            });
+        }
+
         setupCompetitionLogoControls(competitionId, compDoc, meta);
 
         // --- 1.5 Publishing Status (Root Doc) ---
@@ -363,6 +394,7 @@ export async function setupSettingsLogic(competitionId) {
                     const newValIntl = !!document.getElementById('isInternationalToggle')?.checked;
                     const newValLock = Number(document.getElementById('lockdownMinutesInput')?.value ?? 60);
                     const newValManual = !!document.getElementById('manualLockdownCheckbox')?.checked;
+                    const newCompetitionMode = document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live';
 
                     // Coordinates
                     const lat = document.getElementById('settingsLatInput').value;
@@ -384,6 +416,21 @@ export async function setupSettingsLogic(competitionId) {
                             }
                         }
                     });
+
+                    await updateCompetition(competitionId, {
+                        competitionMode: newCompetitionMode
+                    });
+
+                    const currentComp = getGlobalState('currentCompetition');
+                    if (currentComp?.id === competitionId) {
+                        setGlobalState({
+                            key: 'currentCompetition',
+                            value: {
+                                ...currentComp,
+                                competitionMode: newCompetitionMode
+                            }
+                        });
+                    }
 
                     // Save Meta
                     await saveConfig(competitionId, 'competitionMeta', {

@@ -11,7 +11,7 @@ import {
 } from '../../services/dressageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
-import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
+import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, normalizeCountryCode, fetchFlagDataUrl } from '../../services/flagsService.js';
 import { doc, onSnapshot, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -969,29 +969,16 @@ function ensureModeToggle() {
     container.dataset.listenersAttached = 'true';
 
     const applyActive = () => {
-        const btnStart = document.getElementById('btnStartOrder');
-        const btnClass = document.getElementById('btnByClass');
-        if (btnStart) btnStart.className = `px-4 py-1.5 text-sm font-medium rounded transition-all transition-colors ${viewMode === 'startorder' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
-        if (btnClass) btnClass.className = `px-4 py-1.5 text-sm font-medium rounded transition-all transition-colors ${viewMode === 'byclass' ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
-
-        const fbtn = document.getElementById('toggleFinalized');
         const fact = showOnlyFinalized;
-        if (fbtn) {
-            fbtn.className = `hidden md:inline-flex px-3 py-1.5 text-sm font-medium rounded border transition-colors ${fact ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
-            fbtn.textContent = fact ? t('show_all') : t('show_finalized_only');
-        }
-
-        const mSel = document.getElementById('mobileSortSelect');
-        if (mSel) mSel.value = viewMode;
-
-        const mChk = document.getElementById('mobileFinalizedCheck');
-        if (mChk) mChk.checked = fact;
+        const sortSelect = document.getElementById('dressageSortSelect');
+        if (sortSelect) sortSelect.value = viewMode;
+        const finCheck = document.getElementById('dressageFinalizedCheck');
+        if (finCheck) finCheck.checked = fact;
     };
 
-    container.addEventListener('click', (e) => {
-        const btn = e.target.closest('button[data-mode]');
-        if (btn) {
-            viewMode = btn.dataset.mode;
+    container.addEventListener('change', (e) => {
+        if (e.target.id === 'dressageSortSelect') {
+            viewMode = e.target.value;
             if (viewMode === 'startorder') { sortState.key = 'startTime'; sortState.dir = 'asc'; }
             else { sortState.key = 'plac'; sortState.dir = 'asc'; }
             applyActive();
@@ -999,23 +986,13 @@ function ensureModeToggle() {
             render();
             return;
         }
-        if (e.target.id === 'toggleFinalized') {
-            showOnlyFinalized = !showOnlyFinalized;
-            applyActive();
-            render();
-        }
-    });
-
-    container.addEventListener('change', (e) => {
-        if (e.target.id === 'mobileSortSelect') {
-            viewMode = e.target.value;
-            if (viewMode === 'startorder') { sortState.key = 'startTime'; sortState.dir = 'asc'; }
-            else { sortState.key = 'plac'; sortState.dir = 'asc'; }
-            applyActive();
-            updateURLWithSort();
-            render();
-        } else if (e.target.id === 'mobileFinalizedCheck') {
+        if (e.target.id === 'dressageFinalizedCheck') {
             showOnlyFinalized = e.target.checked;
+            applyActive();
+            render();
+        } else if (e.target.id === 'dressageClassFilterSelect') {
+            dressage_activeClassFilters.clear();
+            if (e.target.value) dressage_activeClassFilters.add(e.target.value);
             applyActive();
             render();
         }
@@ -1261,21 +1238,19 @@ function renderMobile(judgesPresent) {
 }
 
 function renderClassChips() {
-    const chipHost = document.getElementById('dressageClassChips');
-    if (!chipHost) return;
+    const classSelect = document.getElementById('dressageClassFilterSelect');
+    if (!classSelect) return;
 
     const labels = [...new Set(masterEquipageList.map(e => e._mergedLabel || e.className || '—'))]
         .filter(Boolean)
         .sort((a, b) => a.localeCompare(b, 'sv'));
 
-    renderResponsiveClassFilter(chipHost, labels, dressage_activeClassFilters, (lbl) => {
-        if (dressage_activeClassFilters.has(lbl)) {
-            dressage_activeClassFilters.delete(lbl);
-        } else {
-            dressage_activeClassFilters.add(lbl);
-        }
-        render();
-    });
+    const currentValue = dressage_activeClassFilters.size === 1 ? Array.from(dressage_activeClassFilters)[0] : '';
+    classSelect.innerHTML = [
+        `<option value="">${t('all_classes')}</option>`,
+        ...labels.map((label) => `<option value="${label.replace(/"/g, '&quot;')}">${label}</option>`)
+    ].join('');
+    classSelect.value = labels.includes(currentValue) ? currentValue : '';
 }
 
 
@@ -2396,10 +2371,10 @@ export async function load() {
       <div class="competition-page-header-shell mb-2 md:mb-8">
                 ${getCompetitionHeader(competition, t('dressage') + ' – ' + t('start_list_and_results'))}
       </div>
-      <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap gap-2 md:gap-3 items-center justify-start transition-colors" id="modeToggle">
+      <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
         
         <!-- Sök -->
-        <div class="relative w-full sm:w-48 flex-grow sm:flex-grow-0">
+        <div class="relative w-full md:w-[240px] flex-shrink-0 min-w-0">
              <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
                 <svg class="h-3.5 w-3.5 md:h-4 md:w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
              </div>
@@ -2409,39 +2384,32 @@ export async function load() {
               >
         </div>
 
-        <!-- Desktop Controls -->
-        <div class="hidden md:inline-flex shadow-sm rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex-shrink-0">
-            <button id="btnStartOrder" data-mode="startorder" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('start_order')}</button>
-            <button id="btnByClass" data-mode="byclass" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('view_by_class_short')}</button>
-        </div>
-        <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 hidden md:block mx-1"></div>
-        <button id="toggleFinalized" class="hidden md:inline-flex px-3 py-1.5 text-xs md:text-sm font-medium rounded border transition-colors"></button>
-
-        <!-- Mobile Controls (Klassvis / Startordning) -->
-        <div class="md:hidden relative w-[110px] flex-shrink-0">
-             <select id="mobileSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs appearance-none">
-                 <option value="byclass">${t('view_by_class_short')}</option>
+        <div class="relative w-[150px] flex-shrink-0">
+             <select id="dressageSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
                  <option value="startorder">${t('start_order')}</option>
+                 <option value="byclass">${t('view_by_class_short')}</option>
              </select>
              <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
                  <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
              </div>
         </div>
 
-        <!-- Class Filter Chips/Dropdown injected here -->
-        <div id="dressageClassChips" class="flex-shrink-0 z-10 w-[130px] sm:w-auto"></div>
+        <div class="relative w-[180px] flex-shrink-0">
+             <select id="dressageClassFilterSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
+                 <option value="">${t('all_classes')}</option>
+             </select>
+             <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+                 <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+             </div>
+        </div>
 
-        <!-- Finaliserade Checkbox (Mobile) -->
-        <label class="md:hidden flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0">
-             <input type="checkbox" id="mobileFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5" />
-             <span id="mobileFinalizedLabel">${t('show_finalized_only') || 'Klara'}</span>
+        <label class="flex items-center gap-1.5 text-xs md:text-sm text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0 whitespace-nowrap">
+             <input type="checkbox" id="dressageFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
+             <span>${t('finalized_short')}</span>
         </label>
 
-        <!-- Spacer to push export buttons right if space permits -->
-        <div class="flex-grow hidden sm:block"></div>
-
         <!-- Export Buttons -->
-        <div class="flex-shrink-0 flex items-center gap-2 lg:ml-auto w-full sm:w-auto justify-end border-t border-gray-100 sm:border-0 pt-2 sm:pt-0 dark:border-gray-700">
+        <div class="flex-shrink-0 flex items-center gap-2 md:ml-auto w-auto justify-end">
             <button id="btnExportDressageCsv" 
               class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
                <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
@@ -2450,7 +2418,7 @@ export async function load() {
             <button id="btnPrintResultsList" 
               class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
               <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-               Skriv ut PDF
+               PDF
             </button>
         </div>
       </div>

@@ -47,11 +47,27 @@ export async function finalizeMarathon(competitionId, startNumber) {
       updatedAt: serverTimestamp(),
       finalizedBy: getUid()
     }, { merge: true });
+
+    // Also write to the lock document to activate Firestore security rules
+    const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
+    await setDoc(lockRef, {
+      finalized: true,
+      finalizedAt: Date.now(),
+      finalizedBy: getUid()
+    }, { merge: true });
   })());
 }
 
 export async function unfinalizeMarathon(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering maraton #${startNumber}`, (async () => {
+    // Release the Firestore lock first, so the write to artifacts can succeed
+    const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
+    await setDoc(lockRef, {
+      finalized: false,
+      unfinalizedAt: Date.now(),
+      unfinalizedBy: getUid()
+    }, { merge: true });
+
     const ref = getCompDocRef(competitionId, 'maraton', String(startNumber));
     await setDoc(ref, { 
       finalized: false, 
@@ -74,11 +90,27 @@ export async function finalizePrecision(competitionId, startNumber) {
       finalizedAt: Date.now(),
       finalizedBy: getUid()
     }, { merge: true });
+
+    // Also write to the lock document to activate Firestore security rules
+    const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
+    await setDoc(lockRef, {
+      finalized: true,
+      finalizedAt: Date.now(),
+      finalizedBy: getUid()
+    }, { merge: true });
   })());
 }
 
 export async function unfinalizePrecision(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering precision #${startNumber}`, (async () => {
+    // Release the Firestore lock first, so the write to artifacts can succeed
+    const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
+    await setDoc(lockRef, {
+      finalized: false,
+      unfinalizedAt: Date.now(),
+      unfinalizedBy: getUid()
+    }, { merge: true });
+
     const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
     await setDoc(ref, { 
       finalized: false,

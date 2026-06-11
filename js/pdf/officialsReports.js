@@ -5,7 +5,7 @@ import { buildCheckInPdfRows } from './officialsReportUtils.js';
 export async function generateOfficialsPdf(type, competition, officials, assignments = [], locations = [], filter = 'all') {
     await loadPdfLibs();
     const { jsPDF } = window.jspdf;
-    const doc = new jsPDF();
+    const doc = new jsPDF({ compress: true });
     const dateStr = new Date().toLocaleDateString('sv-SE');
 
     // Title

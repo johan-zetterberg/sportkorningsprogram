@@ -93,6 +93,7 @@ export function computeMaxSecondsForClass(cls, config = {}) {
 
 export function calculatePrecisionResult(data, equipage, config = {}, options = {}) {
     const d = data || {};
+    const safeConfig = config || {};
 
     const finalized = d.finalized === true;
     const eliminated = !!d.eliminated;
@@ -105,17 +106,17 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     const knocksArr = Array.isArray(d.knocks) ? d.knocks.slice() : [];
     const knocksCount = knocksArr.length;
 
-    const knockdownPenalty = (config.knockdownPenalty != null) ? Number(config.knockdownPenalty) : 3;
+    const knockdownPenalty = (safeConfig.knockdownPenalty != null) ? Number(safeConfig.knockdownPenalty) : 3;
     const inferredObstacle = knocksCount > 0 ? knocksCount * knockdownPenalty : null;
     const obstaclePenalty = isNum(d.obstaclePenalty) ? d.obstaclePenalty
         : (isNum(inferredObstacle) ? inferredObstacle
             : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
 
-    const maxSec = computeMaxSecondsForClass(equipage, config);
+    const maxSec = computeMaxSecondsForClass(equipage, safeConfig);
     const comp = options.currentCompetition || null;
     let rate = PRECISION_TIME_PENALTY_RATE;
-    if (Number.isFinite(config?.timePenaltyRate)) {
-        rate = config.timePenaltyRate;
+    if (Number.isFinite(safeConfig?.timePenaltyRate)) {
+        rate = safeConfig.timePenaltyRate;
     } else if (Number.isFinite(comp?.ruleSettings?.precisionTimePenaltyRate)) {
         rate = comp.ruleSettings.precisionTimePenaltyRate;
     }

@@ -17,7 +17,7 @@ import { t } from '../../utils/i18n.js';
 
 import { calculateTotalResult } from '../../services/calculationService.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
-import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
+import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
@@ -156,22 +156,20 @@ function render() {
     return; // Stop here
   }
 
-  // Bygg/uppdatera grupp-chips (detta måste hända FÖRE filtrering)
+  // Bygg/uppdatera klassfilter (detta måste hända FÖRE filtrering)
   (() => {
-    const chipHost = document.getElementById('classChips');
-    if (!chipHost) return;
+    const classSelect = document.getElementById('totalClassFilterSelect');
+    if (!classSelect) return;
 
     const groups = groupTotalEquipagesForDisplay(equipages, displayConfig);
     const labels = groups.map(g => g.label);
+    const currentValue = activeClassFilters.size === 1 ? Array.from(activeClassFilters)[0] : '';
 
-    renderResponsiveClassFilter(chipHost, labels, activeClassFilters, (lbl) => {
-      if (activeClassFilters.has(lbl)) {
-        activeClassFilters.delete(lbl);
-      } else {
-        activeClassFilters.add(lbl);
-      }
-      render();
-    });
+    classSelect.innerHTML = [
+      `<option value="">${t('all_classes')}</option>`,
+      ...labels.map((label) => `<option value="${String(label).replace(/"/g, '&quot;')}">${label}</option>`)
+    ].join('');
+    classSelect.value = labels.includes(currentValue) ? currentValue : '';
   })();
 
   const viewData = buildDisplayedTotalRows(processedResults, {
@@ -920,50 +918,66 @@ function renderLayout() {
   </div>
 
   <div class="w-full">
-    <div id="controlsContainer" class="flex flex-wrap items-center gap-2 mb-3 p-2 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700">
+    <div id="controlsContainer" class="flex flex-wrap md:flex-nowrap items-center gap-2 mb-3 p-2 md:p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 overflow-x-auto">
       
       <!-- Search Input -->
-      <div class="search-input-wrap flex-1 min-w-[200px] relative">
+      <div class="search-input-wrap relative w-full md:w-[240px] flex-shrink-0 min-w-0">
         <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
-        <input id="quickSearch" type="search" placeholder="${t('search_placeholder_short')}" class="w-full pl-8 pr-3 py-1 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" />
+        <input id="quickSearch" type="search" placeholder="${t('search_placeholder_short')}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs md:text-sm" />
       </div>
 
       <!-- Mode Toggle -->
-      <select id="modeSelect" class="border rounded px-2 py-1 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+      <div class="relative w-[150px] flex-shrink-0">
+      <select id="modeSelect" class="block w-full border rounded py-1.5 pl-2 pr-7 text-xs md:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500 appearance-none">
         <option value="startorder" ${viewMode === 'startorder' ? 'selected' : ''}>${t('start_order')}</option>
         <option value="byclass" ${viewMode === 'byclass' ? 'selected' : ''}>${t('view_by_class')}</option>
       </select>
+      <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+        <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+      </div>
+      </div>
 
       <!-- MAIN TABS (If Teams Enabled) -->
       ${competition.showTeams ? `
-        <select id="tabSelect" class="border rounded px-2 py-1 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+        <div class="relative w-[140px] flex-shrink-0">
+        <select id="tabSelect" class="block w-full border rounded py-1.5 pl-2 pr-7 text-xs md:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500 appearance-none">
           <option value="individual" ${currentMainTab === 'individual' ? 'selected' : ''}>Individuellt</option>
           <option value="teams" ${currentMainTab === 'teams' ? 'selected' : ''}>Lag</option>
         </select>
+        <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </div>
+        </div>
       ` : ''}
 
-       <!-- Klasser Dropdown (genereras av renderResponsiveClassFilter) -->
-       <div id="classChips" class="flex flex-wrap items-center gap-1"></div>
+       <div class="relative w-[180px] flex-shrink-0">
+         <select id="totalClassFilterSelect" class="block w-full border rounded py-1.5 pl-2 pr-7 text-xs md:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500 appearance-none">
+           <option value="">${t('all_classes')}</option>
+         </select>
+         <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+           <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+         </div>
+       </div>
 
        <!-- Status Checkboxes -->
-       <label class="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300">
+       <label class="flex items-center gap-1.5 text-xs md:text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap flex-shrink-0">
           <input type="checkbox" id="checkOngoing" ${showOnlyOngoing ? 'checked' : ''} class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 dark:bg-gray-700 dark:border-gray-600">
-          ${t('show_only_ongoing')}
+          ${t('ongoing_short')}
        </label>
-       <label class="flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-300 mr-auto">
+       <label class="flex items-center gap-1.5 text-xs md:text-sm text-gray-700 dark:text-gray-300 whitespace-nowrap flex-shrink-0">
           <input type="checkbox" id="checkCompleted" ${showOnlyCompleted ? 'checked' : ''} class="rounded border-gray-300 text-blue-600 shadow-sm focus:border-blue-300 focus:ring focus:ring-blue-200 focus:ring-opacity-50 dark:bg-gray-700 dark:border-gray-600">
-          ${t('show_finalized_only')}
+          ${t('finalized_short')}
        </label>
 
       <!-- Export Buttons -->
-      <div class="flex-shrink-0 flex items-center gap-1.5">
+      <div class="flex-shrink-0 flex items-center gap-1.5 md:ml-auto">
         <button id="exportCsvBtn" title="Exportera CSV" class="inline-flex items-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
            <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
            CSV
         </button>
         <button id="btnExportPdf" class="inline-flex items-center px-2 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-500 transition-colors">
           <svg class="mr-1.5 h-3 w-3 lg:h-3.5 lg:w-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-           ${t('print_pdf')}
+           PDF
         </button>
       </div>
     </div>
@@ -1093,6 +1107,15 @@ function renderLayout() {
   if (modeSel) {
     modeSel.onchange = (e) => {
       viewMode = e.target.value;
+      render();
+    };
+  }
+
+  const classSel = document.getElementById('totalClassFilterSelect');
+  if (classSel) {
+    classSel.onchange = (e) => {
+      activeClassFilters.clear();
+      if (e.target.value) activeClassFilters.add(e.target.value);
       render();
     };
   }

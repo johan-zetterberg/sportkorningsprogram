@@ -3,6 +3,7 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { getStartTimes } from '../../services/marathonService.js';
+import { finalizePrecision } from '../../services/finalizationService.js';
 import { db, appId } from '../../config/firebase-config.js';
 import {
     doc,
@@ -15,7 +16,7 @@ import {
     onSnapshot,
     runTransaction
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { downloadJson, round2 } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
@@ -266,6 +267,7 @@ async function pushLiveSafe(update) {
 // ---------- UI // ===== NY renderLayout() i precision-input.js =====
 function renderLayout() {
     const comp = getGlobalState('currentCompetition');
+    const isFieldMode = comp?.competitionMode === 'field';
     const root = document.getElementById('page-precision-input');
     root.innerHTML = `
         <style>
@@ -313,8 +315,13 @@ function renderLayout() {
 
         <div class="container mx-auto p-4 md:p-8 max-w-2xl">
             <div class="mb-4">
-                ${getCompetitionHeader(comp, t('precision_header'))} 
+                ${getCompetitionHeader(comp, comp?.competitionMode === 'field'
+                    ? 'Precision - manuell registrering'
+                    : t('precision_header'))}
             </div>
+            ${renderCompetitionModeBanner(comp, {
+                message: 'Tävlingen körs i fältläge. Tid, rivningar och övriga straff registreras manuellt här.'
+            })}
 
             <!-- STICKY KONTROLLPANEL -->
             <div class="sticky-precision-controls rounded-b-xl shadow-lg mb-4">
@@ -327,8 +334,10 @@ function renderLayout() {
                         </div>
                     </div>
                     <div class="flex gap-2">
-                        <button id="btnStart" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
-                        <button id="btnStop" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>
+                        ${isFieldMode
+                            ? `<button id="btnManualOpen" class="w-28 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+                            : `<button id="btnStart" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
+                        <button id="btnStop" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>`}
                     </div>
                 </div>
 
@@ -685,280 +694,11 @@ function resetTimer() {
         knocks: [],
         knockDownTimes: {},
         finalized: false,
-        status: t('precision_not_started'),
-        time: null,
-        timeMs: null,
-        obstaclePenalty: null,
-        timePenalty: null,
-        totalPenalty: null,
-        comment: ''
-    });
-}
-
-async function onEquipageSelected(equipage) {
-    // 1. Nollställ lokalt formulär (pusha INTE reset än - vi vet inte om den körs!)
-    clearLocalState();
-
-    knocks.clear();
-    knockDownTimes = {};
-    document.getElementById('extraPenaltyInput').value = 0;
-    document.getElementById('eliminatedInput').checked = false;
-    document.getElementById('commentInput').value = '';
-
-    if (!equipage) {
-        currentEquipage = null;
-        renderGates();
-        updateHeaderInfo();
-        return;
-    }
-    currentEquipage = equipage;
-    renderGates();
-
-    // Anropa loadDriverData (som i sin tur laddar ev tidigare resultat och startar lyssning)
-    await loadDriverData(equipage);
-}
-// <-- onEquipageSelected slutar här
-
-async function autoSelectRunningDriver() {
-    if (!competitionId) return;
-    try {
-        const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
-        const q = query(colRef, where('running', '==', true));
-        const snap = await getDocs(q);
-
-        if (!snap.empty) {
-            // Ta den första som hittas (borde bara vara en, men om flera tar vi bara en)
-            const firstRunning = snap.docs[0];
-            const startNumber = firstRunning.id; // Doc ID är startnummer
-
-            if (searchableDropdown) {
-                // Detta triggar onEquipageSelected som laddar data och återupptar timern
-                searchableDropdown.setValue(Number(startNumber));
-            }
-        }
-    } catch (err) {
-        console.warn('Kunde inte autosöka efter pågående förare:', err);
-    }
-}
-
-// Håll koll på nuvarande prenumeration
-let currentUnsubscribe = null;
-
-async function loadDriverData(equipage) {
-    if (!equipage) return;
-
-    // Avsluta ev. tidigare prenumeration
-    if (currentUnsubscribe) {
-        currentUnsubscribe();
-        currentUnsubscribe = null;
-    }
-
-    try {
-        const docRef = precisionDocRef(equipage.startNumber);
-
-        currentUnsubscribe = onSnapshot(docRef, (docSnap) => {
-            // Grundåterställning av formulär sker via onEquipageSelected, 
-            // men vi måste se till att UI uppdateras korrekt vid varje snapshot.
-
-            if (docSnap.exists()) {
-                const data = docSnap.data();
-
-                // Kolla om klart
-                const isFinalized = !!data.finalized || data.status === 'Klar';
-                inProgress = !isFinalized;
-
-                // Ladda eliminerad-status
-                const isElim = !!data.eliminated;
-                const elimInput = document.getElementById('eliminatedInput');
-                if (elimInput && elimInput.checked !== isElim) {
-                    elimInput.checked = isElim;
-                }
-
-                // Rivningar
-                if (Array.isArray(data.knocks)) {
-                    // Uppdatera setet
-                    knocks = new Set(data.knocks);
-                } else {
-                    knocks.clear();
-                }
-
-                // Ladda tider för rivningar
-                if (data.knockDownTimes && typeof data.knockDownTimes === 'object') {
-                    knockDownTimes = data.knockDownTimes;
-                } else {
-                    knockDownTimes = {}; // Reset om tomt
-                }
-
-                // Tid: prioritera timeMs, annars parsa "MM:SS,cc", annars ev. liveTimeMs
-                if (Number.isFinite(data.timeMs)) {
-                    pausedMs = Math.max(0, data.timeMs | 0);
-                } else if (typeof data.time === 'string') {
-                    pausedMs = stringTimeToMs(data.time);
-                } else if (Number.isFinite(data.livePausedMs)) {
-                    // Om vi har en explicit sparad 'ackumulerad tid' (livePausedMs), använd den!
-                    pausedMs = Math.max(0, data.livePausedMs | 0);
-                } else if (Number.isFinite(data.liveTimeMs) && !data.running) {
-                    // Om vi inte kör och startEpoch saknas, kan vi kanske använda liveTimeMs
-                    pausedMs = Math.max(0, data.liveTimeMs | 0);
-                } else {
-                    pausedMs = 0;
-                }
-
-                // Extra straff och kommentar
-                if (Number.isFinite(data.extraPenalty)) {
-                    const epInput = document.getElementById('extraPenaltyInput');
-                    if (epInput && document.activeElement !== epInput) {
-                        epInput.value = data.extraPenalty;
-                    }
-                }
-                if (typeof data.comment === 'string') {
-                    const cInput = document.getElementById('commentInput');
-                    if (cInput && document.activeElement !== cInput) {
-                        cInput.value = data.comment;
-                    }
-                }
-
-                // SYNKRONISERA TIMER
-                // Om servern säger RUNNING, se till att vi kör.
-                if (!!data.running) {
-                    const serverStartEpoch = data.liveStartEpoch || nowMs();
-
-                    // AUTORITETSKONTROLL: Om vi själva kör timern, lita på vår lokala startEpoch för att undvika jitter/loopar.
-                    if (isRunning) {
-                        // Vi kör redan. Vi ignorerar serverns startEpoch för att undvika "flicker" om det finns klockdiff.
-                    } else {
-                        // Vi kör INTE lokalt. Synka från servern.
-                        startEpoch = serverStartEpoch;
-                        pausedMs = data.livePausedMs || 0;
-
-                        if (!startEpoch && Number.isFinite(data.liveTimeMs)) {
-                            startEpoch = nowMs() - data.liveTimeMs;
-                        }
-
-                        if (startEpoch) {
-                            isRunning = true;
-                            inProgress = true;
-                            if (timerInterval) clearInterval(timerInterval);
-                            timerInterval = setInterval(updateTimerView, 90);
-                        }
-                    }
-                } else {
-                    // Servern säger STOPPED.
-                    if (isRunning) {
-                        // Om vi körde lokalt men servern säger stopp, stanna.
-                        if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
-                        isRunning = false;
-                    }
-                    // Uppdatera pausedMs från servern om vi inte kör.
-                    if (!isRunning) {
-                        if (Number.isFinite(data.timeMs)) {
-                            pausedMs = Math.max(0, data.timeMs | 0);
-                        } else if (Number.isFinite(data.livePausedMs)) {
-                            pausedMs = Math.max(0, data.livePausedMs | 0);
-                        }
-                    }
-                }
-
-                // Uppdatera UI (utan att pusha tillbaka till Firebase)
-                const activeMs = (!!data.running && data.liveStartEpoch) 
-                    ? (data.livePausedMs || 0) + (nowMs() - data.liveStartEpoch)
-                    : (data.livePausedMs || data.liveTimeMs || pausedMs);
-
-                renderTimerUI(activeMs);
-                mirrorToLocal(equipage.startNumber, data);
-            } else {
-                // Dok finns inte (nytt ekipage?) -> Kör reset-logik, fast kanske redan gjorts?
-                // Vi gör inget drastiskt här, onEquipageSelected har redan nollställt.
-            }
-
-            // Uppdatera headerraden och hinderknapparna efter att knocks/pausedMs satts
-            updateHeaderInfo();
-            renderGates();
-
-            // Uppdatera payload
-            /* pushLiveSafe({
-                portWidthCm: computePortWidthForEquipage(equipage),
-                trackWidthCm: Number(equipage.trackWidth) || null,
-                eliminated: !!document.getElementById('eliminatedInput').checked,
-                inProgress: inProgress
-            }); */ // SKIPPA LOOP: Vi behöver inte pusha tillbaka direkt vid inläsning.
-
-        }, (error) => {
-            console.error("Error watching driver data:", error);
-        });
-
-    } catch (e) {
-        console.error("Kunde inte starta lyssning på resultat:", e);
-    }
-}
-
-async function saveFinal() {
-    if (!currentEquipage) {
-        showAlert(t('precision_no_equipage_selected'), false);
-        return;
-    }
-
-    // 1) Stoppa och räkna ut tid + straff
-    stopTimer();
-    const timeMs = getElapsedMs();
-    const timeStr = partsToString(msToParts(timeMs));
-    
-    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-    const timePenaltyValue = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
-
-    const obstaclePenaltyValue = obstaclePenalty(); // config p per rivning
-    const extraPenaltyValue = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-    const totalPenaltyValue = round2(timePenaltyValue + obstaclePenaltyValue + extraPenaltyValue);
-
-    const payload = {
-        // --- FINAL FÄLT (det som resultat-vyn ska läsa) ---
-        running: false,
-        inProgress: false,
-        finalized: true,                          // <-- VIKTIGT: Markera som klar
-        status: 'Klar',                           // <-- VIKTIGT: Sätt status explicit
-        time: timeStr,                            // "MM:SS,cc"
-        timeMs: timeMs,                           // praktiskt att ha sparat också
-        knocks: Array.from(knocks),               // ["5A","7",...]
-        knockDownTimes: { ...knockDownTimes },    // NYTT
-        obstaclePenalty: obstaclePenaltyValue,    // heltal (3 per rivning)
-        timePenalty: round2(timePenaltyValue),
-        extraPenalty: extraPenaltyValue,
-        totalPenalty: totalPenaltyValue,
-        eliminated: !!document.getElementById('eliminatedInput').checked, // Spara till final
-        comment: document.getElementById('commentInput').value || '',
-
-        // --- Rensa/överskugga live-fält så de inte missförstås ---
-        liveTimeMs: timeMs,           // behåll offset för ev. klienter, men...
-        liveTimePenalty: null,        // …nolla live-beräknat
-        liveObstaclePenalty: null,
-        liveTotalPenalty: null,
-        // Nollställ även synk-fälten
-        liveStartEpoch: startEpoch || null,
-    };
-
-    try {
-        await setDoc(
-            precisionDocRef(currentEquipage.startNumber),
-            {
-                startNumber: currentEquipage.startNumber,
-                className: currentEquipage.className,
-                ...payload,
-                updatedAt: Date.now()
-            },
-            { merge: true }
-        );
-
-        if (!navigator.onLine) {
-            showAlert(t('precision_final_saved_offline').replace('{startNumber}', currentEquipage.startNumber), 'offline');
-        } else {
-            showAlert(t('precision_final_saved').replace('{startNumber}', currentEquipage.startNumber));
-        }
-        // Raden som byter ekipage automatiskt är borttagen.
-    } catch (err) {
+        status: t('precision_not_started')
+    }).catch((err) => {
         console.error('Fel vid sparning av precision:', err);
         showAlert(t('precision_save_error'), false);
-    }
+    });
 }
 
 // ---------- Lifecycle ----------
@@ -969,6 +709,7 @@ export async function load() {
     const myLoadId = currentLoadId;
 
     const comp = getGlobalState('currentCompetition');
+    const isFieldMode = comp?.competitionMode === 'field';
     competitionId = comp?.id;
     const root = document.getElementById('page-precision-input');
     if (!competitionId) {
@@ -1033,13 +774,15 @@ export async function load() {
             console.error("Search container disappeared!");
         }
 
-        // Request Wake Lock
-        await requestWakeLock();
+        // Request Wake Lock bara i full live-drift
+        if (!isFieldMode) {
+            await requestWakeLock();
+        }
 
         // Event Listeners
-        document.getElementById('btnStart').addEventListener('click', startTimer);
-        document.getElementById('btnStop').addEventListener('click', stopTimer);
-        document.getElementById('btnReset').addEventListener('click', resetTimer);
+        document.getElementById('btnStart')?.addEventListener('click', startTimer);
+        document.getElementById('btnStop')?.addEventListener('click', stopTimer);
+        document.getElementById('btnReset')?.addEventListener('click', resetTimer);
         document.getElementById('btnSave').addEventListener('click', saveFinal);
         document.getElementById('extraPenaltyInput').addEventListener('input', () => {
             const t = getElapsedMs();
@@ -1100,6 +843,7 @@ export async function load() {
 
         // Manuell tid
         const manualEditor = document.getElementById('manualTimeEditor');
+        document.getElementById('btnManualOpen')?.addEventListener('click', () => manualEditor.classList.remove('hidden'));
         document.getElementById('liveTimer').addEventListener('click', () => manualEditor.classList.remove('hidden'));
         document.getElementById('btnManualCancel').addEventListener('click', () => manualEditor.classList.add('hidden'));
         document.getElementById('btnManualApply').addEventListener('click', () => {
@@ -1112,7 +856,7 @@ export async function load() {
 
         // 4) Kolla om någon kör just nu och välj den
         // Vänta en liten stund så UI hinner "sätta sig"
-        setTimeout(() => autoSelectRunningDriver(), 500);
+        if (!isFieldMode) setTimeout(() => autoSelectRunningDriver(), 500);
 
     } catch (error) {
         // Ignorera fel om vi bytt load-session

@@ -16,6 +16,7 @@ export async function createCompetition(data) {
     place: data.place?.trim() || '',
     dates: data.dates?.trim() || '',
     club: data.club?.trim() || '',
+    competitionMode: 'live',
     createdAt: serverTimestamp(),
     createdBy: user ? user.uid : null,
     published: false, // Default to unpublished (Draft)

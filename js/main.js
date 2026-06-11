@@ -168,6 +168,14 @@ export function getGlobalState(key) {
     return globalState[key];
 }
 
+export function getCompetitionMode(comp = globalState.currentCompetition) {
+    return comp?.competitionMode === 'field' ? 'field' : 'live';
+}
+
+export function isFieldMode(comp = globalState.currentCompetition) {
+    return getCompetitionMode(comp) === 'field';
+}
+
 // --- Behörighet: får användaren finalisera resultat? ---
 export function canFinalize() {
     const role = (getGlobalState('currentUser')?.role) || 'publik';
@@ -176,6 +184,8 @@ export function canFinalize() {
 }
 // Gör även globalt tillgänglig för sidor som inte importerar
 window.canFinalize = canFinalize;
+window.getGlobalState = getGlobalState;
+window.setGlobalState = setGlobalState;
 
 export function updateNavigationTranslations() {
     document.querySelectorAll('[data-i18n]').forEach(el => {

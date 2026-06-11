@@ -3,6 +3,7 @@ import { getConfig } from '../../services/competitionService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments } from '../../services/marathonService.js';
+import { finalizePrecision, unfinalizePrecision } from '../../services/finalizationService.js';
 
 import { getGlobalState } from '../../main.js';
 
@@ -12,7 +13,7 @@ import {
 } from '../../services/calculationService.js';
 import { collection, onSnapshot, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
-import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
+import { getCompetitionHeader } from '../../ui/components.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { t } from '../../utils/i18n.js';
@@ -421,17 +422,17 @@ function renderLayout() {
   }
 
   root.innerHTML = `
-      <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
-        <div class="mb-8">
+      <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
+        <div class="mb-3">
           ${getCompetitionHeader(comp, t('precision_result_list_title'))}
           ${precisionDateStr ? `<h3 class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
         </div>
 
-        <div id="liveStatusPanelContainer" class="mb-6 hidden"></div>
+        <div id="liveStatusPanelContainer" class="mb-3 hidden"></div>
 
-        <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap gap-2 md:gap-3 items-center justify-start transition-colors" id="modeToggle">
+        <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-3 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
           
-          <div class="relative flex-grow max-w-full sm:max-w-[200px] flex-shrink-0">
+          <div class="relative w-full md:w-[240px] flex-shrink-0 min-w-0">
                <div class="absolute inset-y-0 left-0 pl-2.5 flex items-center pointer-events-none">
                   <svg class="h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                </div>
@@ -441,42 +442,32 @@ function renderLayout() {
                 >
           </div>
 
-          <!-- Desktop Controls -->
-          <div class="hidden md:inline-flex shadow-sm rounded-md bg-gray-100 dark:bg-gray-700 p-1 flex-shrink-0" id="precisionToolbarControls">
-              <button id="precBtnStartOrder" data-mode="startorder" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('start_order')}</button>
-              <button id="precBtnByRank" data-mode="rank" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('place')}</button>
-              <button id="precBtnByClass" data-mode="byclass" class="px-3 py-1 text-xs md:text-sm font-medium rounded transition-colors">${t('view_by_class_short')}</button>
-          </div>
-          
-          <!-- Mobile Sort Dropdown -->
-          <div class="md:hidden relative w-[110px] flex-shrink-0">
-               <select id="mobileSortSelectPrec" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs appearance-none">
-                   <option value="byclass">${t('view_by_class_short')}</option>
+          <div class="relative w-[150px] flex-shrink-0">
+               <select id="precisionSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
                    <option value="startorder">${t('start_order')}</option>
                    <option value="rank">${t('place')}</option>
+                   <option value="byclass">${t('view_by_class_short')}</option>
                </select>
                <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
                    <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
                </div>
           </div>
 
-          <div class="w-px h-5 bg-gray-300 dark:bg-gray-600 mx-1 hidden md:block"></div>
+          <div class="relative w-[180px] flex-shrink-0">
+            <select id="precisionClassFilterSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
+              <option value="">${t('all_classes')}</option>
+            </select>
+            <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+              <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+            </div>
+          </div>
 
-          <button id="precToggleFinalized" class="hidden md:inline-flex px-3 py-1.5 text-xs md:text-sm font-medium rounded border transition-colors">
-            <!-- Text updated via JS -->
-          </button>
-
-          <!-- Mobile Checkbox -->
-          <label class="md:hidden flex items-center gap-1.5 text-xs text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0">
-               <input type="checkbox" id="mobileFinalizedCheckPrec" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-3.5 h-3.5" />
-               <span id="mobileFinalizedLabelPrec">${t('filter_finished')}</span>
+          <label class="flex items-center gap-2 text-xs md:text-sm text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0 whitespace-nowrap">
+               <input type="checkbox" id="precisionFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
+               <span>${t('finalized_short')}</span>
           </label>
 
-          <div id="precClassChips" class="flex-shrink-0 z-10 w-[130px] sm:w-auto"></div>
-
-          <div class="flex-grow hidden sm:block"></div>
-
-          <div class="flex-shrink-0 flex items-center gap-2 justify-end border-t border-gray-100 sm:border-0 pt-2 sm:pt-0 dark:border-gray-700 w-full sm:w-auto">
+          <div class="flex-shrink-0 flex items-center gap-2 justify-end md:ml-auto w-auto">
               <button id="btnExportPrecisionCsv" 
                 class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
                  <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
@@ -485,13 +476,12 @@ function renderLayout() {
               <button id="btnExportPrecisionPdf" 
                 class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
                 <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-                 Skriv ut PDF
+                 PDF
               </button>
           </div>
         </div>
 
         <div id="precMergeStatus" class="mt-2 text-xs text-gray-600 dark:text-gray-400"></div>
-        <div id="precClassChips" class="my-2 flex flex-wrap gap-2"></div>
 
         <div id="prWrap"></div>
       </div>
@@ -500,7 +490,9 @@ function renderLayout() {
   const host = document.getElementById('prWrap');
   if (host) {
     host.classList.add('x-scroll-wrap');
-    window.__setupXbarSync({ barClass: 'fixed-xbar', innerId: 'prXbarInner', hostEl: host });
+    if (typeof window.__setupXbarSync === 'function') {
+      window.__setupXbarSync({ barClass: 'fixed-xbar', innerId: 'prXbarInner', hostEl: host });
+    }
   }
 
   const btnPdf = document.getElementById('btnExportPrecisionPdf');
@@ -575,34 +567,16 @@ function renderLayout() {
 }
 
 function updateControlStates() {
-  const btnStart = document.getElementById('precBtnStartOrder');
-  const btnRank = document.getElementById('precBtnByRank');
-  const btnClass = document.getElementById('precBtnByClass');
-
   const mode = precision_viewMode;
-
-  const setBtn = (btn, active) => {
-    if (btn) btn.className = `px-4 py-1.5 text-sm font-medium rounded transition-all ${active ? 'bg-white dark:bg-gray-600 text-gray-900 dark:text-white shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}`;
-  };
-
-  setBtn(btnStart, mode === 'startorder');
-  setBtn(btnRank, mode === 'rank');
-  setBtn(btnClass, mode === 'byclass');
-
-  const btnFin = document.getElementById('precToggleFinalized');
   const isFin = precision_showOnlyFinalized;
-  if (btnFin) {
-    btnFin.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${isFin ? 'bg-green-50 dark:bg-green-900/30 border-green-200 dark:border-green-800 text-green-700 dark:text-green-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
-    btnFin.textContent = isFin ? t('show_all') : t('show_finalized_only');
-  }
 
-  const mobSort = document.getElementById('mobileSortSelectPrec');
-  if (mobSort && mobSort.value !== mode) {
-      mobSort.value = mode;
+  const sortSelect = document.getElementById('precisionSortSelect');
+  if (sortSelect && sortSelect.value !== mode) {
+      sortSelect.value = mode;
   }
-  const mobFin = document.getElementById('mobileFinalizedCheckPrec');
-  if (mobFin && mobFin.checked !== isFin) {
-      mobFin.checked = isFin;
+  const finCheck = document.getElementById('precisionFinalizedCheck');
+  if (finCheck && finCheck.checked !== isFin) {
+      finCheck.checked = isFin;
   }
 }
 
@@ -731,7 +705,7 @@ function renderDesktop() {
 
   (() => {
     const statusHost = document.getElementById('precMergeStatus');
-    const chipHost = document.getElementById('precClassChips');
+    const classSelect = document.getElementById('precisionClassFilterSelect');
     if (statusHost) {
       const groups = precision_MERGE_GROUPS || [];
       const activeCount = groups.filter(g => Array.isArray(g.members) && g.members.length > 1).length;
@@ -739,15 +713,17 @@ function renderDesktop() {
       statusHost.style.display = activeCount ? 'block' : 'none';
     }
 
-    if (chipHost) {
+    if (classSelect) {
       const gArr = prec_groupEquipagesForDisplay(precision_equipages);
       const labels = gArr.map(g => g.label);
-
-      renderResponsiveClassFilter(chipHost, labels, precision_activeClassFilters, (lbl) => {
-        if (precision_activeClassFilters.has(lbl)) precision_activeClassFilters.delete(lbl);
-        else precision_activeClassFilters.add(lbl);
-        try { if (typeof render === 'function') render(); } catch { }
-      });
+      const currentValue = precision_activeClassFilters.size === 1
+        ? Array.from(precision_activeClassFilters)[0]
+        : '';
+      classSelect.innerHTML = [
+        `<option value="">${t('all_classes')}</option>`,
+        ...labels.map((label) => `<option value="${label.replace(/"/g, '&quot;')}">${label}</option>`)
+      ].join('');
+      classSelect.value = labels.includes(currentValue) ? currentValue : '';
     }
   })();
 
@@ -929,9 +905,9 @@ function wireEventListeners() {
     render();
   });
 
-  const mobSort = document.getElementById('mobileSortSelectPrec');
-  if (mobSort) {
-      mobSort.onchange = (e) => {
+  const sortSelect = document.getElementById('precisionSortSelect');
+  if (sortSelect) {
+      sortSelect.onchange = (e) => {
           precision_viewMode = e.target.value;
           if (precision_viewMode === 'startorder') { precision_sort.col = 'startNumber'; precision_sort.dir = 'asc'; }
           else if (precision_viewMode === 'rank') { precision_sort.col = 'place'; precision_sort.dir = 'asc'; }
@@ -941,34 +917,26 @@ function wireEventListeners() {
       }
   }
 
-  const mobFin = document.getElementById('mobileFinalizedCheckPrec');
-  if (mobFin) {
-      mobFin.onchange = (e) => {
+  const finCheck = document.getElementById('precisionFinalizedCheck');
+  if (finCheck) {
+      finCheck.onchange = (e) => {
           precision_showOnlyFinalized = e.target.checked;
           render();
           updateControlStates();
       }
   }
 
-  document.getElementById('precisionToolbarControls')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('button');
-    if (!btn) return;
-
-    if (btn.dataset.mode) {
-      precision_viewMode = btn.dataset.mode;
-      if (precision_viewMode === 'startorder') { precision_sort.col = 'startNumber'; precision_sort.dir = 'asc'; }
-      else if (precision_viewMode === 'rank') { precision_sort.col = 'place'; precision_sort.dir = 'asc'; }
-      else if (precision_viewMode === 'byclass') { precision_sort.col = 'place'; precision_sort.dir = 'asc'; }
+  const classSelect = document.getElementById('precisionClassFilterSelect');
+  if (classSelect) {
+    classSelect.onchange = (e) => {
+      precision_activeClassFilters.clear();
+      if (e.target.value) {
+        precision_activeClassFilters.add(e.target.value);
+      }
       render();
       updateControlStates();
-    }
-
-    if (btn.id === 'precToggleFinalized') {
-      precision_showOnlyFinalized = !precision_showOnlyFinalized;
-      render();
-      updateControlStates();
-    }
-  });
+    };
+  }
 
   const tableWrapper = document.getElementById('prWrap');
   tableWrapper?.addEventListener('click', (e) => {
@@ -1103,10 +1071,8 @@ export async function load() {
 // Globala funktioner för finalisera (anropas via onclick i HTML)
 window.__finalizePrecision = async (compId, sn) => {
   if (!compId || !sn) return;
-  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${compId}/precision/${sn}`);
   try {
-    const d = precision_precisionMap.get(String(sn)) || {};
-    await setDoc(ref, buildPrecisionFinalizePayload(d), { merge: true });
+    await finalizePrecision(compId, sn);
 
     precision_finalizeCache.set(String(sn), true);
     patchPrecisionFinalizeBadge(String(sn), true);
@@ -1120,9 +1086,8 @@ window.__finalizePrecision = async (compId, sn) => {
 
 window.__unfinalizePrecision = async (compId, sn) => {
   if (!compId || !sn) return;
-  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${compId}/precision/${sn}`);
   try {
-    await setDoc(ref, buildPrecisionUnfinalizePayload(), { merge: true });
+    await unfinalizePrecision(compId, sn);
     precision_finalizeCache.set(String(sn), false);
     patchPrecisionFinalizeBadge(String(sn), false);
     render();

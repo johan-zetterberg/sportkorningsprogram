@@ -18,7 +18,7 @@ service cloud.firestore {
     // ELLER users/{uid} där role == "superadmin" ELLER roles innehåller "superadmin"
     function isSuperAdmin() {
       return (
-        (request.auth != null && request.auth.token.superadmin == true) ||
+        (request.auth != null && request.auth.token.get('superadmin', false) == true) ||
         (
           request.auth != null &&
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
@@ -91,6 +91,34 @@ service cloud.firestore {
         );
     }
 
+    function isPrecisionResultUnlocked(compId, startNo) {
+      return !exists(/databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo))
+        || get(/databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo)).data.get('finalized', false) != true;
+    }
+
+    function isMarathonResultUnlocked(compId, startNo) {
+      return !exists(/databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo))
+        || get(/databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo)).data.get('finalized', false) != true;
+    }
+
+    function isDressageResultUnlocked(compId, startNo) {
+      return !exists(/databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo))
+        || get(/databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo)).data.get('finalized', false) != true;
+    }
+
+    function canSelfServiceEquipage(resourceData) {
+      return request.auth != null
+        && request.auth.token.email != null
+        && resourceData.get('email', '') != ''
+        && request.auth.token.email.lower() == resourceData.get('email', '').lower();
+    }
+
+    function isSensitiveArtifactsPublicPath(documentPath) {
+      return documentPath.matches('data/competitions/[^/]+/config/secrets')
+        || documentPath.matches('data/competitions/[^/]+/auditLog/[^/]+')
+        || documentPath.matches('data/competitions/[^/]+/admins/[^/]+');
+    }
+
     // ------------------------------------------------------------------------
     //  DRESSYR / PRECISION / MARATON – FINALISERING (top-level /competitions)
     // ------------------------------------------------------------------------
@@ -146,7 +174,7 @@ service cloud.firestore {
     // ------------------------------------------------------------------------
 
     match /artifacts/{appId}/public/{document=**} {
-      allow read: if true;
+      allow read: if !isSensitiveArtifactsPublicPath(document);
     }
 
     // Rot för competitions (artifacts)
@@ -199,6 +227,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'precision')
+        )
+        && (
+          isPrecisionResultUnlocked(compId, docId)
         );
     }
 
@@ -208,6 +239,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'dressage')
+        )
+        && (
+          isDressageResultUnlocked(compId, startNumber)
         );
     }
 
@@ -217,6 +251,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'dressage')
+        )
+        && (
+          isDressageResultUnlocked(compId, startNumber)
         );
 
       match /live/{docId} {
@@ -224,6 +261,9 @@ service cloud.firestore {
         allow write: if request.auth != null
           && (
             hasRoleInComp(appId, compId, 'dressage')
+          )
+          && (
+            isDressageResultUnlocked(compId, startNumber)
           );
       }
     }
@@ -234,6 +274,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'dressage')
+        )
+        && (
+          isDressageResultUnlocked(compId, startNumber)
         );
     }
 
@@ -243,6 +286,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'dressage')
+        )
+        && (
+          isDressageResultUnlocked(compId, startNo)
         );
     }
 
@@ -263,11 +309,11 @@ service cloud.firestore {
           canAdminThisArtifactsComp(appId, compId) ||
           hasRoleInComp(appId, compId, 'speaker') ||
           (
-             // Allow drivers to update Declaration fields (Self-Service)
-             // We trust the client UI to only show this for claimed equipages.
+             // Allow drivers to update declaration fields for their own entry only.
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
                ['groom', 'horses', 'carriage', 'clubName', 'speakerNotes', 'lastUpdated', 'updatedAt']
              )
+             && canSelfServiceEquipage(resource.data)
           )
         );
     }
@@ -315,7 +361,8 @@ service cloud.firestore {
 
     // Volunteer Signups (Public Create, Admin Read/Modify)
     match /artifacts/{appId}/public/data/competitions/{compId}/volunteerSignups/{docId} {
-      allow create, update: if true; // Public can sign up (and update their own submission technically, but ID is random)
+      allow create: if true;
+      allow update: if false;
       allow read, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -350,12 +397,52 @@ service cloud.firestore {
         );
     }
 
+    function validAdminJoinRole(role) {
+      return role in ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+    }
+
+    function validAdminJoinPayload(appId, compId, userId) {
+      let requestedRole = request.resource.data.get('role', '');
+      let requestedRoles = request.resource.data.get('roles', []);
+      let existingRoles = resource == null
+        ? []
+        : (
+          resource.data.get('roles', []) != null
+            ? resource.data.get('roles', [])
+            : [resource.data.get('role', '')]
+        );
+
+      return request.auth != null
+        && request.auth.uid == userId
+        && validAdminJoinRole(requestedRole)
+        && isValidPin(appId, compId, requestedRole, request.resource.data.get('accessCode', ''))
+        && request.resource.data.keys().hasOnly(['accessCode', 'email', 'joinedAt', 'role', 'roles'])
+        && request.resource.data.get('email', '') == request.auth.token.email
+        && requestedRoles is list
+        && requestedRoles.hasAll([requestedRole])
+        && requestedRoles.hasOnly(['admin', 'dressage', 'marathon', 'precision', 'speaker'])
+        && (
+          !('admin' in requestedRoles) || 'admin' in existingRoles || requestedRole == 'admin'
+        )
+        && (
+          !('dressage' in requestedRoles) || 'dressage' in existingRoles || requestedRole == 'dressage'
+        )
+        && (
+          !('marathon' in requestedRoles) || 'marathon' in existingRoles || requestedRole == 'marathon'
+        )
+        && (
+          !('precision' in requestedRoles) || 'precision' in existingRoles || requestedRole == 'precision'
+        )
+        && (
+          !('speaker' in requestedRoles) || 'speaker' in existingRoles || requestedRole == 'speaker'
+        );
+    }
+
     // Administratörer som joinat med PIN-kod
     match /artifacts/{appId}/public/data/competitions/{compId}/admins/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || canAdminThisArtifactsComp(appId, compId));
       allow create, update: if request.auth != null 
-        && request.auth.uid == userId 
-        && isValidPin(appId, compId, request.resource.data.get('role', 'admin'), request.resource.data.get('accessCode', ''));
+        && validAdminJoinPayload(appId, compId, userId);
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
     }
 
@@ -424,6 +511,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'marathon')
+        )
+        && (
+          isMarathonResultUnlocked(compId, docId)
         );
     }
 
@@ -432,6 +522,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'marathon')
+        )
+        && (
+          isMarathonResultUnlocked(compId, resultId)
         );
     }
 
@@ -440,6 +533,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'marathon')
+        )
+        && (
+          isMarathonResultUnlocked(compId, equipageId)
         );
     }
 
@@ -448,6 +544,9 @@ service cloud.firestore {
       allow write: if request.auth != null
         && (
           hasRoleInComp(appId, compId, 'marathon')
+        )
+        && (
+          isMarathonResultUnlocked(compId, equipageId)
         );
     }
 

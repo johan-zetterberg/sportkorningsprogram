@@ -3,9 +3,10 @@ import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPaus
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
+import { finalizeMarathon as finalizeMarathonService } from '../../services/finalizationService.js';
 import { getMarathonStateDocuments } from '../../services/marathonService.js';
 import { listenForMaratonCollection } from '../../services/marathonService.js';
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
@@ -922,7 +923,12 @@ function renderLayout() {
     </style>
 
     <div class="container mx-auto p-4 md:p-8 max-w-4xl">
-      ${getCompetitionHeader(comp, t('marathon_stages_header'))}
+      ${getCompetitionHeader(comp, comp?.competitionMode === 'field'
+        ? 'Maraton - manuell etappregistrering'
+        : t('marathon_stages_header'))}
+      ${renderCompetitionModeBanner(comp, {
+        message: 'Tävlingen körs i fältläge. Etapptider registreras manuellt här och sekretariatet används för uppföljning och korrigering.'
+      })}
 
       <!-- STICKY HEADER: KUSK-INFO & FLIKAR -->
       <div class="sticky-stages-header sticky top-[63px] bg-white/95 dark:bg-gray-900/95 backdrop-blur p-4 border-b dark:border-gray-700 z-30 shadow-sm">
@@ -931,7 +937,7 @@ function renderLayout() {
             <div class="min-w-0">
               <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">${t('marathon_stages_select_equipage')}…</div>
               <div class="text-[10px] uppercase font-bold text-gray-500">
-                Aktiv etapp: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
+                ${comp?.competitionMode === 'field' ? 'Vald etapp' : 'Aktiv etapp'}: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
               </div>
             </div>
             <div class="flex gap-1">
@@ -1035,8 +1041,10 @@ function renderStagePanel(stage) {
 
     <!-- KONTROLLER -->
     <div class="flex items-stretch gap-2">
-      <button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
-      <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>
+      ${getGlobalState('currentCompetition')?.competitionMode === 'field'
+        ? `<button id="btnManualOpen-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-brand-darkblue text-white shadow-lg active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+        : `<button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
+      <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
       <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">🔄</button>
     </div>
 
@@ -1235,6 +1243,7 @@ function bindManualEditor(stage) {
   document.getElementById('manual-B')?.classList.add('hidden');
 
   const timerEl = document.getElementById(`timer-${stage}`);
+  const openBtn = document.getElementById(`btnManualOpen-${stage}`);
   const wrapEl = document.getElementById(`manual-${stage}`);
   const inputEl = document.getElementById(`manualDigits-${stage}`);
   const okBtn = document.getElementById(`manualApply-${stage}`);
@@ -1248,793 +1257,59 @@ function bindManualEditor(stage) {
   timerEl.style.cursor = 'pointer';
   timerEl.title = t('marathon_stages_click_manual_time');
   timerEl.addEventListener('click', open);
+  openBtn?.addEventListener('click', open);
   cancelBtn.addEventListener('click', close);
 
   okBtn.addEventListener('click', async () => {
-    if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first')); return; }
+    if (!currentEquipage) return;
 
-    const raw = inputEl.value;
-    const ms = typeof digitsToMs === 'function'
-      ? digitsToMs(raw)
-      : (() => { const d = (raw || '').replace(/\D/g, '').slice(0, 6).padEnd(6, '0'); return ((+d.slice(0, 2)) * 60 + (+d.slice(2, 4))) * 1000 + (+d.slice(4, 6)) * 10; })();
+    const ms = digitsToMs(inputEl.value);
+    const actualStage = normalizeStageForEquipage(currentEquipage, stage);
+    const key = `${currentEquipage.startNumber}|${actualStage}`;
+    let timerState = activeTimers.get(key);
 
-    if (!Number.isFinite(ms) || ms < 0) {
-      showAlert(t('marathon_stages_manual_time_invalid'));
-      return;
+    if (!timerState) {
+      timerState = { isRunning: false, startEpoch: 0, pausedMs: 0 };
+      activeTimers.set(key, timerState);
     }
 
-    const sn = String(currentEquipage.startNumber);
-    const key = `${sn}|${stage}`;
+    timerState.isRunning = false;
+    timerState.startEpoch = 0;
+    timerState.pausedMs = ms;
 
-    // Uppdatera lokal timerstate
-    let t = activeTimers.get(key);
-    if (!t) { t = { isRunning: false, startEpoch: 0, pausedMs: 0 }; activeTimers.set(key, t); }
-    if (t._ticker) clearInterval(t._ticker);
-    t.isRunning = false;
-    t.startEpoch = 0;
-    t.pausedMs = ms;
+    paintTimer(key);
 
-    // UI direkt
-    updateTimerLabel(stage);
-
-    // Spara snapshot (start = nu - ms, stopp = nu)
-    const dNow = new Date();
-    dNow.setMilliseconds(0);
-    const nowMs = dNow.getTime();
-
+    const now = Date.now();
     const payload = {
       durationMs: ms,
-      startClock: new Date(nowMs - ms).toISOString(),
-      stopClock: dNow.toISOString(),
-      commentStart: document.getElementById(`commentStart-${stage}`)?.value || '',
-      commentStop: document.getElementById(`commentStop-${stage}`)?.value || '',
+      startClock: new Date(now - ms).toISOString(),
+      stopClock: new Date(now).toISOString(),
+      runningStage: null
     };
-    if (stage === 'B') {
-      payload.bitCheckOk = !!document.getElementById('bitOk')?.checked;
-      payload.bitCheckComment = document.getElementById('bitComment')?.value || '';
-    }
 
-    try { await saveStageSnapshot(stage, payload); }
-    catch (e) { console.error(e); showAlert(t('marathon_stages_manual_time_error2')); }
-    finally { close(); }
-  });
-}
-
-// ---------- Actions ----------
-// Bind knapparna för den aktuella etapp-panelen (utan någon timerEl-logik här)
-function bindStagePanel(stage) {
-  // Start / Mål / Nollställ / Spara
-  const btnStart = document.getElementById(`btnStart-${stage}`);
-  const btnStop = document.getElementById(`btnStop-${stage}`);
-  const btnReset = document.getElementById(`btnReset-${stage}`) || document.getElementById(`btnZero-${stage}`);
-  const btnSave = document.getElementById(`btnSave-${stage}`);
-
-  btnStart && btnStart.addEventListener('click', () => startStage(stage));
-  btnStop && btnStop.addEventListener('click', () => stopStage(stage));
-  btnReset && btnReset.addEventListener('click', () => resetStage(stage));
-  btnSave && btnSave.addEventListener('click', () => saveCurrentStage?.(stage));
-
-  // BORTTAGEN: Lyssnare för btnFinalize
-
-  // Koppla den nya *globala* editor-bindningen
-  bindManualEditor(stage);
-
-  // Förhindra negativa tecken i fältet (extra skydd)
-  const otherEl = document.getElementById('otherMarathonPenalty');
-  if (otherEl && !otherEl.dataset.bound) {
-    otherEl.dataset.bound = '1';
-    otherEl.addEventListener('input', () => {
-      const v = (otherEl.value || '').trim();
-      if (v === '') return;
-      const n = Number(v.replace(',', '.'));
-      if (!Number.isFinite(n)) return;
-      if (n < 0) otherEl.value = '0';
-    });
-  }
-
-  // NYTT: Manuell Eliminering
-  const elimEl = document.getElementById('manualEliminated');
-  if (elimEl) {
-    elimEl.addEventListener('change', async () => {
-      if (!currentEquipage) return;
-      const sn = String(currentEquipage.startNumber);
-      const val = elimEl.checked;
-
-      // Spara till firestore (root-nivå)
-      try {
-        await setDoc(maratonDocRef(sn), { eliminated: val }, { merge: true });
-        // UI-feedback sker via onSnapshot -> populateStageUI, men vi kan sätta färg direkt om vi vill
-      } catch (e) {
-        console.error('Kunde inte spara eliminering', e);
-        showAlert(t('marathon_stages_elim_save_error'));
-        elimEl.checked = !val; // ångra
-      }
-    });
-  }
-
-  // NYTT: Koppla kommentarsknapp och textfält med robust hantering
-  const panel = document.getElementById('stagePanel');
-  const commentBtn = panel?.querySelector('.comment-toggle-btn');
-  if (commentBtn) {
-    commentBtn.onclick = () => {
-      const wrapper = panel.querySelector('.comment-wrapper');
-      wrapper?.classList.toggle('comment-visible');
-      if (wrapper?.classList.contains('comment-visible')) {
-        wrapper.querySelector('textarea')?.focus();
-      }
-    };
-  }
-
-  const updateBtnStatus = () => {
-    const csVal = document.getElementById(`commentStart-${stage}`)?.value || '';
-    const ceVal = document.getElementById(`commentStop-${stage}`)?.value || '';
-    let hasB = false;
-    if (stage === 'B') {
-      hasB = !!(document.getElementById('bitComment')?.value);
-    }
-    commentBtn?.classList.toggle('has-comment', csVal.length > 0 || ceVal.length > 0 || hasB);
-  };
-
-  // Auto-save för kommentarer (direkt vid ändring)
-  const autoSaveComment = async () => {
-    updateBtnStatus();
-    if (!currentEquipage) return;
     try {
-      await saveStageSnapshot(stage, {
-        commentStart: document.getElementById(`commentStart-${stage}`)?.value || '',
-        commentStop: document.getElementById(`commentStop-${stage}`)?.value || '',
-        ...(stage === 'B' ? {
-          bitCheckComment: document.getElementById('bitComment')?.value || ''
-        } : {})
-      });
-    } catch (e) { console.error('Auto-save comment failed', e); }
-  };
-
-  const csInp = document.getElementById(`commentStart-${stage}`);
-  if (csInp) csInp.oninput = autoSaveComment;
-  const ceInp = document.getElementById(`commentStop-${stage}`);
-  if (ceInp) ceInp.oninput = autoSaveComment;
-
-  if (stage === 'B') {
-    const bitC = document.getElementById('bitComment');
-    if (bitC) bitC.oninput = autoSaveComment;
-    const bitOk = document.getElementById('bitOk');
-    if (bitOk) {
-      bitOk.onclick = async () => {
-        if (!currentEquipage) return;
-        await saveStageSnapshot(stage, { bitCheckOk: bitOk.checked });
-      };
-    }
-  }
-
-  // NYTT: Klicka på Start kl. / Mål kl. för att ändra manuellt – använd onclick för att undvika dubbla lyssnare
-  const startEl = document.getElementById(`startClock-${stage}`);
-  if (startEl) startEl.onclick = () => handleManualClockEdit(stage, 'start');
-
-  const stopEl = document.getElementById(`stopClock-${stage}`);
-  if (stopEl) stopEl.onclick = () => handleManualClockEdit(stage, 'stop');
-}
-
-async function handleManualClockEdit(stage, type) {
-  if (!currentEquipage) return;
-
-  const sn = String(currentEquipage.startNumber);
-  const stDoc = currentDocData?.timing?.[stage] || {};
-
-  const label = type === 'start' ? t('marathon_stages_start_time') : t('marathon_stages_finish_time');
-
-  // Pre-fill med nuvarande tid i HHMMSS-format för enklare justering
-  let defVal = '';
-  const currentIso = type === 'start' ? stDoc.startClock : stDoc.stopClock;
-  if (currentIso) {
-    const d = new Date(currentIso);
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
-    const ss = String(d.getSeconds()).padStart(2, '0');
-    defVal = `${hh}${mm}${ss}`;
-  }
-
-  const raw = prompt(t('marathon_stages_enter_new_time').replace('{label}', label), defVal);
-  if (!raw) return;
-
-  // Litet regex för att parsa HH:MM:SS (eller HH:MM:SS,ms)
-  // Tillåter även HHMMSS eller HMMSS
-  const parseTimeInput = (str) => {
-    const s = str.trim().replace(',', '.');
-
-    // 1. Kolon-format: HH:MM:SS
-    const matchCol = s.match(/^(\d{1,2})[:.](\d{2})[:.](\d{2})$/);
-    if (matchCol) {
-      return { h: +matchCol[1], m: +matchCol[2], s: +matchCol[3] };
-    }
-
-    // 2. Släta siffror: 5 eller 6 tecken (HMMSS eller HHMMSS)
-    // Ex: "93000" -> 09:30:00, "123000" -> 12:30:00
-    const matchPlain = s.match(/^(\d{1,2})(\d{2})(\d{2})$/);
-    if (matchPlain) {
-      return { h: +matchPlain[1], m: +matchPlain[2], s: +matchPlain[3] };
-    }
-
-    return null;
-  };
-
-  const t = parseTimeInput(raw);
-  if (!t) {
-    showAlert(t('marathon_stages_invalid_time_format'), false);
-    return;
-  }
-
-  // Konstruera datumet. Använd befintlig tidstämpelns datum om möjligt, annars "idag".
-  let baseDate = new Date();
-
-  const existingIso = type === 'start' ? stDoc.startClock : stDoc.stopClock;
-  if (existingIso) {
-    baseDate = new Date(existingIso);
-  } else {
-    // Om vi redigerar start men start saknas -> kolla mål
-    if (type === 'start' && stDoc.stopClock) baseDate = new Date(stDoc.stopClock);
-    // Om vi redigerar mål men mål saknas -> kolla start
-    else if (type === 'stop' && stDoc.startClock) baseDate = new Date(stDoc.startClock);
-  }
-
-  baseDate.setHours(t.h, t.m, t.s, 0); // nollställ ms för enkelhetens skull, eller låt användaren mata in?
-  const newIso = baseDate.toISOString();
-
-  // Beräkna duration om vi har båda punkterna
-  let newStart = (type === 'start') ? newIso : stDoc.startClock;
-  let newStop = (type === 'stop') ? newIso : stDoc.stopClock;
-  let newDuration = null;
-
-  if (newStart && newStop) {
-    const dStart = new Date(newStart);
-    const dStop = new Date(newStop);
-
-    // --- NYTT: Förhindra 0,xx-diffar vid manuell ändring ---
-    // Nollställ millisekunder för BÅDA så att duration === (stop - start) i hela sekunder
-    dStart.setMilliseconds(0);
-    dStop.setMilliseconds(0);
-
-    const tStart = dStart.getTime();
-    const tStop = dStop.getTime();
-
-    if (Number.isFinite(tStart) && Number.isFinite(tStop)) {
-      newDuration = Math.max(0, tStop - tStart);
-      // Uppdatera även de ISO-strängar som sparas så att de slutar på .000Z
-      newStart = dStart.toISOString();
-      newStop = dStop.toISOString();
-    }
-  }
-
-  // Payload
-  const payload = {};
-  if (type === 'start') payload.startClock = newStart;
-  else payload.stopClock = newStop;
-
-  // Om vi ändrade en klocka och den andra fanns -> spara även den andra med nollade ms
-  // för att garantera att duration stämmer med visad tid.
-  if (type === 'start' && newStop) payload.stopClock = newStop;
-  if (type === 'stop' && newStart) payload.startClock = newStart;
-
-  if (newDuration !== null) {
-    payload.durationMs = newDuration;
-  }
-
-  // --- VALIDERING: Varning för framtida tid ---
-  const diffFromNow = new Date(newIso).getTime() - Date.now();
-  if (diffFromNow > 5 * 60_000) { // Mer än 5 minuter i framtiden
-    if (!confirm(t('marathon_stages_future_time_warning'))) {
-      return;
-    }
-  }
-
-  // Om vi "öppnar" (tar bort start/stop) - stödjs ej via denna prompt just nu, 
-  // vi förutsätter att man vill sätta en tid.
-
-  try {
-    await saveStageSnapshot(stage, payload);
-
-    // --- SYNKA LOKAL STATE (activeTimers) ---
-    const key = `${sn}|${stage}`;
-    const tm = activeTimers.get(key);
-
-    if (tm) {
-      if (type === 'start') {
-        // Om vi ändrade starttid -> justera startEpoch för den tickande timern
-        const newStartMs = new Date(newStart).getTime();
-        tm.startEpoch = newStartMs;
-      }
-      
-      if (type === 'stop' && newStop) {
-        // Om vi satte en måltid manuellt -> stoppa timern lokalt
-        tm.isRunning = false;
-        if (newDuration !== null) tm.pausedMs = newDuration;
-      }
-
-      // Om vi nu har både start och mål (och timern fanns) -> definitivt stoppad
-      if (newStart && newStop) {
-        tm.isRunning = false;
-        if (newDuration !== null) tm.pausedMs = newDuration;
-      }
-    }
-
-    // Tvinga omedelbar UI-uppdatering så användaren ser "hoppet" i tid
-    updateTimerLabel(stage);
-    renderActiveCards();
-
-  } catch (err) {
-    console.error(err);
-    showAlert(t('marathon_stages_could_not_update_time'), false);
-  }
-}
-
-
-async function focusEquipageStage(sn, stage) {
-  const eq = findEquipageBySn(sn);
-  if (!eq) return;
-
-  // välj ekipage
-  currentEquipage = eq;
-  if (typeof reflectDropdownSelection === 'function') reflectDropdownSelection(eq);
-
-  // === REDIRECT LOGIC for Fixed Time "Warm-up" on Stage A ===
-  // Normalisera etappen baserat på ekipagets profil (A vs Warm-up)
-  const normalized = normalizeStageForEquipage(eq, stage || currentStage);
-  if (normalized !== (stage || currentStage)) {
-    stage = normalized;
-  }
-
-  // NYTT: Uppdatera flikar (VISUAL ONLY)
-  updateTabVisibility(eq);
-
-  // Uppdatera rubrik & “Välj ekipage”-info direkt
-  updateEqInfo();
-  const small = document.getElementById('infoLineSmall');
-  if (small) {
-    small.textContent = t('marathon_stages_showing_equipage').replace('{startNumber}', eq.startNumber).replace('{driverName}', eq.driverName || '').replace('{stage}', decorateStageLabel(stage || currentStage));
-  }
-
-  // Byt flik/etapp program­matiskt (samma som i wireTabs())
-  if (stage && stage !== currentStage) {
-    currentStage = stage;
-    // 1) Flik-stil
-    highlightActiveTab();
-    // 2) Etikett i headern
-    const lab = document.getElementById('activeStageLabel');
-    if (lab) lab.textContent = decorateStageLabel(stage);
-    // 3) Rendera rätt panel och bind knappar/editor
-    const host = document.getElementById('stagePanel');
-    if (host) {
-      host.innerHTML = renderStagePanel(currentStage);
-      bindStagePanel(currentStage);
-    }
-  }
-
-  // ladda & fyll UI
-  try {
-    const snStr = String(eq.startNumber);
-    currentDocData = await readStageDoc(snStr) || {};
-  } catch (e) {
-    currentDocData = {};
-  }
-  populateStageUI(currentStage, currentDocData);
-  updateTimerLabel(currentStage);
-  updateStageEqLine();
-  ensureGlobalTicker();
-
-  // scrolla till timern så man ser kommentarsfälten direkt under
-  document.getElementById(`timer-${currentStage}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-}
-
-// NYTT: Dynamisk visning av flikar baserat på om A är "Warm-up" (Fixed Time)
-function updateTabVisibility(eq) {
-  if (!eq) return;
-  const limitsA = limitsFor(eq, 'A');
-
-  // Detektera "Fixed Time A" genom att kolla om max === ideal (och > 0) och min === 0
-  const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
-
-  const warmupTab = document.querySelector('button[data-stage="warmup"]');
-  const stageATab = document.querySelector('button[data-stage="A"]');
-
-  if (isFixedTimeA) {
-    // 1. Dölj den "riktiga" warm-up-fliken
-    if (warmupTab) warmupTab.classList.add('hidden');
-
-    // 2. Döp om A-fliken till "Warm-up"
-    if (stageATab) {
-      stageATab.textContent = 'Warm-up';
-      // Ensure we preserve icon if present (re-apply updateTabStatuses logic potentially, or just text)
-      // updateTabStatuses relies on .dataset.originalLabel + icon.
-      // We should update originalLabel too so future icon updates use the new name.
-      stageATab.dataset.originalLabel = 'Warm-up';
-    }
-  } else {
-    // Återställ
-    if (warmupTab) warmupTab.classList.remove('hidden');
-    if (stageATab) {
-      stageATab.textContent = 'A';
-      stageATab.dataset.originalLabel = 'A';
-    }
-  }
-}
-
-function decorateStageLabel(stage, eq = currentEquipage) {
-  if (stage === 'A') {
-    const limitsA = limitsFor(eq, 'A');
-    if (limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0) {
-      return 'Warm-up';
-    }
-  }
-  return stageNiceLabel(stage);
-}
-
-function populateStageUI(stage, data) {
-
-
-  const st = data?.timing?.[stage] || {};
-  const sc = document.getElementById(`startClock-${stage}`);
-  const ec = document.getElementById(`stopClock-${stage}`);
-  const cs = document.getElementById(`commentStart-${stage}`);
-  const ce = document.getElementById(`commentStop-${stage}`);
-
-  if (sc) sc.textContent = st.startClock ? new Date(st.startClock).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '–';
-  if (ec) ec.textContent = st.stopClock ? new Date(st.stopClock).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '–';
-  
-  if (cs && typeof st.commentStart === 'string' && document.activeElement !== cs) cs.value = st.commentStart;
-  if (ce && typeof st.commentStop === 'string' && document.activeElement !== ce) ce.value = st.commentStop;
-
-  // NYTT: Uppdatera kommentarsknappen baserat på innehåll
-  const commentBtn = document.querySelector('.comment-toggle-btn');
-  if (commentBtn) {
-    const hasComment = (st.commentStart || st.commentStop || st.bitCheckComment);
-    commentBtn.classList.toggle('has-comment', !!hasComment);
-  }
-
-  const otherPenaltyEl = document.getElementById('otherMarathonPenalty');
-  if (otherPenaltyEl && isNum(data?.otherPenalty) && document.activeElement !== otherPenaltyEl) {
-    otherPenaltyEl.value = data.otherPenalty;
-  }
-
-  const elimEl = document.getElementById('manualEliminated');
-  if (elimEl && document.activeElement !== elimEl) {
-    elimEl.checked = !!data.eliminated;
-  }
-
-  if (stage === 'B') {
-    const bitOk = document.getElementById('bitOk');
-    const bitC = document.getElementById('bitComment');
-    if (bitOk && typeof st.bitCheckOk === 'boolean' && document.activeElement !== bitOk) bitOk.checked = !!st.bitCheckOk;
-    if (bitC && typeof st.bitCheckComment === 'string' && document.activeElement !== bitC) bitC.value = st.bitCheckComment;
-  }
-}
-
-// RAD EFTER (ca 1324): async function startStage(stage){
-
-async function startStage(stage) {
-  if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first'), false); return; }
-  const eq = currentEquipage;
-  const sn = String(eq.startNumber);
-  const actualStage = normalizeStageForEquipage(eq, stage);
-  const key = `${sn}|${actualStage}`;
-  const stDoc = currentDocData?.timing?.[stage] || {};
-  const nowIso = new Date().toISOString();
-  const nowEpoch = Date.parse(nowIso);
-
-  // 1) Redan igång på dokumentet? → anslut lokalt & lämna
-  if (stDoc.startClock && !stDoc.stopClock) {
-    const startTS = Date.parse(stDoc.startClock);
-    let t = activeTimers.get(key);
-    if (!t) {
-      t = { isRunning: true, startEpoch: startTS, pausedMs: (stDoc.durationMs || 0) };
-      activeTimers.set(key, t);
-    } else {
-      t.isRunning = true;
-      t.startEpoch = startTS;
-      t.pausedMs = (stDoc.durationMs || 0);
-    }
-    // --- OPTIMISTISK ---
-    addOrUpdateActiveCard(sn, stage);
-    ensureGlobalTicker();
-    updateTimerLabel(stage);
-    renderActiveCards();
-    return;
-  }
-
-  // 2) ÅTERUPPTA: det finns en sparad tid (mål registrerat) → behåll duration, öppna igen
-  if (stDoc.stopClock && Number.isFinite(stDoc.durationMs)) {
-    // lokal ticker ska fortsätta från pausad tid
-    let t = activeTimers.get(key);
-    if (!t) { t = { isRunning: false, startEpoch: 0, pausedMs: 0 }; activeTimers.set(key, t); }
-    t.isRunning = true;
-    t.startEpoch = nowEpoch; // nu börjar nästa “etapp” av samma körning
-    t.pausedMs = stDoc.durationMs || 0; // redan uppmätt tid
-
-    // --- OPTIMISTISK UPPDATERING ---
-    // UI: visa ny start och rensa mål
-    const sEl = document.getElementById(`startClock-${stage}`);
-    if (sEl) sEl.textContent = new Date(nowIso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    const eEl = document.getElementById(`stopClock-${stage}`);
-    if (eEl) eEl.textContent = '–';
-
-    // Starta den lokala tickern och uppdatera alla UI-delar
-    addOrUpdateActiveCard(sn, stage);
-    ensureGlobalTicker();
-    updateTimerLabel(stage);
-    renderActiveCards();
-
-    // Spara till servern i bakgrunden
-    try {
-      await saveStageSnapshot(stage, {
-        startClock: nowIso,          // ny start för “fortsättningen”
-        stopClock: null,            // öppna igen
-        durationMs: stDoc.durationMs || 0, // ackumulerad tid hittills
-        runningStage: stage
-      });
+      await saveStageSnapshot(stage, payload);
+      mergeStagePayloadIntoCurrentDoc(stage, payload);
+      updateTimerLabel(stage);
+      updateTabStatuses(currentDocData);
+      renderActiveCards();
+      close();
     } catch (err) {
       console.error(err);
-      showAlert(t('marathon_stages_resume_error'), false);
-      return;
+      showAlert(t('marathon_stages_manual_time_error'), false);
     }
-    return;
-  }
-
-  // 3) NY START
-  let t = activeTimers.get(key);
-  if (!t) { t = { isRunning: false, startEpoch: 0, pausedMs: 0 }; activeTimers.set(key, t); }
-  t.isRunning = true;
-  t.startEpoch = nowEpoch;
-  t.pausedMs = 0;
-
-  // --- OPTIMISTISK UPPDATERING ---
-  // UI (klockslag)
-  const sEl = document.getElementById(`startClock-${stage}`);
-  if (sEl) sEl.textContent = new Date(nowIso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const eEl = document.getElementById(`stopClock-${stage}`);
-  if (eEl) eEl.textContent = '–';
-
-  // Starta den lokala tickern och uppdatera alla UI-delar
-  addOrUpdateActiveCard(sn, stage);
-  ensureGlobalTicker();
-  updateTimerLabel(stage);
-  renderActiveCards();
-
-  // Spara till servern i bakgrunden
-  try {
-    await saveStageSnapshot(stage, {
-      startClock: nowIso,
-      stopClock: null,
-      durationMs: 0,
-      runningStage: stage
-    });
-  } catch (err) {
-    console.error(err);
-    showAlert(t('marathon_stages_save_start_error'), false);
-  }
-}
-
-async function stopStage(stage) {
-  const eq = currentEquipage;
-  const sn = String(eq.startNumber);
-  const actualStage = normalizeStageForEquipage(eq, stage);
-  const key = `${sn}|${actualStage}`;
-
-  const now = Date.now();
-  const stopIso = new Date(now).toISOString();
-
-  // 1. Beräkna den slutgiltiga tiden på ett robust sätt
-  let finalMs = 0;
-  const localTimer = activeTimers.get(key);
-  const docData = currentDocData?.timing?.[stage] || {};
-
-  if (localTimer?.isRunning) {
-    // Om en lokal timer tickar, är det den som gäller.
-    finalMs = localTimer.pausedMs + (now - localTimer.startEpoch);
-  } else if (docData.startClock && !docData.stopClock) {
-    // Om ingen lokal timer finns (t.ex. startad på annan enhet), beräkna från dokumentet.
-    const startMs = new Date(docData.startClock).getTime();
-    const accumulatedMs = docData.durationMs || 0;
-    finalMs = accumulatedMs + (now - startMs);
-  } else if (Number.isFinite(docData.durationMs)) {
-    // Om klockan redan var stoppad, behåll den sparade tiden.
-    finalMs = docData.durationMs;
-  }
-
-  // --- NYTT: VARNING VID LÅNG TID ---
-  if (isDurationSuspicious(finalMs, currentEquipage, stage)) {
-    const ok = confirm(t('marathon_stages_max_time_warning').replace('{time}', fmtMsTimer(finalMs)));
-    if (!ok) return;
-  }
-
-  // --- OPTIMISTISK UPPDATERING ---
-  // 2. Uppdatera UI direkt för omedelbar feedback
-  const labelEl = document.getElementById(`stopClock-${stage}`);
-  if (labelEl) {
-    labelEl.textContent = new Date(stopIso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  }
-  const timerEl = document.getElementById(`timer-${stage}`);
-  if (timerEl) {
-    timerEl.textContent = fmtMsTimer(finalMs);
-    applyTimerColor(timerEl, sn, stage, finalMs);
-  }
-  updateTimerInfo(stage, sn, finalMs);
-
-  // 3. Städa upp den lokala tickern OMEDELBART
-  if (activeTimers.has(key)) {
-    activeTimers.delete(key);
-    removeActiveCard(key);
-    stopGlobalTickerIfIdle();
-    renderActiveCards();
-  }
-
-  // 4. Skapa payload för att spara i Firestore
-  const payload = {
-    stopClock: stopIso,
-    durationMs: finalMs,
-    commentStart: document.getElementById(`commentStart-${stage}`)?.value || '',
-    commentStop: document.getElementById(`commentStop-${stage}`)?.value || '',
-    runningStage: null, // Markera att ingen etapp längre är aktiv
-    ...(stage === 'B' ? {
-      bitCheckOk: !!document.getElementById('bitOk')?.checked,
-      bitCheckComment: document.getElementById('bitComment')?.value || ''
-    } : {})
-  };
-
-  // 5. Spara till Firestore i bakgrunden
-  try {
-    await saveStageSnapshot(stage, payload);
-  } catch (err) {
-    console.error(err);
-    showAlert(t('marathon_stages_save_finish_error'), false);
-    return; // Avbryt om det inte gick att spara
-  }
-
-  // VIKTIGT: Vi stannar kvar på sidan. Ingen automatisk navigering.
-  showAlert(t('marathon_stages_finish_registered').replace('{stage}', decorateStageLabel(stage)), true);
-  document.getElementById(`commentStop-${stage}`)?.focus(); // Sätt fokus på kommentarsfältet
-}
-
-// --- RESET (nollställer tid lokalt + i DB) ---
-async function resetStage(stage) {
-  if (!currentEquipage) return;
-  if (!confirm(t('marathon_stages_reset_confirm').replace('{stage}', decorateStageLabel(stage)))) return;
-
-  const eq = currentEquipage;
-  const sn = String(eq.startNumber);
-  const actualStage = normalizeStageForEquipage(eq, stage);
-  const key = `${sn}|${actualStage}`;
-
-  // 1. Stoppa och ta bort eventuell lokal timer
-  if (activeTimers.has(key)) {
-    activeTimers.delete(key);
-    removeActiveCard(key);
-    stopGlobalTickerIfIdle();
-  }
-
-  // 2. Skapa en payload som uttryckligen sätter ALLA relevanta fält till null
-  const isFTA = (() => {
-    const limA = limitsFor(eq, 'A');
-    return limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
-  })();
-
-  const payload = {
-    runningStage: null,
-    updatedAt: serverTimestamp()
-  };
-
-  // Listan på etapper som ska rensas
-  const stagesToClear = (isFTA && (stage === 'A' || stage === 'warmup')) 
-    ? ['A', 'warmup'] 
-    : [stage];
-
-  for (const s of stagesToClear) {
-    const stageKey = s.toUpperCase();
-    const flatPrefix = s === 'warmup' ? 'warmup' : (s === 'transport' ? 'transfer' : s);
-
-    payload[`start_${stageKey}`] = null;
-    payload[`start_${flatPrefix}`] = null;
-    payload[`finish_${stageKey}`] = null;
-    payload[`finish_${flatPrefix}`] = null;
-    payload[`duration_${flatPrefix}_ms`] = null;
-    payload[`commentStart_${flatPrefix}`] = '';
-    payload[`commentStop_${flatPrefix}`] = '';
-    
-    if (s === 'B') {
-      Object.assign(payload, { bitCheckOk: null, bettOk: null, bitCheckComment: null, bettComment: null });
-    }
-    
-    payload[`timing.${s}`] = deleteField();
-    payload[`stages.${s}`] = deleteField();
-
-    // Rensa lokalt timer-state för denna specifika nyckel också
-    const tKey = `${sn}|${s}`;
-    if (activeTimers.has(tKey)) {
-      activeTimers.delete(tKey);
-      removeActiveCard(tKey);
-    }
-    
-    // Rensa i currentDocData
-    if (currentDocData?.timing) {
-      currentDocData.timing[s] = {};
-    }
-  }
-
-  stopGlobalTickerIfIdle();
-  populateStageUI(stage, currentDocData);
-  updateTimerLabel(stage);
-  renderActiveCards(); // Se till att listan "Aktiva" också uppdateras
-
-  // 4. Spara den rensande payloaden till Firestore i bakgrunden
-  try {
-    // Använd setDoc utan merge för att garantera en fullständig överskrivning av dessa fält
-    await setDoc(maratonDocRef(sn), payload, { merge: true });
-  } catch (err) {
-    console.error(err);
-    showAlert(t('marathon_stages_reset_error'), false);
-    return;
-  }
-
-  showAlert(t('marathon_stages_reset_success').replace('{stage}', decorateStageLabel(stage)), true);
-}
-
-async function saveCurrentStage(stage) {
-  if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first'), false); return; }
-
-  // 1) Spara kommentarer (och ev. bettkontroll) som tidigare
-  await saveStageSnapshot(stage, {
-    commentStart: document.getElementById(`commentStart-${stage}`)?.value || '',
-    commentStop: document.getElementById(`commentStop-${stage}`)?.value || '',
-    ...(stage === 'B' ? {
-      bitCheckOk: !!document.getElementById('bitOk')?.checked,
-      bitCheckComment: document.getElementById('bitComment')?.value || ''
-    } : {})
   });
 
-  // 2) Övrigt straff – tillåt 0, förhindra negativa
-  const el = document.getElementById('otherMarathonPenalty');
-  if (el) {
-    const raw = (el.value ?? '').trim();
-    // tomt fält -> uppdatera inte otherPenalty alls
-    if (raw !== '') {
-      // acceptera både "1,25" och "1.25"
-      const num = Number(raw.replace(',', '.'));
-      if (!Number.isFinite(num)) {
-        showAlert(t('marathon_stages_invalid_penalty'), false);
-      } else {
-        let safe = num;
-        if (safe < 0) {
-          safe = 0;
-          el.value = '0';
-          showAlert(t('marathon_stages_negative_penalty_warning'), false);
-        }
-        // Viktigt: spara även 0 (tidigare försvann 0 p.g.a. `|| null`)
-        await setDoc(maratonDocRef(currentEquipage.startNumber), {
-          otherPenalty: safe
-        }, { merge: true });
-      }
+  inputEl.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      okBtn.click();
     }
-  }
-
-  showAlert(t('marathon_stages_saved'), true);
-}
-
-
-async function finalizeMarathon() {
-  if (!currentEquipage) { showAlert(t('marathon_stages_select_equipage_first'), false); return; }
-
-  // Spara först eventuella osaprade ändringar
-  await saveCurrentStage('B');
-
-  if (confirm(t('marathon_stages_finalize_confirm').replace('{startNumber}', currentEquipage.startNumber))) {
-    try {
-      await setDoc(maratonDocRef(currentEquipage.startNumber), {
-        finalized: true,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-      showAlert(t('marathon_stages_finalize_success').replace('{startNumber}', currentEquipage.startNumber));
-    } catch (err) {
-      showAlert(t('marathon_stages_finalize_error'), false);
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      close();
     }
-  }
+  });
 }
 
 // Föregående / Nästa
@@ -2249,6 +1524,7 @@ function wireTabs() {
       const host = document.getElementById('stagePanel');
       host.innerHTML = renderStagePanel(currentStage);
       bindStagePanel(currentStage);
+      bindManualEditor(currentStage);
       if (currentEquipage && currentDocData) {
         populateStageUI(currentStage, currentDocData);
       }
@@ -2263,6 +1539,7 @@ export async function load() {
   __unload();
 
   const comp = getGlobalState('currentCompetition');
+  const isFieldMode = comp?.competitionMode === 'field';
   competitionId = comp?.id;
   const root = document.getElementById('page-maraton-stages');
   if (!competitionId) {
@@ -2272,6 +1549,9 @@ export async function load() {
 
   // 1. Rendera grundlayouten först så att alla HTML-element finns på plats
   renderLayout();
+  if (isFieldMode) {
+    document.getElementById('activeTimersWrapper')?.remove();
+  }
   // 1b. Knyt flikarnas klick-hanterare
   wireTabs();
 
@@ -2320,8 +1600,10 @@ export async function load() {
     console.error("Kunde inte hitta #equipageDropdown i DOM.");
   }
 
-  // Request Wake Lock
-  await requestWakeLock();
+  // Request Wake Lock bara i full live-drift
+  if (!isFieldMode) {
+    await requestWakeLock();
+  }
 
   // 5. Koppla alla event-lyssnare
   wireEventListeners();

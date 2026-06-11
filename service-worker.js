@@ -135,7 +135,7 @@ const urlsToCache = [
   abs('/assets/dressage/Children Test_FINAL.pdf'),
   abs('/assets/dressage/Dressyrprogram översikt.pdf'),
   abs('/assets/dressage/Junior Test_FINAL.pdf'),
-  abs('/assets/logos/Anebyortens_Ridklubb.png'),
+  abs('/assets/logos/Anebyortens_Ridklubb.png'),
   abs('/assets/logos/asbopk.png'),
   abs('/assets/logos/Blekinge_korsallskap.png'),
   abs('/assets/logos/Flyings_logo.svg'),
@@ -167,6 +167,8 @@ const urlsToCache = [
   abs('/lib/pdfjs/build/pdf.worker.min.js'),
   abs('/lib/pdfjs/build/pdf.worker.min.mjs'),
   abs('/lib/pdfjs/build/pdf.worker.mjs'),
+  abs('/lib/jspdf.umd.min.js'),
+  abs('/lib/jspdf.plugin.autotable.min.js'),
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js',
@@ -177,20 +179,9 @@ const urlsToCache = [
   'https://cdn.tailwindcss.com'
 ];
 
-
-
-
 // Separera interna (kritiska) filer från externa (som kan misslyckas utan att döda appen)
 const internalUrls = urlsToCache.filter(u => !u.startsWith('http'));
 const externalUrls = urlsToCache.filter(u => u.startsWith('http'));
-
-
-
-// ... (behåll SCOPE_PATH och abs) ...
-
-// ... (behåll urlsToCache listan) ...
-
-// ... (behåll internalUrls/externalUrls setup) ...
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {

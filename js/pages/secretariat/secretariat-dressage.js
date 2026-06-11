@@ -2,11 +2,13 @@ import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
+import { t } from '../../utils/i18n.js';
 import {
   deriveDressageStatus,
   escapeHtml,
   filterRows,
   initializeToolbarInteractions,
+  renderFieldModeBanner,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -210,7 +212,7 @@ function ensureModal() {
   modalEl = document.createElement('div');
   modalEl.className = 'secretariat-dressage-modal-overlay';
   modalEl.innerHTML = `
-    <div class="secretariat-dressage-modal-card" role="dialog" aria-modal="true" aria-label="Sekretariat Dressyr Detaljer">
+    <div class="secretariat-dressage-modal-card" role="dialog" aria-modal="true" aria-label="${escapeHtml(t('secretariat_dressage_details'))}">
       <div id="secretariatDressageModalContent" class="secretariat-dressage-modal-shell"></div>
     </div>
   `;
@@ -554,7 +556,7 @@ function renderDetailPanel() {
           ` : ''}
           <button data-action="close-modal" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">Stäng</button>
           ${readOnly
-            ? '<button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-2 text-xs font-semibold hover:bg-amber-700">Lås upp</button>'
+            ? `<button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-2 text-xs font-semibold hover:bg-amber-700">${escapeHtml(t('unlock'))}</button>`
             : '<button data-action="finalize" class="rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-2 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">Finalisera</button>'}
         </div>
       </div>
@@ -609,7 +611,10 @@ function render() {
 
   rootEl.innerHTML = `
     <div class="min-w-[1120px] max-w-7xl mx-auto px-4 py-4">
-      ${getCompetitionHeader(competition, 'Sekretariat Dressyr')}
+      ${getCompetitionHeader(competition, t('secretariat_dressage_title'))}
+      ${renderFieldModeBanner(competition, {
+        message: 'Tävlingen körs i fältläge. Protokoll och allmänna fel hanteras manuellt här innan ekipagen åter finaliseras.',
+      })}
       ${renderToolbar({
         searchValue: filters.search,
         statusValue: filters.status,
@@ -633,7 +638,7 @@ function render() {
                 <th class="px-3 py-3">Protokoll</th>
                 <th class="px-3 py-3">Felpoäng</th>
                 <th class="px-3 py-3">Slutstraff</th>
-                <th class="px-3 py-3">Status</th>
+                <th class="px-3 py-3">${escapeHtml(t('status'))}</th>
                 <th class="px-3 py-3">Domare</th>
                 <th class="px-3 py-3">Åtgärd</th>
               </tr>

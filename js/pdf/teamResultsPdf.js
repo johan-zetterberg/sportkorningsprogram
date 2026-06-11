@@ -14,7 +14,7 @@ export async function generateTeamResultsPdf(teams, competition) {
     const { jsPDF } = window.jspdf;
     if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
 
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', compress: true });
     const pageWidth = doc.internal.pageSize.getWidth();
     const mx = 40;
     // 1. ASSET LOADING (Logos & Flags)

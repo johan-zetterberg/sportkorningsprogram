@@ -228,3 +228,88 @@ test('buildArchiveRowsFromData preserves precision elimination on discipline row
   assert.equal(row41.precision.pen, 0);
   assert.equal(row41.totalPenalty, null);
 });
+
+test('buildArchiveRowsFromData applies dressage general error points via shared calculation pipeline', () => {
+  const equipages = [
+    { startNumber: 50, className: 'KlassA', category: 'horse', errorPoints: 0, testKey: 'LA' }
+  ];
+
+  const dressageProtocols = new Map([
+    ['50', [
+      { judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] },
+      { id: 'general', errorPoints: 2 }
+    ]]
+  ]);
+
+  const marathonTimingMap = new Map([
+    ['50', { A: { durationMs: 1200000 }, transport: { durationMs: 300000 }, B: { durationMs: 1200000 } }]
+  ]);
+
+  const marathonObstacleRows = [
+    { equipageId: '50', obstacleNumber: 1, timeSeconds: 20, knockdownPenalty: 0, otherPenalty: 0 }
+  ];
+
+  const precisionRows = [
+    { startNumber: 50, finalized: true, timeMs: 100000, knocks: [] }
+  ];
+
+  const rows = buildArchiveRowsFromData({
+    equipages,
+    dressageProtocols,
+    marathonTimingMap,
+    marathonObstacleRows,
+    precisionRows,
+    marathonConfig,
+    precisionConfig,
+    allPrograms
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].dressage.judgePenalty, 4);
+  assert.equal(rows[0].dressage.penalty, 6);
+  assert.equal(rows[0].marathon.totalPenalty, 5);
+  assert.equal(rows[0].precision.pen, 0);
+  assert.equal(rows[0].totalPenalty, 11);
+});
+
+test('buildArchiveRowsFromData respects equipage-level elimination in shared dressage calculation', () => {
+  const equipages = [
+    { startNumber: 51, className: 'KlassA', category: 'horse', errorPoints: 0, testKey: 'LA', eliminated: true }
+  ];
+
+  const dressageProtocols = new Map([
+    ['51', [
+      { judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] }
+    ]]
+  ]);
+
+  const marathonTimingMap = new Map([
+    ['51', { A: { durationMs: 1200000 }, transport: { durationMs: 300000 }, B: { durationMs: 1200000 } }]
+  ]);
+
+  const marathonObstacleRows = [
+    { equipageId: '51', obstacleNumber: 1, timeSeconds: 20, knockdownPenalty: 0, otherPenalty: 0 }
+  ];
+
+  const precisionRows = [
+    { startNumber: 51, finalized: true, timeMs: 100000, knocks: [] }
+  ];
+
+  const rows = buildArchiveRowsFromData({
+    equipages,
+    dressageProtocols,
+    marathonTimingMap,
+    marathonObstacleRows,
+    precisionRows,
+    marathonConfig,
+    precisionConfig,
+    allPrograms
+  });
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].isEliminated, true);
+  assert.equal(rows[0].dressage.eliminated, true);
+  assert.equal(rows[0].dressage.penalty, null);
+  assert.equal(rows[0].totalPenalty, null);
+  assert.equal(rows[0].plac, '');
+});

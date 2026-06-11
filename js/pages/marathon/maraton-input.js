@@ -11,7 +11,7 @@ import {
   getClassDrivenObstacles,
   setMarathonConfig,
 } from '../../utils/marathonUtils.js';
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
@@ -35,6 +35,10 @@ let marathonStateDocsMap = new Map();
 let currentStartTimesData = null;
 let isGloballyPaused = false;
 let globalPauseStartTime = 0;
+
+function isFieldModeEnabled() {
+  return getGlobalState('currentCompetition')?.competitionMode === 'field';
+}
 
 // ---- LIVE state (återanvänder precisionens modell) ----
 let currentEquipage = null;
@@ -831,6 +835,7 @@ async function onMarathonEquipageSelected(equipage) {
 }
 
 async function autoSelectRunningDriverMar(obstacleNo) {
+  if (isFieldModeEnabled()) return false;
   if (!competitionId || !obstacleNo) return false;
   try {
     const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
@@ -1163,8 +1168,8 @@ async function saveResult(e) {
     return;
   }
   await flushPendingLiveComment();
-  const equipageId = equipageSearchDropdownMar.getValue();
-  const obstacleNumber = document.getElementById('maratonObstacleSelect').value;
+  const equipageId = currentEquipage?.startNumber ?? equipageSearchDropdownMar?.getValue();
+  const obstacleNumber = currentObstacleNumber ?? Number(document.getElementById('maratonObstacleSelect').value || 0);
   if (!equipageId || !obstacleNumber) {
     showAlert(t('marathon_select_both'), false);
     return;
@@ -1303,11 +1308,13 @@ async function setupPage() {
 
     rebuildSortedEquipages(document.getElementById('maratonObstacleSelect')?.value);
 
-    // Request Wake Lock
-    try {
-      await requestWakeLock();
-    } catch (wlErr) {
-      console.warn('WakeLock failed (expected if page hidden):', wlErr);
+    // Request Wake Lock bara i full live-drift
+    if (!isFieldModeEnabled()) {
+      try {
+        await requestWakeLock();
+      } catch (wlErr) {
+        console.warn('WakeLock failed (expected if page hidden):', wlErr);
+      }
     }
 
   // NYTT: Bättre event-hantering för live-push
@@ -1396,6 +1403,7 @@ async function setupPage() {
   document.getElementById('btnStartMar')?.addEventListener('click', boundHandlers.startH);
   document.getElementById('btnStopMar')?.addEventListener('click', boundHandlers.stopH);
   document.getElementById('btnResetMar')?.addEventListener('click', boundHandlers.resetH);
+  document.getElementById('btnManualOpenMar')?.addEventListener('click', boundHandlers.timerClick);
   document.getElementById('liveTimerMar')?.addEventListener('click', boundHandlers.timerClick);
   document.getElementById('btnManualCancelMar')?.addEventListener('click', boundHandlers.cancelClick);
   document.getElementById('btnManualApplyMar')?.addEventListener('click', boundHandlers.applyClick);
@@ -1681,10 +1689,15 @@ export function load() {
   </style>
 
   <div class="container mx-auto p-4 md:p-8 max-w-2xl">
-    ${getCompetitionHeader(competition, t('marathon_input_header'))}
+    ${getCompetitionHeader(competition, competition?.competitionMode === 'field'
+      ? 'Maraton - manuell hinderregistrering'
+      : t('marathon_input_header'))}
+    ${renderCompetitionModeBanner(competition, {
+      message: 'Tävlingen körs i fältläge. Hinder rapporteras manuellt här utan krav på full liveproduktion.'
+    })}
 
     <div class="main-card bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
-      <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">${t('marathon_report_result')}</h2>
+      <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">${competition?.competitionMode === 'field' ? 'Registrera hinderresultat' : t('marathon_report_result')}</h2>
 
       <form id="addMaratonResultForm" class="space-y-3">
         
@@ -1718,8 +1731,10 @@ export function load() {
           </div>
 
           <div class="mt-2 flex items-center gap-2">
-            <button id="btnStartMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
-            <button id="btnStopMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>
+            ${competition?.competitionMode === 'field'
+              ? `<button id="btnManualOpenMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-brand-darkblue text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+              : `<button id="btnStartMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
+            <button id="btnStopMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
             <button id="btnResetMar" type="button" class="control-btn w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white">🔄</button>
           </div>
 

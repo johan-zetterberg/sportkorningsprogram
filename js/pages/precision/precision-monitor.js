@@ -882,7 +882,7 @@ export async function load() {
     if (currentLoadToken !== loadToken) return;
 
     allEquipages = equipagesRaw;
-    precisionConfig = configRaw; // Spara config
+    precisionConfig = configRaw || {}; // Spara config
     startTimes = startTimesData?.times || {};
     
     renderLayout(); // NU HAR VI precisionConfig!

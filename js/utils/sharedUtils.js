@@ -2,7 +2,12 @@
  * Shared utility functions for the application.
  */
 
-import { getGlobalState } from '../main.js';
+function getBrowserGlobalState(key) {
+    if (typeof window !== 'undefined' && typeof window.getGlobalState === 'function') {
+        return window.getGlobalState(key);
+    }
+    return null;
+}
 
 // --- HTML / Text Utils ---
 
@@ -133,12 +138,12 @@ export function normalizeEquipage(e) {
 }
 
 export function isPrivileged() {
-    const role = (getGlobalState('currentUser')?.role) || 'publik';
+    const role = (getBrowserGlobalState('currentUser')?.role) || 'publik';
     return role === 'domare' || role === 'admin' || role === 'sekretariat' || role === 'superadmin';
 }
 
 export function resolveCurrentCompId() {
-    return (getGlobalState('currentCompetition')?.id)
+    return (getBrowserGlobalState('currentCompetition')?.id)
         || window.currentCompetitionId
         || (window.currentCompetition && window.currentCompetition.id)
         || null;

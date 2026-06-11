@@ -15,7 +15,7 @@ import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '
 import { calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { klassProgramMapping } from '../../data/competitionData.js';
 import { formatDressageProgramOptionLabel, getDressageProgramTrNumber, sortDressageProgramKeys } from './dressageAdminProgramOptions.js';
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 
 import { downloadJson } from '../../utils/sharedUtils.js';
@@ -31,6 +31,10 @@ let liveUpdateTimer = null; // Timer för att undvika för många anrop
 let manualTestOverride = false;   // användaren har valt program manuellt
 let programmaticChange = false;   // vi byter värde i koden (ska inte sätta override)
 let lastStartNumber = null;
+
+function isFieldModeEnabled() {
+  return getGlobalState('currentCompetition')?.competitionMode === 'field';
+}
 
 // ---- Program helpers ----
 function programKeyExists(key) {
@@ -865,12 +869,15 @@ function setupEventListeners() {
 
       // 2. Kör befintlig logik
       calculateTotals();
-      updateLiveStatus(event.target);
+      if (!isFieldModeEnabled()) {
+        updateLiveStatus(event.target);
+      }
     }
   };
 
   const handleGenericInput = () => {
     calculateTotals();
+    if (isFieldModeEnabled()) return;
     clearTimeout(liveUpdateTimer);
     liveUpdateTimer = setTimeout(() => {
 
@@ -887,6 +894,7 @@ function setupEventListeners() {
     if (target.classList.contains('score-input')) {
       // Uppdatera totals live
       calculateTotals();
+      if (isFieldModeEnabled()) return;
       // Debounce:a live-skrivning
       clearTimeout(liveUpdateTimer);
       liveUpdateTimer = setTimeout(() => {
@@ -1152,7 +1160,12 @@ export function load() {
   competitionId = competition.id;
   page.innerHTML = `
   <div class="container mx-auto p-4 md:p-8 max-w-4xl">
-    ${getCompetitionHeader(competition, 'Inmatning Dressyr - Digitalt Domarprotokoll')}
+    ${getCompetitionHeader(competition, competition?.competitionMode === 'field'
+      ? 'Inmatning Dressyr - Manuellt domarprotokoll'
+      : 'Inmatning Dressyr - Digitalt Domarprotokoll')}
+    ${renderCompetitionModeBanner(competition, {
+      message: 'Tävlingen körs i fältläge. Domarprotokoll registreras manuellt här, och sekretariatet används för efterkontroll och finalisering.'
+    })}
 <style>
         /* Dölj detaljer och kommentarsfält som standard */
         .movement-details,
@@ -1385,8 +1398,10 @@ export function load() {
         rebuild(statusDocs);
       });
 
-      // Request Wake Lock
-      await requestWakeLock();
+      // Request Wake Lock bara i full live-drift
+      if (!isFieldModeEnabled()) {
+        await requestWakeLock();
+      }
 
       setupEventListeners();
       showProgramAuditBanner(sortedEquipages);

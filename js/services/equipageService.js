@@ -52,6 +52,14 @@ function cleanFirestoreData(value) {
   return value;
 }
 
+function mapEquipageWriteError(error) {
+  if (!error) return error;
+  if (error.code === 'permission-denied') {
+    return new Error('Du saknar behörighet att ändra detta ekipage. Kontrollera att du är inloggad med samma e-postadress som anmälan eller kontakta sekretariatet.');
+  }
+  return error;
+}
+
 export async function getEquipages(competitionId) {
   const equipagesRef = getCompCollectionRef(competitionId, 'equipages');
   const snapshot = await getDocs(equipagesRef);
@@ -75,24 +83,32 @@ export async function updateEquipage(competitionId, equipageId, data) {
   const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
   const safeEquipageId = normalizeDocumentId(equipageId, 'Equipage ID');
   const safeData = cleanFirestoreData(data || {});
-  return trackWrite(`Uppdaterar ekipage ${equipageId}`, (async () => {
-    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${safeCompetitionId}/equipages/${safeEquipageId}`);
-    await runTransaction(db, async (transaction) => {
-      const fresh = await transaction.get(ref);
-      if (!fresh.exists()) throw new Error("Equipage does not exist!");
-      transaction.update(ref, safeData);
-    });
-  })());
+  try {
+    return await trackWrite(`Uppdaterar ekipage ${equipageId}`, (async () => {
+      const ref = doc(db, `artifacts/${appId}/public/data/competitions/${safeCompetitionId}/equipages/${safeEquipageId}`);
+      await runTransaction(db, async (transaction) => {
+        const fresh = await transaction.get(ref);
+        if (!fresh.exists()) throw new Error("Equipage does not exist!");
+        transaction.update(ref, safeData);
+      });
+    })());
+  } catch (error) {
+    throw mapEquipageWriteError(error);
+  }
 }
 
 export async function saveEquipage(competitionId, startNumber, equipageData) {
   const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
   const safeStartNumber = normalizeDocumentId(startNumber, 'Startnummer');
   const safeData = cleanFirestoreData(equipageData || {});
-  return trackWrite(`Sparar ekipage #${startNumber}`, (async () => {
-    const equipageRef = getCompDocRef(safeCompetitionId, 'equipages', safeStartNumber);
-    await setDoc(equipageRef, safeData, { merge: true });
-  })());
+  try {
+    return await trackWrite(`Sparar ekipage #${startNumber}`, (async () => {
+      const equipageRef = getCompDocRef(safeCompetitionId, 'equipages', safeStartNumber);
+      await setDoc(equipageRef, safeData, { merge: true });
+    })());
+  } catch (error) {
+    throw mapEquipageWriteError(error);
+  }
 }
 
 export async function deleteEquipage(competitionId, equipageId) {

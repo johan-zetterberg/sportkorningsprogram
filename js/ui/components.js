@@ -1,6 +1,7 @@
 // js/ui/components.js
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { getCompetitionLogoHtml } from '../utils/competitionLogo.js';
+import { t } from '../utils/i18n.js';
 
 /**
  * Renderar ett standardiserat sidhuvud för en tävling.
@@ -77,6 +78,23 @@ export function getCompetitionHeader(competition, pageTitle) {
     `;
 }
 
+export function renderCompetitionModeBanner(competition, options = {}) {
+    if ((competition?.competitionMode || 'live') !== 'field') return '';
+
+    const title = options.title || t('field_mode_active');
+    const message = options.message || t('field_mode_general_message');
+
+    return `
+        <section class="mb-4 rounded-xl border border-amber-300/80 bg-amber-50 text-amber-950 shadow-sm p-4 dark:border-amber-700/70 dark:bg-amber-900/20 dark:text-amber-100">
+            <div class="flex flex-col gap-1">
+                <div class="text-sm font-semibold uppercase tracking-wide">${escapeHtml(t('field_mode'))}</div>
+                <h2 class="text-base font-semibold">${escapeHtml(title)}</h2>
+                <p class="text-sm opacity-90">${escapeHtml(message)}</p>
+            </div>
+        </section>
+    `;
+}
+
 /**
  * Skapar en återanvändbar, sökbar dropdown-meny.
  * @param {HTMLElement} container - Elementet där dropdownen ska renderas.
@@ -87,7 +105,7 @@ export function getCompetitionHeader(competition, pageTitle) {
 export function createSearchableDropdown(container, data, onSelect) {
     container.innerHTML = `
         <div class="searchable-dropdown relative bg-white dark:bg-gray-800">
-            <input type="text" class="search-input w-full p-2 border dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400" placeholder="Sök på nr eller namn...">
+            <input type="text" class="search-input w-full p-2 border dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400" placeholder="${escapeHtml(t('search_startnumber_or_name'))}">
             <div class="searchable-dropdown-list hidden absolute top-full left-0 right-0 bg-white dark:bg-gray-700 border dark:border-gray-600 mt-1 rounded-md shadow-lg z-10 max-h-60 overflow-y-auto"></div>
         </div>
     `;
@@ -103,7 +121,7 @@ export function createSearchableDropdown(container, data, onSelect) {
         });
 
         if (filteredData.length === 0) {
-            list.innerHTML = '<div class="p-3 text-gray-500">Inga träffar</div>';
+            list.innerHTML = `<div class="p-3 text-gray-500">${escapeHtml(t('no_results') || 'No results')}</div>`;
         } else {
             filteredData.forEach(item => {
                 const itemEl = document.createElement('div');

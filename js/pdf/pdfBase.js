@@ -6,25 +6,61 @@ import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 
 export async function loadPdfLibs() {
   if (window.jspdf && window.jspdf.jsPDF) return;
-  // Fallback om de inte finns laddade globalt
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-  await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+  // Försök ladda lokalt för offline-stöd, annars fall tillbaka till CDN
+  try {
+    await import("/lib/jspdf.umd.min.js");
+    await import("/lib/jspdf.plugin.autotable.min.js");
+  } catch (err) {
+    console.warn("Kunde inte ladda lokala PDF-bibliotek, använder CDN-fallback:", err);
+    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+  }
+}
+
+function shouldUseCors(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url, window.location.href);
+    return u.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
 }
 
 export async function loadImg(path) {
   if (!path) return null;
   try {
     const img = new Image();
+    if (shouldUseCors(path)) {
+      img.crossOrigin = 'Anonymous';
+    }
     img.src = path;
-    img.crossOrigin = 'Anonymous';
     await new Promise((r, e) => { img.onload = r; img.onerror = r; });
     if (!img.naturalWidth) return null;
+
+    // Skala ner bilder till max 300px för att undvika gigantiska PDF-filer
+    const maxDim = 300;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+
     const c = document.createElement('canvas');
-    c.width = img.naturalWidth;
-    c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img, 0, 0);
-    // Return both formats that were used scattered around the project
-    return { data: c.toDataURL('image/png'), dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
+    c.width = w;
+    c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    const dataUrl = c.toDataURL('image/jpeg', 0.85);
+    return { data: dataUrl, dataUrl: dataUrl, w, h };
   } catch { return null; }
 }
 
@@ -45,12 +81,11 @@ export function drawStandardHeader(doc, competition, titleText, srfLogo, startY 
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = startY;
 
-  // 1. Logo
   if (srfLogo) {
     const { w, h } = fitImageDimensions(srfLogo, 90, 50);
     const logoData = srfLogo.dataUrl || srfLogo.data;
     if (logoData) {
-      doc.addImage(logoData, 'PNG', margin, y, w, h);
+      doc.addImage(logoData, 'JPEG', margin, y, w, h);
     }
   }
 
@@ -59,7 +94,7 @@ export function drawStandardHeader(doc, competition, titleText, srfLogo, startY 
     const { w, h } = fitImageDimensions(competitionLogo, 90, 50);
     const logoData = competitionLogo.dataUrl || competitionLogo.data;
     if (logoData) {
-      doc.addImage(logoData, 'PNG', pageWidth - margin - w, y, w, h);
+      doc.addImage(logoData, 'JPEG', pageWidth - margin - w, y, w, h);
     }
   }
 

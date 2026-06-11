@@ -1,9 +1,17 @@
 import { dressagePrograms } from '../data/dressagePrograms.js';
-import { buildCompetitionState } from '../core-engine/stateSelector.js';
-import { calculateTotalResult } from '../core-engine/calculation.js';
-import { calculateDressageResult } from '../core-engine/dressage.js';
-import { calculateMarathonResult } from '../core-engine/marathon.js';
-import { calculatePrecisionResult } from '../core-engine/precision.js';
+import {
+    calculateTotalResult,
+    calculateDressageResult,
+    calculateMarathonResult,
+    calculatePrecisionResult
+} from './calculationService.js';
+
+function pickDefined(primaryObj, primaryKey, fallbackObj, fallbackKey) {
+    if (primaryObj && Object.prototype.hasOwnProperty.call(primaryObj, primaryKey)) {
+        return primaryObj[primaryKey];
+    }
+    return fallbackObj ? fallbackObj[fallbackKey] : undefined;
+}
 
 function buildPlacements(rows) {
     const grouped = new Map();
@@ -53,7 +61,8 @@ export function buildArchiveRowsFromData({
     precisionRows = [],
     marathonConfig = {},
     precisionConfig = {},
-    allPrograms = dressagePrograms
+    allPrograms = dressagePrograms,
+    judges = []
 } = {}) {
     const normalizedMarathonConfig = marathonConfig?.value || marathonConfig || {};
     const normalizedPrecisionConfig = precisionConfig?.value || precisionConfig || {};
@@ -85,38 +94,37 @@ export function buildArchiveRowsFromData({
         };
         const precisionDoc = precisionMap.get(sn) || null;
 
-        const state = buildCompetitionState(
+        const dressage = calculateDressageResult(eq, protocols, judges, normalizedPrograms);
+        const marathon = calculateMarathonResult(eq, marathonDoc, timingDoc);
+        const precision = calculatePrecisionResult(precisionDoc, eq, normalizedPrecisionConfig);
+        const total = calculateTotalResult(
             eq,
             protocols,
-            marathonDoc,
-            timingDoc,
+            { obstacleData: marathonDoc, timeData: timingDoc },
             precisionDoc,
             {
+                judges,
                 allPrograms: normalizedPrograms,
                 marathonConfig: normalizedMarathonConfig,
                 precisionConfig: normalizedPrecisionConfig
             }
         );
-        const dressage = calculateDressageResult(state);
-        const marathon = calculateMarathonResult(state);
-        const precision = calculatePrecisionResult(state);
-        const total = calculateTotalResult(state);
 
         return {
             ...eq,
             dressage: {
-                penalty: total.dressagePenalty,
+                penalty: pickDefined(total.dressage, 'penalty', total, 'dressagePenalty'),
                 judgePenalty: dressage.judgePenalty,
                 eliminated: !!dressage.eliminated
             },
             marathon: {
-                totalPenalty: total.marathonPenalty,
+                totalPenalty: pickDefined(total.marathon, 'totalPenalty', total, 'marathonPenalty'),
                 eliminated: !!marathon.eliminated,
                 status: marathon.status
             },
             precision: {
-                pen: total.precisionPenalty,
-                totalPenalty: total.precisionPenalty,
+                pen: pickDefined(total.precision, 'totalPenalty', total, 'precisionPenalty'),
+                totalPenalty: pickDefined(total.precision, 'totalPenalty', total, 'precisionPenalty'),
                 eliminated: !!precision.eliminated,
                 status: precision.status
             },

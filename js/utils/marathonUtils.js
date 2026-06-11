@@ -2,7 +2,6 @@
 // Centrala hjälp-funktioner för maratonberäkningar
 // – används av resultat, totalresultat, monitor, PDF m.m.
 
-import { getGlobalState } from '../main.js';
 import { calculateMarathonResult as _coreCalculate } from '../core-engine/marathon.js';
 import { buildCompetitionState as _buildState } from '../core-engine/stateSelector.js';
 
@@ -23,6 +22,13 @@ export {
   DEFAULT_TRV_TEMPOS_KMH,
   DEFAULT_FEI_MARATHON_TEMPOS_KMH
 };
+
+function getBrowserGlobalState(key) {
+  if (typeof window !== 'undefined' && typeof window.getGlobalState === 'function') {
+    return window.getGlobalState(key);
+  }
+  return null;
+}
 
 // Returnera aktiv tempo-tabell (Config > Default)
 export function getActiveTempoRules() {
@@ -568,7 +574,7 @@ export function getObstacleCoefficient(className) {
   if (Number.isFinite(globalVal) && globalVal > 0) return globalVal;
 
   // 3. Ruleset Fallback (Tävlingens grundregel från när den skapades)
-  const comp = getGlobalState ? getGlobalState('currentCompetition') : null;
+  const comp = getBrowserGlobalState('currentCompetition');
   const rulesVal = comp?.ruleSettings?.marathonObstaclePenaltyRate;
   if (Number.isFinite(rulesVal) && rulesVal > 0) return rulesVal;
 

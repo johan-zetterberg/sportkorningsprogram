@@ -43,6 +43,24 @@ let messageUnsub = null;
 let dashboardUnsub = null;
 let portalLoadToken = 0;
 
+function normalizePortalEmail(value) {
+    return String(value || '').trim().toLowerCase();
+}
+
+function canSelfServiceEditEquipage(user, equipage) {
+    const userEmail = normalizePortalEmail(user?.email);
+    const equipageEmail = normalizePortalEmail(equipage?.email);
+    return !!userEmail && !!equipageEmail && userEmail === equipageEmail;
+}
+
+function getSelfServiceRestrictionMessage(user, equipage) {
+    const equipageEmail = normalizePortalEmail(equipage?.email);
+    if (!equipageEmail) {
+        return 'Ekipaget saknar kopplad e-postadress för självservice. Kontakta sekretariatet om du behöver ändra deklarationen.';
+    }
+    return `Du är inloggad som ${user?.email || 'okänd användare'}, men ekipaget är kopplat till ${equipage.email}. Kontakta sekretariatet om du behöver ändra deklarationen.`;
+}
+
 function cleanupPortalSubscriptions() {
     if (messageUnsub) {
         messageUnsub();
@@ -316,7 +334,7 @@ export async function load() {
                 </div>
             </div>
             <div class="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex justify-end">
-                <button id="submitPinBtn" class="px-6 py-2 bg-brand-darkblue text-white font-bold rounded shadow hover:bg-brand-gold hover:text-brand-darkblue transition-colors w-full">Lås upp</button>
+                <button id="submitPinBtn" class="px-6 py-2 bg-brand-darkblue text-white font-bold rounded shadow hover:bg-brand-gold hover:text-brand-darkblue transition-colors w-full">${t('unlock')}</button>
             </div>
         </div>
         `;
@@ -345,7 +363,7 @@ export async function load() {
 
             try {
                 const joinedRole = await joinCompetitionAsAdmin(compId, pin, user);
-                const roleLabels = { admin: 'Sekretariat', dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision', speaker: 'Speaker' };
+                const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: 'Precision', speaker: 'Speaker' };
                 const roleStr = roleLabels[joinedRole] || joinedRole;
                 showAlert(`Rättigheter beviljade (${roleStr})! Synkroniserar...`, true);
                 modal.remove();
@@ -369,7 +387,7 @@ export async function load() {
                 console.error(err);
                 showAlert(err.message || 'Fel PIN-kod eller Tävlings-ID.', false);
                 btn.disabled = false;
-                btn.textContent = 'Lås upp';
+                btn.textContent = t('unlock');
             }
         };
     });
@@ -465,6 +483,8 @@ async function renderDashboard(container, compId, startNumber, user) {
         const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
 
         const eq = equipages.find(e => String(e.startNumber) === String(startNumber)) || {};
+        const canSelfEdit = canSelfServiceEditEquipage(user, eq);
+        const selfServiceRestrictionMessage = canSelfEdit ? '' : getSelfServiceRestrictionMessage(user, eq);
         const r = computedRes || {};
         const allPrograms = getPrograms();
         const programKey = dressyrProgramMapping[eq.className] || guessProgramKeyFromClass(eq.className, allPrograms);
@@ -603,6 +623,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                         return `<span class="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded" title="Start om mindre än 1h">🔒 ${t('locked_time', compConfig?.isInternational)}</span>`;
                     }
 
+                    if (!canSelfEdit) {
+                        return `<span class="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded" title="${selfServiceRestrictionMessage}">🔒 Endast sekretariat</span>`;
+                    }
+
                     return `
                                 <button id="btnEditDeclaration" class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 px-3 py-1 rounded-full transition-colors">
                                     ✏️ ${t('edit', compConfig?.isInternational)}
@@ -628,6 +652,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                                 ${getClubLogoHtml(eq)} ${eq.clubName || '-'}
                             </dd>
                         </dl>
+                        ${!canSelfEdit ? `
+                        <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            ${selfServiceRestrictionMessage}
+                        </div>` : ''}
                     </div>
 
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm">
@@ -754,10 +782,14 @@ async function renderDashboard(container, compId, startNumber, user) {
                         <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
                             ${t('speaker_notes_desc', compConfig?.isInternational)}
                         </p>
+                        ${!canSelfEdit ? `
+                        <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                            ${selfServiceRestrictionMessage}
+                        </div>` : ''}
                         <div class="flex flex-col gap-2">
-                            <textarea id="portalSpeakerNotes" rows="4" class="w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500" placeholder="Skriv dina noteringar här...">${eq.speakerNotes || ''}</textarea>
+                            <textarea id="portalSpeakerNotes" rows="4" class="w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-60" placeholder="Skriv dina noteringar här..." ${canSelfEdit ? '' : 'disabled'}>${eq.speakerNotes || ''}</textarea>
                             <div class="flex justify-end">
-                                <button id="btnSaveSpeakerNotes" class="bg-blue-600 hover:bg-blue-700 text-white font-medium py-2 px-6 rounded shadow-sm transition-colors text-sm">
+                                <button id="btnSaveSpeakerNotes" class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded shadow-sm transition-colors text-sm" ${canSelfEdit ? '' : 'disabled'}>
                                     Spara Noteringar
                                 </button>
                             </div>
@@ -771,6 +803,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                 const editBtn = document.getElementById('btnEditDeclaration');
                 if (editBtn) {
                     editBtn.onclick = () => {
+                        if (!canSelfEdit) {
+                            showAlert(selfServiceRestrictionMessage, false);
+                            return;
+                        }
                         // Create modal
                         const modal = document.createElement('div');
                         modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in";
@@ -901,6 +937,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                 const txt = document.getElementById('portalSpeakerNotes');
                 if (btn && txt) {
                     btn.addEventListener('click', async () => {
+                        if (!canSelfEdit) {
+                            showAlert(selfServiceRestrictionMessage, false);
+                            return;
+                        }
                         const val = txt.value;
                         const oldText = btn.textContent;
                         btn.textContent = 'Sparar...';

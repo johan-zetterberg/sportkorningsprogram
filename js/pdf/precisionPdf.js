@@ -38,7 +38,7 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   const allowLabel = data.display.allowLabel || '—';
 
   // 2. SKAPA PDF (Använd 'pt' för att matcha maraton-mallen)
-  const pdf = new jsPDF({ unit: 'pt' });
+  const pdf = new jsPDF({ unit: 'pt', compress: true });
   const mx = 40;
   let y = 40;
 
@@ -50,13 +50,13 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
     // Justera om den blir för bred
     const x = pdf.internal.pageSize.getWidth() - 40 - drawW;
     // Rita loggan lite högre upp för att linjera snyggt
-    pdf.addImage(headerLogo.dataUrl, 'PNG', x, y - (drawH * 0.6), drawW, drawH);
+    pdf.addImage(headerLogo.dataUrl, 'JPEG', x, y - (drawH * 0.6), drawW, drawH);
   }
 
   // Rubrik med flagga
   pdf.setFontSize(16);
   if (flagDataUrl) {
-    pdf.addImage(flagDataUrl, 'PNG', mx, y - 12, 24, 15);
+    pdf.addImage(flagDataUrl, 'JPEG', mx, y - 12, 24, 15);
     pdf.text(`Precision – #${eq.startNumber} ${eq.driverName || ''}`, mx + 30, y);
   } else {
     pdf.text(`Precision – #${eq.startNumber} ${eq.driverName || ''}`, mx, y);
@@ -185,11 +185,6 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
 
 // Helper to get judge names from config or return default
 function getJudgesList(config) {
-  // Try to find judge names in config structure if they exist, otherwise placeholder or empty
-  // Assuming config might have 'officials' or similar. If not, we return null for now 
-  // or checks specific judge fields.
-  // For now return hardcoded or empty if not found.
-  // In a real scenario, we'd pull from competition config.
   return [];
 }
 
@@ -198,7 +193,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', compress: true });
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const srfLogo = await loadStandardHeaderLogos(competition);
@@ -305,13 +300,13 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
 
         // Draw Flag
         if (flagUrl) {
-          doc.addImage(flagUrl, 'PNG', xPos, yPos + (clubLogoHeight - flagHeight) / 2, flagWidth, flagHeight);
+          doc.addImage(flagUrl, 'JPEG', xPos, yPos + (clubLogoHeight - flagHeight) / 2, flagWidth, flagHeight);
           xPos += flagWidth + 4;
         }
 
         // Draw Club Logo
         if (clubUrl) {
-          doc.addImage(clubUrl, 'PNG', xPos, yPos, clubLogoWidth, clubLogoHeight);
+          doc.addImage(clubUrl, 'JPEG', xPos, yPos, clubLogoWidth, clubLogoHeight);
         }
       }
     }
@@ -330,7 +325,7 @@ export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, 
 
   const srfLogo = await loadStandardHeaderLogos(competition);
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', compress: true });
   const pageWidth = doc.internal.pageSize.getWidth();
 
   let y = drawStandardHeader(doc, competition, "FUNKTIONÄRSLISTA – PRECISION", srfLogo, 30, 40);
@@ -418,7 +413,7 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
 
   const srfLogo = await loadStandardHeaderLogos(competition);
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', compress: true });
   const pageW = doc.internal.pageSize.getWidth();
   const mx = 40;
 
@@ -517,14 +512,13 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
         headStyles: { fillColor: [220, 220, 220], textColor: [30, 30, 30], fontStyle: 'bold' },
         columnStyles: {
           0: { halign: 'center', cellWidth: 35 },
-          1: { cellWidth: 'auto' }, // Allow obstacle label to scale
+          1: { cellWidth: 'auto' },
           2: { halign: 'center', cellWidth: 80 },
           3: { halign: 'center', cellWidth: 90 },
           4: { halign: 'center', cellWidth: 100 }
         },
         margin: { left: mx, right: mx },
         didParseCell: (data) => {
-          // Highlight rows where the effective allowance differs from standard
           if (data.section === 'body' && data.column.index === 3 && data.cell.raw !== '–') {
             data.cell.styles.fillColor = [255, 252, 220]; // light yellow
           }
@@ -532,7 +526,7 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
             const label = labels[data.row.index];
             const delta = specialPortAllowance[label];
             if (Number.isFinite(Number(delta)) && Number(delta) !== 0) {
-              data.cell.styles.fillColor = [220, 240, 255]; // light blue for changed ones
+              data.cell.styles.fillColor = [220, 240, 255]; // light blue
             }
           }
         }

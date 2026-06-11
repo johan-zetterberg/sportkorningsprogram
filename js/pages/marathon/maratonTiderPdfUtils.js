@@ -60,13 +60,13 @@ export function drawMarathonPdfHeader(pdf, context) {
   if (flagImg?.dataUrl) {
     const flagHeight = 16;
     const flagWidth = flagHeight * (flagImg.w / flagImg.h);
-    pdf.addImage(flagImg.dataUrl, 'PNG', x, y - flagHeight + 2, flagWidth, flagHeight);
+    pdf.addImage(flagImg.dataUrl, 'JPEG', x, y - flagHeight + 2, flagWidth, flagHeight);
     x += flagWidth + 8;
   }
   if (clubImg?.dataUrl) {
     const clubHeight = 16;
     const clubWidth = clubHeight * ((clubImg.w || clubHeight) / (clubImg.h || clubHeight));
-    pdf.addImage(clubImg.dataUrl, 'PNG', x, y - clubHeight + 2, clubWidth, clubHeight);
+    pdf.addImage(clubImg.dataUrl, 'JPEG', x, y - clubHeight + 2, clubWidth, clubHeight);
   }
 
   pdf.setFont(base.font, 'normal').setFontSize(11);
@@ -74,7 +74,7 @@ export function drawMarathonPdfHeader(pdf, context) {
 
   if (logoImg?.dataUrl) {
     const { w, h } = fitImageDimensions(logoImg, 110, 70);
-    pdf.addImage(logoImg.dataUrl, 'PNG', pageWidth - marginX - w, 32, w, h);
+    pdf.addImage(logoImg.dataUrl, 'JPEG', pageWidth - marginX - w, 32, w, h);
   }
 
   pdf.setFont(base.font, 'bold').setFontSize(12);

@@ -28,17 +28,47 @@ export function injectProviders(p) {
 }
 
 // === UTIL (flyttat hit oförändrat) ===
+function shouldUseCors(url) {
+  if (!url) return false;
+  try {
+    const u = new URL(url, window.location.href);
+    return u.origin !== window.location.origin;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchImageDataUrl(url) {
   if (!url) return null;
   try {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (shouldUseCors(url)) {
+      img.crossOrigin = 'anonymous';
+    }
     img.src = url;
     await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
+
+    // Skala ner bilder till max 300px för att undvika gigantiska PDF-filer
+    const maxDim = 300;
+    let w = img.naturalWidth;
+    let h = img.naturalHeight;
+    if (w > maxDim || h > maxDim) {
+      if (w > h) {
+        h = Math.round((h * maxDim) / w);
+        w = maxDim;
+      } else {
+        w = Math.round((w * maxDim) / h);
+        h = maxDim;
+      }
+    }
+
     const c = document.createElement('canvas');
-    c.width = img.naturalWidth; c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img, 0, 0);
-    return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
+    c.width = w; c.height = h;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, w, h);
+    ctx.drawImage(img, 0, 0, w, h);
+    return { dataUrl: c.toDataURL('image/jpeg', 0.85), w, h };
   } catch { return null; }
 }
 
@@ -161,7 +191,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
   // processedResultsRef: arrayen från sidan (för att slå upp raden snabbt)
   const jsPDFCtor = (window?.jspdf && window.jspdf.jsPDF) || window.jsPDF;
   if (typeof jsPDFCtor !== 'function') { alert('PDF-biblioteket (jsPDF) kunde inte laddas.'); return; }
-  const pdf = new jsPDFCtor({ unit: 'pt' });
+  const pdf = new jsPDFCtor({ unit: 'pt', compress: true });
   if (typeof pdf.autoTable !== 'function') { alert('AutoTable-plugin saknas (pdf.autoTable).'); return; }
 
   let data = (processedResultsRef || []).find(r => String(r.startNumber) === sn);
@@ -281,12 +311,12 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     let y = 45;
     if (srfLogo?.dataUrl) {
       const { w, h } = fitImageDimensions(srfLogo, 110, 70);
-      pdf.addImage(srfLogo.dataUrl, 'PNG', PAGE_W - mx - w, y - 20, w, h);
+      pdf.addImage(srfLogo.dataUrl, 'JPEG', PAGE_W - mx - w, y - 20, w, h);
     }
     pdf.setFontSize(16).setFont(undefined, 'bold');
     let currentX = mx;
-    if (flagImg) { pdf.addImage(flagImg, 'PNG', currentX, y - 12, 24, 15); currentX += 30; }
-    if (clubImg?.dataUrl) { const mh = 20, r = (clubImg.w || 1) / (clubImg.h || 1); pdf.addImage(clubImg.dataUrl, 'PNG', currentX, y - 15, mh * r, mh); currentX += mh * r + 8; }
+    if (flagImg) { pdf.addImage(flagImg, 'JPEG', currentX, y - 12, 24, 15); currentX += 30; }
+    if (clubImg?.dataUrl) { const mh = 20, r = (clubImg.w || 1) / (clubImg.h || 1); pdf.addImage(clubImg.dataUrl, 'JPEG', currentX, y - 15, mh * r, mh); currentX += mh * r + 8; }
     pdf.text(`Dressyr – #${data.startNumber} ${data.driverName || ''}`, currentX, y);
     y += 18;
     pdf.setFontSize(10).setFont(undefined, 'normal');
@@ -417,12 +447,12 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     let y = 45;
     if (srfLogo?.dataUrl) {
       const maxH = 70, ratio = srfLogo.w / srfLogo.h || 1;
-      pdf.addImage(srfLogo.dataUrl, 'PNG', PAGE_W - mx - maxH * ratio, y - 20, maxH * ratio, maxH);
+      pdf.addImage(srfLogo.dataUrl, 'JPEG', PAGE_W - mx - maxH * ratio, y - 20, maxH * ratio, maxH);
     }
     pdf.setFontSize(16).setFont(undefined, 'bold');
     let currentX = mx;
-    if (flagImg) { pdf.addImage(flagImg, 'PNG', currentX, y - 12, 24, 15); currentX += 30; }
-    if (clubImg?.dataUrl) { const mh = 20, r = (clubImg.w || 1) / (clubImg.h || 1); pdf.addImage(clubImg.dataUrl, 'PNG', currentX, y - 15, mh * r, mh); currentX += mh * r + 8; }
+    if (flagImg) { pdf.addImage(flagImg, 'JPEG', currentX, y - 12, 24, 15); currentX += 30; }
+    if (clubImg?.dataUrl) { const mh = 20, r = (clubImg.w || 1) / (clubImg.h || 1); pdf.addImage(clubImg.dataUrl, 'JPEG', currentX, y - 15, mh * r, mh); currentX += mh * r + 8; }
     pdf.text(`Dressyr – #${data.startNumber} ${data.driverName || ''}`, currentX, y);
     y += 18; pdf.setFontSize(10);
     const horses = getMomentHorseLabel(data);
@@ -502,7 +532,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('PDF-bibliotek kunde inte laddas.'); return; }
 
-  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+  const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', compress: true });
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const srfLogo = await loadStandardHeaderLogos(competition);
@@ -720,13 +750,13 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
 
         // Draw Flag
         if (flagUrl) {
-          doc.addImage(flagUrl, 'PNG', xPos, yPos + (clubLogoHeight - flagHeight) / 2, flagWidth, flagHeight); // Vertically center flag with logo
+          doc.addImage(flagUrl, 'JPEG', xPos, yPos + (clubLogoHeight - flagHeight) / 2, flagWidth, flagHeight); // Vertically center flag with logo
           xPos += flagWidth + 4; // Advance xPos for next image/text, 4pt spacing
         }
 
         // Draw Club Logo
         if (clubUrl) {
-          doc.addImage(clubUrl, 'PNG', xPos, yPos, clubLogoWidth, clubLogoHeight);
+          doc.addImage(clubUrl, 'JPEG', xPos, yPos, clubLogoWidth, clubLogoHeight);
           xPos += clubLogoWidth + 4; // Advance xPos for text, 4pt spacing
         }
       }
@@ -742,7 +772,7 @@ export async function generateDressageOfficialsPdf(equipages, startTimes, compet
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('PDF-bibliotek kunde inte laddas.'); return; }
 
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt' });
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', compress: true });
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const srfLogo = await loadStandardHeaderLogos(competition);

@@ -25,7 +25,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     const jsPDF = resolveTotalResultsJsPdf({ throwOnMissing: options.throwOnMissingPdfLib === true });
     if (!jsPDF) return;
 
-    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt' });
+    const doc = new jsPDF({ orientation: 'landscape', unit: 'pt', compress: true });
     const pageWidth = doc.internal.pageSize.getWidth();
     const mx = 40;
     let y = 40;
@@ -71,11 +71,10 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
         t('club', isInt),
         'Dressage',
         'Marathon',
-        'Cones', // Use translated keys? Or keys on the fly? Let's assume keys:
+        'Cones',
         t('total', isInt)
     ]];
 
-    // Manual keys for Discipline headers if needed, otherwise hardcode EN/SV
     if (!isInt) {
         headers[0][5] = 'Dressyr';
         headers[0][6] = 'Maraton';
@@ -88,7 +87,6 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
 
     rows.forEach(r => {
         const displayClass = r._mergedLabel || r.className || 'Okänd klass';
-        // Add grouping header if needed
         if (options.viewMode === 'byclass' && displayClass !== lastClass) {
             body.push([
                 { content: displayClass, colSpan: 9, styles: { fillColor: [243, 244, 246], fontStyle: 'bold', fontSize: 10 } }
@@ -96,7 +94,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             lastClass = displayClass;
         }
 
-        const horseLabel = r.horseName || ''; // Simplified for total results
+        const horseLabel = r.horseName || '';
         const driverCell = `${r.driverName || ''}\n${horseLabel}`;
 
         body.push([
@@ -124,7 +122,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             1: { cellWidth: 30, halign: 'center' },
             2: { minCellWidth: 100 },
             3: { cellWidth: 80 },
-            4: { cellPadding: { left: 30, top: 4, bottom: 4, right: 4 } }, // Space for flag/logo
+            4: { cellPadding: { left: 30, top: 4, bottom: 4, right: 4 } },
             5: { cellWidth: 50, halign: 'center' },
             6: { cellWidth: 50, halign: 'center' },
             7: { cellWidth: 60, halign: 'center' },
@@ -132,11 +130,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
         },
         margin: { left: mx, right: mx },
         didDrawCell: (data) => {
-            // Draw Flag & Club logo in column 4 (Klubb)
             if (data.section === 'body' && data.column.index === 4 && data.cell.raw && typeof data.cell.raw !== 'object') {
-                const rowIndexInRows = rows.findIndex(r => r.startNumber === rows[data.row.index - rows.filter((_, idx) => idx < data.row.index && typeof body[idx][0] === 'object').length]?.startNumber);
-                // This is tricky with grouping rows. Let's find the correct row data.
-                // Simplified approach: use the data from the body if possible, or re-calculate.
                 const rowData = rows.find(r => r.clubName === data.cell.text[0] && r.driverName === body[data.row.index][2].split('\n')[0]);
                 if (!rowData) return;
 
@@ -148,11 +142,11 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
                 const yCenter = data.cell.y + data.cell.height / 2;
 
                 if (flagUrl) {
-                    doc.addImage(flagUrl, 'PNG', xPos, yCenter - 4, 12, 8);
+                    doc.addImage(flagUrl, 'JPEG', xPos, yCenter - 4, 12, 8);
                     xPos += 14;
                 }
                 if (clubUrl) {
-                    doc.addImage(clubUrl, 'PNG', xPos, yCenter - 6, 12, 12);
+                    doc.addImage(clubUrl, 'JPEG', xPos, yCenter - 6, 12, 12);
                 }
             }
         }

@@ -2,14 +2,15 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForDressageStatusCollection } from '../../services/dressageService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
-import { getMarathonTimingForEquipage } from '../../services/marathonService.js';;
-import { getCompetitionHeader, renderResponsiveClassFilter } from '../../ui/components.js';
+import { getMarathonTimingForEquipage } from '../../services/marathonService.js';
+import { getCompetitionHeader } from '../../ui/components.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
-import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
-import { standardPortAllowance } from '../../data/competitionData.js';
+import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl, fetchImageDataUrl as _fetchImage } from '../../services/logosService.js';
+import { standardPortAllowance, resolveStandardPortAllowance } from '../../data/competitionData.js';
 import { getFlagHtml, fetchFlagDataUrl, normalizeCountryCode } from '../../services/flagsService.js';
+import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
 import {
   debounce,
   downloadCsv,
@@ -19,6 +20,7 @@ import {
   MOBILE_BP
 } from '../../utils/sharedUtils.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
+import { loadPdfLibs } from '../../pdf/pdfBase.js';
 import { t } from '../../utils/i18n.js';
 
 // Mobil-detektering importeras nu globalt från sharedUtils.js
@@ -92,385 +94,87 @@ async function ensureUserRoleLoaded() {
     // uppdatera global state så alla sidor får tillgång till rollen
     setGlobalState({ key: 'currentUser', value: { ...user, role } });
     return role;
-  } catch (e) {
-    console.warn('Kunde inte läsa users/{uid}.role:', e);
-    return '';
-  }
-}
-const _norm = s => String(s || '').toLowerCase();
-
-function getPortAllowanceForClass(cls) {
-  // man kan lägga till fler alias här om du har klassvarianter
-  const direct = standardPortAllowance?.[cls];
-  const lower = standardPortAllowance?.[_norm(cls)];
-  const star = standardPortAllowance?.['*'];
-  const n = Number(direct ?? lower ?? star);
-  return Number.isFinite(n) ? n : null;
-}
-
-
-
-// --- Hämta flaggdata (URL) ---
-// --- Hämta fil (URL) ---
-async function _fetchImage(url) {
-  if (!url) return null;
-  try {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.src = url;
-    await new Promise((res, rej) => { img.onload = res; img.onerror = rej; });
-    const c = document.createElement('canvas');
-    c.width = img.naturalWidth; c.height = img.naturalHeight;
-    c.getContext('2d').drawImage(img, 0, 0);
-    return { dataUrl: c.toDataURL('image/png'), w: img.naturalWidth, h: img.naturalHeight };
-  } catch {
+  } catch (err) {
+    console.warn('Kunde inte ladda användarroll:', err);
     return null;
   }
 }
 
-import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
+async function printParticipantPdf(equipage) {
+  if (!equipage) return;
 
-// ===== Modal: struktur & lyssnare =====
-function renderModalStructure() {
-  if (document.getElementById('details-modal')) return;
-
-  // Lägg in enkel stil (samma känsla som maraton/precision)
-  if (!document.getElementById('participantsModalStyle')) {
-    const style = document.createElement('style');
-    style.id = 'participantsModalStyle';
-    style.textContent = `
-    .modal-overlay {
-      position: fixed; inset: 0; background: rgba(0,0,0,.6);
-    display: flex; align-items: center; justify-content: center;
-    z-index: 2147483647; opacity: 0; transition: opacity .18s ease;
-     backdrop-filter: blur(4px);
-    pointer-events: none;              /* NYTT: inga klick när dold */
-      backdrop-filter: blur(4px);
-    }
-  .modal-overlay.visible { opacity: 1; pointer-events: auto; }  /* NYTT */
-  .modal-overlay.hidden { display: none; }
-    .modal-content {
-      background:#fff; border-radius:12px; width:100%; max-width:720px; margin:0 auto;
-      max-height:70vh; overflow-y:auto; box-shadow:0 10px 25px rgba(0,0,0,.1);
-      transform:scale(.97); transition:transform .18s ease;
-    }
-    .dark .modal-content { background: #1f2937; color: #f3f4f6; }
-    .modal-overlay.visible .modal-content { transform: scale(1); }
-  `;
-    document.head.appendChild(style);
-  }
-
-  const el = document.createElement('div');
-  el.id = 'details-modal';
-  el.className = 'modal-overlay hidden';
-  el.innerHTML = `
-    <div class="modal-content">
-      <div id="modal-content"></div>
-    </div>
-  `;
-  document.body.appendChild(el);
-}
-
-
-function setupModalListeners() {
-  const modal = document.getElementById('details-modal');
-  if (!modal) return;
-
-  const closeModal = () => {
-    modal.classList.remove('visible');
-    setTimeout(() => modal.classList.add('hidden'), 200);
-  };
-
-  // Stäng på klick i overlay
-  modal.addEventListener('click', (e) => {
-    if (e.target === modal) closeModal();
-  });
-
-  // Ta bort ev. gammal keydown först
-  if (window.__participantsKeydownHandler) {
-    try { document.removeEventListener('keydown', window.__participantsKeydownHandler); } catch { }
-  }
-  // Spara ny referens och registrera
-  window.__participantsKeydownHandler = (e) => {
-    if (e.key === 'Escape') closeModal(); // Added basic functionality
-  };
-}
-
-function exists(v) { return v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0); }
-function kv(label, value) {
-  if (!exists(value)) return '';
-  return `<div class="flex gap-2 py-1 text-sm">
-    <dt class="font-medium text-gray-800 dark:text-gray-300 shrink-0">${label}</dt>
-    <dd class="text-gray-700 dark:text-gray-200 break-words font-normal">${value}</dd>
-  </div>`;
-}
-function yesno(v) {
-  if (v === true) return 'Ja';
-  if (v === false) return 'Nej';
-  return v ?? '';
-}
-function fmtMoney(v) {
-  if (!exists(v)) return '';
-  const n = Number(v);
-  if (!isFinite(n)) return String(v);
-  return n.toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 });
-}
-function fmtList(arr, mapFn = (x) => x) {
-  if (!Array.isArray(arr) || arr.length === 0) return '';
-  return arr.map(mapFn).filter(Boolean).join(', ');
-}
-function valOrDash(v) { return exists(v) ? v : '—'; }
-
-// function sanitizeForFilename moved to sharedUtils
-
-function horseLabel(eq) {
-  if (!eq) return '—';
-  const names = Array.isArray(eq.horses)
-    ? eq.horses.map(h => h?.name).filter(Boolean)
-    : [];
-  return names.length ? names.join(' & ') : '—';
-}
-
-// ===== NYTT: Sorteringsfunktion =====
-function getSortedEquipages() {
-  let list = [...allEquipages].filter(e => {
-    if (!searchTerm) return true;
-    // Sök även i _mergedLabel ===
-    const hay = [
-      String(e.startNumber || ''),
-      e.driverName || '',
-      horseLabel(e), //
-      e.className || '',
-      e._mergedLabel || '' // <-- NY
-    ].join(' ').toLowerCase();
-    return hay.includes(searchTerm);
-  });
-
-  if (deltagare_activeClassFilters.size > 0) {
-    list = list.filter(e => {
-      const label = e._mergedLabel || e.className || '—';
-      return deltagare_activeClassFilters.has(label);
-    });
-  }
-
-  list.sort((a, b) => {
-    // === ÄNDRING: Sortera på _mergedLabel istället för className ===
-    if (viewMode === 'class') {
-      const classA = a._mergedLabel || a.className || '';
-      const classB = b._mergedLabel || b.className || '';
-      const classCompare = classA.localeCompare(classB, 'sv');
-      if (classCompare !== 0) return classCompare;
-    }
-
-    const key = sortConfig.key;
-    const dir = sortConfig.direction === 'asc' ? 1 : -1;
-
-    // === ÄNDRING: Hantera om sorteringsnyckeln är 'className' ===
-    let valA, valB;
-    if (key === 'className') {
-      valA = a._mergedLabel || a.className || '';
-      valB = b._mergedLabel || b.className || '';
-    } else {
-      valA = key === 'horseName' ? horseLabel(a) : a[key];
-      valB = key === 'horseName' ? horseLabel(b) : b[key];
-    }
-    // === SLUT ÄNDRING ===
-
-    if (valA == null) return 1 * dir; if (valB == null) return -1 * dir;
-
-    let comparison = 0;
-    if (typeof valA === 'number' && typeof valB === 'number') {
-      comparison = valA - valB;
-    } else {
-      comparison = String(valA).localeCompare(String(valB), 'sv', { numeric: true });
-    }
-    return comparison * dir;
-  });
-  return list;
-}
-
-function renderMobile() {
-  renderDeltagareClassChips();
-  const container = document.getElementById('participantListContainer');
-  if (!container) return;
-
-  const sorted = getSortedEquipages();
-  const user = getGlobalState('currentUser');
-  const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
-  const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [user?.role || ''];
-  const canViewDetails = rolesToCheck.some(r => ['admin', 'superadmin', 'sekretariat'].includes(r));
-  let lastClass = null;
-
-  if (sorted.length === 0) {
-    container.innerHTML = `<div class="p-6 text-center text-gray-500">${t('no_participants_found')}</div>`;
+  await loadPdfLibs();
+  const { jsPDF } = window.jspdf || {};
+  if (!jsPDF) {
+    alert('Kunde inte ladda PDF-biblioteket.');
     return;
   }
 
-  // Funktion för att rendera ett enskilt kort
-  const renderCard = (e) => {
-      let classHeader = '';
-      const currentClassLabel = e._mergedLabel || e.className || t('okand_klass');
-  
-      if (viewMode === 'class' && currentClassLabel !== lastClass) {
-        lastClass = currentClassLabel;
-        classHeader = `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${currentClassLabel}</div>`;
-      }
-  
-      const hoverClass = canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : '';
-      const interactProps = canViewDetails ? 'role="button" tabindex="0"' : '';
+  const pdf = new jsPDF({ unit: 'pt', compress: true });
+  const mx = 40;
+  let y = 40;
 
-      return `
-        ${classHeader}
-        <div class="m-1 mb-1.5 rounded-lg border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden ${hoverClass}" data-equipage-id="${e.startNumber}" ${interactProps}>
-            <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/50">
-               <!-- Left: Name & Flags -->
-               <div class="flex flex-col min-w-0 pr-1">
-                  <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                     <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${e.startNumber}</span> 
-                     <span class="truncate">${e.driverName || t('namn_saknas')}</span>
-                  </div>
-                  <div class="flex items-center gap-1 mt-0.5">
-                     ${getFlagHtml(e)} ${getClubLogoHtml(e)}
-                     ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${currentClassLabel}</span>` : ''}
-                  </div>
-               </div>
-               
-               <!-- Right: Startnr -->
-               <div class="flex items-center gap-2 shrink-0 border-l dark:border-gray-300 dark:border-gray-600 pl-2 text-right">
-                  <div>
-                      <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Startnr</div>
-                      <div class="text-base font-black text-gray-900 dark:text-white leading-none">${e.startNumber || '?'}</div>
-                  </div>
-               </div>
-            </div>
-            
-            <!-- Bottom Row: Info -->
-            <div class="px-1.5 py-1.5 bg-white dark:bg-gray-800 text-[10px]">
-               <div class="flex justify-between items-center text-gray-700 dark:text-gray-300">
-                  <span class="text-gray-500 dark:text-gray-400 mr-1">Klubb:</span>
-                  <span class="font-medium truncate max-w-[250px]">${e.clubName || '\u2014'}</span>
-               </div>
-               <div class="flex justify-between items-center text-gray-700 dark:text-gray-300 mt-0.5">
-                  <span class="text-gray-500 dark:text-gray-400 mr-1">H\u00e4st:</span>
-                  <span class="font-medium truncate max-w-[250px]">${horseLabel(e)}</span>
-               </div>
-            </div>
-        </div>
-      `;
-    };
+  const start = equipage.startNumber ?? '—';
+  const driver = equipage.driverName || '—';
+  const cls = equipage.className || '—';
+  const club = equipage.clubName || '';
+  const phone = equipage.phone || '—';
+  const email = equipage.email || '—';
+  const license = equipage.licenseNo || equipage.license || '—';
+  const twPrec = equipage.trackWidth || equipage.trackWidthCm || '—';
+  const twMar = equipage.marathonTrackWidth || equipage.trackWidthMarathon || twPrec || '—';
 
-    const cardsHtml = sorted.map(renderCard).join('');
-  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${cardsHtml}</div>`;
+  const addressParts = [
+    equipage.address,
+    equipage.zipCode,
+    equipage.city
+  ].filter(Boolean);
+  const fullAddress = addressParts.length ? addressParts.join(', ') : '—';
 
-  // Koppla klick-lyssnare (om användaren har behörighet)
-  if (canViewDetails) {
-    container.querySelectorAll('[data-equipage-id]').forEach(card => {
-      card.addEventListener('click', () => {
-        const equipageToShow = allEquipages.find(eq => String(eq.startNumber) === card.dataset.equipageId);
-        if (equipageToShow) renderAndShowDetailsModal(equipageToShow);
-      });
-      card.addEventListener('keydown', (event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          const equipageToShow = allEquipages.find(eq => String(eq.startNumber) === card.dataset.equipageId);
-          if (equipageToShow) renderAndShowDetailsModal(equipageToShow);
-        }
-      });
-    });
-  }
-}
-
-async function printParticipantPdf(eq) {
-  const jsPDFCtor = (window.jspdf && window.jspdf.jsPDF) || window.jsPDF;
-  // Fallback om jsPDF-biblioteket saknas helt
-  if (!jsPDFCtor) {
-    alert('PDF-biblioteket (jsPDF) kunde inte laddas. Kontrollera sidans <script>-taggar.');
-    return;
-  }
-
-  const hasAuto = !!(window.jspdf?.autoTable || jsPDFCtor.autoTable || (jsPDFCtor.API && jsPDFCtor.API.autoTable));
-
-  const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
-  const flagDataUrl = await fetchFlagDataUrl(cc);
-  const clubLogoUrl = getClubLogoUrl(eq?.clubName);
-  const clubLogo = await _fetchImage(clubLogoUrl);
-
-  const driver = eq.driverName || '';
-  const cls = eq.className || '';
-  const club = eq.clubName || '';
-  const start = eq.startNumber || '';
-
-  const twPrec = (eq.trackWidth ? `${eq.trackWidth} cm` : '—');
-  const twMar = (eq.marathonTrackWidth ? `${eq.marathonTrackWidth} cm` : '—');
-
-  const phone = eq.phone ?? eq.mobile ?? eq.contactPhone ?? '';
-  const email = eq.email ?? eq.contactEmail ?? '';
-  const personnr = eq.ssn ?? eq.personnummer ?? '';
-  const license = eq.licenseNo ?? eq.licence ?? '';
-  const address = eq.address || {};
-  const fullAddress = [address.street, address.zipCode, address.city].filter(Boolean).join(', ');
-
-  const payStatus = (eq.payment?.status || '').toLowerCase();
-  const payTxt = payStatus === 'paid' ? 'Betald' : payStatus === 'partial' ? 'Delbetald' : payStatus === 'unpaid' ? 'Obetald' : '—';
-  const payAmount = eq.payment?.amount;
-
-  // === FIX FÖR BUGGEN ===
-  // Säkerställ att otherFees alltid är en array innan .join() anropas
-  let otherFees = eq.administrativeFees || eq.otherFees || [];
-  if (!Array.isArray(otherFees)) {
-    otherFees = [String(otherFees)];
-  }
-  const otherFeesText = otherFees.join(', ');
-
-  const horses = Array.isArray(eq.horses) ? eq.horses : [];
-  const horseRows = horses.map((h, i) => [
-    `Häst ${i + 1}: ${h.name || h.horseName || ''}`,
-    h.regNo || '',
-    h.horseId || '',
-    h.license || '',
-    h.chip || h.chipNo || '',
-    h.ueln || '',
-    h.owner || h.horseOwner || ''
+  const horses = Array.isArray(equipage.horses) ? equipage.horses : [];
+  const horseRows = horses.map((h) => [
+    h.name || h.horseName || '—',
+    h.regNo || h.registrationNumber || '—',
+    h.horseId || h.competitionHorseId || '—',
+    h.license || h.licenseNo || '—',
+    h.chipNo || h.chipNumber || '—',
+    h.ueln || h.passportNo || '—',
+    h.owner || '—'
   ]);
 
-  const pdf = new jsPDFCtor({ unit: 'pt' });
-  const mx = 40; let y = 40;
+  try {
+    const [flagDataUrl, clubLogoDataUrl] = await Promise.all([
+      fetchFlagDataUrl(normalizeCountryCode(equipage.country) || 'se').catch(() => null),
+      _fetchImage(getClubLogoUrl(club)).catch(() => null)
+    ]);
 
-  if (clubLogo?.dataUrl) {
-    const maxH = 40, maxW = 110;
-    const ratio = clubLogo.w / clubLogo.h || 1;
-    let drawH = maxH, drawW = Math.round(drawH * ratio);
-    if (drawW > maxW) { drawW = maxW; drawH = Math.round(drawW / ratio); }
-    const x = pdf.internal.pageSize.getWidth() - 40 - drawW;
-    const yTop = y - Math.round(drawH * 0.5);
-    pdf.addImage(clubLogo.dataUrl, 'PNG', x, yTop, drawW, drawH);
+    if (flagDataUrl) pdf.addImage(flagDataUrl, 'PNG', mx, y, 28, 18);
+    if (clubLogoDataUrl) pdf.addImage(clubLogoDataUrl, 'PNG', mx + 36, y - 2, 26, 26);
+  } catch (err) {
+    console.warn('Kunde inte ladda PDF-bilder för deltagare:', err);
   }
 
-  pdf.setFontSize(14);
-  if (flagDataUrl) {
-    pdf.addImage(flagDataUrl, 'PNG', mx, y - 10, 20, 12);
-    pdf.text(`Ekipage – #${start} ${driver}`, mx + 26, y);
-  } else {
-    pdf.text(`Ekipage – #${start} ${driver} (${cc.toUpperCase()})`, mx, y);
-  }
-  y += 18;
+  pdf.setFontSize(18);
+  pdf.text(`#${start} ${driver}`, mx + 72, y + 14);
+  y += 38;
+
   pdf.setFontSize(10);
-  pdf.text(`${cls}${club ? ' • ' + club : ''}`, mx, y); y += 14;
+  pdf.text(`${cls}${club ? ' • ' + club : ''}`, mx, y);
+  y += 14;
 
-  if (hasAuto) {
+  const body = [
+    ['Vagnbredd (Precision)', String(twPrec)],
+    ['Vagnbredd (Maraton)', String(twMar)],
+    ['Telefon', phone],
+    ['E-post', email],
+    ['Adress', fullAddress],
+    ['Licensnr', license]
+  ];
+
+  if (typeof pdf.autoTable === 'function') {
     pdf.autoTable({
       head: [['Fält', 'Värde']],
-      body: [
-        ['Vagnbredd (Precision)', twPrec],
-        ['Vagnbredd (Maraton)', twMar],
-        ['Telefon', phone],
-        ['E-post', email],
-        ['Adress', fullAddress],
-        ['Personnummer', personnr],
-        ['Licensnr', license],
-        ['Betalstatus', payTxt],
-        ['Summa', (payAmount != null) ? Number(payAmount).toLocaleString('sv-SE', { style: 'currency', currency: 'SEK', maximumFractionDigits: 0 }) : '—'],
-        ['Övriga avgifter', otherFeesText]
-      ],
+      body,
       startY: y,
       styles: { fontSize: 9, cellPadding: 4 },
       headStyles: { fillColor: [243, 244, 246], textColor: [55, 65, 81] },
@@ -480,7 +184,7 @@ async function printParticipantPdf(eq) {
 
     if (horseRows.length) {
       pdf.autoTable({
-        head: [['Häst', 'Reg.nr', 'Häst-ID (tävling)', 'Licens', 'Chipnr', 'UELN/Passnr', 'Ägare']],
+        head: [['Häst', 'Reg.nr', 'Häst-ID', 'Licens', 'Chipnr', 'UELN/Passnr', 'Ägare']],
         body: horseRows,
         startY: y,
         styles: { fontSize: 9, cellPadding: 4 },
@@ -490,10 +194,9 @@ async function printParticipantPdf(eq) {
     }
   } else {
     pdf.setFontSize(12);
-    pdf.text("autoTable-plugin för PDF saknas, kan ej rendera detaljerad tabell.", mx, y);
+    pdf.text('autoTable-plugin för PDF saknas, kan ej rendera detaljerad tabell.', mx, y);
   }
 
-  // === NYTT FILNAMN ===
   const driverNameSanitized = sanitizeForFilename(driver);
   const filename = `ekipage_${start}_${driverNameSanitized}.pdf`;
   pdf.save(filename);
@@ -872,21 +575,19 @@ function renderDesktop() {
 
 // === NY FUNKTION: Renderar klass-knapparna ===
 function renderDeltagareClassChips() {
-  const chipHost = document.getElementById('deltagareClassChips');
-  if (!chipHost) return;
+  const classSelect = document.getElementById('deltagareClassFilterSelect');
+  if (!classSelect) return;
 
   const labels = [...new Set(allEquipages.map(e => e._mergedLabel || e.className || '—'))]
     .filter(Boolean)
     .sort((a, b) => a.localeCompare(b, 'sv'));
+  const currentValue = deltagare_activeClassFilters.size === 1 ? Array.from(deltagare_activeClassFilters)[0] : '';
 
-  renderResponsiveClassFilter(chipHost, labels, deltagare_activeClassFilters, (lbl) => {
-    if (deltagare_activeClassFilters.has(lbl)) {
-      deltagare_activeClassFilters.delete(lbl);
-    } else {
-      deltagare_activeClassFilters.add(lbl);
-    }
-    render();
-  });
+  classSelect.innerHTML = [
+    '<option value="">Alla klasser</option>',
+    ...labels.map((label) => `<option value="${String(label).replace(/"/g, '&quot;')}">${label}</option>`)
+  ].join('');
+  classSelect.value = labels.includes(currentValue) ? currentValue : '';
 }
 
 // ===== NYTT: render() router =====
@@ -921,18 +622,32 @@ export async function load() {
     <div class="container mx-auto p-4 md:p-8">
         ${getCompetitionHeader(competition, t('deltagarlista'))}
         <div class="bg-white dark:bg-gray-800 p-2 lg:p-4 rounded-xl shadow-md border dark:border-gray-700">
-            <div class="flex flex-wrap items-center gap-2 mb-3 bg-white dark:bg-gray-800">
-                <div class="search-input-wrap flex-1 min-w-[200px] relative">
+            <div class="flex flex-wrap md:flex-nowrap items-center gap-2 mb-3 bg-white dark:bg-gray-800 overflow-x-auto">
+                <div class="search-input-wrap relative w-full md:w-[240px] flex-shrink-0 min-w-0">
                     <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
-                    <input id="participantSearch" type="search" placeholder="${t('search_participant_placeholder')}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" autocomplete="off">
+                    <input id="participantSearch" type="search" placeholder="${t('search_participant_placeholder')}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs md:text-sm" autocomplete="off">
                 </div>
-                    
-                <select id="viewModeSelect" class="border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
-                    <option value="class">${t('view_by_class')}</option>
-                    <option value="start">${t('view_by_startno')}</option>
-                </select>
 
-                <div class="flex items-center gap-1.5 ml-auto">
+                <div class="relative w-[150px] flex-shrink-0">
+                    <select id="viewModeSelect" class="block w-full border rounded py-1.5 pl-2 pr-7 text-xs md:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500 appearance-none">
+                        <option value="class">${t('view_by_class')}</option>
+                        <option value="start">${t('view_by_startno')}</option>
+                    </select>
+                    <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </div>
+                </div>
+
+                <div class="relative w-[180px] flex-shrink-0">
+                    <select id="deltagareClassFilterSelect" class="block w-full border rounded py-1.5 pl-2 pr-7 text-xs md:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500 appearance-none">
+                        <option value="">Alla klasser</option>
+                    </select>
+                    <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
+                      <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-1.5 md:ml-auto flex-shrink-0">
                     <button id="btnExportDeltagareCsv" type="button" title="Exportera CSV" class="inline-flex items-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
                       <i class="fas fa-file-csv mr-1 text-gray-500 dark:text-gray-400"></i> CSV
                     </button>
@@ -941,8 +656,6 @@ export async function load() {
                     </button>
                 </div>
             </div>
-            
-            <div id="deltagareClassChips" class="mb-2 flex flex-wrap gap-1"></div>
 
             <div id="participantListContainer"><p class="text-center text-gray-500 dark:text-gray-400">${t('loading_participants')}</p></div>
         </div>
@@ -1035,19 +748,14 @@ export async function load() {
       });
     }
 
-    const chipHost = document.getElementById('deltagareClassChips');
-    if (chipHost) {
-      chipHost.addEventListener('click', (e) => {
-        const btn = e.target.closest('button[data-class]');
-        if (!btn) return;
-
-        const lbl = btn.dataset.class;
-        if (deltagare_activeClassFilters.has(lbl)) {
-          deltagare_activeClassFilters.delete(lbl);
-        } else {
-          deltagare_activeClassFilters.add(lbl);
+    const classSel = document.getElementById('deltagareClassFilterSelect');
+    if (classSel) {
+      classSel.addEventListener('change', (e) => {
+        deltagare_activeClassFilters.clear();
+        if (e.target.value) {
+          deltagare_activeClassFilters.add(e.target.value);
         }
-        render(); // Rita om
+        render();
       });
     }
 

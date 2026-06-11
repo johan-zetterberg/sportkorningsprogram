@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test tests/*.test.js",
+    "test:rules": "node scripts/run-firestore-rules-tests.mjs",
     "test:smoke": "playwright test tests/browser-smoke.spec.js",
     "test:smoke:navigation": "playwright test tests/browser-smoke.spec.js -g \"all main pages\"",
     "test:smoke:critical": "playwright test tests/browser-smoke.spec.js -g \"critical ui\"",
@@ -11,6 +12,8 @@
     "deploy": "git add . && git commit -m \"Automatisk uppdatering\" && git push && firebase deploy"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^4.0.1",
+    "firebase": "^11.6.1",
     "@playwright/test": "^1.54.1"
   }
 }
