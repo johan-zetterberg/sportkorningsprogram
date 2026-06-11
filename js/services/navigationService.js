@@ -87,16 +87,14 @@ const pageModeRequirements = {
   'dressyr-monitor': 'live',
   'maraton-monitor': 'live',
   'precision-monitor': 'live',
-  'observator-input': 'live',
-  'precision-split-input': 'live'
+  'observator-input': 'live'
 };
 
 const pageModeRedirects = {
   'dressyr-monitor': '#dressyr-results',
   'maraton-monitor': '#maraton-results',
   'precision-monitor': '#precision-results',
-  'observator-input': '#maraton-results',
-  'precision-split-input': '#precision-input'
+  'observator-input': '#maraton-results'
 };
 
 let pageInitializers = {};

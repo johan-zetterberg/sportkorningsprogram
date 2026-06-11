@@ -215,7 +215,7 @@
                   data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
                 <a href="#precision-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin"
                   data-i18n="menu_input">Inmatning Precision</a>
-                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin" data-competition-mode="live">Inmatning (Observer/Karta)</a>
+                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin">Inmatning (Observer/Karta)</a>
                 <a href="#precision-results" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Precision</a>
               </div>
@@ -524,6 +524,11 @@
   <script type="module" src="js/main.js"></script>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+  
+  <script>
+    // Fix for Leaflet missing slash in image paths
+    L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
+  </script>
 
   <script>
     if ('serviceWorker' in navigator) {
