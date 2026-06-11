@@ -61,6 +61,15 @@ let marathonTimingMap = new Map();
 let marathonStateMap = new Map();
 let marathonObsMap = new Map();
 
+async function safeReportFetch(label, promiseFactory, fallbackValue) {
+    try {
+        return await promiseFactory();
+    } catch (error) {
+        console.warn(`reports.js: kunde inte läsa ${label}`, error);
+        return typeof fallbackValue === 'function' ? fallbackValue() : fallbackValue;
+    }
+}
+
 
 export async function load() {
     competitionId = resolveCurrentCompId();
@@ -71,7 +80,7 @@ export async function load() {
 
     render(); // Initial render (loading state?)
 
-    const eqs = await getEquipages(competitionId);
+    const eqs = await safeReportFetch('ekipage', () => getEquipages(competitionId), []);
 
     // 1. Fetch Configs & Data in parallel
     const [
@@ -87,17 +96,17 @@ export async function load() {
         tms, // [NEW] Teams
         dProtocols // [NEW] Dressage Protocols
     ] = await Promise.all([
-        getDressageStatusCollection(competitionId),
-        getMarathonTimingData(competitionId),
-        getMarathonStateDocuments(competitionId), // [NEW]
-        getMarathonResults(competitionId), // Obstacles
-        getPrecisionResults(competitionId),
-        getConfig(competitionId, 'maratonConfig'), // Correct ID used by admin
-        getConfig(competitionId, 'precisionConfig'),
-        getConfig(competitionId, 'startTimes'),
-        getConfig(competitionId, 'competitionMeta').catch(() => ({})),
-        getTeams(competitionId), // [NEW] Fetch teams
-        getAllDressageProtocols(competitionId, eqs) // [NEW] Fetch protocols
+        safeReportFetch('dressyrstatus', () => getDressageStatusCollection(competitionId), []),
+        safeReportFetch('maratontider', () => getMarathonTimingData(competitionId), () => new Map()),
+        safeReportFetch('maratonstatus', () => getMarathonStateDocuments(competitionId), () => new Map()),
+        safeReportFetch('maratonhinder', () => getMarathonResults(competitionId), []),
+        safeReportFetch('precisionresultat', () => getPrecisionResults(competitionId), []),
+        safeReportFetch('maratonkonfiguration', () => getConfig(competitionId, 'maratonConfig'), {}),
+        safeReportFetch('precisionkonfiguration', () => getConfig(competitionId, 'precisionConfig'), {}),
+        safeReportFetch('starttider', () => getConfig(competitionId, 'startTimes'), {}),
+        safeReportFetch('tävlingsmetadata', () => getConfig(competitionId, 'competitionMeta'), {}),
+        safeReportFetch('lag', () => getTeams(competitionId), []),
+        safeReportFetch('dressyrprotokoll', () => getAllDressageProtocols(competitionId, eqs), () => new Map())
     ]);
 
     equipages = eqs;
@@ -105,7 +114,7 @@ export async function load() {
     precisionConfig = pCfg?.value || pCfg || {};
     startTimes = sTimes?.times || {};
     teams = tms || [];
-    const protocolMap = dProtocols; // Map<sn, protocols[]>
+    const protocolMap = dProtocols instanceof Map ? dProtocols : new Map();
 
     // Update global state with fresh meta to ensure PDFs get it
     const currentComp = getGlobalState('currentCompetition');

@@ -296,6 +296,10 @@ function stageNiceLabel(stage) {
   return stage; // 'A' eller 'B'
 }
 
+function decorateStageLabel(stage, equipage = null) {
+  return stageNiceLabel(normalizeStageForEquipage(equipage, stage));
+}
+
 function findEquipageBySn(sn) {
   return (Array.isArray(equipages) ? equipages : allEquipages || [])
     .find(e => String(e.startNumber) === String(sn));
@@ -362,7 +366,10 @@ function renderActiveCards() {
   // NYTT: Uppdatera toggle-knappen med antalet
   const toggleBtn = document.getElementById('toggleActiveTimers');
   if (toggleBtn) {
-    toggleBtn.querySelector('span').textContent = `${t('marathon_stages_active_timers').replace('{count}', activeTimers.size)}`;
+    const labelEl = toggleBtn.querySelector('span:not(.arrow)');
+    if (labelEl) {
+      labelEl.textContent = `${t('marathon_stages_active_timers')} (${activeTimers.size})`;
+    }
     toggleBtn.disabled = activeTimers.size === 0;
   }
   // NYTT: Håll listan stängd om den är tom
@@ -969,7 +976,7 @@ function renderLayout() {
         <!-- AKTIVA TIMERS (UTFÄLLBAR) -->
         <div id="activeTimersWrapper" class="active-timers-wrapper bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
           <button id="toggleActiveTimers" class="w-full flex justify-between items-center">
-            <span class="text-[10px] uppercase font-bold text-gray-500">Aktiva timers (0)</span>
+            <span class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_active_timers')} (0)</span>
             <span class="arrow text-gray-400 transition-transform">▼</span>
           </button>
           <div id="activeTimers" class="active-timers-list space-y-2"></div>
@@ -1312,6 +1319,343 @@ function bindManualEditor(stage) {
   });
 }
 
+function formatClockDisplay(value) {
+  if (!value) return '–';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '–';
+  return d.toLocaleTimeString('sv-SE', {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+}
+
+function refreshCommentToggleState(stage) {
+  const wrap = document.querySelector('#stagePanel .comment-wrapper');
+  const toggle = document.querySelector('#stagePanel .comment-toggle-btn');
+  const startComment = document.getElementById(`commentStart-${stage}`)?.value?.trim() || '';
+  const stopComment = document.getElementById(`commentStop-${stage}`)?.value?.trim() || '';
+  const bitComment = document.getElementById('bitComment')?.value?.trim() || '';
+  const hasComment = !!(startComment || stopComment || bitComment);
+
+  if (wrap) {
+    wrap.classList.toggle('comment-visible', hasComment);
+  }
+  if (toggle) {
+    toggle.classList.toggle('has-comment', hasComment);
+  }
+}
+
+function mergeStagePayloadIntoCurrentDoc(stage, payload = {}) {
+  currentDocData = currentDocData || {};
+  currentDocData.timing = currentDocData.timing || {};
+  currentDocData.timing[stage] = {
+    ...(currentDocData.timing[stage] || {}),
+    ...payload
+  };
+
+  if ('runningStage' in payload) {
+    currentDocData.runningStage = payload.runningStage;
+  }
+  if ('bitCheckOk' in payload) {
+    currentDocData.bitCheckOk = payload.bitCheckOk;
+    currentDocData.bettOk = payload.bitCheckOk;
+  }
+  if ('bitCheckComment' in payload) {
+    currentDocData.bitCheckComment = payload.bitCheckComment ?? '';
+    currentDocData.bettComment = payload.bitCheckComment ?? '';
+  }
+}
+
+function populateStageUI(stage, docData = {}) {
+  const stageData = docData?.timing?.[stage] || {};
+  const startClockEl = document.getElementById(`startClock-${stage}`);
+  const stopClockEl = document.getElementById(`stopClock-${stage}`);
+  const commentStartEl = document.getElementById(`commentStart-${stage}`);
+  const commentStopEl = document.getElementById(`commentStop-${stage}`);
+  const eliminatedEl = document.getElementById('manualEliminated');
+  const otherPenaltyEl = document.getElementById('otherMarathonPenalty');
+  const bitOkEl = document.getElementById('bitOk');
+  const bitCommentEl = document.getElementById('bitComment');
+
+  updateStageEqLine();
+  updateEqInfo();
+  highlightActiveTab();
+
+  if (startClockEl) startClockEl.textContent = formatClockDisplay(stageData.startClock);
+  if (stopClockEl) stopClockEl.textContent = formatClockDisplay(stageData.stopClock);
+  if (commentStartEl) commentStartEl.value = stageData.commentStart || '';
+  if (commentStopEl) commentStopEl.value = stageData.commentStop || '';
+  if (eliminatedEl) eliminatedEl.checked = !!docData.eliminated;
+  if (otherPenaltyEl) otherPenaltyEl.value = Number(docData.otherPenalty || 0);
+
+  if (bitOkEl) {
+    bitOkEl.checked = !!(docData.bitCheckOk ?? docData.bettOk);
+  }
+  if (bitCommentEl) {
+    bitCommentEl.value = docData.bitCheckComment ?? docData.bettComment ?? '';
+  }
+
+  updateTimerLabel(stage);
+  refreshCommentToggleState(stage);
+}
+
+function updateTabVisibility(eq) {
+  const warmupTab = document.querySelector('[data-stage="warmup"]');
+  const stageATab = document.querySelector('[data-stage="A"]');
+  const limA = eq ? limitsFor(eq, 'A') : null;
+  const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+
+  if (warmupTab) warmupTab.classList.toggle('hidden', !!isFixedTimeA);
+  if (stageATab) stageATab.classList.remove('hidden');
+
+  if (isFixedTimeA && currentStage === 'warmup') {
+    currentStage = 'A';
+  }
+}
+
+async function startStage(stage) {
+  if (!currentEquipage) return;
+
+  const actualStage = normalizeStageForEquipage(currentEquipage, stage);
+  const key = `${currentEquipage.startNumber}|${actualStage}`;
+  const now = Date.now();
+  const stageData = currentDocData?.timing?.[stage] || {};
+  const existingDuration = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
+  const startClock = stageData.startClock || new Date(now).toISOString();
+
+  activeTimers.set(key, {
+    isRunning: true,
+    startEpoch: now,
+    pausedMs: existingDuration
+  });
+
+  ensureGlobalTicker();
+
+  const payload = {
+    startClock,
+    stopClock: null,
+    durationMs: existingDuration,
+    commentStart: document.getElementById(`commentStart-${stage}`)?.value?.trim() || '',
+    runningStage: actualStage
+  };
+
+  await saveStageSnapshot(stage, payload);
+  mergeStagePayloadIntoCurrentDoc(stage, payload);
+  updateTimerLabel(stage);
+  updateTabStatuses(currentDocData);
+  renderActiveCards();
+}
+
+async function stopStage(stage) {
+  if (!currentEquipage) return;
+
+  const actualStage = normalizeStageForEquipage(currentEquipage, stage);
+  const key = `${currentEquipage.startNumber}|${actualStage}`;
+  const timerState = activeTimers.get(key);
+  const now = Date.now();
+  const stageData = currentDocData?.timing?.[stage] || {};
+  const durationMs = timerState?.isRunning
+    ? timerState.pausedMs + (now - timerState.startEpoch)
+    : (Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0);
+
+  activeTimers.delete(key);
+  stopGlobalTickerIfIdle();
+
+  const payload = {
+    startClock: stageData.startClock || new Date(now - durationMs).toISOString(),
+    stopClock: new Date(now).toISOString(),
+    durationMs,
+    commentStop: document.getElementById(`commentStop-${stage}`)?.value?.trim() || '',
+    runningStage: null
+  };
+
+  await saveStageSnapshot(stage, payload);
+  mergeStagePayloadIntoCurrentDoc(stage, payload);
+  updateTimerLabel(stage);
+  updateTabStatuses(currentDocData);
+  renderActiveCards();
+}
+
+async function resetStage(stage) {
+  if (!currentEquipage) return;
+
+  const actualStage = normalizeStageForEquipage(currentEquipage, stage);
+  const key = `${currentEquipage.startNumber}|${actualStage}`;
+  activeTimers.delete(key);
+  stopGlobalTickerIfIdle();
+
+  const payload = {
+    startClock: null,
+    stopClock: null,
+    durationMs: null,
+    commentStart: '',
+    commentStop: '',
+    runningStage: null
+  };
+
+  if (stage === 'B') {
+    payload.bitCheckOk = false;
+    payload.bitCheckComment = '';
+  }
+
+  await saveStageSnapshot(stage, payload);
+  mergeStagePayloadIntoCurrentDoc(stage, payload);
+  populateStageUI(stage, currentDocData);
+  updateTabStatuses(currentDocData);
+  renderActiveCards();
+}
+
+function parseManualClockInput(rawValue) {
+  const raw = String(rawValue || '').trim();
+  const match = raw.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (!match) return null;
+
+  const now = new Date();
+  now.setHours(Number(match[1]), Number(match[2]), Number(match[3] || 0), 0);
+  return now.toISOString();
+}
+
+async function editClock(stage, kind) {
+  if (!currentEquipage) return;
+
+  const stageData = currentDocData?.timing?.[stage] || {};
+  const currentIso = kind === 'start' ? stageData.startClock : stageData.stopClock;
+  const currentLabel = currentIso ? formatClockDisplay(currentIso) : '';
+  const raw = prompt(`Ange ${kind === 'start' ? 'start' : 'mål'}tid (HH:MM eller HH:MM:SS)`, currentLabel);
+  if (raw == null) return;
+
+  const iso = raw.trim() === '' ? null : parseManualClockInput(raw);
+  if (raw.trim() !== '' && !iso) {
+    showAlert('Ogiltigt klockslag. Använd HH:MM eller HH:MM:SS.', false);
+    return;
+  }
+
+  const payload = kind === 'start'
+    ? { startClock: iso }
+    : { stopClock: iso };
+
+  await saveStageSnapshot(stage, payload);
+  mergeStagePayloadIntoCurrentDoc(stage, payload);
+  populateStageUI(stage, currentDocData);
+  updateTabStatuses(currentDocData);
+}
+
+async function saveStageDetails(stage) {
+  if (!currentEquipage) return;
+
+  const commentStart = document.getElementById(`commentStart-${stage}`)?.value?.trim() || '';
+  const commentStop = document.getElementById(`commentStop-${stage}`)?.value?.trim() || '';
+  const eliminated = !!document.getElementById('manualEliminated')?.checked;
+  const otherPenalty = Number(document.getElementById('otherMarathonPenalty')?.value || 0);
+  const bitCheckOk = !!document.getElementById('bitOk')?.checked;
+  const bitCheckComment = document.getElementById('bitComment')?.value?.trim() || '';
+
+  const stagePayload = { commentStart, commentStop };
+  if (stage === 'B') {
+    stagePayload.bitCheckOk = bitCheckOk;
+    stagePayload.bitCheckComment = bitCheckComment;
+  }
+
+  await saveStageSnapshot(stage, stagePayload);
+  mergeStagePayloadIntoCurrentDoc(stage, stagePayload);
+
+  const rootPayload = {
+    eliminated,
+    otherPenalty,
+    updatedAt: serverTimestamp()
+  };
+  if (stage === 'B') {
+    rootPayload.bitCheckOk = bitCheckOk;
+    rootPayload.bettOk = bitCheckOk;
+    rootPayload.bitCheckComment = bitCheckComment;
+    rootPayload.bettComment = bitCheckComment;
+  }
+
+  await setDoc(maratonDocRef(currentEquipage.startNumber), rootPayload, { merge: true });
+  currentDocData = { ...(currentDocData || {}), ...rootPayload };
+
+  populateStageUI(stage, currentDocData);
+  updateTabStatuses(currentDocData);
+  showAlert('Ändringarna sparades.', true);
+}
+
+function bindStagePanel(stage) {
+  document.getElementById(`btnStart-${stage}`)?.addEventListener('click', async () => {
+    try {
+      await startStage(stage);
+    } catch (error) {
+      console.error(error);
+      showAlert(t('marathon_stages_save_error') || 'Kunde inte starta etappen.', false);
+    }
+  });
+
+  document.getElementById(`btnStop-${stage}`)?.addEventListener('click', async () => {
+    try {
+      await stopStage(stage);
+    } catch (error) {
+      console.error(error);
+      showAlert(t('marathon_stages_save_error') || 'Kunde inte stoppa etappen.', false);
+    }
+  });
+
+  document.getElementById(`btnReset-${stage}`)?.addEventListener('click', async () => {
+    try {
+      await resetStage(stage);
+    } catch (error) {
+      console.error(error);
+      showAlert(t('marathon_stages_save_error') || 'Kunde inte återställa etappen.', false);
+    }
+  });
+
+  document.getElementById(`btnSave-${stage}`)?.addEventListener('click', async () => {
+    try {
+      await saveStageDetails(stage);
+    } catch (error) {
+      console.error(error);
+      showAlert(t('marathon_stages_save_error') || 'Kunde inte spara etappdata.', false);
+    }
+  });
+
+  document.getElementById(`startClockRow-${stage}`)?.addEventListener('click', async () => {
+    try {
+      await editClock(stage, 'start');
+    } catch (error) {
+      console.error(error);
+      showAlert('Kunde inte uppdatera starttid.', false);
+    }
+  });
+
+  document.getElementById(`stopClockRow-${stage}`)?.addEventListener('click', async () => {
+    try {
+      await editClock(stage, 'stop');
+    } catch (error) {
+      console.error(error);
+      showAlert('Kunde inte uppdatera måltid.', false);
+    }
+  });
+
+  document.querySelector('#stagePanel .comment-toggle-btn')?.addEventListener('click', () => {
+    document.querySelector('#stagePanel .comment-wrapper')?.classList.toggle('comment-visible');
+  });
+
+  document.getElementById(`commentStart-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
+  document.getElementById(`commentStop-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
+  document.getElementById('bitComment')?.addEventListener('input', () => refreshCommentToggleState(stage));
+}
+
+async function focusEquipageStage(sn, stage) {
+  const eq = equipages.find((item) => String(item.startNumber) === String(sn));
+  if (!eq) return;
+
+  currentStage = stage;
+  if (dropdown) {
+    dropdown.setValue(eq.startNumber);
+  } else {
+    await onEquipageSelected(eq);
+  }
+}
+
 // Föregående / Nästa
 // ERSÄTT DENNA FUNKTION
 function gotoRelative(delta) {
@@ -1596,12 +1940,24 @@ export async function load() {
   const ddHost = document.getElementById('equipageDropdown');
   if (ddHost) {
     dropdown = createSearchableDropdown(ddHost, orderByMarathonStart, onEquipageSelected);
+    if (!currentEquipage && orderByMarathonStart.length > 0) {
+      const firstEquipage = orderByMarathonStart[0];
+      currentEquipage = firstEquipage;
+      if (dropdown?.setValue) {
+        dropdown.setValue(firstEquipage.startNumber);
+      } else {
+        await onEquipageSelected(firstEquipage);
+      }
+    }
   } else {
     console.error("Kunde inte hitta #equipageDropdown i DOM.");
   }
 
   // Request Wake Lock bara i full live-drift
   if (!isFieldMode) {
+    if (!currentEquipage && !dropdown && orderByMarathonStart.length > 0) {
+      await onEquipageSelected(orderByMarathonStart[0]);
+    }
     await requestWakeLock();
   }
 

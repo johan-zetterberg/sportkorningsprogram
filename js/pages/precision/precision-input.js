@@ -28,6 +28,7 @@ let equipages = [];
 let precisionConfig = {};
 let currentEquipage = null;
 let searchableDropdown = null;
+let currentUnsubscribe = null;
 
 let knocks = new Set();
 let knockDownTimes = {}; // NY: { "3A": 12345, ... }
@@ -699,6 +700,193 @@ function resetTimer() {
         console.error('Fel vid sparning av precision:', err);
         showAlert(t('precision_save_error'), false);
     });
+}
+
+function applyLiveDocToState(data = null) {
+    const payload = data && typeof data === 'object' ? data : {};
+    const liveStartEpoch = Number(payload.liveStartEpoch);
+    const livePausedMs = Number(payload.livePausedMs);
+    const storedTimeMs = Number(payload.timeMs ?? payload.liveTimeMs ?? 0);
+
+    knocks = new Set(Array.isArray(payload.knocks) ? payload.knocks.map(String) : []);
+    knockDownTimes = payload.knockDownTimes && typeof payload.knockDownTimes === 'object'
+        ? { ...payload.knockDownTimes }
+        : {};
+
+    extraPenalty = Number(payload.extraPenalty || 0);
+    comment = String(payload.comment || '');
+    inProgress = payload.inProgress === true || payload.running === true || storedTimeMs > 0;
+    isRunning = payload.running === true && Number.isFinite(liveStartEpoch);
+
+    if (isRunning) {
+        startEpoch = liveStartEpoch;
+        pausedMs = Number.isFinite(livePausedMs) ? livePausedMs : 0;
+        if (!timerInterval) {
+            timerInterval = setInterval(updateTimerView, 90);
+        }
+    } else {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+            timerInterval = null;
+        }
+        startEpoch = 0;
+        pausedMs = Number.isFinite(storedTimeMs)
+            ? storedTimeMs
+            : (Number.isFinite(livePausedMs) ? livePausedMs : 0);
+    }
+
+    const extraPenaltyInput = document.getElementById('extraPenaltyInput');
+    if (extraPenaltyInput) extraPenaltyInput.value = String(extraPenalty);
+
+    const eliminatedInput = document.getElementById('eliminatedInput');
+    if (eliminatedInput) eliminatedInput.checked = payload.eliminated === true;
+
+    const commentInput = document.getElementById('commentInput');
+    if (commentInput) commentInput.value = comment;
+
+    updateHeaderInfo();
+    renderGates();
+    updateObstaclePenaltySummary();
+    renderTimerUI(getElapsedMs());
+}
+
+function resetSelectionUi() {
+    if (currentUnsubscribe) {
+        try { currentUnsubscribe(); } catch { }
+        currentUnsubscribe = null;
+    }
+
+    stopTimerLocal();
+    startEpoch = 0;
+    pausedMs = 0;
+    lastPushedTick = -1;
+    inProgress = false;
+    knocks = new Set();
+    knockDownTimes = {};
+    extraPenalty = 0;
+    comment = '';
+
+    const extraPenaltyInput = document.getElementById('extraPenaltyInput');
+    if (extraPenaltyInput) extraPenaltyInput.value = '0';
+
+    const eliminatedInput = document.getElementById('eliminatedInput');
+    if (eliminatedInput) eliminatedInput.checked = false;
+
+    const commentInput = document.getElementById('commentInput');
+    if (commentInput) commentInput.value = '';
+
+    updateHeaderInfo();
+    renderGates();
+    updateObstaclePenaltySummary();
+    renderTimerUI(0);
+}
+
+function subscribeToPrecisionDoc(startNumber) {
+    if (currentUnsubscribe) {
+        try { currentUnsubscribe(); } catch { }
+        currentUnsubscribe = null;
+    }
+
+    currentUnsubscribe = onSnapshot(
+        precisionDocRef(startNumber),
+        (snap) => applyLiveDocToState(snap.exists() ? snap.data() : null),
+        (error) => console.error('Kunde inte lyssna på precisiondokument:', error)
+    );
+}
+
+async function onEquipageSelected(eq) {
+    currentEquipage = eq || null;
+
+    if (!currentEquipage) {
+        resetSelectionUi();
+        return;
+    }
+
+    resetSelectionUi();
+    currentEquipage = eq;
+    updateHeaderInfo();
+    renderGates();
+    subscribeToPrecisionDoc(currentEquipage.startNumber);
+
+    try {
+        const snap = await getDoc(precisionDocRef(currentEquipage.startNumber));
+        if (currentEquipage?.startNumber !== eq.startNumber) return;
+        applyLiveDocToState(snap.exists() ? snap.data() : null);
+    } catch (error) {
+        console.warn('Kunde inte läsa precisiondokument för valt ekipage:', error);
+        applyLiveDocToState(null);
+    }
+}
+
+async function autoSelectRunningDriver() {
+    if (!competitionId || !searchableDropdown) return;
+
+    try {
+        const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
+        const q = query(colRef, where('running', '==', true));
+        const snap = await getDocs(q);
+
+        if (!snap.empty) {
+            searchableDropdown.setValue(Number(snap.docs[0].id));
+        }
+    } catch (error) {
+        console.warn('Kunde inte auto-välja aktiv precisionsekipage:', error);
+    }
+}
+
+async function saveFinal() {
+    if (!currentEquipage) {
+        showAlert(t('precision_select_equipage_first') || 'Välj ekipage först.', false);
+        return;
+    }
+
+    stopTimer();
+
+    const timeMs = Math.max(0, Math.round(getElapsedMs()));
+    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
+    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
+    const timePenalty = round2(calculatePrecisionTimePenalty(timeMs, maxSec, rate));
+    const obstaclePenaltyValue = obstaclePenalty();
+    const extraPenaltyValue = parseFloat(document.getElementById('extraPenaltyInput')?.value) || 0;
+    const eliminated = !!document.getElementById('eliminatedInput')?.checked;
+    const commentValue = document.getElementById('commentInput')?.value?.trim() || '';
+    const totalPenalty = round2(timePenalty + obstaclePenaltyValue + extraPenaltyValue);
+    const knocksArray = Array.from(knocks).sort((a, b) => String(a).localeCompare(String(b), 'sv', { numeric: true }));
+    const hasAnyData = eliminated || timeMs > 0 || knocksArray.length > 0 || extraPenaltyValue > 0 || commentValue.length > 0;
+
+    const payload = {
+        startNumber: currentEquipage.startNumber,
+        className: currentEquipage.className,
+        running: false,
+        inProgress: false,
+        liveStartEpoch: null,
+        livePausedMs: timeMs,
+        liveTimeMs: timeMs,
+        timeMs,
+        timePenalty,
+        liveTimePenalty: timePenalty,
+        obstaclePenalty: obstaclePenaltyValue,
+        liveObstaclePenalty: obstaclePenaltyValue,
+        extraPenalty: extraPenaltyValue,
+        totalPenalty,
+        liveTotalPenalty: totalPenalty,
+        knocks: knocksArray,
+        knockDownTimes: { ...knockDownTimes },
+        eliminated,
+        comment: commentValue,
+        status: eliminated ? 'Utesluten' : (hasAnyData ? 'Klar' : t('precision_not_started')),
+        updatedAt: Date.now()
+    };
+
+    try {
+        await setDoc(precisionDocRef(currentEquipage.startNumber), payload, { merge: true });
+        mirrorToLocal(currentEquipage.startNumber, payload);
+        applyLiveDocToState(payload);
+        showAlert(t('precision_save_success') || 'Resultatet sparades.');
+    } catch (error) {
+        console.error('Kunde inte spara precisionresultatet:', error);
+        showAlert(t('precision_save_error'), false);
+    }
 }
 
 // ---------- Lifecycle ----------

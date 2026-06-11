@@ -173,6 +173,108 @@ test('all main pages navigate without browser errors', async ({ page }) => {
   expect(browserErrors).toEqual([]);
 });
 
+test('maraton stages can select equipage, start stop, save and reload state', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+
+  await page.goto('/index.html#maraton-stages');
+  await expectRouteOrHub(page, 'maraton-stages', '#maraton-stages should be active for functional flow');
+
+  const searchInput = page.locator('#equipageDropdown .search-input');
+  await expect(searchInput).toBeVisible();
+  await page.locator('#eqNext').click();
+
+  const eqInfo = page.locator('#eqInfo');
+  await expect(eqInfo).toContainText('#');
+  const eqInfoText = (await eqInfo.textContent()) || '';
+  const startNumberMatch = eqInfoText.match(/#(\d+)/);
+  expect(startNumberMatch, `Could not parse start number from eqInfo text: ${eqInfoText}`).toBeTruthy();
+  const startNumber = startNumberMatch[1];
+
+  const saveButton = page.locator('#stagePanel button[id^="btnSave-"]').first();
+  await expect(saveButton).toBeVisible();
+  const saveButtonId = await saveButton.getAttribute('id');
+  const stageId = String(saveButtonId || '').replace('btnSave-', '');
+  expect(stageId).toBeTruthy();
+
+  const timerDisplay = page.locator(`#timer-${stageId}`);
+  const startButton = page.locator(`#btnStart-${stageId}`);
+  const stopButton = page.locator(`#btnStop-${stageId}`);
+  const commentStart = page.locator(`#commentStart-${stageId}`);
+  const otherPenalty = page.locator('#otherMarathonPenalty');
+
+  await expect(timerDisplay).toHaveText('00:00,00');
+  await expect(startButton).toBeVisible();
+  await startButton.click();
+  await expect.poll(async () => (await timerDisplay.textContent()) || '', {
+    timeout: 10000,
+    message: 'Timer did not start within 10 seconds'
+  }).not.toBe('00:00,00');
+  await expect(page.locator('#toggleActiveTimers')).toContainText('(1)');
+
+  await stopButton.click();
+  await page.waitForTimeout(300);
+  const stoppedText = await timerDisplay.textContent();
+  expect(stoppedText && stoppedText !== '00:00,00', `Timer did not stop with recorded time, current text: ${stoppedText}`).toBeTruthy();
+
+  await page.locator('#stagePanel .comment-toggle-btn').click();
+  await commentStart.fill('Smoke start kommentar');
+  await otherPenalty.fill('7');
+  await saveButton.click();
+  await page.waitForTimeout(1200);
+  const closeAlertButton = page.locator('#closeAlertModal');
+  if (await closeAlertButton.isVisible().catch(() => false)) {
+    await closeAlertButton.click();
+  }
+  await page.evaluate(() => {
+    const modal = document.getElementById('alertModal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+      modal.style.pointerEvents = 'none';
+    }
+  });
+
+  await page.goto('/index.html#hub');
+  await expectRouteOrHub(page, 'hub', '#hub should be active between marathon stage reload checks');
+  await page.goto('/index.html#maraton-stages');
+  await expectRouteOrHub(page, 'maraton-stages', '#maraton-stages should reload after hub navigation');
+  await page.evaluate(() => {
+    const modal = document.getElementById('alertModal');
+    if (modal) {
+      modal.classList.add('hidden');
+      modal.style.display = 'none';
+      modal.style.pointerEvents = 'none';
+    }
+  });
+
+  await page.waitForTimeout(1200);
+  const reloadSearchInput = page.locator('#equipageDropdown .search-input');
+  await expect(reloadSearchInput).toBeVisible();
+  await reloadSearchInput.click();
+  await reloadSearchInput.fill(startNumber);
+  const selectedOption = page.locator(`#equipageDropdown .searchable-dropdown-list > div[data-value="${startNumber}"]`).first();
+  await expect(selectedOption).toBeVisible();
+  await selectedOption.click();
+  await expect(page.locator('#eqInfo')).toContainText(`#${startNumber}`);
+
+  const reloadTab = page.locator(`[data-stage="${stageId}"]`);
+  if (await reloadTab.count()) {
+    await reloadTab.first().click();
+  }
+
+  await page.locator('#stagePanel .comment-toggle-btn').click();
+  await expect(page.locator(`#commentStart-${stageId}`)).toHaveValue('Smoke start kommentar');
+  await expect(page.locator('#otherMarathonPenalty')).toHaveValue('7');
+  const reloadedTimerText = await page.locator(`#timer-${stageId}`).textContent();
+  expect(reloadedTimerText && reloadedTimerText !== '00:00,00', `Reloaded timer was not persisted, current text: ${reloadedTimerText}`).toBeTruthy();
+
+  expect(browserErrors).toEqual([]);
+});
+
 test('critical ui interactions open and close without browser errors', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });

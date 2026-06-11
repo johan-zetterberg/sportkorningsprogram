@@ -570,15 +570,21 @@ function renderDesktop() {
 
     // Scroll helpers
     const hostEl = document.getElementById('starttider-x-wrap');
-    if (hostEl && typeof window.__setupXbarSync === 'function') {
+    const setupXbarSync = window.__setupXbarSync;
+    if (hostEl && typeof setupXbarSync === 'function') {
         // Delay to ensure table layout is ready
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                window.__setupXbarSync({
-                    barClass: 'fixed-xbar',
-                    innerId: 'starttiderXbarInner',
-                    hostEl: hostEl
-                });
+                if (!document.body?.contains(hostEl)) return;
+                try {
+                    setupXbarSync({
+                        barClass: 'fixed-xbar',
+                        innerId: 'starttiderXbarInner',
+                        hostEl: hostEl
+                    });
+                } catch (error) {
+                    console.warn('Kunde inte initiera x-scrollsynk för starttider:', error);
+                }
             });
         });
     }

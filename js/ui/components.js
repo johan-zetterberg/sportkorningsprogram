@@ -183,6 +183,15 @@ export function showAlert(message, isSuccess = true) {
     const iconDiv = document.getElementById('alertModalIcon');
     const titleEl = document.getElementById('alertModalTitle');
     const messageEl = document.getElementById('alertModalMessage');
+    const closeModal = () => {
+        if (!modal) return;
+        modal.style.display = 'none';
+        modal.style.pointerEvents = 'none';
+        modal.setAttribute('aria-hidden', 'true');
+        modal.classList.add('hidden');
+    };
+
+    if (!modal || !iconDiv || !titleEl || !messageEl) return;
     const button = document.getElementById('closeAlertModal');
 
     if (isSuccess === 'offline') {
@@ -203,7 +212,20 @@ export function showAlert(message, isSuccess = true) {
     }
 
     messageEl.textContent = message;
+    modal.classList.remove('hidden');
     modal.style.display = 'flex';
+    modal.style.pointerEvents = 'auto';
+    modal.setAttribute('aria-hidden', 'false');
+    const actionButton =
+        modal.querySelector('[data-alert-close]') ||
+        document.getElementById('alertOkBtn') ||
+        modal.querySelector('button');
+    if (actionButton) {
+        actionButton.onclick = closeModal;
+    }
+    modal.onclick = (event) => {
+        if (event.target === modal) closeModal();
+    };
 
     // Se till att knappen har en lyssnare
     button.onclick = () => {

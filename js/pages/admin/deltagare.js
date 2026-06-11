@@ -16,6 +16,7 @@ import {
   downloadCsv,
   csvCell,
   sanitizeForFilename,
+  horseLabel,
   isMobile,
   MOBILE_BP
 } from '../../utils/sharedUtils.js';
@@ -98,6 +99,282 @@ async function ensureUserRoleLoaded() {
     console.warn('Kunde inte ladda användarroll:', err);
     return null;
   }
+}
+
+const normalizedParticipantValue = (value) => String(value || '').trim().toLowerCase();
+
+function getPortAllowanceForClass(className) {
+  const resolved = resolveStandardPortAllowance(className);
+  const numeric = Number(resolved ?? standardPortAllowance?.['*']);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function exists(value) {
+  return value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0);
+}
+
+function valOrDash(value) {
+  return exists(value) ? value : '—';
+}
+
+function kv(label, value) {
+  if (!exists(value)) return '';
+  return `
+    <div class="flex gap-2 py-1 text-sm">
+      <dt class="font-medium text-gray-800 dark:text-gray-300 shrink-0">${label}</dt>
+      <dd class="text-gray-700 dark:text-gray-200 break-words font-normal">${value}</dd>
+    </div>
+  `;
+}
+
+function fmtMoney(value) {
+  if (!exists(value)) return '';
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  return numeric.toLocaleString('sv-SE', {
+    style: 'currency',
+    currency: 'SEK',
+    maximumFractionDigits: 0
+  });
+}
+
+function fmtList(items, mapFn = (item) => item) {
+  if (!Array.isArray(items) || items.length === 0) return '';
+  return items.map(mapFn).filter(Boolean).join(', ');
+}
+
+function getSortedEquipages() {
+  let list = [...allEquipages].filter((equipage) => {
+    if (!searchTerm) return true;
+    const haystack = [
+      String(equipage.startNumber || ''),
+      equipage.driverName || '',
+      horseLabel(equipage),
+      equipage.className || '',
+      equipage._mergedLabel || '',
+      equipage.clubName || ''
+    ].join(' ').toLowerCase();
+    return haystack.includes(searchTerm);
+  });
+
+  if (deltagare_activeClassFilters.size > 0) {
+    list = list.filter((equipage) => {
+      const label = equipage._mergedLabel || equipage.className || '—';
+      return deltagare_activeClassFilters.has(label);
+    });
+  }
+
+  list.sort((a, b) => {
+    if (viewMode === 'class') {
+      const classA = a._mergedLabel || a.className || '';
+      const classB = b._mergedLabel || b.className || '';
+      const classCompare = classA.localeCompare(classB, 'sv', { numeric: true });
+      if (classCompare !== 0) return classCompare;
+    }
+
+    const key = sortConfig.key;
+    const direction = sortConfig.direction === 'asc' ? 1 : -1;
+
+    let valueA;
+    let valueB;
+
+    if (key === 'className') {
+      valueA = a._mergedLabel || a.className || '';
+      valueB = b._mergedLabel || b.className || '';
+    } else if (key === 'horseName') {
+      valueA = horseLabel(a);
+      valueB = horseLabel(b);
+    } else {
+      valueA = a[key];
+      valueB = b[key];
+    }
+
+    if (valueA == null && valueB == null) return 0;
+    if (valueA == null) return 1 * direction;
+    if (valueB == null) return -1 * direction;
+
+    const numericA = Number(valueA);
+    const numericB = Number(valueB);
+    if (Number.isFinite(numericA) && Number.isFinite(numericB) && normalizedParticipantValue(valueA) === String(numericA) && normalizedParticipantValue(valueB) === String(numericB)) {
+      return (numericA - numericB) * direction;
+    }
+
+    return String(valueA).localeCompare(String(valueB), 'sv', { numeric: true }) * direction;
+  });
+
+  return list;
+}
+
+function renderMobile() {
+  const container = document.getElementById('participantListContainer');
+  if (!container) return;
+
+  const sortedEquipages = getSortedEquipages();
+  const user = getGlobalState('currentUser');
+  const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
+  const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [user?.role || ''];
+  const canViewDetails = rolesToCheck.some(r => ['admin', 'superadmin', 'sekretariat'].includes(r));
+  let lastClass = null;
+
+  if (sortedEquipages.length === 0) {
+    container.innerHTML = `<div class="p-6 text-center text-gray-500">${t('no_participants_found') || 'Inga deltagare att visa.'}</div>`;
+    return;
+  }
+
+  const cardsHtml = sortedEquipages.map((equipage) => {
+    const classLabel = equipage._mergedLabel || equipage.className || '—';
+    let classHeader = '';
+    if (viewMode === 'class' && classLabel !== lastClass) {
+      lastClass = classLabel;
+      classHeader = `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${classLabel}</div>`;
+    }
+
+    const hoverClass = canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : '';
+    const interactProps = canViewDetails ? 'role="button" tabindex="0"' : '';
+
+    return `
+      ${classHeader}
+      <div class="m-1 mb-1.5 rounded-lg border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden ${hoverClass}" data-equipage-id="${equipage.startNumber}" ${interactProps}>
+        <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/50">
+          <div class="flex flex-col min-w-0 pr-1">
+            <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
+              <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${equipage.startNumber}</span>
+              <span class="truncate">${equipage.driverName || t('namn_saknas') || 'Namn saknas'}</span>
+            </div>
+            <div class="flex items-center gap-1 mt-0.5">
+              ${getFlagHtml(equipage)}
+              ${getClubLogoHtml(equipage)}
+              ${viewMode === 'start' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${classLabel}</span>` : ''}
+            </div>
+          </div>
+          <div class="flex items-center gap-2 shrink-0 border-l dark:border-gray-600 pl-2 text-right">
+            <div>
+              <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Startnr</div>
+              <div class="text-base font-black text-gray-900 dark:text-white leading-none">${equipage.startNumber || '?'}</div>
+            </div>
+          </div>
+        </div>
+        <div class="px-1.5 py-1.5 bg-white dark:bg-gray-800 text-[10px]">
+          <div class="flex justify-between items-center text-gray-700 dark:text-gray-300">
+            <span class="text-gray-500 dark:text-gray-400 mr-1">Klubb:</span>
+            <span class="font-medium truncate max-w-[250px]">${equipage.clubName || '—'}</span>
+          </div>
+          <div class="flex justify-between items-center text-gray-700 dark:text-gray-300 mt-0.5">
+            <span class="text-gray-500 dark:text-gray-400 mr-1">Häst:</span>
+            <span class="font-medium truncate max-w-[250px]">${horseLabel(equipage)}</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${cardsHtml}</div>`;
+
+  if (!canViewDetails) return;
+
+  container.querySelectorAll('[data-equipage-id]').forEach((card) => {
+    const openDetails = () => {
+      const equipageToShow = allEquipages.find(eq => String(eq.startNumber) === card.dataset.equipageId);
+      if (equipageToShow) renderAndShowDetailsModal(equipageToShow);
+    };
+    card.addEventListener('click', openDetails);
+    card.addEventListener('keydown', (event) => {
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault();
+        openDetails();
+      }
+    });
+  });
+}
+
+function closeParticipantModal() {
+  const modal = document.getElementById('details-modal');
+  if (!modal) return;
+  modal.classList.remove('visible');
+  setTimeout(() => {
+    modal.classList.add('hidden');
+  }, 200);
+}
+
+function renderModalStructure() {
+  if (!document.getElementById('participantsModalStyle')) {
+    const style = document.createElement('style');
+    style.id = 'participantsModalStyle';
+    style.textContent = `
+      #details-modal {
+        position: fixed;
+        inset: 0;
+        display: none;
+        align-items: center;
+        justify-content: center;
+        background: rgba(15, 23, 42, 0.72);
+        backdrop-filter: blur(4px);
+        z-index: 2147483647;
+        padding: 20px;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      #details-modal.hidden {
+        display: none;
+      }
+      #details-modal.visible {
+        display: flex;
+        opacity: 1;
+      }
+      #modal-content {
+        width: min(1100px, 100%);
+        max-height: 90vh;
+        overflow-y: auto;
+        background: #ffffff;
+        color: #111827;
+        border-radius: 16px;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+        transform: scale(0.98);
+        transition: transform 0.2s ease;
+      }
+      html.dark #modal-content {
+        background: #1f2937;
+        color: #f3f4f6;
+      }
+      #details-modal.visible #modal-content {
+        transform: scale(1);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
+  if (!document.getElementById('details-modal')) {
+    const modal = document.createElement('div');
+    modal.id = 'details-modal';
+    modal.className = 'hidden';
+    modal.innerHTML = '<div id="modal-content"></div>';
+    document.body.appendChild(modal);
+  }
+}
+
+function setupModalListeners() {
+  const modal = document.getElementById('details-modal');
+  if (!modal) return;
+
+  if (!modal.dataset.overlayBound) {
+    modal.addEventListener('click', (event) => {
+      if (event.target === modal) {
+        closeParticipantModal();
+      }
+    });
+    modal.dataset.overlayBound = '1';
+  }
+
+  if (window.__participantsKeydownHandler) {
+    try { document.removeEventListener('keydown', window.__participantsKeydownHandler); } catch { }
+  }
+
+  window.__participantsKeydownHandler = (event) => {
+    if (event.key === 'Escape' && modal.classList.contains('visible')) {
+      closeParticipantModal();
+    }
+  };
+  document.addEventListener('keydown', window.__participantsKeydownHandler);
 }
 
 async function printParticipantPdf(equipage) {
