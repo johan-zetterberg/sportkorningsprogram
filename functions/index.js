@@ -5,6 +5,7 @@
 
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
+import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 
@@ -12,11 +13,27 @@ import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { buildCompetitionState } from "./src/core-engine/stateSelector.js";
 import { dressagePrograms } from "./src/data/dressagePrograms.js";
 import { competitionClasses } from "./src/data/competitionData.js";
+import {
+    buildCompetitionAdminJoinPayload,
+    resolveJoinRoleForPin,
+} from "./src/adminJoin.js";
 
 setGlobalOptions({ region: 'europe-west1' });
 
 initializeApp();
 const db = getFirestore();
+
+async function getCompetitionArtifactsDoc(competitionId) {
+    const appIdsToTry = ['combined-driving', 'drivelive'];
+    for (const candidateAppId of appIdsToTry) {
+        const ref = db.doc(`artifacts/${candidateAppId}/public/data/competitions/${competitionId}`);
+        const snap = await ref.get();
+        if (snap.exists) {
+            return { appId: candidateAppId, ref, data: snap.data() };
+        }
+    }
+    return null;
+}
 
 // Helper to load context (Configs) efficiently
 async function getContext(competitionId) {
@@ -148,3 +165,47 @@ export const onEquipageUpdate = onDocumentWritten(
         await recalculateEquipage(compId, startNo);
     }
 );
+
+export const joinCompetitionAsOfficial = onCall(async (request) => {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning kravs.');
+    }
+
+    const competitionId = String(request.data?.competitionId || '').trim();
+    const pinCode = String(request.data?.pinCode || '').trim();
+    const userEmail = String(request.auth.token?.email || '').trim().toLowerCase();
+
+    if (!competitionId) {
+        throw new HttpsError('invalid-argument', 'Competition ID saknas.');
+    }
+    if (!pinCode) {
+        throw new HttpsError('invalid-argument', 'PIN-kod saknas.');
+    }
+    if (!userEmail) {
+        throw new HttpsError('failed-precondition', 'Anvandaren maste ha en e-postadress.');
+    }
+
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) {
+        throw new HttpsError('not-found', 'Tavlingen kunde inte hittas.');
+    }
+
+    const secretsSnap = await competition.ref.collection('config').doc('secrets').get();
+    const secrets = secretsSnap.exists ? secretsSnap.data() : {};
+    const matchedRole = resolveJoinRoleForPin(pinCode, secrets);
+    if (!matchedRole) {
+        throw new HttpsError('permission-denied', 'Fel PIN-kod.');
+    }
+
+    const adminRef = competition.ref.collection('admins').doc(request.auth.uid);
+    const adminSnap = await adminRef.get();
+    const existingData = adminSnap.exists ? adminSnap.data() : {};
+    const payload = buildCompetitionAdminJoinPayload(existingData, matchedRole, userEmail, Date.now());
+
+    await adminRef.set(payload, { merge: true });
+
+    return {
+        role: matchedRole,
+        roles: payload.roles
+    };
+});

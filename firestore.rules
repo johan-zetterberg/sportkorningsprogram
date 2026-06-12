@@ -499,8 +499,7 @@ service cloud.firestore {
     // Administratörer som joinat med PIN-kod
     match /artifacts/{appId}/public/data/competitions/{compId}/admins/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || canAdminThisArtifactsComp(appId, compId));
-      allow create, update: if request.auth != null 
-        && validAdminJoinPayload(appId, compId, userId);
+      allow create, update: if false;
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
     }
 

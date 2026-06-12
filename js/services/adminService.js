@@ -1,5 +1,6 @@
-import { db, appId } from '../config/firebase-config.js';
+import { db, appId, functions } from '../config/firebase-config.js';
 import { collection, doc, getDocs, setDoc, onSnapshot, query, deleteDoc, getDoc, updateDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
@@ -192,41 +193,31 @@ export async function deleteCompetitionAdmin(competitionId, uid) {
 
 export async function joinCompetitionAsAdmin(competitionId, pinCode, user) {
   if (!competitionId || !pinCode || !user) throw new Error("Missing params");
-
-  const docRef = getCompDocRef(competitionId, 'admins', user.uid);
-  const rolesToTry = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
-  let successfulRole = null;
-
-  let existingRoles = [];
+  const callable = httpsCallable(functions, 'joinCompetitionAsOfficial');
   try {
-    const snap = await getDoc(docRef);
-    if (snap.exists()) {
-      const data = snap.data();
-      if (Array.isArray(data.roles)) existingRoles = data.roles;
-      else if (data.role) existingRoles = [data.role];
+    const result = await callable({
+      competitionId,
+      pinCode
+    });
+    const successfulRole = String(result?.data?.role || '').trim();
+    if (!successfulRole) {
+      throw new Error('Ogiltigt svar fran servern.');
     }
-  } catch (_) {}
-
-  for (const role of rolesToTry) {
-    try {
-      const newRoles = [...new Set([...existingRoles, role])];
-      await setDoc(docRef, {
-        accessCode: pinCode,
-        email: user.email,
-        joinedAt: Date.now(),
-        roles: newRoles,
-        role
-      }, { merge: true });
-      successfulRole = role;
-      break;
-    } catch (_) {
-      // Try next role. Firestore rules validate which role the PIN grants.
+    return successfulRole;
+  } catch (error) {
+    const message = String(error?.message || '');
+    if (error?.code === 'functions/permission-denied') {
+      throw new Error("Kunde inte ansluta. Kontrollera att PIN-koden ar korrekt.");
     }
+    if (error?.code === 'functions/unauthenticated') {
+      throw new Error("Du maste vara inloggad for att ansluta.");
+    }
+    if (error?.code === 'functions/not-found') {
+      throw new Error("Tavlingen kunde inte hittas.");
+    }
+    if (error?.code === 'functions/failed-precondition') {
+      throw new Error("Kontot saknar e-postadress och kan inte ansluta.");
+    }
+    throw new Error(message || "Kunde inte ansluta funktionarsrollen just nu.");
   }
-
-  if (!successfulRole) {
-    throw new Error("Kunde inte ansluta. Kontrollera att PIN-koden ar korrekt.");
-  }
-
-  return successfulRole;
 }

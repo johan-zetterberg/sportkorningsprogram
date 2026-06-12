@@ -1,5 +1,6 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
 import { getAuth } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFunctions } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import {
   initializeFirestore,
   enableIndexedDbPersistence,
@@ -26,6 +27,7 @@ export const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, { /* cacheSizeBytes etc om du vill */ });
 export const storage = getStorage(app);
+export const functions = getFunctions(app, 'europe-west1');
 
 // Slå på offline-persistens (multi-tab om möjligt, annars single-tab)
 try {

@@ -9,6 +9,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import {
   collection,
+  deleteDoc,
   doc,
   getDoc,
   getDocs,
@@ -92,11 +93,11 @@ test('firestore rules tests require the Firestore emulator', { skip: HAS_EMULATO
   assert.ok(true, 'Skipped because FIRESTORE_EMULATOR_HOST is not set.');
 });
 
-test('speaker PIN join may create a speaker-scoped admin document', { skip: !HAS_EMULATOR }, async () => {
+test('direct client writes may not create a speaker-scoped admin document even with correct PIN', { skip: !HAS_EMULATOR }, async () => {
   const ctx = testEnv.authenticatedContext('speaker-1', { email: 'speaker@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, compPath('admins/speaker-1')), {
+  await assertFails(setDoc(doc(db, compPath('admins/speaker-1')), {
     role: 'speaker',
     roles: ['speaker'],
     accessCode: 'speaker-pin',
@@ -105,11 +106,11 @@ test('speaker PIN join may create a speaker-scoped admin document', { skip: !HAS
   }));
 });
 
-test('admin PIN join may create an admin-scoped admin document', { skip: !HAS_EMULATOR }, async () => {
+test('direct client writes may not create an admin-scoped admin document even with correct PIN', { skip: !HAS_EMULATOR }, async () => {
   const ctx = testEnv.authenticatedContext('admin-1', { email: 'admin@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, compPath('admins/admin-1')), {
+  await assertFails(setDoc(doc(db, compPath('admins/admin-1')), {
     role: 'admin',
     roles: ['admin'],
     accessCode: 'admin-pin',
@@ -203,18 +204,33 @@ test('speaker PIN join may not escalate to admin through roles array', { skip: !
   }));
 });
 
-test('existing speaker may add dressage role only with matching second PIN', { skip: !HAS_EMULATOR }, async () => {
+test('existing speaker may not add a second role through direct client writes', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('multi-role-1', 'speaker', 'multi@example.com');
   const ctx = testEnv.authenticatedContext('multi-role-1', { email: 'multi@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, compPath('admins/multi-role-1')), {
+  await assertFails(setDoc(doc(db, compPath('admins/multi-role-1')), {
     role: 'dressage',
     roles: ['speaker', 'dressage'],
     accessCode: 'dressage-pin',
     email: 'multi@example.com',
     joinedAt: '2026-06-08T10:00:00Z'
   }));
+});
+
+test('competition admins may delete joined admin documents', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('admins/delete-target-1')), {
+      role: 'speaker',
+      roles: ['speaker'],
+      email: 'delete-target@example.com'
+    });
+  });
+
+  await seedCompetitionRole('admin-delete-1', 'admin', 'admin-delete@example.com');
+  const db = testEnv.authenticatedContext('admin-delete-1', { email: 'admin-delete@example.com' }).firestore();
+  await assertSucceeds(deleteDoc(doc(db, compPath('admins/delete-target-1'))));
 });
 
 test('self-service equipage update is allowed for matching email and allowed fields', { skip: !HAS_EMULATOR }, async () => {
