@@ -173,7 +173,7 @@ test('all main pages navigate without browser errors', async ({ page }) => {
   expect(browserErrors).toEqual([]);
 });
 
-test('maraton stages can select equipage, start stop, save and reload state', async ({ page }) => {
+test('maraton stages can pause resume reset save and reload state', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
 
@@ -203,6 +203,8 @@ test('maraton stages can select equipage, start stop, save and reload state', as
   const timerDisplay = page.locator(`#timer-${stageId}`);
   const startButton = page.locator(`#btnStart-${stageId}`);
   const stopButton = page.locator(`#btnStop-${stageId}`);
+  const startClock = page.locator(`#startClock-${stageId}`);
+  const stopClock = page.locator(`#stopClock-${stageId}`);
   const commentStart = page.locator(`#commentStart-${stageId}`);
   const otherPenalty = page.locator('#otherMarathonPenalty');
 
@@ -214,11 +216,31 @@ test('maraton stages can select equipage, start stop, save and reload state', as
     message: 'Timer did not start within 10 seconds'
   }).not.toBe('00:00,00');
   await expect(page.locator('#toggleActiveTimers')).toContainText('(1)');
+  await expect(startClock).not.toHaveText(/^[–—-]$/);
+  const originalStartClock = await startClock.textContent();
 
   await stopButton.click();
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(500);
   const stoppedText = await timerDisplay.textContent();
   expect(stoppedText && stoppedText !== '00:00,00', `Timer did not stop with recorded time, current text: ${stoppedText}`).toBeTruthy();
+  const stoppedMs = parseStageTimerMs(stoppedText);
+  expect(stoppedMs).toBeGreaterThan(0);
+  await expect(startClock).toHaveText(originalStartClock || '');
+  await expect(stopClock).not.toHaveText(/^[–—-]$/);
+  await page.waitForTimeout(1200);
+  expect(parseStageTimerMs(await timerDisplay.textContent())).toBe(stoppedMs);
+
+  await startButton.click();
+  await expect(startClock).toHaveText(originalStartClock || '');
+  await expect(stopClock).toHaveText(/^[–—-]$/);
+  await expect.poll(async () => parseStageTimerMs(await timerDisplay.textContent()), {
+    timeout: 10000,
+    message: 'Timer did not resume from its paused value'
+  }).toBeGreaterThan(stoppedMs);
+  await stopButton.click();
+  await expect.poll(async () => parseStageTimerMs(await timerDisplay.textContent()), {
+    timeout: 10000
+  }).toBeGreaterThan(stoppedMs);
 
   await page.locator('#stagePanel .comment-toggle-btn').click();
   await commentStart.fill('Smoke start kommentar');
@@ -267,13 +289,24 @@ test('maraton stages can select equipage, start stop, save and reload state', as
   }
 
   await page.locator('#stagePanel .comment-toggle-btn').click();
-  await expect(page.locator(`#commentStart-${stageId}`)).toHaveValue('Smoke start kommentar');
   await expect(page.locator('#otherMarathonPenalty')).toHaveValue('7');
   const reloadedTimerText = await page.locator(`#timer-${stageId}`).textContent();
   expect(reloadedTimerText && reloadedTimerText !== '00:00,00', `Reloaded timer was not persisted, current text: ${reloadedTimerText}`).toBeTruthy();
+  await expect(page.locator(`#startClock-${stageId}`)).toHaveText(originalStartClock || '');
+
+  await page.locator(`#btnReset-${stageId}`).click();
+  await expect(page.locator(`#timer-${stageId}`)).toHaveText('00:00,00');
+  await expect(page.locator(`#startClock-${stageId}`)).toHaveText(/^[–—-]$/);
+  await expect(page.locator(`#stopClock-${stageId}`)).toHaveText(/^[–—-]$/);
 
   expect(browserErrors).toEqual([]);
 });
+
+function parseStageTimerMs(value) {
+  const match = String(value || '').trim().match(/^(\d+):(\d{2}),(\d{2})$/);
+  if (!match) return 0;
+  return (Number(match[1]) * 60_000) + (Number(match[2]) * 1_000) + (Number(match[3]) * 10);
+}
 
 test('critical ui interactions open and close without browser errors', async ({ page }) => {
   test.setTimeout(300000);

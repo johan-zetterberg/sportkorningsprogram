@@ -16,9 +16,15 @@ export async function requestWakeLock() {
         wakeLock = await navigator.wakeLock.request('screen');
 
         wakeLock.addEventListener('release', () => {
+            wakeLock = null;
         });
 
     } catch (err) {
+        wakeLock = null;
+        if (err?.name === 'NotAllowedError') {
+            console.warn(`Wake Lock unavailable: ${err.message}`);
+            return;
+        }
         console.error(`Wake Lock error: ${err.name}, ${err.message}`);
     }
 }

@@ -206,6 +206,14 @@ For a visible browser:
 npm run test:smoke:headed
 ```
 
+For the marathon stages timer flow only:
+
+```powershell
+npm run test:smoke:stages
+```
+
+This verifies start, pause, resume, saved state after navigation, and reset.
+
 If you want to override the defaults for another environment:
 
 ```powershell

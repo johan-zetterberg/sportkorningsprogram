@@ -8,6 +8,7 @@
     "test:smoke": "playwright test tests/browser-smoke.spec.js",
     "test:smoke:navigation": "playwright test tests/browser-smoke.spec.js -g \"all main pages\"",
     "test:smoke:critical": "playwright test tests/browser-smoke.spec.js -g \"critical ui\"",
+    "test:smoke:stages": "playwright test tests/browser-smoke.spec.js -g \"maraton stages can pause resume reset save and reload state\"",
     "test:smoke:headed": "playwright test tests/browser-smoke.spec.js --headed",
     "deploy": "git add . && git commit -m \"Automatisk uppdatering\" && git push && firebase deploy"
   },

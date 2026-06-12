@@ -171,8 +171,9 @@ function extractStageFromDocData(data, stage) {
   const startClock = data?.[`start_${key}`] ?? data?.[`start_${flat}`] ?? null;
   const stopClock = data?.[`finish_${key}`] ?? data?.[`finish_${flat}`] ?? null;
   const durationMs = data?.[`duration_${flat}_ms`] ?? null;
+  const runningSince = data?.[`runningSince_${flat}`] ?? null;
 
-  return { startClock, stopClock, durationMs };
+  return { startClock, stopClock, durationMs, runningSince };
 }
 
 function upsertActiveTimerFromStage(sn, stage, st) {
@@ -191,10 +192,11 @@ function upsertActiveTimerFromStage(sn, stage, st) {
     return;
   }
 
-  const startMs = Date.parse(st.startClock);
+  const startMs = Date.parse(st.runningSince || st.startClock);
   if (!isFinite(startMs)) return;
 
-  const paused = Number.isFinite(st.durationMs) ? st.durationMs : 0;
+  const durationMs = Number(st.durationMs);
+  const paused = Number.isFinite(durationMs) ? durationMs : 0;
   const t = { isRunning: true, startEpoch: startMs, pausedMs: paused };
 
   activeTimers.set(key, t);
@@ -415,11 +417,12 @@ function makeStageTimingFromFlat(doc, stage) {
   const startClock = doc[`start_${key}`] ?? doc[`start_${flat}`] ?? null;
   const stopClock = doc[`finish_${key}`] ?? doc[`finish_${flat}`] ?? null;
   const durationMs = doc[`duration_${flat}_ms`] ?? null;
+  const runningSince = doc[`runningSince_${flat}`] ?? null;
 
   const commentStart = doc[`commentStart_${flat}`] ?? '';
   const commentStop = doc[`commentStop_${flat}`] ?? '';
 
-  const base = { startClock, stopClock, durationMs, commentStart, commentStop };
+  const base = { startClock, stopClock, durationMs, runningSince, commentStart, commentStop };
 
   if (stage === 'B') {
     const bitCheckOk = (typeof doc.bettOk !== 'undefined' ? doc.bettOk : doc.bitCheckOk);
@@ -474,6 +477,9 @@ async function saveStageSnapshot(stage, payload) {
   if ('durationMs' in payload) {
     flat[`duration_${flatPrefix}_ms`] = payload.durationMs;
   }
+  if ('runningSince' in payload) {
+    flat[`runningSince_${flatPrefix}`] = payload.runningSince;
+  }
   if ('commentStart' in payload) {
     flat[`commentStart_${flatPrefix}`] = payload.commentStart ?? '';
   }
@@ -504,6 +510,7 @@ async function saveStageSnapshot(stage, payload) {
   if ('startClock' in payload) nestedStageTarget.startClock = payload.startClock;
   if ('stopClock' in payload) nestedStageTarget.stopClock = payload.stopClock;
   if ('durationMs' in payload) nestedStageTarget.durationMs = payload.durationMs;
+  if ('runningSince' in payload) nestedStageTarget.runningSince = payload.runningSince;
   if ('commentStart' in payload) nestedStageTarget.commentStart = payload.commentStart ?? '';
   if ('commentStop' in payload) nestedStageTarget.commentStop = payload.commentStop ?? '';
 
@@ -531,6 +538,7 @@ async function saveStageSnapshot(stage, payload) {
     ...('startClock' in payload ? { startClock: payload.startClock } : {}),
     ...('stopClock' in payload ? { stopClock: payload.stopClock } : {}),
     ...('durationMs' in payload ? { durationMs: payload.durationMs } : {}),
+    ...('runningSince' in payload ? { runningSince: payload.runningSince } : {}),
     ...('commentStart' in payload ? { commentStart: payload.commentStart ?? '' } : {}),
     ...('commentStop' in payload ? { commentStop: payload.commentStop ?? '' } : {}),
     ...(stage === 'B' && 'bitCheckOk' in payload ? { bitCheckOk: !!payload.bitCheckOk } : {}),
@@ -559,15 +567,17 @@ function applyDocToLocalState(sn, rawDoc) {
 
     // Om "pågående" (har startClock men saknar stopClock) -> säkerställ att vi har en tickande lokal timer
     if (st.startClock && !st.stopClock) {
-      const startTs = Date.parse(st.startClock);
+      const startTs = Date.parse(st.runningSince || st.startClock);
+      const durationMs = Number(st.durationMs);
+      const pausedMs = Number.isFinite(durationMs) ? durationMs : 0;
       let t = activeTimers.get(tKey);
       if (!t) {
-        t = { isRunning: true, startEpoch: startTs, pausedMs: (st.durationMs || 0) };
+        t = { isRunning: true, startEpoch: startTs, pausedMs };
         activeTimers.set(tKey, t);
       } else {
         t.isRunning = true;
         t.startEpoch = startTs;
-        t.pausedMs = (st.durationMs || 0);
+        t.pausedMs = pausedMs;
       }
     } else {
       // Om etappen inte längre pågår (har stopp eller saknar start)
@@ -1155,13 +1165,15 @@ function updateTimerLabel(stage) {
     return;
   }
 
-  const st = currentDocData?.timing?.[stage] || {};
-  if (st.stopClock && Number.isFinite(st.durationMs)) {
-    host.textContent = msToLabel(st.durationMs);
-    applyTimerColor(host, sn, stage, st.durationMs);
-    updateTimerInfo(stage, sn, st.durationMs);
+  const st = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
+  const savedDurationMs = Number(st.durationMs);
+  if (st.stopClock && Number.isFinite(savedDurationMs)) {
+    host.textContent = msToLabel(savedDurationMs);
+    applyTimerColor(host, sn, stage, savedDurationMs);
+    updateTimerInfo(stage, sn, savedDurationMs);
   } else if (st.startClock && !st.stopClock) {
-    const ms = (st.durationMs || 0) + (Date.now() - Date.parse(st.startClock));
+    const runningSince = Date.parse(st.runningSince || st.startClock);
+    const ms = (Number.isFinite(savedDurationMs) ? savedDurationMs : 0) + (Date.now() - runningSince);
     host.textContent = msToLabel(ms);
     applyTimerColor(host, sn, stage, ms);
     updateTimerInfo(stage, sn, ms);
@@ -1232,6 +1244,7 @@ function attachActiveTimersManualEditDelegate() {
       durationMs: ms,
       startClock: new Date(now - ms).toISOString(),
       stopClock: new Date(now).toISOString(),
+      runningSince: null,
     };
     try {
       await saveStageSnapshot(stage, payload);
@@ -1291,6 +1304,7 @@ function bindManualEditor(stage) {
       durationMs: ms,
       startClock: new Date(now - ms).toISOString(),
       stopClock: new Date(now).toISOString(),
+      runningSince: null,
       runningStage: null
     };
 
@@ -1420,7 +1434,7 @@ async function startStage(stage) {
   const actualStage = normalizeStageForEquipage(currentEquipage, stage);
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   const now = Date.now();
-  const stageData = currentDocData?.timing?.[stage] || {};
+  const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
   const existingDuration = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
   const startClock = stageData.startClock || new Date(now).toISOString();
 
@@ -1436,6 +1450,7 @@ async function startStage(stage) {
     startClock,
     stopClock: null,
     durationMs: existingDuration,
+    runningSince: new Date(now).toISOString(),
     commentStart: document.getElementById(`commentStart-${stage}`)?.value?.trim() || '',
     runningStage: actualStage
   };
@@ -1454,7 +1469,7 @@ async function stopStage(stage) {
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   const timerState = activeTimers.get(key);
   const now = Date.now();
-  const stageData = currentDocData?.timing?.[stage] || {};
+  const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
   const durationMs = timerState?.isRunning
     ? timerState.pausedMs + (now - timerState.startEpoch)
     : (Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0);
@@ -1466,6 +1481,7 @@ async function stopStage(stage) {
     startClock: stageData.startClock || new Date(now - durationMs).toISOString(),
     stopClock: new Date(now).toISOString(),
     durationMs,
+    runningSince: null,
     commentStop: document.getElementById(`commentStop-${stage}`)?.value?.trim() || '',
     runningStage: null
   };
@@ -1489,6 +1505,7 @@ async function resetStage(stage) {
     startClock: null,
     stopClock: null,
     durationMs: null,
+    runningSince: null,
     commentStart: '',
     commentStop: '',
     runningStage: null
@@ -1826,7 +1843,8 @@ async function onEquipageSelected(eq) {
         // En timer är aktiv för denna etapp!
         const key = `${sn}|${stage}`;
         if (!activeTimers.has(key)) {
-          const startTS = new Date(stageData.startClock).getTime();
+          const startTS = new Date(stageData.runningSince || stageData.startClock).getTime();
+          const durationMs = Number(stageData.durationMs);
 
           // Skapa ett lokalt timer-objekt som matchar den verkliga starttiden.
           // `paintTimer` beräknar tiden som `pausedMs + (Date.now() - startEpoch)`.
@@ -1835,7 +1853,7 @@ async function onEquipageSelected(eq) {
           const timerState = {
             isRunning: true,
             startEpoch: startTS, // Den ursprungliga, verkliga start-timestampen
-            pausedMs: 0,
+            pausedMs: Number.isFinite(durationMs) ? durationMs : 0,
           };
 
           activeTimers.set(key, timerState);
