@@ -1,7 +1,7 @@
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionById, deleteCompetition, updateCompetition } from '../../services/competitionService.js';
-import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin } from '../../services/adminService.js';
+import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
@@ -505,7 +505,7 @@ export async function setupSettingsLogic(competitionId) {
             if (comp && comp.createdBy === currentUser.uid) isOwner = true;
             if (comp && comp.ownerId === currentUser.uid) isOwner = true;
             if (comp && comp.admins && comp.admins.includes(currentUser.uid)) isOwner = true;
-            if (currentUser.email && comp.officialEmails && comp.officialEmails.includes(currentUser.email.toLowerCase())) isOwner = true;
+            if (Array.isArray(currentUser.compRoles) && currentUser.compRoles.includes('admin')) isOwner = true;
             // Admin role is global admin
             if (currentUser.role === 'admin') isOwner = true;
         }
@@ -560,6 +560,42 @@ export async function setupSettingsLogic(competitionId) {
                 try { activeAdminsUnsub(); } catch { }
                 activeAdminsUnsub = null;
             }
+            const adminListWrapper = document.getElementById('pinAdminsList')?.parentElement?.parentElement;
+            if (adminListWrapper && !document.getElementById('roleEmailMigrationPanel')) {
+                adminListWrapper.insertAdjacentHTML('beforeend', `
+                    <div id="roleEmailMigrationPanel" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20">
+                        <div class="font-semibold text-amber-900 dark:text-amber-200">Migrera gamla rollmejl</div>
+                        <p class="mt-1 text-amber-800 dark:text-amber-300">
+                            Flytta legacy-listor med funktionarsmejl till privat lagring och rensa bort dem fran publika tavlingsdokument.
+                        </p>
+                        <button id="migrateRoleEmailsBtn" type="button" class="mt-3 rounded bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600">
+                            Migrera rollmejl
+                        </button>
+                    </div>
+                `);
+            }
+
+            document.getElementById('migrateRoleEmailsBtn')?.addEventListener('click', async (event) => {
+                if (!window.confirm('Detta flyttar legacy-rollmejl till privat lagring och rensar bort dem fran publika tavlingsdata. Fortsatta?')) {
+                    return;
+                }
+
+                const button = event.currentTarget;
+                const originalText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Migrerar...';
+                try {
+                    const result = await migrateLegacyCompetitionRoleEmails(competitionId);
+                    showAlert(`Rollmejl migrerade. ${result.migratedEmails} e-postposter uppdaterades.`, true);
+                } catch (error) {
+                    console.error('Kunde inte migrera rollmejl:', error);
+                    showAlert('Kunde inte migrera rollmejl.', false);
+                } finally {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            });
+
             const listEl = document.getElementById('pinAdminsList');
             
             const renderAdmins = (admins) => {

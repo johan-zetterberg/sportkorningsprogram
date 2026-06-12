@@ -33,12 +33,32 @@ service cloud.firestore {
       );
     }
 
+    function getRoleEmailRoles(appId, compId) {
+      return request.auth != null
+        && request.auth.token.email != null
+        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower()))
+        ? (
+          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('roles', []) != null
+            ? get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('roles', [])
+            : [get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('role', '')]
+        )
+        : [];
+    }
+
+    function hasRoleEmailAccess(appId, compId, roleName) {
+      let roles = getRoleEmailRoles(appId, compId);
+      return request.auth != null
+        && request.auth.token.email != null
+        && roles != null
+        && roleName in roles;
+    }
+
     // Behörighet till viss tävling i artifacts-trädet:
     // Tillåter superadmin, global admin, skapare (createdBy), eller den som:
     // 1. Finns i admins[] arrayen
-    // 2. Finns i officialEmails[] arrayen (via request.auth.token.email)
+    // 2. Finns i privata roleEmails/{email}
     // 3. Finns i /admins/{uid} underkollektionen (använt rätt PIN-kod)
-    function canAdminThisArtifactsComp(appId, compId) {
+    function canAdminThisArtifactsCompBase(appId, compId) {
       return request.auth != null
         && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
         && (
@@ -49,11 +69,6 @@ service cloud.firestore {
           (
             get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('admins', []) != null &&
             request.auth.uid in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('admins', [])
-          ) ||
-          (
-            request.auth.token.email != null &&
-            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('officialEmails', []) != null &&
-            request.auth.token.email.lower() in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('officialEmails', [])
           ) ||
           (
             exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
@@ -73,11 +88,7 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
         && (
           canAdminThisArtifactsComp(appId, compId) ||
-          (
-            request.auth.token.email != null &&
-            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get(roleName + 'Emails', []) != null &&
-            request.auth.token.email.lower() in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get(roleName + 'Emails', [])
-          ) ||
+          hasRoleEmailAccess(appId, compId, roleName) ||
           (
             exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
             (
@@ -89,6 +100,11 @@ service cloud.firestore {
             )
           )
         );
+    }
+
+    function canAdminThisArtifactsComp(appId, compId) {
+      return canAdminThisArtifactsCompBase(appId, compId)
+        || hasRoleEmailAccess(appId, compId, 'admin');
     }
 
     function hasRoleInCompForApp(appId, compId, roleName) {
@@ -114,11 +130,7 @@ service cloud.firestore {
         && exists(compPath)
         && (
           canAdminThisArtifactsComp(appId, compId) ||
-          (
-            request.auth.token.email != null &&
-            get(compPath).data.get(roleName + 'Emails', []) != null &&
-            request.auth.token.email.lower() in get(compPath).data.get(roleName + 'Emails', [])
-          ) ||
+          hasRoleEmailAccess(appId, compId, roleName) ||
           (
             exists(adminPath) &&
             (
@@ -167,6 +179,7 @@ service cloud.firestore {
       return pathStr.matches('.*data/competitions/[^/]+/config/secrets.*')
         || pathStr.matches('.*data/competitions/[^/]+/auditLog/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/equipagePrivate/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/roleEmails/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/admins/[^/]+.*');
     }
 
@@ -376,6 +389,24 @@ service cloud.firestore {
         );
     }
 
+    match /artifacts/{appId}/public/data/competitions/{compId}/roleEmails/{emailId} {
+      allow read: if request.auth != null
+        && (
+          (request.auth.token.email != null && request.auth.token.email.lower() == emailId) ||
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsCompBase(appId, compId) ||
+          hasRoleEmailAccess(appId, compId, 'admin')
+        );
+      allow create, update, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsCompBase(appId, compId) ||
+          hasRoleEmailAccess(appId, compId, 'admin')
+        );
+    }
+
     // Teams Management
     match /artifacts/{appId}/public/data/competitions/{compId}/teams/{teamId} {
       allow read: if true;
@@ -526,18 +557,23 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/auditLog/{docId} {
+      allow read, write: if false;
+    }
+
+    match /artifacts/{appId}/private/data/competitions/{compId}/auditLog/{docId} {
       allow read: if request.auth != null
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId)
         );
-      allow write: if request.auth != null
+      allow create: if request.auth != null
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId)
         );
+      allow update, delete: if false;
     }
 
     // ---- SAMMANSTÄLLDA RESULTAT (computed-results)

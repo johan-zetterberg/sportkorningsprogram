@@ -38,6 +38,11 @@ function rootCompPath(path = '') {
   return path ? `${base}/${path}` : base;
 }
 
+function privateCompPath(path = '') {
+  const base = `artifacts/${APP_ID}/private/data/competitions/${COMP_ID}`;
+  return path ? `${base}/${path}` : base;
+}
+
 async function seedBaseCompetition() {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -66,6 +71,16 @@ async function seedCompetitionRole(uid, role, email = `${uid}@example.com`) {
       role,
       roles: [role],
       email
+    });
+  });
+}
+
+async function seedRoleEmail(email, roles) {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath(`roleEmails/${String(email).trim().toLowerCase()}`)), {
+      email: String(email).trim().toLowerCase(),
+      roles
     });
   });
 }
@@ -343,6 +358,30 @@ test('private equipage data is not public but readable by owner and admin', { sk
   await assertSucceeds(getDoc(doc(adminDb, compPath('equipagePrivate/eq-private-1'))));
 });
 
+test('private role email docs are not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
+  await seedRoleEmail('role-owner@example.com', ['dressage']);
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(anonymousDb, compPath('roleEmails/role-owner@example.com'))));
+
+  const ownerDb = testEnv.authenticatedContext('role-owner-1', { email: 'role-owner@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(ownerDb, compPath('roleEmails/role-owner@example.com'))));
+
+  await seedCompetitionRole('admin-role-email-1', 'admin', 'admin-role-email@example.com');
+  const adminDb = testEnv.authenticatedContext('admin-role-email-1', { email: 'admin-role-email@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(adminDb, compPath('roleEmails/role-owner@example.com'))));
+});
+
+test('private role email docs grant discipline access without public competition email arrays', { skip: !HAS_EMULATOR }, async () => {
+  await seedRoleEmail('dressage-role@example.com', ['dressage']);
+
+  const db = testEnv.authenticatedContext('dressage-role-1', { email: 'dressage-role@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(db, compPath(`dressage/${START_NO}/protocols/c`)), {
+    judgeId: 'c',
+    movements: [{ momentNo: 1, score: 8 }]
+  }));
+});
+
 test('precision result writes are denied when the equipage is finalized', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-1', 'precision', 'precision@example.com');
   await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -381,6 +420,19 @@ test('competition discipline roles may finalize only their matching discipline',
     finalized: true
   }));
   await assertFails(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
+    finalized: true
+  }));
+});
+
+test('email-scoped discipline roles may finalize via private roleEmails docs', { skip: !HAS_EMULATOR }, async () => {
+  await seedRoleEmail('dressage-role@example.com', ['dressage']);
+  const ctx = testEnv.authenticatedContext('dressage-role-1', { email: 'dressage-role@example.com' });
+  const db = ctx.firestore();
+
+  await assertSucceeds(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
+    finalized: true
+  }));
+  await assertFails(setDoc(doc(db, rootCompPath(`marathonFinalization/${START_NO}`)), {
     finalized: true
   }));
 });
@@ -511,7 +563,7 @@ test('auditLog writes are allowed for admin-scoped competition access', { skip: 
   const ctx = testEnv.authenticatedContext('admin-audit-1', { email: 'admin-audit@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, compPath('auditLog/log-1')), {
+  await assertSucceeds(setDoc(doc(db, privateCompPath('auditLog/log-1')), {
     discipline: 'precision',
     startNumber: 12,
     field: 'timeMs',
@@ -524,7 +576,7 @@ test('auditLog reads are denied for non-admin competition roles', { skip: !HAS_E
   await seedCompetitionRole('admin-audit-2', 'admin', 'admin-audit2@example.com');
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
-    await setDoc(doc(db, compPath('auditLog/log-read-1')), {
+    await setDoc(doc(db, privateCompPath('auditLog/log-read-1')), {
       discipline: 'dressage',
       startNumber: 44
     });
@@ -534,7 +586,7 @@ test('auditLog reads are denied for non-admin competition roles', { skip: !HAS_E
   const db = ctx.firestore();
 
   await seedCompetitionRole('precision-audit-read-1', 'precision', 'precision-audit-read@example.com');
-  await assertFails(getDoc(doc(db, compPath('auditLog/log-read-1'))));
+  await assertFails(getDoc(doc(db, privateCompPath('auditLog/log-read-1'))));
 });
 
 test('auditLog writes are denied for non-admin competition roles', { skip: !HAS_EMULATOR }, async () => {
@@ -542,13 +594,32 @@ test('auditLog writes are denied for non-admin competition roles', { skip: !HAS_
   const ctx = testEnv.authenticatedContext('precision-audit-1', { email: 'precision-audit@example.com' });
   const db = ctx.firestore();
 
-  await assertFails(setDoc(doc(db, compPath('auditLog/log-2')), {
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-2')), {
     discipline: 'precision',
     startNumber: 12,
     field: 'timeMs',
     oldValue: 100000,
     newValue: 101000
   }));
+});
+
+test('auditLog is append-only for admins', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('admin-audit-3', 'admin', 'admin-audit3@example.com');
+  const ctx = testEnv.authenticatedContext('admin-audit-3', { email: 'admin-audit3@example.com' });
+  const db = ctx.firestore();
+  const ref = doc(db, privateCompPath('auditLog/log-append-1'));
+
+  await assertSucceeds(setDoc(ref, {
+    discipline: 'marathon',
+    startNumber: 7,
+    field: 'duration_A',
+    oldValue: 60000,
+    newValue: 61000
+  }));
+  await assertFails(updateDoc(ref, {
+    newValue: 62000
+  }));
+  await assertFails(deleteDoc(ref));
 });
 
 test('messages and documents stay public-read but admin-write only', { skip: !HAS_EMULATOR }, async () => {

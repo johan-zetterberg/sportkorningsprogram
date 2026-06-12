@@ -17,14 +17,8 @@ const globalState = {
 import { db, appId } from './config/firebase-config.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-const OFFICIAL_ROLE_FIELDS = {
-    admin: 'adminEmails',
-    speaker: 'speakerEmails',
-    dressage: 'dressageEmails',
-    marathon: 'marathonEmails',
-    precision: 'precisionEmails'
-};
 const adminRoleCache = new Map();
+const emailRoleCache = new Map();
 let roleRefreshInFlight = null;
 let roleRefreshInFlightKey = '';
 
@@ -44,18 +38,27 @@ function buildRoleContextKey(comp, user) {
     return [comp?.id || '', user?.uid || '', normalizeEmail(user?.email)].join('|');
 }
 
-function hasEmailInList(email, list) {
-    if (!email || !Array.isArray(list)) return false;
-    return list.some((entry) => normalizeEmail(entry) === email);
-}
+async function fetchCompetitionEmailRoles(compId, email) {
+    const normalizedEmail = normalizeEmail(email);
+    if (!compId || !normalizedEmail) return [];
 
-function getDirectCompetitionRoles(comp, user) {
-    const email = normalizeEmail(user?.email);
-    if (!comp || !email) return [];
+    const snap = await getDoc(doc(
+        db,
+        'artifacts',
+        appId,
+        'public',
+        'data',
+        'competitions',
+        compId,
+        'roleEmails',
+        normalizedEmail
+    ));
+    if (!snap.exists()) return [];
 
-    return Object.entries(OFFICIAL_ROLE_FIELDS)
-        .filter(([, field]) => hasEmailInList(email, comp[field]))
-        .map(([role]) => role);
+    const data = snap.data() || {};
+    if (Array.isArray(data.roles)) return data.roles;
+    if (data.role) return [data.role];
+    return [];
 }
 
 function applyCompetitionRoles(contextKey, roles) {
@@ -98,11 +101,11 @@ export async function refreshUserCompRole() {
     }
 
     const contextKey = buildRoleContextKey(comp, user);
-    const directRoles = getDirectCompetitionRoles(comp, user);
+    const cachedEmailRoles = emailRoleCache.get(contextKey);
     const cachedAdminRoles = adminRoleCache.get(contextKey);
 
-    if (cachedAdminRoles) {
-        return applyCompetitionRoles(contextKey, [...directRoles, ...cachedAdminRoles]);
+    if (cachedEmailRoles && cachedAdminRoles) {
+        return applyCompetitionRoles(contextKey, [...cachedEmailRoles, ...cachedAdminRoles]);
     }
 
     if (roleRefreshInFlight && roleRefreshInFlightKey === contextKey) {
@@ -111,15 +114,22 @@ export async function refreshUserCompRole() {
 
     roleRefreshInFlightKey = contextKey;
     roleRefreshInFlight = (async () => {
+        let emailRoles = [];
         let adminRoles = [];
         try {
-            adminRoles = normalizeRoleList(await fetchCompetitionAdminRoles(comp.id, user.uid));
+            [emailRoles, adminRoles] = await Promise.all([
+                fetchCompetitionEmailRoles(comp.id, user.email),
+                fetchCompetitionAdminRoles(comp.id, user.uid)
+            ]);
+            emailRoles = normalizeRoleList(emailRoles);
+            adminRoles = normalizeRoleList(adminRoles);
+            emailRoleCache.set(contextKey, emailRoles);
             adminRoleCache.set(contextKey, adminRoles);
         } catch (e) {
             console.warn("Could not fetch compRoles", e);
         }
 
-        return applyCompetitionRoles(contextKey, [...directRoles, ...adminRoles]);
+        return applyCompetitionRoles(contextKey, [...emailRoles, ...adminRoles]);
     })().finally(() => {
         if (roleRefreshInFlightKey === contextKey) {
             roleRefreshInFlight = null;

@@ -34,7 +34,7 @@ function currentUserId() {
 }
 
 function getAuditCollectionRef(competitionId) {
-  return collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/auditLog`);
+  return collection(db, `artifacts/${appId}/private/data/competitions/${competitionId}/auditLog`);
 }
 
 function numberOrDefault(value, fallback = 0) {

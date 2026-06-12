@@ -48,20 +48,9 @@ const SYSTEM_ROLE_LABELS = {
 };
 const SYSTEM_ROLE_KEYS = Object.keys(SYSTEM_ROLE_LABELS);
 
-function isEmailInList(email, list) {
-    const normalizedEmail = String(email || '').toLowerCase().trim();
-    if (!normalizedEmail || !Array.isArray(list)) return false;
-    return list.some(item => String(item || '').toLowerCase().trim() === normalizedEmail);
-}
-
 function normalizeOfficialSystemRoles(official = {}, competition = {}) {
     const roles = Array.isArray(official.roles) ? [...official.roles] : [];
     if (SYSTEM_ROLE_KEYS.includes(official.role)) roles.push(official.role);
-    if (isEmailInList(official.email, competition.adminEmails) || isEmailInList(official.email, competition.officialEmails)) roles.push('admin');
-    if (isEmailInList(official.email, competition.dressageEmails)) roles.push('dressage');
-    if (isEmailInList(official.email, competition.marathonEmails)) roles.push('marathon');
-    if (isEmailInList(official.email, competition.precisionEmails)) roles.push('precision');
-    if (isEmailInList(official.email, competition.speakerEmails)) roles.push('speaker');
     return Array.from(new Set(roles.filter(role => SYSTEM_ROLE_KEYS.includes(role))));
 }
 

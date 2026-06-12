@@ -141,8 +141,10 @@ export async function deleteCompetition(competitionId) {
 
   const simpleCollections = [
     'equipages',
+    'equipagePrivate',
     'judges',
     'officials',
+    'roleEmails',
     'maratonObstacles',
     'config',
     'maraton-timing',
@@ -155,6 +157,15 @@ export async function deleteCompetition(competitionId) {
 
   for (const colName of simpleCollections) {
     const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/${colName}`);
+    await deleteQueryBatch(query(colRef));
+  }
+
+  const privateCollections = [
+    'auditLog'
+  ];
+
+  for (const colName of privateCollections) {
+    const colRef = collection(db, `artifacts/${appId}/private/data/competitions/${competitionId}/${colName}`);
     await deleteQueryBatch(query(colRef));
   }
 

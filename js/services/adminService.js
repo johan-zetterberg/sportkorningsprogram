@@ -1,11 +1,11 @@
 import { db, appId, functions } from '../config/firebase-config.js';
-import { collection, doc, getDocs, setDoc, onSnapshot, query, deleteDoc, getDoc, updateDoc, arrayUnion, arrayRemove } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, doc, getDocs, setDoc, onSnapshot, query, deleteDoc, getDoc, updateDoc, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
 const OFFICIAL_SYSTEM_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
-const ROLE_EMAIL_FIELDS = {
+const LEGACY_ROLE_EMAIL_FIELDS = {
   admin: ['adminEmails', 'officialEmails'],
   dressage: ['dressageEmails'],
   marathon: ['marathonEmails'],
@@ -23,27 +23,46 @@ function normalizeOfficialRoles(data = {}) {
   return Array.from(new Set(roleValues.filter(role => OFFICIAL_SYSTEM_ROLES.includes(role))));
 }
 
-function buildOfficialEmailSyncUpdate(email, roles) {
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return null;
-
-  const selected = new Set(roles);
-  return OFFICIAL_SYSTEM_ROLES.reduce((patch, role) => {
-    ROLE_EMAIL_FIELDS[role].forEach(field => {
-      patch[field] = selected.has(role) ? arrayUnion(normalizedEmail) : arrayRemove(normalizedEmail);
-    });
-    return patch;
-  }, {});
+function getRoleEmailDocRef(competitionId, email) {
+  return getCompDocRef(competitionId, 'roleEmails', normalizeEmail(email));
 }
 
-function buildOfficialEmailRemoveUpdate(email) {
+function buildRoleEmailPayload(email, roles) {
   const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) return null;
+  const normalizedRoles = normalizeOfficialRoles({ roles });
+  if (!normalizedEmail || normalizedRoles.length === 0) return null;
 
-  return Object.values(ROLE_EMAIL_FIELDS).flat().reduce((patch, field) => {
-    patch[field] = arrayRemove(normalizedEmail);
-    return patch;
-  }, {});
+  return {
+    email: normalizedEmail,
+    roles: normalizedRoles,
+    updatedAt: Date.now()
+  };
+}
+
+async function rebuildRoleEmailAccessDoc(competitionId, email) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail) return;
+
+  const officialsRef = getCompCollectionRef(competitionId, 'officials');
+  const snapshot = await getDocs(query(officialsRef));
+  const mergedRoles = new Set();
+
+  snapshot.docs.forEach((docSnap) => {
+    const data = docSnap.data() || {};
+    if (normalizeEmail(data.email) !== normalizedEmail) return;
+    normalizeOfficialRoles(data).forEach((role) => mergedRoles.add(role));
+  });
+
+  const targetRef = getRoleEmailDocRef(competitionId, normalizedEmail);
+  if (mergedRoles.size === 0) {
+    await deleteDoc(targetRef).catch(() => {});
+    return;
+  }
+
+  const payload = buildRoleEmailPayload(normalizedEmail, Array.from(mergedRoles));
+  if (payload) {
+    await setDoc(targetRef, payload, { merge: true });
+  }
 }
 
 export function listenForJudges(competitionId, callback) {
@@ -113,19 +132,15 @@ export async function saveOfficial(competitionId, data) {
       updatedAt: Date.now()
     }, { merge: true });
 
-    const competitionRef = doc(db, `artifacts/${appId}/public/data/competitions`, competitionId);
     try {
       if (previousEmail && previousEmail !== email) {
-        const removeOldEmailPatch = buildOfficialEmailRemoveUpdate(previousEmail);
-        if (removeOldEmailPatch) await updateDoc(competitionRef, removeOldEmailPatch);
+        await rebuildRoleEmailAccessDoc(competitionId, previousEmail);
       }
-
-      const currentEmailPatch = email
-        ? buildOfficialEmailSyncUpdate(email, roles)
-        : buildOfficialEmailRemoveUpdate(previousEmail);
-      if (currentEmailPatch) await updateDoc(competitionRef, currentEmailPatch);
+      if (email) {
+        await rebuildRoleEmailAccessDoc(competitionId, email);
+      }
     } catch (e) {
-      console.warn("Kunde inte synka official email", e);
+      console.warn("Kunde inte synka privata funktionarsroller", e);
     }
 
     return officialId;
@@ -148,14 +163,73 @@ export async function deleteOfficial(competitionId, officialId) {
 
     if (emailToRemove) {
       try {
-        await updateDoc(
-          doc(db, `artifacts/${appId}/public/data/competitions`, competitionId),
-          buildOfficialEmailRemoveUpdate(emailToRemove)
-        );
+        await rebuildRoleEmailAccessDoc(competitionId, emailToRemove);
       } catch (e) {
-        console.warn("Kunde inte synka borttagning av official email", e);
+        console.warn("Kunde inte synka borttagning av privata funktionarsroller", e);
       }
     }
+  })());
+}
+
+export async function migrateLegacyCompetitionRoleEmails(competitionId) {
+  if (!competitionId) throw new Error("Missing competitionId");
+
+  return trackWrite('Migrerar rollmejl till privat lagring', (async () => {
+    const competitionRef = doc(db, `artifacts/${appId}/public/data/competitions`, competitionId);
+    const officialsRef = getCompCollectionRef(competitionId, 'officials');
+    const [competitionSnap, officialsSnap] = await Promise.all([
+      getDoc(competitionRef),
+      getDocs(officialsRef)
+    ]);
+
+    const competitionData = competitionSnap.exists() ? competitionSnap.data() || {} : {};
+    const roleMap = new Map();
+
+    const addRole = (email, role) => {
+      const normalizedEmail = normalizeEmail(email);
+      if (!normalizedEmail || !OFFICIAL_SYSTEM_ROLES.includes(role)) return;
+      if (!roleMap.has(normalizedEmail)) roleMap.set(normalizedEmail, new Set());
+      roleMap.get(normalizedEmail).add(role);
+    };
+
+    Object.entries(LEGACY_ROLE_EMAIL_FIELDS).forEach(([role, fields]) => {
+      fields.forEach((field) => {
+        const values = Array.isArray(competitionData[field]) ? competitionData[field] : [];
+        values.forEach((email) => addRole(email, role));
+      });
+    });
+
+    officialsSnap.docs.forEach((docSnap) => {
+      const data = docSnap.data() || {};
+      const email = normalizeEmail(data.email);
+      if (!email) return;
+      normalizeOfficialRoles(data).forEach((role) => addRole(email, role));
+    });
+
+    const batch = writeBatch(db);
+    let migratedEmails = 0;
+    roleMap.forEach((roles, email) => {
+      const payload = buildRoleEmailPayload(email, Array.from(roles));
+      if (!payload) return;
+      batch.set(getRoleEmailDocRef(competitionId, email), payload, { merge: true });
+      migratedEmails += 1;
+    });
+
+    const clearPayload = {};
+    Object.values(LEGACY_ROLE_EMAIL_FIELDS).flat().forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(competitionData, field)) {
+        clearPayload[field] = deleteField();
+      }
+    });
+    if (Object.keys(clearPayload).length > 0) {
+      batch.update(competitionRef, clearPayload);
+    }
+
+    await batch.commit();
+    return {
+      migratedEmails,
+      clearedFields: Object.keys(clearPayload).length
+    };
   })());
 }
 
