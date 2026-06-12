@@ -52,7 +52,7 @@ export function renderLayout() {
                 <div class="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg border border-blue-100 dark:border-blue-800">
                     <p class="text-sm text-blue-800 dark:text-blue-300">
                         ${isFieldMode
-                            ? 'VÃ¤lj ekipage och registrera start, mÃ¥l och eventuella passager manuellt.'
+                            ? 'Välj ekipage och registrera start, mål och eventuella passager manuellt.'
                             : t('precision_split_info_text')}
                     </p>
                 </div>
@@ -68,7 +68,7 @@ export function renderLayout() {
                 </div>
 
                 <div id="gatesListContainer" class="space-y-3">
-                    <p class="text-center text-gray-500 text-sm">${isFieldMode ? 'VÃ¤lj ekipage fÃ¶r att registrera start och mÃ¥l.' : t('precision_split_select_to_log')}</p>
+                    <p class="text-center text-gray-500 text-sm">${isFieldMode ? 'Välj ekipage för att registrera start och mål.' : t('precision_split_select_to_log')}</p>
                 </div>
             </div> 
         </div> 

@@ -1,4 +1,4 @@
-﻿export const VET_STATUS_PRIORITY = {
+export const VET_STATUS_PRIORITY = {
   ombesiktning: 0,
   incheckad: 1,
   'anmäld': 2,
@@ -8,7 +8,7 @@
 
 export function normalizeVetStatus(status) {
   const value = String(status || 'anmäld').trim().toLowerCase();
-  if (value === 'anmÃ¤ld' || value === 'anmÃƒÂ¤ld') return 'anmäld';
+  if (value === 'anmäld' || value === 'anmäld') return 'anmäld';
   return value;
 }
 

@@ -952,7 +952,7 @@ function renderLayout() {
         <div class="flex flex-col gap-3">
           <div class="flex items-center justify-between gap-2">
             <div class="min-w-0">
-              <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">${t('marathon_stages_select_equipage')}…</div>
+              <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">${t('marathon_stages_select_equipage')}...</div>
               <div class="text-[10px] uppercase font-bold text-gray-500">
                 ${comp?.competitionMode === 'field' ? 'Vald etapp' : 'Aktiv etapp'}: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
               </div>
@@ -987,7 +987,7 @@ function renderLayout() {
         <div id="activeTimersWrapper" class="active-timers-wrapper bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
           <button id="toggleActiveTimers" class="w-full flex justify-between items-center">
             <span class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_active_timers')} (0)</span>
-            <span class="arrow text-gray-400 transition-transform">▼</span>
+            <span class="arrow text-gray-400 transition-transform">▾</span>
           </button>
           <div id="activeTimers" class="active-timers-list space-y-2"></div>
         </div>
@@ -1062,7 +1062,7 @@ function renderStagePanel(stage) {
         ? `<button id="btnManualOpen-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-brand-darkblue text-white shadow-lg active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
         : `<button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
       <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
-      <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">🔄</button>
+      <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">↺</button>
     </div>
 
     <!-- KLOCKSLAG OCH KOMMENTARER -->

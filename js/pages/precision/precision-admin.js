@@ -212,7 +212,7 @@ function renderLayout() {
                             <span>📤 Ladda upp bildfil</span>
                         </button>
                         <button type="button" id="btnPrecGoogleDriveHelper" class="bg-white border-2 border-green-100 hover:border-green-500 text-green-600 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1 dark:bg-gray-700 dark:border-green-900 dark:text-green-400" title="Konvertera Google Drive-länk">
-                            <span class="text-lg">📁</span> G-Drive
+                            <span class="text-lg">🔁</span> G-Drive
                         </button>
                       </div>
                     </div>
@@ -323,7 +323,7 @@ function renderClassCards() {
         // Use saved override if available, otherwise the TR standard tempo.
         const activeTempo = savedTempo > 0 ? savedTempo : stdTempo;
         const sourceClassLabel = group.isMerged && group.sourceClasses.length
-            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">IngÃ¥r: ${group.sourceClasses.join(', ')}. Tempo rÃ¤knas per ursprungsklass om inget manuellt tempo anges.</p>`
+            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Ingår: ${group.sourceClasses.join(', ')}. Tempo räknas per ursprungsklass om inget manuellt tempo anges.</p>`
             : '';
 
         let maxTime = tempoState.hasMixedTempo && !(savedTempo > 0) ? 'Klassvis' : '--:--';
