@@ -48,5 +48,5 @@ test('buildClassMappingHtml renders readable Swedish import labels', () => {
   assert.match(html, /Steg 2: Mappa tävlingsklasser/);
   assert.match(html, /Sammanslå per test/);
   assert.match(html, /Slutför import/);
-  assert.doesNotMatch(html, /Ã|Â/);
+  assert.doesNotMatch(html, /Ã|Â|Ãƒ|Ã‚/);
 });

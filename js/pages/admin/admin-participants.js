@@ -1,5 +1,4 @@
-import { saveEquipage } from '../../services/equipageService.js';
-import { deleteEquipage } from '../../services/equipageService.js';
+import { saveEquipage, deleteEquipage, migrateEquipagePrivacy } from '../../services/equipageService.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -145,6 +144,14 @@ export function getParticipantsHtml() {
                     </div>
 
                     <div class="pt-4 border-t dark:border-gray-700">
+                        <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Integritetsmigrering</label>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Flytta befintliga personuppgifter till privat lagring och rensa bort dem frÃ¥n publika ekipagedokument.</p>
+                        <button type="button" id="migrateEquipagePrivacyBtn" class="w-full bg-amber-600 dark:bg-amber-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-amber-700 dark:hover:bg-amber-600">
+                        Migrera personuppgifter
+                        </button>
+                    </div>
+
+                    <div class="pt-4 border-t dark:border-gray-700">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Hantera Klasser</label>
                         <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Döp om klasser och lägg till klassnummer.</p>
                          <button type="button" id="manageClassesBtn" class="w-full bg-blue-600 dark:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 dark:hover:bg-blue-600">
@@ -261,6 +268,41 @@ function setupClearButton(competitionId) {
     });
 }
 
+function setupPrivacyMigrationButton(competitionId) {
+    const migrateBtn = document.getElementById('migrateEquipagePrivacyBtn');
+    if (!migrateBtn) return;
+
+    const migrationInfo = migrateBtn.previousElementSibling;
+    if (migrationInfo) {
+        migrationInfo.textContent = 'Flytta befintliga personuppgifter till privat lagring och rensa bort dem fran publika ekipagedokument.';
+    }
+
+    const confirm = () => window.confirm(
+        'Detta flyttar befintliga personuppgifter till privat lagring och tar bort dem fran de publika ekipagedokumenten. Fortsatta?'
+    );
+
+    migrateBtn.addEventListener('click', async () => {
+        if (!confirm("Detta flyttar befintliga personuppgifter till privat lagring och tar bort dem från de publika ekipagedokumenten. Fortsätta?")) {
+            return;
+        }
+
+        const originalText = migrateBtn.textContent;
+        migrateBtn.disabled = true;
+        migrateBtn.textContent = 'Migrerar...';
+
+        try {
+            const result = await migrateEquipagePrivacy(competitionId);
+            showAlert(`Migrering klar. ${result.migrated} av ${result.total} ekipage uppdaterades.`, true);
+        } catch (error) {
+            console.error('Integritetsmigrering misslyckades:', error);
+            showAlert('Kunde inte migrera personuppgifter.', false);
+        } finally {
+            migrateBtn.disabled = false;
+            migrateBtn.textContent = originalText;
+        }
+    });
+}
+
 export function setupParticipantsLogic(compId) {
     competitionId = compId;
     setupEquipageForm();
@@ -270,6 +312,7 @@ export function setupParticipantsLogic(compId) {
         getOfficials: () => allOfficials
     });
     setupClearButton(compId);
+    setupPrivacyMigrationButton(compId);
     setupJudgeForm({
         competitionId: compId,
         getJudges: () => allJudges

@@ -3,7 +3,7 @@ import { getDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { autoClaimEquipages } from '../../services/authService.js';
-import { getComputedResultForEquipage, saveEquipage } from '../../services/equipageService.js';
+import { getComputedResultForEquipage, getEquipagePrivateData, saveEquipage } from '../../services/equipageService.js';
 import { getMarathonTimingForEquipage, getMarathonLiveDocument } from '../../services/marathonService.js';
 import { getPrecisionResultForEquipage } from '../../services/precisionService.js';
 import { listenForDressageProtocols } from '../../services/dressageService.js';
@@ -47,14 +47,15 @@ function normalizePortalEmail(value) {
     return String(value || '').trim().toLowerCase();
 }
 
-function canSelfServiceEditEquipage(user, equipage) {
+function canSelfServiceEditEquipage(user, equipage, privateData) {
     const userEmail = normalizePortalEmail(user?.email);
-    const equipageEmail = normalizePortalEmail(equipage?.email);
+    const equipageEmail = normalizePortalEmail(privateData?.email || equipage?.email);
+    if (equipage) equipage.email = privateData?.email || equipage?.email;
     return !!userEmail && !!equipageEmail && userEmail === equipageEmail;
 }
 
-function getSelfServiceRestrictionMessage(user, equipage) {
-    const equipageEmail = normalizePortalEmail(equipage?.email);
+function getSelfServiceRestrictionMessage(user, equipage, privateData) {
+    const equipageEmail = normalizePortalEmail(privateData?.email || equipage?.email);
     if (!equipageEmail) {
         return 'Ekipaget saknar kopplad e-postadress för självservice. Kontakta sekretariatet om du behöver ändra deklarationen.';
     }
@@ -460,11 +461,13 @@ async function renderDashboard(container, compId, startNumber, user) {
             documents,
             messages,
             officials,
-            judges
+            judges,
+            privateEquipage
         ] = await Promise.all([
             getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${compId}`)).then(d => d.data()),
             getComputedResultForEquipage(compId, startNumber),
             getEquipages(compId),
+            getEquipagePrivateData(compId, startNumber).catch(() => null),
             getMarathonTimingForEquipage(compId, startNumber).catch(() => ({})),
             getConfig(compId, 'maratonConfig').catch(() => ({})),
             getConfig(compId, 'precisionConfig').catch(() => ({})),
@@ -483,8 +486,8 @@ async function renderDashboard(container, compId, startNumber, user) {
         const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
 
         const eq = equipages.find(e => String(e.startNumber) === String(startNumber)) || {};
-        const canSelfEdit = canSelfServiceEditEquipage(user, eq);
-        const selfServiceRestrictionMessage = canSelfEdit ? '' : getSelfServiceRestrictionMessage(user, eq);
+        const canSelfEdit = canSelfServiceEditEquipage(user, eq, privateEquipage);
+        const selfServiceRestrictionMessage = canSelfEdit ? '' : getSelfServiceRestrictionMessage(user, eq, privateEquipage);
         const r = computedRes || {};
         const allPrograms = getPrograms();
         const programKey = dressyrProgramMapping[eq.className] || guessProgramKeyFromClass(eq.className, allPrograms);

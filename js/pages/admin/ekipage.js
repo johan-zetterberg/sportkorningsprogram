@@ -532,6 +532,11 @@ export function load() {
         allEquipages = equipages;
         renderList(); // renderList kommer nu själv att applicera filter
     });
+    try { unsubscribeEquipages(); } catch (_) { }
+    unsubscribeEquipages = listenForEquipages(competitionId, (equipages) => {
+        allEquipages = equipages;
+        renderList();
+    }, { includePrivate: true });
 
     // --- NYA EVENT-LYSSNARE ---
     const searchInput = document.getElementById('equipageSearchInput');

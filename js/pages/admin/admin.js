@@ -364,7 +364,7 @@ export async function load() {
       const container = document.getElementById('view-clubs');
       if (container) renderClubs(container, competitionId, allEquipages);
     }
-  }));
+  }, { includePrivate: true }));
 
   // Officials: Pass to Participants Module (for imports) and Officials Tab
   addAdminUnsubscriber(listenForOfficials(competitionId, (officials) => {

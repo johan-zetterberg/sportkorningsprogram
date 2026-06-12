@@ -228,15 +228,5 @@ export async function joinCompetitionAsAdmin(competitionId, pinCode, user) {
     throw new Error("Kunde inte ansluta. Kontrollera att PIN-koden ar korrekt.");
   }
 
-  try {
-    const userRef = doc(db, 'users', user.uid);
-    const userSnap = await getDoc(userRef);
-    if (!userSnap.exists() || userSnap.data().role === 'publik' || !userSnap.data().role) {
-      await setDoc(userRef, { role: 'funktionar' }, { merge: true });
-    }
-  } catch (e) {
-    console.warn("Kunde inte uppgradera global roll", e);
-  }
-
   return successfulRole;
 }

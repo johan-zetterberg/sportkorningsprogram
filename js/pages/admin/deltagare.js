@@ -967,7 +967,7 @@ export async function load() {
     }
 
     const [allData, displayCfg] = await Promise.all([
-      getEquipages(competition.id),
+      getEquipages(competition.id, { includePrivate: true }),
       getDoc(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competition.id, 'config', 'display')).catch(() => null)
     ]);
 

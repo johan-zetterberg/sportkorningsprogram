@@ -25,8 +25,8 @@ service cloud.firestore {
           (
             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin' ||
             (
-              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles != null &&
-              'superadmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles
+              get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('roles', []) != null &&
+              'superadmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('roles', [])
             )
           )
         )
@@ -91,6 +91,55 @@ service cloud.firestore {
         );
     }
 
+    function hasRoleInCompForApp(appId, compId, roleName) {
+      return request.auth != null
+        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
+        && (
+          hasRoleInComp(appId, compId, roleName)
+        );
+    }
+
+    function canFinalizeCompetitionViaApp(appId, compId, roleName) {
+      let compPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
+      let adminPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid);
+      let joinedRoles = !exists(adminPath)
+        ? []
+        : (
+          get(adminPath).data.get('roles', []) != null
+            ? get(adminPath).data.get('roles', [])
+            : [get(adminPath).data.get('role', '')]
+        );
+
+      return request.auth != null
+        && exists(compPath)
+        && (
+          canAdminThisArtifactsComp(appId, compId) ||
+          (
+            request.auth.token.email != null &&
+            get(compPath).data.get(roleName + 'Emails', []) != null &&
+            request.auth.token.email.lower() in get(compPath).data.get(roleName + 'Emails', [])
+          ) ||
+          (
+            exists(adminPath) &&
+            (
+              get(adminPath).data.get('role', '') == roleName ||
+              get(adminPath).data.get('role', '') == 'admin' ||
+              (joinedRoles != null && roleName in joinedRoles) ||
+              (joinedRoles != null && 'admin' in joinedRoles)
+            )
+          )
+        );
+    }
+
+    function canFinalizeCompetition(compId, roleName) {
+      return request.auth != null
+        && (
+          isSuperAdmin() ||
+          canFinalizeCompetitionViaApp('combined-driving', compId, roleName) ||
+          canFinalizeCompetitionViaApp('drivelive', compId, roleName)
+        );
+    }
+
     function isPrecisionResultUnlocked(compId, startNo) {
       return !exists(/databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo))
         || get(/databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo)).data.get('finalized', false) != true;
@@ -106,17 +155,18 @@ service cloud.firestore {
         || get(/databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo)).data.get('finalized', false) != true;
     }
 
-    function canSelfServiceEquipage(resourceData) {
+    function canSelfServiceEquipage(appId, compId, equipageId) {
       return request.auth != null
         && request.auth.token.email != null
-        && resourceData.get('email', '') != ''
-        && request.auth.token.email.lower() == resourceData.get('email', '').lower();
+        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/equipagePrivate/$(equipageId))
+        && request.auth.token.email.lower() == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/equipagePrivate/$(equipageId)).data.get('email', '').lower();
     }
 
     function isSensitiveArtifactsPublicPath(documentPath) {
       let pathStr = string(documentPath);
       return pathStr.matches('.*data/competitions/[^/]+/config/secrets.*')
         || pathStr.matches('.*data/competitions/[^/]+/auditLog/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/equipagePrivate/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/admins/[^/]+.*');
     }
 
@@ -142,31 +192,19 @@ service cloud.firestore {
     // competitions/{compId}/dressageFinalization/{startNo}
     match /competitions/{compId}/dressageFinalization/{startNo} {
       allow read: if true;
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','sekretariat']
-        );
+      allow write: if canFinalizeCompetition(compId, 'dressage');
     }
 
     // competitions/{compId}/precisionFinalization/{startNo}
     match /competitions/{compId}/precisionFinalization/{startNo} {
       allow read: if true;
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','sekretariat']
-        );
+      allow write: if canFinalizeCompetition(compId, 'precision');
     }
 
     // competitions/{compId}/marathonFinalization/{startNo}
     match /competitions/{compId}/marathonFinalization/{startNo} {
       allow read: if true;
-      allow write: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() in ['admin','domare','sekretariat']
-        );
+      allow write: if canFinalizeCompetition(compId, 'marathon');
     }
 
     // ------------------------------------------------------------------------
@@ -314,8 +352,27 @@ service cloud.firestore {
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
                ['groom', 'horses', 'carriage', 'clubName', 'speakerNotes', 'lastUpdated', 'updatedAt']
              )
-             && canSelfServiceEquipage(resource.data)
+             && canSelfServiceEquipage(appId, compId, equipageId)
           )
+        );
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/equipagePrivate/{equipageId} {
+      allow read: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId) ||
+          (
+            request.auth.token.email != null &&
+            request.auth.token.email.lower() == resource.data.get('email', '').lower()
+          )
+        );
+      allow create, update, delete: if request.auth != null
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
         );
     }
 
@@ -560,17 +617,31 @@ service cloud.firestore {
     // ------------------------------------------------------------------------
     //  USERS
     // ------------------------------------------------------------------------
+    function validSelfUserCreate(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['email', 'role', 'createdAt', 'claimedEquipages'])
+        && request.resource.data.get('email', '') == request.auth.token.email
+        && request.resource.data.get('role', '') == 'publik'
+        && request.resource.data.get('claimedEquipages', []) is list;
+    }
+
+    function validSelfUserUpdate(userId) {
+      return request.auth != null
+        && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['claimedEquipages'])
+        && request.resource.data.get('claimedEquipages', []) is list;
+    }
+
     match /users/{userId} {
       allow read: if request.auth != null && (
         request.auth.uid == userId || 
         isSuperAdmin() || 
         getUserRole() == 'admin'
       );
-      allow write: if request.auth != null && (
-        isSuperAdmin() ||
-        request.auth.uid == userId ||
-        getUserRole() == 'admin'
-      );
+      allow create: if isSuperAdmin() || validSelfUserCreate(userId);
+      allow update: if isSuperAdmin() || validSelfUserUpdate(userId);
+      allow delete: if isSuperAdmin();
     }
 
   }

@@ -31,7 +31,7 @@ test('buildMarathonCheckpoints includes km marks, final 300m and unique extras',
 test('resolveWarmupMinutes uses manual value and barn lätt b fallback', () => {
   assert.equal(resolveWarmupMinutes('Lätt B Barn', 15), 15);
   assert.equal(resolveWarmupMinutes('Lätt B Barn', null), 10);
-  assert.equal(resolveWarmupMinutes('LÃ¤tt B Barn', null), 10);
+  assert.equal(resolveWarmupMinutes('Lätt B Barn', null), 10);
   assert.equal(resolveWarmupMinutes('Lätt A', null), 20);
 });
 

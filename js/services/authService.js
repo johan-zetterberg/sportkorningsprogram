@@ -1,6 +1,7 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { auth, db, appId } from '../config/firebase-config.js';
+import { findClaimableEquipagesByEmail } from './equipageService.js';
 import { setGlobalState, getGlobalState, getCompetitionMode } from '../main.js'; // <-- NYTT: Importera setGlobalState
 import { t } from '../utils/i18n.js';
 // Lokal state för denna modul
@@ -373,15 +374,12 @@ export async function autoClaimEquipages(user) {
             const compData = compDoc.data();
 
             // 2. Sök efter ekipage i denna tävlings underkollektion
-            const equipagesRef = collection(db, `artifacts/${appId}/public/data/competitions/${compId}/equipages`);
-            const q = query(equipagesRef, where('email', '==', email));
-            const eqSnap = await getDocs(q);
+            const eqSnap = await findClaimableEquipagesByEmail(compId, email);
 
-            eqSnap.forEach(doc => {
-                const eqData = doc.data();
+            eqSnap.forEach(eqData => {
                 newClaims.push({
                     competitionId: compId,
-                    startNumber: eqData.startNumber,
+                    startNumber: eqData.startNumber ?? eqData.id,
                     competitionName: compData.name || compId
                 });
             });

@@ -8,10 +8,14 @@ import {
   assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
+  collection,
   doc,
   getDoc,
+  getDocs,
+  query,
   setDoc,
-  updateDoc
+  updateDoc,
+  where
 } from 'firebase/firestore';
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'combined-driving';
@@ -114,6 +118,44 @@ test('admin PIN join may create an admin-scoped admin document', { skip: !HAS_EM
   }));
 });
 
+test('users may create only a public self profile', { skip: !HAS_EMULATOR }, async () => {
+  const ctx = testEnv.authenticatedContext('profile-1', { email: 'profile@example.com' });
+  const db = ctx.firestore();
+
+  await assertSucceeds(setDoc(doc(db, 'users/profile-1'), {
+    email: 'profile@example.com',
+    role: 'publik',
+    createdAt: '2026-06-12T10:00:00Z',
+    claimedEquipages: []
+  }));
+
+  await assertFails(setDoc(doc(db, 'users/profile-1'), {
+    email: 'profile@example.com',
+    role: 'admin',
+    claimedEquipages: []
+  }));
+});
+
+test('users may update claims but may not escalate their own role', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'users/profile-2'), {
+      email: 'profile2@example.com',
+      role: 'publik',
+      claimedEquipages: []
+    });
+  });
+
+  const ctx = testEnv.authenticatedContext('profile-2', { email: 'profile2@example.com' });
+  const db = ctx.firestore();
+
+  await assertSucceeds(updateDoc(doc(db, 'users/profile-2'), {
+    claimedEquipages: [{ competitionId: COMP_ID, startNumber: 1 }]
+  }));
+  await assertFails(updateDoc(doc(db, 'users/profile-2'), { role: 'superadmin' }));
+  await assertFails(updateDoc(doc(db, 'users/profile-2'), { roles: ['superadmin'] }));
+});
+
 test('admin join documents are not publicly readable', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -181,9 +223,11 @@ test('self-service equipage update is allowed for matching email and allowed fie
     await setDoc(doc(db, compPath('equipages/eq-1')), {
       startNumber: 1,
       driverName: 'Driver One',
-      email: 'driver@example.com',
       clubName: 'Old Club',
       speakerNotes: ''
+    });
+    await setDoc(doc(db, compPath('equipagePrivate/eq-1')), {
+      email: 'driver@example.com'
     });
   });
 
@@ -203,9 +247,11 @@ test('self-service equipage update is denied for disallowed fields even with mat
     await setDoc(doc(db, compPath('equipages/eq-1b')), {
       startNumber: 1,
       driverName: 'Driver One',
-      email: 'driver@example.com',
       clubName: 'Old Club',
       speakerNotes: ''
+    });
+    await setDoc(doc(db, compPath('equipagePrivate/eq-1b')), {
+      email: 'driver@example.com'
     });
   });
 
@@ -223,8 +269,10 @@ test('self-service equipage update is denied for mismatched email', { skip: !HAS
     await setDoc(doc(db, compPath('equipages/eq-2')), {
       startNumber: 2,
       driverName: 'Driver Two',
-      email: 'owner@example.com',
       clubName: 'Original Club'
+    });
+    await setDoc(doc(db, compPath('equipagePrivate/eq-2')), {
+      email: 'owner@example.com'
     });
   });
 
@@ -243,8 +291,10 @@ test('speaker role may update equipage outside self-service restrictions', { ski
     await setDoc(doc(db, compPath('equipages/eq-speaker-1')), {
       startNumber: 3,
       driverName: 'Original Driver',
-      email: 'owner@example.com',
       clubName: 'Original Club'
+    });
+    await setDoc(doc(db, compPath('equipagePrivate/eq-speaker-1')), {
+      email: 'owner@example.com'
     });
   });
 
@@ -254,6 +304,27 @@ test('speaker role may update equipage outside self-service restrictions', { ski
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-speaker-1')), {
     driverName: 'Speaker Edited Driver'
   }));
+});
+
+test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('equipagePrivate/eq-private-1')), {
+      email: 'private-owner@example.com',
+      phone: '0700000000'
+    });
+  });
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(anonymousDb, compPath('equipagePrivate/eq-private-1'))));
+
+  const ownerDb = testEnv.authenticatedContext('private-owner-1', { email: 'private-owner@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(ownerDb, compPath('equipagePrivate/eq-private-1'))));
+  await assertSucceeds(getDocs(query(collection(ownerDb, compPath('equipagePrivate')), where('email', '==', 'private-owner@example.com'))));
+
+  await seedCompetitionRole('admin-private-1', 'admin', 'admin-private@example.com');
+  const adminDb = testEnv.authenticatedContext('admin-private-1', { email: 'admin-private@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(adminDb, compPath('equipagePrivate/eq-private-1'))));
 });
 
 test('precision result writes are denied when the equipage is finalized', { skip: !HAS_EMULATOR }, async () => {
@@ -282,6 +353,36 @@ test('precision result writes are allowed when the equipage is not finalized', {
   await assertSucceeds(setDoc(doc(db, compPath(`precision/${START_NO}`)), {
     startNumber: Number(START_NO),
     timeMs: 100000
+  }));
+});
+
+test('competition discipline roles may finalize only their matching discipline', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-finalizer-1', 'precision', 'precision-finalizer@example.com');
+  const ctx = testEnv.authenticatedContext('precision-finalizer-1', { email: 'precision-finalizer@example.com' });
+  const db = ctx.firestore();
+
+  await assertSucceeds(setDoc(doc(db, rootCompPath(`precisionFinalization/${START_NO}`)), {
+    finalized: true
+  }));
+  await assertFails(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
+    finalized: true
+  }));
+});
+
+test('global non-admin roles may not finalize competitions without a scoped role', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'users/global-judge-1'), {
+      email: 'global-judge@example.com',
+      role: 'domare'
+    });
+  });
+
+  const ctx = testEnv.authenticatedContext('global-judge-1', { email: 'global-judge@example.com' });
+  const db = ctx.firestore();
+
+  await assertFails(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
+    finalized: true
   }));
 });
 
