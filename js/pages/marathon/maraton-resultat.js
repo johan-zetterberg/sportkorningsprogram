@@ -72,7 +72,7 @@ import {
   isNum
 } from '../../utils/sharedUtils.js';
 
-import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
+import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 
 import { showDetailsModal } from '../../ui/marathonModal.js';
 // ---- Cross-page X-Scroll Guard (shared) ----
@@ -166,6 +166,7 @@ function render() {
 
   if (useCards) {
     window.__teardownXbarSync?.();
+    teardownViewportStickyTableHeader();
     renderMobile();
   } else {
     renderTable();
@@ -535,6 +536,10 @@ function renderTable() {
   if (xWrap && window.__setupXbarSync) {
     try { window.__setupXbarSync({ barClass: 'fixed-xbar', innerId: 'marathonXbarInner', hostEl: xWrap }); } catch { }
   }
+  setupViewportStickyTableHeader({
+    tableEl: document.getElementById('marathonTable'),
+    scrollHostEl: document.getElementById('marathon-x-wrap')
+  });
   try { list.forEach(eq => startOrUpdateLiveTicker(eq.startNumber, eq.className || '')); } catch { }
 }
 
@@ -732,6 +737,7 @@ export function __unload() {
   }
   window.__marathonUnsub = null;
   window.__teardownXbarSync?.();
+  teardownViewportStickyTableHeader();
   clearMarathonLiveTickers();
   document.body.style.filter = '';
   competitionId = null;

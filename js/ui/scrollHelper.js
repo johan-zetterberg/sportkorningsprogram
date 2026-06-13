@@ -16,8 +16,8 @@ export function injectScrollStyles() {
       /* Hide native scrollbars on the wrapper but allow scrolling */
       .x-scroll-wrap {
         overflow-x: auto !important;
-        overflow-y: auto !important;
-        max-height: calc(100vh - 120px);
+        overflow-y: visible !important;
+        max-height: none;
         -ms-overflow-style: none;  /* IE/Edge */
         scrollbar-width: none;     /* Firefox */
       }
@@ -47,6 +47,140 @@ export function injectScrollStyles() {
       }
     `;
     document.head.appendChild(style);
+}
+
+function injectStickyHeaderCloneStyles() {
+    if (document.getElementById('shared-sticky-header-clone-styles')) return;
+    const style = document.createElement('style');
+    style.id = 'shared-sticky-header-clone-styles';
+    style.textContent = `
+      .viewport-sticky-header-clone {
+        position: fixed;
+        top: 0;
+        left: 0;
+        z-index: 45;
+        display: none;
+        pointer-events: none;
+        overflow: hidden;
+        background: transparent;
+      }
+      .viewport-sticky-header-clone table {
+        margin: 0;
+      }
+      .viewport-sticky-header-clone th {
+        pointer-events: none;
+      }
+    `;
+    document.head.appendChild(style);
+}
+
+function getStickyTopOffset() {
+    const nav = document.querySelector('nav.sticky');
+    const offlineBanner = document.getElementById('offline-banner');
+    const navStyle = nav ? getComputedStyle(nav) : null;
+    const bannerStyle = offlineBanner ? getComputedStyle(offlineBanner) : null;
+    const navHeight = nav && navStyle && (navStyle.position === 'sticky' || navStyle.position === 'fixed')
+        ? nav.getBoundingClientRect().height
+        : 0;
+    const bannerHeight = offlineBanner && bannerStyle && bannerStyle.display !== 'none'
+        && (bannerStyle.position === 'sticky' || bannerStyle.position === 'fixed')
+        ? offlineBanner.getBoundingClientRect().height
+        : 0;
+    return Math.round(navHeight + bannerHeight);
+}
+
+export function teardownViewportStickyTableHeader() {
+    try { window.__teardownViewportStickyTableHeader?.(); } catch {}
+    window.__teardownViewportStickyTableHeader = undefined;
+}
+
+export function setupViewportStickyTableHeader({ tableEl, scrollHostEl = null }) {
+    teardownViewportStickyTableHeader();
+    if (!tableEl?.tHead) return () => {};
+
+    injectStickyHeaderCloneStyles();
+
+    const cloneEl = document.createElement('div');
+    cloneEl.className = 'viewport-sticky-header-clone';
+
+    const cloneTable = document.createElement('table');
+    cloneTable.className = tableEl.className;
+    cloneEl.appendChild(cloneTable);
+    document.body.appendChild(cloneEl);
+
+    const syncClone = () => {
+        if (!tableEl.isConnected || !tableEl.tHead) {
+            cloneEl.style.display = 'none';
+            return;
+        }
+
+        const thead = tableEl.tHead;
+        const tableRect = tableEl.getBoundingClientRect();
+        const headRect = thead.getBoundingClientRect();
+        const topOffset = getStickyTopOffset();
+        const shouldShow = tableRect.top < topOffset && tableRect.bottom - headRect.height > topOffset;
+
+        if (!shouldShow || tableRect.width <= 0) {
+            cloneEl.style.display = 'none';
+            return;
+        }
+
+        cloneEl.style.display = 'block';
+        cloneEl.style.top = `${topOffset}px`;
+        cloneEl.style.left = `${Math.round(tableRect.left)}px`;
+        cloneEl.style.width = `${Math.round(tableRect.width)}px`;
+
+        const sourceHeaderHtml = thead.outerHTML;
+        if (cloneTable.dataset.headerHtml !== sourceHeaderHtml) {
+            cloneTable.innerHTML = sourceHeaderHtml;
+            cloneTable.dataset.headerHtml = sourceHeaderHtml;
+        }
+
+        cloneTable.style.width = `${Math.round(tableRect.width)}px`;
+
+        const sourceThs = Array.from(thead.querySelectorAll('th'));
+        const cloneThs = Array.from(cloneTable.querySelectorAll('th'));
+        sourceThs.forEach((th, index) => {
+            const width = th.getBoundingClientRect().width;
+            if (!cloneThs[index]) return;
+            cloneThs[index].style.width = `${Math.round(width)}px`;
+            cloneThs[index].style.minWidth = `${Math.round(width)}px`;
+            cloneThs[index].style.maxWidth = `${Math.round(width)}px`;
+        });
+    };
+
+    const updateAll = () => syncClone();
+    const scrollTarget = scrollHostEl || window;
+
+    window.addEventListener('scroll', updateAll, { passive: true });
+    window.addEventListener('resize', updateAll);
+    window.addEventListener('orientationchange', updateAll);
+    if (scrollHostEl) {
+        scrollHostEl.addEventListener('scroll', updateAll, { passive: true });
+    }
+
+    const ro = new ResizeObserver(updateAll);
+    ro.observe(tableEl);
+    if (scrollHostEl) ro.observe(scrollHostEl);
+
+    updateAll();
+
+    const teardown = () => {
+        try { window.removeEventListener('scroll', updateAll); } catch {}
+        try { window.removeEventListener('resize', updateAll); } catch {}
+        try { window.removeEventListener('orientationchange', updateAll); } catch {}
+        if (scrollHostEl) {
+            try { scrollHostEl.removeEventListener('scroll', updateAll); } catch {}
+        }
+        try { ro.disconnect(); } catch {}
+        try { cloneEl.remove(); } catch {}
+        if (window.__teardownViewportStickyTableHeader === teardown) {
+            window.__teardownViewportStickyTableHeader = undefined;
+        }
+    };
+
+    window.__teardownViewportStickyTableHeader = teardown;
+    return teardown;
 }
 
 export function initializeScrollSync(ownerPath) {

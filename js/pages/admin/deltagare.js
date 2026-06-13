@@ -10,7 +10,7 @@ import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl, fetchImageDataUrl as _fetchImage } from '../../services/logosService.js';
 import { standardPortAllowance, resolveStandardPortAllowance } from '../../data/competitionData.js';
 import { getFlagHtml, fetchFlagDataUrl, normalizeCountryCode } from '../../services/flagsService.js';
-import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
+import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import {
   debounce,
   downloadCsv,
@@ -848,6 +848,11 @@ function renderDesktop() {
       hostEl: hostEl
     });
   }
+
+  setupViewportStickyTableHeader({
+    tableEl: container.querySelector('.participants-table'),
+    scrollHostEl: document.getElementById('participant-x-host')
+  });
 }
 
 // === NY FUNKTION: Renderar klass-knapparna ===
@@ -873,6 +878,7 @@ function render() {
   renderDeltagareClassChips();
   if (isMobile()) {
     window.__teardownXbarSync?.(); // Städa upp scrollbaren i mobilvy
+    teardownViewportStickyTableHeader();
     renderMobile();
   } else {
     renderDesktop();
@@ -1163,6 +1169,7 @@ export function __unload() {
   try { window.__teardownXbarSync?.(); } catch { }
   window.__teardownXbarSync = undefined;
   window.__setupXbarSync = undefined;
+  teardownViewportStickyTableHeader();
 
 
 }

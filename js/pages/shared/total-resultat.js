@@ -22,7 +22,7 @@ import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../se
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
 import { openEquipageModal } from '../../ui/equipage-modal.js';
-import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
+import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
 import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js';
 import {
@@ -187,6 +187,7 @@ function render() {
   // === STEG 2: VÄLJ VY ===
   if (isMobile()) {
     window.__teardownXbarSync?.(); // Städa undan X-baren i mobilvy
+    teardownViewportStickyTableHeader();
     renderMobile(); // Denna läser nu den uppdaterade __latestDisplayedRows
   } else {
     renderDesktop(); // Denna läser nu den uppdaterade __latestDisplayedRows
@@ -820,6 +821,11 @@ function renderDesktop() {
       });
     }
   })();
+
+  setupViewportStickyTableHeader({
+    tableEl: container.querySelector('.total-results-table'),
+    scrollHostEl: document.getElementById('total-x-wrap')
+  });
 
   // Klicksortering
   container.querySelectorAll('.sortable-header').forEach(h => {
@@ -1572,5 +1578,6 @@ export function __unload() {
   try { window.__teardownXbarSync?.(); } catch { }
   window.__teardownXbarSync = undefined;
   window.__setupXbarSync = undefined;
+  teardownViewportStickyTableHeader();
 
 }

@@ -18,7 +18,7 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { t } from '../../utils/i18n.js';
 
-import { initializeScrollSync, injectScrollStyles } from '../../ui/scrollHelper.js';
+import { initializeScrollSync, injectScrollStyles, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import {
   getCalculatedRowData,
   buildPlaceMap,
@@ -616,6 +616,7 @@ function filteredSortedEquipages() {
 }
 
 function renderMobile() {
+  teardownViewportStickyTableHeader();
   const container = document.getElementById('prWrap');
   if (!container) return;
 
@@ -799,6 +800,11 @@ function renderDesktop() {
       window.__setupXbarSync({ barClass: 'fixed-xbar', innerId: 'prXbarInner', hostEl: host });
     }
   })();
+
+  setupViewportStickyTableHeader({
+    tableEl: container.querySelector('table.pr-table'),
+    scrollHostEl: document.getElementById('prWrap')
+  });
 
   const body = document.getElementById('precisionBody');
   if (body) {
@@ -1129,6 +1135,7 @@ export function __unload() {
   try { window.__teardownXbarSync?.(); } catch { }
   window.__teardownXbarSync = undefined;
   window.__setupXbarSync = undefined;
+  teardownViewportStickyTableHeader();
 
 }
 

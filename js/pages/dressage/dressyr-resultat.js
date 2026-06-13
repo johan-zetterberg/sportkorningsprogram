@@ -64,7 +64,7 @@ import {
     debounce
 } from '../../utils/sharedUtils.js';
 
-import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
+import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 
 let processedResults = [];
 let allCompetitionJudges = [];
@@ -1032,6 +1032,7 @@ function compressJudgeText(s, max = 110) {
 
 
 function renderMobile(judgesPresent) {
+    teardownViewportStickyTableHeader();
     window.__teardownXbarSync?.();
     const container = document.getElementById('resultsContainer');
     if (!container) return;
@@ -1762,6 +1763,11 @@ function renderDesktop(judgesPresent) {
     if (window.__setupXbarSync && host) {
         window.__setupXbarSync({ barClass: 'fixed-xbar', innerId: 'dressageXbarInner', hostEl: host });
     }
+
+    setupViewportStickyTableHeader({
+        tableEl: container.querySelector('#dressageTable'),
+        scrollHostEl: document.getElementById('dressage-x-wrap')
+    });
 
     // Row click listeners
     if (!tbody.dataset.finalizeWired) {
@@ -2501,6 +2507,7 @@ export function __unload() {
 
     // 4) Teardown fast x-scrollbar (NYA STANDARDEN)
     try { window.__teardownXbarSync?.(); } catch { }
+    teardownViewportStickyTableHeader();
     document.body.classList.remove('has-pr-xbar'); //
 
     // 5) Nollställ state
@@ -2524,6 +2531,7 @@ export function __unload() {
     // 6) Nollställ globala scroll-helpers (NYA STANDARDEN)
     window.__teardownXbarSync = undefined;
     window.__setupXbarSync = undefined;
+    teardownViewportStickyTableHeader();
 
 
 }
