@@ -286,10 +286,10 @@ function renderLayout(competition) {
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-<div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md lg:col-span-3">
+<div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
  <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Globala Regelinställningar</h2>
   <form id="global-settings-form" class="space-y-4">
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       <div>
         <label for="timePenaltyRate" class="block text-sm font-medium dark:text-gray-300">Straffpoäng/sek (Sträcka)</label>
         <input type="number" step="0.01" id="timePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 0.25 (Default: 0.25)">
@@ -321,20 +321,20 @@ function renderLayout(competition) {
     </form>
 </div>
 
-<div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md lg:col-span-3">
+<div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
   <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Kartinställningar (Live-karta)</h2>
   
-  <div class="grid grid-cols-1 xl:grid-cols-2 gap-8">
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:gap-8">
     <form id="map-settings-form" class="space-y-4">
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div>
           <label for="mapImageUrl" class="block text-sm font-medium dark:text-gray-300">Bild-URL för karta</label>
-          <div class="flex gap-2">
+          <div class="flex flex-col sm:flex-row gap-2">
             <input type="text" id="mapImageUrl" class="flex-1 p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. img/marathon-course-new.png">
           </div>
           
           <!-- Upload Tools -->
-          <div class="flex items-center gap-2 mt-2">
+          <div class="grid grid-cols-1 sm:grid-cols-[auto_auto_1fr] items-start sm:items-center gap-2 mt-2">
             <input type="file" id="mapImageUploadInput" accept="image/*" class="hidden">
             <button type="button" id="btnUploadMapImage" class="bg-blue-50 border-2 border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/40" title="Ladda upp bildfil">
                 <span>📤 Ladda upp bildfil</span>
@@ -348,7 +348,7 @@ function renderLayout(competition) {
 
         <div>
           <label class="block text-sm font-medium dark:text-gray-300">Bander (Bounds)</label>
-          <div class="flex gap-2 items-center">
+          <div class="flex flex-wrap gap-2 items-center">
               <span class="text-xs text-gray-500 dark:text-gray-400">[0,0] till</span>
               <input type="number" id="mapBoundsX" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="X (1920)">
               <input type="number" id="mapBoundsY" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Y (1080)">
@@ -359,7 +359,7 @@ function renderLayout(competition) {
 
       <div class="bg-blue-50/50 p-3 rounded-lg border border-blue-100 dark:bg-blue-900/20 dark:border-blue-800">
         <label for="mapEntitySelector" class="block text-sm font-bold text-blue-800 mb-1 dark:text-blue-200">Interaktiv positionerare</label>
-        <div class="flex gap-2">
+        <div class="flex flex-col sm:flex-row gap-2">
             <select id="mapEntitySelector" class="flex-1 p-2 border border-blue-200 rounded-md text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none dark:bg-gray-700 dark:border-blue-900 dark:text-white">
                 <option value="stage_A">🚩 Etapp A (Start)</option>
                 <option value="transport">🚛 Transport</option>
@@ -394,7 +394,7 @@ function renderLayout(competition) {
       <div>
         <label for="mapCoordsJson" class="block text-sm font-medium text-gray-600 dark:text-gray-400">Koordinater (JSON)</label>
         <textarea id="mapCoordsJson" rows="6" class="mt-1 w-full p-2 border rounded-md font-mono text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300" placeholder='{"stage_A": [855, 290], ...}'></textarea>
-        <div class="flex justify-between items-center mt-1">
+        <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mt-1">
           <p class="text-[10px] text-gray-400 italic">Positioner för A, B, Transport och Hinder.</p>
           <button type="button" id="btnLoadDefaultCoords" class="text-[10px] text-blue-600 hover:underline dark:text-blue-400">Ladda standard-koordinater</button>
         </div>
@@ -415,16 +415,16 @@ function renderLayout(competition) {
 </div>
 
 <!-- Utskrifter (Ny sektion) -->
-<div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md lg:col-span-3">
+<div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
   <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Utskrifter & Rapporter</h2>
-  <div class="flex flex-wrap gap-4">
+  <div class="flex flex-col sm:flex-row gap-4">
     <button type="button" id="btnPrintTimecards" class="flex items-center gap-2 bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
       🖨️ Skriv ut Tidkort (PDF)
     </button>
   </div>
 </div>
         <!-- Maratoninställningar -->
-        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md lg:col-span-2">
+        <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-2">
           <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Maratoninställningar</h2>
           <form id="marathon-settings-form" class="space-y-4">
             <div class="space-y-2" id="marathon-distances-container">
@@ -432,7 +432,7 @@ function renderLayout(competition) {
             </div>
             <div class="border-t dark:border-gray-700 pt-4">
               <label for="pauseTime" class="block text-sm font-medium dark:text-gray-300">Paus mellan A/WU och B (minuter)</label>
-              <input type="number" id="pauseTime" value="10" class="mt-1 w-full md:w-1/3 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+              <input type="number" id="pauseTime" value="10" class="mt-1 w-full sm:max-w-xs p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
             </div>
             <button type="submit" class="w-full mt-2 bg-gray-800 text-white font-semibold py-2 px-4 rounded-lg hover:bg-gray-700 dark:bg-gray-700 dark:hover:bg-gray-600">
               Spara Maratoninställningar
@@ -441,7 +441,7 @@ function renderLayout(competition) {
         </div>
 
         <!-- Maratonhinder -->
-        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md lg:col-span-1 lg:self-start">
+        <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-1 lg:self-start">
           <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Maratonhinder</h2>
           <form id="addObstacleForm" class="space-y-4">
             <input type="hidden" id="editingObstacleNumber">
@@ -455,7 +455,7 @@ function renderLayout(competition) {
               <input type="text" id="newObstacleName" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. Vattenhindret">
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div class="flex items-center gap-3">
                 <input type="checkbox" id="newObstacleHasKD" class="h-4 w-4 dark:bg-gray-700 dark:border-gray-600">
                 <label for="newObstacleHasKD" class="text-sm dark:text-gray-300">Detta hinder har knockdown/bollar</label>
@@ -477,7 +477,7 @@ function renderLayout(competition) {
                </div>
             </div>
 
-            <div class="flex items-center gap-2 mt-4">
+            <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-2 mt-4">
                 <button type="submit" class="flex-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:text-white">
                   Spara Hinder
                 </button>
@@ -1145,17 +1145,17 @@ async function setupMarathonSettings() {
         <h4 class="font-semibold text-lg text-gray-800 dark:text-white">${cn}</h4>
         ${renderClassValidationSummary(cn)}
         
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4 border-b dark:border-gray-600 pb-4">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-4 border-b dark:border-gray-600 pb-4">
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Etapp A / Warm Up</p>
-            <div class="grid grid-cols-4 gap-2 items-center">
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 items-center">
               <input type="number" data-class-name="${cn}" data-field="distanceA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceA ?? ''}" placeholder="Distans (m)">
               <input type="number" data-class-name="${cn}" data-field="tempoA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoA ?? ''}" placeholder="${finalTempoA ? `TR: ${Math.round(finalTempoA)}` : 'Tempo'}">
               <input type="number" data-class-name="${cn}" data-field="windowA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.windowA ?? '2'}" placeholder="Fönster (min)">
               <div class="text-center min-w-[60px]"><span class="block font-semibold text-gray-800 dark:text-gray-200" data-ideal-for="${cn}|A">${aIdeal}</span> <span class="text-[10px] text-gray-400 uppercase tracking-wider">Idealtid</span></div>
             </div>
              <!-- NYTT: Fixed Time Input -->
-            <div class="mt-2 flex items-center gap-2">
+            <div class="mt-2 flex flex-wrap items-center gap-2">
                  <label class="text-xs text-blue-800 font-semibold dark:text-blue-300">Fast tid (WU):</label>
                  <input type="number" data-class-name="${cn}" data-field="fixedTimeA" class="marathon-class-input w-20 p-1 border border-blue-200 rounded text-sm bg-blue-50 dark:bg-blue-900/40 dark:border-blue-700 dark:text-white" value="${defaultFixedA ?? ''}" placeholder="min">
                  <span class="text-[10px] text-gray-400"> (åsidosätter distans/tempo)</span>
@@ -1164,7 +1164,7 @@ async function setupMarathonSettings() {
           </div>
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Etapp B</p>
-            <div class="grid grid-cols-4 gap-2 items-center">
+            <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 items-center">
               <input type="number" data-class-name="${cn}" data-field="distanceB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceB ?? ''}" placeholder="Distans (m)">
               <input type="number" data-class-name="${cn}" data-field="tempoB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoB ?? ''}" placeholder="${finalTempoB ? `TR: ${Math.round(finalTempoB)}` : 'Tempo'}">
               <input type="number" data-class-name="${cn}" data-field="windowB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.windowB ?? '3'}" placeholder="Fönster (min)">
@@ -1174,16 +1174,16 @@ async function setupMarathonSettings() {
           </div>
         </div>
 
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
+        <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-4">
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Transport</p>
-            <div class="grid grid-cols-2 gap-2">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <input type="number" data-class-name="${cn}" data-field="distanceT" data-include-transport="${data.includeTransport === true ? 'true' : 'false'}" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceT ?? ''}" placeholder="Distans (m)">
               <input type="number" data-class-name="${cn}" data-field="tempoT" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoT ?? ''}" placeholder="Tempo (m/min)">
             </div>
           </div>
            <div>
-             <div class="grid grid-cols-2 gap-2">
+             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                <div>
                   <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Portar</p>
                   <input type="number" data-class-name="${cn}" data-field="gateCount" class="marathon-class-input w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.gateCount ?? '6'}" placeholder="Antal portar">
@@ -1202,10 +1202,10 @@ async function setupMarathonSettings() {
 
         <!-- TR Template Selector -->
         <div class="mt-4 pt-4 border-t dark:border-gray-600">
-            <div class="flex items-center gap-4">
-                <div>
+            <div class="flex flex-col gap-4">
+                <div class="min-w-0">
                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tempo-mall (TR-nivå)</label>
-                     <select data-class-name="${cn}" data-field="trTemplate" class="marathon-class-input p-2 border rounded-md text-sm w-64 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                     <select data-class-name="${cn}" data-field="trTemplate" class="marathon-class-input p-2 border rounded-md text-sm w-full sm:max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                         <option value="">(Använd klassnamn: "${cn}")</option>
                         <option value="Lätt B" ${data.trTemplate === 'Lätt B' ? 'selected' : ''}>Lätt B (Grundtempo)</option>
                         <option value="Lätt B Para" ${data.trTemplate === 'Lätt B Para' ? 'selected' : ''}>Lätt B Para</option>

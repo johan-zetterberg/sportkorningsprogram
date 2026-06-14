@@ -424,7 +424,7 @@ function render() {
   const competition = getGlobalState('currentCompetition');
 
   rootEl.innerHTML = `
-    <div class="min-w-[1240px] max-w-7xl mx-auto px-4 py-4">
+    <div class="w-full max-w-7xl mx-auto px-3 py-4 sm:px-4">
       ${getCompetitionHeader(competition, t('secretariat_marathon_title'))}
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Etapptider och hinder registreras manuellt, och sekretariatet används för kontroll, korrigering och finalisering.',

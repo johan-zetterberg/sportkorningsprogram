@@ -27,9 +27,9 @@ service firebase.storage {
       allow write: if isAdmin();
     }
 
-    // Default catch-all (Secure: no writes allowed outside explicit paths)
+    // Default catch-all: deny everything outside explicitly public paths.
     match /{allPaths=**} {
-      allow read: if true;
+      allow read: if false;
       allow write: if false; 
     }
   }

@@ -255,7 +255,7 @@ function renderRuleSummary(equipage) {
             </div>
             <div class="grid grid-cols-1 gap-2">
                 <div class="rounded-lg bg-white/80 p-3 dark:bg-gray-800/60">
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <div>
                             <p class="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Dressyr / precision</p>
                             <p class="text-sm font-semibold text-blue-950 dark:text-blue-50">${dressageRule.label}</p>
@@ -264,7 +264,7 @@ function renderRuleSummary(equipage) {
                     </div>
                 </div>
                 <div class="rounded-lg bg-white/80 p-3 dark:bg-gray-800/60">
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <div>
                             <p class="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Maraton</p>
                             <p class="text-sm font-semibold text-blue-950 dark:text-blue-50">${marathonRule.label}</p>
@@ -414,39 +414,39 @@ function navigateToEquipage(delta) {
 
 function renderPage(page, competition) {
     page.innerHTML = `
-        <div class="container mx-auto p-4 md:p-8 max-w-lg">
+        <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-lg">
             ${getCompetitionHeader(competition, 'Funktionskontroll & Vagnbredd')}
-            <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md space-y-6">
+            <div class="bg-white dark:bg-gray-800 p-4 sm:p-5 md:p-6 rounded-xl shadow-md space-y-5 sm:space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">1. Välj ekipage</label>
-                    <div class="flex items-center gap-2 mt-1">
+                    <div class="flex flex-wrap items-center gap-2 mt-1">
                         <button id="prevBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Föregående">«</button>
                         <div id="vagnbreddEquipageSearch" class="flex-grow"></div>
                         <button id="nextBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Nästa">»</button>
                     </div>
                 </div>
 
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 gap-4">
                     <div>
                         <label for="precisionBreddInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">2. Bredd dressyr/precision (cm)</label>
-                        <input type="number" id="precisionBreddInput" class="mt-1 block w-full p-3 text-lg border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="cm">
+                        <input type="number" id="precisionBreddInput" class="mt-1 block w-full p-3 text-base sm:text-lg border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="cm">
                         <div id="precisionWidthWarning"></div>
                     </div>
                     <div>
                         <label for="maratonBreddInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">3. Bredd maraton (cm)</label>
-                        <input type="number" id="maratonBreddInput" class="mt-1 block w-full p-3 text-lg border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="cm">
+                        <input type="number" id="maratonBreddInput" class="mt-1 block w-full p-3 text-base sm:text-lg border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="cm">
                         <div id="marathonWidthWarning"></div>
                     </div>
                 </div>
 
                 <details class="border rounded-lg bg-blue-50/70 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800">
-                    <summary class="cursor-pointer list-none flex items-center justify-between p-4 font-semibold text-blue-900 dark:text-blue-100">
+                    <summary class="cursor-pointer list-none flex items-center justify-between gap-3 p-3 sm:p-4 font-semibold text-blue-900 dark:text-blue-100">
                         <span>Vagnregler för godkännande</span>
                         <span class="text-xs font-medium text-blue-700 dark:text-blue-300">Visa/Dölj</span>
                     </summary>
                     <div class="px-4 pb-4 text-sm text-blue-950 dark:text-blue-50 space-y-3">
                         <div id="vagnRuleCurrent" class="rounded-lg border border-blue-200 bg-blue-100/70 p-3 dark:border-blue-800 dark:bg-blue-950/20"></div>
-                        <div class="grid grid-cols-1 gap-3 md:grid-cols-2">
+                        <div class="grid grid-cols-1 gap-3">
                             <div class="rounded-lg bg-white/80 p-3 dark:bg-gray-800/60">
                                 <p class="font-semibold">Det viktigaste att kolla</p>
                                 <ul class="list-disc list-inside mt-1 space-y-1 text-blue-900 dark:text-blue-100">
@@ -485,7 +485,7 @@ function renderPage(page, competition) {
                     </div>
                 </details>
 
-                <div class="p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 dark:border-gray-600">
+                <div class="p-3 sm:p-4 border rounded-lg bg-gray-50 dark:bg-gray-700/50 dark:border-gray-600">
                     <h3 class="text-md font-semibold mb-3 dark:text-white">4. Funktionskontroll</h3>
                     <div class="space-y-3">
                         <label class="flex items-center cursor-pointer">

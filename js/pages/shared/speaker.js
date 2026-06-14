@@ -426,7 +426,7 @@ function renderLayout() {
 
     if (!document.getElementById('discipline-switcher')) {
         root.innerHTML = `
-            <div class="container mx-auto p-4 flex flex-col h-screen max-h-screen overflow-hidden">
+            <div class="container mx-auto p-3 sm:p-4 flex flex-col h-screen max-h-screen overflow-hidden">
                 ${getCompetitionHeader(comp, 'Speaker Dashboard', true)}
                 <div id="discipline-switcher" class="flex justify-center gap-2 mb-4 pt-4 shrink-0"></div>
                 <div id="speaker-page-content" class="flex-1 min-h-0 overflow-y-auto"></div>
@@ -439,11 +439,11 @@ function renderLayout() {
 
     if (!document.getElementById('unified-grid-layout')) {
         container.innerHTML = `
-        <div id="unified-grid-layout" class="grid grid-cols-1 lg:grid-cols-12 gap-6 pb-8 items-start">
+        <div id="unified-grid-layout" class="grid grid-cols-1 lg:grid-cols-12 gap-4 md:gap-6 pb-6 md:pb-8 items-start">
             <!-- Left Main Column (9) -->
-            <div class="lg:col-span-9 flex flex-col gap-6 min-h-0">
+            <div class="lg:col-span-9 flex flex-col gap-4 md:gap-6 min-h-0">
                 <!-- Top Left: Current Rider Card + Obstacles/Sectors -->
-                <div class="flex flex-col shrink-0 gap-6">
+                <div class="flex flex-col shrink-0 gap-4 md:gap-6">
                     <!-- Main Rider Card -->
                     <div id="current-rider-card" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden shrink-0">
                         <!-- renderCurrentRiderCard renders here -->
@@ -473,7 +473,7 @@ function renderLayout() {
                     </div>
 
                      <!-- Speaker Notes -->
-                     <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl shadow-sm border border-yellow-200 dark:border-yellow-800/50 p-4 shrink-0 h-fit min-h-[150px] ${currentDiscipline === 'maraton' ? 'order-3' : ''}">
+                     <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl shadow-sm border border-yellow-200 dark:border-yellow-800/50 p-3 sm:p-4 shrink-0 h-fit min-h-[130px] md:min-h-[150px] ${currentDiscipline === 'maraton' ? 'order-3' : ''}">
                         <div class="flex justify-between items-center mb-2">
                             <h3 class="font-bold text-yellow-800 dark:text-yellow-200 uppercase tracking-wide text-xs">Speaker Noteringar</h3>
                              <button onclick="window.editSpeakerNotes(currentRider?.eq?.startNumber)" class="text-yellow-600 hover:text-yellow-800 dark:text-yellow-300 dark:hover:text-yellow-100 text-xs font-bold px-2 py-1 bg-yellow-100 dark:bg-yellow-800/50 rounded">✎ Ändra</button>
@@ -494,7 +494,7 @@ function renderLayout() {
             </div>
 
             <!-- Right Sidebar Column (3) -->
-            <div class="lg:col-span-3 flex flex-col gap-4 min-h-0">
+            <div class="lg:col-span-3 flex flex-col gap-3 md:gap-4 min-h-0">
                  <!-- Active List -->
                 <div id="active-list-container" class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col shrink-0 max-h-[50%]">
                     <div class="bg-amber-50 dark:bg-amber-900/30 px-4 py-2 border-b border-amber-100 dark:border-amber-800 flex justify-between items-center shrink-0">
@@ -1112,7 +1112,7 @@ function renderCurrentRiderCard() {
 
         contentHtml = `
      <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="grid grid-cols-1 md:grid-cols-12 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-12 gap-4 md:gap-6">
                  <div class="md:col-span-12">
                     <div class="text-sm uppercase text-gray-500 dark:text-gray-400 font-bold mb-1">Häst(ar)</div>
                     <div class="text-xl text-gray-900 dark:text-white leading-snug mb-2">${horseText}</div>
@@ -1263,7 +1263,7 @@ function renderCurrentRiderCard() {
                 : `<div class="text-sm font-bold text-gray-400">Inget ref.</div>`;
 
             targetHtml = `
-            <div class="bg-green-50 dark:bg-green-900/20 p-5 rounded-lg border border-green-100 dark:border-green-800 flex flex-col justify-center items-center h-full">
+            <div class="bg-green-50 dark:bg-green-900/20 p-4 md:p-5 rounded-lg border border-green-100 dark:border-green-800 flex flex-col justify-center items-center h-full">
                 <div class="text-[10px] uppercase font-bold text-green-800 dark:text-green-300 mb-1">Mål att slå</div>
                 ${bestTimeHtml}
                 <div class="text-[8px] text-green-500 dark:text-green-400 uppercase font-bold">${stats?.avg ? 'Snitt: ' + (stats.avg / getObstacleCoefficient(eq.className)).toFixed(2) + 's' : 'Första start'}</div>
@@ -1290,9 +1290,9 @@ function renderCurrentRiderCard() {
         <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
             ${comparisonHtml}
             
-            <div class="grid grid-cols-12 gap-4 items-stretch">
+            <div class="grid grid-cols-12 gap-3 md:gap-4 items-stretch">
                 <!-- Main Activity (Left) -->
-                <div class="col-span-12 md:col-span-7 bg-amber-50 dark:bg-amber-900/40 p-6 rounded-xl border border-amber-100 dark:border-amber-800 shadow-sm flex flex-col justify-center">
+                <div class="col-span-12 md:col-span-7 bg-amber-50 dark:bg-amber-900/40 p-4 md:p-6 rounded-xl border border-amber-100 dark:border-amber-800 shadow-sm flex flex-col justify-center">
                     <div class="flex justify-between items-start mb-2">
                         <div>
                             <div class="text-[10px] uppercase font-bold text-amber-800 dark:text-amber-200 opacity-60">Nuvarande Aktivitet</div>
@@ -1309,14 +1309,14 @@ function renderCurrentRiderCard() {
                 <!-- Secondary Stats (Right) -->
                 <div class="col-span-12 md:col-span-5 flex flex-col gap-3">
                     ${targetHtml ? `<div class="flex-1">${targetHtml}</div>` : `
-                    <div class="bg-gray-50 dark:bg-gray-700 p-5 rounded-xl border border-gray-200 dark:border-gray-600 flex flex-col justify-center items-center flex-1">
+                    <div class="bg-gray-50 dark:bg-gray-700 p-4 md:p-5 rounded-xl border border-gray-200 dark:border-gray-600 flex flex-col justify-center items-center flex-1">
                         <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Totalt i Maraton</div>
                         <div class="text-3xl font-black text-gray-900 dark:text-white">${totalPenaltyDisplay}</div>
                     </div>`}
 
                     <!-- Prognosis Bubble -->
                     ${prog && Number.isFinite(prog.projectedTotal) && prog.basedOnStats ? `
-                    <div class="bg-indigo-900 dark:bg-indigo-950 text-white p-4 rounded-xl shadow-lg flex items-center justify-between">
+                    <div class="bg-indigo-900 dark:bg-indigo-950 text-white p-3 sm:p-4 rounded-xl shadow-lg flex items-center justify-between gap-3">
                         <div class="text-[10px] leading-tight opacity-75 uppercase font-bold">Prognos<br><span class="text-[8px] font-normal lowercase">Baserat på snitt</span></div>
                         <div class="text-2xl font-black tabular-nums">${prog.projectedTotal.toFixed(2)}</div>
                     </div>` : ''}
@@ -1324,7 +1324,7 @@ function renderCurrentRiderCard() {
             </div>
 
             <!-- Bottom Row: Recent Obstacles & Top 3 -->
-            <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-4">
+            <div class="mt-4 grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4">
                 <div class="md:col-span-6">
                     <div class="text-[10px] uppercase text-gray-400 font-bold mb-2 flex justify-between">
                         <span>Senaste Hinder</span>
@@ -1406,7 +1406,7 @@ function renderCurrentRiderCard() {
 
 
         contentHtml = `
-    <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 grid grid-cols-12 gap-4">
+    <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700 grid grid-cols-12 gap-3 md:gap-4">
             <div class="col-span-12">
                 <div class="text-sm uppercase text-gray-500 dark:text-gray-400 font-bold mb-2">Häst(ar)</div>
                 <div class="text-lg text-gray-800 dark:text-white leading-snug mb-4">${horseText}</div>
@@ -1453,7 +1453,7 @@ function renderCurrentRiderCard() {
             </div>
 
             <!--Top 3 Column (Wider)-->
-            <div class="col-span-12 md:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="col-span-12 md:col-span-7 grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                 <!-- Precision Top 3 -->
                 <div class="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden text-sm flex flex-col">
                     <div class="bg-indigo-50 dark:bg-indigo-900/40 px-3 py-2 text-[10px] font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wide border-b border-indigo-100 dark:border-indigo-800">
@@ -1519,29 +1519,29 @@ function renderCurrentRiderCard() {
 
         contentHtml = `
         <div class="mt-4 pt-4 border-t border-gray-100 dark:border-gray-700">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-3 md:gap-4">
                 <!-- Dressage Score -->
-                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
+                <div class="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Dressyr</div>
                     <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(dPen)}</div>
                     <div class="text-[10px] text-gray-400">${dSt?.finalPercent ? dSt.finalPercent.toFixed(1) + '%' : ''}</div>
                 </div>
                 
                 <!-- Marathon Score -->
-                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
+                <div class="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Maraton</div>
                     <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(mPen)}</div>
                 </div>
                 
                 <!-- Precision Score -->
-                <div class="bg-white dark:bg-gray-800 p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
+                <div class="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Precision</div>
                     <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(pPen)}</div>
                 </div>
             </div>
 
             <!-- Grand Total -->
-            <div class="mt-6 bg-brand-darkblue dark:bg-blue-900 text-white p-6 rounded-2xl shadow-xl flex flex-col items-center relative overflow-hidden">
+            <div class="mt-6 bg-brand-darkblue dark:bg-blue-900 text-white p-4 md:p-6 rounded-2xl shadow-xl flex flex-col items-center relative overflow-hidden">
                 <div class="absolute top-0 left-0 w-full h-full bg-gradient-to-br from-blue-400/10 to-transparent pointer-events-none"></div>
                 <div class="text-xs uppercase font-black tracking-widest text-blue-200 mb-2">Total Ställning</div>
                 <div class="text-6xl font-black tracking-tighter">${formatSpeakerPenalty(myTotalScore, { eliminated: myTotalScore === Infinity })}</div>

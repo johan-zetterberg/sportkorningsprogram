@@ -72,22 +72,22 @@ function showEquipageDetailsModal(equipage) {
     // --- 1. Informations-block ---
     contentHtml += `
         <div class="p-4 bg-gray-50 dark:bg-gray-700 rounded-lg">
-            <div class="flex justify-between items-center border-b dark:border-gray-600 pb-2 mb-2">
+            <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b dark:border-gray-600 pb-2 mb-2">
                 <h3 class="text-lg font-semibold dark:text-gray-100">Information</h3>
-                <button id="editInfoBtn" class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium">Redigera</button>
+                <button id="editInfoBtn" class="self-start text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium">Redigera</button>
             </div>
-            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                <span class="font-medium text-gray-600 dark:text-gray-300">Kusk:</span> <span class="dark:text-gray-100">${equipage.driverName}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">E-post:</span> <span class="dark:text-gray-100">${equipage.email || '<span class="text-gray-400 italic">Saknas</span>'}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Klubb:</span> <span class="dark:text-gray-100">${equipage.clubName}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Klass:</span> <span class="dark:text-gray-100">${equipage.className}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Status:</span> <span class="font-semibold ${normalizeEquipageStatus(equipage.status) === 'struken' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${normalizeEquipageStatus(equipage.status)}</span>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                <span class="font-medium text-gray-600 dark:text-gray-300">Kusk:</span> <span class="dark:text-gray-100 break-words">${equipage.driverName}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">E-post:</span> <span class="dark:text-gray-100 break-all">${equipage.email || '<span class="text-gray-400 italic">Saknas</span>'}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Klubb:</span> <span class="dark:text-gray-100 break-words">${equipage.clubName}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Klass:</span> <span class="dark:text-gray-100 break-words">${equipage.className}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Status:</span> <span class="font-semibold break-words ${normalizeEquipageStatus(equipage.status) === 'struken' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${normalizeEquipageStatus(equipage.status)}</span>
                 
                 <span class="font-medium text-gray-600 dark:text-gray-300 mt-2 border-t pt-2 dark:border-gray-600">Vagnbredd (D/P):</span> 
                 <span class="dark:text-gray-100 mt-2 border-t pt-2 dark:border-gray-600">${equipage.trackWidth ? `${equipage.trackWidth} cm` : 'Ej angivet'}</span>
                 
                 <span class="font-medium text-gray-600 dark:text-gray-300">Funktionskontroll:</span> 
-                <span class="dark:text-gray-100">${safetyStatus} ${safetyComment}</span>
+                <span class="dark:text-gray-100 break-words">${safetyStatus} ${safetyComment}</span>
 
                 <span class="font-medium text-gray-600 dark:text-gray-300 col-span-2 mt-2">Speaker-noteringar:</span>
                 <span class="col-span-2 italic text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600 text-xs">
@@ -110,11 +110,11 @@ function showEquipageDetailsModal(equipage) {
             contentHtml += `
                 <div class="border-t dark:border-gray-600 pt-2">
                     <p><span class="font-semibold text-base dark:text-gray-200">${horse.name || 'Namn saknas'}</span> <span class="text-sm text-gray-600 dark:text-gray-400">(${horse.id || 'ID saknas'})</span></p>
-                    <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-xs mt-1">
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Typ:</span> <span class="dark:text-gray-300">${horse.type || '-'}</span>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs mt-1">
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Typ:</span> <span class="dark:text-gray-300 break-words">${horse.type || '-'}</span>
                         <span class="font-medium text-gray-600 dark:text-gray-400">Ålder:</span> <span class="dark:text-gray-300">${horse.age || '-'}</span>
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Härstamning:</span> <span class="dark:text-gray-300">${horse.lineage || '-'}</span>
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Ägare:</span> <span class="dark:text-gray-300">${horse.owner || '-'}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Härstamning:</span> <span class="dark:text-gray-300 break-words">${horse.lineage || '-'}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Ägare:</span> <span class="dark:text-gray-300 break-words">${horse.owner || '-'}</span>
                         <span class="font-medium text-gray-600 dark:text-gray-400">Veterinär:</span> <span>${renderHorseVetStatusBadge(horse)}</span>
                     </div>
                 </div>
@@ -136,14 +136,14 @@ function showEquipageDetailsModal(equipage) {
 
         contentHtml += `
             <div class="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                <div class="flex justify-between items-center border-b border-blue-200 dark:border-blue-800 pb-2 mb-2">
+                <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between border-b border-blue-200 dark:border-blue-800 pb-2 mb-2">
                     <h3 class="text-lg font-semibold text-blue-800 dark:text-blue-200">Valda hästar för moment</h3>
-                    ${canSelectHorses ? '<button id="editMomentHorsesBtn" class="px-3 py-1 text-sm bg-brand-darkblue text-white rounded-md hover:bg-opacity-90">Ändra</button>' : ''}
+                    ${canSelectHorses ? '<button id="editMomentHorsesBtn" class="self-start px-3 py-1 text-sm bg-brand-darkblue text-white rounded-md hover:bg-opacity-90">Ändra</button>' : ''}
                 </div>
-                <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                    <span class="font-medium text-gray-600 dark:text-gray-300">Dressyr:</span> <span class="dark:text-gray-100">${getHorseNames('dressage')}</span>
-                    <span class="font-medium text-gray-600 dark:text-gray-300">Maraton:</span> <span class="dark:text-gray-100">${getHorseNames('marathon')}</span>
-                    <span class="font-medium text-gray-600 dark:text-gray-300">Precision:</span> <span class="dark:text-gray-100">${getHorseNames('precision')}</span>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
+                    <span class="font-medium text-gray-600 dark:text-gray-300">Dressyr:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('dressage')}</span>
+                    <span class="font-medium text-gray-600 dark:text-gray-300">Maraton:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('marathon')}</span>
+                    <span class="font-medium text-gray-600 dark:text-gray-300">Precision:</span> <span class="dark:text-gray-100 break-words">${getHorseNames('precision')}</span>
                 </div>
                 ${!canSelectHorses ? `<p class="text-xs text-gray-500 dark:text-gray-400 italic mt-2">Ekipaget har inte tillräckligt många reservhästar (${allHorses.length} st) för att göra val.</p>` : ''}
             </div>
@@ -197,7 +197,7 @@ function renderEditInfoView(equipage, modalContent) {
                 <textarea id="editVetNotes" rows="2" class="mt-1 block w-full rounded-md border-red-300 dark:border-red-800 shadow-sm p-2 border bg-red-50 dark:bg-red-900/30 dark:text-red-100">${equipage.vetNotes || ''}</textarea>
             </div>
         </div>
-        <div class="flex gap-4 mt-6">
+        <div class="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 mt-6">
             <button id="saveInfoBtn" class="flex-1 px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md font-semibold transition-colors">Spara</button>
             <button id="cancelInfoBtn" class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-md transition-colors">Avbryt</button>
         </div>
@@ -279,7 +279,7 @@ function renderHorseSelectionView(equipage, allHorses, horseLimit, modalContent)
 
     contentHtml += `
             </div>
-            <div class="flex gap-4 mt-6 border-t dark:border-gray-600 pt-4">
+            <div class="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 mt-6 border-t dark:border-gray-600 pt-4">
                 <button id="saveMomentHorsesBtn" class="flex-1 px-4 py-2 bg-brand-darkblue text-white rounded-md font-semibold hover:bg-opacity-90 transition-colors">Spara och stäng</button>
                 <button id="cancelMomentHorsesBtn" class="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-300 dark:hover:bg-gray-600 rounded-md transition-colors">Avbryt</button>
             </div>
@@ -403,10 +403,10 @@ function renderList() {
         else if (currentStatus === 'incheckad') bgColor = 'bg-blue-50 dark:bg-blue-900/20';
 
         const element = document.createElement('div');
-        element.className = `p-3 rounded-lg flex items-center justify-between transition-colors duration-200 ${bgColor} hover:bg-gray-100 dark:hover:bg-gray-600`;
+        element.className = `p-3 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-colors duration-200 ${bgColor} hover:bg-gray-100 dark:hover:bg-gray-600`;
 
         // Skapa HTML för dropdown-menyn
-        let selectHtml = `<select class="status-select text-sm font-medium border-gray-300 dark:border-gray-600 rounded-md shadow-sm dark:bg-gray-800 dark:text-gray-200" data-start-number="${e.startNumber}">`;
+        let selectHtml = `<select class="status-select w-full sm:w-auto text-sm font-medium border-gray-300 dark:border-gray-600 rounded-md shadow-sm dark:bg-gray-800 dark:text-gray-200" data-start-number="${e.startNumber}">`;
         statusOptions.forEach(opt => {
             const selected = opt.value === currentStatus ? 'selected' : '';
             // Justera textfärger i options om det behövs
@@ -421,7 +421,7 @@ function renderList() {
                     <span class="text-sm text-gray-600 dark:text-gray-400">(${e.className})</span>
                 </div>
             </div>
-            <div class="flex items-center space-x-3 ml-4">
+            <div class="flex items-center w-full sm:w-auto sm:justify-end space-x-3 sm:ml-4">
                 ${selectHtml}
             </div>
         `;
@@ -504,18 +504,18 @@ export function load() {
             <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
                 <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-gray-100">Ändra Status för Ekipage</h2>
                 
-                <div class="mb-4 space-y-3 md:space-y-0 md:flex md:items-center md:justify-between">
-                    <div>
+                <div class="mb-4 grid gap-3 lg:grid-cols-[minmax(0,18rem),1fr] lg:items-center">
+                    <div class="min-w-0">
                         <input type="text" id="equipageSearchInput" placeholder="Sök på startnr, kusk, klubb..."
-                               class="w-full md:w-72 p-2 border rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400">
+                               class="w-full p-2 border rounded-md shadow-sm dark:bg-gray-700 dark:border-gray-600 dark:text-gray-100 dark:placeholder-gray-400">
                     </div>
-                    <div id="statusFilterButtons" class="flex items-center flex-wrap gap-2 pt-3 md:pt-0">
-                        <button class="filter-btn" data-status="alla">Visa Alla</button>
-                        <button class="filter-btn" data-status="anmäld">Anmälda</button>
-                        <button class="filter-btn" data-status="incheckad">Incheckade</button>
-                        <button class="filter-btn" data-status="ombesiktning">Håll (Omb.)</button>
-                        <button class="filter-btn" data-status="besiktigad">Besiktigade</button>
-                        <button class="filter-btn" data-status="struken">Struken</button>
+                    <div id="statusFilterButtons" class="grid grid-cols-2 sm:grid-cols-3 xl:flex xl:flex-wrap gap-2">
+                        <button class="filter-btn px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 transition-colors" data-status="alla">Visa Alla</button>
+                        <button class="filter-btn px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 transition-colors" data-status="anmäld">Anmälda</button>
+                        <button class="filter-btn px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 transition-colors" data-status="incheckad">Incheckade</button>
+                        <button class="filter-btn px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 transition-colors" data-status="ombesiktning">Håll (Omb.)</button>
+                        <button class="filter-btn px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 transition-colors" data-status="besiktigad">Besiktigade</button>
+                        <button class="filter-btn px-3 py-2 rounded-md text-sm font-medium border border-gray-300 dark:border-gray-600 transition-colors" data-status="struken">Struken</button>
                     </div>
                 </div>
                 <div id="equipageStatusList" class="space-y-2 mt-6 border-t dark:border-gray-700 pt-4">

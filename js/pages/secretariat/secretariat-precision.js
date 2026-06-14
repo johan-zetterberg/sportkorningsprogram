@@ -121,7 +121,7 @@ function render() {
   const visibleRows = getVisibleRows();
 
   rootEl.innerHTML = `
-    <div class="min-w-[1520px] max-w-none mx-auto px-4 py-4">
+    <div class="w-full max-w-7xl mx-auto px-3 py-4 sm:px-4">
       ${getCompetitionHeader(competition, t('secretariat_precision_title'))}
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Registrera tider och straff manuellt här och använd sekretariatet för upplåsning och återfinalisering.',

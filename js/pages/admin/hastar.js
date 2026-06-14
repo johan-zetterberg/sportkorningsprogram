@@ -98,7 +98,7 @@ function renderGrid(filtered, container) {
     const role = (user?.role || '').toLowerCase();
     const isAuth = ['admin', 'organizer', 'official', 'judge', 'domare', 'funktionar'].includes(role);
 
-    container.className = "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6";
+    container.className = "grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 md:gap-6";
 
     container.innerHTML = filtered.map(h => {
         const details = [];
@@ -154,20 +154,20 @@ function renderGrid(filtered, container) {
                     ${exists(h.breeder) ? `
                     <div class="flex flex-col mb-1">
                         <span class="text-xs text-gray-500 dark:text-gray-400">${t('uppfodare')}</span>
-                        <span class="text-gray-800 dark:text-gray-200 font-medium truncate" title="${h.breeder}">${h.breeder}</span>
+                        <span class="text-gray-800 dark:text-gray-200 font-medium break-words" title="${h.breeder}">${h.breeder}</span>
                     </div>` : ''}
                     
                     ${exists(h.owner) ? `
                     <div class="flex flex-col">
                         <span class="text-xs text-gray-500 dark:text-gray-400">${t('agare')}</span>
-                        <span class="text-gray-800 dark:text-gray-200 font-medium truncate" title="${h.owner}">${h.owner}</span>
+                        <span class="text-gray-800 dark:text-gray-200 font-medium break-words" title="${h.owner}">${h.owner}</span>
                     </div>` : ''}
                 </div>
             </div>
 
             <div class="px-4 py-3 bg-blue-50/50 dark:bg-blue-900/20 border-t border-blue-100 dark:border-blue-900/30 flex items-center gap-2">
                 <span class="text-xs text-blue-600 dark:text-blue-400 font-semibold uppercase">${t('kores_av')}</span>
-                <span class="text-sm font-bold text-gray-900 dark:text-white truncate flex-1">${h.driverName || '—'}</span>
+                <span class="text-sm font-bold text-gray-900 dark:text-white break-words flex-1">${h.driverName || '—'}</span>
             </div>
         </div>
         `;
@@ -187,15 +187,15 @@ function renderTable(filtered, container) {
         const lineage = [h.sire, h.dam].filter(exists).join(' x ') || h.lineage || '-';
         return `
             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                <td class="px-4 py-3 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white bg-white dark:bg-gray-800 sticky left-0 z-10">${h.name}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.breed || '-'}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.color || '-'}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.gender || '-'}</td>
-                <td class="px-4 py-3 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">${h.age || '-'}</td>
-                <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${lineage}">${lineage}</td>
-                <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${h.owner || ''}">${h.owner || '-'}</td>
-                <td class="px-4 py-3 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">${h.driverName || '-'}</td>
-                ${isAuth ? `<td class="px-4 py-3 text-sm text-green-700 dark:text-green-400 whitespace-nowrap text-right">${h.vaccinationDate || '-'}</td>` : ''}
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white bg-white dark:bg-gray-800 sticky left-0 z-10">${h.name}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.breed || '-'}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.color || '-'}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.gender || '-'}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">${h.age || '-'}</td>
+                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${lineage}">${lineage}</td>
+                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${h.owner || ''}">${h.owner || '-'}</td>
+                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">${h.driverName || '-'}</td>
+                ${isAuth ? `<td class="px-2 py-3 sm:px-4 text-sm text-green-700 dark:text-green-400 whitespace-nowrap text-right">${h.vaccinationDate || '-'}</td>` : ''}
             </tr>
         `;
     }).join('');
@@ -206,15 +206,15 @@ function renderTable(filtered, container) {
                 <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                     <thead class="bg-gray-50 dark:bg-gray-700">
                         <tr>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky left-0 z-20 bg-gray-50 dark:bg-gray-700">${t('hast_ponny')}</th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('ras')}</th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('farg')}</th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('kon')}</th>
-                            <th scope="col" class="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('alder')}</th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('harstamning')}</th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('agare')}</th>
-                            <th scope="col" class="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('kusk')}</th>
-                            ${isAuth ? `<th scope="col" class="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('vaccination')}</th>` : ''}
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider sticky left-0 z-20 bg-gray-50 dark:bg-gray-700">${t('hast_ponny')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('ras')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('farg')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('kon')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-center text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('alder')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('harstamning')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('agare')}</th>
+                            <th scope="col" class="px-2 py-3 sm:px-4 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('kusk')}</th>
+                            ${isAuth ? `<th scope="col" class="px-2 py-3 sm:px-4 text-right text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">${t('vaccination')}</th>` : ''}
                         </tr>
                     </thead>
                     <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
@@ -322,20 +322,20 @@ export async function load() {
             ${getCompetitionHeader(competition, t('hastlista'))}
 
             <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md mb-6 transition-colors">
-                <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+                <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
                      <!-- Sökfält -->
-                     <div class="relative w-full md:w-96">
+                     <div class="relative w-full xl:max-w-md">
                         <span class="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-500">
                            <svg fill="currentColor" viewBox="0 0 20 20" class="w-5 h-5"><path fill-rule="evenodd" d="M8 4a4 4 0 100 8 4 4 0 000-8zM2 8a6 6 0 1110.89 3.476l4.817 4.817a1 1 0 01-1.414 1.414l-4.816-4.816A6 6 0 012 8z" clip-rule="evenodd"></path></svg>
                         </span>
                         <input id="horseSearch" type="text" placeholder="${t('search_horse_placeholder')}" class="w-full py-2 pl-10 pr-4 text-gray-700 dark:text-gray-200 bg-gray-50 dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white dark:focus:bg-gray-600 text-base placeholder-gray-400">
                      </div>
 
-                     <div class="flex flex-wrap items-center gap-3">
-                        <span class="text-sm text-gray-500 dark:text-gray-400 hidden md:inline" id="horseCount"></span>
+                     <div class="grid gap-3 sm:grid-cols-2 xl:flex xl:flex-wrap xl:items-center">
+                        <span class="text-sm text-gray-500 dark:text-gray-400 sm:col-span-2 xl:col-span-1" id="horseCount"></span>
 
                         <!-- Vy-väljare -->
-                         <div class="inline-flex rounded-md shadow-sm" role="group">
+                         <div class="inline-flex w-full sm:w-auto rounded-md shadow-sm" role="group">
                             <button id="viewGridBtn" type="button" class="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-l-lg ${viewMode === 'grid' ? 'bg-gray-900 text-white dark:bg-gray-600' : 'bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-300'} hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
                                 <i class="fas fa-th-large"></i> Panels
                             </button>
@@ -345,11 +345,11 @@ export async function load() {
                         </div>
 
                         <!-- Export -->
-                        <div class="flex items-center gap-2">
-                            <button id="btnExportCsv" type="button" class="inline-flex items-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
+                        <div class="grid grid-cols-2 gap-2">
+                            <button id="btnExportCsv" type="button" class="inline-flex items-center justify-center px-3 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 transition-colors">
                                 <i class="fas fa-file-csv mr-2 text-gray-500"></i> CSV
                             </button>
-                            <button id="btnExportPdf" type="button" class="inline-flex items-center px-3 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors">
+                            <button id="btnExportPdf" type="button" class="inline-flex items-center justify-center px-3 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-gray-600 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 transition-colors">
                                 <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg> PDF
                             </button>
                         </div>

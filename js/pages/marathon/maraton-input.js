@@ -1567,7 +1567,7 @@ function renderRouteButtonsForCurrent() {
 
   // Grupp: versaler (rätt håll)
   const upperRow = document.createElement('div');
-  upperRow.className = 'grid grid-cols-4 sm:grid-cols-6 gap-2'; // 4 columns on mobile is optimal (A,B,C,D)
+  upperRow.className = 'route-button-grid grid grid-cols-4 sm:grid-cols-6 gap-2'; // 4 columns on mobile is optimal (A,B,C,D)
   letters.forEach(L => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1579,7 +1579,7 @@ function renderRouteButtonsForCurrent() {
 
   // Grupp: gemener (bakifrån)
   const lowerRow = document.createElement('div');
-  lowerRow.className = 'grid grid-cols-4 sm:grid-cols-6 gap-2';
+  lowerRow.className = 'route-button-grid grid grid-cols-4 sm:grid-cols-6 gap-2';
   letters.forEach(L => {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -1665,10 +1665,19 @@ export function load() {
           color: #2563eb;
           font-weight: 600;
       }
+
+      .marathon-manual-editor {
+          position: absolute;
+          right: 1rem;
+          top: 100%;
+          margin-top: 0.5rem;
+          width: 18rem;
+          max-width: calc(100vw - 2rem);
+      }
       
       @media (max-width: 640px) {
           #page-maraton-input .container { padding: 0.5rem; }
-          #page-maraton-input .main-card { padding: 0.75rem !important; border-radius: 0.5rem; }
+          #page-maraton-input .main-card { padding: 0.75rem !important; border-radius: 0.75rem; }
           #page-maraton-input h2 { font-size: 1.25rem; margin-bottom: 0.5rem; }
           
           .sticky-maraton-controls {
@@ -1678,9 +1687,72 @@ export function load() {
               padding: 0.5rem 0.75rem !important;
           }
           #liveTimerMar { font-size: 2.25rem !important; }
-          .control-btn { padding: 0.5rem !important; font-size: 1rem !important; }
+          .control-btn { padding: 0.65rem !important; font-size: 1rem !important; }
           
           .selection-grid { grid-template-columns: 1fr !important; gap: 0.5rem !important; }
+          .marathon-equipage-nav {
+              display: grid !important;
+              grid-template-columns: auto minmax(0, 1fr) auto;
+              gap: 0.5rem;
+              align-items: center;
+          }
+          .marathon-equipage-nav #equipageSearchContainerMar {
+              min-width: 0;
+          }
+          .marathon-manual-editor {
+              position: fixed;
+              inset: auto 0.75rem auto 0.75rem;
+              top: 50%;
+              right: 0.75rem;
+              width: auto;
+              max-width: none;
+              margin-top: 0;
+              transform: translateY(-50%);
+              z-index: 70;
+          }
+          .marathon-penalty-grid {
+              grid-template-columns: 1fr !important;
+          }
+      }
+
+      @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+          #page-maraton-input .container { padding: 0.35rem; }
+          #page-maraton-input .main-card { padding: 0.75rem !important; }
+          .sticky-maraton-controls {
+              top: 0 !important;
+              margin-left: -0.75rem;
+              margin-right: -0.75rem;
+              padding: 0.45rem 0.75rem !important;
+          }
+          #liveTimerMar {
+              font-size: 2.5rem !important;
+              line-height: 0.95;
+          }
+          .control-btn {
+              padding-top: 0.65rem !important;
+              padding-bottom: 0.65rem !important;
+              font-size: 1rem !important;
+          }
+          .marathon-reset-btn {
+              width: 3.5rem !important;
+              height: 3.5rem !important;
+          }
+          .marathon-penalty-grid {
+              grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+          }
+          .route-button-grid {
+              gap: 0.45rem !important;
+          }
+          .route-button-grid button {
+              padding-top: 0.55rem !important;
+              padding-bottom: 0.55rem !important;
+              font-size: 0.95rem !important;
+          }
+          .marathon-save-btn {
+              padding-top: 0.85rem !important;
+              padding-bottom: 0.85rem !important;
+              font-size: 1rem !important;
+          }
       }
 
       /* Dark mode styles */
@@ -1705,7 +1777,7 @@ export function load() {
         <div class="selection-grid grid grid-cols-1 md:grid-cols-2 gap-3 mb-2 relative z-30">
           <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
             <label class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_select_equipage')}</label>
-            <div class="flex items-center gap-2">
+            <div class="marathon-equipage-nav flex items-center gap-2">
               <button id="prevEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
               <div id="equipageSearchContainerMar" class="flex-grow"></div>
               <button id="nextEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
@@ -1720,7 +1792,7 @@ export function load() {
 
         <!-- STICKY TIMER OCH KONTROLLER -->
         <div class="sticky-maraton-controls sticky top-[63px] -mx-6 px-6 py-3 bg-white/95 dark:bg-gray-800/95 backdrop-blur border-b dark:border-gray-700 z-10 shadow-sm mb-4">
-          <div class="flex items-center justify-between gap-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
             <div class="flex-grow min-w-0">
                <div id="infoEquipageLineMar" class="font-bold text-sm md:text-base dark:text-white truncate">–</div>
                <div class="text-xs text-gray-600 dark:text-gray-400">
@@ -1730,16 +1802,16 @@ export function load() {
             <div id="liveTimerMar" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer text-gray-800 dark:text-white" title="Ändra tid">00:00,00</div>
           </div>
 
-          <div class="mt-2 flex items-center gap-2">
+          <div class="mt-2 flex flex-wrap items-center gap-2">
             ${competition?.competitionMode === 'field'
-              ? `<button id="btnManualOpenMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-brand-darkblue text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-              : `<button id="btnStartMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
-            <button id="btnStopMar" type="button" class="control-btn flex-1 px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
-            <button id="btnResetMar" type="button" class="control-btn w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white">🔄</button>
+              ? `<button id="btnManualOpenMar" type="button" class="control-btn flex-1 min-w-[12rem] px-4 py-3 rounded-lg bg-brand-darkblue text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+              : `<button id="btnStartMar" type="button" class="control-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
+            <button id="btnStopMar" type="button" class="control-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
+            <button id="btnResetMar" type="button" class="control-btn marathon-reset-btn w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white">🔄</button>
           </div>
 
           <!-- Manuelltids-editor (floating) -->
-          <div id="manualTimeEditorMar" class="hidden absolute right-4 top-full mt-2 w-72 p-4 rounded-xl border bg-white dark:bg-gray-800 shadow-2xl z-50 dark:border-gray-700">
+          <div id="manualTimeEditorMar" class="marathon-manual-editor hidden p-4 rounded-xl border bg-white dark:bg-gray-800 shadow-2xl z-50 dark:border-gray-700">
             <label class="block text-xs font-bold uppercase text-gray-500 mb-2">${t('marathon_manual_time_prompt')}</label>
             <input id="manualTimeDigitsMar" type="tel" inputmode="numeric" class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="mmsscc" maxlength="6" />
             <div class="flex gap-2">
@@ -1751,7 +1823,7 @@ export function load() {
 
         <!-- VÄGVAL -->
         <div class="space-y-2">
-          <div class="flex items-center justify-between">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <label class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_route_through_obstacle')}</label>
             <div class="flex gap-2">
                 <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 hover:underline">${t('marathon_undo')}</button>
@@ -1764,7 +1836,7 @@ export function load() {
         </div>
 
         <!-- STRAFF OCH ELIMINERING -->
-        <div class="grid grid-cols-2 md:grid-cols-3 gap-3 pt-2 border-t dark:border-gray-700">
+        <div class="marathon-penalty-grid grid grid-cols-2 md:grid-cols-3 gap-3 pt-2 border-t dark:border-gray-700">
           <div id="knockdown-container" class="hidden">
             <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_knockdowns')}</label>
             <input type="number" inputmode="numeric" id="maratonKnockdowns" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -1789,7 +1861,7 @@ export function load() {
         </div>
 
         <div class="pt-2">
-          <div class="flex items-center justify-between mb-2">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-2">
              <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">${t('marathon_comment_short')}</button>
              <div class="text-right">
                 <span class="text-[10px] uppercase font-bold text-gray-500 block">${t('marathon_total_obstacle_penalty')}</span>
@@ -1802,7 +1874,7 @@ export function load() {
         </div>
         
         <div class="pt-2">
-            <button type="submit" class="w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all text-xl"> ${t('marathon_save_and_next')} </button>
+            <button type="submit" class="marathon-save-btn w-full bg-emerald-600 text-white font-bold py-4 px-6 rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all text-xl"> ${t('marathon_save_and_next')} </button>
             <button id="btnBackupMarJson" type="button" class="w-full mt-3 text-[10px] text-gray-400 hover:text-blue-500 flex items-center justify-center gap-1">
               <i class="fas fa-file-download"></i> ${t('marathon_export_json')} </button>
         </div>

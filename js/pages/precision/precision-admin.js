@@ -142,7 +142,7 @@ function renderLayout() {
 
     root.innerHTML = `
         ${getCompetitionHeader(comp, 'Precision – Inställningar')}
-        <div class="max-w-[900px] mx-auto p-4 space-y-6">
+        <div class="max-w-5xl mx-auto p-3 md:p-4 space-y-6">
             <section class="p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
                 <h3 class="text-xl font-semibold mb-2 dark:text-white">Inställningar per Klass</h3>
                 <p class="text-sm text-gray-600 mb-4 dark:text-gray-400">
@@ -167,7 +167,7 @@ function renderLayout() {
                 <p class="text-sm text-gray-600 mb-4 dark:text-gray-400">
                     Dessa inställningar gäller för hela tävlingen om inget annat anges.
                 </p>
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="precision-field-wrap">
                         <label class="block text-sm font-medium dark:text-gray-300">Straff per nedslag (p)</label>
                         <input type="number" step="0.5" id="globalKnockdownPenalty" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="3">
@@ -181,9 +181,9 @@ function renderLayout() {
                 </div>
             </section>
             <section class="p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
-                <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
+                <div class="flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center mb-4 border-b dark:border-gray-700 pb-2">
                     <h3 class="text-xl font-semibold dark:text-white">Karta och Passertider (Split-tider)</h3>
-                    <div class="flex gap-4 items-center">
+                    <div class="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
                         <label class="relative inline-flex items-center cursor-pointer">
                             <input type="checkbox" id="precMapHideBackground" class="sr-only peer">
                             <div class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:border-gray-600 peer-checked:bg-brand-darkblue"></div>
@@ -198,15 +198,15 @@ function renderLayout() {
                 </div>
                 
                 <div id="mapSettingsContainer" class="space-y-4 hidden">
-                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                     <div class="precision-field-wrap">
                       <label for="precMapImageUrl" class="block text-sm font-medium dark:text-gray-300">Bild-URL för karta</label>
-                      <div class="flex gap-2">
+                      <div class="flex flex-col sm:flex-row gap-2">
                         <input type="text" id="precMapImageUrl" class="flex-1 p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. img/precision-map.png">
                       </div>
                       
                       <!-- Upload Tools -->
-                      <div class="flex items-center gap-2 mt-2">
+                      <div class="grid grid-cols-1 sm:grid-cols-[auto_auto] gap-2 mt-2">
                         <input type="file" id="precMapImageUploadInput" accept="image/*" class="hidden">
                         <button type="button" id="btnUploadPrecMapImage" class="bg-blue-50 border-2 border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/40" title="Ladda upp bildfil">
                             <span>📤 Ladda upp bildfil</span>
@@ -219,7 +219,7 @@ function renderLayout() {
 
                     <div>
                       <label class="block text-sm font-medium dark:text-gray-300">Bander (Bounds)</label>
-                      <div class="flex gap-2 items-center">
+                      <div class="flex flex-wrap gap-2 items-center">
                           <span class="text-xs text-gray-500 dark:text-gray-400">[0,0] till</span>
                           <input type="number" id="precMapBoundsX" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="X (1920)">
                           <input type="number" id="precMapBoundsY" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Y (1080)">
@@ -228,17 +228,17 @@ function renderLayout() {
                     </div>
                   </div>
 
-                  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+                  <div class="grid grid-cols-1 2xl:grid-cols-2 gap-4">
                     <div>
                       <div class="bg-blue-50/50 p-3 rounded-lg border border-blue-100 dark:bg-blue-900/20 dark:border-blue-800 mb-4">
                         <label for="precMapEntitySelector" class="block text-sm font-bold text-blue-800 mb-1 dark:text-blue-200">Klicka på kartan för att placera gates</label>
-                        <div class="flex gap-2">
+                        <div class="flex flex-col sm:flex-row gap-2">
                             <select id="precMapEntitySelector" class="flex-1 p-2 border border-blue-200 rounded-md text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none dark:bg-gray-700 dark:border-blue-900 dark:text-white">
                                 <option value="start">🚩 Start</option>
                                 <option value="finish">🏆 Mål (Finish)</option>
                             </select>
                         </div>
-                        <div class="mt-2 flex items-center gap-2 flex-wrap">
+                        <div class="mt-2 flex flex-wrap items-center gap-2">
                           <button type="button" id="btnGeneratePrecGates" class="text-xs bg-blue-100 border border-blue-300 px-3 py-1.5 rounded text-blue-800 hover:bg-blue-200 dark:bg-blue-800 dark:text-blue-200 dark:border-blue-700 font-bold shadow-sm">Hämta gates från klasser</button>
                           <span class="text-[10px] text-gray-500">eller manuellt antal:</span>
                           <input type="number" id="precGateCount" min="1" max="30" class="w-16 p-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Antal">
@@ -261,12 +261,12 @@ function renderLayout() {
                 </div>
             </section>
 
-            <div class="flex justify-end gap-3 mt-6">
-                <button id="btnPrintCourse" class="px-5 py-3 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-600 flex items-center gap-2">
+            <div class="flex flex-col sm:flex-row sm:justify-end gap-3 mt-6">
+                <button id="btnPrintCourse" class="w-full sm:w-auto justify-center px-5 py-3 bg-gray-700 text-white font-semibold rounded-lg hover:bg-gray-600 flex items-center gap-2">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
                     Skriv ut banlayout (PDF)
                 </button>
-                <button id="btnSaveAll" class="px-6 py-3 bg-brand-darkblue text-white font-bold rounded-lg hover:bg-brand-gold hover:text-brand-darkblue dark:bg-blue-600 dark:hover:bg-blue-500">Spara alla precisionsinställningar</button>
+                <button id="btnSaveAll" class="w-full sm:w-auto justify-center px-6 py-3 bg-brand-darkblue text-white font-bold rounded-lg hover:bg-brand-gold hover:text-brand-darkblue dark:bg-blue-600 dark:hover:bg-blue-500">Spara alla precisionsinställningar</button>
             </div>
         </div>
     `;
@@ -296,7 +296,7 @@ function renderClassCards() {
             ? labels.map(label => {
                 const delta = specialPortAllowance[label] ?? '';
                 return `
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
                 <span class="w-14 text-sm">${label}</span>
                 <span class="flex-1 text-xs text-gray-500">± cm relativt standard</span>
                 <input
@@ -332,13 +332,13 @@ function renderClassCards() {
         }
 
         return `
-            <div class="p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}">
+            <div class="p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}">
                 <h4 class="text-lg font-bold text-gray-800 dark:text-white">${className}</h4>
                 ${sourceClassLabel}
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-3">
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-3">
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Port-tillägg (cm)</label>
-                        <div class="flex items-center mt-1 p-2 bg-white border rounded-md dark:bg-gray-700 dark:border-gray-600">
+                        <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-white border rounded-md dark:bg-gray-700 dark:border-gray-600">
                             <span class="flex-1 text-gray-700 dark:text-gray-300">Standard: <strong>${stdAllowance}</strong></span>
                             <input type="number" value="${manualAllowance ?? ''}" class="allowance-override-input w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
                         </div>
@@ -349,12 +349,12 @@ function renderClassCards() {
                     </div>
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Tempo & Maxtid</label>
-                        <div class="flex items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
+                        <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
                            <div class="flex items-center gap-1">
                                <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${stdTempo > 0 ? stdTempo : '???'}">
                                <span class="text-xs text-gray-600 dark:text-gray-400">m/min</span>
                            </div>
-                           <span class="flex-1 text-right text-xs text-gray-500">Maxtid:</span>
+                           <span class="flex-1 sm:text-right text-xs text-gray-500">Maxtid:</span>
                            <strong id="maxtime_${classId}" class="text-gray-800 dark:text-white whitespace-nowrap">${maxTime}</strong>
                         </div>
                     </div>

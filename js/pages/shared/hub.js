@@ -83,12 +83,12 @@ function renderLayout() {
   const page = document.getElementById('page-hub');
 
   page.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8 max-w-screen-xl">
+    <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-screen-xl">
       <!-- Branded header-kort, samma känsla som admin.js -->
       <div class="rounded-2xl shadow-md overflow-hidden mb-8" style="border-bottom:4px solid ${gold};">
-        <div class="px-6 md:px-8 py-6"
+        <div class="px-4 sm:px-6 md:px-8 py-5 md:py-6"
              style="background: linear-gradient(90deg, ${darkBlue} 0%, #0b274a 60%, #0e305c 100%);">
-          <div class="flex items-center gap-4">
+          <div class="flex items-center gap-3 sm:gap-4">
             <img src="${logoUrl}" alt="${name} logotyp"
                  class="h-14 w-14 rounded-lg ring-1 ring-white/20 object-contain bg-white/5 p-1"
                  onerror="this.style.display='none'">
@@ -101,7 +101,7 @@ function renderLayout() {
       </div>
 
       <!--Innehåll -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
         <!-- Sök -->
         <section class="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-5">
           <label for="hubSearch" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">${t('hub_search_label')}</label>
@@ -123,7 +123,7 @@ function renderLayout() {
         </aside>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <!-- Skapa ny (visas bara för admin) -->
         <section id="create-competition-container" class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow">
           <h2 class="text-xl font-semibold mb-3 border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('hub_create_title')}</h2>
@@ -133,7 +133,7 @@ function renderLayout() {
               <input type="text" id="compName" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ex. Flyinge Indoor 2025">
             </div>
             
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
                  <div>
                     <label for="compStartDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Startdatum</label>
                     <input type="date" id="compStartDate" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -308,7 +308,7 @@ function renderCompetitionList(competitions) {
     const a = document.createElement('a');
     a.href = 'javascript:void(0);';
     a.href = 'javascript:void(0);';
-    a.className = 'block p-4 bg-gray-50 dark:bg-gray-700 hover:bg-brand-lightblue/10 dark:hover:bg-gray-600 rounded-lg border dark:border-gray-600';
+    a.className = 'block p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 hover:bg-brand-lightblue/10 dark:hover:bg-gray-600 rounded-lg border dark:border-gray-600';
     const user = getCurrentUser();
     const allowAdmin = canAdminCompetition(user, comp);
 

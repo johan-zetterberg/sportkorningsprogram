@@ -242,7 +242,7 @@ function render(container) {
       <p class="text-gray-600 mb-6">${ui.sub}</p>
 
       <!-- TABS -->
-      <div class="manual-tabbar flex flex-wrap gap-2 mb-6 border-b border-gray-200 pb-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
+      <div class="manual-tabbar flex flex-wrap gap-2 mb-4 md:mb-6 border-b border-gray-200 pb-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
         ${renderTabBtn('overview', ui.tabs.overview)}
         ${renderTabBtn('admin', ui.tabs.admin)}
         ${renderTabBtn('official', ui.tabs.official)}
@@ -255,7 +255,7 @@ function render(container) {
       </div>
 
       <!-- CONTENT AREA -->
-      <div class="manual-surface bg-white dark:bg-gray-800 rounded-lg shadow p-6 min-h-[400px] border border-gray-200 dark:border-gray-700">
+      <div class="manual-surface bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 min-h-[400px] border border-gray-200 dark:border-gray-700">
         ${getTabContent(activeTab)}
       </div>
     </div>
@@ -298,7 +298,7 @@ function getTabContent(tab) {
             <section>
                 <h3 class="font-bold text-lg mb-2 text-cyan-700 border-l-4 border-cyan-500 pl-2">Installera som App</h3>
                 <p class="text-gray-700 mb-2">För bästa prestanda och stabilitet bör du lägga till systemet på hemskärmen.</p>
-                <div class="grid md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="bg-gray-50 p-4 rounded border">
                         <strong class="block mb-2">🍏 iPad / iPhone (Safari)</strong>
                         <ol class="list-decimal list-inside text-sm text-gray-700 space-y-1">
@@ -466,7 +466,7 @@ function getTabContent(tab) {
                 <p class="text-gray-700 mb-2">
                     När du startar systemet hamnar du i <strong>Hubben</strong>. Här ser du en lista över alla tillgängliga tävlingar.
                 </p>
-                <div class="grid md:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div class="bg-white p-4 rounded border shadow-sm">
                         <h4 class="font-bold text-gray-800 mb-1">Hitta din tävling</h4>
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
@@ -488,7 +488,7 @@ function getTabContent(tab) {
                 </div>
             </section>
 
-            <section class="grid md:grid-cols-3 gap-6">
+            <section class="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
                 <!-- PRE -->
                 <div class="space-y-4">
                     <div class="flex items-center gap-2 mb-2">
@@ -667,7 +667,7 @@ function getTabContent(tab) {
             <h3 class="font-bold text-lg mb-2 text-orange-700 border-l-4 border-orange-500 pl-2">3. Admin: Banfakta (Maraton/Precision)</h3>
             <p class="text-gray-700 mb-2">För att systemet ska kunna räkna ut tider och straff rätt måste du ställa in banfakta.</p>
             
-            <div class="grid md:grid-cols-2 gap-4 text-sm text-gray-700">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
                 <div class="bg-orange-50 p-4 rounded border border-orange-200">
                     <strong class="block text-orange-900 mb-2">🌲 Maraton: Sträckor & Tider</strong>
                     <ul class="list-disc list-inside space-y-1">
@@ -995,7 +995,7 @@ function getTabContent(tab) {
           <section>
             <h3 class="font-bold text-lg mb-2 text-gray-700 border-l-4 border-gray-500 pl-2">Specialfunktioner (Besiktning)</h3>
             
-            <div class="grid md:grid-cols-2 gap-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                 <!-- Veterinär -->
                 <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
                     <h4 class="font-bold text-gray-800 flex items-center gap-2">🩺 Veterinär</h4>
@@ -1066,7 +1066,7 @@ function getTabContent(tab) {
                         <p class="text-sm text-gray-600">Välj det ekipage du observerar i rullistan högst upp (t.ex. "Start nr 15").</p>
                     </div>
 
-                    <div class="grid md:grid-cols-2 gap-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                         <!-- Fel Gångart -->
                         <div class="bg-orange-50 p-3 rounded">
                             <strong class="block text-orange-900 mb-2">🐎 Fel Gångart (Tid)</strong>
@@ -1259,7 +1259,7 @@ function getTabContent(tab) {
             <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">Översikt & Dashboard</h3>
             <p class="text-gray-700 mb-2">Speaker-vyn är framtagen för att ge dig realtidsinformation utan att du behöver klicka runt. Byt gren via knapparna högst upp (Dressyr, Maraton, Precision).</p>
             
-            <div class="grid md:grid-cols-2 gap-4 text-sm mb-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm mb-4">
                 <div class="bg-indigo-50 p-3 rounded border border-indigo-100">
                     <strong class="text-indigo-900 block mb-1">📢 Speaker-noteringar</strong>
                     <p class="text-gray-700">Visar texten som kusken själv lagt in i sin portal.</p>
@@ -2244,7 +2244,7 @@ function getTabContentEN(tab) {
                         <p class="text-sm text-gray-600">Choose the entry you are observing in the dropdown (e.g., "Start no 15").</p>
                     </div>
 
-                    <div class="grid md:grid-cols-2 gap-6">
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
                         <!-- Wrong Gait -->
                         <div class="bg-orange-50 p-3 rounded">
                             <strong class="block text-orange-900 mb-2">🐎 Wrong Gait (Time)</strong>

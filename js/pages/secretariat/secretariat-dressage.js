@@ -610,7 +610,7 @@ function render() {
   const visibleRows = getVisibleRows();
 
   rootEl.innerHTML = `
-    <div class="min-w-[1120px] max-w-7xl mx-auto px-4 py-4">
+    <div class="w-full max-w-7xl mx-auto px-3 py-4 sm:px-4">
       ${getCompetitionHeader(competition, t('secretariat_dressage_title'))}
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Protokoll och allmänna fel hanteras manuellt här innan ekipagen åter finaliseras.',

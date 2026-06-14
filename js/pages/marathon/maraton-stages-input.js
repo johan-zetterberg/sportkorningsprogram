@@ -916,6 +916,14 @@ function renderLayout() {
       .active-timers-list { display: none; }
       .active-timers-wrapper.is-open .active-timers-list { display: block; margin-top: 8px; }
       .active-timers-wrapper.is-open #toggleActiveTimers .arrow { transform: rotate(180deg); }
+
+      .stage-manual-popover {
+        position: absolute;
+        right: 1rem;
+        margin-top: 0.5rem;
+        width: 18rem;
+        max-width: calc(100vw - 2rem);
+      }
       
       .discrepancy-warning {
         color: #e11d48;
@@ -935,7 +943,60 @@ function renderLayout() {
               padding: 0.5rem !important;
           }
           .stageTab { py-2 !important; font-size: 12px !important; }
-          .timer-display { font-size: 2.25rem !important; }
+          .timer-display { font-size: 2.5rem !important; text-align: left; }
+          .stage-manual-popover {
+            position: fixed;
+            inset: auto 0.75rem auto 0.75rem;
+            top: 50%;
+            right: 0.75rem;
+            width: auto;
+            max-width: none;
+            margin-top: 0;
+            transform: translateY(-50%);
+            z-index: 70;
+          }
+      }
+
+      @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+          #page-maraton-stages .container { padding: 0.35rem; }
+          .main-stages-card { padding: 0.65rem !important; }
+          .sticky-stages-header {
+              top: 0 !important;
+              margin-left: -0.35rem;
+              margin-right: -0.35rem;
+              padding: 0.35rem 0.5rem !important;
+          }
+          #eqInfo { font-size: 0.9rem !important; line-height: 1.15; }
+          #activeStageLabel { font-size: 0.8rem; }
+          .stageTab {
+              padding-top: 0.55rem !important;
+              padding-bottom: 0.55rem !important;
+              font-size: 0.75rem !important;
+          }
+          .timer-display {
+              font-size: 2.75rem !important;
+              line-height: 0.95;
+          }
+          .stage-action-btn {
+              padding-top: 0.65rem !important;
+              padding-bottom: 0.65rem !important;
+              font-size: 1.05rem !important;
+          }
+          .stage-reset-btn {
+              width: 3.75rem !important;
+              min-width: 3.75rem !important;
+          }
+          #startClockRow-warmup,
+          #stopClockRow-warmup,
+          #startClockRow-A,
+          #stopClockRow-A,
+          #startClockRow-transport,
+          #stopClockRow-transport,
+          #startClockRow-B,
+          #stopClockRow-B {
+              padding-top: 0.55rem !important;
+              padding-bottom: 0.55rem !important;
+          }
       }
     </style>
 
@@ -950,14 +1011,14 @@ function renderLayout() {
       <!-- STICKY HEADER: KUSK-INFO & FLIKAR -->
       <div class="sticky-stages-header sticky top-[63px] bg-white/95 dark:bg-gray-900/95 backdrop-blur p-4 border-b dark:border-gray-700 z-30 shadow-sm">
         <div class="flex flex-col gap-3">
-          <div class="flex items-center justify-between gap-2">
-            <div class="min-w-0">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
               <div id="eqInfo" class="font-bold text-sm md:text-base dark:text-white truncate">${t('marathon_stages_select_equipage')}...</div>
               <div class="text-[10px] uppercase font-bold text-gray-500">
                 ${comp?.competitionMode === 'field' ? 'Vald etapp' : 'Aktiv etapp'}: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
               </div>
             </div>
-            <div class="flex gap-1">
+            <div class="flex gap-1 shrink-0">
               <button id="eqPrev" class="w-8 h-8 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟨</button>
               <button id="eqNext" class="w-8 h-8 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟩</button>
             </div>
@@ -975,7 +1036,7 @@ function renderLayout() {
       <div class="mt-4 space-y-4">
         <!-- VAL AV EKIPAGE -->
         <div class="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
-          <div class="flex items-center justify-between mb-2">
+          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-2">
             <label class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_select_equipage')}</label>
             <button id="btnBackupJson" class="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">${t('marathon_stages_export_json')}</button>
           </div>
@@ -1012,7 +1073,7 @@ function renderStagePanel(stage) {
   <div class="flex flex-col gap-4">
 
     <!-- INFO & TIMER RAD -->
-    <div class="flex items-start justify-between gap-4">
+    <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
       <div class="min-w-0">
         <label class="text-[10px] uppercase font-bold text-gray-500 block mb-1">${t('marathon_stages_stage')}</label>
         <h2 class="text-2xl font-black dark:text-white leading-tight">${decorateStageLabel(stage, currentEquipage)}</h2>
@@ -1034,7 +1095,7 @@ function renderStagePanel(stage) {
         </div>
       </div>
 
-      <div class="text-right shrink-0">
+      <div class="shrink-0 sm:text-right">
         <div id="timer-${stage}"
              class="timer-display text-4xl md:text-6xl font-black tabular-nums text-gray-800 dark:text-white leading-none cursor-pointer tracking-tighter"
              title="Klicka för manuell tid">
@@ -1043,7 +1104,7 @@ function renderStagePanel(stage) {
         
         <!-- Manuelltids-editor (popup) -->
         <div id="manual-${stage}"
-             class="hidden absolute right-4 mt-2 w-72 p-4 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl z-50">
+             class="stage-manual-popover hidden p-4 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 shadow-2xl z-50">
           <label class="block text-xs font-bold uppercase text-gray-500 mb-2">${t('marathon_stages_manual_time_input_label')}</label>
           <input id="manualDigits-${stage}" type="tel" inputmode="numeric"
                  class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
@@ -1057,16 +1118,16 @@ function renderStagePanel(stage) {
     </div>
 
     <!-- KONTROLLER -->
-    <div class="flex items-stretch gap-2">
+    <div class="flex flex-wrap items-stretch gap-2">
       ${getGlobalState('currentCompetition')?.competitionMode === 'field'
-        ? `<button id="btnManualOpen-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-brand-darkblue text-white shadow-lg active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-        : `<button id="btnStart-${stage}" class="flex-[2] py-4 text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
-      <button id="btnStop-${stage}"  class="flex-[2] py-4 text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
-      <button id="btnReset-${stage}" class="w-14 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">↺</button>
+        ? `<button id="btnManualOpen-${stage}" class="stage-action-btn flex-1 min-w-[12rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-brand-darkblue text-white shadow-lg active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+        : `<button id="btnStart-${stage}" class="stage-action-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
+      <button id="btnStop-${stage}"  class="stage-action-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
+      <button id="btnReset-${stage}" class="stage-reset-btn w-full sm:w-14 py-3 sm:py-0 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">↺</button>
     </div>
 
     <!-- KLOCKSLAG OCH KOMMENTARER -->
-    <div class="grid grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="startClockRow-${stage}">
         <div class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_start_clock')} <span class="text-xs">✏️</span></div>
         <div id="startClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
@@ -1078,7 +1139,7 @@ function renderStagePanel(stage) {
     </div>
 
     <div class="space-y-3">
-      <div class="flex items-center justify-between">
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <button type="button" class="toggle-btn comment-toggle-btn uppercase font-bold">${t('marathon_stages_comments')}</button>
         <div class="flex items-center gap-2">
            <label class="flex items-center gap-1.5 cursor-pointer">
@@ -1106,12 +1167,12 @@ function renderStagePanel(stage) {
       ` : ``}
 
       <div class="pt-2 border-t dark:border-gray-700 flex flex-col gap-3">
-        <div class="flex items-center justify-between">
+        <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <label for="otherMarathonPenalty" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_other_penalty_total')}</label>
-          <input type="number" id="otherMarathonPenalty" min="0" step="0.01" inputmode="decimal" class="w-24 text-right font-bold rounded-lg border dark:border-gray-700 px-2 py-1 dark:bg-gray-900/40 dark:text-white">
+          <input type="number" id="otherMarathonPenalty" min="0" step="0.01" inputmode="decimal" class="w-full sm:w-24 text-right font-bold rounded-lg border dark:border-gray-700 px-2 py-2 sm:py-1 dark:bg-gray-900/40 dark:text-white">
         </div>
         
-        <button id="btnSave-${stage}" class="w-full py-4 rounded-xl bg-brand-darkblue text-white font-black text-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all">${t('marathon_stages_save_changes')}</button>
+        <button id="btnSave-${stage}" class="w-full py-3 md:py-4 rounded-xl bg-brand-darkblue text-white font-black text-lg md:text-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all">${t('marathon_stages_save_changes')}</button>
       </div>
     </div>
   </div>

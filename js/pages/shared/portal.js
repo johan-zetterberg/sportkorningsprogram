@@ -146,7 +146,7 @@ export async function load() {
                         <p class="text-xs md:text-sm text-gray-500 dark:text-gray-400 mb-3">
                             Tryck på Synkronisera om en tävling saknas, eller Bli Funktionär om du fått en tillfällig PIN-kod.
                         </p>
-                        <div class="flex gap-4">
+                        <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
                             <button id="manualSyncBtn" class="text-white bg-blue-600 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-700 w-full md:w-auto">🔄 ${t('sync_btn')}</button>
                             <button id="joinAsAdminBtn" class="text-blue-600 bg-blue-50 border border-blue-200 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-100 w-full md:w-auto transition-colors">🔐 Bli Funktionär</button>
                         </div>
@@ -424,7 +424,7 @@ async function renderDashboard(container, compId, startNumber, user) {
             <button id="backToPortalBtn" class="mb-4 text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium">
                 ← ${t('back_to_comps')}
             </button>
-            <div id="dashboard-header" class="mb-4 md:mb-6 bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
+            <div id="dashboard-header" class="mb-4 md:mb-6 bg-white dark:bg-gray-800 p-3 sm:p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
                 <div class="animate-pulse h-16 bg-gray-100 rounded"></div>
             </div>
             
@@ -432,7 +432,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                 <div id="dash-tabs" class="flex border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 overflow-x-auto no-scrollbar scroll-smooth">
                     <!-- Tabs injects here -->
                 </div>
-                <div id="dash-content" class="p-4 md:p-6">
+                <div id="dash-content" class="p-3 sm:p-4 md:p-6">
                     <div class="text-center py-12 text-gray-400">${t('loading_data')}</div>   
                 </div>
             </div>
@@ -612,7 +612,7 @@ async function renderDashboard(container, compId, startNumber, user) {
 
             contentEl.innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm relative group">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm relative group">
                         <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
                             <h3 class="text-lg font-bold text-gray-900 dark:text-white">${t('equipage_info', compConfig?.isInternational)}</h3>
                             ${(() => {
@@ -661,7 +661,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         </div>` : ''}
                     </div>
 
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm">
                          <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
                             <h3 class="text-lg font-bold text-gray-900 dark:text-white">${t('horses', compConfig?.isInternational)}</h3>
                              <span class="text-xs text-gray-400 dark:text-gray-500">${t('edit_via_edit', compConfig?.isInternational)}</span>
@@ -698,7 +698,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         </div>
                     </div>
 
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm col-span-1 md:col-span-2">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
                         <h3 class="text-lg font-bold mb-4 border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('officials', compConfig?.isInternational)}</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                             ${allJudges.length ? allJudges.map(j => {
@@ -741,7 +741,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                     </div>
 
 
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 ${(() => {
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 ${(() => {
                     const s = (eq.status || 'anmäld');
                     if (s === 'besiktigad') return 'border-l-green-500';
                     if (s === 'ombesiktning') return 'border-l-yellow-500';
@@ -777,7 +777,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                     </div>
 
                     <!-- SPEAKER NOTES SECTION -->
-                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 border-l-yellow-400">
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 border-l-yellow-400">
                         <h3 class="text-lg font-bold mb-2 flex items-center gap-2 text-gray-900 dark:text-white">
                             📢 ${t('speaker_notes', compConfig?.isInternational)}
                             <span class="text-xs font-normal bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-200 px-2 py-0.5 rounded-full">${t('new', compConfig?.isInternational)}</span>

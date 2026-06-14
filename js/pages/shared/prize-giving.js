@@ -50,13 +50,13 @@ export async function load(container) {
     }
 
     container.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8">
+    <div class="container mx-auto p-3 sm:p-4 md:p-8">
         <div class="flex justify-between items-center mb-6">
              ${getCompetitionHeader(comp, 'Prisutdelning 🏆')}
              <div class="text-sm text-gray-500 dark:text-gray-400 italic">Visar preliminära resultat</div>
         </div>
         
-        <div id="prize-giving-tabs" class="flex flex-wrap gap-2 mb-6 border-b dark:border-gray-700 pb-4 overflow-x-auto">
+        <div id="prize-giving-tabs" class="flex flex-wrap gap-2 mb-4 md:mb-6 border-b dark:border-gray-700 pb-3 md:pb-4 overflow-x-auto">
             <!-- Tabs injected here -->
         </div>
 
@@ -351,7 +351,7 @@ function renderPodiumList(rows, container) {
     const disciplineLabel = { total: 'Totalt', dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' }[activeDiscipline];
 
     let html = `
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
         <!-- WINNER & PODIUM -->
         <div class="space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2 p-3 bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 shadow-sm">
@@ -397,7 +397,7 @@ function renderPodiumList(rows, container) {
                                 <span class="text-[10px] text-gray-500 dark:text-gray-500 uppercase font-black tracking-tighter mb-1">Straff</span>
                             </div>
                         </div>
-                        <div class="flex justify-between items-center bg-white/40 dark:bg-black/20 p-2 px-3 rounded-xl border border-white/20">
+                        <div class="flex justify-between items-center gap-3 bg-white/40 dark:bg-black/20 p-2 px-3 rounded-xl border border-white/20">
                             <span class="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase">Kontrollera status:</span>
                             ${getPresetCheckbox(row)}
                         </div>
@@ -407,7 +407,7 @@ function renderPodiumList(rows, container) {
                 const isPlaced = place <= numPlaced;
                 // List items
                 html += `
-                <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl p-3 shadow-sm flex items-center justify-between transition-all hover:shadow-md ${isPlaced ? 'border-l-4 border-emerald-500 dark:border-emerald-600 bg-emerald-50/10' : ''}">
+                <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl p-3 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition-all hover:shadow-md ${isPlaced ? 'border-l-4 border-emerald-500 dark:border-emerald-600 bg-emerald-50/10' : ''}">
                     <div class="flex items-center gap-3 min-w-0">
                         <div class="font-black text-lg ${isPlaced ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-gray-600'} w-7 text-center">${place}</div>
                         <div class="truncate">
@@ -436,7 +436,7 @@ function renderPodiumList(rows, container) {
     </div> <!-- End Col 1 -->
     
     <!-- DETAILS & OTHERS -->
-    <div class="bg-gray-50 dark:bg-gray-700/30 p-4 rounded-xl h-fit border dark:border-gray-700/50">
+    <div class="bg-gray-50 dark:bg-gray-700/30 p-3 sm:p-4 rounded-xl h-fit border dark:border-gray-700/50">
         <h3 class="font-black text-gray-400 dark:text-gray-500 uppercase text-[10px] tracking-widest mb-3">Övriga / Eliminerade</h3>
         <div class="space-y-1.5">`;
 

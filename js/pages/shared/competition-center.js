@@ -26,7 +26,7 @@ function getQrImageUrl(url) {
 
 function renderEmpty(container, title, body) {
   container.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8 max-w-screen-lg">
+    <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-screen-lg">
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border dark:border-gray-700 p-8 text-center">
         <h1 class="text-2xl font-bold text-gray-900 dark:text-white mb-3">${escapeHtml(title)}</h1>
         <p class="text-gray-600 dark:text-gray-300">${escapeHtml(body)}</p>
@@ -43,7 +43,7 @@ function renderDocs(docs) {
   return `
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       ${docs.map((doc) => `
-        <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4">
           <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">${escapeHtml(doc.category || doc.type || 'Dokument')}</div>
           <div class="mt-1 font-semibold text-gray-900 dark:text-white">${escapeHtml(doc.title || 'Dokument')}</div>
           ${doc.url ? `<div class="mt-3"><a href="${doc.url}" target="_blank" class="text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">Öppna dokument</a></div>` : ''}
@@ -62,7 +62,7 @@ function renderMessages(messages) {
   return `
     <div class="space-y-3">
       ${messages.slice(0, 6).map((message) => `
-        <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+        <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4">
           <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(message.title || 'Information')}</div>
           <div class="mt-1 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">${escapeHtml(message.body || message.message || '')}</div>
         </div>
@@ -83,7 +83,7 @@ function renderClassDetails(row) {
 
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+      <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4">
         <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Maraton</h3>
         <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
           <div><strong>Körda hinder:</strong> ${obstacleText}</div>
@@ -91,7 +91,7 @@ function renderClassDetails(row) {
           ${(marathon.distanceA || marathon.distanceB || marathon.distanceT) ? `<div><strong>Distanser:</strong> A ${marathon.distanceA || '-'} m, T ${marathon.distanceT || '-'} m, B ${marathon.distanceB || '-'} m</div>` : ''}
         </div>
       </div>
-      <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
+      <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4">
         <h3 class="font-semibold text-gray-900 dark:text-white mb-3">Precision</h3>
         <div class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
           <div><strong>Hinder/gates:</strong> ${escapeHtml(precisionGates)}</div>
@@ -114,7 +114,7 @@ function renderClassSummary(rows) {
         const isOpen = expandedClasses.has(row.className);
         return `
           <div class="rounded-2xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 overflow-hidden">
-            <button type="button" class="class-detail-toggle w-full text-left p-4" data-class-name="${escapeHtml(row.className)}">
+            <button type="button" class="class-detail-toggle w-full text-left p-3 sm:p-4" data-class-name="${escapeHtml(row.className)}">
               <div class="flex items-start justify-between gap-3">
                 <div>
                   <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(row.className)}</div>
@@ -138,7 +138,7 @@ function renderClassSummary(rows) {
               </div>
             </button>
             ${isOpen ? `
-              <div class="border-t dark:border-gray-700 p-4">
+              <div class="border-t dark:border-gray-700 p-3 sm:p-4">
                 ${renderClassDetails(row)}
               </div>
             ` : ''}
@@ -268,7 +268,7 @@ function renderPage(container, competition, vm, publish) {
   const publicLink = getPublicCompetitionLink(competition);
 
   container.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8 max-w-screen-xl">
+    <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-screen-xl">
       ${getCompetitionHeader(competition, 'Publik Info')}
 
       <section class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm mb-6">
@@ -298,7 +298,7 @@ function renderPage(container, competition, vm, publish) {
         ${mapLink ? `<div class="mt-4"><a href="${mapLink}" target="_blank" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold w-full sm:w-auto">Öppna plats i Google Maps</a></div>` : ''}
       </section>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
         <section class="lg:col-span-2 space-y-6">
           <div class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-5 shadow-sm">
             <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-4">
@@ -308,25 +308,25 @@ function renderPage(container, competition, vm, publish) {
               </div>
               ${mapLink ? `<a href="${mapLink}" target="_blank" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold whitespace-nowrap w-full sm:w-auto">Få vägbeskrivning</a>` : ''}
             </div>
-            <div class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-4">
+            <div class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-3 md:gap-4">
               <div>
                 ${vm.venueMap?.coordinates
                   ? '<div id="competition-center-venue-map" class="h-72 rounded-xl border dark:border-gray-700 overflow-hidden"></div>'
                   : '<div class="h-72 rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400 p-6 text-center">Ingen kartposition sparad ännu. Lägg till koordinater på tävlingen för att visa en publik karta här.</div>'}
               </div>
               <div class="space-y-4">
-                <div class="rounded-xl bg-gray-50 dark:bg-gray-900/30 p-4 border dark:border-gray-700">
+                <div class="rounded-xl bg-gray-50 dark:bg-gray-900/30 p-3 sm:p-4 border dark:border-gray-700">
                   <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Tävlingsplats</div>
                   <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(venueAddress || 'Ingen plats angiven')}</div>
                 </div>
                 ${parkingAddress ? `
-                  <div class="rounded-xl bg-gray-50 dark:bg-gray-900/30 p-4 border dark:border-gray-700">
+                  <div class="rounded-xl bg-gray-50 dark:bg-gray-900/30 p-3 sm:p-4 border dark:border-gray-700">
                     <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Parkering</div>
                     <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(parkingAddress)}</div>
                   </div>
                 ` : ''}
                 ${publicInfo.spectatorInfo?.entrance ? `
-                  <div class="rounded-xl bg-gray-50 dark:bg-gray-900/30 p-4 border dark:border-gray-700">
+                  <div class="rounded-xl bg-gray-50 dark:bg-gray-900/30 p-3 sm:p-4 border dark:border-gray-700">
                     <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Publikentré</div>
                     <div class="text-sm text-gray-700 dark:text-gray-300">${escapeHtml(publicInfo.spectatorInfo.entrance)}</div>
                   </div>

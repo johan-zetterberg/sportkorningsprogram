@@ -32,12 +32,12 @@ export async function load() {
     }
 
     container.innerHTML = `
-        <div class="container mx-auto p-4 md:p-8">
+        <div class="container mx-auto p-3 sm:p-4 md:p-8">
             ${getCompetitionHeader(competition, 'Funktionärsportal')}
             
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mt-6">
                 <!-- VÄLKOMMEN / STATUS -->
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 lg:col-span-2 border-t-4 border-blue-500">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 lg:col-span-2 border-t-4 border-blue-500">
                     <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
                         Välkommen, ${user.displayName || user.email}!
                     </h2>
@@ -69,9 +69,9 @@ export async function load() {
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 md:gap-4">
                          <!-- GENVÄGAR -->
-                        <a href="#reports" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-blue-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group">
+                        <a href="#reports" class="flex flex-col items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-blue-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group sm:flex-row sm:items-center">
                             <div class="w-10 h-10 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">📄</div>
                             <div>
                                 <div class="font-bold text-gray-900 dark:text-gray-100">Rapportcenter</div>
@@ -79,7 +79,7 @@ export async function load() {
                             </div>
                         </a>
 
-                        <a href="#speaker" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-yellow-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group">
+                        <a href="#speaker" class="flex flex-col items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-yellow-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group sm:flex-row sm:items-center">
                             <div class="w-10 h-10 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">🎤</div>
                             <div>
                                 <div class="font-bold text-gray-900 dark:text-gray-100">Speaker</div>
@@ -87,7 +87,7 @@ export async function load() {
                             </div>
                         </a>
 
-                        <a href="#vet-check" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-green-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group">
+                        <a href="#vet-check" class="flex flex-col items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-green-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group sm:flex-row sm:items-center">
                             <div class="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">🩺</div>
                             <div>
                                 <div class="font-bold text-gray-900 dark:text-gray-100">Veterinär</div>
@@ -95,7 +95,7 @@ export async function load() {
                             </div>
                         </a>
 
-                        <a href="#dressyr-monitor" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group">
+                        <a href="#dressyr-monitor" class="flex flex-col items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-purple-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group sm:flex-row sm:items-center">
                             <div class="w-10 h-10 rounded-full bg-purple-100 text-purple-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">📺</div>
                             <div>
                                 <div class="font-bold text-gray-900 dark:text-gray-100">Dressyr Monitor</div>
@@ -103,7 +103,7 @@ export async function load() {
                             </div>
                         </a>
 
-                        <a href="#maraton-monitor" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-orange-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group">
+                        <a href="#maraton-monitor" class="flex flex-col items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-orange-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group sm:flex-row sm:items-center">
                             <div class="w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">⏱️</div>
                             <div>
                                 <div class="font-bold text-gray-900 dark:text-gray-100">Maraton Monitor</div>
@@ -111,7 +111,7 @@ export async function load() {
                             </div>
                         </a>
 
-                        <a href="#precision-monitor" class="flex items-center gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-red-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group">
+                        <a href="#precision-monitor" class="flex flex-col items-start gap-3 p-4 bg-gray-50 dark:bg-gray-700/50 rounded-lg hover:bg-red-50 dark:hover:bg-gray-700 transition border border-gray-100 dark:border-gray-600 group sm:flex-row sm:items-center">
                             <div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center text-xl group-hover:scale-110 transition-transform">⚠️</div>
                             <div>
                                 <div class="font-bold text-gray-900 dark:text-gray-100">Precision Monitor</div>
@@ -122,7 +122,7 @@ export async function load() {
                 </div>
 
                 <!-- MIN NÄSTA UPPGIFT / STATUS -->
-                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-6 border-t-4 border-orange-500">
+                <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 border-t-4 border-orange-500">
                     <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Dina Uppdrag</h3>
                     <div id="official-assignments" class="space-y-4">
                         <div class="animate-pulse flex space-x-4">
@@ -135,9 +135,9 @@ export async function load() {
                 </div>
             </div>
             
-            <div class="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow p-6">
+            <div class="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6">
                  <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Verktyg & Inmatning</h3>
-                 <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+                 <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
                     <button onclick="location.hash='#dressyr-input'" class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
                         <div class="text-2xl mb-1">📝</div>
                         <div class="font-bold text-sm text-slate-800 dark:text-slate-200">Dressyr</div>

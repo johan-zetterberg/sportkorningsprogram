@@ -68,15 +68,16 @@ function renderPage(pageContainer, competition) {
             @media (max-width: 640px) {
                 #page-vet-check .container { padding: 0.5rem; }
                 .vet-card { padding: 1rem !important; }
+                .vet-header { padding: 0.875rem !important; }
                 .horse-id-grid { font-size: 11px !important; }
             }
         </style>
 
-        <div class="container mx-auto p-4 md:p-8 max-w-3xl">
+        <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-3xl">
             ${getCompetitionHeader(competition, 'Veterinärbesiktning')}
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[85vh]">
                 <div class="vet-header shrink-0 p-4 bg-white dark:bg-gray-900 border-b dark:border-gray-700 z-30 shadow-sm space-y-4">
-                    <div class="flex justify-between items-center">
+                    <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                         <h2 class="text-lg font-black text-gray-800 dark:text-white uppercase tracking-tighter">Besiktning</h2>
                         <div class="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-400" id="vet-queue-count">Laddar...</div>
                     </div>
@@ -94,7 +95,7 @@ function renderPage(pageContainer, competition) {
                         <div class="text-[10px] font-black uppercase text-gray-400 tracking-widest bg-gray-50 dark:bg-gray-800 px-3 py-1 rounded-full border dark:border-gray-700" id="index-indicator">- / -</div>
                     </div>
                 </div>
-                <div class="flex-1 bg-gray-100 dark:bg-gray-950 overflow-y-auto p-4 pt-6 pb-20 flex flex-col items-center" id="vet-card-container">
+                <div class="flex-1 bg-gray-100 dark:bg-gray-950 overflow-y-auto p-3 sm:p-4 pt-5 sm:pt-6 pb-20 flex flex-col items-center" id="vet-card-container">
                     <p class="text-center text-gray-400 py-12">Laddar ekipage...</p>
                 </div>
             </div>
@@ -206,7 +207,7 @@ function renderHorseCard(horse = {}, index = 0) {
                     ${vaccination}
                 </div>
             </div>
-            <div class="grid grid-cols-3 gap-1.5 mt-2 pt-2 border-t dark:border-gray-700">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-1.5 mt-2 pt-2 border-t dark:border-gray-700">
                 <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'besiktigad' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="besiktigad">Godkänd</button>
                 <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'ombesiktning' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="ombesiktning">Ombesikt</button>
                 <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'struken' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="struken">Stryk</button>
@@ -224,10 +225,10 @@ function renderVetCard(eq = {}) {
     const cardOpacity = !isProcessable ? 'opacity-70' : '';
 
     return `
-        <div class="vet-card w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-lg border dark:border-gray-700 p-6 ${cardOpacity} transition-all relative">
+        <div class="vet-card w-full max-w-2xl bg-white dark:bg-gray-800 rounded-xl shadow-lg border dark:border-gray-700 p-4 sm:p-5 md:p-6 ${cardOpacity} transition-all relative">
             <div class="mb-5">
                 <div class="flex flex-col gap-1">
-                    <div class="flex items-center justify-between">
+                    <div class="flex items-start justify-between gap-3">
                         <span class="text-4xl font-black text-gray-900 dark:text-white tracking-tighter">#${escapeHtml(eq.startNumber)}</span>
                         <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${conf.border} ${conf.color}">${conf.label}</span>
                     </div>
@@ -258,11 +259,11 @@ function renderVetCard(eq = {}) {
                 </div>
             </div>
 
-            <div class="grid grid-cols-2 gap-3 pt-4 border-t dark:border-gray-700">
-                <button class="vet-status-btn bg-emerald-600 text-white font-black py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="besiktigad">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-4 border-t dark:border-gray-700">
+                <button class="vet-status-btn bg-emerald-600 text-white font-black py-3.5 sm:py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="besiktigad">
                     <span class="text-sm tracking-widest">GODKÄND</span>
                 </button>
-                <button class="vet-status-btn bg-amber-500 text-white font-black py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="ombesiktning">
+                <button class="vet-status-btn bg-amber-500 text-white font-black py-3.5 sm:py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="ombesiktning">
                     <span class="text-sm tracking-widest">HÅLL</span>
                 </button>
             </div>

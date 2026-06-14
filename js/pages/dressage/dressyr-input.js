@@ -1225,13 +1225,134 @@ export function load() {
                 padding-right: 8px; /* Lite utrymme för scroll-listen */
             }
         }
+
+        @media (max-width: 640px) {
+            #page-dressyr-input .container {
+                padding: 0.5rem;
+            }
+            .dressage-main-card {
+                padding: 0.85rem !important;
+                border-radius: 0.75rem;
+            }
+            .dressage-top-grid {
+                gap: 0.75rem !important;
+                margin-bottom: 0.75rem !important;
+                padding-bottom: 0.75rem !important;
+            }
+            .dressage-equipage-nav {
+                display: grid !important;
+                grid-template-columns: auto minmax(0, 1fr) auto;
+                gap: 0.5rem;
+                align-items: center;
+            }
+            .dressage-equipage-nav #equipageSearchContainer {
+                margin-top: 0 !important;
+                min-width: 0;
+            }
+            .dressage-summary-bar {
+                margin-top: 0.75rem !important;
+                margin-bottom: 0.75rem !important;
+                padding: 0.5rem !important;
+            }
+            .dressage-summary-grid {
+                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+                gap: 0.5rem !important;
+            }
+            .dressage-summary-grid > div {
+                min-width: 0;
+            }
+            .dressage-summary-grid > div p:last-child {
+                font-size: 1rem !important;
+            }
+            .dressage-summary-grid > div:last-child {
+                grid-column: 1 / -1;
+            }
+            .dressage-footer {
+                padding: 0.85rem !important;
+                margin-top: 1rem !important;
+            }
+            .dressage-footer-grid {
+                gap: 0.75rem !important;
+            }
+            .dressage-error-controls {
+                flex-wrap: wrap;
+            }
+            .dressage-error-controls input {
+                width: 100% !important;
+            }
+            .dressage-error-btn {
+                flex: 1 1 0;
+                min-width: 4.5rem;
+            }
+            .dressage-save-btn {
+                padding-top: 0.85rem !important;
+                padding-bottom: 0.85rem !important;
+            }
+        }
+
+        @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+            #page-dressyr-input .container {
+                padding: 0.35rem;
+            }
+            .dressage-main-card {
+                padding: 0.75rem !important;
+            }
+            .dressage-top-grid {
+                gap: 0.65rem !important;
+                margin-bottom: 0.65rem !important;
+                padding-bottom: 0.65rem !important;
+            }
+            .dressage-summary-bar {
+                position: sticky;
+                top: 0;
+                z-index: 20;
+                margin-top: 0.5rem !important;
+                margin-bottom: 0.75rem !important;
+                padding: 0.45rem 0.55rem !important;
+            }
+            .dressage-summary-grid {
+                grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+                gap: 0.4rem !important;
+            }
+            .dressage-summary-grid p:first-child {
+                font-size: 0.65rem !important;
+            }
+            .dressage-summary-grid p:last-child {
+                font-size: 1rem !important;
+            }
+            .dressage-summary-grid > div:last-child {
+                grid-column: auto !important;
+                padding-top: 0.4rem !important;
+                padding-bottom: 0.4rem !important;
+                font-size: 0.85rem !important;
+            }
+            .dressage-footer {
+                padding: 0.75rem !important;
+            }
+            .dressage-error-controls {
+                flex-wrap: nowrap;
+            }
+            .dressage-error-controls input {
+                width: 4.25rem !important;
+            }
+            .dressage-error-btn {
+                min-width: 0;
+                padding-left: 0.45rem !important;
+                padding-right: 0.45rem !important;
+            }
+            .dressage-save-btn {
+                padding-top: 0.7rem !important;
+                padding-bottom: 0.7rem !important;
+                font-size: 0.95rem !important;
+            }
+        }
     </style>
     
     <div id="programAuditBanner" class="my-3"></div>
 
-    <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+    <div class="dressage-main-card bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
       
-      <div class="grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
+      <div class="dressage-top-grid grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
         <div class="md:col-span-2">
           <label for="testSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_program')}</label>
           <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
@@ -1243,7 +1364,7 @@ export function load() {
         </div>
         <div class="md:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_equipage')}</label>
-          <div class="flex items-center space-x-2">
+          <div class="dressage-equipage-nav flex items-center space-x-2">
             <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
             <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-30"></div>
             <button id="nextEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
@@ -1251,8 +1372,8 @@ export function load() {
         </div>
       </div>
       
-      <div id="dressage-summary-bar" class="relative md:sticky md:top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg dark:bg-gray-800 dark:border dark:border-gray-700">
-          <div class="grid grid-cols-5 gap-2 text-center"> <div>
+      <div id="dressage-summary-bar" class="dressage-summary-bar relative md:sticky md:top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg dark:bg-gray-800 dark:border dark:border-gray-700">
+          <div class="dressage-summary-grid grid grid-cols-5 gap-2 text-center"> <div>
                   <p class="text-xs font-medium text-gray-700 dark:text-gray-400">${t('input_total_points')}</p>
                   <p id="totalPointsDisplay" class="text-xl font-bold text-gray-900 dark:text-white">0.0</p>
               </div>
@@ -1280,15 +1401,15 @@ export function load() {
         </div>
       </div>
 
-      <div class="relative md:sticky md:bottom-0 z-10 bg-white p-4 border-t mt-6 dark:bg-gray-800 dark:border-gray-700">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+      <div class="dressage-footer relative md:sticky md:bottom-0 z-10 bg-white p-4 border-t mt-6 dark:bg-gray-800 dark:border-gray-700">
+        <div class="dressage-footer-grid grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
           
           <div class="md:col-span-3">
             <label for="errorPointsInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">${t('input_error_points')}</label>
-            <div class="flex gap-1 mt-1">
+            <div class="dressage-error-controls flex gap-1 mt-1">
                <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-               <button type="button" id="btnErr1" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
-               <button type="button" id="btnErr2" class="text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
+               <button type="button" id="btnErr1" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
+               <button type="button" id="btnErr2" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
             </div>
           </div>
           
@@ -1304,7 +1425,7 @@ export function load() {
           
           <div class="md:col-span-3">
             <label class="block text-xs font-medium text-transparent select-none">${t('input_save')}</label>
-            <button id="saveProtocol" class="w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
+            <button id="saveProtocol" class="dressage-save-btn w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
               ${t('input_save_protocol')}
             </button>
           </div>

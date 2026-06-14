@@ -272,10 +272,17 @@ function renderLayout() {
     const root = document.getElementById('page-precision-input');
     root.innerHTML = `
         <style>
+            .precision-manual-editor {
+                position: absolute;
+                left: 1rem;
+                right: 1rem;
+                margin-top: 0.5rem;
+            }
+
             /* Kompakt mobil-layout för precision */
             @media (max-width: 640px) {
                 #page-precision-input .container { padding: 0.5rem; }
-                #page-precision-input .main-card { padding: 0.75rem; border-radius: 0; border-left: 0; border-right: 0; }
+                #page-precision-input .main-card { padding: 0.75rem; border-radius: 0.75rem; }
                 
                 /* Grid-optimering */
                 #gatesGrid {
@@ -291,6 +298,22 @@ function renderLayout() {
                 /* Kompakt info-rad */
                 #infoEquipageLine { font-size: 0.875rem; }
                 .info-meta { font-size: 0.75rem; }
+                .sticky-precision-controls {
+                    top: 63px;
+                    margin-left: -0.5rem;
+                    margin-right: -0.5rem;
+                    padding: 0.65rem 0.75rem;
+                }
+                .precision-manual-editor {
+                    position: fixed;
+                    inset: auto 0.75rem auto 0.75rem;
+                    top: 50%;
+                    left: 0.75rem;
+                    right: 0.75rem;
+                    margin-top: 0;
+                    transform: translateY(-50%);
+                    z-index: 70;
+                }
             }
 
             .sticky-precision-controls {
@@ -312,6 +335,44 @@ function renderLayout() {
             #liveTimer {
                 text-shadow: 0 1px 2px rgba(0,0,0,0.1);
             }
+
+            @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+                #page-precision-input .container {
+                    padding: 0.35rem;
+                }
+                .sticky-precision-controls {
+                    top: 0 !important;
+                    margin-left: -0.35rem;
+                    margin-right: -0.35rem;
+                    padding: 0.45rem 0.65rem;
+                }
+                #liveTimer {
+                    font-size: 2.4rem !important;
+                    line-height: 0.95;
+                }
+                .precision-action-btn {
+                    min-width: 5rem !important;
+                    padding-top: 0.65rem !important;
+                    padding-bottom: 0.65rem !important;
+                    font-size: 0.95rem !important;
+                }
+                .precision-nav-btn {
+                    padding: 0.55rem !important;
+                }
+                #gatesGrid {
+                    grid-template-columns: repeat(7, 1fr) !important;
+                    gap: 0.45rem !important;
+                }
+                .gateBtn {
+                    height: 2.8rem !important;
+                    font-size: 1rem !important;
+                }
+                #btnSave {
+                    padding-top: 0.85rem !important;
+                    padding-bottom: 0.85rem !important;
+                    font-size: 1rem !important;
+                }
+            }
         </style>
 
         <div class="container mx-auto p-4 md:p-8 max-w-2xl">
@@ -326,24 +387,24 @@ function renderLayout() {
 
             <!-- STICKY KONTROLLPANEL -->
             <div class="sticky-precision-controls rounded-b-xl shadow-lg mb-4">
-                <div class="flex items-center justify-between gap-4">
-                    <div class="flex-grow">
+                <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                    <div class="flex-grow min-w-0">
                         <div id="liveTimer" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
                         <div class="text-xs md:text-sm mt-1 flex items-center gap-1">
                             <span class="text-gray-500 dark:text-gray-400">${t('precision_time_error')}</span>
                             <span id="uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
                         </div>
                     </div>
-                    <div class="flex gap-2">
+                    <div class="flex gap-2 sm:shrink-0">
                         ${isFieldMode
-                            ? `<button id="btnManualOpen" class="w-28 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-                            : `<button id="btnStart" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
-                        <button id="btnStop" class="w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>`}
+                            ? `<button id="btnManualOpen" class="precision-action-btn flex-1 sm:flex-none w-full sm:w-32 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+                            : `<button id="btnStart" class="precision-action-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
+                        <button id="btnStop" class="precision-action-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>`}
                     </div>
                 </div>
 
                 <!-- Manuell tid-editorn (flytande under timern) -->
-                <div id="manualTimeEditor" class="hidden absolute left-4 right-4 mt-2 p-4 rounded-xl border bg-white shadow-2xl z-50 dark:bg-gray-800 dark:border-gray-600">
+                <div id="manualTimeEditor" class="precision-manual-editor hidden p-4 rounded-xl border bg-white shadow-2xl z-50 dark:bg-gray-800 dark:border-gray-600">
                     <label class="block text-sm font-semibold mb-2 dark:text-white">${t('precision_manual_time_prompt')}</label>
                     <input id="manualTimeDigits" type="tel" inputmode="numeric" class="w-full text-4xl font-mono tracking-widest text-center px-3 py-4 border-2 rounded-lg mb-4 dark:bg-gray-700 dark:border-gray-600 dark:text-white outline-none focus:border-blue-500" placeholder="mmsscc" maxlength="6" />
                     <div class="flex gap-3">
@@ -356,11 +417,11 @@ function renderLayout() {
             <div class="main-card bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md space-y-4 border dark:border-gray-700">
                 <!-- EKIPAGEVAL -->
                 <div class="grid grid-cols-1 gap-4">
-                    <div class="flex items-center gap-2">
-                        <button id="btnPrevEq" class="p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&larr;</button>
-                        <div id="precisionEquipageSearchContainer" class="flex-grow"></div>
-                        <button id="btnNextEq" class="p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&rarr;</button>
-                        <button id="btnReset" class="p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="${t('precision_reset')}">🔄</button>
+                    <div class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-2 items-center">
+                        <button id="btnPrevEq" class="precision-nav-btn p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&larr;</button>
+                        <div id="precisionEquipageSearchContainer" class="min-w-0"></div>
+                        <button id="btnNextEq" class="precision-nav-btn p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&rarr;</button>
+                        <button id="btnReset" class="precision-nav-btn p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="${t('precision_reset')}">🔄</button>
                     </div>
                     
                     <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
@@ -384,7 +445,7 @@ function renderLayout() {
 
                 <!-- EXTRA / KOMMENTAR -->
                 <div class="pt-4 border-t dark:border-gray-700">
-                    <div class="grid grid-cols-2 gap-3">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
                             <input type="number" id="extraPenaltyInput" value="0" min="0" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -395,7 +456,7 @@ function renderLayout() {
                                 <span class="ml-2 font-bold text-red-700 dark:text-red-400 text-xs">${t('precision_elim')}</span>
                             </label>
                         </div>
-                        <div class="col-span-2">
+                        <div class="sm:col-span-2">
                             <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_comment')}</label>
                             <textarea id="commentInput" rows="1" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('precision_comment_placeholder')}"></textarea>
                         </div>
