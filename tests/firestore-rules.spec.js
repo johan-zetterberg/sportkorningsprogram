@@ -650,6 +650,48 @@ test('messages and documents stay public-read but admin-write only', { skip: !HA
   await assertSucceeds(setDoc(doc(adminDb, compPath('documents/doc-3')), { title: 'Admin OK' }));
 });
 
+test('official staffing documents are not public but remain readable to authenticated competition roles', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('judges/judge-1')), {
+      id: 'judge-1',
+      name: 'Judge One',
+      email: 'judge1@example.com',
+      position: 'C'
+    });
+    await setDoc(doc(db, compPath('officials/official-1')), {
+      id: 'official-1',
+      name: 'Official One',
+      email: 'official1@example.com',
+      phone: '0700000000'
+    });
+    await setDoc(doc(db, compPath('assignments/assignment-1')), {
+      officialId: 'official-1',
+      officialName: 'Official One',
+      roleLabel: 'Hinderchef',
+      locationLabel: 'Hinder 5'
+    });
+  });
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  const publicUserDb = testEnv.authenticatedContext('public-user-1', { email: 'public@example.com' }).firestore();
+
+  await seedCompetitionRole('dressage-role-1', 'dressage', 'dressage-role@example.com');
+  const dressageDb = testEnv.authenticatedContext('dressage-role-1', { email: 'dressage-role@example.com' }).firestore();
+
+  await assertFails(getDoc(doc(anonymousDb, compPath('judges/judge-1'))));
+  await assertFails(getDoc(doc(anonymousDb, compPath('officials/official-1'))));
+  await assertFails(getDoc(doc(anonymousDb, compPath('assignments/assignment-1'))));
+
+  await assertFails(getDoc(doc(publicUserDb, compPath('judges/judge-1'))));
+  await assertFails(getDoc(doc(publicUserDb, compPath('officials/official-1'))));
+  await assertFails(getDoc(doc(publicUserDb, compPath('assignments/assignment-1'))));
+
+  await assertSucceeds(getDoc(doc(dressageDb, compPath('judges/judge-1'))));
+  await assertSucceeds(getDoc(doc(dressageDb, compPath('officials/official-1'))));
+  await assertSucceeds(getDoc(doc(dressageDb, compPath('assignments/assignment-1'))));
+});
+
 test('volunteer signups remain public create-only', { skip: !HAS_EMULATOR }, async () => {
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
 

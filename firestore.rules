@@ -115,6 +115,17 @@ service cloud.firestore {
         );
     }
 
+    function canReadCompetitionStaffDocs(appId, compId) {
+      return request.auth != null
+        && (
+          canAdminThisArtifactsComp(appId, compId) ||
+          hasRoleInComp(appId, compId, 'dressage') ||
+          hasRoleInComp(appId, compId, 'marathon') ||
+          hasRoleInComp(appId, compId, 'precision') ||
+          hasRoleInComp(appId, compId, 'speaker')
+        );
+    }
+
     function canFinalizeCompetitionViaApp(appId, compId, roleName) {
       let compPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
       let adminPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid);
@@ -180,6 +191,9 @@ service cloud.firestore {
         || pathStr.matches('.*data/competitions/[^/]+/auditLog/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/equipagePrivate/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/roleEmails/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/judges/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/officials/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/assignments/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/admins/[^/]+.*');
     }
 
@@ -419,7 +433,7 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/judges/{judgeId} {
-      allow read: if true;
+      allow read: if canReadCompetitionStaffDocs(appId, compId);
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -429,7 +443,7 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/officials/{officialId} {
-      allow read: if true;
+      allow read: if canReadCompetitionStaffDocs(appId, compId);
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -439,7 +453,7 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/assignments/{assignmentId} {
-      allow read: if true;
+      allow read: if canReadCompetitionStaffDocs(appId, compId);
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||

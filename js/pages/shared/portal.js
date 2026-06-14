@@ -38,6 +38,7 @@ import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosServ
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let messageUnsub = null;
 let dashboardUnsub = null;
@@ -240,20 +241,24 @@ export async function load() {
                 const colorClass = isUrgent ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-gray-50 border-gray-100 dark:bg-gray-700/50 dark:border-gray-600';
                 const icon = isUrgent ? '⚠️' : '📢';
                 const time = formatPortalTimestamp(m.timestamp, 'sv-SE', { dateStyle: 'short', timeStyle: 'short' });
+                const compName = escapeHtml(m._compName || '');
+                const title = escapeHtml(m.title || t('message_default_title'));
+                const body = escapeHtml(m.body || m.message || '');
+                const safeTime = escapeHtml(time || '');
 
                 return `
                     <div class="p-4 rounded-lg border ${colorClass} relative group transition-all hover:shadow-sm animate-fade-in">
                         <div class="flex justify-between items-start mb-1">
                             <span class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600">
-                                ${m._compName}
+                                ${compName}
                             </span>
-                            <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums">${time}</span>
+                            <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums">${safeTime}</span>
                         </div>
                         <div class="flex gap-3 mt-2">
                              <div class="text-xl shrink-0 select-none">${icon}</div>
                              <div class="min-w-0">
-                                <h4 class="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight mb-1">${m.title || t('message_default_title')}</h4>
-                                <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">${m.body || m.message || ''}</p>
+                                <h4 class="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight mb-1">${title}</h4>
+                                <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">${body}</p>
                              </div>
                         </div>
                     </div>
