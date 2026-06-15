@@ -13,6 +13,7 @@ import {
 } from '../utils/precisionUtils.js';
 
 import {
+  escapeHtml,
   fmt2,
   horseLabel,
   isNum
@@ -53,11 +54,11 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-6">
             <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
                 <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">${t('status')}</div>
-                <div class="text-lg font-bold mt-1 inline-block px-3 py-1 rounded ${statusCss}">${data.status}</div>
+                <div class="text-lg font-bold mt-1 inline-block px-3 py-1 rounded ${statusCss}">${escapeHtml(data.status)}</div>
             </div>
             <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
                 <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">${t('time')}</div>
-                <div class="text-lg font font-bold mt-1 text-gray-900 dark:text-gray-100">${data.timeLabel}</div>
+                <div class="text-lg font font-bold mt-1 text-gray-900 dark:text-gray-100">${escapeHtml(data.timeLabel)}</div>
             </div>
             <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
                 <div class="text-xs text-gray-500 dark:text-gray-400 uppercase font-semibold">${t('start_time')}</div>
@@ -83,9 +84,9 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
                     const hasDetail = full && full !== simple && full !== '–';
                     if (!simple || simple === '–') return `<span class="font-semibold text-lg">–</span>`;
                     if (hasDetail) {
-                      return `<span class="font-semibold text-lg" style="border-bottom:1px dotted currentColor;cursor:default;" title="${full.replace(/"/g, '&quot;')}">${simple}</span>`;
+                      return `<span class="font-semibold text-lg" style="border-bottom:1px dotted currentColor;cursor:default;" title="${escapeHtml(full)}">${escapeHtml(simple)}</span>`;
                     }
-                    return `<span class="font-semibold text-lg">${simple}</span>`;
+                    return `<span class="font-semibold text-lg">${escapeHtml(simple)}</span>`;
                   })()}
                 </div>
             </div>
@@ -94,10 +95,10 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
         <div class="border-t dark:border-gray-700 pt-4 mb-6">
             <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">${t('course_facts')}</h4>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-gray-50 dark:bg-gray-700/50 p-3 rounded text-gray-700 dark:text-gray-300">
-                <div><span class="text-gray-500 dark:text-gray-400">${t('track_len')}:</span> <span class="font-medium">${data.trackLenLabel || data.display?.trackLenLabel}</span></div>
-                <div><span class="text-gray-500 dark:text-gray-400">${t('tempo')}:</span> <span class="font-medium">${data.tempoLabel || data.display?.tempoLabel}</span></div>
-                <div><span class="text-gray-500 dark:text-gray-400">${t('max_time')}:</span> <span class="font-medium">${data.maxTimeLabel || data.display?.maxTimeLabel}</span></div>
-                <div><span class="text-gray-500 dark:text-gray-400">${t('port_allowance')}:</span> <span class="font-medium">${allowLabel}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('track_len')}:</span> <span class="font-medium">${escapeHtml(data.trackLenLabel || data.display?.trackLenLabel)}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('tempo')}:</span> <span class="font-medium">${escapeHtml(data.tempoLabel || data.display?.tempoLabel)}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('max_time')}:</span> <span class="font-medium">${escapeHtml(data.maxTimeLabel || data.display?.maxTimeLabel)}</span></div>
+                <div><span class="text-gray-500 dark:text-gray-400">${t('port_allowance')}:</span> <span class="font-medium">${escapeHtml(allowLabel)}</span></div>
             </div>
         </div>
         
@@ -139,8 +140,8 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
                         }
                         
                         return `<div class="bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-200 px-3 py-1.5 rounded-lg text-sm flex items-center gap-2 border dark:border-gray-600">
-                            <span class="font-bold">${label}</span>
-                            <span class="font-mono text-xs opacity-75">${timeStr}</span>
+                            <span class="font-bold">${escapeHtml(label)}</span>
+                            <span class="font-mono text-xs opacity-75">${escapeHtml(timeStr)}</span>
                         </div>`;
                     }).join('')}
                 </div>
@@ -209,8 +210,8 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       <div class="p-4 md:p-6 pb-0">
         <div class="flex justify-between items-start gap-3 mb-4">
           <div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${eq.startNumber} ${eq.driverName || ''}</h3>
-            <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel(eq)}</div>
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName || '')}</h3>
+            <div class="text-sm text-gray-500 dark:text-gray-400 italic">${escapeHtml(horseLabel(eq))}</div>
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}

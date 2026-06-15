@@ -19,6 +19,7 @@ import { injectProviders, generateDressagePdf } from '../pdf/dressagePdf.js';
 import { t, translateDressageString } from '../utils/i18n.js';
 
 import {
+  escapeHtml,
   isMobile,
   isPrivileged
 } from '../utils/sharedUtils.js';
@@ -345,7 +346,7 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
 
   } catch (e) {
     console.error('Modal Error:', e);
-    content.innerHTML = `<div class="p-6 text-center text-red-500">${t('error_fetching')} ${e.message}</div>`;
+    content.innerHTML = `<div class="p-6 text-center text-red-500">${t('error_fetching')} ${escapeHtml(e.message)}</div>`;
   }
 }
 
@@ -440,7 +441,7 @@ function renderModalUI(content, data, judgesPresent, program, pdfContext) {
       <div id="modalCard" class="p-4 md:p-6">
         <div class="flex justify-between items-start gap-3">
           <div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${data.startNumber} ${data.driverName || ''}</h3>
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(data.startNumber)} ${escapeHtml(data.driverName || '')}</h3>
             <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel}</div>
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(data)}
@@ -514,7 +515,7 @@ function renderJudgeDetailHTML(jr, program, data, isInternational = false) {
       const momText = translateDressageString(moment.text, isInternational);
       const momJudge = translateDressageString(moment.judge, isInternational);
 
-      html += `<tr><td class="p-2 align-top"><p class="font-semibold text-gray-900 dark:text-gray-100">${moment.no}. ${momText || ''}</p><p class="text-xs text-blue-800 dark:text-blue-300">${moment.letters || ''}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600 dark:text-gray-400">${momJudge || ''}</td>${showComments ? `<td class="p-2 align-top italic text-gray-700 dark:text-gray-300">${com}</td>` : ''}<td class="p-2 text-center align-top font-semibold text-lg text-gray-900 dark:text-white">${scTxt}</td><td class="p-2 text-center align-top font-bold text-lg text-gray-900 dark:text-white">${resTxt}</td></tr>`;
+      html += `<tr><td class="p-2 align-top"><p class="font-semibold text-gray-900 dark:text-gray-100">${escapeHtml(moment.no)}. ${escapeHtml(momText || '')}</p><p class="text-xs text-blue-800 dark:text-blue-300">${escapeHtml(moment.letters || '')}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600 dark:text-gray-400">${escapeHtml(momJudge || '')}</td>${showComments ? `<td class="p-2 align-top italic text-gray-700 dark:text-gray-300">${escapeHtml(com)}</td>` : ''}<td class="p-2 text-center align-top font-semibold text-lg text-gray-900 dark:text-white">${scTxt}</td><td class="p-2 text-center align-top font-bold text-lg text-gray-900 dark:text-white">${resTxt}</td></tr>`;
     });
   }
 
@@ -532,7 +533,7 @@ function renderTotalDetailHTML(data, judges, program, isInternational = false) {
   const programMovements = Array.isArray(program?.movements) ? program.movements : [];
   let html = `<div class="overflow-x-auto"><table class="min-w-full text-sm rounded-lg overflow-hidden"><thead class="bg-gray-50 dark:bg-gray-700 text-gray-700 dark:text-gray-200"><tr><th class="p-2 text-left">${t('moment', isInternational)}</th><th class="hidden md:table-cell p-2 text-left">${t('to_judge', isInternational)}</th><th class="p-2 text-center">${t('avg_score', isInternational)}</th><th class="p-2 text-center">${t('total_coeff', isInternational)}</th></tr></thead><tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700 text-gray-900 dark:text-gray-100">`;
   let calculatedTotalScore = 0;
-  if (data.eliminated) { html += `<tr><td colspan="4" class="p-4 text-center text-red-600 font-bold bg-red-50 dark:bg-red-900/30">${t('eliminated', isInternational).toUpperCase()}</td></tr>`; } else if (programMovements.length) { programMovements.forEach(moment => { const scores = judges.map(j => { const jr = data.judges[j.id]; const m = (jr?.movements || []).find(mv => normalizeMovementNo(mv) === moment.no); return m?.score; }).filter(s => s != null).map(Number); const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null; const res = (avg != null) ? avg * (moment.coeff || 1) : null; if (res != null) calculatedTotalScore += res; const momText = translateDressageString(moment.text, isInternational); const momJudge = translateDressageString(moment.judge, isInternational); html += `<tr><td class="p-2 align-top"><p class="font-semibold text-gray-900 dark:text-gray-100">${moment.no}. ${momText || ''}</p><p class="text-xs text-blue-800 dark:text-blue-300">${moment.letters || ''}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600 dark:text-gray-400">${momJudge || ''}</td><td class="p-2 text-center align-top font-semibold text-lg text-gray-900 dark:text-white">${avg != null ? avg.toFixed(2) : '–'}</td><td class="p-2 text-center align-top font-bold text-lg text-gray-900 dark:text-white">${res != null ? res.toFixed(2) : '–'}</td></tr>`; }); }
+  if (data.eliminated) { html += `<tr><td colspan="4" class="p-4 text-center text-red-600 font-bold bg-red-50 dark:bg-red-900/30">${t('eliminated', isInternational).toUpperCase()}</td></tr>`; } else if (programMovements.length) { programMovements.forEach(moment => { const scores = judges.map(j => { const jr = data.judges[j.id]; const m = (jr?.movements || []).find(mv => normalizeMovementNo(mv) === moment.no); return m?.score; }).filter(s => s != null).map(Number); const avg = scores.length ? (scores.reduce((a, b) => a + b, 0) / scores.length) : null; const res = (avg != null) ? avg * (moment.coeff || 1) : null; if (res != null) calculatedTotalScore += res; const momText = translateDressageString(moment.text, isInternational); const momJudge = translateDressageString(moment.judge, isInternational); html += `<tr><td class="p-2 align-top"><p class="font-semibold text-gray-900 dark:text-gray-100">${escapeHtml(moment.no)}. ${escapeHtml(momText || '')}</p><p class="text-xs text-blue-800 dark:text-blue-300">${escapeHtml(moment.letters || '')}</p></td><td class="hidden md:table-cell p-2 align-top text-gray-600 dark:text-gray-400">${escapeHtml(momJudge || '')}</td><td class="p-2 text-center align-top font-semibold text-lg text-gray-900 dark:text-white">${avg != null ? avg.toFixed(2) : '–'}</td><td class="p-2 text-center align-top font-bold text-lg text-gray-900 dark:text-white">${res != null ? res.toFixed(2) : '–'}</td></tr>`; }); }
   const isLive = data.isLive || (data.projectedPercent != null && data.projectedPercent !== data.finalPercent);
   const colspan = isMobile() ? 2 : 3;
   const displayPercent = (isLive && data.projectedPercent != null) ? data.projectedPercent : (data.finalPercent || data.avgPercent);

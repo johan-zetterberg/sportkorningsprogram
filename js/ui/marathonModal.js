@@ -155,7 +155,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
             <div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                 ${t('in_label')}: ${toTimeLabel(obs.enteredAtServer)} | ${t('out_label')}: ${toTimeLabel(obs.exitAtServer)}
             </div>
-             ${obs.routeString ? `<div class="mt-1 text-xs text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('route_label')}:</span> ${obs.routeString}</div>` : ''}
+             ${obs.routeString ? `<div class="mt-1 text-xs text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('route_label')}:</span> ${escapeHtml(obs.routeString)}</div>` : ''}
              ${obs.comment ? `<div class="mt-1 text-xs text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">Kommentar:</span> ${escapeHtml(obs.comment)}</div>` : ''}
              ${splitRows}
           </div>
@@ -267,7 +267,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
                   ${wrongGaitSec ? `<div>Fel gångart: <b>${wrongGaitSec}s</b></div>` : ''}
                   ${totalHaltSec ? `<div>Halter: <b>${halts.length}st (${totalHaltSec}s totalt)</b></div>` : ''}
                </div>
-               ${obsNotes ? `<div class="mt-2 text-gray-700 italic">"${obsNotes}"</div>` : ''}
+               ${obsNotes ? `<div class="mt-2 text-gray-700 italic">"${escapeHtml(obsNotes)}"</div>` : ''}
             </div>
           ` : ''}
           
@@ -511,11 +511,11 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
       <div class="p-4 md:p-6 pb-0">
         <div class="flex justify-between items-start mb-4">
           <div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
             <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
                ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${eq.className} • ${eq.clubName || ''}
             </div>
-            <div class="text-xs italic text-gray-500 dark:text-gray-400">${getMomentHorseLabel(eq)}</div>
+            <div class="text-xs italic text-gray-500 dark:text-gray-400">${escapeHtml(getMomentHorseLabel(eq))}</div>
           </div>
           <button id="closeMarathonModalBtn" class="text-2xl leading-none text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" aria-label="Stäng">&times;</button>
         </div>
