@@ -41,7 +41,11 @@ async function getCompetitionArtifactsDoc(competitionId) {
 }
 
 function normalizeSignupText(value, maxLength = 160) {
-    return String(value || '').trim().slice(0, maxLength);
+    return String(value || '')
+        .replace(/[<>"'`]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, maxLength);
 }
 
 function normalizeSignupEmail(value) {
@@ -49,7 +53,7 @@ function normalizeSignupEmail(value) {
 }
 
 function isValidEmail(value) {
-    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
+    return /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(String(value || ''));
 }
 
 function buildVolunteerSignupPayload(raw = {}) {

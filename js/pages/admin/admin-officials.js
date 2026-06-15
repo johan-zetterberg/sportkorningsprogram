@@ -17,6 +17,7 @@ import {
 } from '../../services/officialsService.js';
 
 import { showAlert } from '../../ui/components.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getGlobalState } from '../../main.js';
 import { generateOfficialsPdf, exportOfficialsCsv, exportAssignmentsCsv } from '../../pdf/officialsReports.js';
 import { normalizeOfficialTimestamp } from './adminOfficialDateUtils.js';
@@ -77,6 +78,30 @@ function renderSystemRoleBadges(official, competition = {}) {
 
 function findOfficialById(officialId) {
     return officials.find(official => String(official.id) === String(officialId));
+}
+
+function sanitizeVolunteerSignup(signup = {}) {
+    const sanitizeText = (value, fallback = '') => String(value ?? fallback)
+        .replace(/[<>"'`]/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const email = sanitizeText(signup.email || '').toLowerCase();
+    const safeEmail = /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(email) ? email : '';
+
+    return {
+        ...signup,
+        id: String(signup.id || ''),
+        name: sanitizeText(signup.name || ''),
+        phone: sanitizeText(signup.phone || ''),
+        email: safeEmail,
+        club: sanitizeText(signup.club || ''),
+        role: sanitizeText(signup.role || ''),
+        notes: sanitizeText(signup.notes || ''),
+        iceName: sanitizeText(signup.iceName || ''),
+        icePhone: sanitizeText(signup.icePhone || ''),
+        diet: sanitizeText(signup.diet || ''),
+        shirtSize: sanitizeText(signup.shirtSize || '')
+    };
 }
 
 function getAssignmentPerson(assignment) {
@@ -145,7 +170,7 @@ export function renderOfficialsTab(container, competition) {
         }));
 
         addOfficialsUnsubscriber(listenForVolunteerSignups(competition.id, (data) => {
-            volunteerSignups = data;
+            volunteerSignups = Array.isArray(data) ? data.map(sanitizeVolunteerSignup) : [];
             updateSignupBadge(); // New helper to show count
             refreshUI(container, competition);
         }));
@@ -970,8 +995,9 @@ function renderOverviewView() {
 }
 
 function renderSignupsView(competition) {
-    const volLink = `${window.location.origin}/volunteer-signup.html?id=${competition?.id || 'ID'}`;
-    const copyHtml = `<button onclick="navigator.clipboard.writeText('${volLink}'); alert('Länk kopierad!');" class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">Kopiera</button>`;
+    const volLink = `${window.location.origin}/volunteer-signup.html?id=${encodeURIComponent(competition?.id || 'ID')}`;
+    const safeVolLink = escapeHtml(volLink);
+    const copyHtml = `<button type="button" data-copy-signup-link="${safeVolLink}" class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">Kopiera</button>`;
 
     if (volunteerSignups.length === 0) {
         return `
@@ -1000,7 +1026,7 @@ function renderSignupsView(competition) {
                     <div class="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
                         <div class="flex justify-between items-start">
                             <div>
-                                <h4 class="font-bold text-lg">${signup.name}</h4>
+                                <h4 class="font-bold text-lg">${escapeHtml(signup.name || '')}</h4>
                                 <div class="text-sm text-gray-600 flex gap-4 mt-1">
                                     <span>📞 ${signup.phone}</span>
                                     <span>📧 <a href="mailto:${signup.email}" class="text-blue-600 hover:underline">${signup.email}</a></span>
@@ -1036,6 +1062,19 @@ function renderSignupsView(competition) {
 // --- LOGIC BINDING ---
 
 function bindContentEvents(container, competition) {
+    container.querySelectorAll('[data-copy-signup-link]').forEach((button) => {
+        button.onclick = async () => {
+            const link = button.dataset.copySignupLink || '';
+            try {
+                await navigator.clipboard.writeText(link);
+                showAlert('Länk kopierad.', true);
+            } catch (error) {
+                console.error('Kunde inte kopiera signup-länk:', error);
+                showAlert('Kunde inte kopiera länken.', false);
+            }
+        };
+    });
+
     if (currentSubTab === 'people') {
         const btnAdd = container.querySelector('#btnAddOfficial');
         const form = container.querySelector('#addOfficialForm');
