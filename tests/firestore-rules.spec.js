@@ -692,16 +692,12 @@ test('official staffing documents are not public but remain readable to authenti
   await assertSucceeds(getDoc(doc(dressageDb, compPath('assignments/assignment-1'))));
 });
 
-test('volunteer signups remain public create-only', { skip: !HAS_EMULATOR }, async () => {
+test('volunteer signups may not be created directly from Firestore clients', { skip: !HAS_EMULATOR }, async () => {
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
 
-  await assertSucceeds(setDoc(doc(anonymousDb, compPath('volunteerSignups/signup-1')), {
+  await assertFails(setDoc(doc(anonymousDb, compPath('volunteerSignups/signup-1')), {
     name: 'Volunteer',
     email: 'volunteer@example.com'
-  }));
-
-  await assertFails(updateDoc(doc(anonymousDb, compPath('volunteerSignups/signup-1')), {
-    phone: '0700000000'
   }));
 });
 

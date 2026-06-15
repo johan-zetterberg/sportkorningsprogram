@@ -1,6 +1,7 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { auth, db, appId } from '../config/firebase-config.js';
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+import { auth, db, appId, functions } from '../config/firebase-config.js';
 import { findClaimableEquipagesByEmail } from './equipageService.js';
 import { setGlobalState, getGlobalState, getCompetitionMode } from '../main.js'; // <-- NYTT: Importera setGlobalState
 import { t } from '../utils/i18n.js';
@@ -8,6 +9,27 @@ import { t } from '../utils/i18n.js';
 let currentUserRole = 'publik'; // 'publik' är standardrollen
 let currentUserId = null;
 let onAuthReadyCallback = null;
+let recoveryAccessAttemptedForUid = null;
+
+async function ensureRecoveryAccess(user) {
+    if (!user?.uid) return false;
+    if (recoveryAccessAttemptedForUid === user.uid) return false;
+
+    recoveryAccessAttemptedForUid = user.uid;
+
+    try {
+        const callable = httpsCallable(functions, 'ensureOwnerSuperadminAccess');
+        const result = await callable({});
+        if (result?.data?.elevated) {
+            await user.getIdToken(true);
+            return true;
+        }
+    } catch (error) {
+        console.warn('Kunde inte verifiera recovery-access:', error);
+    }
+
+    return false;
+}
 
 /**
  * Uppdaterar synligheten för olika UI-element baserat på användarens roll och inloggningsstatus.
@@ -272,9 +294,7 @@ export function initAuth(callback) {
             let userRole = 'publik';
 
             // Permanent fallback för ägarens e-post
-            if (user.email && user.email.toLowerCase() === 'johan.zetterberg@gmail.com') {
-                userRole = 'superadmin';
-            } else {
+            await ensureRecoveryAccess(user);
                 // Hämta rollen från Firebase ID-token custom claims först
                 try {
                     const tokenResult = await user.getIdTokenResult();
@@ -314,7 +334,6 @@ export function initAuth(callback) {
                         }
                     }
                 }
-            }
 
             // Uppdatera state med den (förhoppningsvis) uppdaterade rollen
             setGlobalState({
@@ -329,6 +348,7 @@ export function initAuth(callback) {
 
         } else {
             // --- NYTT: Nollställ det globala state-objektet vid utloggning ---
+            recoveryAccessAttemptedForUid = null;
             setGlobalState({ key: 'currentUser', value: null });
             // -------------------------------------------------------------
             updateUIVisibility();
@@ -347,8 +367,14 @@ export async function getCurrentUserRole() {
     if (!user) return 'publik';
 
     // Permanent fallback för ägarens e-post
-    if (user.email && user.email.toLowerCase() === 'johan.zetterberg@gmail.com') {
-        return 'superadmin';
+    await ensureRecoveryAccess(user);
+
+    try {
+        const tokenResult = await user.getIdTokenResult();
+        if (tokenResult.claims.superadmin === true) return 'superadmin';
+        if (tokenResult.claims.role) return tokenResult.claims.role;
+    } catch (tokenErr) {
+        console.warn('Kunde inte lÃ¤sa custom claims i getCurrentUserRole:', tokenErr);
     }
 
     // Läs roll från root-kollektionen 'users' (matchar dina regler)

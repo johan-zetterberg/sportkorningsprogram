@@ -10,12 +10,14 @@ import {
     orderBy,
     serverTimestamp
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import {
     listenForOfficials as listenForOfficialsCore,
     saveOfficial as saveOfficialCore,
     deleteOfficial as deleteOfficialCore
 } from './adminService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { functions } from '../config/firebase-config.js';
 
 export { serverTimestamp };
 
@@ -59,12 +61,12 @@ export function listenForVolunteerSignups(competitionId, callback) {
 
 export async function saveVolunteerSignup(competitionId, data) {
     if (!competitionId) throw new Error("Competition ID required");
-    const ref = doc(collection(db, `${getBasePath(competitionId)}/volunteerSignups`));
-    await setDoc(ref, {
-        ...data,
-        createdAt: Date.now()
+    const callable = httpsCallable(functions, 'submitVolunteerSignup');
+    const result = await callable({
+        competitionId,
+        ...data
     });
-    return ref.id;
+    return result?.data || { accepted: true };
 }
 
 export async function approveVolunteer(competitionId, signupId, officialData) {

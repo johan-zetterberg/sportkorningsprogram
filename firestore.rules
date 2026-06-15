@@ -462,9 +462,9 @@ service cloud.firestore {
         );
     }
 
-    // Volunteer Signups (Public Create, Admin Read/Modify)
+    // Volunteer Signups (Callable-only create, Admin read/delete)
     match /artifacts/{appId}/public/data/competitions/{compId}/volunteerSignups/{docId} {
-      allow create: if true;
+      allow create: if false;
       allow update: if false;
       allow read, delete: if request.auth != null
         && (

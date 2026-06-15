@@ -8,6 +8,7 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
+import { getAuth } from "firebase-admin/auth";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { buildCompetitionState } from "./src/core-engine/stateSelector.js";
@@ -22,6 +23,10 @@ setGlobalOptions({ region: 'europe-west1' });
 
 initializeApp();
 const db = getFirestore();
+const adminAuth = getAuth();
+const OWNER_RECOVERY_EMAIL = 'johan.zetterberg@gmail.com';
+const VOLUNTEER_DUPLICATE_WINDOW_MS = 6 * 60 * 60 * 1000;
+const MAX_SIGNUP_TEXT_LENGTH = 500;
 
 async function getCompetitionArtifactsDoc(competitionId) {
     const appIdsToTry = ['combined-driving', 'drivelive'];
@@ -33,6 +38,44 @@ async function getCompetitionArtifactsDoc(competitionId) {
         }
     }
     return null;
+}
+
+function normalizeSignupText(value, maxLength = 160) {
+    return String(value || '').trim().slice(0, maxLength);
+}
+
+function normalizeSignupEmail(value) {
+    return normalizeSignupText(value, 200).toLowerCase();
+}
+
+function isValidEmail(value) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(value || ''));
+}
+
+function buildVolunteerSignupPayload(raw = {}) {
+    const payload = {
+        name: normalizeSignupText(raw.name, 120),
+        phone: normalizeSignupText(raw.phone, 40),
+        email: normalizeSignupEmail(raw.email),
+        club: normalizeSignupText(raw.club, 120),
+        shirtSize: normalizeSignupText(raw.shirtSize, 10),
+        diet: normalizeSignupText(raw.diet, 200),
+        iceName: normalizeSignupText(raw.iceName, 120),
+        icePhone: normalizeSignupText(raw.icePhone, 40),
+        role: normalizeSignupText(raw.role, 80),
+        notes: normalizeSignupText(raw.notes, MAX_SIGNUP_TEXT_LENGTH),
+        createdAt: Date.now()
+    };
+
+    if (!payload.name || !payload.phone || !payload.email || !payload.iceName || !payload.icePhone) {
+        throw new HttpsError('invalid-argument', 'Obligatoriska fält saknas.');
+    }
+
+    if (!isValidEmail(payload.email)) {
+        throw new HttpsError('invalid-argument', 'Ogiltig e-postadress.');
+    }
+
+    return payload;
 }
 
 // Helper to load context (Configs) efficiently
@@ -207,5 +250,95 @@ export const joinCompetitionAsOfficial = onCall(async (request) => {
     return {
         role: matchedRole,
         roles: payload.roles
+    };
+});
+
+export const ensureOwnerSuperadminAccess = onCall(async (request) => {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning kravs.');
+    }
+
+    const authEmail = String(request.auth.token?.email || '').trim().toLowerCase();
+    if (!authEmail) {
+        throw new HttpsError('failed-precondition', 'Anvandaren maste ha en e-postadress.');
+    }
+
+    if (authEmail !== OWNER_RECOVERY_EMAIL) {
+        return {
+            elevated: false,
+            reason: 'not-owner'
+        };
+    }
+
+    const userRecord = await adminAuth.getUser(request.auth.uid);
+    const currentClaims = userRecord.customClaims || {};
+    const nextClaims = {
+        ...currentClaims,
+        superadmin: true,
+        role: 'superadmin'
+    };
+
+    const claimsAlreadySet = currentClaims.superadmin === true && currentClaims.role === 'superadmin';
+    if (!claimsAlreadySet) {
+        await adminAuth.setCustomUserClaims(request.auth.uid, nextClaims);
+    }
+
+    const userRef = db.doc(`users/${request.auth.uid}`);
+    const userSnap = await userRef.get();
+    const userData = userSnap.exists ? (userSnap.data() || {}) : {};
+    const nextRoles = Array.from(new Set([...(Array.isArray(userData.roles) ? userData.roles : []), 'superadmin']));
+
+    await userRef.set({
+        email: authEmail,
+        role: 'superadmin',
+        roles: nextRoles,
+        recoveryAccessVerifiedAt: Date.now()
+    }, { merge: true });
+
+    return {
+        elevated: true,
+        claimsUpdated: !claimsAlreadySet
+    };
+});
+
+export const submitVolunteerSignup = onCall(async (request) => {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    const honeypot = String(request.data?.website || '').trim();
+
+    if (!competitionId) {
+        throw new HttpsError('invalid-argument', 'Competition ID saknas.');
+    }
+
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) {
+        throw new HttpsError('not-found', 'Tavlingen kunde inte hittas.');
+    }
+
+    if (honeypot) {
+        return { accepted: true, ignored: true };
+    }
+
+    const payload = buildVolunteerSignupPayload(request.data || {});
+    const signupRef = competition.ref.collection('volunteerSignups');
+    const duplicateSnapshot = await signupRef
+        .where('email', '==', payload.email)
+        .limit(5)
+        .get();
+    const duplicateExists = duplicateSnapshot.docs.some((docSnap) => {
+        const createdAt = Number(docSnap.data()?.createdAt || 0);
+        return createdAt >= Date.now() - VOLUNTEER_DUPLICATE_WINDOW_MS;
+    });
+
+    if (duplicateExists) {
+        return {
+            accepted: true,
+            duplicate: true
+        };
+    }
+
+    await signupRef.add(payload);
+    return {
+        accepted: true,
+        duplicate: false
     };
 });
