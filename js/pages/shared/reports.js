@@ -9,6 +9,7 @@ import { getCompetitionHeader } from '../../ui/components.js';
 import { getGlobalState } from '../../main.js';
 import {
     downloadCsv,
+    escapeHtml,
     isPrivileged,
     resolveCurrentCompId
 } from '../../utils/sharedUtils.js';
@@ -297,7 +298,7 @@ function render() {
                 <label class="font-bold text-sm sm:text-base text-gray-700 dark:text-gray-300">Filtrera på klass:</label>
                 <select id="report-class-filter" class="border dark:border-gray-600 rounded p-2 w-full sm:w-auto min-w-0 sm:min-w-[200px] bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100">
                     <option value="">Alla klasser</option>
-                    ${uniqueClasses.map(c => `<option value="${c}">${c}</option>`).join('')}
+                    ${uniqueClasses.map(c => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join('')}
                 </select>
                 <div class="w-full text-xs sm:w-auto sm:ml-auto sm:text-sm text-gray-500 italic">
                     Valt urval påverkar alla rapporter nedan.

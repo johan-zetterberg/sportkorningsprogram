@@ -6,6 +6,7 @@ import { getJudges } from '../../services/adminService.js';
 import { getCompetitionStatistics } from '../../services/competitionService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 export async function load() {
     const user = getGlobalState('currentUser');
@@ -39,8 +40,9 @@ export async function load() {
                 <!-- VÄLKOMMEN / STATUS -->
                 <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 lg:col-span-2 border-t-4 border-blue-500">
                     <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-2">
-                        Välkommen, ${user.displayName || user.email}!
+                        Välkommen, ${escapeHtml(user.displayName || user.email || '')}!
                     </h2>
+                    <p class="text-gray-600 dark:text-gray-400 mb-6">
                         Detta är din kontrollpanel för tävlingen. Här hittar du snabblänkar och dina uppgifter.
                     </p>
 
@@ -222,11 +224,11 @@ async function loadDashboard(competitionId) {
                 nextStartEl.innerHTML = `
                     <div class="flex items-center gap-2 mb-1">
                         <span class="text-xl">${icon}</span>
-                        <div class="font-bold text-lg leading-none">${timeStr}</div>
-                        <div class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-bold">${next.label}</div>
+                        <div class="font-bold text-lg leading-none">${escapeHtml(timeStr)}</div>
+                        <div class="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-300 font-bold">${escapeHtml(next.label || '')}</div>
                     </div>
-                    <div class="font-medium truncate">#${next.eq.startNumber} ${next.eq.driverName}</div>
-                    <div class="text-xs opacity-75 truncate">${next.eq.className || ''}</div>
+                    <div class="font-medium truncate">#${escapeHtml(String(next.eq.startNumber || ''))} ${escapeHtml(next.eq.driverName || '')}</div>
+                    <div class="text-xs opacity-75 truncate">${escapeHtml(next.eq.className || '')}</div>
                 `;
             } else {
                 nextStartEl.textContent = "Inga fler starter idag.";
@@ -312,9 +314,9 @@ async function loadAssignments(competitionId, user) {
                     ${myJudges.map(j => `
                         <li class="bg-orange-50 dark:bg-orange-900/30 p-2 rounded border border-orange-100 dark:border-orange-800 text-sm flex justify-between items-center">
                             <div>
-                                <span class="font-bold text-orange-900 dark:text-orange-100">${j.position || 'Domare'}</span>
+                                <span class="font-bold text-orange-900 dark:text-orange-100">${escapeHtml(j.position || 'Domare')}</span>
                             </div>
-                            <span class="text-orange-700 dark:text-orange-300 text-xs px-2 py-0.5 bg-orange-100 dark:bg-orange-800 rounded-full font-mono">${j.id}</span>
+                            <span class="text-orange-700 dark:text-orange-300 text-xs px-2 py-0.5 bg-orange-100 dark:bg-orange-800 rounded-full font-mono">${escapeHtml(j.id || '')}</span>
                         </li>
                     `).join('')}
                 </ul>
@@ -327,8 +329,8 @@ async function loadAssignments(competitionId, user) {
                 <ul class="mt-2 space-y-2">
                     ${myOfficials.map(o => `
                         <li class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded border border-blue-100 dark:border-blue-800 text-sm">
-                            <div class="font-bold text-blue-900 dark:text-blue-100">${o.role || o.titel || 'Funktionär'}</div>
-                            ${o.area ? `<div class="text-xs text-blue-700 dark:text-blue-300">Område: ${o.area}</div>` : ''}
+                            <div class="font-bold text-blue-900 dark:text-blue-100">${escapeHtml(o.role || o.titel || 'Funktionär')}</div>
+                            ${o.area ? `<div class="text-xs text-blue-700 dark:text-blue-300">Område: ${escapeHtml(o.area)}</div>` : ''}
                         </li>
                     `).join('')}
                 </ul>

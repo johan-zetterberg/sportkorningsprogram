@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 export function buildStarttiderMergeMap(raw) {
     const mergeMap = new Map();
     if (!raw) return mergeMap;
@@ -75,8 +77,8 @@ export function buildStarttiderClassOptions(equipages = [], allClassesLabel = 'A
 
     return {
         classes,
-        html: [`<option value="">${allClassesLabel}</option>`]
-            .concat(classes.map(className => `<option value="${className}">${className}</option>`))
+        html: [`<option value="">${escapeHtml(allClassesLabel)}</option>`]
+            .concat(classes.map(className => `<option value="${escapeHtml(className)}">${escapeHtml(className)}</option>`))
             .join('')
     };
 }
@@ -314,7 +316,7 @@ export function renderStarttiderTimeCell({
 
     return `
     <div class="flex flex-col gap-1">
-      <input id="${id}" type="datetime-local" class="w-36 px-1 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500" value="${inputValue}">
+      <input id="${escapeHtml(id)}" type="datetime-local" class="w-36 px-1 py-1 text-xs rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white focus:ring-2 focus:ring-blue-500" value="${escapeHtml(inputValue)}">
       <div class="flex items-center gap-1">${badges}</div>
     </div>`;
 }
@@ -391,7 +393,7 @@ export function renderStarttiderDesktopRow({
     const elimClass = isEliminated ? 'bg-red-50 dark:bg-red-900/20' : '';
     const hoverEffects = publicMode ? 'hover:bg-gray-50 dark:hover:bg-gray-700' : '';
     const dragAttrs = enableDnD
-        ? `draggable="true" class="draggable-row align-top ${elimClass || hoverEffects} border-b dark:border-gray-700 last:border-0" data-sn="${e.startNumber}"`
+        ? `draggable="true" class="draggable-row align-top ${elimClass || hoverEffects} border-b dark:border-gray-700 last:border-0" data-sn="${escapeHtml(e.startNumber)}"`
         : `class="align-top ${elimClass || hoverEffects} border-b dark:border-gray-700 last:border-0"`;
     const grabHandle = enableDnD
         ? '<div class="cursor-grab text-gray-400 hover:text-gray-600 mr-2" title="Dra för att flytta">⋮⋮</div>'
@@ -403,21 +405,21 @@ export function renderStarttiderDesktopRow({
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 text-center select-none align-middle whitespace-nowrap">
                     <div class="flex items-center justify-center font-bold text-gray-900 dark:text-white">
                         ${grabHandle}
-                        ${e.startNumber ?? ''}
+                        ${escapeHtml(e.startNumber ?? '')}
                     </div>
                 </td>
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm min-w-0 align-middle">
-                  <div class="font-medium text-gray-900 dark:text-white whitespace-nowrap truncate max-w-[140px] md:max-w-none" title="${e.driverName || ''}">${e.driverName || ''}</div>
-                  <div class="text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 italic truncate max-w-[140px] lg:max-w-[200px] xl:max-w-none" title="${horseLabel}">${horseLabel}</div>
+                  <div class="font-medium text-gray-900 dark:text-white whitespace-nowrap truncate max-w-[140px] md:max-w-none" title="${escapeHtml(e.driverName || '')}">${escapeHtml(e.driverName || '')}</div>
+                  <div class="text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 italic truncate max-w-[140px] lg:max-w-[200px] xl:max-w-none" title="${escapeHtml(horseLabel)}">${escapeHtml(horseLabel)}</div>
                 </td>
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle">
-                    <div class="truncate max-w-[80px] md:max-w-[120px] xl:max-w-none" title="${e._mergedLabel || e.className || ''}">${e._mergedLabel || e.className || ''}</div>
+                    <div class="truncate max-w-[80px] md:max-w-[120px] xl:max-w-none" title="${escapeHtml(e._mergedLabel || e.className || '')}">${escapeHtml(e._mergedLabel || e.className || '')}</div>
                 </td>
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle">
-                    <div class="flex items-center gap-1.5 whitespace-nowrap" title="${e.clubName || ''}">
+                    <div class="flex items-center gap-1.5 whitespace-nowrap" title="${escapeHtml(e.clubName || '')}">
                         ${getFlagHtml(e)}
                         ${getClubLogoHtml(e)}
-                        <span class="hidden md:inline-block truncate max-w-[100px] lg:max-w-[150px] xl:max-w-none">${e.clubName || ''}</span>
+                        <span class="hidden md:inline-block truncate max-w-[100px] lg:max-w-[150px] xl:max-w-none">${escapeHtml(e.clubName || '')}</span>
                     </div>
                 </td>
                 <td class="px-2 py-2 lg:px-3 lg:py-2 align-middle text-[11px] lg:text-sm whitespace-nowrap">${getVisibleTime('dressage', st.dressage)}</td>
@@ -462,7 +464,7 @@ export function renderStarttiderMobileCard({
     const timeRow = (discipline, value) => {
         if (!isEditable && !isPub[discipline]) return unpublishedHtml;
         if (isEditable) {
-            return `<input id="${discipline}-${e.startNumber}" type="datetime-local" class="flex-1 w-full px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-[11px]" value="${value || ''}">`;
+            return `<input id="${escapeHtml(`${discipline}-${e.startNumber}`)}" type="datetime-local" class="flex-1 w-full px-1 py-0.5 rounded border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white text-[11px]" value="${escapeHtml(value || '')}">`;
         }
         return `<span class="font-bold dark:text-white text-[12px]">${formatDateTime(parseDateTime(value))}</span>`;
     };
@@ -478,11 +480,11 @@ export function renderStarttiderMobileCard({
             ${classHeaderHtml}
             <div class="mb-1.5 rounded border border-gray-200 dark:border-gray-700 shadow-sm ${cardClass} overflow-hidden">
                 <div class="px-2 py-1.5 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                    <div class="font-bold text-[13px] dark:text-white leading-tight">#${e.startNumber} ${e.driverName || ''}</div>
-                    <div class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-tight">${getHorseLabel(e)}</div>
+                    <div class="font-bold text-[13px] dark:text-white leading-tight">#${escapeHtml(e.startNumber)} ${escapeHtml(e.driverName || '')}</div>
+                    <div class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-tight">${escapeHtml(getHorseLabel(e))}</div>
                 </div>
                 <div class="px-2 py-1 space-y-0.5 text-[12px]">
-                    <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">${labels.class || 'Klass:'}</span><span class="font-medium dark:text-gray-200 text-right">${classLabel}</span></div>
+                    <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">${escapeHtml(labels.class || 'Klass:')}</span><span class="font-medium dark:text-gray-200 text-right">${escapeHtml(classLabel)}</span></div>
                     ${disciplineRow('dressage')}
                     ${disciplineRow('marathon')}
                     ${disciplineRow('precision')}
@@ -505,7 +507,7 @@ export function renderStarttiderDesktopHeader(headers = [], sortConfig = {}) {
         const cursor = isSortable ? 'cursor-pointer' : '';
         const isSorted = sortConfig.key === header.key;
         const arrow = isSorted ? (sortConfig.direction === 'asc' ? '▲' : '▼') : '';
-        return `<th data-key="${header.key}" class="${isSortable ? 'sortable-header' : ''} px-2 py-2 lg:px-3 lg:py-2 text-left text-[11px] lg:text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider select-none whitespace-nowrap ${cursor}">${header.label} ${arrow}</th>`;
+        return `<th data-key="${escapeHtml(header.key)}" class="${isSortable ? 'sortable-header' : ''} px-2 py-2 lg:px-3 lg:py-2 text-left text-[11px] lg:text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase tracking-wider select-none whitespace-nowrap ${cursor}">${escapeHtml(header.label)} ${arrow}</th>`;
     }).join('')}</tr></thead>`;
 }
 
@@ -528,7 +530,7 @@ export function renderStarttiderDesktopBody(rows = [], {
     return Object.keys(grouped)
         .sort((a, b) => a.localeCompare(b, 'sv'))
         .map(className => {
-            const header = `<tr><td colspan="${colspan}" class="px-3 py-2 bg-gray-100 dark:bg-gray-700 font-bold text-gray-800 dark:text-gray-200 sticky top-0 z-10">${className}</td></tr>`;
+            const header = `<tr><td colspan="${colspan}" class="px-3 py-2 bg-gray-100 dark:bg-gray-700 font-bold text-gray-800 dark:text-gray-200 sticky top-0 z-10">${escapeHtml(className)}</td></tr>`;
             return header + grouped[className].map((row, index) => renderRow(row, index, rows.length)).join('');
         })
         .join('');

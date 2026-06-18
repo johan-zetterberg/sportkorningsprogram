@@ -43,6 +43,14 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 let messageUnsub = null;
 let dashboardUnsub = null;
 let portalLoadToken = 0;
+const escapeAttr = (value) => escapeHtml(value ?? '');
+
+function sanitizePortalUrl(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '#';
+    if (/^(https?:|mailto:|\/)/i.test(raw)) return raw;
+    return '#';
+}
 
 function normalizePortalEmail(value) {
     return String(value || '').trim().toLowerCase();
@@ -515,21 +523,27 @@ async function renderDashboard(container, compId, startNumber, user) {
 
         let totalShow = '—';
         totalShow = calculatePortalTotalPenaltyLabel([dRes, mRes, pRes], r.totalPenalty, { eliminated: r.isEliminated });
+        const safeStartNumber = escapeHtml(String(startNumber ?? ''));
+        const safeDriverName = escapeHtml(eq.driverName || r.driverName || 'Okänd kusk');
+        const safeClassName = escapeHtml(eq.className || r.className || '');
+        const safeClubName = escapeHtml(eq.clubName || '');
+        const safeGroom = escapeHtml(eq.groom || '');
+        const safeRestrictionMessage = escapeHtml(selfServiceRestrictionMessage || '');
 
         const headerEl = document.getElementById('dashboard-header');
         headerEl.innerHTML = `
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                    <h1 class="text-xl md:text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-2 md:gap-3 flex-wrap">
-                        <span class="bg-gray-900 dark:bg-gray-700 text-white text-base md:text-lg px-2 md:px-3 py-1 rounded-md whitespace-nowrap">#${startNumber}</span>
-                        <span class="break-all">${eq.driverName || r.driverName || 'Okänd kusk'}</span>
+                        <span class="bg-gray-900 dark:bg-gray-700 text-white text-base md:text-lg px-2 md:px-3 py-1 rounded-md whitespace-nowrap">#${safeStartNumber}</span>
+                        <span class="break-all">${safeDriverName}</span>
                    </h1>
                    <div class="text-gray-600 dark:text-gray-400 mt-2 flex flex-wrap gap-2 items-center text-xs md:text-sm">
                         ${getFlagHtml(eq)} 
-                        <span class="font-medium bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-gray-900 dark:text-gray-200">${eq.className || r.className || ''}</span>
+                        <span class="font-medium bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-gray-900 dark:text-gray-200">${safeClassName}</span>
                         <span class="text-gray-300 dark:text-gray-600 hidden md:inline">|</span>
-                        <span class="flex items-center gap-1 w-full md:w-auto mt-1 md:mt-0">${getClubLogoHtml(eq)} ${eq.clubName || ''}</span>
-                        ${eq.groom ? `<span class="text-gray-300 dark:text-gray-600 hidden md:inline">|</span><span class="text-gray-500 dark:text-gray-400 w-full md:w-auto mt-1 md:mt-0">Groom: ${eq.groom}</span>` : ''}
+                        <span class="flex items-center gap-1 w-full md:w-auto mt-1 md:mt-0">${getClubLogoHtml(eq)} ${safeClubName}</span>
+                        ${eq.groom ? `<span class="text-gray-300 dark:text-gray-600 hidden md:inline">|</span><span class="text-gray-500 dark:text-gray-400 w-full md:w-auto mt-1 md:mt-0">Groom: ${safeGroom}</span>` : ''}
                    </div>
                 </div>
                 <div class="text-left md:text-right w-full md:w-auto bg-gray-50 dark:bg-gray-800/50 md:bg-transparent p-3 md:p-0 rounded-lg mt-2 md:mt-0 flex flex-col items-end gap-2">
@@ -570,10 +584,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                             <div class="text-2xl pt-1">${icon}</div>
                             <div class="flex-1 min-w-0">
                                 <div class="flex justify-between items-start mb-1 flex-wrap gap-2">
-                                    <h4 class="font-bold text-sm md:text-base break-words">${msg.title || 'Meddelande'}</h4>
-                                    <span class="text-xs opacity-75 whitespace-nowrap">${time}</span>
+                                    <h4 class="font-bold text-sm md:text-base break-words">${escapeHtml(msg.title || 'Meddelande')}</h4>
+                                    <span class="text-xs opacity-75 whitespace-nowrap">${escapeHtml(time || '')}</span>
                                 </div>
-                                <div class="text-sm opacity-90 leading-relaxed break-words">${msg.body || msg.message || ''}</div>
+                                <div class="text-sm opacity-90 leading-relaxed break-words">${escapeHtml(msg.body || msg.message || '')}</div>
                             </div>
                         </div>
                         `;
@@ -632,7 +646,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                     }
 
                     if (!canSelfEdit) {
-                        return `<span class="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded" title="${selfServiceRestrictionMessage}">🔒 Endast sekretariat</span>`;
+                        return `<span class="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded" title="${safeRestrictionMessage}">🔒 Endast sekretariat</span>`;
                     }
 
                     return `
@@ -643,26 +657,26 @@ async function renderDashboard(container, compId, startNumber, user) {
                         </div>
                         <dl class="grid grid-cols-2 gap-x-4 gap-y-4 text-sm">
                             <dt class="text-gray-500 dark:text-gray-400">${t('driver', compConfig?.isInternational)}:</dt>
-                            <dd class="font-medium text-gray-900 dark:text-white">${eq.driverName || '-'}</dd>
+                            <dd class="font-medium text-gray-900 dark:text-white">${escapeHtml(eq.driverName || '-')}</dd>
                             
                             <dt class="text-gray-500 dark:text-gray-400">Groom:</dt>
-                            <dd class="font-medium text-gray-900 dark:text-white">${eq.groom || '-'}</dd>
+                            <dd class="font-medium text-gray-900 dark:text-white">${escapeHtml(eq.groom || '-')}</dd>
                             
                             <dt class="text-gray-500 dark:text-gray-400">${t('carriage', compConfig?.isInternational)}:</dt>
-                            <dd class="font-medium text-gray-900 dark:text-white">${eq.carriage || '-'}</dd>
+                            <dd class="font-medium text-gray-900 dark:text-white">${escapeHtml(eq.carriage || '-')}</dd>
 
                             <dt class="text-gray-500 dark:text-gray-400">${t('startno', compConfig?.isInternational)}:</dt>
-                            <dd class="font-medium text-gray-900 dark:text-white">#${startNumber}</dd>
+                            <dd class="font-medium text-gray-900 dark:text-white">#${safeStartNumber}</dd>
                             <dt class="text-gray-500 dark:text-gray-400">${t('class', compConfig?.isInternational)}:</dt>
-                            <dd class="font-medium text-gray-900 dark:text-white">${eq.className || '-'}</dd>
+                            <dd class="font-medium text-gray-900 dark:text-white">${escapeHtml(eq.className || '-')}</dd>
                             <dt class="text-gray-500 dark:text-gray-400">${t('club', compConfig?.isInternational)}:</dt>
                             <dd class="font-medium text-gray-900 dark:text-white flex items-center gap-2">
-                                ${getClubLogoHtml(eq)} ${eq.clubName || '-'}
+                                ${getClubLogoHtml(eq)} ${escapeHtml(eq.clubName || '-')}
                             </dd>
                         </dl>
                         ${!canSelfEdit ? `
                         <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                            ${selfServiceRestrictionMessage}
+                            ${safeRestrictionMessage}
                         </div>` : ''}
                     </div>
 
@@ -694,8 +708,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                                     <div class="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg">
                                         <div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-600 dark:text-blue-300 font-bold text-xs">H${h.idx}</div>
                                         <div>
-                                            <div class="font-bold text-gray-900 dark:text-gray-100">${h.name}</div>
-                                            <div class="text-xs text-gray-500 dark:text-gray-400">ID: ${h.id || '-'}</div>
+                                            <div class="font-bold text-gray-900 dark:text-gray-100">${escapeHtml(h.name || '')}</div>
+                                            <div class="text-xs text-gray-500 dark:text-gray-400">ID: ${escapeHtml(h.id || '-')}</div>
                                         </div>
                                     </div>
                                 `).join('');
@@ -736,9 +750,9 @@ async function renderDashboard(container, compId, startNumber, user) {
                                         ${(j.name || 'F').charAt(0)}
                                     </div>
                                     <div class="overflow-hidden">
-                                        <div class="font-bold text-gray-900 dark:text-white text-sm truncate" title="${j.name}">${j.name}</div>
-                                        <div class="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">${roleStr}</div>
-                                        ${contactInfo ? `<div class="text-xs text-gray-400 dark:text-gray-500 truncate" title="${contactInfo}">${contactInfo}</div>` : ''}
+                                        <div class="font-bold text-gray-900 dark:text-white text-sm truncate" title="${escapeAttr(j.name || '')}">${escapeHtml(j.name || '')}</div>
+                                        <div class="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">${escapeHtml(roleStr)}</div>
+                                        ${contactInfo ? `<div class="text-xs text-gray-400 dark:text-gray-500 truncate" title="${escapeAttr(contactInfo)}">${escapeHtml(contactInfo)}</div>` : ''}
                                     </div>
                                 </div>`;
                 }).join('') : `<div class="text-gray-500 italic">${t('no_officials_listed', compConfig?.isInternational)}</div>`}
@@ -827,11 +841,11 @@ async function renderDashboard(container, compId, startNumber, user) {
                             <div class="p-6 overflow-y-auto space-y-4">
                                 <div>
                                     <label class="block text-sm font-bold text-gray-700 mb-1">Groom / Medhjälpare</label>
-                                    <input type="text" id="editGroom" class="w-full border rounded p-2" value="${eq.groom || ''}" placeholder="Namn på groom">
+                                    <input type="text" id="editGroom" class="w-full border rounded p-2" value="${escapeAttr(eq.groom || '')}" placeholder="Namn på groom">
                                 </div>
                                 <div>
                                     <label class="block text-sm font-bold text-gray-700 mb-1">Vagn</label>
-                                    <input type="text" id="editCarriage" class="w-full border rounded p-2" value="${eq.carriage || ''}" placeholder="Fabrikat / Modell / Spårbredd">
+                                    <input type="text" id="editCarriage" class="w-full border rounded p-2" value="${escapeAttr(eq.carriage || '')}" placeholder="Fabrikat / Modell / Spårbredd">
                                 </div>
                                 <div class="bg-blue-50 p-4 rounded border border-blue-100">
                                     <label class="block text-sm font-bold text-blue-900 mb-2">Hästar (Max 5)</label>
@@ -840,7 +854,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                                 </div>
                                 <div>
                                     <label class="block text-sm font-bold text-gray-700 mb-1">Klubb</label>
-                                    <input type="text" id="editClub" class="w-full border rounded p-2" value="${eq.clubName || ''}">
+                                    <input type="text" id="editClub" class="w-full border rounded p-2" value="${escapeAttr(eq.clubName || '')}">
                                 </div>
                             </div>
                             <div class="p-4 border-t bg-gray-50 flex justify-end gap-2">
@@ -869,8 +883,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                             container.innerHTML = currentHorses.map((h, i) => `
                                 <div class="flex gap-2 items-start animate-fade-in horse-row" data-idx="${i}">
                                     <div class="flex-1 space-y-1">
-                                        <input type="text" class="w-full border rounded p-1 text-sm h-name" placeholder="Hästnamn" value="${h.name || ''}">
-                                        <input type="text" class="w-full border rounded p-1 text-xs h-id" placeholder="ID / Regnr" value="${h.id || ''}">
+                                        <input type="text" class="w-full border rounded p-1 text-sm h-name" placeholder="Hästnamn" value="${escapeAttr(h.name || '')}">
+                                        <input type="text" class="w-full border rounded p-1 text-xs h-id" placeholder="ID / Regnr" value="${escapeAttr(h.id || '')}">
                                     </div>
                                     <button class="rm-horse text-red-400 hover:text-red-600 p-1" title="Ta bort">&times;</button>
                                 </div>
@@ -1147,8 +1161,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                 const isHtml = doc.type === 'html';
 
                 const wrapperStart = isHtml
-                    ? `<button type="button" data-doc-id="${doc.id}" class="cursor-pointer block group h-full text-left w-full">`
-                    : `<a href="${doc.url}" target="_blank" class="block group no-underline h-full">`;
+                    ? `<button type="button" data-doc-id="${escapeAttr(doc.id || '')}" class="cursor-pointer block group h-full text-left w-full">`
+                    : `<a href="${escapeAttr(sanitizePortalUrl(doc.url))}" target="_blank" rel="noopener noreferrer" class="block group no-underline h-full">`;
                 const wrapperEnd = isHtml ? `</button>` : `</a>`;
 
                 return `
@@ -1162,12 +1176,12 @@ async function renderDashboard(container, compId, startNumber, user) {
                                         ${icon}
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-gray-900 dark:text-gray-100 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">${doc.title || t('doc_default_title')}</h4>
-                                        <span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">${doc.category || doc.type || t('file_default_cat')}</span>
+                                        <h4 class="font-bold text-gray-900 dark:text-gray-100 group-hover:text-blue-700 dark:group-hover:text-blue-400 transition-colors">${escapeHtml(doc.title || t('doc_default_title'))}</h4>
+                                        <span class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">${escapeHtml(doc.category || doc.type || t('file_default_cat'))}</span>
                                     </div>
                                 </div>
                                 <div class="mt-auto pt-3 border-t dark:border-gray-700 flex justify-between items-center text-sm text-gray-500 dark:text-gray-400">
-                                    <span>${formatPortalTimestamp(doc.uploadedAt || doc.timestamp, 'sv-SE', { dateStyle: 'short' }) || t('new')}</span>
+                                    <span>${escapeHtml(formatPortalTimestamp(doc.uploadedAt || doc.timestamp, 'sv-SE', { dateStyle: 'short' }) || t('new'))}</span>
                                     <span class="group-hover:translate-x-1 transition-transform">${isHtml ? `${t('read_btn')} →` : `${t('open_btn')} →`}</span>
                                 </div>
                             </div>
@@ -1185,7 +1199,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                     <div class="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" id="doc-modal-overlay">
                         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-fade-in-up border dark:border-gray-700">
                             <div class="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50 rounded-t-xl">
-                                <h3 class="font-bold text-lg text-gray-900 dark:text-white">${d.title}</h3>
+                                <h3 class="font-bold text-lg text-gray-900 dark:text-white">${escapeHtml(d.title || t('doc_default_title'))}</h3>
                                 <button type="button" data-close-doc-modal class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
                             </div>
                             <div class="p-6 overflow-y-auto prose dark:prose-invert max-w-none text-gray-800 dark:text-gray-200">
@@ -1328,7 +1342,7 @@ async function renderDashboard(container, compId, startNumber, user) {
 
     } catch (err) {
         console.error('Dashboard load failed:', err);
-        container.innerHTML = `<div class="p-8 text-center text-red-600">Kunde inte ladda tävlingsdata: ${err.message}</div>`;
+        container.innerHTML = `<div class="p-8 text-center text-red-600">Kunde inte ladda tävlingsdata: ${escapeHtml(err.message || '')}</div>`;
     }
 }
 
@@ -1344,13 +1358,13 @@ function renderCompetitionList(claims) {
     return `
             <div class="space-y-3">
                 ${claims.map(c => `
-                <div class="competition-card flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors cursor-pointer" 
-                     data-comp-id="${c.competitionId}" 
-                     data-comp-name="${c.competitionName}"
-                     data-start-no="${c.startNumber}"> 
+                <div class="competition-card flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded-lg border dark:border-gray-700 hover:bg-blue-50 dark:hover:bg-blue-900/30 transition-colors cursor-pointer"
+                     data-comp-id="${escapeAttr(c.competitionId || '')}"
+                     data-comp-name="${escapeAttr(c.competitionName || '')}"
+                     data-start-no="${escapeAttr(c.startNumber || '')}">
                     <div>
-                        <div class="font-bold text-gray-900 dark:text-white">${c.competitionName}</div>
-                        <div class="text-sm text-gray-600 dark:text-gray-400">Startnummer #${c.startNumber}</div>
+                        <div class="font-bold text-gray-900 dark:text-white">${escapeHtml(c.competitionName || '')}</div>
+                        <div class="text-sm text-gray-600 dark:text-gray-400">Startnummer #${escapeHtml(String(c.startNumber || ''))}</div>
                     </div>
                     <div class="text-right">
                         <span class="text-xs bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300 px-2 py-1 rounded">${t('linked_badge')}</span>

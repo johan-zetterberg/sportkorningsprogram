@@ -29,6 +29,7 @@ import { renderDressageContent } from './dressageModal.js';
 
 // --- Små hjälpare (lokala till modalen, så totalfilen slipper exportera dem) ---
 const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const escapeAttr = (s) => escapeHtml(s ?? '');
 const fmt2 = (v) => (Number.isFinite(+v) ? (+v).toFixed(2) : '—');
 const secondsToMMSS = (s) => { if (s == null || isNaN(s)) return null; const m = Math.floor(s / 60); const ss = Math.round(s % 60).toString().padStart(2, '0'); return `${m}:${ss}`; };
 const _msToLabel = (ms, withCs = true) => {
@@ -508,7 +509,7 @@ export async function openEquipageModal(startNumber, ctx) {
       { id: 'precision', label: 'Precision', render: renderPrecisionTab },
       { id: 'info', label: 'Info', render: renderInfoTab },
     ];
-    tabsEl.innerHTML = tabs.map(t => `<button data-tab="${t.id}">${t.label}</button>`).join('');
+    tabsEl.innerHTML = tabs.map(t => `<button data-tab="${escapeAttr(t.id)}">${escapeHtml(t.label)}</button>`).join('');
     const switchTab = (id) => {
       tabsEl.querySelectorAll('button[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === id));
       bodyEl.innerHTML = `<div class="p-8 text-center text-gray-500">Laddar…</div>`;

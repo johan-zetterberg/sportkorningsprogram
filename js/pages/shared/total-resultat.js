@@ -72,6 +72,13 @@ import {
   setMarathonConfig
 } from '../../utils/marathonUtils.js';
 
+function sanitizeUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '';
+  if (/^(https?:|\/)/i.test(raw)) return raw;
+  return '';
+}
+
 // ---- Dressyr-hjälp (matchar dressyr-resultat.js) ----
 // Hämta programlistan: tävlingsspecifika overrides på window, annars globala importen (om den finns)
 function getPrograms() {
@@ -167,7 +174,7 @@ function render() {
 
     classSelect.innerHTML = [
       `<option value="">${t('all_classes')}</option>`,
-      ...labels.map((label) => `<option value="${String(label).replace(/"/g, '&quot;')}">${label}</option>`)
+      ...labels.map((label) => `<option value="${escapeHtml(String(label))}">${escapeHtml(String(label))}</option>`)
     ].join('');
     classSelect.value = labels.includes(currentValue) ? currentValue : '';
   })();
@@ -695,7 +702,7 @@ function renderDesktop() {
       <div class="flex items-center gap-2">
         ${getFlagHtml(eq) || ''}
         ${getClubLogoHtml(eq) || ''}
-        <span>${eq.clubName || ''}</span>
+        <span>${escapeHtml(eq.clubName || '')}</span>
       </div>`;
 
     return `<tr class="${rowCls}" data-start="${r.startNumber}">
@@ -704,7 +711,7 @@ function renderDesktop() {
       }</td>
       <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm sticky-col-start">${r.startNumber ?? ''}</td>
          <td class="px-2 py-1.5 lg:px-3 lg:py-2 sticky-col-driver">
-      <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight">${(r.driverName || '').replaceAll('<', '&lt;')}</div>
+      <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight">${escapeHtml(r.driverName || '')}</div>
       ${(() => {
         const names = [];
         if (eq?.horseName) names.push(String(eq.horseName));
@@ -720,8 +727,8 @@ function renderDesktop() {
           : '';
       })()}
     </td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-[160px]" title="${r.className || ''}">${r.className || ''}</div></td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2"><div class="truncate max-w-[100px] lg:max-w-[160px] text-[11px] lg:text-sm" title="${eq.clubName || ''}">${clubCell}</div></td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-[160px]" title="${escapeHtml(r.className || '')}">${escapeHtml(r.className || '')}</div></td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2"><div class="truncate max-w-[100px] lg:max-w-[160px] text-[11px] lg:text-sm" title="${escapeHtml(eq.clubName || '')}">${clubCell}</div></td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm">${dIco}${dText}</td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm whitespace-nowrap" title="${escapeHtml(tt)}">${mIco}${mText}</td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm whitespace-nowrap">${pIco}${pText}</td>
@@ -879,12 +886,14 @@ function renderTeams() {
     let teamAssetHtml = '';
     const clubUrl = getClubLogoUrl(team.teamName);
     if (clubUrl) {
-      teamAssetHtml += `<img src="${clubUrl}" alt="Logga" class="h-10 w-auto object-contain mr-3">`;
+      const safeClubUrl = sanitizeUrl(clubUrl);
+      if (safeClubUrl) teamAssetHtml += `<img src="${escapeHtml(safeClubUrl)}" alt="Logga" class="h-10 w-auto object-contain mr-3">`;
     }
     const cc = normalizeCountryCode(team.teamName);
     if (cc) {
       const flagUrl = flagPngUrl(cc);
-      teamAssetHtml += `<img src="${flagUrl}" alt="${cc}" class="h-8 w-auto object-contain mr-3 shadow-sm">`;
+      const safeFlagUrl = sanitizeUrl(flagUrl);
+      if (safeFlagUrl) teamAssetHtml += `<img src="${escapeHtml(safeFlagUrl)}" alt="${escapeHtml(cc)}" class="h-8 w-auto object-contain mr-3 shadow-sm">`;
     }
 
     // Member details

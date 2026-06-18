@@ -497,7 +497,7 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
     modal.style.display = 'flex';
     modal.style.opacity = '1';
     modal.style.zIndex = '2147483647';
-    inner.innerHTML = `<div style="padding:16px">Hämtar detaljer för startnr <b>${String(sn)}</b>…</div>`;
+    inner.innerHTML = `<div style="padding:16px">Hämtar detaljer för startnr <b>${escapeHtml(String(sn))}</b>…</div>`;
     inner.dataset.isModal = 'true'; // Flagga för att visa stäng-knapp
 
     // Hämta data
@@ -513,7 +513,7 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
           <div>
             <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
             <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
-               ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${eq.className} • ${eq.clubName || ''}
+               ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${escapeHtml(eq.className || '')} • ${escapeHtml(eq.clubName || '')}
             </div>
             <div class="text-xs italic text-gray-500 dark:text-gray-400">${escapeHtml(getMomentHorseLabel(eq))}</div>
           </div>

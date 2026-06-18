@@ -2,6 +2,9 @@ import { getGlobalState, setGlobalState } from '../../main.js';
 import { createCompetition, listenForCompetitions, saveConfig } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
+const escapeAttr = (value) => escapeHtml(value ?? '');
 
 function getCurrentUser() {
   return getGlobalState('currentUser') || {};
@@ -89,7 +92,7 @@ function renderLayout() {
         <div class="px-4 sm:px-6 md:px-8 py-5 md:py-6"
              style="background: linear-gradient(90deg, ${darkBlue} 0%, #0b274a 60%, #0e305c 100%);">
           <div class="flex items-center gap-3 sm:gap-4">
-            <img src="${logoUrl}" alt="${name} logotyp"
+            <img src="${escapeAttr(logoUrl)}" alt="${escapeAttr(name)} logotyp"
                  class="h-14 w-14 rounded-lg ring-1 ring-white/20 object-contain bg-white/5 p-1"
                  onerror="this.style.display='none'">
             <div>
@@ -311,16 +314,20 @@ function renderCompetitionList(competitions) {
     a.className = 'block p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 hover:bg-brand-lightblue/10 dark:hover:bg-gray-600 rounded-lg border dark:border-gray-600';
     const user = getCurrentUser();
     const allowAdmin = canAdminCompetition(user, comp);
+    const safeCompName = escapeHtml(comp.name || 'Namnlös tävling');
+    const safePlace = escapeHtml(comp.place || '—');
+    const safeDates = escapeHtml(comp.dates || '');
+    const safeClub = escapeHtml(comp.club || '');
 
     a.innerHTML = `
     <div class="flex items-center justify-between">
       <div>
         <h3 class="font-semibold text-lg text-gray-900 dark:text-white">
-            ${comp.name || 'Namnlös tävling'}
+            ${safeCompName}
             ${(comp.published === false) ? '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">UTKAST</span>' : ''}
         </h3>
-        <p class="text-sm text-gray-600 dark:text-gray-300">${comp.place || '—'} ${comp.dates ? ' | ' + comp.dates : ''}</p>
-        ${comp.club ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${comp.club}</p>` : ''}
+        <p class="text-sm text-gray-600 dark:text-gray-300">${safePlace} ${comp.dates ? ' | ' + safeDates : ''}</p>
+        ${comp.club ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${safeClub}</p>` : ''}
       </div>
       <div class="flex gap-2">
         <button class="text-xs px-2 py-1 rounded bg-white dark:bg-gray-800 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 open-info" title="Visa info & karta">Info</button>
@@ -397,9 +404,9 @@ function updateLatestBox() {
 
   const role = getUserRole();
   const dest = role === 'admin' ? '#admin' : '#deltagare';
-  const title = last.name || 'Namnlös tävling';
-  const place = last.place || '—';
-  const dates = last.dates || '—';
+  const title = escapeHtml(last.name || 'Namnlös tävling');
+  const place = escapeHtml(last.place || '—');
+  const dates = escapeHtml(last.dates || '—');
 
   const user = getCurrentUser();
   const comp = _allCompetitions.find(c => (c.id || c.docId || c.uid) === (last.id)) || last;

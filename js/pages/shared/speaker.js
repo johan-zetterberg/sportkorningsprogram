@@ -21,7 +21,7 @@ import { openEquipageModal } from '../../ui/equipage-modal.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
-import { msToLabel } from '../../utils/sharedUtils.js';
+import { escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
 import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
 
 import {
@@ -39,6 +39,8 @@ import {
     calculateClassSplitStats,
     maraton_marathonConfig
 } from '../../utils/marathonUtils.js';
+
+const escapeAttr = (value) => escapeHtml(value ?? '');
 
 import { showDetailsModal as showMarathonDetailsModal } from '../../ui/marathonModal.js';
 
@@ -580,7 +582,7 @@ function renderLeaderboardSidebar() {
             } else {
                 badge.innerHTML = `
                     <select onchange="window.setSidebarClassFocus(this.value)" class="bg-blue-800 text-white text-[10px] border-none rounded focus:ring-0 py-0.5 cursor-pointer pr-4">
-                        ${uniqueClasses.map(c => `<option value="${c}" ${c === className ? 'selected' : ''}>${c}</option>`).join('')}
+                        ${uniqueClasses.map(c => `<option value="${escapeAttr(String(c ?? ''))}" ${c === className ? 'selected' : ''}>${escapeHtml(String(c ?? ''))}</option>`).join('')}
                     </select>
                 `;
             }
@@ -627,11 +629,11 @@ function renderLeaderboardSidebar() {
         const club = eq?.clubName || '';
 
         return `
-        <div onclick="window.showRiderDetails('${r.sn}')" class="grid grid-cols-6 items-center p-2 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
+        <div onclick="window.showRiderDetails('${escapeAttr(String(r.sn ?? ''))}')" class="grid grid-cols-6 items-center p-2 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
             <div class="col-span-1 font-bold text-gray-500 dark:text-gray-400 text-xs">${rank}.</div>
             <div class="col-span-3 min-w-0 pr-1">
-                <div class="font-bold text-gray-800 dark:text-gray-200 text-sm truncate leading-tight">${r.name}</div>
-                <div class="text-[10px] text-gray-400 dark:text-gray-500 truncate">${club}</div>
+                <div class="font-bold text-gray-800 dark:text-gray-200 text-sm truncate leading-tight">${escapeHtml(r.name || '')}</div>
+                <div class="text-[10px] text-gray-400 dark:text-gray-500 truncate">${escapeHtml(club)}</div>
             </div>
             <div class="col-span-2 text-right">
                 <div class="tabular-nums tracking-wide font-bold text-sm ${scoreClass}">${r.total === Infinity ? 'UT' : (Number.isFinite(r.total) ? r.total.toFixed(1) : '—')}</div>
@@ -858,6 +860,12 @@ function renderCurrentRiderCard() {
     const { eq } = currentRider;
     const data = currentRider.data || currentRider.statusData;
     const notes = eq.speakerNotes ? eq.speakerNotes : "Inga specifika noteringar inlagda.";
+    const safeStartNumber = escapeAttr(String(eq.startNumber ?? ''));
+    const safeDriverName = escapeHtml(eq.driverName || '');
+    const safeClassName = escapeHtml(eq.className || '');
+    const safeClubName = escapeHtml(eq.clubName || '');
+    const safeCity = escapeHtml(eq.address?.city || '');
+    const safeGroom = escapeHtml(eq.groom || '');
     notesEl.textContent = notes;
 
     // Inject Edit Button into Notes Header if check present
@@ -868,7 +876,7 @@ function renderCurrentRiderCard() {
             h3.innerHTML = `
             <div class="flex justify-between items-center">
                 <span>📢 Speaker Noteringar</span>
-                <button id="edit-notes-btn" onclick="editSpeakerNotes('${eq.startNumber}')" class="text-xs bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-300 dark:hover:bg-gray-700 transition-colors">✎ Ändra</button>
+                <button id="edit-notes-btn" onclick="editSpeakerNotes('${safeStartNumber}')" class="text-xs bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-300 dark:hover:bg-gray-700 transition-colors">✎ Ändra</button>
             </div> `;
         }
     }
@@ -877,13 +885,13 @@ function renderCurrentRiderCard() {
     const horses = eq.horses || [];
     if (horses.length > 0) {
         horseText = horses.map(h => {
-            const gender = h.gender ? `<span class="text-gray-400 font-medium">${h.gender}</span>` : '';
-            const lineage = h.lineage ? `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-4  italic">Härstamning: ${h.lineage}</div>` : '';
-            const owner = h.owner ? `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-4 ">Ägare: ${h.owner}</div>` : '';
+            const gender = h.gender ? `<span class="text-gray-400 font-medium">${escapeHtml(h.gender)}</span>` : '';
+            const lineage = h.lineage ? `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-4  italic">Härstamning: ${escapeHtml(h.lineage)}</div>` : '';
+            const owner = h.owner ? `<div class="text-[10px] text-gray-500 dark:text-gray-400 ml-4 ">Ägare: ${escapeHtml(h.owner)}</div>` : '';
             return `
                 <div class="mb-2">
                     <div class="flex items-baseline gap-2">
-                        <span class="font-bold text-gray-800 dark:text-gray-200">${h.name}</span>
+                        <span class="font-bold text-gray-800 dark:text-gray-200">${escapeHtml(h.name || '')}</span>
                         ${gender}
                     </div>
                     ${lineage}
@@ -931,7 +939,7 @@ function renderCurrentRiderCard() {
 
             targetToBeatHtml = `
             <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${targetLabel}</div>
-                <div class="text-lg font-black text-gray-800 dark:text-gray-100 leading-tight">${leader.name}</div>
+                <div class="text-lg font-black text-gray-800 dark:text-gray-100 leading-tight">${escapeHtml(leader.name || '')}</div>
                 <div class="text-lg tabular-nums tracking-wide font-bold text-gray-600 dark:text-gray-300">${formatSpeakerPenalty(bestOther)}</div>
             </div> `;
 
@@ -995,23 +1003,23 @@ function renderCurrentRiderCard() {
             return `
                         <select id="compare-select" onchange="window.setComparisonRider(this.value)" class="ml-2 text-[10px] py-0.5 pl-2 pr-6 border-gray-200 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-600 focus:ring-0 cursor-pointer">
                             <option value="">+ Jämför...</option>
-                            ${others.map(r => `<option value="${r.startNumber}" ${String(window.compareRiderId) === String(r.startNumber) ? 'selected' : ''}>#${r.startNumber} ${r.driverName}</option>`).join('')}
+                            ${others.map(r => `<option value="${escapeAttr(String(r.startNumber ?? ''))}" ${String(window.compareRiderId) === String(r.startNumber) ? 'selected' : ''}>#${escapeHtml(String(r.startNumber ?? ''))} ${escapeHtml(r.driverName || '')}</option>`).join('')}
                         </select>`;
         })() : ''}
 
                 </div>
                 <div class="text-2xl md:text-3xl font-black text-gray-900 dark:text-white mb-0 truncate leading-tight">
-                    ${eq.driverName}
+                    ${safeDriverName}
                 </div>
                 <div class="text-xl text-gray-600 dark:text-gray-300 mb-2 flex items-center gap-2">
-                    ${getClubLogoHtml(eq)} ${eq.clubName} ${eq.address?.city ? `<span class="text-gray-400 mx-1">•</span> <span class="text-sm font-medium text-gray-500 dark:text-gray-400">${eq.address.city}</span>` : ''} ${getFlagHtml(eq)}
+                    ${getClubLogoHtml(eq)} ${safeClubName} ${eq.address?.city ? `<span class="text-gray-400 mx-1">•</span> <span class="text-sm font-medium text-gray-500 dark:text-gray-400">${safeCity}</span>` : ''} ${getFlagHtml(eq)}
                 </div>
-                ${eq.groom ? `<div class="text-sm font-bold text-blue-600 dark:text-blue-400 mb-4 bg-blue-50 dark:bg-blue-900/30 w-fit px-2 py-0.5 rounded">Groom: ${eq.groom}</div>` : '<div class="mb-4"></div>'}
+                ${eq.groom ? `<div class="text-sm font-bold text-blue-600 dark:text-blue-400 mb-4 bg-blue-50 dark:bg-blue-900/30 w-fit px-2 py-0.5 rounded">Groom: ${safeGroom}</div>` : '<div class="mb-4"></div>'}
                 
                 <!-- CLICKABLE MAIN NAME -->
-                <div onclick="window.showRiderDetails('${eq.startNumber}')" class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded p-1 -ml-1 transition-colors group">
+                <div onclick="window.showRiderDetails('${safeStartNumber}')" class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded p-1 -ml-1 transition-colors group">
                     <div class="inline-block bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 text-sm font-bold px-3 py-1 rounded-full group-hover:bg-blue-200 dark:group-hover:bg-blue-800">
-                        #${eq.startNumber} • ${eq.className}
+                        #${escapeHtml(String(eq.startNumber ?? ''))} • ${safeClassName}
                     </div>
                      <div class="flex flex-col items-start justify-center gap-1">
                         <div class="flex items-center gap-2">
@@ -1146,7 +1154,7 @@ function renderCurrentRiderCard() {
             
              <!--Top 3 List(Dressage)-->
     <div class="mt-6 border-t border-gray-100 dark:border-gray-700 pt-4">
-        <div class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Topp 3 i klassen (${eq.className})</div>
+        <div class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2">Topp 3 i klassen (${safeClassName})</div>
         ${renderTop3List(eq.className, 'dressyr')}
     </div>
         </div> `;
@@ -1179,14 +1187,14 @@ function renderCurrentRiderCard() {
                     <button onclick="window.setComparisonRider('')" class="absolute top-1 right-2 text-gray-400 hover:text-red-500">×</button>
                     <div class="flex justify-around items-center">
                         <div class="text-center">
-                            <span class="text-gray-500 dark:text-gray-400">${eq.driverName}:</span> 
+                            <span class="text-gray-500 dark:text-gray-400">${safeDriverName}:</span>
                             <span class="font-bold dark:text-white">${formatSpeakerPenalty(liveResult.totalPenalty, { eliminated: liveResult.eliminated })}</span>
                         </div>
                         <div class="px-2 py-0.5 rounded ${diffColor} font-black text-xs bg-white dark:bg-gray-800 shadow-sm border border-gray-100 dark:border-gray-600">
                             ${diffSign}${diffVal}
                         </div>
                         <div class="text-center opacity-75">
-                            <span class="text-gray-500 dark:text-gray-400">${cmpEq.driverName}:</span> 
+                            <span class="text-gray-500 dark:text-gray-400">${escapeHtml(cmpEq.driverName || '')}:</span>
                             <span class="font-bold dark:text-gray-300">${cmpRes ? formatSpeakerPenalty(cmpRes.totalPenalty, { eliminated: cmpRes.eliminated }) : 'Ej startat'}</span>
                         </div>
                     </div>
@@ -1334,7 +1342,7 @@ function renderCurrentRiderCard() {
                 </div>
 
                 <div class="md:col-span-6">
-                    <div class="text-[10px] uppercase text-gray-400 font-bold mb-2">Topplista (${eq.className})</div>
+                    <div class="text-[10px] uppercase text-gray-400 font-bold mb-2">Topplista (${safeClassName})</div>
                     <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 border border-gray-100 dark:border-gray-600">
                         ${renderTop3List(eq.className, 'maraton')}
                     </div>
@@ -1457,14 +1465,14 @@ function renderCurrentRiderCard() {
                 <!-- Precision Top 3 -->
                 <div class="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden text-sm flex flex-col">
                     <div class="bg-indigo-50 dark:bg-indigo-900/40 px-3 py-2 text-[10px] font-bold text-indigo-800 dark:text-indigo-200 uppercase tracking-wide border-b border-indigo-100 dark:border-indigo-800">
-                        Topp 3 Precision (${eq.className})
+                        Topp 3 Precision (${safeClassName})
                     </div>
                     <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
                         ${top3.length ? top3.map((r, i) => `
-                            <div onclick="window.showRiderDetails('${r.sn}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
+                            <div onclick="window.showRiderDetails('${escapeAttr(String(r.sn ?? ''))}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
                                 <div class="flex items-center gap-2 overflow-hidden">
                                     <span class="font-bold text-gray-400 w-4 text-center">${i + 1}.</span>
-                                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${r.name}</span>
+                                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(r.name || '')}</span>
                                 </div>
                                 <span class="font-black text-gray-900 dark:text-white ml-2">${formatSpeakerPenalty(r.penalty)}</span>
                             </div>
@@ -1475,14 +1483,14 @@ function renderCurrentRiderCard() {
                 <!-- Overall Top 3 -->
                 <div class="bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 overflow-hidden text-sm flex flex-col">
                     <div class="bg-brand-gold bg-opacity-10 dark:bg-yellow-900/40 px-3 py-2 text-[10px] font-bold text-yellow-900 dark:text-yellow-200 uppercase tracking-wide border-b border-brand-gold border-opacity-20 dark:border-yellow-800">
-                        Topp 3 Totalt (${eq.className})
+                        Topp 3 Totalt (${safeClassName})
                     </div>
                     <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
                         ${totalRanking.slice(0, 3).map((r, i) => `
-                            <div onclick="window.showRiderDetails('${r.sn}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}">
+                            <div onclick="window.showRiderDetails('${escapeAttr(String(r.sn ?? ''))}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}">
                                 <div class="flex items-center gap-2 overflow-hidden">
                                     <span class="font-bold text-yellow-600 w-4 text-center">${i + 1}.</span>
-                                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${allEquipages.find(e => String(e.startNumber) === String(r.sn))?.driverName}</span>
+                                    <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(allEquipages.find(e => String(e.startNumber) === String(r.sn))?.driverName || '')}</span>
                                 </div>
                                 <span class="font-black text-gray-900 dark:text-white ml-2">${formatSpeakerPenalty(r.total, { eliminated: r.total === Infinity || r.isEliminated })}</span>
                             </div>
@@ -1557,7 +1565,7 @@ function renderCurrentRiderCard() {
             <!-- Class Quick List -->
             <div class="mt-6">
                 <div class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-2 flex justify-between">
-                    <span>Topplista (${eq.className})</span>
+                    <span>Topplista (${safeClassName})</span>
                 </div>
                 <div class="bg-gray-50 dark:bg-gray-700 rounded-lg p-3 border border-gray-100 dark:border-gray-600 grid grid-cols-1 sm:grid-cols-2 gap-x-6">
                     ${renderTop3List(eq.className, 'totalt') || renderTop3List(eq.className, 'precision')}

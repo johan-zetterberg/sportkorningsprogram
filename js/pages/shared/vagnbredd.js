@@ -3,6 +3,7 @@
 import { getGlobalState } from '../../main.js';
 import { getEquipages, saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import {
     buildVagnbreddDropdownItems,
     buildVagnbreddSavePayload,
@@ -250,15 +251,15 @@ function renderRuleSummary(equipage) {
     container.innerHTML = `
         <div class="space-y-3">
             <div class="flex flex-wrap items-center gap-2">
-                <span class="inline-flex items-center rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-blue-900 dark:bg-gray-800 dark:text-blue-100">${row.label}</span>
-                <span class="text-xs text-blue-700 dark:text-blue-300">${equipage.className || 'Klass saknas'}</span>
+                <span class="inline-flex items-center rounded-full bg-white/80 px-2.5 py-1 text-xs font-semibold text-blue-900 dark:bg-gray-800 dark:text-blue-100">${escapeHtml(row.label)}</span>
+                <span class="text-xs text-blue-700 dark:text-blue-300">${escapeHtml(equipage.className || 'Klass saknas')}</span>
             </div>
             <div class="grid grid-cols-1 gap-2">
                 <div class="rounded-lg bg-white/80 p-3 dark:bg-gray-800/60">
                     <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <div>
                             <p class="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Dressyr / precision</p>
-                            <p class="text-sm font-semibold text-blue-950 dark:text-blue-50">${dressageRule.label}</p>
+                            <p class="text-sm font-semibold text-blue-950 dark:text-blue-50">${escapeHtml(dressageRule.label)}</p>
                         </div>
                         ${buildStatusPill(enteredWidths.dressagePrecision, dressageRule)}
                     </div>
@@ -267,7 +268,7 @@ function renderRuleSummary(equipage) {
                     <div class="flex flex-col items-start gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
                         <div>
                             <p class="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">Maraton</p>
-                            <p class="text-sm font-semibold text-blue-950 dark:text-blue-50">${marathonRule.label}</p>
+                            <p class="text-sm font-semibold text-blue-950 dark:text-blue-50">${escapeHtml(marathonRule.label)}</p>
                         </div>
                         ${buildStatusPill(enteredWidths.marathon, marathonRule)}
                     </div>
@@ -298,10 +299,10 @@ function renderWidthWarnings(equipage) {
     const marathonText = getRuleWarning(enteredWidths.marathon, marathonRule, 'Maratonvagnen');
 
     precisionWarning.innerHTML = precisionText
-        ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">${precisionText}</p>`
+        ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">${escapeHtml(precisionText)}</p>`
         : '';
     marathonWarning.innerHTML = marathonText
-        ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">${marathonText}</p>`
+        ? `<p class="mt-1 text-sm font-medium text-rose-600 dark:text-rose-400">${escapeHtml(marathonText)}</p>`
         : '';
 }
 

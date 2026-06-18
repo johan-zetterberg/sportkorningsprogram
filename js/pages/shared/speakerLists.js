@@ -12,7 +12,10 @@ import {
     calculateClassObstacleStats,
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { formatSpeakerPenalty, getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
+
+const escapeAttr = (value) => escapeHtml(value ?? '');
 
 export function renderTop3List(className, discipline, ctx) {
     if (!className) return '';
@@ -95,7 +98,7 @@ export function renderTop3List(className, discipline, ctx) {
             <div class="flex items-center justify-between p-2 rounded bg-gray-50 dark:bg-gray-700">
                 <div class="flex items-center gap-2">
                     <span class="font-bold ${medalColor}">${i + 1}</span>
-                    <span class="text-sm font-medium text-gray-900 dark:text-white">${r.name}</span>
+                    <span class="text-sm font-medium text-gray-900 dark:text-white">${escapeHtml(r.name || '')}</span>
                 </div>
                 <div class="text-sm font-bold text-gray-900 dark:text-white">
                     ${formatSpeakerPenalty(r.penalty)}
@@ -141,7 +144,7 @@ export function renderLeaderToBeat(className, ctx) {
         <div>
             <span class="tabular-nums tracking-wide font-bold text-lg text-gray-800 dark:text-gray-200">${val}</span> ${diffHtml}
         </div>
-        <div class="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[200px]">${leader.name}</div>
+        <div class="text-xs text-gray-600 dark:text-gray-400 truncate max-w-[200px]">${escapeHtml(leader.name || '')}</div>
     </div>
     `;
 }
@@ -250,8 +253,8 @@ export function renderUpcomingList(ctx) {
         return `
     <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-white dark:hover:bg-gray-600 border border-transparent hover:border-gray-200 dark:hover:border-gray-500 transition-colors">
             <div class="min-w-0">
-                <div class="font-bold text-gray-900 dark:text-white truncate">#${eq.startNumber} ${eq.driverName}</div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${eq.clubName}</div>
+                <div class="font-bold text-gray-900 dark:text-white truncate">#${escapeHtml(String(eq.startNumber ?? ''))} ${escapeHtml(eq.driverName || '')}</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${escapeHtml(eq.clubName || '')}</div>
             </div>
             <div class="text-right shrink-0">
                  <div class="tabular-nums tracking-wide font-bold text-brand-darkblue dark:text-blue-300">${t}</div>
@@ -299,16 +302,16 @@ export function renderRecentResultsList(ctx) {
         }
 
         return `
-        <div onclick="showRiderDetails('${r.sn}')" class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+        <div onclick="showRiderDetails('${escapeAttr(String(r.sn ?? ''))}')" class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
             <div class="flex justify-between items-baseline mb-1">
                 <div class="flex items-center">
-                     <span class="font-bold text-gray-900 dark:text-gray-200 mr-2">#${r.sn} ${r.name}</span>
+                     <span class="font-bold text-gray-900 dark:text-gray-200 mr-2">#${escapeHtml(String(r.sn ?? ''))} ${escapeHtml(r.name || '')}</span>
                      ${gapHtml}
                 </div>
                 <span class="font-bold text-blue-600 dark:text-blue-400">${Number.isFinite(r.finalPenalty) ? r.finalPenalty.toFixed(2) : '-'} p</span>
             </div>
             <div class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
-                <span>${r.clubName}</span>
+                <span>${escapeHtml(r.clubName || '')}</span>
                 <span>${Number.isFinite(r.finalPercent) && ctx.currentDiscipline === 'dressyr' ? r.finalPercent.toFixed(1) + '%' : ''}</span>
             </div>
         </div>
@@ -452,10 +455,10 @@ export function renderActiveListNew(ctx) {
             }
 
             return `
-            <div onclick="selectSpeakerRider(${c.sn})" class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
+            <div onclick="selectSpeakerRider('${escapeAttr(String(c.sn ?? ''))}')" class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
                 <div class="flex justify-between items-start">
                     <div>
-                        <div class="font-black text-lg text-gray-900 dark:text-white leading-none">#${c.sn} ${c.eq.driverName}</div>
+                        <div class="font-black text-lg text-gray-900 dark:text-white leading-none">#${escapeHtml(String(c.sn ?? ''))} ${escapeHtml(c.eq?.driverName || '')}</div>
                         <div class="text-xs text-amber-800 dark:text-amber-200 font-bold mt-1 uppercase tracking-wide">${c.task.type === 'result_flash' ? 'Resultat Hinder' : 'Hinder'} ${obsNum} ${splitText}</div>
                     </div>
                     <div class="text-3xl tabular-nums tracking-wide font-black text-gray-800 dark:text-gray-200 tracking-tight" id="maraton-timer-${c.sn}">${timeTxt}</div>
@@ -500,10 +503,10 @@ export function renderActiveListNew(ctx) {
             }
 
             return `
-             <div onclick="selectSpeakerRider(${c.sn})" class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
+             <div onclick="selectSpeakerRider('${escapeAttr(String(c.sn ?? ''))}')" class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
                 <div class="flex items-center gap-2 overflow-hidden">
-                    <span class="font-bold text-gray-700 dark:text-gray-300 text-xs w-8">#${c.sn}</span>
-                    <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${c.eq.driverName}</span>
+                    <span class="font-bold text-gray-700 dark:text-gray-300 text-xs w-8">#${escapeHtml(String(c.sn ?? ''))}</span>
+                    <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${escapeHtml(c.eq?.driverName || '')}</span>
                 </div>
                 <div class="flex items-center gap-3">
                     <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${c.task.name}</span>

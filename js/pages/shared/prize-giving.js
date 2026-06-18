@@ -9,7 +9,7 @@ import { updateEquipage } from '../../services/equipageService.js';
 import { listenForMarathonConfig } from '../../services/marathonService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { horseLabel } from '../../utils/sharedUtils.js';
+import { horseLabel, escapeHtml } from '../../utils/sharedUtils.js';
 import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
@@ -97,7 +97,7 @@ export async function load(container) {
     } catch (err) {
         if (currentLoadToken !== loadToken) return;
         console.error("Error loading prize giving:", err);
-        container.innerHTML += `<p class="text-red-500 text-center">Ett fel uppstod: ${err.message}</p>`;
+        container.innerHTML += `<p class="text-red-500 text-center">Ett fel uppstod: ${escapeHtml(err.message)}</p>`;
     }
 }
 
@@ -121,7 +121,7 @@ function renderTabs() {
                         data-discipline="${d}"
                         class="px-3 py-1.5 rounded-lg text-xs font-black whitespace-nowrap transition-all border-2 ${active ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-500 border-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'}"
                     >
-                        ${label}
+                        ${escapeHtml(label)}
                     </button>`;
                 }).join('')}
             </div>
@@ -132,10 +132,10 @@ function renderTabs() {
                     const active = activeClass === cls;
                     return `
                     <button 
-                        data-class="${cls}"
+                        data-class="${escapeHtml(cls)}"
                         class="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all border ${active ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-gray-50 text-gray-400 border-gray-200 dark:bg-gray-900 dark:text-gray-500 dark:border-gray-800'}"
                     >
-                        ${cls}
+                        ${escapeHtml(cls)}
                     </button>`;
                 }).join('')}
             </div>
@@ -357,7 +357,7 @@ function renderPodiumList(rows, container) {
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2 p-3 bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 shadow-sm">
                 <div class="flex flex-col">
                     <span class="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-widest">${disciplineLabel}</span>
-                    <h2 class="text-base font-black dark:text-white leading-tight">${activeClass}</h2>
+                    <h2 class="text-base font-black dark:text-white leading-tight">${escapeHtml(activeClass)}</h2>
                 </div>
                 <div class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[10px] font-black rounded border border-blue-100 dark:border-blue-800">
                     ${numPlaced} PLACERADE
@@ -382,14 +382,14 @@ function renderPodiumList(rows, container) {
                     <div class="flex flex-col gap-4 relative z-0">
                         <div class="w-full">
                             <div class="text-[10px] text-yellow-700 dark:text-yellow-400 font-black tracking-widest uppercase mb-1">Segrare</div>
-                            <h3 class="text-2xl font-black text-gray-900 dark:text-white leading-none mb-1 truncate">${row.driverName}</h3>
+                            <h3 class="text-2xl font-black text-gray-900 dark:text-white leading-none mb-1 truncate">${escapeHtml(row.driverName)}</h3>
                              <div class="flex items-center gap-2 mb-3">
-                                <div class="text-[11px] font-bold text-gray-500 dark:text-gray-400 opacity-80">${row.clubName}</div>
-                                ${row.className && row.className !== activeClass ? `<div class="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter border border-blue-200/50 dark:border-blue-700/50 shadow-sm">${row.className}</div>` : ''}
+                                <div class="text-[11px] font-bold text-gray-500 dark:text-gray-400 opacity-80">${escapeHtml(row.clubName)}</div>
+                                ${row.className && row.className !== activeClass ? `<div class="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter border border-blue-200/50 dark:border-blue-700/50 shadow-sm">${escapeHtml(row.className)}</div>` : ''}
                              </div>
                             
                             <div class="inline-flex items-center gap-2 bg-white/60 dark:bg-black/20 px-3 py-1.5 rounded-lg text-xs text-gray-700 dark:text-gray-300 mb-4">
-                                ${getFlagHtml(row)} <span class="font-medium truncate">${horseLabel(row)}</span>
+                                ${getFlagHtml(row)} <span class="font-medium truncate">${escapeHtml(horseLabel(row))}</span>
                             </div>
 
                             <div class="flex items-end gap-2">
@@ -412,10 +412,10 @@ function renderPodiumList(rows, container) {
                         <div class="font-black text-lg ${isPlaced ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-gray-600'} w-7 text-center">${place}</div>
                         <div class="truncate">
                              <div class="font-bold text-sm leading-none dark:text-white mb-0.5 ${isPlaced ? 'text-emerald-900 dark:text-emerald-100' : ''}">
-                                 ${row.driverName}
-                                 ${row.className && row.className !== activeClass ? `<span class="ml-1.5 text-[8px] font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-widest border border-blue-100/30 dark:border-blue-800/30">${row.className}</span>` : ''}
+                                 ${escapeHtml(row.driverName)}
+                                 ${row.className && row.className !== activeClass ? `<span class="ml-1.5 text-[8px] font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-widest border border-blue-100/30 dark:border-blue-800/30">${escapeHtml(row.className)}</span>` : ''}
                              </div>
-                             <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">${row.clubName}</div>
+                             <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">${escapeHtml(row.clubName)}</div>
                         </div>
                     </div>
                     <div class="flex items-center gap-3 shrink-0">
@@ -446,11 +446,11 @@ function renderPodiumList(rows, container) {
             html += `
              <div class="flex justify-between items-center text-[11px] p-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 opacity-80">
                 <div class="flex gap-2 items-center min-w-0">
-                     <span class="text-[9px] font-black text-gray-400 dark:text-gray-600 bg-gray-50 dark:bg-gray-900/50 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-800">#${row.startNumber}</span>
-                      <span class="dark:text-gray-300 truncate font-semibold">${row.driverName}</span>
-                      ${row.className && row.className !== activeClass ? `<span class="text-[8px] text-gray-400 dark:text-gray-500 uppercase font-black tracking-tighter bg-gray-100/50 dark:bg-gray-700/50 px-1 rounded ml-1 border border-gray-100 dark:border-gray-700">${row.className}</span>` : ''}
+                     <span class="text-[9px] font-black text-gray-400 dark:text-gray-600 bg-gray-50 dark:bg-gray-900/50 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-800">#${escapeHtml(row.startNumber)}</span>
+                      <span class="dark:text-gray-300 truncate font-semibold">${escapeHtml(row.driverName)}</span>
+                      ${row.className && row.className !== activeClass ? `<span class="text-[8px] text-gray-400 dark:text-gray-500 uppercase font-black tracking-tighter bg-gray-100/50 dark:bg-gray-700/50 px-1 rounded ml-1 border border-gray-100 dark:border-gray-700">${escapeHtml(row.className)}</span>` : ''}
                   </div>
-                <div class="font-black text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded text-[9px] uppercase">${status}</div>
+                <div class="font-black text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded text-[9px] uppercase">${escapeHtml(status)}</div>
              </div>`;
         });
     } else {
@@ -464,7 +464,7 @@ function renderPodiumList(rows, container) {
             <h4 class="font-black text-blue-800/60 dark:text-blue-400/60 mb-1 text-[10px] uppercase tracking-tighter">Säg till speakern:</h4>
             <p class="text-xs text-blue-700 dark:text-blue-300 leading-tight italic">
                 "Vi ber alla placerade ekipage att göra sig redo för prisutdelning.
-                Segraren ${validRows[0]?.driverName || '...'} ombeds köra in för ärevarv!"
+                Segraren ${escapeHtml(validRows[0]?.driverName || '...')} ombeds köra in för ärevarv!"
             </p>
         </div>
     </div>
@@ -482,8 +482,8 @@ function getPresetCheckbox(row) {
     return `
     <label class="flex items-center gap-2 cursor-pointer group">
         <span class="text-[9px] text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 uppercase font-black tracking-tighter">PÅ PLATS</span>
-        <input type="checkbox" class="presence-check w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700" 
-            data-sn="${row.startNumber}" 
+        <input type="checkbox" class="presence-check w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
+            data-sn="${escapeHtml(row.startNumber)}"
             ${row.present ? 'checked' : ''}>
     </label>`;
 }

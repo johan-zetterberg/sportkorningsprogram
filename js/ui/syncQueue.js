@@ -1,5 +1,13 @@
 import { syncService } from '../services/syncService.js';
 
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[char]));
+
 export class SyncQueue extends HTMLElement {
   constructor() {
     super();
@@ -48,7 +56,7 @@ export class SyncQueue extends HTMLElement {
       list.innerHTML = items.map(item => `
         <div class="sync-item">
           <span class="spinner">↻</span>
-          <span class="desc">${item.desc}</span>
+          <span class="desc">${escapeHtml(item.desc)}</span>
         </div>
       `).join('');
     }

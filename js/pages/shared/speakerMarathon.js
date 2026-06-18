@@ -1,6 +1,8 @@
 import { getObstacleArray, stageStartTS, stageStopTS, analyzeSectorProgress } from '../../utils/marathonUtils.js';
-import { msToLabel } from '../../utils/sharedUtils.js';
+import { escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
 import { formatSpeakerPenalty } from './speakerFormatUtils.js';
+
+const escapeAttr = (value) => escapeHtml(value ?? '');
 
 export function renderObstacleFocus(obstacleFocusVal, context) {
     if (!obstacleFocusVal || context.currentDiscipline !== 'maraton') {
@@ -48,11 +50,11 @@ export function renderObstacleLeaderboard(obstacleNum, context) {
             </thead>
             <tbody>
                 ${top10.map((r, i) => `
-                <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onclick="window.selectSpeakerRider('${r.sn}')">
+                <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onclick="window.selectSpeakerRider('${escapeAttr(String(r.sn ?? ''))}')">
                     <td class="px-3 py-2 font-bold ${i < 3 ? 'text-brand-gold dark:text-yellow-500' : 'text-gray-400 dark:text-gray-500'}">${i + 1}</td>
                     <td class="px-3 py-2">
-                        <div class="font-bold text-gray-800 dark:text-gray-200">${r.name}</div>
-                        <div class="text-[10px] text-gray-500 dark:text-gray-400">${r.class} • ${r.club}</div>
+                        <div class="font-bold text-gray-800 dark:text-gray-200">${escapeHtml(r.name || '')}</div>
+                        <div class="text-[10px] text-gray-500 dark:text-gray-400">${escapeHtml(r.class || '')} • ${escapeHtml(r.club || '')}</div>
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums tracking-wide font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(r.penalty)}</td>
                 </tr>
@@ -191,10 +193,10 @@ export function renderSectorAnalysis(context) {
             : `class="font-bold tabular-nums tracking-wide px-3 py-2 text-right ${a.color}"`;
 
         return `
-                    <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" onclick="window.selectSpeakerRider('${e.sn}')">
+                    <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" onclick="window.selectSpeakerRider('${escapeAttr(String(e.sn ?? ''))}')">
                         <td class="px-3 py-2">
-                             <div class="font-bold text-gray-900 dark:text-white leading-tight">#${e.sn} ${e.eq.driverName}</div>
-                             <div class="text-[10px] text-gray-400 capitalize">${e.eq.clubName}</div>
+                             <div class="font-bold text-gray-900 dark:text-white leading-tight">#${escapeHtml(String(e.sn ?? ''))} ${escapeHtml(e.eq?.driverName || '')}</div>
+                             <div class="text-[10px] text-gray-400 capitalize">${escapeHtml(e.eq?.clubName || '')}</div>
                         </td>
                         <td class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">${stageLabel}</td>
                         <td class="px-3 py-2 text-right tabular-nums tracking-wide">${msToLabel(a.ideal * 1000, false)}</td>

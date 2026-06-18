@@ -14,6 +14,13 @@ function escapeHtml(value) {
     .replace(/'/g, '&#39;');
 }
 
+function sanitizeUrl(value) {
+  const raw = String(value || '').trim();
+  if (!raw) return '#';
+  if (/^(https?:|mailto:|\/)/i.test(raw)) return raw;
+  return '#';
+}
+
 function getPublicCompetitionLink(competition) {
   const base = `${window.location.origin}${window.location.pathname}`;
   const id = encodeURIComponent(competition?.id || '');
@@ -46,7 +53,7 @@ function renderDocs(docs) {
         <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4">
           <div class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">${escapeHtml(doc.category || doc.type || 'Dokument')}</div>
           <div class="mt-1 font-semibold text-gray-900 dark:text-white">${escapeHtml(doc.title || 'Dokument')}</div>
-          ${doc.url ? `<div class="mt-3"><a href="${doc.url}" target="_blank" class="text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">Öppna dokument</a></div>` : ''}
+          ${doc.url ? `<div class="mt-3"><a href="${escapeHtml(sanitizeUrl(doc.url))}" target="_blank" rel="noopener noreferrer" class="text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">Öppna dokument</a></div>` : ''}
           ${!doc.url && doc.content ? `<div class="mt-3 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">${escapeHtml(doc.content)}</div>` : ''}
         </div>
       `).join('')}
@@ -295,7 +302,7 @@ function renderPage(container, competition, vm, publish) {
             </div>
           </div>
         </div>
-        ${mapLink ? `<div class="mt-4"><a href="${mapLink}" target="_blank" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold w-full sm:w-auto">Öppna plats i Google Maps</a></div>` : ''}
+        ${mapLink ? `<div class="mt-4"><a href="${escapeHtml(sanitizeUrl(mapLink))}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold w-full sm:w-auto">Öppna plats i Google Maps</a></div>` : ''}
       </section>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6">
@@ -306,7 +313,7 @@ function renderPage(container, competition, vm, publish) {
                 <h2 class="text-xl font-semibold text-gray-900 dark:text-white">Hitta hit</h2>
                 <p class="text-sm text-gray-500 dark:text-gray-400">Plats, karta och vägbeskrivning för publik.</p>
               </div>
-              ${mapLink ? `<a href="${mapLink}" target="_blank" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold whitespace-nowrap w-full sm:w-auto">Få vägbeskrivning</a>` : ''}
+              ${mapLink ? `<a href="${escapeHtml(sanitizeUrl(mapLink))}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold whitespace-nowrap w-full sm:w-auto">Få vägbeskrivning</a>` : ''}
             </div>
             <div class="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-3 md:gap-4">
               <div>

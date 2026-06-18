@@ -5,6 +5,19 @@ import { listenForEquipages } from '../../services/equipageService.js';
 import { getClubLogoHtml, getClubLogoUrl, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function escapeAttr(value) {
+  return escapeHtml(value);
+}
+
 let currentTeams = [];
 let currentEquipages = [];
 let currentCompetitionId = null;
@@ -262,21 +275,21 @@ function createDraggableCard(eq, currentTeamId = null) {
   return `
     <div class="draggable-card bg-white dark:bg-gray-700 p-2 rounded border dark:border-gray-600 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-shadow flex items-center justify-between group" 
          draggable="true" 
-         data-id="${eq.id}">
+         data-id="${escapeAttr(eq.id)}">
       <div class="flex flex-col overflow-hidden">
         <span class="font-bold text-sm text-gray-900 dark:text-gray-100 truncate">
-          <span class="text-blue-600 dark:text-blue-400 w-6 inline-block font-mono">#${eq.startNumber}</span>
-          ${flag} ${eq.driverName}
+          <span class="text-blue-600 dark:text-blue-400 w-6 inline-block font-mono">#${escapeHtml(eq.startNumber)}</span>
+          ${flag} ${escapeHtml(eq.driverName)}
         </span>
         <span class="text-xs text-gray-500 dark:text-gray-400 ml-6 truncate flex items-center gap-1">
-            ${eq.clubName || ''} ${clubLogo}
+            ${escapeHtml(eq.clubName || '')} ${clubLogo}
         </span>
       </div>
       
       ${currentTeamId ? `
       <!-- Remove button if in team -->
       <button class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity" 
-              onclick="window.removeMemberHandler('${currentTeamId}', '${eq.id}')" title="Ta bort från lag">
+              onclick="window.removeMemberHandler('${escapeAttr(currentTeamId)}', '${escapeAttr(eq.id)}')" title="Ta bort från lag">
         ✕
       </button>
       ` : ''}

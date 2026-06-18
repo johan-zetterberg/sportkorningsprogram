@@ -446,7 +446,7 @@ function renderModalUI(content, data, judgesPresent, program, pdfContext) {
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(data)}
               ${getClubLogoHtml(data)}
-              <span>${data.className || ''} • ${data.clubName || ''}</span>
+              <span>${escapeHtml(data.className || '')} • ${escapeHtml(data.clubName || '')}</span>
             </div>
           </div>
           <div class="flex items-center gap-2">

@@ -2,6 +2,7 @@ import { getGlobalState } from '../../main.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let competitionId = null;
 let unsubscribeEquipages = null;
@@ -36,6 +37,10 @@ function renderHorseVetStatusBadge(horse = {}) {
     return `<span class="inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${conf.cls}">${conf.label}</span>`;
 }
 
+function escapeAttr(value) {
+    return escapeHtml(value);
+}
+
 
 /**
  * Visar en detaljerad modal-vy med information om ett specifikt ekipage.
@@ -65,7 +70,7 @@ function showEquipageDetailsModal(equipage) {
 
     const safetyCheck = equipage.safetyCheck || {};
     const safetyStatus = safetyCheck.approved ? '<span class="text-green-600 dark:text-green-400 font-semibold">✅ Godkänd</span>' : '<span class="text-gray-400 italic">Ej kontrollerad/Underkänd</span>';
-    const safetyComment = safetyCheck.comment ? `<span class="italic text-xs text-gray-500 block dark:text-gray-400 mt-1">Anm: ${safetyCheck.comment}</span>` : '';
+    const safetyComment = safetyCheck.comment ? `<span class="italic text-xs text-gray-500 block dark:text-gray-400 mt-1">Anm: ${escapeHtml(safetyCheck.comment)}</span>` : '';
 
     let contentHtml = '<div class="space-y-4 p-4 md:p-6">';
 
@@ -77,25 +82,25 @@ function showEquipageDetailsModal(equipage) {
                 <button id="editInfoBtn" class="self-start text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 font-medium">Redigera</button>
             </div>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm">
-                <span class="font-medium text-gray-600 dark:text-gray-300">Kusk:</span> <span class="dark:text-gray-100 break-words">${equipage.driverName}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">E-post:</span> <span class="dark:text-gray-100 break-all">${equipage.email || '<span class="text-gray-400 italic">Saknas</span>'}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Klubb:</span> <span class="dark:text-gray-100 break-words">${equipage.clubName}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Klass:</span> <span class="dark:text-gray-100 break-words">${equipage.className}</span>
-                <span class="font-medium text-gray-600 dark:text-gray-300">Status:</span> <span class="font-semibold break-words ${normalizeEquipageStatus(equipage.status) === 'struken' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${normalizeEquipageStatus(equipage.status)}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Kusk:</span> <span class="dark:text-gray-100 break-words">${escapeHtml(equipage.driverName)}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">E-post:</span> <span class="dark:text-gray-100 break-all">${equipage.email ? escapeHtml(equipage.email) : '<span class="text-gray-400 italic">Saknas</span>'}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Klubb:</span> <span class="dark:text-gray-100 break-words">${escapeHtml(equipage.clubName)}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Klass:</span> <span class="dark:text-gray-100 break-words">${escapeHtml(equipage.className)}</span>
+                <span class="font-medium text-gray-600 dark:text-gray-300">Status:</span> <span class="font-semibold break-words ${normalizeEquipageStatus(equipage.status) === 'struken' ? 'text-red-600 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${escapeHtml(normalizeEquipageStatus(equipage.status))}</span>
                 
                 <span class="font-medium text-gray-600 dark:text-gray-300 mt-2 border-t pt-2 dark:border-gray-600">Vagnbredd (D/P):</span> 
-                <span class="dark:text-gray-100 mt-2 border-t pt-2 dark:border-gray-600">${equipage.trackWidth ? `${equipage.trackWidth} cm` : 'Ej angivet'}</span>
+                <span class="dark:text-gray-100 mt-2 border-t pt-2 dark:border-gray-600">${equipage.trackWidth ? escapeHtml(`${equipage.trackWidth} cm`) : 'Ej angivet'}</span>
                 
                 <span class="font-medium text-gray-600 dark:text-gray-300">Funktionskontroll:</span> 
                 <span class="dark:text-gray-100 break-words">${safetyStatus} ${safetyComment}</span>
 
                 <span class="font-medium text-gray-600 dark:text-gray-300 col-span-2 mt-2">Speaker-noteringar:</span>
                 <span class="col-span-2 italic text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 p-2 rounded border border-gray-200 dark:border-gray-600 text-xs">
-                    ${equipage.speakerNotes || 'Inga noteringar angivna.'}
+                    ${escapeHtml(equipage.speakerNotes || 'Inga noteringar angivna.')}
                 </span>
                 <span class="font-medium text-red-700 dark:text-red-300 col-span-2 mt-2">Veterinärnotering:</span>
                 <span class="col-span-2 italic text-red-900 dark:text-red-200 bg-red-50 dark:bg-red-900/30 p-2 rounded border border-red-200 dark:border-red-800 text-xs">
-                    ${equipage.vetNotes || 'Inga noteringar.'}
+                    ${escapeHtml(equipage.vetNotes || 'Inga noteringar.')}
                 </span>
     `;
 
@@ -109,12 +114,12 @@ function showEquipageDetailsModal(equipage) {
         allHorses.forEach((horse, index) => {
             contentHtml += `
                 <div class="border-t dark:border-gray-600 pt-2">
-                    <p><span class="font-semibold text-base dark:text-gray-200">${horse.name || 'Namn saknas'}</span> <span class="text-sm text-gray-600 dark:text-gray-400">(${horse.id || 'ID saknas'})</span></p>
+                    <p><span class="font-semibold text-base dark:text-gray-200">${escapeHtml(horse.name || 'Namn saknas')}</span> <span class="text-sm text-gray-600 dark:text-gray-400">(${escapeHtml(horse.id || 'ID saknas')})</span></p>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-xs mt-1">
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Typ:</span> <span class="dark:text-gray-300 break-words">${horse.type || '-'}</span>
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Ålder:</span> <span class="dark:text-gray-300">${horse.age || '-'}</span>
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Härstamning:</span> <span class="dark:text-gray-300 break-words">${horse.lineage || '-'}</span>
-                        <span class="font-medium text-gray-600 dark:text-gray-400">Ägare:</span> <span class="dark:text-gray-300 break-words">${horse.owner || '-'}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Typ:</span> <span class="dark:text-gray-300 break-words">${escapeHtml(horse.type || '-')}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Ålder:</span> <span class="dark:text-gray-300">${escapeHtml(horse.age || '-')}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Härstamning:</span> <span class="dark:text-gray-300 break-words">${escapeHtml(horse.lineage || '-')}</span>
+                        <span class="font-medium text-gray-600 dark:text-gray-400">Ägare:</span> <span class="dark:text-gray-300 break-words">${escapeHtml(horse.owner || '-')}</span>
                         <span class="font-medium text-gray-600 dark:text-gray-400">Veterinär:</span> <span>${renderHorseVetStatusBadge(horse)}</span>
                     </div>
                 </div>
@@ -131,7 +136,7 @@ function showEquipageDetailsModal(equipage) {
         const getHorseNames = (key) => {
             const ids = selections[key] || [];
             if (ids.length === 0) return '<span class="italic text-gray-500 dark:text-gray-400">Ej valt</span>';
-            return ids.map(id => horseMap.get(id) || id).join(', ');
+            return escapeHtml(ids.map(id => horseMap.get(id) || id).join(', '));
         };
 
         contentHtml += `
@@ -173,28 +178,28 @@ function renderEditInfoView(equipage, modalContent) {
         <div class="space-y-4">
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Kusk</label>
-                <input type="text" id="editDriverName" value="${equipage.driverName || ''}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
+                <input type="text" id="editDriverName" value="${escapeAttr(equipage.driverName || '')}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">E-post (för inloggning/portal)</label>
-                <input type="email" id="editEmail" value="${equipage.email || ''}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
+                <input type="email" id="editEmail" value="${escapeAttr(equipage.email || '')}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Klubb</label>
-                <input type="text" id="editClubName" value="${equipage.clubName || ''}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
+                <input type="text" id="editClubName" value="${escapeAttr(equipage.clubName || '')}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
             </div>
              <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Klass</label>
-                <input type="text" id="editClassName" value="${equipage.className || ''}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
+                <input type="text" id="editClassName" value="${escapeAttr(equipage.className || '')}" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Speaker-noteringar</label>
-                <textarea id="editSpeakerNotes" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">${equipage.speakerNotes || ''}</textarea>
+                <textarea id="editSpeakerNotes" rows="3" class="mt-1 block w-full rounded-md border-gray-300 dark:border-gray-600 shadow-sm p-2 border dark:bg-gray-700 dark:text-gray-100">${escapeHtml(equipage.speakerNotes || '')}</textarea>
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Information som visas för speakern (meriter, kuriosa etc).</p>
             </div>
             <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Veterinärnotering</label>
-                <textarea id="editVetNotes" rows="2" class="mt-1 block w-full rounded-md border-red-300 dark:border-red-800 shadow-sm p-2 border bg-red-50 dark:bg-red-900/30 dark:text-red-100">${equipage.vetNotes || ''}</textarea>
+                <textarea id="editVetNotes" rows="2" class="mt-1 block w-full rounded-md border-red-300 dark:border-red-800 shadow-sm p-2 border bg-red-50 dark:bg-red-900/30 dark:text-red-100">${escapeHtml(equipage.vetNotes || '')}</textarea>
             </div>
         </div>
         <div class="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 mt-6">
@@ -255,8 +260,8 @@ function renderHorseSelectionView(equipage, allHorses, horseLimit, modalContent)
     disciplines.forEach(disc => {
         contentHtml += `
             <fieldset class="p-4 border rounded-lg dark:border-gray-600">
-                <legend class="font-semibold px-2 dark:text-gray-200">${disc.label}</legend>
-                <div class="space-y-2 mt-2" data-discipline-group="${disc.key}">
+                <legend class="font-semibold px-2 dark:text-gray-200">${escapeHtml(disc.label)}</legend>
+                <div class="space-y-2 mt-2" data-discipline-group="${escapeAttr(disc.key)}">
         `;
 
         allHorses.forEach(horse => {
@@ -266,10 +271,10 @@ function renderHorseSelectionView(equipage, allHorses, horseLimit, modalContent)
                 <label class="flex items-center p-2 rounded-md hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer">
                     <input type="checkbox"
                            class="h-5 w-5 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 moment-horse-cb"
-                           data-discipline="${disc.key}"
-                           value="${horseId}"
+                           data-discipline="${escapeAttr(disc.key)}"
+                           value="${escapeAttr(horseId)}"
                            ${isChecked ? 'checked' : ''}>
-                    <span class="ml-3 text-sm font-medium dark:text-gray-200">${horse.name}</span>
+                    <span class="ml-3 text-sm font-medium dark:text-gray-200">${escapeHtml(horse.name)}</span>
                 </label>
             `;
         });
@@ -417,8 +422,8 @@ function renderList() {
         element.innerHTML = `
             <div class="clickable-area flex-1 min-w-0 cursor-pointer">
                 <div class="${isStruken ? 'line-through text-gray-500 dark:text-gray-400' : 'dark:text-gray-100'}">
-                    <span class="font-bold">#${e.startNumber}</span> - ${e.driverName}
-                    <span class="text-sm text-gray-600 dark:text-gray-400">(${e.className})</span>
+                    <span class="font-bold">#${escapeHtml(e.startNumber)}</span> - ${escapeHtml(e.driverName)}
+                    <span class="text-sm text-gray-600 dark:text-gray-400">(${escapeHtml(e.className)})</span>
                 </div>
             </div>
             <div class="flex items-center w-full sm:w-auto sm:justify-end space-x-3 sm:ml-4">

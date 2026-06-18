@@ -193,7 +193,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       content.innerHTML = `
           <div class="p-4 md:p-6">
             <div class="flex justify-between items-start">
-              <h3 class="text-xl font-bold">#${id} – ${t('equipage_not_found')}</h3>
+              <h3 class="text-xl font-bold">#${escapeHtml(id)} – ${t('equipage_not_found')}</h3>
               <button id="closePrecModalBtn" class="px-2 py-1 text-2xl leading-none">&times;</button>
             </div>
           </div>`;
@@ -215,7 +215,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
-              <span>${eq._mergedLabel || eq.className || ''} • ${eq.clubName || ''}</span>
+              <span>${escapeHtml(eq._mergedLabel || eq.className || '')} • ${escapeHtml(eq.clubName || '')}</span>
             </div>
           </div>
           <button id="closePrecModalBtn" class="text-gray-500 hover:text-gray-800 text-3xl leading-none" aria-label="Stäng">&times;</button>

@@ -147,7 +147,12 @@ export async function renderClubs(container, competitionId, equipages = []) {
 
                 // Refresh Image
                 const imgContainer = box;
-                imgContainer.innerHTML = `<img src="${url}" class="max-w-full max-h-full object-contain">`;
+                imgContainer.replaceChildren();
+                const img = document.createElement('img');
+                img.src = url;
+                img.alt = `Logga för ${club}`;
+                img.className = 'max-w-full max-h-full object-contain';
+                imgContainer.appendChild(img);
 
                 if (!saveFailed) {
                     const statusText = document.getElementById(`status-text-${id}`);
