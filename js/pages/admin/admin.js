@@ -24,6 +24,26 @@ let competitionId = null;
 let allEquipages = [];
 let currentTab = 'registration'; // 'registration' | 'teams' | 'communication' | 'settings' | 'archiving' | 'officials'
 let adminUnsubscribers = [];
+const ADMIN_TAB_BUTTONS = {
+  registration: 'tab-btn-reg',
+  teams: 'tab-btn-teams',
+  clubs: 'tab-btn-clubs',
+  officials: 'tab-btn-officials',
+  communication: 'tab-btn-comm',
+  settings: 'tab-btn-settings',
+  archiving: 'tab-btn-archiving'
+};
+
+function getRequestedAdminTab() {
+  try {
+    const hashQuery = window.location.hash.split('?')[1] || '';
+    const hashParams = new URLSearchParams(hashQuery);
+    const requested = hashParams.get('tab');
+    return ADMIN_TAB_BUTTONS[requested] ? requested : 'registration';
+  } catch {
+    return 'registration';
+  }
+}
 
 function addAdminUnsubscriber(unsubscribe) {
   if (typeof unsubscribe === 'function') {
@@ -337,6 +357,8 @@ export async function load() {
     return;
   }
 
+  currentTab = getRequestedAdminTab();
+
   // Render Layout (Tabs etc.) using the fetched competition data
   renderLayout(comp);
 
@@ -376,8 +398,9 @@ export async function load() {
     participants.updateJudges(judges);
   }));
 
-  const defaultTab = document.getElementById('tab-btn-reg');
-  if (defaultTab) defaultTab.click();
+  const initialTabButtonId = ADMIN_TAB_BUTTONS[currentTab] || ADMIN_TAB_BUTTONS.registration;
+  const initialTabButton = document.getElementById(initialTabButtonId);
+  if (initialTabButton) initialTabButton.click();
 }
 
 export function __unload() {

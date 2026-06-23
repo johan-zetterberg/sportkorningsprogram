@@ -152,7 +152,16 @@ function renderLayout() {
                 <select id="importFromComp" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white max-w-full text-ellipsis overflow-hidden">
                   <option value="">-- Starta från noll --</option>
                 </select>
-               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Kopierar inställningar (Maraton, Precision, Karta, etc.) från vald tävling.</p>
+               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Kopierar inställningar för dressyr, maraton, precision, visningsklasser och karta från vald tävling.</p>
+            </div>
+
+            <div>
+              <label for="compMode" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Tävlingsläge</label>
+              <select id="compMode" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                <option value="live">Live-läge</option>
+                <option value="field">Field mode light</option>
+              </select>
+              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Live-läge använder timers och liveflöden. Field mode light är för mer manuell drift.</p>
             </div>
 
             <div>
@@ -524,6 +533,7 @@ function setupEventListeners() {
         place: document.getElementById('compPlace').value,
         dates: dateStr,
         club: document.getElementById('compClub').value,
+        competitionMode: document.getElementById('compMode')?.value || 'live',
         createdBy: user?.uid || null,
         admins: user?.uid ? [user.uid] : [],
         coordinates: (lat && lng) ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null,
@@ -543,13 +553,15 @@ function setupEventListeners() {
         }
 
         showAlert(`Tävlingen "${compData.name}" har skapats!`);
-        e.target.reset();
+        const createdCompetition = {
+          id: newId,
+          ...compData,
+          published: false
+        };
 
-        // Reset map logic if needed
-        if (markerInstance) {
-          mapInstance.removeLayer(markerInstance);
-          markerInstance = null;
-        }
+        setGlobalState({ key: 'currentCompetition', value: createdCompetition });
+        saveLastOpened(createdCompetition);
+        window.location.hash = '#admin?tab=settings';
       } catch (err) {
         console.error('Error creating competition:', err);
         showAlert('Kunde inte skapa tävlingen.', false);

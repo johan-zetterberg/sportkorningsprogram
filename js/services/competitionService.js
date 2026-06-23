@@ -10,13 +10,14 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 timme
 
 export async function createCompetition(data) {
   const user = auth?.currentUser || null;
+  const competitionMode = data.competitionMode === 'field' ? 'field' : 'live';
 
   const comp = {
     name: data.name?.trim() || '',
     place: data.place?.trim() || '',
     dates: data.dates?.trim() || '',
     club: data.club?.trim() || '',
-    competitionMode: 'live',
+    competitionMode,
     createdAt: serverTimestamp(),
     createdBy: user ? user.uid : null,
     published: false, // Default to unpublished (Draft)
@@ -38,6 +39,10 @@ export async function createCompetition(data) {
         const configsToCopy = [
           'maratonConfig',
           'precisionConfig',
+          'display',
+          'dressyrProgramMapping',
+          'dressyrClassConfig',
+          'dressageJudgeMapping',
           'competitionMeta',
           'map' 
         ];
