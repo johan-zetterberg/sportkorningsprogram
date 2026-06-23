@@ -478,16 +478,33 @@ function initialize() {
         } catch (e) { console.warn('Could not fetch map config', e); }
 
         // --- MAP RENDER (Leaflet) ---
+        const hasLeaflet = typeof window.L !== 'undefined';
 
         if (mapContainer && mapColumn) {
-            if (!infoMapInstance) {
+            if (!hasLeaflet) {
+                mapColumn.classList.add('hidden');
+                if (googleButton && coords?.lat && coords?.lng) {
+                    googleButton.href = `https://www.google.com/maps/search/?api=1&query=${coords.lat},${coords.lng}`;
+                }
+                if (fallbackLink) {
+                    const fallbackQuery = coords?.lat && coords?.lng
+                        ? `${coords.lat},${coords.lng}`
+                        : (comp.place ? `${comp.place}${comp.club ? ` ${comp.club}` : ''}` : '');
+                    if (fallbackQuery) {
+                        fallbackLink.href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(fallbackQuery)}`;
+                        fallbackLink.classList.remove('hidden');
+                    } else {
+                        fallbackLink.classList.add('hidden');
+                    }
+                }
+            } else if (!infoMapInstance) {
                 try {
                     infoMapInstance = L.map(mapContainer, { zoomControl: false, attributionControl: false }).setView([62, 15], 5);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(infoMapInstance);
                 } catch (e) { console.warn("L init error", e); }
             }
 
-            if (coords && coords.lat && coords.lng) {
+            if (hasLeaflet && coords && coords.lat && coords.lng) {
                 // SHOW MAP (Desktop Column)
                 mapColumn.classList.remove('hidden');
                 if (fallbackLink) fallbackLink.classList.add('hidden');
@@ -515,7 +532,7 @@ function initialize() {
                 if (infoMarkerInstance) infoMapInstance.removeLayer(infoMarkerInstance);
                 infoMarkerInstance = L.marker([coords.lat, coords.lng]).addTo(infoMapInstance);
 
-            } else {
+            } else if (hasLeaflet) {
                 // NO COORDINATES -> Hide Map Column, Show Fallback Link next to Place
                 mapColumn.classList.add('hidden');
 

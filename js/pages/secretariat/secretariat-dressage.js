@@ -205,6 +205,57 @@ function ensureModal() {
       html.dark .secretariat-dressage-shortcuts {
         color: #9ca3af;
       }
+      @media (max-width: 640px) {
+        .secretariat-dressage-modal-overlay {
+          padding: 8px;
+        }
+        .secretariat-dressage-modal-card {
+          width: 100%;
+          height: min(100vh, calc(100vh - 16px));
+          max-height: calc(100vh - 16px);
+          border-radius: 14px;
+        }
+        .secretariat-dressage-modal-head {
+          padding: 12px 14px;
+        }
+        .secretariat-dressage-modal-body {
+          padding: 14px;
+        }
+        .secretariat-dressage-sticky-actions {
+          bottom: -14px;
+          margin-top: 14px;
+          margin-left: -14px;
+          margin-right: -14px;
+          padding: 12px 14px;
+          flex-wrap: wrap;
+        }
+        .secretariat-dressage-shortcuts {
+          font-size: 10px;
+        }
+      }
+      @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+        .secretariat-dressage-modal-overlay {
+          padding: 10px;
+        }
+        .secretariat-dressage-modal-card {
+          width: min(1100px, 100%);
+          height: min(100vh, calc(100vh - 20px));
+          max-height: calc(100vh - 20px);
+        }
+        .secretariat-dressage-modal-head {
+          padding: 12px 16px;
+        }
+        .secretariat-dressage-modal-body {
+          padding: 16px;
+        }
+        .secretariat-dressage-sticky-actions {
+          bottom: -16px;
+          margin-top: 16px;
+          margin-left: -16px;
+          margin-right: -16px;
+          padding: 12px 16px;
+        }
+      }
     `;
     document.head.appendChild(style);
   }

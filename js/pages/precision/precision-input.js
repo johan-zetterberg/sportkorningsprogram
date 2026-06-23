@@ -21,6 +21,7 @@ import { t } from '../../utils/i18n.js';
 import { downloadJson, round2 } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 import { computeMaxSecondsForClass, calculatePrecisionTimePenalty, getPortAllowanceCm, getPrecisionCourseData } from '../../utils/precisionUtils.js';
+import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -80,15 +81,20 @@ function digitsToMs(d) {
     return (mm * 60 + ss) * 1000 + cs * 10;
 }
 
+function precisionBackupKey(sn) {
+    if (!competitionId || !sn) return null;
+    return `bkp_${competitionId}_pre_${sn}`;
+}
+
+function readPrecisionBackup(sn) {
+    return readNewestBackupData([precisionBackupKey(sn)]);
+}
+
 // Mirror data to localStorage for redundancy
 function mirrorToLocal(sn, data) {
     if (!sn || !data || !competitionId) return;
     try {
-        const key = `bkp_${competitionId}_pre_${sn}`;
-        localStorage.setItem(key, JSON.stringify({
-            ts: Date.now(),
-            data
-        }));
+        writeMergedBackup(precisionBackupKey(sn), data);
     } catch (e) {
         console.warn('Could not mirror to localStorage', e);
     }
@@ -304,6 +310,38 @@ function renderLayout() {
                     margin-right: -0.5rem;
                     padding: 0.65rem 0.75rem;
                 }
+                .precision-control-strip {
+                    display: grid !important;
+                    grid-template-columns: minmax(0, 1fr) auto;
+                    gap: 0.5rem;
+                    align-items: stretch;
+                }
+                .precision-primary-controls {
+                    display: grid !important;
+                    gap: 0.5rem;
+                    min-width: 0;
+                }
+                .precision-control-strip.is-live .precision-primary-controls {
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                }
+                .precision-control-strip.is-field .precision-primary-controls {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+                .precision-main-btn {
+                    min-width: 0 !important;
+                    width: 100%;
+                }
+                .precision-action-btn {
+                    padding-top: 0.7rem !important;
+                    padding-bottom: 0.7rem !important;
+                    font-size: 1rem !important;
+                }
+                .precision-reset-top-btn {
+                    width: 3.25rem !important;
+                    min-width: 3.25rem !important;
+                    min-height: 3.25rem !important;
+                    height: auto !important;
+                }
                 .precision-manual-editor {
                     position: fixed;
                     inset: auto 0.75rem auto 0.75rem;
@@ -350,11 +388,36 @@ function renderLayout() {
                     font-size: 2.4rem !important;
                     line-height: 0.95;
                 }
+                .precision-control-strip {
+                    display: grid !important;
+                    grid-template-columns: minmax(0, 1fr) auto;
+                    gap: 0.55rem;
+                    align-items: stretch;
+                }
+                .precision-primary-controls {
+                    display: grid !important;
+                    grid-template-columns: repeat(2, minmax(0, 1fr));
+                    gap: 0.55rem;
+                    min-width: 0;
+                }
+                .precision-control-strip.is-field .precision-primary-controls {
+                    grid-template-columns: minmax(0, 1fr);
+                }
+                .precision-main-btn {
+                    min-width: 0 !important;
+                    width: 100%;
+                }
                 .precision-action-btn {
-                    min-width: 5rem !important;
-                    padding-top: 0.65rem !important;
-                    padding-bottom: 0.65rem !important;
+                    min-width: 0 !important;
+                    padding-top: 0.55rem !important;
+                    padding-bottom: 0.55rem !important;
                     font-size: 0.95rem !important;
+                }
+                .precision-reset-top-btn {
+                    width: 3rem !important;
+                    min-width: 3rem !important;
+                    min-height: 3rem !important;
+                    height: auto !important;
                 }
                 .precision-nav-btn {
                     padding: 0.55rem !important;
@@ -395,11 +458,14 @@ function renderLayout() {
                             <span id="uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
                         </div>
                     </div>
-                    <div class="flex gap-2 sm:shrink-0">
+                    <div class="precision-control-strip ${isFieldMode ? 'is-field' : 'is-live'} flex gap-2 sm:shrink-0">
+                        <div class="precision-primary-controls flex gap-2">
                         ${isFieldMode
-                            ? `<button id="btnManualOpen" class="precision-action-btn flex-1 sm:flex-none w-full sm:w-32 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-                            : `<button id="btnStart" class="precision-action-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
-                        <button id="btnStop" class="precision-action-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>`}
+                            ? `<button id="btnManualOpen" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-32 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+                            : `<button id="btnStart" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
+                        <button id="btnStop" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>`}
+                        </div>
+                        <button id="btnResetTop" class="precision-nav-btn precision-reset-top-btn p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="${t('precision_reset')}">🔄</button>
                     </div>
                 </div>
 
@@ -417,11 +483,10 @@ function renderLayout() {
             <div class="main-card bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md space-y-4 border dark:border-gray-700">
                 <!-- EKIPAGEVAL -->
                 <div class="grid grid-cols-1 gap-4">
-                    <div class="grid grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-2 items-center">
+                    <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 items-center">
                         <button id="btnPrevEq" class="precision-nav-btn p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&larr;</button>
                         <div id="precisionEquipageSearchContainer" class="min-w-0"></div>
                         <button id="btnNextEq" class="precision-nav-btn p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&rarr;</button>
-                        <button id="btnReset" class="precision-nav-btn p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="${t('precision_reset')}">🔄</button>
                     </div>
                     
                     <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
@@ -850,8 +915,15 @@ function subscribeToPrecisionDoc(startNumber) {
 
     currentUnsubscribe = onSnapshot(
         precisionDocRef(startNumber),
-        (snap) => applyLiveDocToState(snap.exists() ? snap.data() : null),
-        (error) => console.error('Kunde inte lyssna på precisiondokument:', error)
+        (snap) => {
+            const liveData = snap.exists() ? snap.data() : readPrecisionBackup(startNumber);
+            if (snap.exists() && liveData) mirrorToLocal(startNumber, liveData);
+            applyLiveDocToState(liveData);
+        },
+        (error) => {
+            console.error('Kunde inte lyssna på precisiondokument:', error);
+            applyLiveDocToState(readPrecisionBackup(startNumber));
+        }
     );
 }
 
@@ -872,10 +944,12 @@ async function onEquipageSelected(eq) {
     try {
         const snap = await getDoc(precisionDocRef(currentEquipage.startNumber));
         if (currentEquipage?.startNumber !== eq.startNumber) return;
-        applyLiveDocToState(snap.exists() ? snap.data() : null);
+        const liveData = snap.exists() ? snap.data() : readPrecisionBackup(currentEquipage.startNumber);
+        if (snap.exists() && liveData) mirrorToLocal(currentEquipage.startNumber, liveData);
+        applyLiveDocToState(liveData);
     } catch (error) {
         console.warn('Kunde inte läsa precisiondokument för valt ekipage:', error);
-        applyLiveDocToState(null);
+        applyLiveDocToState(readPrecisionBackup(currentEquipage.startNumber));
     }
 }
 
@@ -1031,7 +1105,7 @@ export async function load() {
         // Event Listeners
         document.getElementById('btnStart')?.addEventListener('click', startTimer);
         document.getElementById('btnStop')?.addEventListener('click', stopTimer);
-        document.getElementById('btnReset')?.addEventListener('click', resetTimer);
+        document.getElementById('btnResetTop')?.addEventListener('click', resetTimer);
         document.getElementById('btnSave').addEventListener('click', saveFinal);
         document.getElementById('extraPenaltyInput').addEventListener('input', () => {
             const t = getElapsedMs();

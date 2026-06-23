@@ -73,6 +73,41 @@ function ensureStickyTableStyles() {
     html.dark .secretariat-page-table thead th {
       background: #1f2937;
     }
+    @media (max-width: 640px) {
+      .secretariat-marathon-tabs {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .secretariat-marathon-tab {
+        width: 100%;
+        justify-content: center;
+      }
+      .secretariat-marathon-actions {
+        width: 100%;
+        justify-content: stretch;
+      }
+      .secretariat-marathon-actions > * {
+        flex: 1 1 calc(50% - 0.25rem);
+      }
+      .secretariat-marathon-summary {
+        width: 100%;
+      }
+      .secretariat-marathon-obstacle-actions > * {
+        flex: 1 1 100%;
+      }
+    }
+    @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+      .secretariat-marathon-tabs {
+        display: flex;
+        flex-wrap: wrap;
+      }
+      .secretariat-marathon-tab {
+        flex: 1 1 0;
+      }
+      .secretariat-marathon-actions > * {
+        flex: 0 1 auto;
+      }
+    }
   `;
   document.head.appendChild(style);
 }
@@ -194,11 +229,11 @@ function renderTabs() {
 
   return `
     <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-2 mb-4">
-      <div class="flex gap-2">
-        <button data-tab="timing" class="px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === 'timing' ? 'bg-brand-darkblue text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}">
+      <div class="secretariat-marathon-tabs flex gap-2">
+        <button data-tab="timing" class="secretariat-marathon-tab px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === 'timing' ? 'bg-brand-darkblue text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}">
           Etapptider <span data-role="timing-dirty-badge" class="${timingDirty > 0 ? '' : 'hidden '}ml-1 rounded-full bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">${timingDirty}</span>
         </button>
-        <button data-tab="obstacles" class="px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === 'obstacles' ? 'bg-brand-darkblue text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}">
+        <button data-tab="obstacles" class="secretariat-marathon-tab px-4 py-2 rounded-lg text-sm font-semibold ${activeTab === 'obstacles' ? 'bg-brand-darkblue text-white' : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200'}">
           Hinder <span data-role="obstacle-dirty-badge" class="${obstacleDirty > 0 ? '' : 'hidden '}ml-1 rounded-full bg-amber-200/80 px-1.5 py-0.5 text-[10px] font-bold text-amber-900">${obstacleDirty}</span>
         </button>
       </div>
@@ -274,8 +309,8 @@ function renderTimingTab() {
           <p class="text-sm text-gray-600 dark:text-gray-400">Korrigera sparade tider för etapp A och B utan att röra liveflödet.</p>
           <div data-role="timing-dirty-note" class="${dirtyCount > 0 ? 'inline-flex' : 'hidden'} mt-2 items-center rounded-full bg-amber-100 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:bg-amber-900/40 dark:text-amber-200">${dirtyCount} osparade ändringar</div>
         </div>
-        <div class="flex flex-wrap items-center gap-2">
-          <div class="text-sm text-gray-500 dark:text-gray-400">${visibleRows.length} av ${rows.length} ekipage visas</div>
+        <div class="secretariat-marathon-actions flex flex-wrap items-center gap-2">
+          <div class="secretariat-marathon-summary text-sm text-gray-500 dark:text-gray-400">${visibleRows.length} av ${rows.length} ekipage visas</div>
           <button data-action="save-all-timing" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('save_all'))}</button>
           <button data-action="reset-all-timing" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('undo_all'))}</button>
         </div>
@@ -400,7 +435,7 @@ function renderObstacleTab() {
           `}
         </div>
         ${baseRow ? `
-          <div class="flex flex-wrap gap-2">
+          <div class="secretariat-marathon-actions secretariat-marathon-obstacle-actions flex flex-wrap gap-2">
             <button data-action="save-all-obstacles" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('save_all'))}</button>
             <button data-action="reset-all-obstacles" ${dirtyCount === 0 ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed">${escapeHtml(t('undo_all'))}</button>
             ${baseRow.finalized

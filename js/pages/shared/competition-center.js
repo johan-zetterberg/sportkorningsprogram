@@ -205,7 +205,15 @@ function destroyVenueMap() {
 
 function initVenueMap(coordinates) {
   const mapEl = document.getElementById('competition-center-venue-map');
-  if (!mapEl || !coordinates?.lat || !coordinates?.lng || typeof L === 'undefined') return;
+  if (!mapEl || !coordinates?.lat || !coordinates?.lng) return;
+  if (typeof window.L === 'undefined') {
+    mapEl.innerHTML = `
+      <div class="flex h-full items-center justify-center bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-300 px-4 text-center">
+        Karta kunde inte laddas. Använd vägbeskrivningslänken i stället.
+      </div>
+    `;
+    return;
+  }
 
   destroyVenueMap();
 

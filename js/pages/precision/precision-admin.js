@@ -133,17 +133,60 @@ function findPortAllowanceForClass(className) {
     return standardPortAllowance['*'] || 35;
 }
 
+function ensurePrecisionAdminResponsiveStyles() {
+    if (document.getElementById('precision-admin-responsive-styles')) return;
+
+    const style = document.createElement('style');
+    style.id = 'precision-admin-responsive-styles';
+    style.textContent = `
+        @media (max-width: 640px) {
+            .precision-admin-card {
+                padding: 0.85rem;
+            }
+            .precision-admin-inline-panel {
+                gap: 0.6rem;
+            }
+            .precision-admin-inline-panel .allowance-override-input,
+            .precision-admin-inline-panel .tempo-override-input {
+                width: 100%;
+            }
+            .precision-admin-special-row {
+                align-items: stretch;
+            }
+            .precision-admin-special-row .special-port-input {
+                width: 100%;
+            }
+            .precision-admin-bounds-row {
+                align-items: stretch;
+            }
+            .precision-admin-bounds-row input {
+                width: 100%;
+            }
+        }
+        @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+            .precision-admin-card {
+                padding: 0.9rem;
+            }
+            .precision-admin-map-preview {
+                height: 320px;
+            }
+        }
+    `;
+    document.head.appendChild(style);
+}
+
 function renderLayout() {
     const comp = getGlobalState('currentCompetition');
     const root = document.getElementById('page-precision-admin');
+    ensurePrecisionAdminResponsiveStyles();
     if (!root) return;
 
     const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
 
     root.innerHTML = `
         ${getCompetitionHeader(comp, 'Precision – Inställningar')}
-        <div class="max-w-5xl mx-auto p-3 md:p-4 space-y-6">
-            <section class="p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
+        <div class="max-w-5xl mx-auto p-3 md:p-4 space-y-5">
+            <section class="p-3 sm:p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
                 <h3 class="text-xl font-semibold mb-2 dark:text-white">Inställningar per Klass</h3>
                 <p class="text-sm text-gray-600 mb-4 dark:text-gray-400">
                     Systemet använder standard-tillägg (allowance) och tempon enligt TR/FEI. Fyll endast i ett manuellt värde om du vill åsidosätta standarden för en specifik klass.
@@ -162,7 +205,7 @@ function renderLayout() {
                 </div>
             </section>
 
-            <section class="p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
+            <section class="p-3 sm:p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
                 <h3 class="text-xl font-semibold mb-2 dark:text-white">Globala Inställningar</h3>
                 <p class="text-sm text-gray-600 mb-4 dark:text-gray-400">
                     Dessa inställningar gäller för hela tävlingen om inget annat anges.
@@ -180,7 +223,7 @@ function renderLayout() {
                     </div>
                 </div>
             </section>
-            <section class="p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
+            <section class="p-3 sm:p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
                 <div class="flex flex-col gap-3 lg:flex-row lg:justify-between lg:items-center mb-4 border-b dark:border-gray-700 pb-2">
                     <h3 class="text-xl font-semibold dark:text-white">Karta och Passertider (Split-tider)</h3>
                     <div class="flex flex-col sm:flex-row gap-3 sm:gap-4 sm:items-center">
@@ -219,7 +262,7 @@ function renderLayout() {
 
                     <div>
                       <label class="block text-sm font-medium dark:text-gray-300">Bander (Bounds)</label>
-                      <div class="flex flex-wrap gap-2 items-center">
+                      <div class="precision-admin-bounds-row flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-center">
                           <span class="text-xs text-gray-500 dark:text-gray-400">[0,0] till</span>
                           <input type="number" id="precMapBoundsX" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="X (1920)">
                           <input type="number" id="precMapBoundsY" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Y (1080)">
@@ -251,7 +294,7 @@ function renderLayout() {
                       </div>
                     </div>
 
-                    <div class="h-[400px] border-2 border-gray-100 rounded-xl overflow-hidden bg-gray-50 relative shadow-inner z-0 dark:border-gray-700 dark:bg-gray-900">
+                    <div class="precision-admin-map-preview h-[400px] border-2 border-gray-100 rounded-xl overflow-hidden bg-gray-50 relative shadow-inner z-0 dark:border-gray-700 dark:bg-gray-900">
                         <div id="prec-admin-map-picker" class="w-full h-full"></div>
                         <div class="absolute top-2 right-2 z-[1000] pointer-events-none">
                             <span class="bg-gray-900/80 text-white text-[9px] px-2 py-1 rounded-full backdrop-blur uppercase tracking-widest font-bold">Preview / Picker</span>
@@ -296,13 +339,13 @@ function renderClassCards() {
             ? labels.map(label => {
                 const delta = specialPortAllowance[label] ?? '';
                 return `
-            <div class="flex flex-wrap items-center gap-2">
+            <div class="precision-admin-special-row flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
                 <span class="w-14 text-sm">${label}</span>
                 <span class="flex-1 text-xs text-gray-500">± cm relativt standard</span>
                 <input
                     type="number"
                     step="1"
-                    class="special-port-input w-20 p-1 border rounded-md text-right dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    class="special-port-input w-full sm:w-20 p-1 border rounded-md text-right dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     data-label="${label}"
                     value="${delta === '' ? '' : delta}"
                     placeholder="0"
@@ -332,15 +375,15 @@ function renderClassCards() {
         }
 
         return `
-            <div class="p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}">
+            <div class="precision-admin-card p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}">
                 <h4 class="text-lg font-bold text-gray-800 dark:text-white">${className}</h4>
                 ${sourceClassLabel}
-                <div class="grid grid-cols-1 xl:grid-cols-3 gap-4 mt-3">
+                <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Port-tillägg (cm)</label>
-                        <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-white border rounded-md dark:bg-gray-700 dark:border-gray-600">
+                        <div class="precision-admin-inline-panel flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-white border rounded-md dark:bg-gray-700 dark:border-gray-600">
                             <span class="flex-1 text-gray-700 dark:text-gray-300">Standard: <strong>${stdAllowance}</strong></span>
-                            <input type="number" value="${manualAllowance ?? ''}" class="allowance-override-input w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
+                            <input type="number" value="${manualAllowance ?? ''}" class="allowance-override-input w-full sm:w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
                         </div>
                     </div>
                     <div>
@@ -349,9 +392,9 @@ function renderClassCards() {
                     </div>
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Tempo & Maxtid</label>
-                        <div class="flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
+                        <div class="precision-admin-inline-panel flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
                            <div class="flex items-center gap-1">
-                               <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${stdTempo > 0 ? stdTempo : '???'}">
+                               <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-full sm:w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${stdTempo > 0 ? stdTempo : '???'}">
                                <span class="text-xs text-gray-600 dark:text-gray-400">m/min</span>
                            </div>
                            <span class="flex-1 sm:text-right text-xs text-gray-500">Maxtid:</span>

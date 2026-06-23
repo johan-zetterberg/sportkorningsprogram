@@ -1212,6 +1212,7 @@ function renderMobile(judgesPresent) {
             const tempMap = new Map([[String(sn), cleanList]]);
             openDetailsModal(sn, {
                 savedProtocolsMap: tempMap,
+                processedResults,
                 equipages: masterEquipageList,
                 statusMap: dressageStatusMap,
                 currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null
@@ -1229,6 +1230,7 @@ function renderMobile(judgesPresent) {
                 const tempMap = new Map([[String(sn), cleanList]]);
                 openDetailsModal(sn, {
                     savedProtocolsMap: tempMap,
+                    processedResults,
                     equipages: masterEquipageList,
                     statusMap: dressageStatusMap,
                     currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null
@@ -1798,7 +1800,7 @@ function renderDesktop(judgesPresent) {
             const rawList = rawByStart.get(String(sn)) || [];
             const cleanList = deduplicateAndFilterProtocols(rawList, safeJudges);
             const tempMap = new Map([[String(sn), cleanList]]);
-            openDetailsModal(sn, { savedProtocolsMap: tempMap, equipages: masterEquipageList, statusMap: dressageStatusMap, currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null });
+            openDetailsModal(sn, { savedProtocolsMap: tempMap, processedResults, equipages: masterEquipageList, statusMap: dressageStatusMap, currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null });
         }
     }));
 }

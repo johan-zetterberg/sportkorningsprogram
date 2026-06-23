@@ -15,6 +15,7 @@ import { t } from '../../utils/i18n.js';
 // Importera modalen direkt
 import { showDetailsModal } from '../../ui/marathonModal.js';
 import { renderMap, destroyMap, updateSidebar as updateSidebarMap } from './maraton-monitor-map.js';
+import { buildObstaclePlacementsByClass, getObstaclePlacement } from './marathonObstaclePlacings.js';
 
 import {
   setMarathonConfig,
@@ -614,7 +615,14 @@ function renderMonitor() {
       const flashData = active.task.data;
       const { timeSec, penalty } = obstacleValues(flashData);
       const timeStr = Number.isFinite(timeSec) ? timeSec.toFixed(2) + 's' : '—';
-      const stats = calculateClassObstacleStats(eq.className, Number(flashData.number || flashData.obstacleNumber));
+      const obstacleNumber = Number(flashData.number || flashData.obstacleNumber);
+      const stats = calculateClassObstacleStats(eq.className, obstacleNumber);
+      const obstaclePlacementMap = buildObstaclePlacementsByClass({
+        equipages: allEquipages,
+        marathonMap: allMarathonData,
+        calculateResult: calculateMarathonResult
+      });
+      const obstaclePlace = getObstaclePlacement(obstaclePlacementMap, eq, obstacleNumber);
 
       let comparisonHtml = '';
       let cardColor = 'bg-white dark:bg-gray-800 border-blue-500 dark:border-blue-400';
@@ -638,6 +646,7 @@ function renderMonitor() {
              <h3 class="text-2xl font-bold mb-2 text-center dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
              <div class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-6">${active.task.name}</div>
              <div class="text-6xl font-extrabold mb-4 tracking-tight ${isFinite(penalty) ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}">${timeStr}</div>
+             ${Number.isFinite(obstaclePlace) ? `<div class="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2">Plac i klassen: ${obstaclePlace}</div>` : ''}
              <div class="text-center mb-4 font-sans">${comparisonHtml}</div>
              <div class="mt-auto flex gap-4 text-sm text-gray-500 dark:text-gray-400 font-sans">
                  <span>${t('penalty')}: ${Number.isFinite(penalty) ? penalty.toFixed(2) : '—'}</span>

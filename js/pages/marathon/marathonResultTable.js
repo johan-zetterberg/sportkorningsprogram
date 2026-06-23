@@ -1,20 +1,33 @@
 import { formatObstacleClock, formatObstacleSeconds } from './marathonResultFormatters.js';
 
-export function rowObstacleCells(res, maxObs) {
+export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObstaclePlacement) {
+  if (typeof eq === 'number' && maxObs === undefined) {
+    maxObs = eq;
+    eq = null;
+  }
+
   return Array.from({ length: maxObs }, (_, i) => {
     const n = i + 1;
     const obsItem = (res.obstacles.items || []).find(o => Number(o.number) === n);
     const timeSec = (obsItem && Number.isFinite(Number(obsItem.timeSec))) ? Number(obsItem.timeSec) : null;
     const finalP = (obsItem && Number.isFinite(Number(obsItem.penalty))) ? Number(obsItem.penalty) : null;
     const label = timeSec !== null ? formatObstacleSeconds(timeSec) : (obsItem?.eliminated ? 'ELIM' : '\u2014');
+    const place = timeSec !== null && typeof getObstaclePlacement === 'function'
+      ? getObstaclePlacement(obstaclePlacementMap, eq, n)
+      : null;
+    const placeMarkup = Number.isFinite(place)
+      ? `<div class="text-[9px] lg:text-[10px] leading-tight text-gray-500 dark:text-gray-400">(${place})</div>`
+      : '';
     const title = [
       `Hinder ${n}`,
       timeSec !== null ? `Tid: ${formatObstacleSeconds(timeSec)} s (${formatObstacleClock(timeSec)})` : null,
-      finalP !== null ? `Straff: ${finalP.toFixed(2)}` : null
+      finalP !== null ? `Straff: ${finalP.toFixed(2)}` : null,
+      Number.isFinite(place) ? `Plac i klassen: ${place}` : null
     ].filter(Boolean).join(' | ');
 
     return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${res.startNumber}" data-obs="${n}" title="${title}">
                     <span data-cell="obsVal">${label}</span>
+                    ${placeMarkup}
                 </td>`;
   }).join('');
 }

@@ -4,6 +4,8 @@ import { getMarathonObstacleResults } from '../services/marathonService.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
 import { t } from '../utils/i18n.js';
+import { buildObstaclePlacementsByClass, getObstaclePlacement } from '../pages/marathon/marathonObstaclePlacings.js';
+import { buildMarathonPlacementsByClass } from '../pages/marathon/marathonResultRanking.js';
 
 // Importera helpers
 import {
@@ -42,7 +44,7 @@ function getMomentHorseLabel(equipage) {
   return '—';
 }
 
-export function renderMarathonContent(containerElement, eq, marathonData) {
+export function renderMarathonContent(containerElement, eq, marathonData, obstaclePlacementMap = null) {
   // Använd hinderdata direkt från map, men slå upp tidsstämplar från obstacleTimes om de saknas på objektet
   const rawObstacles = getObstacleArray(marathonData);
   const obstacleTimes = marathonData.obstacleTimes || {};
@@ -90,6 +92,10 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
 
   // --- Renderare ---
   const renderObstacle = (obs) => {
+    const obstaclePlace = getObstaclePlacement(obstaclePlacementMap, eq, obs.number);
+    const obstaclePlaceMarkup = Number.isFinite(obstaclePlace)
+      ? `<span class="ml-2 text-xs text-gray-500 dark:text-gray-400">(${obstaclePlace})</span>`
+      : '';
     // Beräkna mellantider om data finns
     let splitRows = '';
     if (obs.gateSplits && obs.gateSplits.length > 0 && obs.enteredAtServer) {
@@ -146,7 +152,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
           <div class="p-3 rounded-lg border bg-gray-50 dark:bg-gray-700/50 dark:border-gray-600">
             <h5 class="font-semibold text-gray-900 dark:text-gray-100">${t('obstacle')} ${obs.number} ${obs.eliminated ? '<span class="text-red-600 dark:text-red-400 ml-2">ELIM</span>' : ''}</h5>
             <div class="mt-2 grid grid-cols-2 md:grid-cols-4 gap-2 text-sm">
-              <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('time')}:</span> ${formatMsLive(obs.timeMs)}</div>
+              <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('time')}:</span> ${formatMsLive(obs.timeMs)}${obstaclePlaceMarkup}</div>
               <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('penalty')}:</span> ${obs.timePenalty.toFixed(2)}</div>
               <div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400">${t('knockdowns')}:</span> ${obs.knockdowns} (${obs.knockdownPenalty.toFixed(2)})</div>
               ${obs.otherPenalty > 0 ? `<div class="text-gray-700 dark:text-gray-300"><span class="text-gray-500 dark:text-gray-400 font-bold text-amber-600 dark:text-amber-500">Övrigt straff:</span> <span class="font-bold text-amber-600 dark:text-amber-500">${obs.otherPenalty.toFixed(2)}</span></div>` : '<div></div>'}
@@ -322,7 +328,7 @@ export function renderMarathonContent(containerElement, eq, marathonData) {
   }
 }
 
-export function renderTimeCard(container, eq, marathonData) {
+export function renderTimeCard(container, eq, marathonData, obstaclePlacementMap = null) {
   // Helper to get raw data
   const getStageData = (stage) => {
     const start = stageStartTS(marathonData, stage);
@@ -375,6 +381,7 @@ export function renderTimeCard(container, eq, marathonData) {
     }
 
     return {
+      number: num,
       name: t('obstacle') + ' ' + num,
       start, stop,
       dur: (timeSec && Number.isFinite(timeSec)) ? timeSec * 1000 : (o.timeMs || 0),
@@ -396,6 +403,12 @@ export function renderTimeCard(container, eq, marathonData) {
     const startStr = d.start ? toTimeLabel(d.start) : '—';
     const stopStr = d.stop ? toTimeLabel(d.stop) : '—';
     const timeStr = Number.isFinite(d.dur) ? formatMsLive(d.dur) : '—';
+    const obstaclePlace = !isBold && Number.isFinite(d.number)
+      ? getObstaclePlacement(obstaclePlacementMap, eq, d.number)
+      : null;
+    const obstaclePlaceHtml = Number.isFinite(obstaclePlace)
+      ? `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">(${obstaclePlace})</div>`
+      : '';
     const penaltyStr = d.fee.points ? d.fee.points.toFixed(2) : '0.00';
 
     // --- SPLITS ----
@@ -447,6 +460,7 @@ export function renderTimeCard(container, eq, marathonData) {
             <td class="p-2 border-r text-center">${stopStr}</td>
             <td class="p-2 border-r text-right tabular-nums">
                 ${timeStr}
+                ${obstaclePlaceHtml}
                 ${splitsHtml}
             </td>
             <td class="p-2 text-right tabular-nums">
@@ -482,7 +496,7 @@ export function renderTimeCard(container, eq, marathonData) {
     `;
 }
 
-export async function showDetailsModal(sn, equipages, marathonMap) {
+export async function showDetailsModal(sn, equipages, marathonMap, opts = {}) {
   try {
     ensureModalExists();
 
@@ -504,6 +518,29 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
     const id = String(sn);
     let d = marathonMap.get(id) || {};
     const eq = equipages.find(e => String(e.startNumber) === id) || { startNumber: id, driverName: 'Okänd', className: '' };
+    const classKey = eq._mergedKey || `CLS:${eq.className || 'Okänd klass'}`;
+    const displayClassLabel = eq._mergedLabel || eq.className || '—';
+    const originalClassLabel = eq.className || '—';
+    const isMergedClass = !!(eq._mergedLabel && eq._mergedLabel !== eq.className);
+    const classStarters = equipages.filter((item) => {
+      if (item?.status === 'struken') return false;
+      const itemKey = item._mergedKey || `CLS:${item.className || 'Okänd klass'}`;
+      return itemKey === classKey;
+    }).length;
+    const placeMap = opts.placeMap instanceof Map
+      ? opts.placeMap
+      : buildMarathonPlacementsByClass({
+        equipages,
+        marathonMap,
+        timingDocFor: (startNo) => marathonMap.get(String(startNo)) || {},
+        calculateResult: calculateMarathonResult
+      });
+    const classPlace = placeMap.get(id) ?? null;
+    const obstaclePlacementMap = buildObstaclePlacementsByClass({
+      equipages,
+      marathonMap,
+      calculateResult: calculateMarathonResult
+    });
 
     // BYGG RESULTAT-HEADER MANUELLT (eftersom vi tog bort den från renderMarathonContent)
     // Detta bevarar utseendet för den fristående maraton-vyn
@@ -513,9 +550,32 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
           <div>
             <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
             <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
-               ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${escapeHtml(eq.className || '')} • ${escapeHtml(eq.clubName || '')}
+               ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${escapeHtml(eq.clubName || '—')}
             </div>
             <div class="text-xs italic text-gray-500 dark:text-gray-400">${escapeHtml(getMomentHorseLabel(eq))}</div>
+            <div class="flex flex-wrap gap-2 mt-3">
+              <div class="inline-flex items-center gap-2 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                <span class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 dark:text-slate-400">Plac i klass</span>
+                <span class="font-bold tabular-nums">${escapeHtml(classPlace ? `${classPlace}${classStarters ? ` / ${classStarters}` : ''}` : '—')}</span>
+              </div>
+              ${isMergedClass
+                ? `
+                  <div class="inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
+                    <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-500 dark:text-blue-300">Visningsklass</span>
+                    <span class="font-semibold">${escapeHtml(displayClassLabel)}</span>
+                  </div>
+                  <div class="inline-flex items-center gap-2 rounded-full bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 text-sm text-indigo-800 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/50">
+                    <span class="text-[10px] uppercase tracking-widest font-semibold text-indigo-500 dark:text-indigo-300">Ursprungsklass</span>
+                    <span class="font-semibold">${escapeHtml(originalClassLabel)}</span>
+                  </div>
+                `
+                : `
+                  <div class="inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
+                    <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-500 dark:text-blue-300">Klass</span>
+                    <span class="font-semibold">${escapeHtml(displayClassLabel)}</span>
+                  </div>
+                `}
+            </div>
           </div>
           <button id="closeMarathonModalBtn" class="text-2xl leading-none text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" aria-label="Stäng">&times;</button>
         </div>
@@ -540,10 +600,10 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
       isTimeCard = !isTimeCard;
       const btn = inner.querySelector('#toggleTimeCardBtn');
       if (isTimeCard) {
-        renderTimeCard(contentContainer, eq, d);
+        renderTimeCard(contentContainer, eq, d, obstaclePlacementMap);
         btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"></path></svg> ${t('view_details')}`;
       } else {
-        renderMarathonContent(contentContainer, eq, d);
+        renderMarathonContent(contentContainer, eq, d, obstaclePlacementMap);
         btn.innerHTML = `<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg> ${t('view_timecard')}`;
       }
     };
@@ -551,7 +611,7 @@ export async function showDetailsModal(sn, equipages, marathonMap) {
     inner.querySelector('#toggleTimeCardBtn').addEventListener('click', toggleView);
 
     // Default view
-    renderMarathonContent(contentContainer, eq, d);
+    renderMarathonContent(contentContainer, eq, d, obstaclePlacementMap);
 
     // Events
     const close = () => {

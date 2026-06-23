@@ -450,7 +450,9 @@ async function seedCompetition(page, { includeEdgeCases, includeStress }) {
   }, null, { timeout: 10000 })
     .then(() => true)
     .catch(() => false);
+
   test.skip(!seedStarted, 'Seedern startade inte i denna browsermiljo.');
+
   await expect(page.locator('#status')).toContainText('Fardig', { timeout: 120000 });
   await expect(page.locator('#linkContainer')).toBeVisible({ timeout: 120000 });
 

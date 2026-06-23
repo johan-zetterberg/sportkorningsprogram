@@ -75,28 +75,28 @@ function buildTableRows() {
           <div class="font-medium">${escapeHtml(row.driverName || '-')}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(row.className || '')}</div>
         </td>
-        <td class="px-3 py-3 text-sm min-w-[8rem]">
-          <input data-field="timeMs" value="${escapeHtml(formatEditableTime(view.timeMs))}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        <td class="px-3 py-3 text-sm min-w-[7rem]">
+          <input data-field="timeMs" value="${escapeHtml(formatEditableTime(view.timeMs))}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-time-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
-        <td class="px-3 py-3 text-sm min-w-[4.75rem]">
-          <input data-field="obstaclePenalty" type="number" step="0.1" value="${escapeHtml(view.obstaclePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        <td class="px-3 py-3 text-sm min-w-[4.1rem]">
+          <input data-field="obstaclePenalty" type="number" step="0.1" value="${escapeHtml(view.obstaclePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
-        <td class="px-3 py-3 text-sm min-w-[4.75rem]">
-          <input data-field="timePenalty" type="number" step="0.1" value="${escapeHtml(view.timePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        <td class="px-3 py-3 text-sm min-w-[4.1rem]">
+          <input data-field="timePenalty" type="number" step="0.1" value="${escapeHtml(view.timePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
-        <td class="px-3 py-3 text-sm min-w-[4.75rem]">
-          <input data-field="extraPenalty" type="number" step="0.1" value="${escapeHtml(view.extraPenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        <td class="px-3 py-3 text-sm min-w-[4.1rem]">
+          <input data-field="extraPenalty" type="number" step="0.1" value="${escapeHtml(view.extraPenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
         <td data-role="total" class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">${escapeHtml(totalPenalty.toFixed(2).replace(/\.00$/, ''))}</td>
         <td class="px-3 py-3 text-sm text-center">
           <input data-field="eliminated" type="checkbox" ${view.eliminated ? 'checked' : ''} ${readOnly ? 'disabled' : ''} class="h-4 w-4 rounded border-gray-300 text-red-600 disabled:opacity-60">
         </td>
-        <td class="px-3 py-3 text-sm min-w-[14rem]">
-          <textarea data-field="comment" rows="1" ${readOnly ? 'disabled' : ''} class="w-full resize-none overflow-hidden rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 leading-5">${escapeHtml(view.comment || '')}</textarea>
+        <td class="px-3 py-3 text-sm min-w-[12rem]">
+          <textarea data-field="comment" rows="1" ${readOnly ? 'disabled' : ''} class="secretariat-precision-comment w-full resize-none overflow-hidden rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 leading-5">${escapeHtml(view.comment || '')}</textarea>
         </td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">${renderStatusBadge(view.status, row.finalized)}</td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">
-          <div class="flex flex-col gap-2">
+          <div class="secretariat-precision-actions flex flex-col gap-2">
             ${readOnly ? `
               <button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">${escapeHtml(t('unlock'))}</button>
             ` : `
@@ -367,6 +367,39 @@ function ensureStickyTableStyles() {
     }
     html.dark .secretariat-page-table thead th {
       background: #1f2937;
+    }
+    @media (max-width: 640px) {
+      .secretariat-precision-actions {
+        min-width: 5.5rem;
+      }
+      .secretariat-precision-actions button {
+        width: 100%;
+      }
+      .secretariat-precision-penalty-input {
+        min-width: 3.75rem;
+        padding-left: 0.45rem;
+        padding-right: 0.45rem;
+      }
+      .secretariat-precision-time-input {
+        min-width: 6.25rem;
+      }
+      .secretariat-precision-comment {
+        min-width: 10rem;
+      }
+    }
+    @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+      .secretariat-precision-actions {
+        min-width: 5rem;
+      }
+      .secretariat-precision-actions button {
+        padding: 0.4rem 0.65rem;
+      }
+      .secretariat-precision-penalty-input {
+        min-width: 3.6rem;
+      }
+      .secretariat-precision-time-input {
+        min-width: 5.75rem;
+      }
     }
   `;
   document.head.appendChild(style);

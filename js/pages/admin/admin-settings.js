@@ -882,6 +882,15 @@ function initSettingsMap(startCoords) {
         document.getElementById('settingsLngInput').value = startCoords.lng;
     }
 
+    if (typeof window.L === 'undefined') {
+        mapEl.innerHTML = `
+            <div class="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/60 px-4 py-6 text-sm text-gray-500 dark:text-gray-300">
+                Kartväljaren kunde inte laddas. Ange koordinater manuellt.
+            </div>
+        `;
+        return;
+    }
+
     mapInstance = L.map(mapEl).setView(initialPos, initialZoom);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(mapInstance);
 

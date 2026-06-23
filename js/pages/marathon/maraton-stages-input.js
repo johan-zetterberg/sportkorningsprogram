@@ -12,6 +12,7 @@ import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteFie
 import { db, appId } from '../../config/firebase-config.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
+import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
 // --- Wrapper functions for marathonUtils ---
 
@@ -440,9 +441,29 @@ function hydrateTimingFromFlat(doc) {
   return { ...doc, timing: t };
 }
 
+function stagesBackupKey(sn) {
+  if (!competitionId || !sn) return null;
+  return `bkp_${competitionId}_${sn}`;
+}
+
+function readStagesBackup(sn) {
+  return readNewestBackupData([stagesBackupKey(sn)]);
+}
+
 async function readStageDoc(sn) {
-  const snap = await getDoc(maratonDocRef(sn));
-  return snap.exists() ? hydrateTimingFromFlat(snap.data()) : null;
+  try {
+    const snap = await getDoc(maratonDocRef(sn));
+    if (snap.exists()) {
+      const data = snap.data();
+      mirrorToLocal(sn, data);
+      return hydrateTimingFromFlat(data);
+    }
+  } catch (error) {
+    console.warn('[maraton-stages] Kunde inte läsa etappdokument, använder lokal backup om den finns.', error);
+  }
+
+  const backupData = readStagesBackup(sn);
+  return backupData ? hydrateTimingFromFlat(backupData) : null;
 }
 
 async function saveStageSnapshot(stage, payload) {
@@ -632,11 +653,14 @@ function subscribeToEquipageDoc(sn) {
       if (typeof window.setSyncStatus === 'function') {
         window.setSyncStatus(snap.metadata.hasPendingWrites);
       }
-      const data = snap.exists() ? snap.data() : null;
-      if (data) mirrorToLocal(sn, data); // Backuppa lokalt
+      const data = snap.exists() ? snap.data() : readStagesBackup(sn);
+      if (snap.exists() && data) mirrorToLocal(sn, data); // Backuppa lokalt
       applyDocToLocalState(sn, data);
     },
-    (err) => console.error('[maraton-stages] onSnapshot /maraton error', err?.code || err)
+    (err) => {
+      console.error('[maraton-stages] onSnapshot /maraton error', err?.code || err);
+      applyDocToLocalState(sn, readStagesBackup(sn));
+    }
   );
 }
 
@@ -652,11 +676,7 @@ function ensureGlobalTicker() {
 function mirrorToLocal(sn, data) {
   if (!sn || !data) return;
   try {
-    const key = `bkp_${competitionId}_${sn}`;
-    localStorage.setItem(key, JSON.stringify({
-      ts: Date.now(),
-      data
-    }));
+    writeMergedBackup(stagesBackupKey(sn), data);
   } catch (e) {
     console.warn('Could not mirror to localStorage', e);
   }
@@ -942,8 +962,44 @@ function renderLayout() {
               margin-right: -0.5rem;
               padding: 0.5rem !important;
           }
-          .stageTab { py-2 !important; font-size: 12px !important; }
-          .timer-display { font-size: 2.5rem !important; text-align: left; }
+          .stageTab {
+              padding-top: 0.5rem !important;
+              padding-bottom: 0.5rem !important;
+              font-size: 12px !important;
+          }
+          .timer-display { font-size: 2.8rem !important; line-height: 1; text-align: left; }
+          .stage-control-strip {
+              display: grid !important;
+              grid-template-columns: minmax(0, 1fr) auto;
+              gap: 0.5rem;
+              align-items: stretch;
+          }
+          .stage-primary-controls {
+              display: grid !important;
+              gap: 0.5rem;
+              min-width: 0;
+          }
+          .stage-control-strip.is-live .stage-primary-controls {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .stage-control-strip.is-field .stage-primary-controls {
+              grid-template-columns: minmax(0, 1fr);
+          }
+          .stage-main-btn {
+              min-width: 0 !important;
+              width: 100%;
+          }
+          .stage-action-btn {
+              padding-top: 0.7rem !important;
+              padding-bottom: 0.7rem !important;
+              font-size: 1rem !important;
+          }
+          .stage-reset-btn {
+              width: 3.25rem !important;
+              min-width: 3.25rem !important;
+              min-height: 3.25rem !important;
+              height: auto !important;
+          }
           .stage-manual-popover {
             position: fixed;
             inset: auto 0.75rem auto 0.75rem;
@@ -974,17 +1030,37 @@ function renderLayout() {
               font-size: 0.75rem !important;
           }
           .timer-display {
-              font-size: 2.75rem !important;
+              font-size: 3.2rem !important;
               line-height: 0.95;
           }
+          .stage-control-strip {
+              display: grid !important;
+              grid-template-columns: minmax(0, 1fr) auto;
+              gap: 0.55rem;
+              align-items: stretch;
+          }
+          .stage-primary-controls {
+              display: grid !important;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 0.55rem;
+              min-width: 0;
+          }
+          .stage-control-strip.is-field .stage-primary-controls {
+              grid-template-columns: minmax(0, 1fr);
+          }
+          .stage-main-btn {
+              min-width: 0 !important;
+              width: 100%;
+          }
           .stage-action-btn {
-              padding-top: 0.65rem !important;
-              padding-bottom: 0.65rem !important;
-              font-size: 1.05rem !important;
+              padding-top: 0.55rem !important;
+              padding-bottom: 0.55rem !important;
+              font-size: 0.95rem !important;
           }
           .stage-reset-btn {
-              width: 3.75rem !important;
-              min-width: 3.75rem !important;
+              width: 3rem !important;
+              min-width: 3rem !important;
+              min-height: 3rem !important;
           }
           #startClockRow-warmup,
           #stopClockRow-warmup,
@@ -1118,11 +1194,13 @@ function renderStagePanel(stage) {
     </div>
 
     <!-- KONTROLLER -->
-    <div class="flex flex-wrap items-stretch gap-2">
+    <div class="stage-control-strip ${getGlobalState('currentCompetition')?.competitionMode === 'field' ? 'is-field' : 'is-live'} flex flex-wrap items-stretch gap-2">
+      <div class="stage-primary-controls flex flex-1 flex-wrap items-stretch gap-2">
       ${getGlobalState('currentCompetition')?.competitionMode === 'field'
-        ? `<button id="btnManualOpen-${stage}" class="stage-action-btn flex-1 min-w-[12rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-brand-darkblue text-white shadow-lg active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-        : `<button id="btnStart-${stage}" class="stage-action-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
-      <button id="btnStop-${stage}"  class="stage-action-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
+        ? `<button id="btnManualOpen-${stage}" class="stage-action-btn stage-main-btn flex-1 min-w-[12rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-brand-darkblue text-white shadow-lg active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+        : `<button id="btnStart-${stage}" class="stage-action-btn stage-main-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
+      <button id="btnStop-${stage}"  class="stage-action-btn stage-main-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
+      </div>
       <button id="btnReset-${stage}" class="stage-reset-btn w-full sm:w-14 py-3 sm:py-0 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">↺</button>
     </div>
 

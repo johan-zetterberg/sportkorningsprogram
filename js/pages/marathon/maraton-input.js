@@ -15,6 +15,7 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
+import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
 // Firestore för live (endast det vi använder på denna sida)
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, collection, query, where, getDocs, limit }
@@ -113,14 +114,19 @@ function msToParts(ms) {
 }
 function partsToString({ m, s, cs }) { return `${pad2(m)}:${pad2(s)},${pad2(cs)}`; }
 // Mirror data to localStorage for redundancy
+function marathonBackupKey(sn) {
+  if (!competitionId || !sn) return null;
+  return `bkp_${competitionId}_mar_${sn}`;
+}
+
+function readMarathonBackup(sn) {
+  return readNewestBackupData([marathonBackupKey(sn)]);
+}
+
 function mirrorToLocal(sn, data) {
   if (!sn || !data) return;
   try {
-    const key = `bkp_${competitionId}_mar_${sn}`;
-    localStorage.setItem(key, JSON.stringify({
-      ts: Date.now(),
-      data
-    }));
+    writeMergedBackup(marathonBackupKey(sn), data);
   } catch (e) {
     console.warn('Could not mirror to localStorage', e);
   }
@@ -498,11 +504,12 @@ function subscribeToMarathonDoc(startNumber) {
     if (typeof window.setSyncStatus === 'function') {
       window.setSyncStatus(snap.metadata.hasPendingWrites);
     }
-    const data = snap.exists() ? snap.data() : null;
-    if (data) mirrorToLocal(startNumber, data); // Backuppa lokalt
-    if (data) applyLiveStateToUI(data);
+    const data = snap.exists() ? snap.data() : readMarathonBackup(startNumber);
+    if (snap.exists() && data) mirrorToLocal(startNumber, data); // Backuppa lokalt
+    applyLiveStateToUI(data);
   }, (error) => {
     console.error("Fel vid lyssning på maratondokument:", error);
+    applyLiveStateToUI(readMarathonBackup(startNumber));
   });
 }
 
@@ -1026,9 +1033,12 @@ async function loadExistingResult(silent = false) {
     const docSnap = await getDoc(docRef);
 
     let resultToLoad = null;
-    if (docSnap.exists()) {
-      const data = docSnap.data();
-      const savedObstacles = data.obstacles || [];
+    const backupData = readMarathonBackup(equipageId);
+    const sourceData = docSnap.exists() ? docSnap.data() : backupData;
+
+    if (sourceData) {
+      if (docSnap.exists()) mirrorToLocal(equipageId, sourceData);
+      const savedObstacles = sourceData.obstacles || [];
       resultToLoad = savedObstacles.find(o => o.number === currentObstacleNumber);
     }
 
@@ -1119,6 +1129,30 @@ async function loadExistingResult(silent = false) {
 
   } catch (error) {
     console.error("Kunde inte ladda hinderresultat:", error);
+    const backupData = readMarathonBackup(equipageId);
+    if (backupData) {
+      const savedObstacles = backupData.obstacles || [];
+      const resultToLoad = savedObstacles.find(o => o.number === currentObstacleNumber);
+      if (resultToLoad) {
+        const restoredState = {
+          ...currentLiveState,
+          currentObstacle: currentObstacleNumber,
+          running: false,
+          inProgress: true,
+          liveObstacleTimeMs: resultToLoad.timeMs || 0,
+          liveObstacleStartAt: null,
+          live_routeString: resultToLoad.routeString || '',
+          live_knockdowns: resultToLoad.knockdowns ?? '0',
+          live_otherPenalty: resultToLoad.otherPenalty ?? '0',
+          live_holdTimeSec: resultToLoad.holdTimeSec ?? '',
+          live_comment: resultToLoad.comment || '',
+          live_eliminated: resultToLoad.eliminated || false,
+          live_gateSplits: resultToLoad.gateSplits || []
+        };
+        applyLiveStateToUI(restoredState);
+        return;
+      }
+    }
     showAlert("Ett fel inträffade vid hämtning av sparat resultat.", false);
   }
 }
@@ -1686,8 +1720,35 @@ export function load() {
               margin-right: -0.75rem;
               padding: 0.5rem 0.75rem !important;
           }
-          #liveTimerMar { font-size: 2.25rem !important; }
-          .control-btn { padding: 0.65rem !important; font-size: 1rem !important; }
+          #liveTimerMar { font-size: 2.1rem !important; line-height: 1; }
+          .marathon-control-strip {
+              display: grid !important;
+              grid-template-columns: minmax(0, 1fr) auto;
+              gap: 0.5rem;
+              align-items: stretch;
+          }
+          .marathon-primary-controls {
+              display: grid !important;
+              gap: 0.5rem;
+              min-width: 0;
+          }
+          .marathon-control-strip.is-live .marathon-primary-controls {
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+          .marathon-control-strip.is-field .marathon-primary-controls {
+              grid-template-columns: minmax(0, 1fr);
+          }
+          .marathon-main-btn {
+              min-width: 0 !important;
+              width: 100%;
+          }
+          .control-btn { padding: 0.65rem !important; font-size: 0.95rem !important; }
+          .marathon-reset-btn {
+              width: 3.25rem !important;
+              min-width: 3.25rem !important;
+              height: auto !important;
+              min-height: 3.25rem !important;
+          }
           
           .selection-grid { grid-template-columns: 1fr !important; gap: 0.5rem !important; }
           .marathon-equipage-nav {
@@ -1725,17 +1786,38 @@ export function load() {
               padding: 0.45rem 0.75rem !important;
           }
           #liveTimerMar {
-              font-size: 2.5rem !important;
+              font-size: 2.9rem !important;
               line-height: 0.95;
           }
+          .marathon-control-strip {
+              display: grid !important;
+              grid-template-columns: minmax(0, 1fr) auto;
+              gap: 0.55rem;
+              align-items: stretch;
+          }
+          .marathon-primary-controls {
+              display: grid !important;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              gap: 0.55rem;
+              min-width: 0;
+          }
+          .marathon-control-strip.is-field .marathon-primary-controls {
+              grid-template-columns: minmax(0, 1fr);
+          }
+          .marathon-main-btn {
+              min-width: 0 !important;
+              width: 100%;
+          }
           .control-btn {
-              padding-top: 0.65rem !important;
-              padding-bottom: 0.65rem !important;
-              font-size: 1rem !important;
+              padding-top: 0.55rem !important;
+              padding-bottom: 0.55rem !important;
+              font-size: 0.95rem !important;
           }
           .marathon-reset-btn {
-              width: 3.5rem !important;
-              height: 3.5rem !important;
+              width: 3rem !important;
+              min-width: 3rem !important;
+              height: auto !important;
+              min-height: 3rem !important;
           }
           .marathon-penalty-grid {
               grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
@@ -1802,11 +1884,13 @@ export function load() {
             <div id="liveTimerMar" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer text-gray-800 dark:text-white" title="Ändra tid">00:00,00</div>
           </div>
 
-          <div class="mt-2 flex flex-wrap items-center gap-2">
+          <div class="marathon-control-strip ${competition?.competitionMode === 'field' ? 'is-field' : 'is-live'} mt-2 flex flex-wrap items-center gap-2">
+            <div class="marathon-primary-controls flex flex-1 flex-wrap items-center gap-2">
             ${competition?.competitionMode === 'field'
-              ? `<button id="btnManualOpenMar" type="button" class="control-btn flex-1 min-w-[12rem] px-4 py-3 rounded-lg bg-brand-darkblue text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-              : `<button id="btnStartMar" type="button" class="control-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
-            <button id="btnStopMar" type="button" class="control-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
+              ? `<button id="btnManualOpenMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[12rem] px-4 py-3 rounded-lg bg-brand-darkblue text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
+              : `<button id="btnStartMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
+            <button id="btnStopMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
+            </div>
             <button id="btnResetMar" type="button" class="control-btn marathon-reset-btn w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white">🔄</button>
           </div>
 

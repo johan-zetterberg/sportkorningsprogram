@@ -1,9 +1,69 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v31'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v32'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
 const abs = (p) => (SCOPE_PATH === '/' ? p : (SCOPE_PATH + (p.startsWith('/') ? p : '/' + p)));
+const LOCAL_JS_SCOPE = SCOPE_PATH === '/' ? '/js/' : `${SCOPE_PATH}/js/`;
+const MODULE_IMPORT_PATTERN = /(?:import\s+(?:[^'"]+?\s+from\s+)?|import\s*\()\s*['"]([^'"]+\.(?:js|mjs))['"]/g;
+const MODULE_GRAPH_ENTRY_POINTS = [
+  abs('/js/main.js')
+];
+
+function toCacheUrl(url) {
+  return `${url.pathname}${url.search}`;
+}
+
+function resolveLocalModuleSpecifier(specifier, fromUrl) {
+  try {
+    const resolved = new URL(specifier, fromUrl);
+    if (resolved.origin !== self.location.origin) return null;
+    if (!resolved.pathname.startsWith(LOCAL_JS_SCOPE)) return null;
+    return resolved;
+  } catch {
+    return null;
+  }
+}
+
+async function discoverLocalModuleGraph(entryPoints) {
+  const visited = new Set();
+  const discovered = new Set();
+  const queue = entryPoints
+    .map((entry) => new URL(entry, self.location.origin).href);
+
+  while (queue.length > 0) {
+    const moduleHref = queue.shift();
+    if (!moduleHref || visited.has(moduleHref)) continue;
+    visited.add(moduleHref);
+
+    try {
+      const response = await fetch(moduleHref, { cache: 'no-cache' });
+      if (!response.ok) {
+        console.warn('[SW] Module graph fetch misslyckades:', moduleHref, response.status);
+        continue;
+      }
+
+      const source = await response.text();
+      discovered.add(toCacheUrl(new URL(moduleHref)));
+
+      MODULE_IMPORT_PATTERN.lastIndex = 0;
+      let match;
+      while ((match = MODULE_IMPORT_PATTERN.exec(source)) !== null) {
+        const resolved = resolveLocalModuleSpecifier(match[1], moduleHref);
+        if (!resolved) continue;
+        const resolvedHref = resolved.href;
+        discovered.add(toCacheUrl(resolved));
+        if (!visited.has(resolvedHref)) {
+          queue.push(resolvedHref);
+        }
+      }
+    } catch (error) {
+      console.warn('[SW] Kunde inte analysera modul för precache:', moduleHref, error);
+    }
+  }
+
+  return Array.from(discovered);
+}
 
 // === Precache ===
 // Minsta nödvändiga + alla filer som monitor-sidan (och resultat) importerar
@@ -169,6 +229,11 @@ const urlsToCache = [
   abs('/lib/pdfjs/build/pdf.worker.mjs'),
   abs('/lib/jspdf.umd.min.js'),
   abs('/lib/jspdf.plugin.autotable.min.js'),
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+  'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js',
@@ -188,6 +253,16 @@ self.addEventListener('install', (event) => {
     const cache = await caches.open(CACHE_NAME);
     console.log(`[SW] Installerar ${CACHE_NAME}. Interna: ${internalUrls.length}, Externa: ${externalUrls.length}`);
 
+    let discoveredModuleUrls = [];
+    try {
+      discoveredModuleUrls = await discoverLocalModuleGraph(MODULE_GRAPH_ENTRY_POINTS);
+      if (discoveredModuleUrls.length > 0) {
+        console.log(`[SW] Upptäckte ${discoveredModuleUrls.length} lokala JS-moduler via import-grafen.`);
+      }
+    } catch (error) {
+      console.warn('[SW] Modulgraf-precache misslyckades, fortsätter med statisk lista.', error);
+    }
+
     // 1. Cacha alla interna filer "atomärt"
     try {
       const criticalInternalUrls = [
@@ -198,7 +273,10 @@ self.addEventListener('install', (event) => {
       ];
       await cache.addAll(criticalInternalUrls);
 
-      const optionalInternalUrls = internalUrls.filter(url => !criticalInternalUrls.includes(url));
+      const optionalInternalUrls = Array.from(new Set([
+        ...internalUrls.filter(url => !criticalInternalUrls.includes(url)),
+        ...discoveredModuleUrls.filter(url => !criticalInternalUrls.includes(url))
+      ]));
       const results = await Promise.allSettled(optionalInternalUrls.map(u => cache.add(u)));
       const failed = results
         .map((r, i) => ({ result: r, url: optionalInternalUrls[i] }))

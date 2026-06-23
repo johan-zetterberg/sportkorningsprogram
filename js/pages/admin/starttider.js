@@ -388,13 +388,13 @@ function renderLayout() {
              <div id="controlsContainer" class="w-full"></div>
              
              <!-- Public Search & View Filters -->
-             <div class="flex flex-nowrap items-center gap-2 w-full p-2 lg:p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
+             <div class="flex flex-col gap-2 sm:flex-row sm:items-center w-full p-2 lg:p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
                   <div class="search-input-wrap flex-1 min-w-0 relative">
                       <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
                       <input id="startlistSearch" type="search" placeholder="${t('search') || 'Sök ekipage...'}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" autocomplete="off">
                   </div>
                       
-                  <select id="publicViewModeSelect" class="flex-shrink-0 border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+                  <select id="publicViewModeSelect" class="w-full sm:w-auto flex-shrink-0 border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
                       <option value="startorder"${viewMode === 'startorder' ? ' selected' : ''}>Startordning</option>
                       <option value="byclass"${viewMode === 'byclass' ? ' selected' : ''}>Per klass</option>
                   </select>

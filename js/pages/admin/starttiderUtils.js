@@ -127,39 +127,39 @@ export function renderStarttiderToolbarSection({
     labels = {}
 } = {}) {
     const saveButton = !publicMode
-        ? `<button id="btnSaveTimes" class="px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-500 shadow-sm text-sm font-bold transition-colors">${labels.saveTimes || 'Spara tider'}</button>`
+        ? `<button id="btnSaveTimes" class="w-full sm:w-auto px-4 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-500 shadow-sm text-sm font-bold transition-colors">${labels.saveTimes || 'Spara tider'}</button>`
         : '';
 
     return `
 <!-- 4. TOOLBAR (Save, Public view, Exports) -->
-<div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-4 p-2 bg-gray-100 dark:bg-gray-800 rounded-lg border dark:border-gray-700">
+<div class="flex flex-col gap-3 mb-4 p-2 sm:p-3 bg-gray-100 dark:bg-gray-800 rounded-lg border dark:border-gray-700">
     <!-- Left: Modes -->
-    <div class="flex items-center gap-3">
-         <button id="togglePublic" class="px-4 py-2 rounded-md border border-gray-300 bg-white dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors">
+    <div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+         <button id="togglePublic" class="w-full sm:w-auto px-4 py-2 rounded-md border border-gray-300 bg-white dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 hover:bg-gray-50 text-sm font-medium transition-colors">
             ${publicMode ? (labels.editorMode || 'Redigeringsläge') : (labels.publicMode || 'Publikt läge')}
         </button>
         ${saveButton}
     </div>
 
     <!-- View Modes -->
-     <div class="inline-flex rounded-md shadow-sm" role="group">
-        <button id="viewModeStartOrder" data-mode="startorder" class="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 rounded-l-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-10 bg-white dark:bg-gray-800 dark:text-gray-200">
+     <div class="grid grid-cols-2 rounded-md shadow-sm overflow-hidden sm:inline-flex sm:overflow-visible" role="group">
+        <button id="viewModeStartOrder" data-mode="startorder" class="px-3 py-2 text-sm font-medium border border-gray-300 dark:border-gray-600 sm:rounded-l-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-10 bg-white dark:bg-gray-800 dark:text-gray-200">
             ${labels.startOrder || 'Startordning'}
         </button>
-        <button id="viewModeByClass" data-mode="byclass" class="px-3 py-2 text-sm font-medium border-t border-b border-r border-gray-300 dark:border-gray-600 rounded-r-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-10 bg-white dark:bg-gray-800 dark:text-gray-200">
+        <button id="viewModeByClass" data-mode="byclass" class="px-3 py-2 text-sm font-medium border border-gray-300 border-l-0 dark:border-gray-600 sm:border-t sm:border-b sm:border-r sm:border-l-0 sm:rounded-r-lg hover:bg-gray-50 dark:hover:bg-gray-700 focus:z-10 bg-white dark:bg-gray-800 dark:text-gray-200">
             ${labels.groupByClass || 'Gruppera klass'}
         </button>
     </div>
 
     <!-- Right: Exports -->
-    <div class="flex items-center gap-2">
-        <div class="relative inline-block text-left" id="pdfDropdownContainer">
-             <button id="btnPdfDropdown" class="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-slate-700 hover:bg-slate-600 focus:outline-none ring-1 ring-slate-900/10">
+    <div class="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+        <div class="relative block text-left sm:inline-block" id="pdfDropdownContainer">
+             <button id="btnPdfDropdown" class="inline-flex w-full items-center justify-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-slate-700 hover:bg-slate-600 focus:outline-none ring-1 ring-slate-900/10 sm:w-auto">
                 <svg class="mr-2 -ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                 PDF
                 <svg class="-mr-1 ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path></svg>
             </button>
-             <div id="pdfDropdownMenu" class="hidden absolute right-0 mt-2 w-48 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
+             <div id="pdfDropdownMenu" class="hidden absolute right-0 mt-2 w-full sm:w-48 rounded-md shadow-lg bg-white dark:bg-gray-800 ring-1 ring-black ring-opacity-5 focus:outline-none z-50">
                 <div class="py-1">
                     <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-dressage">${labels.pdfDressage || 'Startlista dressyr'}</button>
                     <button class="w-full text-left block px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" data-action="pdf-marathon">${labels.pdfMarathon || 'Startlista maraton'}</button>
@@ -168,7 +168,7 @@ export function renderStarttiderToolbarSection({
             </div>
         </div>
 
-        <button id="btnExportStarttiderCsv" class="inline-flex items-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700">
+        <button id="btnExportStarttiderCsv" class="inline-flex w-full items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 shadow-sm text-sm font-medium rounded-md text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 sm:w-auto">
              <i class="fas fa-file-csv mr-2 text-green-600"></i>CSV
         </button>
     </div>

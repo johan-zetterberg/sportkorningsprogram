@@ -33,6 +33,37 @@ const unique = a => Array.from(new Set(a));
 const toNumber = v => Number.isFinite(+v) ? +v : 0;
 const sortBy = (arr, f) => arr.slice().sort((a, b) => (f(a) > f(b) ? 1 : (f(a) < f(b) ? -1 : 0)));
 
+function ensureDressageAdminResponsiveStyles() {
+  if (document.getElementById('dressage-admin-responsive-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'dressage-admin-responsive-styles';
+  style.textContent = `
+    @media (max-width: 640px) {
+      .dressage-admin-section {
+        padding: 0.85rem;
+      }
+      .dressage-admin-map-row {
+        padding: 0.8rem;
+      }
+      .dressage-admin-cr-row {
+        align-items: stretch;
+      }
+      .dressage-admin-cr-row .cr-limit-wrap {
+        margin-left: 0;
+        justify-content: space-between;
+      }
+    }
+    @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+      .dressage-admin-section,
+      .dressage-admin-map-row {
+        padding: 0.9rem;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 function renderProgramOptions(selectedKey = '') {
   const options = ['<option value="">-- Välj dressyrprogram --</option>'];
   sortDressageProgramKeys(mergedPrograms).forEach((key) => {
@@ -396,7 +427,7 @@ function render(root) {
       ${getCompetitionHeader(competition, 'Dressyr – Admin')}
 
       <!-- Sektion 1: Klass → Program -->
-      <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md mb-6 border dark:border-gray-700">
+      <div class="dressage-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md mb-6 border dark:border-gray-700">
         <h2 class="font-semibold text-lg mb-3 dark:text-white">Mapping: Klass → Dressyrprogram</h2>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
           Välj vilket program som gäller för varje klass. Sök/skriv i fältet (typeahead). “Auto-fix” försöker gissa enligt våra svenska regler (Lätt A/B/C, MSV 3/4, osv).
@@ -425,7 +456,7 @@ function render(root) {
       <!-- Sektion 1.5: Domare & Regler -->
       <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <!-- Domartilldelning -->
-        <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <div class="dressage-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
           <h2 class="font-semibold text-lg mb-3 dark:text-white">Tilldela Domare</h2>
           <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Vilka domare dömer vilken klass?</p>
           
@@ -451,7 +482,7 @@ function render(root) {
         </div>
 
         <!-- Regler -->
-        <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <div class="dressage-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
           <h2 class="font-semibold text-lg mb-3 dark:text-white">Regler & Avdrag</h2>
           <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Inställningar för felkörning och andra avdrag.</p>
           
@@ -478,7 +509,7 @@ function render(root) {
       </div>
 
       <!-- Sektion 2: Importera program från PDF -->
-      <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
+      <div class="dressage-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
         <h2 class="font-semibold text-lg mb-3 dark:text-white">Importera dressyrprogram från PDF</h2>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
           Ladda en PDF (t.ex. “Svenskt Lätt B (2020) 40x80m”). Vi försöker tolka momenten. Du kan justera innan du sparar till tävlingen.
@@ -579,7 +610,7 @@ function rebuildMappingTable(root, filter = '') {
       const prog = mergedPrograms[val];
 
       return `
-        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,16rem)_minmax(0,1fr)_10rem] gap-2 items-start xl:items-center border rounded-lg p-3 dark:border-gray-700 ${locked ? 'opacity-60' : ''}">
+        <div class="dressage-admin-map-row grid grid-cols-1 xl:grid-cols-[minmax(0,16rem)_minmax(0,1fr)_10rem] gap-2 items-start xl:items-center border rounded-lg p-3 dark:border-gray-700 ${locked ? 'opacity-60' : ''}">
           <div class="font-medium flex items-center gap-2 dark:text-white">
             ${esc(cls)}
             ${locked ? '<span class="text-xs px-2 py-0.5 rounded bg-gray-200 text-gray-700 dark:bg-gray-600 dark:text-gray-200">Låst</span>' : ''}
@@ -595,7 +626,7 @@ function rebuildMappingTable(root, filter = '') {
             ${renderSelectedProgramInfo(val, prog)}
             
             <!-- Clear Round Config -->
-            <div class="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm bg-gray-50 p-2 rounded dark:bg-gray-700/50">
+            <div class="dressage-admin-cr-row flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm bg-gray-50 p-2 rounded dark:bg-gray-700/50">
               <label class="flex items-center gap-1 cursor-pointer dark:text-gray-300">
                 <input type="checkbox" class="cr-check rounded border-gray-300 text-brand-darkblue dark:bg-gray-700 dark:border-gray-600" 
                        data-cls="${esc(cls)}" 
@@ -603,7 +634,7 @@ function rebuildMappingTable(root, filter = '') {
                 <span>Clear Round</span>
               </label>
               ${(classConfig[cls]?.clearRound) ? `
-                <div class="flex items-center gap-1 sm:ml-auto">
+                <div class="cr-limit-wrap flex items-center gap-1 sm:ml-auto">
                    <span class="text-gray-600 text-xs dark:text-gray-400">Gräns:</span>
                    <input type="number" class="cr-limit w-16 px-1 py-0.5 border rounded text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
                           data-cls="${esc(cls)}" 
@@ -1015,6 +1046,7 @@ function getPrimaryDressagePosition(j) {
 
 // ---- Entrypoint ----
 export async function load() {
+  ensureDressageAdminResponsiveStyles();
   const root =
     document.getElementById('page-dressyr-admin') ||
     document.getElementById('root');

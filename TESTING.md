@@ -121,6 +121,63 @@ Run this shorter pass when the main goal is operational confidence on competitio
 - Run `npm test`
 - Verify all tests pass.
 
+## Field Mode / Offline Recovery
+
+Run this pass after changes to input pages, local backup logic, or field mode behavior.
+
+### Scope
+
+- Dressage input restores the latest saved protocol when Firestore is unavailable.
+- Marathon obstacle input restores saved obstacle state from local backup.
+- Marathon stages input restores stage timer values, comments, and clocks from local backup.
+- Precision input restores timer, penalties, and comments from local backup.
+- Field mode does not expose live-only controls such as start/stop timers where manual entry is intended.
+
+### Recommended Setup
+
+- Create or open a test competition in `field` mode.
+- Add at least one equipage for each relevant discipline.
+- Save one realistic result in:
+  - dressage
+  - marathon obstacle
+  - marathon stages
+  - precision
+- Confirm the save has completed once before simulating offline behavior.
+
+### Manual Verification
+
+- Dressage:
+  - open the saved protocol once while online
+  - disconnect network or block Firestore
+  - reopen the same equipage and judge
+  - verify movements, comments, and general penalties are restored
+
+- Marathon obstacle:
+  - save a driven obstacle with route, time, and penalties
+  - disconnect network or block Firestore
+  - reopen the same obstacle
+  - verify time, route, penalties, and elimination state are restored
+
+- Marathon stages:
+  - save a stage with start clock, finish clock, elapsed time, and comments
+  - disconnect network or block Firestore
+  - reopen the same equipage and active stage
+  - verify elapsed time, clocks, comments, and penalty fields are restored
+  - verify reset clears both timer value and saved clock labels
+
+- Precision:
+  - save a result with time, penalties, and comment
+  - disconnect network or block Firestore
+  - reopen the same equipage
+  - verify elapsed time, penalty fields, and comment are restored
+
+### Acceptance
+
+- No input page should crash when the Firestore document is missing or unreadable.
+- The latest local backup should be shown automatically when remote data is unavailable.
+- Restored values must match the last saved local state closely enough for the functionary to continue work.
+- Live-only controls must stay hidden in field mode where manual-only workflow is intended.
+
 ## Before Release
 
 Run this longer pass before shipping a refactor or deploying a new version.
@@ -198,6 +255,12 @@ So on this machine, the normal command should just be:
 
 ```powershell
 npm run test:smoke
+```
+
+If PowerShell blocks `npm.ps1` on the machine, run the same command through `cmd` instead:
+
+```powershell
+cmd /c npm run test:smoke
 ```
 
 For a visible browser:

@@ -28,6 +28,15 @@ let pathLinePassed = null;
 let pathLineUpcoming = null;
 let currentDensePath = [];
 
+function renderLeafletFallback(container) {
+    if (!container) return;
+    container.innerHTML = `
+        <div class="flex items-center justify-center w-full min-h-[260px] rounded-xl border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/60 px-4 text-center text-sm text-gray-500 dark:text-gray-300">
+            Kartvyn är tillfälligt otillgänglig. Byt till listvy eller prova igen när kartbiblioteket har laddats.
+        </div>
+    `;
+}
+
 function safeInvalidateMapSize(mapRef = map, bounds = null) {
     if (!mapRef || mapRef !== map) return false;
     const mapContainer = mapRef.getContainer?.();
@@ -131,6 +140,11 @@ function getOrderedGates(coordsMap, activeClasses = new Set()) {
 
 export function renderMap(container, activeEquipages, mapConfig = null, currentDriver = null, fullConfig = null) {
     if (!container) return;
+    if (typeof window.L === 'undefined') {
+        destroyMap();
+        renderLeafletFallback(container);
+        return;
+    }
     currentConfig = mapConfig;
     currentActiveEquipages = activeEquipages;
     currentMonitorDriver = currentDriver;

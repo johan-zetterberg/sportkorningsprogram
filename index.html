@@ -527,7 +527,11 @@
   
   <script>
     // Fix for Leaflet missing slash in image paths
-    L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
+    if (window.L && window.L.Icon && window.L.Icon.Default) {
+      window.L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
+    } else {
+      console.warn('[Leaflet] Library unavailable, map views will use fallback UI.');
+    }
   </script>
 
   <script>

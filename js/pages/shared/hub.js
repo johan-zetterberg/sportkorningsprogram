@@ -223,6 +223,14 @@ function setupCompetitionListener() {
 export function initMap() {
   const mapEl = document.getElementById('compMapContainer');
   if (!mapEl) return;
+  if (typeof window.L === 'undefined') {
+    mapEl.innerHTML = `
+      <div class="rounded-lg border border-dashed border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/60 px-4 py-6 text-sm text-gray-500 dark:text-gray-300">
+        Karta är inte tillgänglig just nu. Ange plats manuellt eller prova igen när anslutningen är tillbaka.
+      </div>
+    `;
+    return;
+  }
 
   if (mapInstance) {
     const mapRef = mapInstance;

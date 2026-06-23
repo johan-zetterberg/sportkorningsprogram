@@ -133,6 +133,44 @@ export async function openEquipageModal(startNumber, ctx) {
     }
     if (!horseNames.length && eq?.hästnamn) horseNames.push(String(eq.hästnamn));
     const horsesLabel = horseNames.join(' • ');
+    const originalClassLabel = String(eq.className || r.className || '').trim();
+    const displayClassLabel = String(r.displayGroupLabel || eq._mergedLabel || originalClassLabel || '').trim();
+    const displayGroupKey = String(
+      r.displayGroupKey
+      || eq._mergedKey
+      || `CLASS:${displayClassLabel || originalClassLabel || ''}`
+    );
+    const isMergedDisplay = !!(displayClassLabel && originalClassLabel && displayClassLabel !== originalClassLabel);
+    const classStarters = Array.isArray(ctx?.resultRows)
+      ? ctx.resultRows.filter((row) => {
+        const rowKey = String(
+          row?.displayGroupKey
+          || row?._mergedKey
+          || `CLASS:${row?.displayGroupLabel || row?.className || ''}`
+        );
+        return rowKey === displayGroupKey;
+      }).length
+      : null;
+    const classPlacementLabel = Number.isFinite(Number(r?.plac)) && Number(r.plac) > 0
+      ? `${Number(r.plac)}${classStarters ? ` / ${classStarters}` : ''}`
+      : '—';
+    const classMetaHtml = isMergedDisplay
+      ? `
+        <div class="inline-flex flex-col px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+          <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-600 dark:text-blue-300">Visningsklass</span>
+          <span class="font-semibold text-sm">${escapeHtml(displayClassLabel || '—')}</span>
+        </div>
+        <div class="inline-flex flex-col px-3 py-2 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+          <span class="text-[10px] uppercase tracking-widest font-semibold text-indigo-600 dark:text-indigo-300">Ursprungsklass</span>
+          <span class="font-semibold text-sm">${escapeHtml(originalClassLabel || '—')}</span>
+        </div>
+      `
+      : `
+        <div class="inline-flex flex-col px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+          <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-600 dark:text-blue-300">Klass</span>
+          <span class="font-semibold text-sm">${escapeHtml(displayClassLabel || originalClassLabel || '—')}</span>
+        </div>
+      `;
 
     // --- Skapa modal ---
     document.querySelectorAll('.tr-modal-backdrop').forEach(el => { try { el.remove(); } catch { } });
@@ -142,12 +180,19 @@ export async function openEquipageModal(startNumber, ctx) {
     modal.innerHTML = `
     <header>
       <div class="flex justify-between items-start w-full">
-        <div>
+        <div class="flex flex-col">
           <h3 class="text-xl font-bold">#${escapeHtml(String(startNumber))} ${escapeHtml(r.driverName || eq.driverName || '')}</h3>
-          <div class="text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2 mt-1">
-             ${getFlagHtml(eq)} ${escapeHtml(eq.className || r.className || '')} • ${eq.clubName ? escapeHtml(eq.clubName) : ''}
+          <div class="order-3 flex flex-wrap items-center gap-2 mt-3">
+            <div class="inline-flex flex-col px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
+              <span class="text-[10px] uppercase tracking-widest font-semibold text-emerald-600 dark:text-emerald-300">Plac i klass</span>
+              <span class="font-bold tabular-nums text-sm">${escapeHtml(classPlacementLabel)}</span>
+            </div>
+            ${classMetaHtml}
           </div>
-          <div class="text-xs italic text-gray-500 dark:text-gray-500">${horsesLabel ? escapeHtml(horsesLabel) : '—'}</div>
+          <div class="order-1 text-sm text-gray-600 dark:text-gray-400 flex items-center gap-2 mt-3">
+             ${getFlagHtml(eq)} ${getClubLogoHtml(eq) || ''} ${eq.clubName ? `<span>${escapeHtml(eq.clubName)}</span>` : ''}
+          </div>
+          <div class="order-2 text-xs italic text-gray-500 dark:text-gray-500">${horsesLabel ? escapeHtml(horsesLabel) : '—'}</div>
         </div>
         <button class="tr-close text-2xl leading-none" aria-label="Stäng">×</button>
       </div>
@@ -487,7 +532,10 @@ export async function openEquipageModal(startNumber, ctx) {
           </div>
           <div class="p-3 rounded border bg-white dark:bg-gray-800 dark:border-gray-700">
             <div class="text-xs text-gray-600 dark:text-gray-400">Klass</div>
-            <div>${escapeHtml(eq.className || r.className || '—')}</div>
+            <div class="space-y-1">
+              <div>${escapeHtml(displayClassLabel || originalClassLabel || '—')}</div>
+              ${isMergedDisplay ? `<div class="text-xs text-gray-500 dark:text-gray-400">Ursprungsklass: ${escapeHtml(originalClassLabel || '—')}</div>` : ''}
+            </div>
           </div>
           <div class="p-3 rounded border bg-white dark:bg-gray-800 dark:border-gray-700">
             <div class="text-xs text-gray-600 dark:text-gray-400">Klubb/Förening</div>

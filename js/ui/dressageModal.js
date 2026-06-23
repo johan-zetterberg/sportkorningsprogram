@@ -24,6 +24,81 @@ import {
   isPrivileged
 } from '../utils/sharedUtils.js';
 
+function buildDressageModalMeta(data, opts = {}) {
+  const equipages = Array.isArray(opts.equipages) ? opts.equipages : [];
+  const processedResults = Array.isArray(opts.processedResults) ? opts.processedResults : [];
+  const statusMap = opts.statusMap instanceof Map ? opts.statusMap : new Map();
+  const eq = data?.__eq || equipages.find((item) => String(item?.startNumber) === String(data?.startNumber)) || null;
+  const classKey = eq?._mergedKey || `CLS:${eq?._mergedLabel || eq?.className || data?._mergedLabel || data?.className || ''}`;
+  const displayClassLabel = eq?._mergedLabel || eq?.className || data?._mergedLabel || data?.className || '—';
+  const originalClassLabel = eq?.className || data?.originalClassName || data?.className || '—';
+  const classLabel = displayClassLabel;
+
+  const classStarters = equipages.filter((item) => {
+    if (item?.status === 'struken') return false;
+    const itemKey = item._mergedKey || `CLS:${item._mergedLabel || item.className || ''}`;
+    return itemKey === classKey;
+  }).length;
+
+  const processedRow = processedResults.find((row) => String(row?.startNumber) === String(data?.startNumber));
+  const processedPlace = Number(processedRow?.plac);
+  if (Number.isFinite(processedPlace) && processedPlace > 0) {
+    return {
+      classPlace: processedPlace,
+      classStarters,
+      classLabel,
+      displayClassLabel,
+      originalClassLabel,
+      isMerged: !!(eq?._mergedLabel && eq._mergedLabel !== eq.className)
+    };
+  }
+
+  const ranked = equipages
+    .filter((item) => {
+      const itemKey = item._mergedKey || `CLS:${item._mergedLabel || item.className || ''}`;
+      return itemKey === classKey;
+    })
+    .map((item) => {
+      const status = statusMap.get(String(item.startNumber)) || {};
+      return {
+        sn: String(item.startNumber),
+        finalPercent: Number(status.finalPercent),
+        finalPenalty: Number(status.finalPenalty),
+        eliminated: !!status.eliminated || status.state === 'eliminated'
+      };
+    })
+    .filter((row) => Number.isFinite(row.finalPercent) && !row.eliminated)
+    .sort((a, b) => {
+      if (Math.abs(b.finalPercent - a.finalPercent) > 1e-6) return b.finalPercent - a.finalPercent;
+      if (Math.abs((a.finalPenalty || 0) - (b.finalPenalty || 0)) > 1e-6) return (a.finalPenalty || 0) - (b.finalPenalty || 0);
+      return a.sn.localeCompare(b.sn, undefined, { numeric: true });
+    });
+
+  let classPlace = null;
+  let lastPercent = null;
+  let lastPenalty = null;
+  let place = 0;
+  ranked.forEach((row, index) => {
+    const samePercent = lastPercent !== null && Math.abs(row.finalPercent - lastPercent) < 1e-6;
+    const samePenalty = lastPenalty !== null && Math.abs((row.finalPenalty || 0) - lastPenalty) < 1e-6;
+    if (!(samePercent && samePenalty)) {
+      place = index + 1;
+    }
+    if (row.sn === String(data?.startNumber)) classPlace = place;
+    lastPercent = row.finalPercent;
+    lastPenalty = row.finalPenalty || 0;
+  });
+
+  return {
+    classPlace,
+    classStarters,
+    classLabel,
+    displayClassLabel,
+    originalClassLabel,
+    isMerged: !!(eq?._mergedLabel && eq._mergedLabel !== eq.className)
+  };
+}
+
 export function setupDressageModalOnce() {
   const existing = document.getElementById('dressageDetailsModal');
   if (existing) {
@@ -334,6 +409,7 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
     renderModalUI(content, data, judgesPresent, program, {
       startNumber: sn,
       processedResultsRef: fakeResultsRef,
+      modalMeta: buildDressageModalMeta(data, opts),
       providers: {
         getStatus: () => ({ finalPenalty: data.finalPenalty }),
         getSavedProtocols: () => data.__savedProtocols || [],
@@ -435,6 +511,27 @@ export function renderDressageContent(container, data, judgesPresent, program, p
 function renderModalUI(content, data, judgesPresent, program, pdfContext) {
   let horseLabel = '—';
   try { horseLabel = getMomentHorseLabelStacked(data.__eq || data); } catch (e) { }
+  const modalMeta = pdfContext?.modalMeta || null;
+  const classPlacementLabel = modalMeta?.classPlace
+    ? `${modalMeta.classPlace}${modalMeta.classStarters ? ` / ${modalMeta.classStarters}` : ''}`
+    : '—';
+  const classMetaHtml = modalMeta?.isMerged
+    ? `
+              <div class="inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
+                <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-500 dark:text-blue-300">Visningsklass</span>
+                <span class="font-semibold">${escapeHtml(modalMeta.displayClassLabel || '—')}</span>
+              </div>
+              <div class="inline-flex items-center gap-2 rounded-full bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 text-sm text-indigo-800 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/50">
+                <span class="text-[10px] uppercase tracking-widest font-semibold text-indigo-500 dark:text-indigo-300">Ursprungsklass</span>
+                <span class="font-semibold">${escapeHtml(modalMeta.originalClassLabel || '—')}</span>
+              </div>
+    `
+    : `
+              <div class="inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
+                <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-500 dark:text-blue-300">Klass</span>
+                <span class="font-semibold">${escapeHtml(modalMeta?.displayClassLabel || modalMeta?.classLabel || data.className || '—')}</span>
+              </div>
+    `;
 
   // Header structure for standalone modal
   content.innerHTML = `
@@ -446,7 +543,14 @@ function renderModalUI(content, data, judgesPresent, program, pdfContext) {
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(data)}
               ${getClubLogoHtml(data)}
-              <span>${escapeHtml(data.className || '')} • ${escapeHtml(data.clubName || '')}</span>
+              <span>${escapeHtml(data.clubName || '—')}</span>
+            </div>
+            <div class="flex flex-wrap gap-2 mt-3">
+              <div class="inline-flex items-center gap-2 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                <span class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 dark:text-slate-400">Plac i klass</span>
+                <span class="font-bold tabular-nums">${escapeHtml(classPlacementLabel)}</span>
+              </div>
+              ${classMetaHtml}
             </div>
           </div>
           <div class="flex items-center gap-2">

@@ -43,6 +43,10 @@ import {
   isFinalizedMarathonDoc
 } from './marathonResultRanking.js';
 import {
+  buildObstaclePlacementsByClass,
+  getObstaclePlacement
+} from './marathonObstaclePlacings.js';
+import {
   getStartTimeFor,
   getTimingDocFor,
   isStageEnabled
@@ -354,6 +358,12 @@ function renderTable() {
   const list = filteredSortedEquipages();
   const maxObs = getMaxObstacleNo();
   const placeMap = buildPlacementsByClass();
+  const obstaclePlaceMap = buildObstaclePlacementsByClass({
+    equipages: maraton_equipages,
+    marathonMap: maraton_marathonMap,
+    calculateResult: calculateMarathonResult,
+    timingDocFor
+  });
 
   const isOnB = maraton_showOnlyOnB;
   const isClass = maraton_viewMode === 'byclass';
@@ -474,7 +484,7 @@ function renderTable() {
         </td>
 
         ${rowStageCellsHTML(res)}
-        ${rowObstacleCells(res, maxObs)}
+        ${rowObstacleCells(res, eq, maxObs, obstaclePlaceMap, getObstaclePlacement)}
 
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300" data-sn="${sn}" data-cell="obsSum">${isNum(res.obstacles.sum) ? res.obstacles.sum.toFixed(2) : '-'}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300">
@@ -582,6 +592,13 @@ function renderMobile() {
     list: filteredSortedEquipages(),
     viewMode: maraton_viewMode,
     placeMap: buildPlacementsByClass(),
+    obstaclePlaceMap: buildObstaclePlacementsByClass({
+      equipages: maraton_equipages,
+      marathonMap: maraton_marathonMap,
+      calculateResult: calculateMarathonResult,
+      timingDocFor
+    }),
+    getObstaclePlacement,
     marathonMap: maraton_marathonMap,
     stageKeys: STAGE_KEYS,
     stageEnabled,

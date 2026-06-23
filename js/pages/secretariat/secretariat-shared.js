@@ -50,9 +50,9 @@ export function renderToolbar(options = {}) {
   ].join('');
 
   return `
-    <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
-      <div class="grid gap-3 md:grid-cols-3">
-        <label class="block">
+    <section class="secretariat-toolbar bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-3 sm:p-4 mb-4">
+      <div class="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem] md:grid-cols-3">
+        <label class="block min-w-0">
           <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">${escapeHtml(t('search'))}</span>
           <input
             id="secretariatSearch"
@@ -72,8 +72,8 @@ export function renderToolbar(options = {}) {
             ${escapeHtml(t('filter'))}
           </button>
         </div>
-        <div id="secretariatFilterPanel" class="${mobileExpanded ? '' : 'hidden '}grid gap-3 md:contents">
-        <label class="block">
+        <div id="secretariatFilterPanel" class="${mobileExpanded ? '' : 'hidden '}grid gap-3 sm:grid-cols-2 sm:col-span-2 md:contents">
+        <label class="block min-w-0">
           <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">${escapeHtml(t('status'))}</span>
           <select
             id="secretariatStatusFilter"
@@ -86,7 +86,7 @@ export function renderToolbar(options = {}) {
             <option value="finalized"${statusValue === 'finalized' ? ' selected' : ''}>${escapeHtml(t('status_finalized'))}</option>
           </select>
         </label>
-        <label class="block">
+        <label class="block min-w-0">
           <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">${escapeHtml(t('class'))}</span>
           <select
             id="secretariatClassFilter"

@@ -1,5 +1,5 @@
 import { isNum } from '../../utils/sharedUtils.js';
-import { formatStartTimeLabel } from './marathonResultFormatters.js';
+import { formatObstacleSeconds, formatStartTimeLabel } from './marathonResultFormatters.js';
 import { stageLabel } from './marathonResultTable.js';
 
 function buildCardData(eq, {
@@ -27,6 +27,8 @@ export function renderMarathonMobileCards({
   list,
   viewMode,
   placeMap,
+  obstaclePlaceMap,
+  getObstaclePlacement,
   marathonMap,
   stageKeys,
   stageEnabled,
@@ -99,6 +101,22 @@ export function renderMarathonMobileCards({
         <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
         <div class="text-base font-black ${placColor} leading-none">${place || '\u2014'}</div>
     `;
+    const obstacleChips = (res.obstacles?.items || [])
+      .filter(obs => Number.isFinite(Number(obs?.timeSec)) && !obs?.eliminated)
+      .sort((a, b) => Number(a?.number || 0) - Number(b?.number || 0))
+      .map((obs) => {
+        const obstacleNo = Number(obs?.number);
+        const obstaclePlace = typeof getObstaclePlacement === 'function'
+          ? getObstaclePlacement(obstaclePlaceMap, eq, obstacleNo)
+          : null;
+        const placeLabel = Number.isFinite(obstaclePlace) ? ` (${obstaclePlace})` : '';
+        return `
+          <span class="inline-flex items-center gap-1 rounded-full bg-gray-100 dark:bg-gray-700 px-2 py-0.5 text-[9px] text-gray-700 dark:text-gray-200 tabular-nums">
+            <span class="font-semibold">H${obstacleNo}</span>
+            <span>${formatObstacleSeconds(Number(obs.timeSec))}${placeLabel}</span>
+          </span>
+        `;
+      }).join('');
 
     html += `
       <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer ${placBg}" data-sn="${sn}" style="cursor: pointer;">
@@ -162,6 +180,11 @@ export function renderMarathonMobileCards({
                   `;
                }).join('')}
            </div>
+           ${obstacleChips ? `
+             <div class="mt-1.5 flex flex-wrap gap-1">
+               ${obstacleChips}
+             </div>
+           ` : ''}
         </div>
       </div>
     `;

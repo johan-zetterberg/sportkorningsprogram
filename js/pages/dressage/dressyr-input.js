@@ -20,6 +20,7 @@ import { t } from '../../utils/i18n.js';
 
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
+import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
 let competitionId = null;
 let currentDressageTest = null;
@@ -70,15 +71,33 @@ function resolveLegacyProgramKey(legacyKey) {
 
 // ---- Heuristik flyttad till dressageUtils.js ----
 
+function dressageBackupKey(sn) {
+  if (!competitionId || !sn) return null;
+  return `bkp_${competitionId}_dre_${sn}`;
+}
+
+function getLocalDressageBackup(startNumber, judgeId = null) {
+  const backup = readNewestBackupData([dressageBackupKey(startNumber)]);
+  if (!backup || typeof backup !== 'object') return null;
+
+  const protocolCandidate = backup.protocol || backup.live?.protocol || null;
+  const normalizedJudgeId = judgeId != null ? String(judgeId) : '';
+  const protocolMatchesJudge = !normalizedJudgeId
+    || !protocolCandidate?.judgeId
+    || String(protocolCandidate.judgeId) === normalizedJudgeId;
+
+  return {
+    protocol: protocolMatchesJudge ? protocolCandidate : null,
+    general: backup.general || null,
+    live: backup.live || null
+  };
+}
+
 // Mirror data to localStorage for redundancy
 function mirrorToLocal(sn, data) {
   if (!sn || !data || !competitionId) return;
   try {
-    const key = `bkp_${competitionId}_dre_${sn}`;
-    localStorage.setItem(key, JSON.stringify({
-      ts: Date.now(),
-      data
-    }));
+    writeMergedBackup(dressageBackupKey(sn), data);
   } catch (e) {
     console.warn('Could not mirror to localStorage', e);
   }
@@ -264,15 +283,26 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
   clearForm();
   if (!startNumber || !judgeId || !competitionId) return;
 
+  let fetchFailed = false;
+  let results = [];
   try {
     const raw = await getDressageResultsForEquipage(competitionId, startNumber);
-    const results = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+    results = Array.isArray(raw) ? raw : (raw ? [raw] : []);
+  } catch (error) {
+    fetchFailed = true;
+    console.warn("Kunde inte ladda befintligt dressyrprotokoll från Firestore, försöker lokal backup:", error);
+  }
+
+  try {
     const jid = String(judgeId);
+    const backup = getLocalDressageBackup(startNumber, judgeId);
     const protocolData =
       results.find(r => r.id === `judge_${jid}`) ||
-      results.find(r => r.id === jid);
+      results.find(r => r.id === jid) ||
+      backup?.protocol ||
+      null;
 
-    const generalData = results.find(r => r.id === "general");
+    const generalData = results.find(r => r.id === "general") || backup?.general || null;
     if (generalData) {
       document.getElementById('errorPointsInput').value = generalData.errorPoints ?? 0;
       document.getElementById('errorCommentInput').value = generalData.errorComment ?? '';
@@ -341,11 +371,16 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
         renderProtocol(classKey);
         programmaticChange = false;
       }
-      if (protocolData) {
-        mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
-      }
+    }
+    if (protocolData || generalData) {
+      mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
     }
     calculateTotals();
+    if (fetchFailed && (protocolData || generalData)) {
+      showAlert('Visar lokal backup för valt dressyrprotokoll.', true);
+    } else if (fetchFailed) {
+      showAlert(t('alert_protocol_load_error'), false);
+    }
   } catch (error) {
     console.error("Kunde inte ladda befintligt protokoll:", error);
     showAlert(t('alert_protocol_load_error'), false);
@@ -478,26 +513,28 @@ function renderProtocol(testKey) {
     const card = document.createElement('div');
     card.className = 'movement-card border rounded-lg p-2 bg-gray-50 dark:bg-gray-800 dark:border-gray-700';
     card.innerHTML = `
-            <div class="flex justify-between items-center gap-2"> <div class="flex-shrink-0 font-medium">
+            <div class="movement-meta-row flex justify-between items-start gap-2"><div class="movement-labels min-w-0 flex-1 font-medium">
                     <span class="font-bold dark:text-gray-200">${moment.no}.</span>
                     <span class="text-blue-800 text-sm ml-1 mr-2 dark:text-blue-300">${moment.letters || ''}</span>
                     ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs dark:bg-blue-900/40 dark:text-blue-100">x${moment.coeff}</span>` : ''}
                 </div>
                 
-                <div class="flex-grow" style="max-width: 90px;"> <input type="tel" min="0" max="10" step="0.5" 
-                           class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
-                           data-coeff="${moment.coeff}" 
+                <div class="movement-score-total flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700 dark:text-blue-400">0.0</span>
+                </div>
+            </div>
+
+            <div class="movement-entry-row flex items-center gap-2 mt-2">
+                <div class="movement-score-input-wrap flex-grow" style="max-width: 90px;"> <input type="tel" min="0" max="10" step="0.5"
+                           class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                           data-coeff="${moment.coeff}"
                            data-moment-index="${index}"
-                           pattern="[0-9.,]*" 
+                           pattern="[0-9.,]*"
                            inputmode="decimal"
                            placeholder="-"
                            style="min-height: 50px;">
                 </div>
 
-                <div class_alias="flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700 dark:text-blue-400">0.0</span>
-                </div>
-
-                <div class="flex-shrink-0 flex flex-col sm:flex-row gap-1">
+                <div class="movement-card-actions flex-shrink-0 flex flex-col sm:flex-row gap-1">
                     <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬</button>
                     <button type="button" class="toggle-btn" data-target="details">ℹ️</button>
                 </div>
@@ -696,6 +733,7 @@ async function saveProtocol() {
       errorComment: document.getElementById('errorCommentInput').value || ''
     };
     await saveDressageGeneralData(competitionId, startNumber, generalData);
+    mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
 
     const program = getPrograms()[testKey];
     const maxScore = program.movements.reduce((s, m) => s + 10 * m.coeff, 0);
@@ -1230,6 +1268,46 @@ export function load() {
             #page-dressyr-input .container {
                 padding: 0.5rem;
             }
+            .movement-card {
+                padding: 0.75rem !important;
+            }
+            .movement-meta-row {
+                align-items: flex-start !important;
+            }
+            .movement-labels {
+                min-width: 0;
+                line-height: 1.25;
+            }
+            .movement-entry-row {
+                display: grid !important;
+                grid-template-columns: minmax(0, 1fr) auto;
+                gap: 0.5rem;
+                align-items: center;
+            }
+            .movement-score-input-wrap {
+                max-width: none !important;
+                width: 100%;
+            }
+            .movement-card .score-input {
+                min-height: 3rem !important;
+                font-size: 1.5rem !important;
+                padding: 0.7rem !important;
+            }
+            .movement-score-total {
+                width: auto !important;
+                min-width: 3rem;
+            }
+            .movement-score-total .movement-score {
+                font-size: 1.1rem !important;
+            }
+            .movement-card-actions {
+                flex-direction: row !important;
+                grid-column: 1 / -1;
+                justify-content: flex-end;
+            }
+            .movement-card .toggle-btn {
+                padding: 0.35rem 0.6rem;
+            }
             .dressage-main-card {
                 padding: 0.85rem !important;
                 border-radius: 0.75rem;
@@ -1293,6 +1371,20 @@ export function load() {
         @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
             #page-dressyr-input .container {
                 padding: 0.35rem;
+            }
+            .movement-card {
+                padding: 0.6rem !important;
+            }
+            .movement-card .score-input {
+                min-height: 2.7rem !important;
+                font-size: 1.35rem !important;
+                padding: 0.55rem !important;
+            }
+            .movement-card-actions .toggle-btn {
+                padding: 0.3rem 0.55rem;
+            }
+            .movement-score-total .movement-score {
+                font-size: 1rem !important;
             }
             .dressage-main-card {
                 padding: 0.75rem !important;

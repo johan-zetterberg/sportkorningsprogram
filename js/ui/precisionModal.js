@@ -8,8 +8,10 @@ import { t } from '../utils/i18n.js';
 // HÄR VAR FELET: statusClass ska importeras härifrån
 import {
   getCalculatedRowData,
+  buildPlaceMap,
   getPortAllowanceCm,
-  statusClass
+  statusClass,
+  getPrecisionDisplayClassName
 } from '../utils/precisionUtils.js';
 
 import {
@@ -25,7 +27,7 @@ import { generateAndPrintPdf } from '../pdf/precisionPdf.js';
 /**
  * Öppnar detaljmodalen för ett specifikt ekipage i Precision.
  */
-export function renderPrecisionContent(containerElement, eq, precisionData, config, startTimes, equipages) {
+export function renderPrecisionContent(containerElement, eq, precisionData, config, startTimes, equipages, modalMeta = null) {
   if (!eq) {
     containerElement.innerHTML = `
           <div class="p-4 md:p-6">
@@ -47,9 +49,38 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
 
   // Fixa CSS-klasser för status
   const statusCss = statusClass(data.status);
+  const classPlacementLabel = modalMeta?.classPlace
+    ? `${modalMeta.classPlace}${modalMeta.classStarters ? ` / ${modalMeta.classStarters}` : ''}`
+    : '—';
+  const classMetaHtml = modalMeta?.isMerged
+    ? `
+              <div class="inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
+                  <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-500 dark:text-blue-300">Visningsklass</span>
+                  <span class="font-semibold">${escapeHtml(modalMeta.displayClassLabel || '—')}</span>
+              </div>
+              <div class="inline-flex items-center gap-2 rounded-full bg-indigo-50 dark:bg-indigo-900/20 px-3 py-1.5 text-sm text-indigo-800 dark:text-indigo-200 border border-indigo-100 dark:border-indigo-900/50">
+                  <span class="text-[10px] uppercase tracking-widest font-semibold text-indigo-500 dark:text-indigo-300">Ursprungsklass</span>
+                  <span class="font-semibold">${escapeHtml(modalMeta.originalClassLabel || '—')}</span>
+              </div>
+    `
+    : `
+              <div class="inline-flex items-center gap-2 rounded-full bg-blue-50 dark:bg-blue-900/20 px-3 py-1.5 text-sm text-blue-800 dark:text-blue-200 border border-blue-100 dark:border-blue-900/50">
+                  <span class="text-[10px] uppercase tracking-widest font-semibold text-blue-500 dark:text-blue-300">Klass</span>
+                  <span class="font-semibold">${escapeHtml(modalMeta?.displayClassLabel || modalMeta?.classLabel || '—')}</span>
+              </div>
+    `;
 
   containerElement.innerHTML = `
       <div class="p-4 md:p-6">
+        ${modalMeta ? `
+          <div class="flex flex-wrap gap-3 mb-4">
+              <div class="inline-flex items-center gap-2 rounded-full bg-slate-100 dark:bg-slate-800 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700">
+                  <span class="text-[10px] uppercase tracking-widest font-semibold text-slate-500 dark:text-slate-400">Plac i klass</span>
+                  <span class="font-bold tabular-nums">${escapeHtml(classPlacementLabel)}</span>
+              </div>
+              ${classMetaHtml}
+          </div>
+        ` : ''}
         
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center mb-6">
             <div class="bg-gray-50 dark:bg-gray-700/50 p-3 rounded-lg">
@@ -204,6 +235,22 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
     }
 
     content.dataset.isModal = 'true';
+    const placeMap = buildPlaceMap(equipages, precisionMap, config);
+    const classKey = eq._mergedKey || `CLASS:${eq.className || ''}`;
+    const classLabel = getPrecisionDisplayClassName(eq) || eq.className || '—';
+    const classStarters = equipages.filter((item) => {
+      if (item?.status === 'struken') return false;
+      const itemKey = item._mergedKey || `CLASS:${item.className || ''}`;
+      return itemKey === classKey;
+    }).length;
+    const modalMeta = {
+      classPlace: placeMap.get(id) ?? null,
+      classStarters,
+      classLabel,
+      displayClassLabel: eq._mergedLabel || eq.className || '—',
+      originalClassLabel: eq.className || '—',
+      isMerged: !!(eq._mergedLabel && eq._mergedLabel !== eq.className)
+    };
 
     // RENDER HEADER MANUELLT (då den togs bort från renderPrecisionContent)
     content.innerHTML = `
@@ -215,7 +262,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
-              <span>${escapeHtml(eq._mergedLabel || eq.className || '')} • ${escapeHtml(eq.clubName || '')}</span>
+              <span>${escapeHtml(eq.clubName || '—')}</span>
             </div>
           </div>
           <button id="closePrecModalBtn" class="text-gray-500 hover:text-gray-800 text-3xl leading-none" aria-label="Stäng">&times;</button>
@@ -224,7 +271,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       <div id="precision-content-container"></div>
     `;
 
-    renderPrecisionContent(content.querySelector('#precision-content-container'), eq, precisionMap.get(id), config, startTimes, equipages);
+    renderPrecisionContent(content.querySelector('#precision-content-container'), eq, precisionMap.get(id), config, startTimes, equipages, modalMeta);
 
     // Koppla stäng-knappen
     content.querySelector('#closePrecModalBtn')?.addEventListener('click', closeDetailsModal);

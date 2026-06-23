@@ -62,7 +62,9 @@ export function wireMarathonResultControls({
       const card = e.target.closest('[data-sn]');
       if (!card) return;
       const sn = card.dataset.sn;
-      showDetailsModal(sn, getEquipages(), getMarathonMap());
+      showDetailsModal(sn, getEquipages(), getMarathonMap(), {
+        placeMap: buildPlacementsByClass()
+      });
     };
   }
 
@@ -109,6 +111,8 @@ export function wireMarathonResultControls({
     if (e.target.closest('button') && !e.target.closest('.eqLink')) return;
 
     e.preventDefault();
-    showDetailsModal(sn, getEquipages(), getMarathonMap());
+    showDetailsModal(sn, getEquipages(), getMarathonMap(), {
+      placeMap: buildPlacementsByClass()
+    });
   };
 }

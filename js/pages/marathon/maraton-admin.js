@@ -19,6 +19,49 @@ let currentCompetition = null;
 let pickerMap = null; // Global reference for cleanup
 let marathonValidationErrors = {};
 
+function ensureMarathonAdminResponsiveStyles() {
+  if (document.getElementById('marathon-admin-responsive-styles')) return;
+
+  const style = document.createElement('style');
+  style.id = 'marathon-admin-responsive-styles';
+  style.textContent = `
+    @media (max-width: 640px) {
+      .marathon-admin-section {
+        padding: 0.85rem;
+      }
+      .marathon-admin-card {
+        padding: 0.85rem;
+      }
+      .marathon-admin-bounds-row,
+      .marathon-admin-upload-row,
+      .marathon-admin-override-row,
+      .marathon-admin-fixed-row {
+        align-items: stretch;
+      }
+      .marathon-admin-bounds-row input,
+      .marathon-admin-override-row .gate-override-input,
+      .marathon-admin-fixed-row input {
+        width: 100%;
+      }
+      .marathon-admin-map-preview {
+        min-height: 320px;
+        height: 320px;
+      }
+    }
+    @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+      .marathon-admin-section,
+      .marathon-admin-card {
+        padding: 0.9rem;
+      }
+      .marathon-admin-map-preview {
+        min-height: 300px;
+        height: 300px;
+      }
+    }
+  `;
+  document.head.appendChild(style);
+}
+
 
 // ------------------------------
 // === TR V 2025 – Maratontempon (km/h) per klass & kategori ===
@@ -286,7 +329,7 @@ function renderLayout(competition) {
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
-<div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
+<div class="marathon-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
  <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Globala Regelinställningar</h2>
   <form id="global-settings-form" class="space-y-4">
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
@@ -321,7 +364,7 @@ function renderLayout(competition) {
     </form>
 </div>
 
-<div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
+<div class="marathon-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
   <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Kartinställningar (Live-karta)</h2>
   
   <div class="grid grid-cols-1 xl:grid-cols-2 gap-6 xl:gap-8">
@@ -334,7 +377,7 @@ function renderLayout(competition) {
           </div>
           
           <!-- Upload Tools -->
-          <div class="grid grid-cols-1 sm:grid-cols-[auto_auto_1fr] items-start sm:items-center gap-2 mt-2">
+          <div class="marathon-admin-upload-row grid grid-cols-1 sm:grid-cols-[auto_auto_1fr] items-start sm:items-center gap-2 mt-2">
             <input type="file" id="mapImageUploadInput" accept="image/*" class="hidden">
             <button type="button" id="btnUploadMapImage" class="bg-blue-50 border-2 border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/40" title="Ladda upp bildfil">
                 <span>📤 Ladda upp bildfil</span>
@@ -348,7 +391,7 @@ function renderLayout(competition) {
 
         <div>
           <label class="block text-sm font-medium dark:text-gray-300">Bander (Bounds)</label>
-          <div class="flex flex-wrap gap-2 items-center">
+          <div class="marathon-admin-bounds-row flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-center">
               <span class="text-xs text-gray-500 dark:text-gray-400">[0,0] till</span>
               <input type="number" id="mapBoundsX" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="X (1920)">
               <input type="number" id="mapBoundsY" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Y (1080)">
@@ -405,7 +448,7 @@ function renderLayout(competition) {
       </button>
     </form>
 
-    <div class="h-[400px] xl:h-full min-h-[400px] border-2 border-gray-100 rounded-xl overflow-hidden bg-gray-50 relative shadow-inner z-0 dark:border-gray-700 dark:bg-gray-900">
+    <div class="marathon-admin-map-preview h-[400px] xl:h-full min-h-[400px] border-2 border-gray-100 rounded-xl overflow-hidden bg-gray-50 relative shadow-inner z-0 dark:border-gray-700 dark:bg-gray-900">
         <div id="maraton-admin-map-picker" class="w-full h-full"></div>
         <div class="absolute top-2 right-2 z-[1000] pointer-events-none">
             <span class="bg-gray-900/80 text-white text-[9px] px-2 py-1 rounded-full backdrop-blur uppercase tracking-widest font-bold">Preview / Picker</span>
@@ -415,7 +458,7 @@ function renderLayout(competition) {
 </div>
 
 <!-- Utskrifter (Ny sektion) -->
-<div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
+<div class="marathon-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
   <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Utskrifter & Rapporter</h2>
   <div class="flex flex-col sm:flex-row gap-4">
     <button type="button" id="btnPrintTimecards" class="flex items-center gap-2 bg-blue-600 text-white font-semibold py-2 px-6 rounded-lg hover:bg-blue-700 transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
@@ -424,7 +467,7 @@ function renderLayout(competition) {
   </div>
 </div>
         <!-- Maratoninställningar -->
-        <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-2">
+        <div class="marathon-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-2">
           <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Maratoninställningar</h2>
           <form id="marathon-settings-form" class="space-y-4">
             <div class="space-y-2" id="marathon-distances-container">
@@ -441,7 +484,7 @@ function renderLayout(competition) {
         </div>
 
         <!-- Maratonhinder -->
-        <div class="bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-1 lg:self-start">
+        <div class="marathon-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-1 lg:self-start">
           <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Maratonhinder</h2>
           <form id="addObstacleForm" class="space-y-4">
             <input type="hidden" id="editingObstacleNumber">
@@ -508,9 +551,9 @@ function renderClassGateOverrides(container, overrides = {}) {
     ${classes.map(cls => {
     const val = overrides[cls] || '';
     return `
-        <div class="flex items-center justify-between gap-2">
-           <label class="text-xs text-gray-700 truncate w-2/3 dark:text-gray-400" title="${cls}">${cls}</label>
-           <input type="number" data-override-class="${cls}" value="${val}" class="gate-override-input w-16 p-1 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="-">
+        <div class="marathon-admin-override-row flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+           <label class="text-xs text-gray-700 truncate sm:w-2/3 dark:text-gray-400" title="${cls}">${cls}</label>
+           <input type="number" data-override-class="${cls}" value="${val}" class="gate-override-input w-full sm:w-16 p-1 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="-">
         </div>
       `;
   }).join('')}
@@ -1141,7 +1184,7 @@ async function setupMarathonSettings() {
 
     // Ny, grupperad layout per klass
     html += `
-      <div class="border rounded-lg p-4 space-y-4 mb-4 bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700">
+      <div class="marathon-admin-card border rounded-lg p-4 space-y-4 mb-4 bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700">
         <h4 class="font-semibold text-lg text-gray-800 dark:text-white">${cn}</h4>
         ${renderClassValidationSummary(cn)}
         
@@ -1155,7 +1198,7 @@ async function setupMarathonSettings() {
               <div class="text-center min-w-[60px]"><span class="block font-semibold text-gray-800 dark:text-gray-200" data-ideal-for="${cn}|A">${aIdeal}</span> <span class="text-[10px] text-gray-400 uppercase tracking-wider">Idealtid</span></div>
             </div>
              <!-- NYTT: Fixed Time Input -->
-            <div class="mt-2 flex flex-wrap items-center gap-2">
+            <div class="marathon-admin-fixed-row mt-2 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
                  <label class="text-xs text-blue-800 font-semibold dark:text-blue-300">Fast tid (WU):</label>
                  <input type="number" data-class-name="${cn}" data-field="fixedTimeA" class="marathon-class-input w-20 p-1 border border-blue-200 rounded text-sm bg-blue-50 dark:bg-blue-900/40 dark:border-blue-700 dark:text-white" value="${defaultFixedA ?? ''}" placeholder="min">
                  <span class="text-[10px] text-gray-400"> (åsidosätter distans/tempo)</span>
@@ -1534,6 +1577,7 @@ function renderObstacleList(obstacles = []) {
 // Public API
 export async function load() {
   const competition = getGlobalState('currentCompetition');
+  ensureMarathonAdminResponsiveStyles();
 
   // Sätt pageRoot direkt när load anropas
   pageRoot = document.getElementById('page-maraton-admin');
