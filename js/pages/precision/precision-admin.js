@@ -32,6 +32,48 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function renderPrecisionAdminReadiness() {
+    const container = document.getElementById('precisionAdminReadiness');
+    if (!container) return;
+
+    if (!activeClassGroups.length) {
+        container.className = 'rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
+        container.innerHTML = '<div class="font-semibold">Inte klar ännu</div><div class="mt-1">Inga klasser hittades än. Lägg in ekipage först.</div>';
+        return;
+    }
+
+    try {
+        const { validation } = buildPrecisionConfigFromForm();
+        const classIssues = Object.keys(validation.classes || {}).length;
+        const globalIssues = (validation.global || []).length;
+        const mapIssues = (validation.map || []).length;
+        const totalIssues = classIssues + globalIssues + mapIssues;
+
+        if (hasPrecisionValidationErrors(validation)) {
+            container.className = 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
+            container.innerHTML = `
+                <div class="font-semibold">Precisionadmin behöver kompletteras</div>
+                <div class="mt-1">
+                    ${classIssues > 0 ? `${classIssues} klass${classIssues === 1 ? '' : 'er'} ` : ''}
+                    ${globalIssues > 0 ? `${globalIssues} globala fält ` : ''}
+                    ${mapIssues > 0 ? `${mapIssues} kartproblem ` : ''}
+                    behöver åtgärdas innan inställningarna kan sparas.
+                </div>
+            `;
+            return;
+        }
+
+        container.className = 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100';
+        container.innerHTML = `
+            <div class="font-semibold">Precisionadmin ser redo ut</div>
+            <div class="mt-1">${activeClassGroups.length} klassgrupper klara${totalIssues === 0 ? ', inga kända valideringsfel.' : '.'}</div>
+        `;
+    } catch {
+        container.className = 'rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900/20 dark:text-gray-300';
+        container.innerHTML = '<div class="font-semibold">Status uppdateras när formuläret är laddat</div>';
+    }
+}
+
 function parseOptionalNumber(value) {
     const text = String(value ?? '').trim().replace(',', '.');
     if (text === '') return null;
@@ -186,6 +228,9 @@ function renderLayout() {
     root.innerHTML = `
         ${getCompetitionHeader(comp, 'Precision – Inställningar')}
         <div class="max-w-5xl mx-auto p-3 md:p-4 space-y-5">
+            <section id="precisionAdminReadiness" class="rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900/20 dark:text-gray-300">
+                Status laddas...
+            </section>
             <section class="p-3 sm:p-4 border rounded-lg bg-white shadow-sm dark:bg-gray-800 dark:border-gray-700">
                 <h3 class="text-xl font-semibold mb-2 dark:text-white">Inställningar per Klass</h3>
                 <p class="text-sm text-gray-600 mb-4 dark:text-gray-400">
@@ -726,6 +771,7 @@ async function saveData() {
 
         if (hasPrecisionValidationErrors(validation)) {
             applyPrecisionValidationDom(validation);
+            renderPrecisionAdminReadiness();
             showAlert('Precisionens inställningar saknar obligatoriska värden. Kontrollera rödmarkerade fält.', 'error');
             return;
         }
@@ -734,6 +780,7 @@ async function saveData() {
         clearPrecisionValidationDom();
         showAlert('Inställningar för precision har sparats!', 'success');
         precisionConfig = newConfig;
+        renderPrecisionAdminReadiness();
 
     } catch (e) {
         console.error("Fel vid sparande av precision-config:", e);
@@ -790,6 +837,7 @@ export async function load() {
                 } else {
                     mapContainer?.classList.add('hidden');
                 }
+                renderPrecisionAdminReadiness();
             };
         }
 
@@ -797,6 +845,7 @@ export async function load() {
 
         const saveButton = document.getElementById('btnSaveAll');
         if (saveButton) saveButton.onclick = saveData;
+        renderPrecisionAdminReadiness();
 
         const printButton = document.getElementById('btnPrintCourse');
         if (printButton) printButton.onclick = async () => {
@@ -962,11 +1011,13 @@ function setupPrecisionValidationListeners(root) {
     root.addEventListener('input', event => {
         if (event.target instanceof HTMLElement) {
             clearPrecisionFieldError(event.target);
+            renderPrecisionAdminReadiness();
         }
     });
     root.addEventListener('change', event => {
         if (event.target instanceof HTMLElement) {
             clearPrecisionFieldError(event.target);
+            renderPrecisionAdminReadiness();
         }
     });
 }

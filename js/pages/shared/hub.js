@@ -72,6 +72,40 @@ function readLastOpened() {
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
 }
+const HUB_COMPETITION_TEMPLATES = [
+  {
+    id: 'live_1day',
+    title: '1-dagars live',
+    subtitle: 'Dressyr eller enkel tävling med liveflöde',
+    mode: 'live',
+    durationDays: 1
+  },
+  {
+    id: 'live_2day',
+    title: '2-dagars live',
+    subtitle: 'Dressyr följt av maraton eller precision',
+    mode: 'live',
+    durationDays: 2
+  },
+  {
+    id: 'live_3day',
+    title: '3-dagars live',
+    subtitle: 'Full tävling med dressyr, maraton och precision',
+    mode: 'live',
+    durationDays: 3
+  },
+  {
+    id: 'field_light',
+    title: 'Field mode light',
+    subtitle: 'Manuell drift med enklare fältinmatning',
+    mode: 'field',
+    durationDays: 1
+  }
+];
+
+let selectedTemplateId = 'live_3day';
+let templateEndDateDirty = false;
+
 function pickLatest(competitions) {
   return [...competitions].sort((a, b) => {
     const aSec = (a.createdAt?.seconds ?? a.updatedAt?.seconds ?? 0);
@@ -129,58 +163,121 @@ function renderLayout() {
       <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
         <!-- Skapa ny (visas bara för admin) -->
         <section id="create-competition-container" class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow">
-          <h2 class="text-xl font-semibold mb-3 border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('hub_create_title')}</h2>
+          <div class="mb-4 border-b dark:border-gray-700 pb-3">
+            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">${t('hub_create_title')}</h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Nya tävlingar skapas som utkast och öppnas direkt i inställningarna efter att de skapats.</p>
+          </div>
+
+          <div class="mb-4">
+            <div class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Startmall</div>
+            <div id="competitionTemplateGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              ${HUB_COMPETITION_TEMPLATES.map((template) => `
+                <button
+                  type="button"
+                  class="hub-template-card rounded-xl border px-4 py-3 text-left transition-colors ${template.id === selectedTemplateId
+                      ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/20'
+                      : 'border-gray-200 bg-white hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-900/20 dark:hover:bg-gray-900/40'}"
+                  data-template-id="${escapeAttr(template.id)}"
+                >
+                  <div class="flex items-center justify-between gap-3">
+                    <div class="min-w-0">
+                      <div class="text-sm font-semibold text-gray-900 dark:text-white">${escapeHtml(template.title)}</div>
+                      <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(template.subtitle)}</div>
+                    </div>
+                    <span class="shrink-0 rounded-full px-2 py-1 text-[11px] font-semibold ${template.mode === 'field'
+                      ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'
+                      : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200'}">
+                      ${template.mode === 'field' ? 'Field' : `${template.durationDays} dag`}
+                    </span>
+                  </div>
+                </button>
+              `).join('')}
+            </div>
+            <input type="hidden" id="competitionTemplatePreset" value="${escapeAttr(selectedTemplateId)}">
+            <p id="competitionTemplateHint" class="mt-2 text-xs text-gray-500 dark:text-gray-400"></p>
+          </div>
+
+          <div class="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 dark:border-emerald-900/50 dark:bg-emerald-900/20 px-4 py-3">
+              <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-emerald-700 dark:text-emerald-300">Status</div>
+              <div class="mt-1 text-sm font-medium text-emerald-900 dark:text-emerald-100">Skapas som utkast</div>
+            </div>
+            <div class="rounded-xl border border-sky-200 bg-sky-50 dark:border-sky-900/50 dark:bg-sky-900/20 px-4 py-3">
+              <div class="text-[11px] font-semibold uppercase tracking-[0.16em] text-sky-700 dark:text-sky-300">Nästa steg</div>
+              <div class="mt-1 text-sm font-medium text-sky-900 dark:text-sky-100">Du skickas till Admin → Inställningar</div>
+            </div>
+          </div>
+
           <form id="createCompetitionForm" class="space-y-4">
-            <div>
-              <label for="compName" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('hub_comp_name')}</label>
-              <input type="text" id="compName" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ex. Flyinge Indoor 2025">
-            </div>
-            
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                 <div>
-                    <label for="compStartDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Startdatum</label>
-                    <input type="date" id="compStartDate" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                 </div>
-                 <div>
-                    <label for="compEndDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Slutdatum</label>
-                    <input type="date" id="compEndDate" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                 </div>
-            </div>
-            
-            <div>
-               <label for="importFromComp" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Basera på tidigare tävling (Valfritt)</label>
-                <select id="importFromComp" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white max-w-full text-ellipsis overflow-hidden">
-                  <option value="">-- Starta från noll --</option>
-                </select>
-               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Kopierar inställningar för dressyr, maraton, precision, visningsklasser och karta från vald tävling.</p>
+            <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/20 p-4 space-y-4">
+              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Grunddata</div>
+
+              <div>
+                <label for="compName" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('hub_comp_name')}</label>
+                <input type="text" id="compName" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ex. Flyinge Indoor 2025">
+              </div>
+              
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                   <div>
+                      <label for="compStartDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Startdatum</label>
+                      <input type="date" id="compStartDate" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                   </div>
+                   <div>
+                      <label for="compEndDate" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Slutdatum</label>
+                      <input type="date" id="compEndDate" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                   </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label for="compClub" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('hub_comp_club')}</label>
+                  <input type="text" id="compClub" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                </div>
+
+                <div>
+                  <label for="compPlace" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('hub_comp_place')}</label>
+                  <input type="text" id="compPlace" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ex. Flyinge">
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label for="compMode" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Tävlingsläge</label>
-              <select id="compMode" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                <option value="live">Live-läge</option>
-                <option value="field">Field mode light</option>
-              </select>
-              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Live-läge använder timers och liveflöden. Field mode light är för mer manuell drift.</p>
+            <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/20 p-4 space-y-4">
+              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Återanvändning och läge</div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label for="importFromComp" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Basera på tidigare tävling (Valfritt)</label>
+                  <select id="importFromComp" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white max-w-full text-ellipsis overflow-hidden">
+                    <option value="">-- Starta från noll --</option>
+                  </select>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Kopierar inställningar för dressyr, maraton, precision, visningsklasser och karta från vald tävling.</p>
+                </div>
+
+                <div>
+                  <label for="compMode" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Tävlingsläge</label>
+                  <select id="compMode" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <option value="live">Live-läge</option>
+                    <option value="field">Field mode light</option>
+                  </select>
+                  <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Live-läge använder timers och liveflöden. Field mode light är för mer manuell drift.</p>
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label for="compClub" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('hub_comp_club')}</label>
-              <input type="text" id="compClub" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+            <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/20 p-4 space-y-4">
+              <div class="flex items-center justify-between gap-3 flex-wrap">
+                <div class="text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Plats och karta</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">Klicka på kartan för att ange exakt position</div>
+              </div>
+
+              <div id="compMapContainer" class="h-64 w-full rounded-md border mt-2 z-0 relative"></div>
             </div>
 
-            <div>
-              <label for="compPlace" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('hub_comp_place')}</label>
-              <input type="text" id="compPlace" required class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Ex. Flyinge">
-              <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Klicka på kartan för att ange exakt position.</p>
-            </div>
-
-            <div id="compMapContainer" class="h-64 w-full rounded-md border mt-2 z-0 relative"></div>
             <input type="hidden" id="compLat">
             <input type="hidden" id="compLng">
 
             <button type="submit"
-              class="w-full font-semibold py-2 px-4 rounded-lg text-white hover:opacity-95"
+              class="w-full font-semibold py-2.5 px-4 rounded-lg text-white hover:opacity-95 shadow-sm"
               style="background:${darkBlue};">${t('hub_btn_create')}</button>
           </form>
         </section>
@@ -208,6 +305,109 @@ let competitionListenerUnsub = null;
 let mapInstance = null;
 let markerInstance = null;
 let globalStateChangeHandler = null;
+
+function getHubTemplate(templateId = selectedTemplateId) {
+  return HUB_COMPETITION_TEMPLATES.find((template) => template.id === templateId) || HUB_COMPETITION_TEMPLATES[0];
+}
+
+function formatHubTemplateDuration(template) {
+  if (!template) return '';
+  if (template.mode === 'field') {
+    return 'Fältläge med manuell registrering som standard.';
+  }
+  return `${template.durationDays} tävlingsdag${template.durationDays > 1 ? 'ar' : ''} med liveflöde som standard.`;
+}
+
+function getTemplateDisciplines(template) {
+  if (!template) return [];
+  switch (template.id) {
+    case 'live_1day':
+      return ['dressage'];
+    case 'live_2day':
+      return ['dressage', 'marathon'];
+    case 'live_3day':
+      return ['dressage', 'marathon', 'precision'];
+    case 'field_light':
+      return ['dressage', 'marathon', 'precision'];
+    default:
+      return [];
+  }
+}
+
+function buildTemplateMetaDefaults(template, { importFrom = null } = {}) {
+  const baseMeta = {
+    competitionTemplate: template?.id || '',
+    competitionTemplateTitle: template?.title || '',
+    competitionDays: template?.durationDays || 1,
+    recommendedCompetitionMode: template?.mode || 'live',
+    expectedDisciplines: getTemplateDisciplines(template),
+    schedulePreset: template?.id || ''
+  };
+
+  if (importFrom) {
+    return baseMeta;
+  }
+
+  return {
+    ...baseMeta,
+    isInternational: false,
+    lockdownMinutes: template?.mode === 'field' ? 0 : 60,
+    manualLockdown: false
+  };
+}
+
+function addDaysToDateString(dateStr, daysToAdd) {
+  if (!dateStr) return '';
+  const [year, month, day] = String(dateStr).split('-').map(Number);
+  if (!year || !month || !day) return '';
+  const date = new Date(year, month - 1, day);
+  date.setDate(date.getDate() + daysToAdd);
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function syncTemplateEndDate(force = false) {
+  const startInput = document.getElementById('compStartDate');
+  const endInput = document.getElementById('compEndDate');
+  const template = getHubTemplate();
+  if (!startInput || !endInput || !template?.durationDays) return;
+  if (!startInput.value) return;
+  if (templateEndDateDirty && !force) return;
+
+  const nextEndDate = addDaysToDateString(startInput.value, template.durationDays - 1);
+  if (nextEndDate) endInput.value = nextEndDate;
+}
+
+function updateCompetitionTemplateUi() {
+  const template = getHubTemplate();
+  const modeSelect = document.getElementById('compMode');
+  const presetInput = document.getElementById('competitionTemplatePreset');
+  const hint = document.getElementById('competitionTemplateHint');
+
+  document.querySelectorAll('.hub-template-card').forEach((card) => {
+    const isActive = card.dataset.templateId === selectedTemplateId;
+    card.classList.toggle('border-blue-500', isActive);
+    card.classList.toggle('bg-blue-50', isActive);
+    card.classList.toggle('dark:border-blue-400', isActive);
+    card.classList.toggle('dark:bg-blue-900/20', isActive);
+    card.classList.toggle('border-gray-200', !isActive);
+    card.classList.toggle('bg-white', !isActive);
+    card.classList.toggle('hover:bg-gray-50', !isActive);
+    card.classList.toggle('dark:border-gray-700', !isActive);
+    card.classList.toggle('dark:bg-gray-900/20', !isActive);
+    card.classList.toggle('dark:hover:bg-gray-900/40', !isActive);
+  });
+
+  if (modeSelect && template) modeSelect.value = template.mode;
+  if (presetInput) presetInput.value = selectedTemplateId;
+  if (hint && template) {
+    hint.textContent = `${template.title}: ${formatHubTemplateDuration(template)}`;
+  }
+
+  syncTemplateEndDate();
+}
 
 function safeInvalidateMapSize(mapRef = mapInstance) {
   try {
@@ -483,6 +683,8 @@ function updateLatestBox() {
 
 /** Events */
 function setupEventListeners() {
+  updateCompetitionTemplateUi();
+
   const search = document.getElementById('hubSearch');
   document.getElementById('clearSearchBtn')?.addEventListener('click', () => {
     if (search) { search.value = ''; renderCompetitionList(_allCompetitions); search.focus(); }
@@ -517,9 +719,38 @@ function setupEventListeners() {
     // refreshCreateBox handles this via toggle and initMap call.
     // So we don't need redundant timeout here.
 
+    document.querySelectorAll('.hub-template-card').forEach((card) => {
+      card.addEventListener('click', () => {
+        selectedTemplateId = card.dataset.templateId || selectedTemplateId;
+        templateEndDateDirty = false;
+        updateCompetitionTemplateUi();
+      });
+    });
+
+    document.getElementById('compStartDate')?.addEventListener('change', () => {
+      if (!templateEndDateDirty) syncTemplateEndDate(true);
+    });
+
+    document.getElementById('compEndDate')?.addEventListener('input', () => {
+      templateEndDateDirty = true;
+    });
+
+    document.getElementById('compMode')?.addEventListener('change', () => {
+      const nextMode = document.getElementById('compMode')?.value === 'field' ? 'field' : 'live';
+      const matchingTemplate = HUB_COMPETITION_TEMPLATES.find((template) => template.mode === nextMode && template.id === selectedTemplateId)
+        || HUB_COMPETITION_TEMPLATES.find((template) => template.mode === nextMode)
+        || HUB_COMPETITION_TEMPLATES[0];
+      selectedTemplateId = matchingTemplate.id;
+      updateCompetitionTemplateUi();
+    });
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const user = getCurrentUser();
+      const selectedTemplate = getHubTemplate(document.getElementById('competitionTemplatePreset')?.value || selectedTemplateId);
+      const templateMetaDefaults = buildTemplateMetaDefaults(selectedTemplate, {
+        importFrom: document.getElementById('importFromComp')?.value || null
+      });
 
       const sDate = document.getElementById('compStartDate').value;
       const eDate = document.getElementById('compEndDate').value;
@@ -552,6 +783,10 @@ function setupEventListeners() {
           });
         }
 
+        await saveConfig(newId, 'competitionMeta', {
+          ...templateMetaDefaults
+        });
+
         showAlert(`Tävlingen "${compData.name}" har skapats!`);
         const createdCompetition = {
           id: newId,
@@ -572,6 +807,8 @@ function setupEventListeners() {
 
 
 export function __unload() {
+  selectedTemplateId = 'live_3day';
+  templateEndDateDirty = false;
   if (mapInstance && mapInstance.remove) {
     mapInstance.off();
     mapInstance.remove();
@@ -590,6 +827,8 @@ export function __unload() {
 
 /** Exporterat API */
 export function load() {
+  selectedTemplateId = 'live_3day';
+  templateEndDateDirty = false;
   renderLayout();
   setupEventListeners();
   refreshCreateBox(); // säkerställ initialt läge

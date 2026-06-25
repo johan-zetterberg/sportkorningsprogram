@@ -1,7 +1,7 @@
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionById, deleteCompetition, updateCompetition } from '../../services/competitionService.js';
-import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails } from '../../services/adminService.js';
+import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails, getOfficials, getJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
@@ -13,8 +13,10 @@ import { t } from '../../utils/i18n.js';
 let mapInstance = null;
 let markerInstance = null;
 let activeAdminsUnsub = null;
+let latestSettingsChecklistContext = null;
 
 export function unloadSettingsTab() {
+    latestSettingsChecklistContext = null;
     if (activeAdminsUnsub) {
         try {
             activeAdminsUnsub();
@@ -35,17 +37,514 @@ export function unloadSettingsTab() {
     }
 }
 
+function getUniqueChecklistClasses(equipages = []) {
+    return [...new Set(
+        equipages
+            .map((equipage) => String(equipage?.className || '').trim())
+            .filter(Boolean)
+    )].sort((a, b) => a.localeCompare(b, 'sv'));
+}
+
+function buildChecklistAction(item) {
+    switch (item?.label) {
+        case 'Grunddata':
+        case 'Startmall':
+            return { type: 'route', hash: '#hub', label: 'Öppna hubben' };
+        case 'Tävlingsläge':
+            return { type: 'scroll', targetId: 'settingsCompetitionModeCard', label: 'Visa läge' };
+        case 'Karta':
+            return { type: 'scroll', targetId: 'settingsMapCard', label: 'Öppna karta' };
+        case 'Ekipage och klasser':
+            return { type: 'route', hash: '#admin?tab=registration&focus=view-registration', label: 'Öppna anmälan' };
+        case 'Klassinställningar':
+            return { type: 'scroll', targetId: 'settingsClassSettingsCard', label: 'Visa klasser' };
+        case 'Domare':
+            return { type: 'route', hash: '#admin?tab=registration&focus=judge-section-wrapper', label: 'Öppna domare' };
+        case 'Funktionärer':
+            return { type: 'route', hash: '#admin?tab=officials&focus=view-officials', label: 'Öppna funktionärer' };
+        case 'Publicering':
+            return { type: 'scroll', targetId: 'settingsPublishCard', label: 'Visa publicering' };
+        default:
+            return null;
+    }
+}
+
+function renderChecklistActionButton(item, className = '') {
+    const action = buildChecklistAction(item);
+    if (!action) return '';
+
+    const safeType = escapeHtml(action.type);
+    const safeTarget = escapeHtml(action.targetId || '');
+    const safeHash = escapeHtml(action.hash || '');
+    const safeLabel = escapeHtml(action.label || 'Öppna');
+
+    return `
+        <button
+            type="button"
+            class="checklist-action-btn inline-flex items-center justify-center rounded-lg border border-blue-200 bg-blue-50 px-3 py-1.5 text-xs font-semibold text-blue-800 transition hover:bg-blue-100 dark:border-blue-800 dark:bg-blue-900/30 dark:text-blue-200 dark:hover:bg-blue-900/40 ${className}"
+            data-action-type="${safeType}"
+            data-action-target="${safeTarget}"
+            data-action-hash="${safeHash}">
+            ${safeLabel}
+        </button>
+    `;
+}
+
+function runChecklistAction(action) {
+    if (!action?.type) return;
+
+    if (action.type === 'route' && action.hash) {
+        window.location.hash = action.hash;
+        return;
+    }
+
+    if (action.type === 'scroll' && action.targetId) {
+        const target = document.getElementById(action.targetId);
+        if (target) {
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+}
+
+function setChecklistCardTone(card, tone = 'neutral') {
+    if (!card) return;
+    card.classList.remove(
+        'ring-1',
+        'ring-red-200',
+        'ring-amber-200',
+        'ring-emerald-200',
+        'dark:ring-red-800',
+        'dark:ring-amber-800',
+        'dark:ring-emerald-800'
+    );
+
+    if (tone === 'danger') {
+        card.classList.add('ring-1', 'ring-red-200', 'dark:ring-red-800');
+    } else if (tone === 'warning') {
+        card.classList.add('ring-1', 'ring-amber-200', 'dark:ring-amber-800');
+    } else if (tone === 'success') {
+        card.classList.add('ring-1', 'ring-emerald-200', 'dark:ring-emerald-800');
+    }
+}
+
+function renderSectionStatusBlock({
+    statusId,
+    cardId,
+    tone = 'neutral',
+    badge = '',
+    detail = '',
+    item = null
+} = {}) {
+    const statusEl = document.getElementById(statusId);
+    const cardEl = document.getElementById(cardId);
+    if (!statusEl || !cardEl) return;
+
+    setChecklistCardTone(cardEl, tone);
+
+    const toneClasses = {
+        danger: 'border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100',
+        warning: 'border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100',
+        success: 'border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100',
+        neutral: 'border-gray-200 bg-gray-50 text-gray-700 dark:border-gray-700 dark:bg-gray-900/20 dark:text-gray-300'
+    };
+
+    statusEl.innerHTML = `
+        <div class="mt-4 rounded-lg border px-4 py-3 text-sm ${toneClasses[tone] || toneClasses.neutral}">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <div class="font-semibold">${escapeHtml(badge)}</div>
+                    <div class="mt-1 text-xs opacity-90">${escapeHtml(detail)}</div>
+                </div>
+                ${item && !item.done ? renderChecklistActionButton(item, 'self-start md:self-auto') : ''}
+            </div>
+        </div>
+    `;
+
+    statusEl.onclick = (event) => {
+        const button = event.target.closest('.checklist-action-btn');
+        if (!button) return;
+
+        runChecklistAction({
+            type: button.dataset.actionType,
+            targetId: button.dataset.actionTarget,
+            hash: button.dataset.actionHash
+        });
+    };
+}
+
+function buildCompetitionChecklistItems(context = {}) {
+    const compDoc = context.compDoc || {};
+    const meta = context.meta || {};
+    const mapConfig = context.mapConfig || {};
+    const equipages = Array.isArray(context.equipages) ? context.equipages : [];
+    const classConfig = context.classConfig || {};
+    const judges = Array.isArray(context.judges) ? context.judges : [];
+    const officials = Array.isArray(context.officials) ? context.officials : [];
+
+    const coords = mapConfig.coordinates || compDoc.coordinates || null;
+    const classes = getUniqueChecklistClasses(equipages);
+    const templateTitle = meta.competitionTemplateTitle || meta.competitionTemplate || '';
+    const mode = compDoc?.competitionMode === 'field' ? 'Field mode light' : 'Live-läge';
+    const hasClassSettings = classes.length > 0 && classes.every((className) => {
+        const placedCount = Number(classConfig?.[className]?.placedCount);
+        return Number.isFinite(placedCount) && placedCount >= 1;
+    });
+
+    return [
+        {
+            label: 'Grunddata',
+            done: Boolean(compDoc?.name && compDoc?.dates && compDoc?.place),
+            detail: compDoc?.name && compDoc?.dates && compDoc?.place
+                ? `${compDoc.name} • ${compDoc.dates} • ${compDoc.place}`
+                : 'Namn, datum eller plats saknas'
+        },
+        {
+            label: 'Startmall',
+            done: Boolean(templateTitle),
+            detail: templateTitle || 'Ingen startmall sparad ännu'
+        },
+        {
+            label: 'Tävlingsläge',
+            done: Boolean(compDoc?.competitionMode === 'live' || compDoc?.competitionMode === 'field'),
+            detail: mode
+        },
+        {
+            label: 'Karta',
+            done: Boolean(coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)),
+            detail: coords && Number.isFinite(coords.lat) && Number.isFinite(coords.lng)
+                ? `${coords.lat.toFixed(5)}, ${coords.lng.toFixed(5)}`
+                : 'Ingen exakt kartposition satt'
+        },
+        {
+            label: 'Ekipage och klasser',
+            done: equipages.length > 0 && classes.length > 0,
+            detail: equipages.length > 0
+                ? `${equipages.length} ekipage i ${classes.length} klass${classes.length === 1 ? '' : 'er'}`
+                : 'Inga ekipage importerade ännu'
+        },
+        {
+            label: 'Klassinställningar',
+            done: hasClassSettings,
+            detail: classes.length === 0
+                ? 'Lägg först in ekipage för att skapa klassinställningar'
+                : hasClassSettings
+                    ? `Placeringstal satt för ${classes.length} klass${classes.length === 1 ? '' : 'er'}`
+                    : 'En eller flera klasser saknar placeringstal'
+        },
+        {
+            label: 'Domare',
+            done: judges.length > 0,
+            detail: judges.length > 0
+                ? `${judges.length} domare registrerade`
+                : 'Inga domare registrerade ännu'
+        },
+        {
+            label: 'Funktionärer',
+            done: officials.length > 0,
+            detail: officials.length > 0
+                ? `${officials.length} funktionärer registrerade`
+                : 'Inga funktionärer registrerade ännu'
+        },
+        {
+            label: 'Publicering',
+            done: compDoc?.published !== false,
+            detail: compDoc?.published !== false
+                ? 'Tävlingen är synlig för publik'
+                : 'Tävlingen ligger fortfarande som utkast'
+        }
+    ];
+}
+
+function renderCompetitionSetupChecklist(context = latestSettingsChecklistContext) {
+    latestSettingsChecklistContext = context;
+    const container = document.getElementById('competitionSetupChecklist');
+    if (!container) return;
+
+    const items = buildCompetitionChecklistItems(context);
+    const completed = items.filter((item) => item.done).length;
+    const total = items.length;
+    const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+    const nextSteps = items.filter((item) => !item.done).slice(0, 3);
+    const nextPrimary = nextSteps[0] || null;
+
+    container.innerHTML = `
+        <div class="flex flex-col gap-4">
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <div class="text-sm font-semibold text-gray-900 dark:text-white">${completed} av ${total} punkter klara</div>
+                    <div class="text-xs text-gray-500 dark:text-gray-400">Använd checklistan för att se vad som återstår innan tävlingen är helt startklar.</div>
+                </div>
+                <div class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold ${percent === 100 ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-200' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'}">
+                    ${percent}% klar
+                </div>
+            </div>
+
+            <div class="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-gray-700">
+                <div class="h-full rounded-full bg-brand-darkblue transition-all" style="width:${percent}%"></div>
+            </div>
+
+            ${nextSteps.length > 0 ? `
+                <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+                    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                            <div class="font-semibold">Nästa steg</div>
+                            <div class="mt-1">${escapeHtml(nextSteps.map((item) => item.label).join(', '))}</div>
+                        </div>
+                        ${nextPrimary ? renderChecklistActionButton(nextPrimary, 'self-start md:self-auto') : ''}
+                    </div>
+                </div>
+            ` : `
+                <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100">
+                    <div class="font-semibold">Checklistan är komplett</div>
+                    <div class="mt-1">Grunddata, bemanning och publicering ser klara ut.</div>
+                </div>
+            `}
+
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                ${items.map((item) => `
+                    <div class="rounded-xl border px-4 py-3 ${item.done
+                        ? 'border-emerald-200 bg-emerald-50 dark:border-emerald-800 dark:bg-emerald-900/20'
+                        : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/20'}">
+                        <div class="flex items-start gap-3">
+                            <div class="mt-0.5 shrink-0 ${item.done ? 'text-emerald-600 dark:text-emerald-300' : 'text-gray-400 dark:text-gray-500'}">
+                                ${item.done ? '●' : '○'}
+                            </div>
+                            <div class="min-w-0 flex-1">
+                                <div class="text-sm font-semibold text-gray-900 dark:text-white">${escapeHtml(item.label)}</div>
+                                <div class="mt-1 text-xs text-gray-600 dark:text-gray-400">${escapeHtml(item.detail)}</div>
+                                ${!item.done ? `<div class="mt-3">${renderChecklistActionButton(item)}</div>` : ''}
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+    `;
+
+    container.onclick = (event) => {
+        const button = event.target.closest('.checklist-action-btn');
+        if (!button) return;
+
+        runChecklistAction({
+            type: button.dataset.actionType,
+            targetId: button.dataset.actionTarget,
+            hash: button.dataset.actionHash
+        });
+    };
+}
+
+function buildPublishingValidation(context = latestSettingsChecklistContext) {
+    const items = buildCompetitionChecklistItems(context);
+    const relevantItems = items.filter((item) => item.label !== 'Publicering');
+
+    const blockingLabels = new Set([
+        'Grunddata',
+        'Karta',
+        'Ekipage och klasser',
+        'Klassinställningar'
+    ]);
+
+    return relevantItems.reduce((acc, item) => {
+        if (item.done) return acc;
+        if (blockingLabels.has(item.label)) {
+            acc.blocking.push(item);
+        } else {
+            acc.advisory.push(item);
+        }
+        return acc;
+    }, { blocking: [], advisory: [] });
+}
+
+function buildPublishingValidationMessage(context = latestSettingsChecklistContext) {
+    const { blocking, advisory } = buildPublishingValidation(context);
+    if (blocking.length === 0 && advisory.length === 0) return '';
+
+    const lines = [
+        'Tävlingen är inte komplett ännu.',
+        '',
+        ...(blocking.length ? [
+            'Viktiga delar som saknas:',
+            ...blocking.map((item) => `- ${item.label}: ${item.detail}`),
+            ''
+        ] : []),
+        ...(advisory.length ? [
+            'Bra att kontrollera innan publicering:',
+            ...advisory.map((item) => `- ${item.label}: ${item.detail}`),
+            ''
+        ] : []),
+        'Vill du publicera ändå?'
+    ];
+
+    return lines.join('\n');
+}
+
+function buildPublishingBlockedMessage(context = latestSettingsChecklistContext) {
+    const { blocking } = buildPublishingValidation(context);
+    if (blocking.length === 0) return '';
+
+    return [
+        'Tävlingen kan inte publiceras ännu.',
+        '',
+        'Följande måste vara klart först:',
+        ...blocking.map((item) => `- ${item.label}: ${item.detail}`)
+    ].join('\n');
+}
+
+function buildPublishingAdvisoryMessage(context = latestSettingsChecklistContext) {
+    const { advisory } = buildPublishingValidation(context);
+    if (advisory.length === 0) return '';
+
+    return [
+        'Tävlingen går att publicera, men kontrollera gärna detta först:',
+        '',
+        ...advisory.map((item) => `- ${item.label}: ${item.detail}`),
+        '',
+        'Vill du publicera ändå?'
+    ].join('\n');
+}
+
+function renderPublishingGateStatus(context = latestSettingsChecklistContext) {
+    const container = document.getElementById('publishGateStatus');
+    if (!container) return;
+
+    const { blocking, advisory } = buildPublishingValidation(context);
+    const firstBlocking = blocking[0] || null;
+    const firstAdvisory = advisory[0] || null;
+    const isPublished = context?.compDoc?.published !== false;
+
+    if (blocking.length > 0) {
+        container.className = 'mt-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
+        container.innerHTML = `
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <div class="font-semibold">${isPublished ? 'Publicerad men inte komplett' : 'Publicering spärrad'}</div>
+                    <div class="mt-1">${escapeHtml(blocking.map((item) => item.label).join(', '))} måste vara klara innan tävlingen bör publiceras.</div>
+                </div>
+                ${firstBlocking ? renderChecklistActionButton(firstBlocking, 'self-start md:self-auto') : ''}
+            </div>
+        `;
+    } else if (advisory.length > 0) {
+        container.className = 'mt-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
+        container.innerHTML = `
+            <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <div class="font-semibold">Redo att publicera med varning</div>
+                    <div class="mt-1">Bra att kontrollera: ${escapeHtml(advisory.map((item) => item.label).join(', '))}.</div>
+                </div>
+                ${firstAdvisory ? renderChecklistActionButton(firstAdvisory, 'self-start md:self-auto') : ''}
+            </div>
+        `;
+    } else {
+        container.className = 'mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100';
+        container.innerHTML = `
+            <div class="font-semibold">Publicering klar</div>
+            <div class="mt-1">Grunddata, karta, ekipage och klassinställningar finns på plats.</div>
+        `;
+    }
+
+    container.onclick = (event) => {
+        const button = event.target.closest('.checklist-action-btn');
+        if (!button) return;
+
+        runChecklistAction({
+            type: button.dataset.actionType,
+            targetId: button.dataset.actionTarget,
+            hash: button.dataset.actionHash
+        });
+    };
+}
+
+function renderChecklistSectionIndicators(context = latestSettingsChecklistContext) {
+    const items = buildCompetitionChecklistItems(context);
+    const itemsByLabel = new Map(items.map((item) => [item.label, item]));
+
+    const modeItem = itemsByLabel.get('Tävlingsläge');
+    if (modeItem) {
+        renderSectionStatusBlock({
+            statusId: 'settingsCompetitionModeStatus',
+            cardId: 'settingsCompetitionModeCard',
+            tone: modeItem.done ? 'success' : 'danger',
+            badge: modeItem.done ? 'Tävlingsläge valt' : 'Tävlingsläge saknas',
+            detail: modeItem.detail,
+            item: modeItem
+        });
+    }
+
+    const mapItem = itemsByLabel.get('Karta');
+    if (mapItem) {
+        renderSectionStatusBlock({
+            statusId: 'settingsMapStatus',
+            cardId: 'settingsMapCard',
+            tone: mapItem.done ? 'success' : 'danger',
+            badge: mapItem.done ? 'Kartposition klar' : 'Kartposition saknas',
+            detail: mapItem.detail,
+            item: mapItem
+        });
+    }
+
+    const classItem = itemsByLabel.get('Klassinställningar');
+    if (classItem) {
+        renderSectionStatusBlock({
+            statusId: 'settingsClassSettingsStatus',
+            cardId: 'settingsClassSettingsCard',
+            tone: classItem.done ? 'success' : 'danger',
+            badge: classItem.done ? 'Klassinställningar klara' : 'Klassinställningar behöver åtgärdas',
+            detail: classItem.detail,
+            item: classItem
+        });
+    }
+
+    const { blocking, advisory } = buildPublishingValidation(context);
+    const publishItem = itemsByLabel.get('Publicering');
+    if (blocking.length > 0) {
+        renderSectionStatusBlock({
+            statusId: 'publishGateStatus',
+            cardId: 'settingsPublishCard',
+            tone: 'danger',
+            badge: 'Publicering spärrad',
+            detail: `${blocking.map((item) => item.label).join(', ')} måste vara klart först.`,
+            item: blocking[0]
+        });
+    } else if (advisory.length > 0) {
+        renderSectionStatusBlock({
+            statusId: 'publishGateStatus',
+            cardId: 'settingsPublishCard',
+            tone: 'warning',
+            badge: 'Redo med varning',
+            detail: `Kontrollera gärna ${advisory.map((item) => item.label).join(', ')} innan publicering.`,
+            item: advisory[0]
+        });
+    } else {
+        renderSectionStatusBlock({
+            statusId: 'publishGateStatus',
+            cardId: 'settingsPublishCard',
+            tone: publishItem?.done ? 'success' : 'neutral',
+            badge: publishItem?.done ? 'Publicerad' : 'Redo att publicera',
+            detail: publishItem?.done
+                ? 'Tävlingen är publik och alla kritiska krav är uppfyllda.'
+                : 'Alla kritiska krav är uppfyllda. Du kan publicera när du vill.',
+            item: null
+        });
+    }
+}
+
 export function getSettingsHtml() {
     return `
     <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+        <div class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+            <h2 class="text-2xl font-semibold mb-2 border-b dark:border-gray-700 pb-2 dark:text-white">Skapa-checklista</h2>
+            <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">Visar vad som redan är på plats och vad som återstår för att få en komplett tävlingssetup.</p>
+            <div id="competitionSetupChecklist" class="text-sm text-gray-500 dark:text-gray-400">Laddar checklista...</div>
+        </div>
         
         <!-- TÄVLINGSTYP -->
         <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
-            <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Tävlingsnivå</h2>
+            <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Tävlingsprofil</h2>
             <div class="flex items-center justify-between">
                 <div>
-                    <p class="font-medium dark:text-gray-200">Internationell tävling (FEI)</p>
-                    <p class="text-sm text-gray-500 dark:text-gray-400">Styr vilka kolumner och rubriker som visas samt vad som hamnar i PDF:en.</p>
+                    <p class="font-medium dark:text-gray-200">Internationell språk- och dokumentprofil (FEI)</p>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Styr språk, rubriker, vissa kolumner och PDF-utseende. Byter inte automatiskt tävlingens beräkningslogik eller regelverk.</p>
                 </div>
                 <label class="inline-flex items-center cursor-pointer">
                     <input id="isInternationalToggle" type="checkbox" class="sr-only peer">
@@ -57,7 +556,7 @@ export function getSettingsHtml() {
             <div class="mt-3 text-sm text-gray-600 dark:text-gray-400" id="intlStatusHint"></div>
         </div>
 
-        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <div id="settingsCompetitionModeCard" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
             <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">${t('competition_mode')}</h2>
             <label for="competitionModeSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">${t('competition_mode_label')}</label>
             <select id="competitionModeSelect" class="block w-full p-3 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -67,10 +566,11 @@ export function getSettingsHtml() {
             <p id="competitionModeHint" class="mt-3 text-sm text-gray-600 dark:text-gray-400">
                 ${t('competition_mode_intro_hint')}
             </p>
+            <div id="settingsCompetitionModeStatus"></div>
         </div>
 
         <!-- PUBLICERING START -->
-        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <div id="settingsPublishCard" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
             <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Publicering</h2>
             <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">Bestäm när tävlingen ska synas för allmänheten på startsidan.</p>
             
@@ -90,6 +590,7 @@ export function getSettingsHtml() {
               <i class="fas fa-info-circle"></i> 
               När reglaget är grönt syns tävlingen för alla besökare.
             </p>
+            <div id="publishGateStatus" class="text-sm text-gray-500 dark:text-gray-400"></div>
         </div>
         <!-- PUBLICERING SLUT -->
 
@@ -142,7 +643,7 @@ export function getSettingsHtml() {
         </div>
         
         <!-- PLATS & KARTA -->
-        <div class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <div id="settingsMapCard" class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
             <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Plats & Karta</h2>
             <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">Ange tävlingsplatsens exakta position. Detta visas för deltagare och publik i Info-modalen.</p>
             
@@ -164,10 +665,11 @@ export function getSettingsHtml() {
                 </div>
                 <div class="md:col-span-2 h-80 bg-gray-100 dark:bg-gray-900 rounded-lg border dark:border-gray-700 relative z-0" id="settingsMapContainer"></div>
             </div>
+            <div id="settingsMapStatus"></div>
         </div>
 
         <!-- KLASSINSTÄLLNINGAR -->
-        <div class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+        <div id="settingsClassSettingsCard" class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
             <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Klass-inställningar</h2>
             <p class="text-sm text-gray-500 mb-6 dark:text-gray-400">Bestäm hur många som ska placeras i varje klass. Systemet föreslår 1/4 (avrundat uppåt) som standard.</p>
             
@@ -186,6 +688,7 @@ export function getSettingsHtml() {
                     </tbody>
                 </table>
             </div>
+            <div id="settingsClassSettingsStatus"></div>
         </div>
 
         <div class="md:col-span-2">
@@ -291,12 +794,16 @@ export async function setupSettingsLogic(competitionId) {
         const hint = document.getElementById('intlStatusHint');
 
         if (tgl) tgl.checked = isInt;
-        if (hint) hint.textContent = isInt ? 'Läge: Internationell (FEI).' : 'Läge: Nationell (SvRF).';
+        if (hint) hint.textContent = isInt
+            ? 'Profil: Internationell (FEI) - engelska rubriker i dokument och publikvyer.'
+            : 'Profil: Nationell (SvRF) - svenska rubriker i dokument och publikvyer.';
 
         if (tgl) {
             tgl.addEventListener('change', () => {
                 const val = tgl.checked;
-                if (hint) hint.textContent = val ? 'Läge: Internationell (FEI).' : 'Läge: Nationell (SvRF).';
+                if (hint) hint.textContent = val
+                    ? 'Profil: Internationell (FEI) - engelska rubriker i dokument och publikvyer.'
+                    : 'Profil: Nationell (SvRF) - svenska rubriker i dokument och publikvyer.';
             });
         }
 
@@ -314,6 +821,22 @@ export async function setupSettingsLogic(competitionId) {
         // We fetch 'map' config. Fallback to competition doc 'coordinates' for migration/legacy.
         const mapConfig = await getConfig(competitionId, 'map').catch(() => ({}));
         const compDoc = await getCompetitionById(competitionId);
+        const [equipages, classConfig, judges, officials] = await Promise.all([
+            getEquipages(competitionId),
+            getConfig(competitionId, 'classSettings').catch(() => ({})),
+            getJudges(competitionId).catch(() => []),
+            getOfficials(competitionId).catch(() => [])
+        ]);
+
+        const checklistContext = {
+            compDoc: compDoc ? { ...compDoc } : {},
+            meta: { ...(meta || {}) },
+            mapConfig: { ...(mapConfig || {}) },
+            equipages,
+            classConfig: { ...(classConfig || {}) },
+            judges,
+            officials
+        };
 
         let initialCoords = mapConfig.coordinates;
         if (!initialCoords && compDoc && compDoc.coordinates) {
@@ -343,6 +866,8 @@ export async function setupSettingsLogic(competitionId) {
         }
 
         setupCompetitionLogoControls(competitionId, compDoc, meta);
+        renderCompetitionSetupChecklist(checklistContext);
+        renderChecklistSectionIndicators(checklistContext);
 
         // --- 1.5 Publishing Status (Root Doc) ---
         // Defaults to TRUE if undefined (backward compatibility)
@@ -363,11 +888,37 @@ export async function setupSettingsLogic(competitionId) {
 
             pubToggle.addEventListener('change', async () => {
                 const newState = pubToggle.checked;
+
+                if (newState) {
+                    const blockedMessage = buildPublishingBlockedMessage(checklistContext);
+                    if (blockedMessage) {
+                        pubToggle.checked = false;
+                        updatePubUI(false);
+                        renderChecklistSectionIndicators(checklistContext);
+                        window.alert(blockedMessage);
+                        return;
+                    }
+
+                    const advisoryMessage = buildPublishingAdvisoryMessage(checklistContext);
+                    if (advisoryMessage && !window.confirm(advisoryMessage)) {
+                        pubToggle.checked = false;
+                        updatePubUI(false);
+                        renderChecklistSectionIndicators(checklistContext);
+                        return;
+                    }
+                }
+
                 updatePubUI(newState);
 
                 // Save immediately (separate from global save button to be responsive)
                 try {
                     await updateCompetition(competitionId, { published: newState });
+                    checklistContext.compDoc = {
+                        ...checklistContext.compDoc,
+                        published: newState
+                    };
+                    renderCompetitionSetupChecklist(checklistContext);
+                    renderChecklistSectionIndicators(checklistContext);
 
                     // Show small toast or just rely on toggle state
                     // showAlert(newState ? 'Tävlingen är nu publicerad.' : 'Tävlingen är nu dold.', true);
@@ -375,6 +926,7 @@ export async function setupSettingsLogic(competitionId) {
                     console.error('Failed to toggle publish status:', err);
                     pubToggle.checked = !newState; // Revert
                     updatePubUI(!newState);
+                    renderChecklistSectionIndicators(checklistContext);
                     showAlert('Kunde inte ändra status.', false);
                 }
             });
@@ -449,6 +1001,24 @@ export async function setupSettingsLogic(competitionId) {
                         updatedAt: new Date()
                     });
 
+                    checklistContext.compDoc = {
+                        ...checklistContext.compDoc,
+                        competitionMode: newCompetitionMode
+                    };
+                    checklistContext.meta = {
+                        ...checklistContext.meta,
+                        isInternational: newValIntl,
+                        lockdownMinutes: newValLock,
+                        manualLockdown: newValManual
+                    };
+                    checklistContext.classConfig = { ...classSettings };
+                    checklistContext.mapConfig = {
+                        ...checklistContext.mapConfig,
+                        coordinates: newCoords
+                    };
+                    renderCompetitionSetupChecklist(checklistContext);
+                    renderChecklistSectionIndicators(checklistContext);
+
                     showAlert('Inställningar sparade! ✅', true);
                 } catch (err) {
                     console.error(err);
@@ -461,11 +1031,6 @@ export async function setupSettingsLogic(competitionId) {
         }
 
         // --- 4. Class Settings Logic ---
-        const [equipages, classConfig] = await Promise.all([
-            getEquipages(competitionId),
-            getConfig(competitionId, 'classSettings').catch(() => ({}))
-        ]);
-
         const tableBody = document.getElementById('classSettingsTableBody');
         if (tableBody && equipages) {
             const classes = [...new Set(equipages.map(e => e.className || 'Okänd'))].sort();

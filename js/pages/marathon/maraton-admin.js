@@ -19,6 +19,15 @@ let currentCompetition = null;
 let pickerMap = null; // Global reference for cleanup
 let marathonValidationErrors = {};
 
+function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function ensureMarathonAdminResponsiveStyles() {
   if (document.getElementById('marathon-admin-responsive-styles')) return;
 
@@ -325,7 +334,10 @@ function renderLayout(competition) {
 
   pageRoot.innerHTML = `
     <div class="container mx-auto p-4 md:p-8">
-      ${getCompetitionHeader(competition, 'Admin – Maraton')}
+      ${getCompetitionHeader(competition, 'Admin - Maraton')}
+      <div id="marathonAdminReadiness" class="mb-6 rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900/20 dark:text-gray-300">
+        Status laddas...
+      </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -599,6 +611,7 @@ async function setupGlobalSettingsForm() {
     try {
       parsedRules = JSON.parse(rulesInput.value);
     } catch (err) {
+      renderMarathonAdminReadiness();
       showAlert('Felaktigt JSON-format i tempotabellen.', false);
       return;
     }
@@ -612,6 +625,7 @@ async function setupGlobalSettingsForm() {
     };
     try {
       await saveConfig(competitionId, 'maratonConfig', newConfig);
+      renderMarathonAdminReadiness();
       showAlert('Globala regelinställningar har sparats.');
     } catch (err) {
       showAlert('Kunde inte spara globala inställningar.', false);
@@ -1114,6 +1128,95 @@ function applyMarathonValidationDom(container, validationErrors) {
   }
 }
 
+function buildMarathonValidationFromForm(container) {
+  const newClassData = {};
+  container.querySelectorAll('.marathon-class-input').forEach(input => {
+    const cls = input.dataset.className;
+    const field = input.dataset.field;
+    if (!cls || !field) return;
+    if (!newClassData[cls]) newClassData[cls] = {};
+
+    if (field === 'includeTransport') {
+      newClassData[cls][field] = input.checked === true;
+    } else if (field === 'trTemplate') {
+      newClassData[cls][field] = input.value || null;
+    } else if (field === 'drivenObstacles') {
+      const str = (input.value || '').trim();
+      newClassData[cls][field] = str ? str : null;
+    } else {
+      const val = parseFloat(input.value);
+      newClassData[cls][field] = Number.isFinite(val) ? val : null;
+    }
+  });
+
+  Object.values(newClassData).forEach(row => {
+    if (row.includeTransport !== true) {
+      row.distanceT = null;
+      row.tempoT = null;
+    }
+  });
+
+  const classCatMap = buildDominantTRCategoryByClass(allEquipages);
+  const validationErrors = validateMarathonAdminSettings(newClassData, (className, row) => {
+    const catKey = classCatMap.get(className) || 'horse';
+    const manualTempoA = Number(row.tempoA);
+    const manualTempoB = Number(row.tempoB);
+
+    return {
+      hasTempoA: (Number.isFinite(manualTempoA) && manualTempoA > 0)
+        || !!trTempoMminForWithCat(row.trTemplate || className, 'A', catKey),
+      hasTempoB: (Number.isFinite(manualTempoB) && manualTempoB > 0)
+        || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey)
+    };
+  });
+
+  return { newClassData, validationErrors };
+}
+
+function renderMarathonAdminReadiness() {
+  const container = pageRoot?.querySelector('#marathonAdminReadiness');
+  if (!container) return;
+
+  const classCount = Array.from(new Set((allEquipages || []).map(e => e?.className?.trim()).filter(Boolean))).length;
+  const obstacleCount = Array.isArray(allObstacles) ? allObstacles.length : 0;
+
+  if (classCount === 0) {
+    container.className = 'rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
+    container.innerHTML = '<div class="font-semibold">Inte klar ännu</div><div class="mt-1">Inga klasser hittades än. Lägg in ekipage först.</div>';
+    return;
+  }
+
+  const formContainer = pageRoot?.querySelector('#marathon-distances-container');
+  if (!formContainer) {
+    container.className = 'rounded-xl border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700 dark:border-gray-700 dark:bg-gray-900/20 dark:text-gray-300';
+    container.innerHTML = '<div class="font-semibold">Status uppdateras när klassinställningarna har laddats</div>';
+    return;
+  }
+
+  const { validationErrors } = buildMarathonValidationFromForm(formContainer);
+  const hasErrors = hasMarathonValidationErrors(validationErrors);
+  const classesWithErrors = Object.keys(validationErrors || {}).length;
+
+  if (hasErrors || obstacleCount === 0) {
+    container.className = 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
+    container.innerHTML = `
+      <div class="font-semibold">Maratonadmin behöver kompletteras</div>
+      <div class="mt-1">
+        ${classesWithErrors > 0 ? `${classesWithErrors} klass${classesWithErrors === 1 ? '' : 'er'} har obligatoriska fält som saknas.` : ''}
+        ${classesWithErrors > 0 && obstacleCount === 0 ? ' ' : ''}
+        ${obstacleCount === 0 ? 'Inga hinder är upplagda ännu.' : ''}
+      </div>
+    `;
+    return;
+  }
+
+  container.className = 'rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100';
+  container.innerHTML = `
+    <div class="font-semibold">Maratonadmin ser redo ut</div>
+    <div class="mt-1">${classCount} klasser och ${obstacleCount} hinder ser klara ut utan kända valideringsfel.</div>
+  `;
+}
+
 
 async function setupMarathonSettings() {
   if (!pageRoot) return;
@@ -1324,6 +1427,7 @@ async function setupMarathonSettings() {
       applyMarathonValidationDom(container, marathonValidationErrors);
       const firstError = container.querySelector('.ring-red-500') || container.querySelector('.marathon-validation-summary');
       firstError?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      renderMarathonAdminReadiness();
       showAlert('Maratoninställningarna saknar obligatoriska fält. Kontrollera röda markeringar.', false);
       return;
     }
@@ -1388,6 +1492,8 @@ async function setupMarathonSettings() {
       ? manualTempoB
       : trTempoMminForWithCat(cls, 'B', catKey);
 
+    renderMarathonAdminReadiness();
+
     // Cast distance to Number explicitly for safety
     const distA = Number(q('distanceA')) || 0;
     const distB = Number(q('distanceB')) || 0;
@@ -1428,6 +1534,8 @@ async function setupMarathonSettings() {
       }
     }
   };
+
+  renderMarathonAdminReadiness();
 }
 
 function setupObstacleForm() {
@@ -1613,6 +1721,7 @@ export async function load() {
   if (unsubscribeObstacles) unsubscribeObstacles();
   unsubscribeObstacles = listenForMarathonObstacles(competitionId, (obs) => {
     renderObstacleList(obs);
+    renderMarathonAdminReadiness();
   });
 
   injectPickerStyles();

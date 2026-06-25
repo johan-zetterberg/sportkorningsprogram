@@ -626,7 +626,7 @@ function getTabContent(tab) {
               <div class="bg-white border rounded-lg p-4 shadow-sm">
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Inställningar</h4>
                 <div class="space-y-2 text-sm text-gray-600">
-                  <p><strong>Tävlingsnivå (FEI/Nationell):</strong> Påverkar vilka PDF-mallar som används. FEI ger engelska rubriker.</p>
+                  <p><strong>Tävlingsprofil (FEI/Nationell):</strong> Styr språk, rubriker, PDF-mallar och vissa publiktexter. FEI-profilen ger engelska rubriker men byter inte automatiskt tävlingens regelverk eller beräkningslogik.</p>
                   <p><strong>Tävlingslogga:</strong> Ladda upp arrangörens eller tävlingens logga här. Loggan används på PDF:er och i utskrifter där det finns plats. PNG, JPG och WebP stöds.</p>
                   <p><strong>Tävlingsläge (Live / Fältläge):</strong> Välj <strong>Live</strong> när ni använder monitorer, live-timers och realtidsflöden. Välj <strong>Fältläge</strong> när ni vill arbeta enklare med manuell rapportering och sekretariatssidorna som huvudverktyg.</p>
                   <p><strong>Publicering (Visa på startsidan):</strong></p>
@@ -1692,7 +1692,7 @@ function getTabContentEN(tab) {
               <div class="bg-white border rounded-lg p-4 shadow-sm">
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Settings</h4>
                 <div class="space-y-2 text-sm text-gray-600">
-                  <p><strong>Competition Level (FEI/National):</strong> Affects which PDF templates are used. FEI gives English headers.</p>
+                  <p><strong>Competition Profile (FEI/National):</strong> Controls language, headings, PDF templates and some public-facing labels. The FEI profile gives English headings, but does not automatically change competition rules or scoring logic.</p>
                   <p><strong>Competition logo:</strong> Upload the organizer or competition logo here. It is used on PDFs and printed lists where space allows. PNG, JPG and WebP are supported.</p>
                   <p><strong>Competition Mode (Live / Field):</strong> Choose <strong>Live</strong> when you use monitors, live timers and real-time workflows. Choose <strong>Field</strong> when you want a simpler setup with manual reporting and the secretariat pages as the primary tool.</p>
                   <p><strong>Digital Declaration & Locking:</strong></p>

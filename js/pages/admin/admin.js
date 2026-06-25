@@ -24,6 +24,7 @@ let competitionId = null;
 let allEquipages = [];
 let currentTab = 'registration'; // 'registration' | 'teams' | 'communication' | 'settings' | 'archiving' | 'officials'
 let adminUnsubscribers = [];
+let pendingFocusTarget = null;
 const ADMIN_TAB_BUTTONS = {
   registration: 'tab-btn-reg',
   teams: 'tab-btn-teams',
@@ -43,6 +44,25 @@ function getRequestedAdminTab() {
   } catch {
     return 'registration';
   }
+}
+
+function getRequestedAdminFocus() {
+  try {
+    const hashQuery = window.location.hash.split('?')[1] || '';
+    const hashParams = new URLSearchParams(hashQuery);
+    const requested = String(hashParams.get('focus') || '').trim();
+    return requested || null;
+  } catch {
+    return null;
+  }
+}
+
+function tryScrollToPendingFocus() {
+  if (!pendingFocusTarget) return;
+  const target = document.getElementById(pendingFocusTarget);
+  if (!target) return;
+  target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  pendingFocusTarget = null;
 }
 
 function addAdminUnsubscriber(unsubscribe) {
@@ -179,6 +199,7 @@ function renderLayout(competition) {
   document.getElementById('tab-btn-reg').addEventListener('click', () => {
     currentTab = 'registration';
     updateTabs();
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   document.getElementById('tab-btn-teams').addEventListener('click', () => {
@@ -189,6 +210,7 @@ function renderLayout(competition) {
       // Pass the competition object which has ID and showTeams
       renderTeamsTab(container, competition);
     }
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   document.getElementById('tab-btn-clubs').addEventListener('click', () => {
@@ -198,6 +220,7 @@ function renderLayout(competition) {
     if (container) {
       renderClubs(container, competition.id, allEquipages);
     }
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   document.getElementById('tab-btn-officials').addEventListener('click', () => {
@@ -207,6 +230,7 @@ function renderLayout(competition) {
     if (container) {
       renderOfficialsTab(container, competition);
     }
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   document.getElementById('tab-btn-comm').addEventListener('click', () => {
@@ -216,17 +240,20 @@ function renderLayout(competition) {
     if (commContainer && commContainer.innerHTML.includes('Laddar')) {
       renderCommunicationTab(commContainer, competition);
     }
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   document.getElementById('tab-btn-settings').addEventListener('click', () => {
     currentTab = 'settings';
     updateTabs();
     settings.refreshMap();
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   document.getElementById('tab-btn-archiving').addEventListener('click', () => {
     currentTab = 'archiving';
     updateTabs();
+    setTimeout(tryScrollToPendingFocus, 50);
   });
 
   function updateTabs() {
@@ -358,6 +385,7 @@ export async function load() {
   }
 
   currentTab = getRequestedAdminTab();
+  pendingFocusTarget = getRequestedAdminFocus();
 
   // Render Layout (Tabs etc.) using the fetched competition data
   renderLayout(comp);
@@ -401,6 +429,7 @@ export async function load() {
   const initialTabButtonId = ADMIN_TAB_BUTTONS[currentTab] || ADMIN_TAB_BUTTONS.registration;
   const initialTabButton = document.getElementById(initialTabButtonId);
   if (initialTabButton) initialTabButton.click();
+  setTimeout(tryScrollToPendingFocus, 120);
 }
 
 export function __unload() {
@@ -420,4 +449,5 @@ export function __unload() {
   competitionId = null;
   allEquipages = [];
   currentTab = 'registration';
+  pendingFocusTarget = null;
 }

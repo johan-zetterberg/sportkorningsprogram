@@ -54,18 +54,32 @@ export function getStarttiderPublishButtonView(key, publishedState = {}, {
     borderClass,
     shortLabel,
     publishLabel,
-    publishedLabel
+    publishedLabel,
+    warningState = null,
+    warningText = ''
 } = {}) {
     const isPublished = !!publishedState[key];
     const ringColor = colorClass?.split('-')[1] || 'gray';
-    const className = isPublished
+    let className = isPublished
         ? `w-full px-2 py-2 text-sm rounded-md font-bold text-white shadow-sm transition-colors ${colorClass} ring-2 ring-offset-1 ring-${ringColor}-500`
         : `w-full px-2 py-2 text-sm rounded-md bg-white text-gray-700 border ${borderClass} hover:bg-gray-50 transition-colors opacity-80`;
     const label = isPublished
         ? (publishedLabel || `Publicerad (${shortLabel})`)
         : (publishLabel || `Publicera ${shortLabel}`);
 
-    return { className, label, isPublished };
+    if (warningState === 'published-incomplete') {
+        className = `${className} !ring-red-500 !ring-2`;
+    } else if (warningState === 'incomplete') {
+        className = isPublished
+            ? `${className} !ring-amber-400 !ring-2`
+            : `w-full px-2 py-2 text-sm rounded-md border border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100 transition-colors shadow-sm`;
+    }
+
+    const warningHtml = warningText
+        ? `<span class="mt-1 block text-[10px] font-semibold uppercase tracking-wide ${warningState === 'published-incomplete' ? 'text-red-100/90' : 'text-amber-700 dark:text-amber-300'}">${escapeHtml(warningText)}</span>`
+        : '';
+
+    return { className, label, isPublished, warningHtml };
 }
 
 export function buildStarttiderClassOptions(equipages = [], allClassesLabel = 'Alla klasser') {
@@ -99,13 +113,13 @@ export function renderStarttiderPublishResetSection({
          <h4 class="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400 mb-3">${labels.publishTitle || 'Publicering av Startlistor'}</h4>
          <div class="grid grid-cols-3 gap-2">
             <button id="pubDressage" class="${dressage.className || ''}">
-                ${dressage.label || ''}
+                ${dressage.label || ''}${dressage.warningHtml || ''}
             </button>
             <button id="pubMarathon" class="${marathon.className || ''}">
-                 ${marathon.label || ''}
+                 ${marathon.label || ''}${marathon.warningHtml || ''}
             </button>
             <button id="pubPrecision" class="${precision.className || ''}">
-                 ${precision.label || ''}
+                 ${precision.label || ''}${precision.warningHtml || ''}
             </button>
          </div>
     </div>

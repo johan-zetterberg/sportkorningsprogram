@@ -99,6 +99,11 @@ window.__starttiderResizeHandler = window.__starttiderResizeHandler || null;
 // === NYTT: State-variabler och funktioner för sammanslagning ===
 let starttider_displayConfig = {};
 let starttider_MERGE_MAP = new Map();
+const STARTTIDER_DISCIPLINES = [
+    { key: 'dressage', label: 'Dressyr' },
+    { key: 'marathon', label: 'Maraton' },
+    { key: 'precision', label: 'Precision' }
+];
 
 
 function horseLabel(eq) {
@@ -291,6 +296,129 @@ function timeCell(key, sn, value, editable) {
     });
 }
 
+function getStarttiderReadinessSummary() {
+    const totalEquipages = equipages.length;
+    const publishedState = getPublishedState(startTimes);
+
+    return STARTTIDER_DISCIPLINES.map(({ key, label }) => {
+        const scheduledCount = equipages.reduce((count, eq) => {
+            const sn = String(eq.startNumber);
+            return parseDateTime(startTimes?.[sn]?.[key]) ? count + 1 : count;
+        }, 0);
+
+        const published = !!publishedState[key];
+        const hasAnyTimes = scheduledCount > 0;
+        const isComplete = totalEquipages > 0 && scheduledCount === totalEquipages;
+
+        let tone = 'amber';
+        let status = 'Inte genererad';
+        let detail = 'Inga starttider satta an.';
+
+        if (published && !isComplete) {
+            tone = 'red';
+            status = 'Publicerad for tidigt';
+            detail = `${scheduledCount} av ${totalEquipages} ekipage har tider, men listan ar redan publicerad.`;
+        } else if (!hasAnyTimes) {
+            tone = 'amber';
+            status = 'Inte genererad';
+            detail = 'Inga starttider satta an.';
+        } else if (!isComplete) {
+            tone = 'amber';
+            status = 'Delvis klar';
+            detail = `${scheduledCount} av ${totalEquipages} ekipage har tider.`;
+        } else if (published) {
+            tone = 'green';
+            status = 'Klar och publicerad';
+            detail = `Alla ${totalEquipages} ekipage har tider och listan ar publicerad.`;
+        } else {
+            tone = 'blue';
+            status = 'Klar men opublicerad';
+            detail = `Alla ${totalEquipages} ekipage har tider, men listan ar inte publicerad an.`;
+        }
+
+        return {
+            key,
+            label,
+            published,
+            scheduledCount,
+            tone,
+            status,
+            detail
+        };
+    });
+}
+
+function renderStarttiderReadiness() {
+    const container = document.getElementById('starttiderReadiness');
+    if (!container) return;
+
+    const isAdminUser = currentUserRole === 'admin' || currentUserRole === 'superadmin';
+    if (!isAdminUser) {
+        container.className = 'hidden';
+        container.innerHTML = '';
+        return;
+    }
+
+    if (!equipages.length) {
+        container.className = 'mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
+        container.innerHTML = `
+            <div class="font-semibold">Starttider kan inte forberedas an</div>
+            <div class="mt-1">Inga ekipage hittades. Lagg in ekipage forst.</div>
+        `;
+        return;
+    }
+
+    const readiness = getStarttiderReadinessSummary();
+    const hasCritical = readiness.some(item => item.tone === 'red');
+    const hasWarning = readiness.some(item => item.tone === 'amber' || item.tone === 'blue');
+
+    let shellClass = 'mb-4 rounded-xl border p-4';
+    let title = 'Starttider ser klara ut';
+    let intro = 'Alla grenar har kompletta startlistor.';
+
+    if (hasCritical) {
+        shellClass += ' border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
+        title = 'Starttider behover kompletteras';
+        intro = 'Minst en startlista ar publicerad innan alla ekipage har fatt tider.';
+    } else if (hasWarning) {
+        shellClass += ' border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
+        title = 'Starttider ar delvis forberedda';
+        intro = 'Kontrollera grenarna nedan innan publicering.';
+    } else {
+        shellClass += ' border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100';
+    }
+
+    const toneClass = {
+        red: 'border-red-200 bg-red-100/80 text-red-900 dark:border-red-800 dark:bg-red-950/30 dark:text-red-100',
+        amber: 'border-amber-200 bg-amber-100/80 text-amber-900 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-100',
+        blue: 'border-blue-200 bg-blue-100/80 text-blue-900 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-100',
+        green: 'border-emerald-200 bg-emerald-100/80 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-100'
+    };
+
+    container.className = shellClass;
+    container.innerHTML = `
+        <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+                <h3 class="text-base font-semibold">${title}</h3>
+                <p class="mt-1 text-sm opacity-90">${intro}</p>
+            </div>
+            <div class="text-sm opacity-80">${equipages.length} ekipage i planeringen</div>
+        </div>
+        <div class="mt-4 grid gap-3 md:grid-cols-3">
+            ${readiness.map(item => `
+                <div class="rounded-lg border p-3 ${toneClass[item.tone]}">
+                    <div class="flex items-center justify-between gap-3">
+                        <div class="font-semibold">${item.label}</div>
+                        <div class="text-xs uppercase tracking-wide opacity-80">${item.published ? 'Publicerad' : 'Ej publicerad'}</div>
+                    </div>
+                    <div class="mt-2 text-sm font-medium">${item.status}</div>
+                    <div class="mt-1 text-xs opacity-90">${item.detail}</div>
+                </div>
+            `).join('')}
+        </div>
+    `;
+}
+
 
 // ======= Drag-and-Drop Helpers =======
 let draggedStartNumber = null;
@@ -382,6 +510,7 @@ function renderLayout() {
     page.innerHTML = `
     <div class="container mx-auto p-4 md:p-8">
         ${getCompetitionHeader(competition, t('startlist_live_title'))}
+        <section id="starttiderReadiness" class="hidden"></section>
         
         <div class="${publicMode ? 'text-[15px]' : ''}">
           <div class="flex flex-col gap-3 mb-4 w-full">
@@ -444,6 +573,7 @@ function render() {
     } else {
         renderDesktop();
     }
+    renderStarttiderReadiness();
     syncViewModeControls();
 }
 
@@ -922,6 +1052,7 @@ async function togglePublish(key) {
 
     // Optimistisk uppdatering UI
     bindAllControls();
+    renderStarttiderReadiness();
 
     try {
         // Separera times och published för att matcha strukturen i Firestore
@@ -935,6 +1066,7 @@ async function togglePublish(key) {
         // Revert vid fel
         startTimes.published[key] = !startTimes.published[key];
         bindAllControls();
+        renderStarttiderReadiness();
     }
 }
 
@@ -1008,7 +1140,23 @@ function bindAllControls() {
     const { classes, html: classOptions } = buildStarttiderClassOptions(equipages, t('all_classes_opt'));
 
     const pubState = getPublishedState(startTimes);
-    const publishButton = (key, options) => getStarttiderPublishButtonView(key, pubState, options);
+    const readinessByKey = new Map(getStarttiderReadinessSummary().map(item => [item.key, item]));
+    const publishButton = (key, options) => {
+        const readiness = readinessByKey.get(key);
+        const warningState = readiness?.published && readiness?.tone === 'red'
+            ? 'published-incomplete'
+            : (readiness && readiness.scheduledCount < equipages.length ? 'incomplete' : null);
+        const warningText = warningState === 'published-incomplete'
+            ? 'Ofullstandig lista'
+            : (warningState === 'incomplete'
+                ? `${readiness?.scheduledCount || 0}/${equipages.length} tider satta`
+                : '');
+        return getStarttiderPublishButtonView(key, pubState, {
+            ...options,
+            warningState,
+            warningText
+        });
+    };
     const pubDressage = publishButton('dressage', { colorClass: 'bg-slate-600', borderClass: 'border-slate-300', shortLabel: 'D' });
     const pubMarathon = publishButton('marathon', { colorClass: 'bg-emerald-600', borderClass: 'border-emerald-300', shortLabel: 'M' });
     const pubPrecision = publishButton('precision', { colorClass: 'bg-indigo-600', borderClass: 'border-indigo-300', shortLabel: 'P' });
@@ -1188,6 +1336,7 @@ ${renderStarttiderToolbarSection({
                 const entry = startTimes[sn] ||= {};
                 entry[key] = e.target.value;
                 updateNextStartTimes();
+                renderStarttiderReadiness();
             }
         });
 
