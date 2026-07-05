@@ -123,15 +123,24 @@ export async function navigateTo(hash) {
 
   try { localStorage.setItem('lastPageId', routeHash || '#hub'); } catch (_) { }
 
-  if (pageKey !== 'hub' && !getGlobalState('currentCompetition')) {
+  if (pageKey !== 'hub') {
     try {
       const requestedCompetitionId = getRequestedCompetitionIdFromHash(normalizedHash);
-      const fallbackCompetitionId = localStorage.getItem('lastCompetitionId');
-      const competitionId = requestedCompetitionId || fallbackCompetitionId;
+      const currentCompetition = getGlobalState('currentCompetition');
+      const requestedDiffers = requestedCompetitionId
+        && String(currentCompetition?.id || '') !== String(requestedCompetitionId);
+      const fallbackCompetitionId = !requestedCompetitionId && !currentCompetition
+        ? localStorage.getItem('lastCompetitionId')
+        : null;
+      const competitionId = requestedDiffers ? requestedCompetitionId : fallbackCompetitionId;
+
       if (competitionId) {
         const comp = await getCompetitionById(competitionId);
         if (comp) {
           setGlobalState({ key: 'currentCompetition', value: comp });
+          await refreshUserCompRole();
+        } else if (requestedCompetitionId) {
+          setGlobalState({ key: 'currentCompetition', value: null });
           await refreshUserCompRole();
         }
       }

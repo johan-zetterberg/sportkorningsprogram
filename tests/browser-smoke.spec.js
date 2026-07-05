@@ -117,6 +117,22 @@ test('public center and portal audience smoke flow', async ({ page }) => {
   await expect(page.locator('#dash-content')).toContainText('Smoke Drivers Doc');
 });
 
+test('public center explicit competition id overrides previous selection', async ({ page }) => {
+  test.setTimeout(240000);
+  const firstCompetitionId = await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  await setPublicInfoIntro(page, firstCompetitionId, 'Smoke explicit first competition');
+
+  const secondCompetitionId = await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  await setPublicInfoIntro(page, secondCompetitionId, 'Smoke explicit second competition');
+
+  await page.goto(`/index.html#competition-center?id=${secondCompetitionId}`);
+  await expect(page.locator('#page-competition-center')).toContainText('Smoke explicit second competition');
+
+  await page.goto(`/index.html#competition-center?id=${firstCompetitionId}`);
+  await expect(page.locator('#page-competition-center')).toContainText('Smoke explicit first competition');
+  await expect(page.locator('#page-competition-center')).not.toContainText('Smoke explicit second competition');
+});
+
 test('all main pages navigate without browser errors', async ({ page }) => {
   test.setTimeout(300000);
   await forceLogin(page);
@@ -458,6 +474,23 @@ async function seedCompetition(page, { includeEdgeCases, includeStress }) {
 
   const competitionId = await page.evaluate(() => localStorage.getItem('lastCompetitionId'));
   expect(competitionId).toBeTruthy();
+  return competitionId;
+}
+
+async function setPublicInfoIntro(page, competitionId, introHtml) {
+  await page.evaluate(async ({ competitionId, introHtml }) => {
+    const { saveConfig } = await import('../js/services/competitionService.js');
+    await saveConfig(competitionId, 'publicInfo', {
+      enabled: true,
+      introHtml,
+      publish: {
+        classSummary: true,
+        documents: true,
+        messages: true,
+        maps: true
+      }
+    });
+  }, { competitionId, introHtml });
 }
 
 function collectBrowserErrors(page, browserErrors) {

@@ -1,5 +1,5 @@
 import { db, appId } from '../config/firebase-config.js';
-import { collection, doc, getDocs, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, doc, getDocs, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
@@ -73,6 +73,18 @@ export function isDocumentVisibleToDriver(document) {
   return audience.drivers === true;
 }
 
+function timestampMillis(value) {
+  if (!value) return 0;
+  if (typeof value.toMillis === 'function') return value.toMillis();
+  if (Number.isFinite(value.seconds)) return value.seconds * 1000;
+  const date = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function byTimestampDesc(a, b) {
+  return timestampMillis(b.timestamp || b.uploadedAt) - timestampMillis(a.timestamp || a.uploadedAt);
+}
+
 export async function getCompetitionMessages(competitionId) {
   if (!competitionId) return [];
   try {
@@ -82,6 +94,21 @@ export async function getCompetitionMessages(competitionId) {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (err) {
     console.warn('Could not fetch messages:', err);
+    return [];
+  }
+}
+
+export async function getPublicCompetitionMessages(competitionId) {
+  if (!competitionId) return [];
+  try {
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/messages`);
+    const q = query(colRef, where('audience.public', '==', true));
+    const snap = await getDocs(q);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort(byTimestampDesc);
+  } catch (err) {
+    console.warn('Could not fetch public messages:', err);
     return [];
   }
 }
@@ -119,6 +146,21 @@ export async function getCompetitionDocuments(competitionId) {
     return snap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (err) {
     console.warn('Could not fetch documents:', err);
+    return [];
+  }
+}
+
+export async function getPublicCompetitionDocuments(competitionId) {
+  if (!competitionId) return [];
+  try {
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/documents`);
+    const q = query(colRef, where('audience.public', '==', true));
+    const snap = await getDocs(q);
+    return snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort(byTimestampDesc);
+  } catch (err) {
+    console.warn('Could not fetch public documents:', err);
     return [];
   }
 }

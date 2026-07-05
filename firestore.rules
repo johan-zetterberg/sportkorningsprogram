@@ -194,7 +194,35 @@ service cloud.firestore {
         || pathStr.matches('.*data/competitions/[^/]+/judges/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/officials/[^/]+.*')
         || pathStr.matches('.*data/competitions/[^/]+/assignments/[^/]+.*')
+        || pathStr.matches('.*data/competitions/[^/]+/messages.*')
+        || pathStr.matches('.*data/competitions/[^/]+/documents.*')
         || pathStr.matches('.*data/competitions/[^/]+/admins/[^/]+.*');
+    }
+
+    function hasPublicAudience(data) {
+      let audience = data.get('audience', {});
+      return audience is map && audience.get('public', false) == true;
+    }
+
+    function hasDriverAudience(data) {
+      let audience = data.get('audience', {});
+      return audience is map && audience.get('drivers', false) == true;
+    }
+
+    function isLegacyPublicMessage(data) {
+      return !data.keys().hasAny(['audience'])
+        && data.get('targetStartNumber', '') == ''
+        && data.get('targetStartNumbers', []).size() == 0;
+    }
+
+    function isLegacyPublicDocument(data) {
+      return !data.keys().hasAny(['audience']);
+    }
+
+    function canReadAudienceScopedItem(data, legacyPublic) {
+      return hasPublicAudience(data)
+        || legacyPublic
+        || (request.auth != null && hasDriverAudience(data));
     }
 
     // ------------------------------------------------------------------------
@@ -550,7 +578,8 @@ service cloud.firestore {
 
     // NYTT: Meddelanden (Messages)
     match /artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId} {
-      allow read: if true;
+      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicMessage(resource.data));
+      allow list: if request.auth != null || hasPublicAudience(resource.data);
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -561,7 +590,8 @@ service cloud.firestore {
 
     // NYTT: Dokument (Documents)
     match /artifacts/{appId}/public/data/competitions/{compId}/documents/{docId} {
-      allow read: if true;
+      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicDocument(resource.data));
+      allow list: if request.auth != null || hasPublicAudience(resource.data);
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||

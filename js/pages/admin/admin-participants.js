@@ -145,7 +145,7 @@ export function getParticipantsHtml() {
 
                     <div class="pt-4 border-t dark:border-gray-700">
                         <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Integritetsmigrering</label>
-                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Flytta befintliga personuppgifter till privat lagring och rensa bort dem frÃ¥n publika ekipagedokument.</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mb-2">Flytta befintliga personuppgifter till privat lagring och rensa bort dem från publika ekipagedokument.</p>
                         <button type="button" id="migrateEquipagePrivacyBtn" class="w-full bg-amber-600 dark:bg-amber-700 text-white font-semibold py-2 px-4 rounded-lg hover:bg-amber-700 dark:hover:bg-amber-600">
                         Migrera personuppgifter
                         </button>

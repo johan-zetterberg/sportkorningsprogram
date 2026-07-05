@@ -9,6 +9,7 @@ import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
 import { t } from '../../utils/i18n.js';
+import { getPublishedState, parseDateTime } from './starttiderUtils.js';
 
 let mapInstance = null;
 let markerInstance = null;
@@ -48,8 +49,9 @@ function getUniqueChecklistClasses(equipages = []) {
 function buildChecklistAction(item) {
     switch (item?.label) {
         case 'Grunddata':
-        case 'Startmall':
             return { type: 'route', hash: '#hub', label: 'Öppna hubben' };
+        case 'Starttider':
+            return { type: 'route', hash: '#starttider', label: 'Öppna starttider' };
         case 'Tävlingsläge':
             return { type: 'scroll', targetId: 'settingsCompetitionModeCard', label: 'Visa läge' };
         case 'Karta':
@@ -62,6 +64,8 @@ function buildChecklistAction(item) {
             return { type: 'route', hash: '#admin?tab=registration&focus=judge-section-wrapper', label: 'Öppna domare' };
         case 'Funktionärer':
             return { type: 'route', hash: '#admin?tab=officials&focus=view-officials', label: 'Öppna funktionärer' };
+        case 'Publiksida':
+            return { type: 'route', hash: '#admin?tab=communication&focus=publicInfoForm', label: 'Öppna publikinfo' };
         case 'Publicering':
             return { type: 'scroll', targetId: 'settingsPublishCard', label: 'Visa publicering' };
         default:
@@ -172,6 +176,122 @@ function renderSectionStatusBlock({
     };
 }
 
+const START_TIME_CHECKLIST_DISCIPLINES = [
+    { key: 'dressage', label: 'Dressyr' },
+    { key: 'marathon', label: 'Maraton' },
+    { key: 'precision', label: 'Precision' }
+];
+
+function getActiveChecklistEquipages(equipages = []) {
+    return equipages.filter((equipage) => {
+        const startNumber = String(equipage?.startNumber || '').trim();
+        const status = String(equipage?.status || '').trim().toLowerCase();
+        return startNumber && status !== 'struken';
+    });
+}
+
+function normalizeStartTimesConfig(startTimesConfig = {}) {
+    const times = startTimesConfig?.times && typeof startTimesConfig.times === 'object'
+        ? startTimesConfig.times
+        : startTimesConfig || {};
+    return {
+        times,
+        published: getPublishedState(startTimesConfig?.published ? startTimesConfig : times)
+    };
+}
+
+function buildStartTimesChecklistItem(equipages = [], startTimesConfig = {}) {
+    const activeEquipages = getActiveChecklistEquipages(equipages);
+    const total = activeEquipages.length;
+    const { times, published } = normalizeStartTimesConfig(startTimesConfig);
+
+    if (total === 0) {
+        return {
+            label: 'Starttider',
+            done: false,
+            detail: 'Lägg in ekipage innan starttider kan kontrolleras'
+        };
+    }
+
+    const summaries = START_TIME_CHECKLIST_DISCIPLINES.map(({ key, label }) => {
+        const scheduledCount = activeEquipages.reduce((count, equipage) => {
+            const startNumber = String(equipage.startNumber);
+            return parseDateTime(times?.[startNumber]?.[key]) ? count + 1 : count;
+        }, 0);
+        return {
+            key,
+            label,
+            scheduledCount,
+            complete: scheduledCount === total,
+            published: !!published?.[key]
+        };
+    });
+
+    const completeCount = summaries.filter((summary) => summary.complete).length;
+    const publishedCompleteCount = summaries.filter((summary) => summary.complete && summary.published).length;
+    const done = completeCount === summaries.length && publishedCompleteCount === summaries.length;
+
+    if (done) {
+        return {
+            label: 'Starttider',
+            done: true,
+            detail: `Alla ${summaries.length} startlistor är kompletta och publicerade`
+        };
+    }
+
+    const missing = summaries
+        .filter((summary) => !summary.complete || !summary.published)
+        .map((summary) => {
+            if (!summary.complete) return `${summary.label} ${summary.scheduledCount}/${total}`;
+            return `${summary.label} ej publicerad`;
+        });
+
+    return {
+        label: 'Starttider',
+        done: false,
+        detail: `${completeCount}/${summaries.length} listor kompletta, ${publishedCompleteCount}/${summaries.length} publicerade. ${missing.join(', ')}`
+    };
+}
+
+function buildPublicInfoChecklistItem(publicInfo = {}) {
+    const spectatorInfo = publicInfo.spectatorInfo || {};
+    const enabled = publicInfo.enabled !== false;
+    const hasIntro = Boolean(String(publicInfo.introHtml || '').trim());
+    const hasVisitorInfo = [
+        spectatorInfo.venueAddress,
+        spectatorInfo.parking,
+        spectatorInfo.entrance,
+        spectatorInfo.kiosk,
+        spectatorInfo.toilets
+    ].some((value) => String(value || '').trim());
+
+    if (!enabled) {
+        return {
+            label: 'Publiksida',
+            done: false,
+            detail: 'Publik infosida är avstängd'
+        };
+    }
+
+    if (hasIntro || hasVisitorInfo) {
+        const parts = [
+            hasIntro ? 'intro' : null,
+            hasVisitorInfo ? 'besöksinfo' : null
+        ].filter(Boolean);
+        return {
+            label: 'Publiksida',
+            done: true,
+            detail: `Aktiv med ${parts.join(' och ')}`
+        };
+    }
+
+    return {
+        label: 'Publiksida',
+        done: false,
+        detail: 'Aktiv, men saknar intro eller besöksinfo'
+    };
+}
+
 function buildCompetitionChecklistItems(context = {}) {
     const compDoc = context.compDoc || {};
     const meta = context.meta || {};
@@ -180,10 +300,11 @@ function buildCompetitionChecklistItems(context = {}) {
     const classConfig = context.classConfig || {};
     const judges = Array.isArray(context.judges) ? context.judges : [];
     const officials = Array.isArray(context.officials) ? context.officials : [];
+    const startTimesConfig = context.startTimesConfig || {};
+    const publicInfo = context.publicInfo || {};
 
     const coords = mapConfig.coordinates || compDoc.coordinates || null;
     const classes = getUniqueChecklistClasses(equipages);
-    const templateTitle = meta.competitionTemplateTitle || meta.competitionTemplate || '';
     const mode = compDoc?.competitionMode === 'field' ? 'Field mode light' : 'Live-läge';
     const hasClassSettings = classes.length > 0 && classes.every((className) => {
         const placedCount = Number(classConfig?.[className]?.placedCount);
@@ -197,11 +318,6 @@ function buildCompetitionChecklistItems(context = {}) {
             detail: compDoc?.name && compDoc?.dates && compDoc?.place
                 ? `${compDoc.name} • ${compDoc.dates} • ${compDoc.place}`
                 : 'Namn, datum eller plats saknas'
-        },
-        {
-            label: 'Startmall',
-            done: Boolean(templateTitle),
-            detail: templateTitle || 'Ingen startmall sparad ännu'
         },
         {
             label: 'Tävlingsläge',
@@ -231,6 +347,7 @@ function buildCompetitionChecklistItems(context = {}) {
                     ? `Placeringstal satt för ${classes.length} klass${classes.length === 1 ? '' : 'er'}`
                     : 'En eller flera klasser saknar placeringstal'
         },
+        buildStartTimesChecklistItem(equipages, startTimesConfig),
         {
             label: 'Domare',
             done: judges.length > 0,
@@ -245,6 +362,7 @@ function buildCompetitionChecklistItems(context = {}) {
                 ? `${officials.length} funktionärer registrerade`
                 : 'Inga funktionärer registrerade ännu'
         },
+        buildPublicInfoChecklistItem(publicInfo),
         {
             label: 'Publicering',
             done: compDoc?.published !== false,
@@ -296,7 +414,7 @@ function renderCompetitionSetupChecklist(context = latestSettingsChecklistContex
             ` : `
                 <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100">
                     <div class="font-semibold">Checklistan är komplett</div>
-                    <div class="mt-1">Grunddata, bemanning och publicering ser klara ut.</div>
+                    <div class="mt-1">Grunddata, starttider, publikinfo, bemanning och publicering ser klara ut.</div>
                 </div>
             `}
 
@@ -821,11 +939,13 @@ export async function setupSettingsLogic(competitionId) {
         // We fetch 'map' config. Fallback to competition doc 'coordinates' for migration/legacy.
         const mapConfig = await getConfig(competitionId, 'map').catch(() => ({}));
         const compDoc = await getCompetitionById(competitionId);
-        const [equipages, classConfig, judges, officials] = await Promise.all([
+        const [equipages, classConfig, judges, officials, startTimesConfig, publicInfo] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'classSettings').catch(() => ({})),
             getJudges(competitionId).catch(() => []),
-            getOfficials(competitionId).catch(() => [])
+            getOfficials(competitionId).catch(() => []),
+            getConfig(competitionId, 'startTimes').catch(() => ({})),
+            getConfig(competitionId, 'publicInfo').catch(() => ({}))
         ]);
 
         const checklistContext = {
@@ -835,7 +955,9 @@ export async function setupSettingsLogic(competitionId) {
             equipages,
             classConfig: { ...(classConfig || {}) },
             judges,
-            officials
+            officials,
+            startTimesConfig: { ...(startTimesConfig || {}) },
+            publicInfo: { ...(publicInfo || {}) }
         };
 
         let initialCoords = mapConfig.coordinates;

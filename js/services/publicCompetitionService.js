@@ -1,6 +1,6 @@
 import { getEquipages } from './equipageService.js';
 import { getConfig } from './competitionService.js';
-import { getCompetitionDocuments, getCompetitionMessages, isMessageVisibleToPublic, isDocumentVisibleToPublic } from './documentService.js';
+import { getPublicCompetitionDocuments, getPublicCompetitionMessages, isMessageVisibleToPublic, isDocumentVisibleToPublic } from './documentService.js';
 import { getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildPublicClassSummary, buildPublicMergeMap } from './publicCompetitionUtils.js';
@@ -45,11 +45,30 @@ export async function getPublicCompetitionViewModel(competition) {
     };
   }
 
+  const [publicInfo, venueMap] = await Promise.all([
+    getConfig(competition.id, 'publicInfo').catch(() => ({})),
+    getConfig(competition.id, 'map').catch(() => ({}))
+  ]);
+
+  if (publicInfo?.enabled === false) {
+    return {
+      classSummary: [],
+      documents: [],
+      mapDocuments: [],
+      messages: [],
+      publicInfo: publicInfo || {},
+      venueMap: venueMap || {}
+    };
+  }
+
+  const publish = publicInfo?.publish || {};
+  const shouldLoadClassSummary = publish.classSummary !== false;
+  const shouldLoadDocuments = publish.documents !== false || publish.maps !== false;
+  const shouldLoadMessages = publish.messages !== false;
+
   const [
     equipages,
     startTimesCfg,
-    publicInfo,
-    venueMap,
     documents,
     messages,
     maratonConfig,
@@ -60,31 +79,29 @@ export async function getPublicCompetitionViewModel(competition) {
     classMergeMap,
     tdbMergeMap
   ] = await Promise.all([
-    getEquipages(competition.id).catch(() => []),
-    getConfig(competition.id, 'startTimes').catch(() => ({})),
-    getConfig(competition.id, 'publicInfo').catch(() => ({})),
-    getConfig(competition.id, 'map').catch(() => ({})),
-    getCompetitionDocuments(competition.id).catch(() => []),
-    getCompetitionMessages(competition.id).catch(() => []),
-    getConfig(competition.id, 'maratonConfig').catch(() => ({})),
-    getConfig(competition.id, 'precisionConfig').catch(() => ({})),
-    getMarathonObstacles(competition.id),
-    getConfig(competition.id, 'display').catch(() => ({})),
-    getConfig(competition.id, 'tdbMergeGroups').catch(() => null),
-    getConfig(competition.id, 'classMergeMap').catch(() => null),
-    getConfig(competition.id, 'tdbMergeMap').catch(() => null)
+    shouldLoadClassSummary ? getEquipages(competition.id).catch(() => []) : [],
+    shouldLoadClassSummary ? getConfig(competition.id, 'startTimes').catch(() => ({})) : {},
+    shouldLoadDocuments ? getPublicCompetitionDocuments(competition.id).catch(() => []) : [],
+    shouldLoadMessages ? getPublicCompetitionMessages(competition.id).catch(() => []) : [],
+    shouldLoadClassSummary ? getConfig(competition.id, 'maratonConfig').catch(() => ({})) : {},
+    shouldLoadClassSummary ? getConfig(competition.id, 'precisionConfig').catch(() => ({})) : {},
+    shouldLoadClassSummary ? getMarathonObstacles(competition.id) : [],
+    shouldLoadClassSummary ? getConfig(competition.id, 'display').catch(() => ({})) : {},
+    shouldLoadClassSummary ? getConfig(competition.id, 'tdbMergeGroups').catch(() => null) : null,
+    shouldLoadClassSummary ? getConfig(competition.id, 'classMergeMap').catch(() => null) : null,
+    shouldLoadClassSummary ? getConfig(competition.id, 'tdbMergeMap').catch(() => null) : null
   ]);
 
   const startTimes = startTimesCfg?.times || {};
   const mergeMap = buildPublicMergeMap(displayConfig, tdbMergeGroups, classMergeMap, tdbMergeMap);
-  const classSummary = buildPublicClassSummary({
+  const classSummary = shouldLoadClassSummary ? buildPublicClassSummary({
     equipages,
     startTimes,
     mergeMap,
     maratonConfig,
     precisionConfig,
     marathonObstacles
-  });
+  }) : [];
 
   const publicDocuments = toArray(documents).filter(isDocumentVisibleToPublic);
   const { documents: normalizedDocuments, mapDocuments } = deriveDocumentBuckets(publicDocuments);

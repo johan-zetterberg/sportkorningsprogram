@@ -13,6 +13,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  orderBy,
   query,
   setDoc,
   updateDoc,
@@ -622,20 +623,47 @@ test('auditLog is append-only for admins', { skip: !HAS_EMULATOR }, async () => 
   await assertFails(deleteDoc(ref));
 });
 
-test('messages and documents stay public-read but admin-write only', { skip: !HAS_EMULATOR }, async () => {
+test('messages and documents expose only public audience anonymously and remain admin-write only', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, compPath('messages/msg-1')), {
-      title: 'Public Message'
+      title: 'Public Message',
+      timestamp: '2026-06-08T10:00:00Z',
+      audience: { public: true, drivers: true }
+    });
+    await setDoc(doc(db, compPath('messages/msg-driver-1')), {
+      title: 'Driver Message',
+      timestamp: '2026-06-08T10:01:00Z',
+      audience: { public: false, drivers: true }
     });
     await setDoc(doc(db, compPath('documents/doc-1')), {
-      title: 'Public Document'
+      title: 'Public Document',
+      timestamp: '2026-06-08T10:00:00Z',
+      audience: { public: true, drivers: true }
+    });
+    await setDoc(doc(db, compPath('documents/doc-driver-1')), {
+      title: 'Driver Document',
+      timestamp: '2026-06-08T10:01:00Z',
+      audience: { public: false, drivers: true }
     });
   });
 
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
   await assertSucceeds(getDoc(doc(anonymousDb, compPath('messages/msg-1'))));
   await assertSucceeds(getDoc(doc(anonymousDb, compPath('documents/doc-1'))));
+  await assertFails(getDoc(doc(anonymousDb, compPath('messages/msg-driver-1'))));
+  await assertFails(getDoc(doc(anonymousDb, compPath('documents/doc-driver-1'))));
+  await assertSucceeds(getDocs(query(collection(anonymousDb, compPath('messages')), where('audience.public', '==', true))));
+  await assertSucceeds(getDocs(query(collection(anonymousDb, compPath('documents')), where('audience.public', '==', true))));
+  await assertFails(getDocs(query(collection(anonymousDb, compPath('messages')), orderBy('timestamp', 'desc'))));
+  await assertFails(getDocs(query(collection(anonymousDb, compPath('documents')), orderBy('timestamp', 'desc'))));
+
+  const driverCtx = testEnv.authenticatedContext('driver-doc-1', { email: 'driver-doc@example.com' });
+  const driverDb = driverCtx.firestore();
+  await assertSucceeds(getDoc(doc(driverDb, compPath('messages/msg-driver-1'))));
+  await assertSucceeds(getDoc(doc(driverDb, compPath('documents/doc-driver-1'))));
+  await assertSucceeds(getDocs(query(collection(driverDb, compPath('messages')), orderBy('timestamp', 'desc'))));
+  await assertSucceeds(getDocs(query(collection(driverDb, compPath('documents')), orderBy('timestamp', 'desc'))));
 
   await seedCompetitionRole('speaker-doc-1', 'speaker', 'speaker-doc@example.com');
   const speakerCtx = testEnv.authenticatedContext('speaker-doc-1', { email: 'speaker-doc@example.com' });

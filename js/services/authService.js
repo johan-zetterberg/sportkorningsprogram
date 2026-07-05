@@ -374,7 +374,7 @@ export async function getCurrentUserRole() {
         if (tokenResult.claims.superadmin === true) return 'superadmin';
         if (tokenResult.claims.role) return tokenResult.claims.role;
     } catch (tokenErr) {
-        console.warn('Kunde inte lÃ¤sa custom claims i getCurrentUserRole:', tokenErr);
+        console.warn('Kunde inte läsa custom claims i getCurrentUserRole:', tokenErr);
     }
 
     // Läs roll från root-kollektionen 'users' (matchar dina regler)
