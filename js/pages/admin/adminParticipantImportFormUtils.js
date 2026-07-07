@@ -56,9 +56,9 @@ export function buildClassMappingHtml(uniqueXmlClasses = [], appClassList = []) 
         <div class="mt-4 p-3 rounded bg-amber-50 dark:bg-amber-900 border border-amber-200 dark:border-amber-700">
     <label class="inline-flex items-center gap-2 text-sm dark:text-amber-100">
       <input id="eqXmlMergePerTestChk" type="checkbox" class="h-4 w-4" checked>
-      <span>Sammanslå per test (ignorera Häst/Ponny & Enbet/Par)</span>
+      <span>Sammanslå för visning per testnivå</span>
     </label>
-    <p class="text-xs text-amber-700 dark:text-amber-300 mt-1">När detta är valt sparas även fälten <code>mergedTestKey</code>/<code>mergedTestLabel</code> samt flaggan <code>useMergedTestForDisplay</code> på ekipagen.</p>
+    <p class="text-xs text-amber-700 dark:text-amber-300 mt-1">Slår ihop rubriker som skiljer på Häst/Ponny eller Enbet/Par i visning och resultatgruppering. Tempo, klassinställningar och beräkning fortsätter använda den faktiska klass du mappar till ovan.</p>
   </div>
         <button id="eqXmlDoFinalImport" class="mt-4 w-full bg-emerald-600 text-white py-2 px-4 rounded-lg hover:bg-emerald-700">Slutför import</button>`;
 }
