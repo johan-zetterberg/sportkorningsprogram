@@ -3,7 +3,7 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
-import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
+import { competitionClasses, standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import {
     hasPrecisionValidationErrors,
@@ -30,6 +30,35 @@ function escapeHtml(value) {
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+}
+
+function getSortedPrecisionTempoEntries() {
+    const sectionOrder = [
+        'Lätta klasser',
+        'Medelsvåra klasser',
+        'Svåra klasser',
+        'Fyrspann',
+        'Paraklasser',
+        'Barnklasser',
+        'Internationell (FEI)'
+    ];
+    const rankByClass = new Map();
+    let rank = 0;
+
+    sectionOrder.forEach(sectionName => {
+        (competitionClasses[sectionName] || []).forEach(className => {
+            if (!rankByClass.has(className)) rankByClass.set(className, rank++);
+        });
+    });
+
+    return Object.entries(klassTempoData)
+        .filter(([_, data]) => data.precision > 0)
+        .sort(([classA], [classB]) => {
+            const rankA = rankByClass.has(classA) ? rankByClass.get(classA) : Number.MAX_SAFE_INTEGER;
+            const rankB = rankByClass.has(classB) ? rankByClass.get(classB) : Number.MAX_SAFE_INTEGER;
+            if (rankA !== rankB) return rankA - rankB;
+            return classA.localeCompare(classB, 'sv');
+        });
 }
 
 function renderPrecisionRulesCheatSheet() {
@@ -252,10 +281,9 @@ function renderLayout() {
                 </p>
                 <details class="mb-4 bg-blue-50 dark:bg-gray-700 p-3 rounded-md text-sm border border-blue-100 dark:border-gray-600">
                     <summary class="font-medium cursor-pointer text-blue-800 dark:text-blue-300">Visa standardtempon (TR/FEI)</summary>
-                    <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 text-xs text-gray-700 dark:text-gray-300">
-                        ${Object.entries(klassTempoData)
-            .filter(([_, d]) => d.precision > 0)
-            .map(([k, d]) => `<div><span class="font-semibold">${k}:</span> ${d.precision} m/min</div>`)
+                    <div class="mt-2 columns-1 sm:columns-2 lg:columns-3 gap-8 text-xs text-gray-700 dark:text-gray-300">
+                        ${getSortedPrecisionTempoEntries()
+            .map(([k, d]) => `<div class="mb-2 break-inside-avoid"><span class="font-semibold">${k}:</span> ${d.precision} m/min</div>`)
             .join('')}
                     </div>
                 </details>
@@ -422,6 +450,7 @@ function renderClassCards() {
 
         const tempoState = getTempoStateForGroup(group);
         const stdTempo = tempoState.displayTempo;
+        const tempoPlaceholder = tempoState.hasMixedTempo ? 'Klassvis' : (stdTempo > 0 ? String(stdTempo) : 'Ange tempo');
         const savedTempo = precisionConfig.courses?.[className]?.tempo;
         // Use saved override if available, otherwise the TR standard tempo.
         const activeTempo = savedTempo > 0 ? savedTempo : stdTempo;
@@ -454,12 +483,13 @@ function renderClassCards() {
                         <label class="block text-sm font-medium dark:text-gray-300">Tempo & Maxtid</label>
                         <div class="precision-admin-inline-panel flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
                            <div class="flex items-center gap-1">
-                               <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-full sm:w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${stdTempo > 0 ? stdTempo : '???'}">
+                               <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-full sm:w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${tempoPlaceholder}">
                                <span class="text-xs text-gray-600 dark:text-gray-400">m/min</span>
                            </div>
                            <span class="flex-1 sm:text-right text-xs text-gray-500">Maxtid:</span>
                            <strong id="maxtime_${classId}" class="text-gray-800 dark:text-white whitespace-nowrap">${maxTime}</strong>
                         </div>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${tempoState.hasMixedTempo ? 'Lämna tempo tomt för klassvis beräkning per ursprungsklass. Fyll bara i tempo om hela gruppen ska ha samma tempo.' : 'Lämna tempo tomt för att använda klassens standardtempo.'}</p>
                     </div>
                 </div>
                 <div class="precision-field-wrap mt-4">
