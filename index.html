@@ -81,10 +81,10 @@
   </div>
 
   <nav class="app-main-nav bg-white shadow-md sticky top-0 z-50 dark:bg-gray-800 dark:border-gray-700">
-    <div class="container mx-auto px-4">
-      <div class="app-nav-bar flex items-center justify-between h-16 relative">
-        <div class="flex items-center gap-4 min-w-0">
-          <div class="flex items-center">
+    <div class="app-nav-shell w-full px-3 xl:px-4">
+      <div class="app-nav-bar flex items-center gap-3 h-16 xl:h-14 relative">
+        <div class="app-nav-brand flex items-center gap-4 min-w-0">
+          <div class="app-brand-cluster flex items-center">
             <img src="/icons/DriveLive_512.png" alt="DriveLive" class="app-brand-logo h-10 w-10 rounded-md object-contain">
             <span class="app-brand-title app-brand-wordmark font-bold text-lg md:text-xl text-brand-lightblue leading-tight block">DriveLive</span>
             <div id="competition-nav-info"
@@ -118,11 +118,9 @@
             <span id="userRole"></span>
           </div>
           <button id="loginButton"
-            class="app-nav-auth-btn hidden bg-blue-500 hover:bg-brand-darkblue text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga
-            in</button>
+            class="app-nav-auth-btn hidden bg-blue-500 hover:bg-brand-darkblue text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga in</button>
           <button id="logoutButton"
-            class="app-nav-auth-btn hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga
-            ut</button>
+            class="app-nav-auth-btn hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga ut</button>
           <!-- Offline-badge -->
           <span id="net-badge"
             style="display:none; padding:2px 6px; border-radius:6px; background:#444; color:#fff; font-size:12px; margin-left:8px;">
@@ -141,7 +139,7 @@
         </div>
         <div id="nav-links"
           class="hidden absolute top-16 right-0 w-auto min-w-[200px] max-h-[calc(100vh-4rem)] overflow-y-auto bg-white dark:bg-gray-800 shadow-lg rounded-bl-lg xl:static xl:flex xl:w-auto xl:shadow-none xl:bg-transparent xl:dark:bg-transparent xl:max-h-none xl:overflow-visible xl:rounded-none">
-          <div class="flex flex-col xl:flex-row xl:flex-wrap xl:space-x-2 text-sm">
+          <div class="app-nav-link-list flex flex-col xl:flex-row xl:flex-nowrap xl:items-center text-sm">
             <a href="#hub" class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
               data-role-required="publik,funktionar,domare,admin" data-i18n="menu_hub">Hub</a>
             <a href="#portal"
