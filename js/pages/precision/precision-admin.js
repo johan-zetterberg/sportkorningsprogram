@@ -32,6 +32,20 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+function renderPrecisionRulesCheatSheet() {
+    return `
+        <details class="mb-4 rounded-lg border border-blue-100 bg-blue-50/70 p-3 text-sm dark:border-blue-900/60 dark:bg-blue-900/20">
+            <summary class="cursor-pointer font-semibold text-blue-900 dark:text-blue-200">Lathund TR/FEI - precision</summary>
+            <div class="mt-3 grid gap-2 text-gray-700 dark:text-gray-300">
+                <div><strong>Rivning/nedslag:</strong> 3 p per boll eller nedslaget element.</div>
+                <div><strong>Tidsstraff:</strong> 0,5 p per sekund över maxtiden när klassen använder normal maxtid.</div>
+                <div><strong>Vanliga extraavdrag:</strong> olydnad 5/10 p, 3:e olydnad eliminering, groom avsittning 5 p per gång.</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400">Barnklasser och clear round kan ha särskild tidshantering. Kontrollera alltid aktuell TR/FEI och proposition.</div>
+            </div>
+        </details>
+    `;
+}
+
 function renderPrecisionAdminReadiness() {
     const container = document.getElementById('precisionAdminReadiness');
     if (!container) return;
@@ -255,16 +269,17 @@ function renderLayout() {
                 <p class="text-sm text-gray-600 mb-4 dark:text-gray-400">
                     Dessa inställningar gäller för hela tävlingen om inget annat anges.
                 </p>
+                ${renderPrecisionRulesCheatSheet()}
                 <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
                     <div class="precision-field-wrap">
-                        <label class="block text-sm font-medium dark:text-gray-300">Straff per nedslag (p)</label>
+                        <label class="block text-sm font-medium dark:text-gray-300">Straff per rivning/nedslag (p)</label>
                         <input type="number" step="0.5" id="globalKnockdownPenalty" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="3">
-                        <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Standard: 3 p (FEI/Nationellt). TR förr: 4 p? Ändra här vid behov.</p>
+                        <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Normal TR/FEI-inställning: 3 p per boll eller nedslaget element.</p>
                     </div>
                     <div class="precision-field-wrap">
                         <label class="block text-sm font-medium dark:text-gray-300">Tidsstraff per sekund (p/s)</label>
                         <input type="number" step="0.1" id="globalTimePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${defRate}">
-                        <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Standard: ${defRate} straff per påbörjad sekund över maxtiden.</p>
+                        <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Normal TR/FEI-inställning: ${defRate} p per sekund över maxtiden.</p>
                     </div>
                 </div>
             </section>

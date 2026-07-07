@@ -20,10 +20,12 @@ let mergedPrograms = {};
 let mappingLocks = {};
 let judgeMapping = {}; // ClassName -> { C: judgeId, ... }
 let allJudges = [];        // Från admin-poolen
-let dressageRules = {}; // { error1: 2, error2: 4, ... }
+let dressageRules = {}; // { error1: 5, error2: 10, ... }
 let classConfig = {}; // ClassName -> { clearRound: bool, limit: number }
 let judgeListenerUnsub = null;
 
+const DRESSAGE_DEFAULT_ERROR_1 = 5;
+const DRESSAGE_DEFAULT_ERROR_2 = 10;
 
 // ---- Helpers ----
 const qs = (s, r = document) => r.querySelector(s);
@@ -32,6 +34,20 @@ const normKey = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '_').r
 const unique = a => Array.from(new Set(a));
 const toNumber = v => Number.isFinite(+v) ? +v : 0;
 const sortBy = (arr, f) => arr.slice().sort((a, b) => (f(a) > f(b) ? 1 : (f(a) < f(b) ? -1 : 0)));
+
+function renderDressageRulesCheatSheet() {
+  return `
+    <details class="mb-4 rounded-lg border border-blue-100 bg-blue-50/70 p-3 text-sm dark:border-blue-900/60 dark:bg-blue-900/20">
+      <summary class="cursor-pointer font-semibold text-blue-900 dark:text-blue-200">Lathund TR/FEI - dressyr</summary>
+      <div class="mt-3 grid gap-2 text-gray-700 dark:text-gray-300">
+        <div><strong>Felkörning/vägfel:</strong> 1:a 5 p, 2:a 10 p, 3:e eliminering.</div>
+        <div><strong>TR:</strong> pisk saknas/fel längd 10 p, groom kommunicerar 10 p, benskydd/bandage 10 p.</div>
+        <div><strong>FEI:</strong> start utan/tappa/lägga ifrån pisk 5 p, groom visar vägen 10 p, groom hanterar töm/broms/pisk 20 p.</div>
+        <div class="text-xs text-gray-500 dark:text-gray-400">Kontrollera alltid aktuell TR/FEI och klassens proposition vid avvikelser.</div>
+      </div>
+    </details>
+  `;
+}
 
 function renderDressageAdminReadiness(root = document) {
   const container = qs('#dressageAdminReadiness', root);
@@ -46,7 +62,9 @@ function renderDressageAdminReadiness(root = document) {
 
   const missingMappings = classes.filter(cls => !mapping[cls] || !mergedPrograms[mapping[cls]]);
   const missingJudges = classes.filter(cls => !judgeMapping[cls] || Object.keys(judgeMapping[cls] || {}).length === 0);
-  const rulesReady = Number.isFinite(Number(dressageRules?.error1)) && Number.isFinite(Number(dressageRules?.error2));
+  const ruleError1 = dressageRules?.error1 ?? DRESSAGE_DEFAULT_ERROR_1;
+  const ruleError2 = dressageRules?.error2 ?? DRESSAGE_DEFAULT_ERROR_2;
+  const rulesReady = Number.isFinite(Number(ruleError1)) && Number.isFinite(Number(ruleError2));
 
   if (missingMappings.length || missingJudges.length || !rulesReady) {
     container.className = 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
@@ -516,19 +534,22 @@ function render(root) {
         <!-- Regler -->
         <div class="dressage-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md border dark:border-gray-700">
           <h2 class="font-semibold text-lg mb-3 dark:text-white">Regler & Avdrag</h2>
-          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Inställningar för felkörning och andra avdrag.</p>
+          <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Inställningar för felkörning/vägfel och andra extraavdrag.</p>
+          ${renderDressageRulesCheatSheet()}
           
           <div class="space-y-4">
              <div>
-               <label class="block text-sm font-medium mb-1 dark:text-gray-300">1:a Felkörning (poängavdrag)</label>
-               <input type="number" id="ruleError1" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 2" />
+               <label class="block text-sm font-medium mb-1 dark:text-gray-300">1:a felkörning/vägfel</label>
+               <input type="number" id="ruleError1" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${DRESSAGE_DEFAULT_ERROR_1}" />
+               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Normal TR/FEI-inställning: ${DRESSAGE_DEFAULT_ERROR_1}.</p>
              </div>
              <div>
-               <label class="block text-sm font-medium mb-1 dark:text-gray-300">2:a Felkörning (poängavdrag)</label>
-               <input type="number" id="ruleError2" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 4" />
+               <label class="block text-sm font-medium mb-1 dark:text-gray-300">2:a felkörning/vägfel</label>
+               <input type="number" id="ruleError2" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${DRESSAGE_DEFAULT_ERROR_2}" />
+               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Normal TR/FEI-inställning: ${DRESSAGE_DEFAULT_ERROR_2}.</p>
              </div>
              <div>
-               <label class="block text-sm font-medium mb-1 dark:text-gray-300">3:e Felkörning</label>
+               <label class="block text-sm font-medium mb-1 dark:text-gray-300">3:e felkörning/vägfel</label>
                <div class="text-sm text-gray-500 italic px-3 py-2 border bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-400 rounded">Eliminering</div>
              </div>
           </div>
@@ -955,8 +976,10 @@ function wire(root) {
   });
 
   qs('#btnSaveRules', root)?.addEventListener('click', async () => {
-    const e1 = parseFloat(qs('#ruleError1', root).value) || 0;
-    const e2 = parseFloat(qs('#ruleError2', root).value) || 0;
+    const e1Raw = parseFloat(qs('#ruleError1', root).value);
+    const e2Raw = parseFloat(qs('#ruleError2', root).value);
+    const e1 = Number.isFinite(e1Raw) ? e1Raw : DRESSAGE_DEFAULT_ERROR_1;
+    const e2 = Number.isFinite(e2Raw) ? e2Raw : DRESSAGE_DEFAULT_ERROR_2;
     dressageRules = { error1: e1, error2: e2 };
 
     try {
@@ -1132,8 +1155,8 @@ export async function load() {
   // Fill rules inputs
   const rErr1 = qs('#ruleError1', root);
   const rErr2 = qs('#ruleError2', root);
-  if (rErr1) rErr1.value = dressageRules.error1 || '';
-  if (rErr2) rErr2.value = dressageRules.error2 || '';
+  if (rErr1) rErr1.value = dressageRules.error1 ?? DRESSAGE_DEFAULT_ERROR_1;
+  if (rErr2) rErr2.value = dressageRules.error2 ?? DRESSAGE_DEFAULT_ERROR_2;
 
   rebuildProgramDatalist(root);
   rebuildMappingTable(root, '');

@@ -33,6 +33,14 @@ let manualTestOverride = false;   // användaren har valt program manuellt
 let programmaticChange = false;   // vi byter värde i koden (ska inte sätta override)
 let lastStartNumber = null;
 
+const DRESSAGE_DEFAULT_ERROR_1 = 5;
+const DRESSAGE_DEFAULT_ERROR_2 = 10;
+
+function getDressageRuleNumber(key, fallback) {
+  const value = Number(window.dressageRules?.[key]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function isFieldModeEnabled() {
   return getGlobalState('currentCompetition')?.competitionMode === 'field';
 }
@@ -953,29 +961,14 @@ function setupEventListeners() {
   if (errorPointsInput) errorPointsInput.addEventListener('input', handleGenericInput);
   if (eliminatedCheckbox) eliminatedCheckbox.addEventListener('change', handleGenericInput);
 
-  // NYTT: Snabbknappar för felridning
+  // Snabbknappar för felkörning/vägfel enligt sparade regler eller TR/FEI-standard.
   document.getElementById('btnErr1')?.addEventListener('click', () => {
-    const rule = window.dressageRules?.error1 || 2; // Default 2 straff
-    const current = parseFloat(errorPointsInput.value) || 0;
-    // Om redan satt, toggla av? Nej, lägg till. Eller uteslutande? 
-    // Vanligtvis: 0 -> 2 -> 6 (2+4).
-    // Enklast: Sätt till Regel 1 värde om 0.
+    const rule = getDressageRuleNumber('error1', DRESSAGE_DEFAULT_ERROR_1);
     errorPointsInput.value = rule;
     handleGenericInput();
   });
   document.getElementById('btnErr2')?.addEventListener('click', () => {
-    const rule1 = window.dressageRules?.error1 || 2;
-    const rule2 = window.dressageRules?.error2 || 4;
-    // Totalt straff vid 2:a felridning är ofta (rule1 + rule2) eller rule2 totalt?
-    // TR säger: 1:a vägfel = 2 straff. 2:a vägfel = 4 straff (dvs +4 till, totalt 6? Eller totalt 4?).
-    // TR V (2023):
-    // 1:a gången: 2 poäng
-    // 2:a gången: 4 poäng (dvs totalt avdrag? Nej, "Andra gången = 4 straffpoäng" brukar betyda ackumulerat i vissa system, men här sätter vi totalen)
-    // Om vi antar att input är TOTALT straff:
-    // 1 fel = 2. 
-    // 2 fel = 2 + 4 = 6? Eller bara 4?
-    // Låt oss anta att knappen sätter VÄRDET till X.
-    // Om användaren klickar "Fel 2" sätter vi rule2.
+    const rule2 = getDressageRuleNumber('error2', DRESSAGE_DEFAULT_ERROR_2);
     errorPointsInput.value = rule2;
     handleGenericInput();
   });

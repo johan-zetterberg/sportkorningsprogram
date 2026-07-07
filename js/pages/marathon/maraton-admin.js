@@ -18,6 +18,7 @@ let pageRoot = null;
 let currentCompetition = null;
 let pickerMap = null; // Global reference for cleanup
 let marathonValidationErrors = {};
+const MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY = 2;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -69,6 +70,37 @@ function ensureMarathonAdminResponsiveStyles() {
     }
   `;
   document.head.appendChild(style);
+}
+
+function renderMarathonRulesCheatSheet() {
+  return `
+    <details class="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+      <summary class="cursor-pointer font-semibold">Regellathund: maratonstraff enligt TR/FEI</summary>
+      <div class="mt-3 grid grid-cols-1 lg:grid-cols-2 gap-3">
+        <div class="rounded-md bg-white/70 p-3 dark:bg-gray-800/60">
+          <div class="font-semibold">Vanlig maraton</div>
+          <ul class="mt-2 list-disc pl-5 space-y-1">
+            <li>Rivningsbart/dislodgeable element i maratonhinder, inklusive boll på element: <strong>2 straffpoäng per element/boll</strong>.</li>
+            <li>Hindertid: <strong>0,25 straffpoäng per sekund</strong>.</li>
+            <li>Sträcka A/B för tidig eller sen: <strong>0,25 straffpoäng per sekund</strong>.</li>
+            <li>Korrigerad fel väg i maratonhinder: <strong>20 straffpoäng</strong>.</li>
+            <li>Ej korrigerad fel väg, fel ordning eller mer än 5 minuter i hinder: <strong>uteslutning</strong>.</li>
+          </ul>
+        </div>
+        <div class="rounded-md bg-white/70 p-3 dark:bg-gray-800/60">
+          <div class="font-semibold">Förväxla inte med precision/combined</div>
+          <ul class="mt-2 list-disc pl-5 space-y-1">
+            <li>Precision/cones: boll eller del av hinder ned = <strong>3 straffpoäng</strong>.</li>
+            <li>Precision: rivning p.g.a. olydnad = <strong>5 straffpoäng + 10 sekunder</strong>.</li>
+            <li>Combined marathon kan ha <strong>3 straffpoäng</strong> för maratonhinder-element. Använd bara om proposition/regler säger det.</li>
+          </ul>
+        </div>
+      </div>
+      <p class="mt-3 text-xs text-amber-800 dark:text-amber-200">
+        Detta är en snabbguide för inmatning. Proposition, överdomare och aktuellt TR/FEI-regelverk gäller alltid före systemets standardvärden.
+      </p>
+    </details>
+  `;
 }
 
 
@@ -343,6 +375,7 @@ function renderLayout(competition) {
 
 <div class="marathon-admin-section bg-white dark:bg-gray-800 p-4 md:p-6 rounded-xl shadow-md lg:col-span-3">
  <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Globala Regelinställningar</h2>
+  ${renderMarathonRulesCheatSheet()}
   <form id="global-settings-form" class="space-y-4">
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
       <div>
@@ -354,8 +387,9 @@ function renderLayout(competition) {
         <input type="number" step="0.01" id="obstaclePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 0.25 (Default: 0.25)">
       </div>
       <div>
-        <label for="knockdownPenaltyDefault" class="block text-sm font-medium dark:text-gray-300">Standardstraff per knockdown (straffpoäng)</label>
-        <input type="number" id="knockdownPenaltyDefault" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 5">
+        <label for="knockdownPenaltyDefault" class="block text-sm font-medium dark:text-gray-300">Standardstraff per rivningsbart element/boll</label>
+        <input type="number" id="knockdownPenaltyDefault" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Normal maraton: 2">
+        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Normalvärde för vanlig TR/FEI-maraton är 2 per nedslaget rivningsbart element eller boll på element. Ändra bara om propositionen eller specialformat kräver annat.</p>
       </div>
       <div>
         <label for="obstacleMaxTime" class="block text-sm font-medium dark:text-gray-300">Maximal hindertid (sekunder)</label>
@@ -513,19 +547,28 @@ function renderLayout(competition) {
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
               <div class="flex items-center gap-3">
                 <input type="checkbox" id="newObstacleHasKD" class="h-4 w-4 dark:bg-gray-700 dark:border-gray-600">
-                <label for="newObstacleHasKD" class="text-sm dark:text-gray-300">Detta hinder har knockdown/bollar</label>
+                <label for="newObstacleHasKD" class="text-sm dark:text-gray-300">Detta hinder har rivningsbara element/bollar</label>
               </div>
               <div>
-                <label for="newObstacleKDpen" class="block text-sm dark:text-gray-300">Straff/knockdown (straffpoäng) - tomt = använd globalt värde</label>
-                <input type="number" id="newObstacleKDpen" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 5 straffpoäng">
+                <label for="newObstacleKDpen" class="block text-sm dark:text-gray-300">Straff per rivningsbart element/boll - tomt = använd globalt värde</label>
+                <input type="number" id="newObstacleKDpen" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Normal maraton: 2 straffpoäng">
               </div>
             </div>
 
-            <!-- NYTT: Specifikt antal portar -->
+            <!-- Specifikt antal portar för just detta hinder -->
             <div class="border-t dark:border-gray-700 pt-2 mt-2">
-               <label for="newObstacleGateCount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Antal portar – Grundinställning</label>
-               <input type="number" id="newObstacleGateCount" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Tomt = använd klassens inställning">
-               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Detta värde gäller alla klasser om inget undantag anges nedan.</p>
+               <label for="newObstacleGateCount" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Avvikande antal portar för detta hinder</label>
+               <input type="number" id="newObstacleGateCount" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Tomt = använd klassens standard">
+               <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Fyll bara i om detta hinder ska ha annat antal portar än klassens standard. Gäller alla klasser om inget klassundantag anges nedan.</p>
+               <details class="mt-2 rounded-md border border-blue-100 bg-blue-50/70 p-2 text-xs text-blue-900 dark:border-blue-900/60 dark:bg-blue-900/20 dark:text-blue-100">
+                  <summary class="cursor-pointer font-semibold">Så väljs antal portar</summary>
+                  <ol class="mt-2 list-decimal pl-4 space-y-1">
+                    <li><strong>Klassundantag för detta hinder</strong> används först om det är ifyllt.</li>
+                    <li><strong>Avvikande antal portar för detta hinder</strong> används annars om det är ifyllt.</li>
+                    <li><strong>Klassens standardportar</strong> används om hindret lämnas tomt.</li>
+                    <li>Om inget finns används standard A-F, alltså 6 portar.</li>
+                  </ol>
+               </details>
                
                <div id="classGateOverridesContainer" class="mt-3 space-y-2 pl-2 border-l-2 border-gray-200 dark:border-gray-700">
                   <!-- Dynamiska fält för klasser hamnar här -->
@@ -559,7 +602,8 @@ function renderClassGateOverrides(container, overrides = {}) {
   }
 
   container.innerHTML = `
-    <p class="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Undantag per klass:</p>
+    <p class="text-xs font-semibold text-gray-600 mb-1 dark:text-gray-300">Klassundantag för detta hinder:</p>
+    <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-2">Högsta prioritet. Fyll bara i klasser som ska ha annat antal portar än hindrets avvikelse eller klassens standard.</p>
     ${classes.map(cls => {
     const val = overrides[cls] || '';
     return `
@@ -591,7 +635,7 @@ async function setupGlobalSettingsForm() {
 
   rateInput.value = config.timePenaltyRate ?? '0.25';
   obsRateInput.value = config.obstaclePenaltyRate ?? String(defObs);
-  kdInput.value = config.knockdownPenaltyDefault ?? '5';
+  kdInput.value = config.knockdownPenaltyDefault ?? String(MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY);
   maxTimeInput.value = config.obstacleMaxTime ?? '300';
 
   // Ladda regler eller default
@@ -619,7 +663,7 @@ async function setupGlobalSettingsForm() {
     const newConfig = {
       timePenaltyRate: parseFloat(rateInput.value) || 0.25,
       obstaclePenaltyRate: parseFloat(obsRateInput.value) || defObs,
-      knockdownPenaltyDefault: parseInt(kdInput.value) || 5,
+      knockdownPenaltyDefault: parseFloat(kdInput.value) || MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY,
       obstacleMaxTime: parseInt(maxTimeInput.value) || 300,
       tempoRules: parsedRules // <-- Spara
     };
@@ -1331,7 +1375,8 @@ async function setupMarathonSettings() {
            <div>
              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                <div>
-                  <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Portar</p>
+                  <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Klassens standardportar</p>
+                  <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Används när hindret inte har egen avvikelse.</p>
                   <input type="number" data-class-name="${cn}" data-field="gateCount" class="marathon-class-input w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.gateCount ?? '6'}" placeholder="Antal portar">
                </div>
                <div>
@@ -1664,7 +1709,7 @@ function renderObstacleList(obstacles = []) {
   }
 
   list.innerHTML = sorted.map(o => {
-    const kd = o?.knockdown?.enabled ? `• KD ${Number.isFinite(o.knockdown.penaltySec) ? `(${o.knockdown.penaltySec}s)` : '(Global)'}` : '';
+    const kd = o?.knockdown?.enabled ? `• Rivning/boll ${Number.isFinite(o.knockdown.penaltySec) ? `(${o.knockdown.penaltySec} p)` : '(globalt)'}` : '';
     // NYTT: Visa portar om specifikt värde finns
     const gates = Number.isInteger(o.gateCount) ? `• ${o.gateCount} portar` : '';
     return `

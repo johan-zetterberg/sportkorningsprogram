@@ -36,6 +36,7 @@ let marathonStateDocsMap = new Map();
 let currentStartTimesData = null;
 let isGloballyPaused = false;
 let globalPauseStartTime = 0;
+const MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY = 2;
 
 function isFieldModeEnabled() {
   return getGlobalState('currentCompetition')?.competitionMode === 'field';
@@ -666,7 +667,7 @@ function updateTotalPenaltyDisplay() {
   const otherPenalty = parseFloat(document.getElementById('maratonPenalty').value) || 0;
 
   // Hämta straff per knockdown från config (använder globala värdet)
-  const penaltyPerKd = marathonConfigCache?.knockdownPenaltyDefault ?? 5;
+  const penaltyPerKd = marathonConfigCache?.knockdownPenaltyDefault ?? MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY;
   const knockdownPenaltyPoints = knockdowns * penaltyPerKd;
 
   // Hämta tidskoefficient *specifikt för hinder*
@@ -1233,7 +1234,7 @@ async function saveResult(e) {
 
   const knockdowns = parseInt(document.getElementById('maratonKnockdowns').value) || 0;
   const otherPenalty = parseFloat(document.getElementById('maratonPenalty').value) || 0;
-  const penaltyPerKd = marathonConfigCache?.knockdownPenaltyDefault ?? 5;
+  const penaltyPerKd = marathonConfigCache?.knockdownPenaltyDefault ?? MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY;
   const knockdownPenaltyPoints = knockdowns * penaltyPerKd;
 
   // NYTT: Hämta rätt koefficient
@@ -1565,28 +1566,28 @@ function getGateLettersForClass(className) {
     if (obsConfig && obsConfig.classOverrides && className) {
       const override = obsConfig.classOverrides[className];
       if (Number.isInteger(override) && override > 0) {
-        return { count: override, source: `Override (${className})` };
+        return { count: override, source: `Klassundantag (${className})` };
       }
     }
 
     // 1b. Annars använd hindrets globala inställning (om satt)
     if (obsConfig && Number.isInteger(obsConfig.gateCount) && obsConfig.gateCount > 0) {
-      return { count: obsConfig.gateCount, source: 'Obstacle Global' };
+      return { count: obsConfig.gateCount, source: 'Hindrets standard' };
     }
   }
 
   // 2. Annars använd klassens inställning
-  if (!className || !marathonConfigCache) return { count: 6, source: 'Default (No Class/Config)' };
+  if (!className || !marathonConfigCache) return { count: 6, source: 'Standard A-F' };
 
   const classData = marathonConfigCache.marathonClassData?.[className];
   const count = classData?.gateCount;
 
   if (Number.isInteger(count) && count > 0) {
-    return { count: count, source: `Class Default (${className})` };
+    return { count: count, source: `Klassens standard (${className})` };
   }
 
   // Fallback till standard A-F
-  return { count: 6, source: 'Fallback' };
+  return { count: 6, source: 'Standard A-F' };
 }
 
 function renderRouteButtonsForCurrent() {
@@ -1924,6 +1925,7 @@ export function load() {
           <div id="knockdown-container" class="hidden">
             <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_knockdowns')}</label>
             <input type="number" inputmode="numeric" id="maratonKnockdowns" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+            <p class="mt-1 text-[10px] leading-tight text-gray-500 dark:text-gray-400">${t('marathon_knockdowns_help')}</p>
           </div>
           
           <div>
