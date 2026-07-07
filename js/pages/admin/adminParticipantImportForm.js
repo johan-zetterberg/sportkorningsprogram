@@ -5,7 +5,7 @@ import { competitionClasses } from '../../data/competitionData.js';
 import {
     findBestClassMatch,
     inferParaGradeFromClassName,
-    normalizeTestForMerge,
+    resolveTestLevelMergeForClass,
     resolveProgramKeyForClass
 } from './adminParticipantClassUtils.js';
 import { parseEqEntriesXml } from './adminParticipantXmlImport.js';
@@ -37,24 +37,22 @@ function readUserClassMapping(uniqueXmlClasses) {
     return userClassMapping;
 }
 
-function prepareImportedEquipage(eqa, mappedClass, key, tempCounters) {
-    const mergeChecked = !!document.getElementById('eqXmlMergePerTestChk')?.checked;
-    if (mergeChecked) {
-        eqa.useMergedTestForDisplay = true;
-
-        if (!eqa.mergedTestKey || !eqa.mergedTestLabel) {
-            const base = normalizeTestForMerge(eqa.tdbClassLabel || eqa.className || '');
-            eqa.mergedTestKey = base.key;
-            eqa.mergedTestLabel = base.label;
-        }
-    }
-
+function prepareImportedEquipage(eqa, mappedClass, key, tempCounters, options = {}) {
     eqa.className = mappedClass;
     eqa.isPara = /para/i.test(mappedClass);
     eqa.paraGrade = eqa.isPara ? inferParaGradeFromClassName(mappedClass) : '';
     const importTestKey = resolveProgramKeyForClass(mappedClass, eqa.paraGrade);
     eqa.testKey = importTestKey || null;
     eqa.programKey = importTestKey || null;
+
+    if (options.mergePerTest) {
+        const base = resolveTestLevelMergeForClass(mappedClass || eqa.tdbClassLabel || eqa.className || '');
+        eqa.useMergedTestForDisplay = true;
+        eqa.mergedTestKey = base.key;
+        eqa.mergedTestLabel = base.label;
+    } else {
+        eqa.useMergedTestForDisplay = false;
+    }
 
     if (eqa.startNumber == null || Number.isNaN(Number(eqa.startNumber))) {
         let counter = tempCounters.get(key) || 0;
@@ -67,7 +65,7 @@ function prepareImportedEquipage(eqa, mappedClass, key, tempCounters) {
     }
 }
 
-async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping, progress) {
+async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping, progress, options = {}) {
     let ok = 0;
     let fail = 0;
     const tempCounters = new Map();
@@ -79,7 +77,7 @@ async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping
         const mappedClass = userClassMapping.get(key);
         if (!mappedClass) continue;
 
-        prepareImportedEquipage(eqa, mappedClass, key, tempCounters);
+        prepareImportedEquipage(eqa, mappedClass, key, tempCounters, options);
 
         try {
             await saveEquipage(compId, eqa.startNumber, eqa);
@@ -130,13 +128,15 @@ export function setupParticipantImportForm({ competitionId, getJudges, getOffici
 
             document.getElementById('eqXmlDoFinalImport').onclick = async () => {
                 const userClassMapping = readUserClassMapping(uniqueXmlClasses);
+                const mergePerTest = !!document.getElementById('eqXmlMergePerTestChk')?.checked;
 
                 progress.innerHTML = 'Sparar importerad data...';
-                const { ok, fail } = await saveImportedEquipages(competitionId, equipagesFromFile, userClassMapping, progress);
+                const { ok, fail } = await saveImportedEquipages(competitionId, equipagesFromFile, userClassMapping, progress, { mergePerTest });
 
                 progress.textContent += ' | Importerar funktionärer...';
                 const stats = await importOfficialsFromXml(file, competitionId, getJudges(), getOfficials());
-                const message = `Import klar: ${ok} ekipage, ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${fail ? ` ${fail} ekipage misslyckades.` : ''}`;
+                const mergeMessage = mergePerTest ? ' Testnivå-visning sparad för importerade ekipage.' : '';
+                const message = `Import klar: ${ok} ekipage, ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${mergeMessage}${fail ? ` ${fail} ekipage misslyckades.` : ''}`;
                 showAlert(message);
                 progress.textContent = message;
                 form.reset();

@@ -1,6 +1,7 @@
 import { saveEquipage } from '../../services/equipageService.js';
 import { getConfig, replaceConfig } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
+import { resolveTestLevelMergeForClass } from './adminParticipantClassUtils.js';
 import { removeMergeGroupsBySelection } from './adminParticipantMergeUtils.js';
 
 let currentCompetitionId = null;
@@ -54,13 +55,21 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
         <div class="rounded-lg border border-slate-200 dark:border-gray-600 p-3 bg-slate-50 dark:bg-gray-800/50">
         <div class="flex items-center justify-between">
           <div>
-            <div class="text-sm font-semibold dark:text-gray-200">Slå samman valda TDB-klassnummer</div>
-            <div class="text-xs text-slate-600 dark:text-gray-400">Markera de klassnummer som ska visas som EN gemensam klass i resultatet.</div>
+            <div class="text-sm font-semibold dark:text-gray-200">Visningssammanslagning av TDB-klasser</div>
+            <div class="text-xs text-slate-600 dark:text-gray-400">Välj klassnummer som ska visas som en gemensam klass i startlistor och resultat. Faktisk klass, tempo och beräkningar ändras inte.</div>
           </div>
           <div class="flex gap-2">
             <button id="cnSelectAll" class="text-xs px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 dark:bg-gray-600 dark:hover:bg-gray-500 dark:text-gray-200">Markera alla</button>
             <button id="cnSelectNone" class="text-xs px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 dark:bg-gray-600 dark:hover:bg-gray-500 dark:text-gray-200">Avmarkera alla</button>
           </div>
+        </div>
+
+        <div class="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-xs text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-100">
+          <div class="font-semibold">Snabbåtgärd efter XML-import</div>
+          <div class="mt-1">Applicerar samma testnivå-visning som importkryssrutan på alla befintliga ekipage. Faktisk klass, tempo och beräkningar ändras inte.</div>
+          <button id="cnApplyTestLevelMerge" class="mt-2 text-xs bg-blue-600 text-white font-semibold py-1.5 px-3 rounded hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600">
+            Applicera testnivå-visning på alla ekipage
+          </button>
         </div>
 
         <div class="mt-3 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2" id="cnChoices">
@@ -82,18 +91,18 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
         </div>
 
         <div class="mt-3 flex flex-wrap items-center gap-2">
-          <input id="cnGroupLabel" type="text" placeholder="Gemensam etikett (t.ex. Lätt A)"
+          <input id="cnGroupLabel" type="text" placeholder="Visningsetikett (t.ex. Lätt A)"
                  class="text-sm border rounded px-2 py-1 min-w-[220px] dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
           <button id="cnMergeCreate" class="text-xs bg-emerald-600 text-white font-semibold py-1.5 px-3 rounded hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-600">
-            Slå samman valda
+            Skapa visningssammanslagning
           </button>
           <button id="cnUnmergeSelected" class="text-xs bg-gray-200 text-gray-800 font-semibold py-1.5 px-3 rounded hover:bg-gray-300 dark:bg-gray-600 dark:text-gray-200 dark:hover:bg-gray-500">
-            Ångra sammanslagning (för valda)
+            Bryt upp visningssammanslagning
           </button>
         </div>
 
         <div class="mt-4">
-          <div class="text-sm font-semibold mb-1">Aktiva sammanslagningar</div>
+          <div class="text-sm font-semibold mb-1">Aktiva visningssammanslagningar</div>
           <div id="cnActiveGroups" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2"></div>
         </div>
       </div>`;
@@ -104,7 +113,7 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
     if (wrap) {
         const entries = Object.entries(savedGroups);
         if (!entries.length) {
-            wrap.innerHTML = `<div class="text-xs text-slate-500">Inga aktiva sammanslagningar.</div>`;
+            wrap.innerHTML = `<div class="text-xs text-slate-500">Inga aktiva visningssammanslagningar.</div>`;
         } else {
             wrap.innerHTML = entries.map(([key, group]) => {
                 const nums = (group.members || []).join(', ');
@@ -128,6 +137,47 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
         choiceBox.querySelectorAll('input.cnChoice')?.forEach(cb => cb.checked = false);
     });
 
+    container.querySelector('#cnApplyTestLevelMerge')?.addEventListener('click', async () => {
+        if (!currentEquipages.length) {
+            showAlert('Inga ekipage att uppdatera.', false);
+            return;
+        }
+
+        const ok = window.confirm('Detta uppdaterar bara visningsetiketten för befintliga ekipage. Faktisk klass, tempo och beräkningar påverkas inte. Fortsätta?');
+        if (!ok) return;
+
+        let updated = 0;
+        try {
+            for (const equipage of currentEquipages) {
+                const base = resolveTestLevelMergeForClass(equipage.className || equipage.tdbClassLabel || '');
+                if (!base.label) continue;
+
+                const patch = {
+                    ...equipage,
+                    useMergedTestForDisplay: true,
+                    mergedTestKey: base.key,
+                    mergedTestLabel: base.label
+                };
+
+                const alreadyApplied = equipage.useMergedTestForDisplay === true
+                    && equipage.mergedTestKey === patch.mergedTestKey
+                    && equipage.mergedTestLabel === patch.mergedTestLabel;
+
+                if (alreadyApplied) continue;
+
+                Object.assign(equipage, patch);
+                await saveEquipage(currentCompetitionId, patch.startNumber, patch);
+                updated++;
+            }
+
+            renderEquipages(currentEquipages);
+            showAlert(`Testnivå-visning applicerad på ${updated} ekipage.`);
+        } catch (error) {
+            console.error(error);
+            showAlert('Kunde inte applicera testnivå-visning.', false);
+        }
+    });
+
     container.querySelector('#cnMergeCreate')?.addEventListener('click', async () => {
         const selected = getSelectedNums(choiceBox);
         if (selected.length < 2) {
@@ -147,11 +197,11 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
 
             await replaceConfig(currentCompetitionId, 'display', { ...prev, mergeByClassNumber: nextGroups });
             await applyMergeForClassNumbers(sortedSelected, groupLabel, key, true);
-            showAlert('Sammanslagning skapad.');
+            showAlert('Visningssammanslagning skapad.');
             renderClassNumberMergePanel(currentEquipages, { competitionId: currentCompetitionId, renderEquipages });
         } catch (error) {
             console.error(error);
-            showAlert('Kunde inte spara sammanslagning.', false);
+            showAlert('Kunde inte spara visningssammanslagning.', false);
         }
     });
 
@@ -161,7 +211,7 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
         const selectedNums = getSelectedNums(choiceBox);
 
         if (!groupKeys.length && !selectedNums.length) {
-            showAlert('Markera en grupp (nedan) eller klasser (ovan) att ångra.', false);
+            showAlert('Markera en aktiv visningssammanslagning eller TDB-klasser att bryta upp.', false);
             return;
         }
 
@@ -173,7 +223,7 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
                 : selectedNums;
 
             if (!result.changed && !numsToUnmerge.length) {
-                showAlert('Ingen grupp vald/ändrad.', false);
+                showAlert('Ingen visningssammanslagning vald eller ändrad.', false);
                 return;
             }
 
@@ -188,11 +238,11 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
                 await applyMergeForClassNumbers(numsToUnmerge, '', '', false);
             }
 
-            showAlert('Sammanslagning borttagen.');
+            showAlert('Visningssammanslagning borttagen.');
             renderClassNumberMergePanel(currentEquipages, { competitionId: currentCompetitionId, renderEquipages });
         } catch (error) {
             console.error(error);
-            showAlert('Kunde inte uppdatera.', false);
+            showAlert('Kunde inte uppdatera visningssammanslagning.', false);
         }
     });
 }

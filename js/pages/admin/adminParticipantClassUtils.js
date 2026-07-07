@@ -35,6 +35,15 @@ export function normalizeTestForMerge(label) {
     return { key: `TEST:${s.toUpperCase()} `, label: s };
 }
 
+export function resolveTestLevelMergeForClass(className = '') {
+    const base = normalizeTestForMerge(className);
+    const fallbackLabel = String(className || '').trim();
+    return {
+        key: base.key || (fallbackLabel ? `TEST:${fallbackLabel.toUpperCase()} ` : ''),
+        label: base.label || fallbackLabel
+    };
+}
+
 export function normalizeEqClassName(name) {
     if (!name) return '';
     let out = String(name)

@@ -6,6 +6,7 @@ import {
   inferParaGradeFromClassName,
   normalizeEqClassName,
   normalizeTestForMerge,
+  resolveTestLevelMergeForClass,
   resolveProgramKeyForClass
 } from '../js/pages/admin/adminParticipantClassUtils.js';
 
@@ -25,6 +26,17 @@ test('normalizeTestForMerge removes turnout and horse labels', () => {
   const normalized = normalizeTestForMerge('Enbet Häst Lätt A');
   assert.equal(normalized.label, 'Lätt A');
   assert.equal(normalized.key, 'TEST:LÄTT A ');
+});
+
+test('resolveTestLevelMergeForClass builds display merge from actual mapped class', () => {
+  assert.deepEqual(resolveTestLevelMergeForClass('Lätt A Enbet Ponny'), {
+    key: 'PROG:SvLA ',
+    label: 'Lätt A'
+  });
+  assert.deepEqual(resolveTestLevelMergeForClass('MSV 4 Par Häst'), {
+    key: 'PROG:sv_msv_4_par_2025 ',
+    label: 'MSV 4'
+  });
 });
 
 test('normalizeEqClassName standardizes short labels and horse types', () => {

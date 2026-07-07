@@ -63,7 +63,11 @@ export function getParticipantsHtml() {
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div><label for="driverPhone" class="block text-xs font-medium dark:text-gray-400">Telefon</label><input type="text" id="driverPhone" class="mt-1 block w-full p-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></div>
-                            <div><label for="driverCountry" class="block text-xs font-medium dark:text-gray-400">Land</label><input type="text" id="driverCountry" class="mt-1 block w-full p-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></div>
+                            <div>
+                                <label for="driverCountry" class="block text-xs font-medium dark:text-gray-400">Nationalitet / flagga</label>
+                                <input type="text" id="driverCountry" placeholder="t.ex. SE, SWE, Sverige, DK" class="mt-1 block w-full p-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
+                                <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">Styr nationsflaggan i listor och PDF:er.</p>
+                            </div>
                         </div>
                         <div class="grid grid-cols-2 gap-3">
                             <div><label for="driverLicense" class="block text-xs font-medium dark:text-gray-400">Licensnr</label><input type="text" id="driverLicense" class="mt-1 block w-full p-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white"></div>
