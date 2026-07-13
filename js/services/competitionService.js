@@ -43,6 +43,7 @@ export async function createCompetition(data) {
           'dressyrProgramMapping',
           'dressyrClassConfig',
           'dressageJudgeMapping',
+          'horseTemperature',
           'competitionMeta',
           'map' 
         ];

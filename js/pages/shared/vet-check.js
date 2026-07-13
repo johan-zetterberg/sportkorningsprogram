@@ -1,7 +1,16 @@
 ﻿import { getGlobalState } from '../../main.js';
 import { listenForEquipages, saveEquipage } from '../../services/equipageService.js';
+import { getCompetitionById, getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import {
+    buildHorseTemperatureSlots,
+    getHorseTemperatureRecord,
+    getTemperatureHorses,
+    normalizeHorseTemperatureConfig,
+    normalizeHorseTemperatureValue,
+    summarizeHorseTemperatures
+} from './horseTemperatureUtils.js';
 import {
     buildVetDatalistOptions,
     deriveVetStatusFromHorses,
@@ -18,6 +27,8 @@ let filteredEquipages = [];
 let unsubscribe = null;
 let currentIndex = 0;
 let currentSearchTerm = '';
+let horseTemperatureConfig = normalizeHorseTemperatureConfig();
+let competitionDates = '';
 
 const statusConfig = {
     'anmäld': { label: 'Väntar', color: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300', border: 'border-gray-200 dark:border-gray-600' },
@@ -42,8 +53,11 @@ export function load() {
     }
 
     competitionId = competition.id;
+    competitionDates = competition.dates || '';
+    horseTemperatureConfig = normalizeHorseTemperatureConfig();
     renderPage(pageContainer, competition);
     attachPageHandlers();
+    loadTemperatureSettings(competition);
 
     unsubscribe = listenForEquipages(competitionId, update => {
         allEquipages = Array.isArray(update) ? update : [];
@@ -60,6 +74,24 @@ export function __unload() {
     filteredEquipages = [];
     currentIndex = 0;
     currentSearchTerm = '';
+    horseTemperatureConfig = normalizeHorseTemperatureConfig();
+    competitionDates = '';
+}
+
+async function loadTemperatureSettings(competition) {
+    try {
+        const [config, compDoc] = await Promise.all([
+            getConfig(competition.id, 'horseTemperature').catch(() => ({})),
+            getCompetitionById(competition.id).catch(() => null)
+        ]);
+        if (competitionId !== competition.id) return;
+        horseTemperatureConfig = normalizeHorseTemperatureConfig(config);
+        competitionDates = compDoc?.dates || competition.dates || '';
+        updateQueueDisplay();
+        renderCard();
+    } catch (error) {
+        console.warn('Kunde inte ladda temperaturinställningar:', error);
+    }
 }
 
 function renderPage(pageContainer, competition) {
@@ -79,7 +111,10 @@ function renderPage(pageContainer, competition) {
                 <div class="vet-header shrink-0 p-4 bg-white dark:bg-gray-900 border-b dark:border-gray-700 z-30 shadow-sm space-y-4">
                     <div class="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center">
                         <h2 class="text-lg font-black text-gray-800 dark:text-white uppercase tracking-tighter">Besiktning</h2>
-                        <div class="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-400" id="vet-queue-count">Laddar...</div>
+                        <div class="text-right">
+                            <div class="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-400" id="vet-queue-count">Laddar...</div>
+                            <div class="text-[10px] font-bold uppercase text-orange-600 dark:text-orange-300" id="vet-temp-count"></div>
+                        </div>
                     </div>
                     <div class="flex gap-2 items-center">
                         <button id="btn-prev-eq" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Föregående">‹</button>
@@ -139,6 +174,28 @@ function processData(searchTerm = '') {
 function updateQueueDisplay() {
     const countEl = byId('vet-queue-count');
     if (countEl) countEl.textContent = `${getVetRemainingCount(allEquipages)} kvar`;
+
+    const tempEl = byId('vet-temp-count');
+    if (!tempEl) return;
+
+    const slots = buildHorseTemperatureSlots(competitionDates, horseTemperatureConfig);
+    if (!horseTemperatureConfig.enabled || !slots.length) {
+        tempEl.textContent = '';
+        return;
+    }
+
+    const activeEquipages = allEquipages.filter(eq => String(eq?.status || '').toLowerCase() !== 'struken');
+    const totals = activeEquipages.reduce((acc, eq) => {
+        const summary = summarizeHorseTemperatures(eq, competitionDates, horseTemperatureConfig);
+        acc.completed += summary.completed;
+        acc.total += summary.total;
+        acc.high += summary.highCount;
+        return acc;
+    }, { completed: 0, total: 0, high: 0 });
+
+    tempEl.textContent = totals.total > 0
+        ? `Temp ${totals.completed}/${totals.total}${totals.high ? `, ${totals.high} varning` : ''}`
+        : 'Temp: inga hästar';
 }
 
 function updateDatalist() {
@@ -216,6 +273,84 @@ function renderHorseCard(horse = {}, index = 0) {
     `;
 }
 
+function formatTemperatureValue(value) {
+    const normalized = normalizeHorseTemperatureValue(value);
+    return normalized === null ? '-' : `${String(normalized).replace('.', ',')} °C`;
+}
+
+function renderTemperatureReport(eq = {}) {
+    if (!horseTemperatureConfig.enabled) return '';
+
+    const slots = buildHorseTemperatureSlots(competitionDates, horseTemperatureConfig);
+    if (!slots.length) {
+        return `
+            <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+                Temperaturkontroll är aktiverad, men tävlingsdatum kunde inte tolkas.
+            </div>
+        `;
+    }
+
+    const horses = getTemperatureHorses(eq);
+    if (!horses.length) return '';
+
+    const summary = summarizeHorseTemperatures(eq, competitionDates, horseTemperatureConfig);
+    const isComplete = summary.complete;
+    const statusClass = summary.highCount
+        ? 'bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-100'
+        : (isComplete
+            ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-100'
+            : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-100');
+
+    return `
+        <div class="mt-4 rounded-xl border border-gray-200 bg-gray-50 p-3 text-xs dark:border-gray-700 dark:bg-gray-900/30">
+            <div class="flex items-center justify-between gap-3">
+                <div>
+                    <div class="text-[10px] font-black uppercase tracking-widest text-gray-400">Temperaturrapport</div>
+                    <div class="mt-1 font-bold text-gray-900 dark:text-white">${summary.completed}/${summary.total} ifyllda</div>
+                </div>
+                <span class="rounded-full px-2 py-1 text-[10px] font-black uppercase ${statusClass}">
+                    ${summary.highCount ? `${summary.highCount} varning` : (isComplete ? 'Klar' : 'Saknas')}
+                </span>
+            </div>
+            <div class="mt-3 space-y-2">
+                ${horses.map((horse, index) => {
+        const horseKey = horse._temperatureKey;
+        const horseSummary = summary.horseSummaries.find(item => item.horseKey === horseKey);
+        const latest = horseSummary?.latest;
+        return `
+            <details class="rounded-lg border border-gray-200 bg-white p-2 dark:border-gray-700 dark:bg-gray-800/70" ${index === 0 ? 'open' : ''}>
+                <summary class="cursor-pointer font-bold text-gray-900 dark:text-white">
+                    ${escapeHtml(horse._temperatureName)}
+                    <span class="ml-2 text-[10px] font-semibold text-gray-500 dark:text-gray-400">${horseSummary?.completed || 0}/${slots.length}</span>
+                    ${latest ? `<span class="ml-2 text-[10px] font-semibold text-blue-700 dark:text-blue-300">Senaste ${formatTemperatureValue(latest.temperatureC)}</span>` : ''}
+                </summary>
+                <div class="mt-2 overflow-x-auto">
+                    <table class="min-w-full text-left text-[11px]">
+                        <tbody>
+                            ${slots.map(slot => {
+            const record = getHorseTemperatureRecord(eq, horseKey, slot.id);
+            const value = normalizeHorseTemperatureValue(record?.temperatureC);
+            const isHigh = horseTemperatureConfig.warningTemperatureC !== null && value !== null && value >= horseTemperatureConfig.warningTemperatureC;
+            return `
+                <tr class="${isHigh ? 'text-orange-700 dark:text-orange-300' : 'text-gray-600 dark:text-gray-300'}">
+                    <td class="py-1 pr-2 whitespace-nowrap">${escapeHtml(slot.date)}</td>
+                    <td class="py-1 pr-2 whitespace-nowrap">${escapeHtml(slot.periodLabel)}</td>
+                    <td class="py-1 pr-2 font-bold whitespace-nowrap">${formatTemperatureValue(value)}</td>
+                    <td class="py-1 text-gray-400 whitespace-nowrap">${escapeHtml(record?.takenAt ? record.takenAt.replace('T', ' ') : '')}</td>
+                </tr>
+            `;
+        }).join('')}
+                        </tbody>
+                    </table>
+                </div>
+            </details>
+        `;
+    }).join('')}
+            </div>
+        </div>
+    `;
+}
+
 function renderVetCard(eq = {}) {
     const status = deriveVetStatusFromHorses(eq.horses, eq.status);
     const conf = statusConfig[status] || statusConfig['anmäld'];
@@ -247,6 +382,7 @@ function renderVetCard(eq = {}) {
                 <div class="grid gap-2">
                     ${horsesHtml || '<div class="p-4 bg-gray-50 dark:bg-gray-800 rounded-lg border dark:border-gray-700 text-gray-500 italic text-center text-xs">Inga hästar registrerade</div>'}
                 </div>
+                ${renderTemperatureReport(eq)}
             </div>
 
             <div class="mb-5 relative group">

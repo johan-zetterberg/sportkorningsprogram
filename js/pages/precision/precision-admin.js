@@ -61,6 +61,90 @@ function getSortedPrecisionTempoEntries() {
         });
 }
 
+const PRECISION_BULK_GROUP_ORDER = ['Lätt C', 'Lätt B', 'Lätt A', 'MSV', 'Svår', 'FEI / internationellt', 'Barn/övrigt', 'Övriga'];
+
+function getPrecisionBulkGroupLabel(group) {
+    const text = [group?.label, ...(group?.sourceClasses || [])]
+        .join(' ')
+        .replace(/^\s*\d+\.\s*/, '')
+        .toLowerCase();
+
+    if (/fei|cai/.test(text)) return 'FEI / internationellt';
+    if (/l[äa]tt\s*c|\blc\b/.test(text)) return 'Lätt C';
+    if (/l[äa]tt\s*b|\blb\b/.test(text)) return 'Lätt B';
+    if (/l[äa]tt\s*a|\bla\b/.test(text)) return 'Lätt A';
+    if (/msv|medelsv/.test(text)) return 'MSV';
+    if (/sv[åa]r/.test(text)) return 'Svår';
+    if (/barn|children/.test(text)) return 'Barn/övrigt';
+    return 'Övriga';
+}
+
+function getPrecisionBulkGroupId(label) {
+    return String(label || 'ovriga')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '-')
+        .replace(/^-|-$/g, '');
+}
+
+function getPrecisionBulkGroups() {
+    const groups = new Map();
+    activeClassGroups.forEach(group => {
+        const label = getPrecisionBulkGroupLabel(group);
+        const id = getPrecisionBulkGroupId(label);
+        if (!groups.has(id)) groups.set(id, { id, label, classGroups: [] });
+        groups.get(id).classGroups.push(group);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+        const rankA = PRECISION_BULK_GROUP_ORDER.indexOf(a.label);
+        const rankB = PRECISION_BULK_GROUP_ORDER.indexOf(b.label);
+        const safeRankA = rankA === -1 ? Number.MAX_SAFE_INTEGER : rankA;
+        const safeRankB = rankB === -1 ? Number.MAX_SAFE_INTEGER : rankB;
+        if (safeRankA !== safeRankB) return safeRankA - safeRankB;
+        return a.label.localeCompare(b.label, 'sv');
+    });
+}
+
+function renderPrecisionBulkFillPanel() {
+    const groups = getPrecisionBulkGroups();
+    if (!groups.length) return '';
+
+    return `
+        <section class="rounded-lg border border-blue-100 bg-blue-50/80 p-3 text-sm dark:border-blue-900/60 dark:bg-blue-900/20">
+            <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                    <h4 class="font-semibold text-blue-900 dark:text-blue-100">Snabbifyll bana per nivå</h4>
+                    <p class="text-xs text-blue-800 dark:text-blue-200">
+                        Fyll t.ex. alla Lätt B, Lätt A eller MSV samtidigt. Detta fyller bara formuläret; spara sedan med knappen längst ned.
+                    </p>
+                </div>
+            </div>
+            <div class="mt-3 space-y-3">
+                ${groups.map(group => `
+                    <div class="precision-bulk-row rounded-md border border-blue-100 bg-white/80 p-3 dark:border-blue-900/60 dark:bg-gray-800/70" data-bulk-group-id="${escapeHtml(group.id)}">
+                        <div class="flex flex-col gap-3 xl:flex-row xl:items-start">
+                            <div class="xl:w-56">
+                                <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(group.label)}</div>
+                                <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">${group.classGroups.length} klasskort: ${escapeHtml(group.classGroups.map(item => item.label).join(', '))}</div>
+                            </div>
+                            <div class="grid flex-1 grid-cols-1 gap-2 md:grid-cols-[10rem_minmax(0,1fr)]">
+                                <input type="number" class="precision-bulk-track-length rounded border p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Banlängd (m)">
+                                <textarea rows="2" class="precision-bulk-obstacle-labels rounded border p-2 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="Hinderetiketter, t.ex. 1, 2, 3, 4A, 4B"></textarea>
+                            </div>
+                            <div class="flex flex-col gap-2 sm:flex-row xl:flex-col">
+                                <button type="button" class="precision-bulk-apply rounded bg-blue-100 px-3 py-2 text-xs font-semibold text-blue-900 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-100 dark:hover:bg-blue-900/70" data-mode="empty">Fyll tomma</button>
+                                <button type="button" class="precision-bulk-apply rounded bg-gray-800 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-700 dark:bg-blue-600 dark:hover:bg-blue-500" data-mode="overwrite">Skriv över gruppen</button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('')}
+            </div>
+        </section>
+    `;
+}
+
 function renderPrecisionRulesCheatSheet() {
     return `
         <details class="mb-4 rounded-lg border border-blue-100 bg-blue-50/70 p-3 text-sm dark:border-blue-900/60 dark:bg-blue-900/20">
@@ -412,8 +496,11 @@ function renderClassCards() {
         return;
     }
 
-    container.innerHTML = activeClassGroups.map(group => {
+    container.innerHTML = `
+        ${renderPrecisionBulkFillPanel()}
+        ${activeClassGroups.map(group => {
         const className = group.label;
+        const bulkGroupId = getPrecisionBulkGroupId(getPrecisionBulkGroupLabel(group));
         const classId = className.replace(/[^a-zA-Z0-9]/g, '_');
         const courseData = precisionConfig.courses?.[className] || {};
         const trackLength = courseData.trackLengthMeters ?? '';
@@ -464,7 +551,7 @@ function renderClassCards() {
         }
 
         return `
-            <div class="precision-admin-card p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}">
+            <div class="precision-admin-card p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}" data-bulk-group-id="${escapeHtml(bulkGroupId)}">
                 <h4 class="text-lg font-bold text-gray-800 dark:text-white">${className}</h4>
                 ${sourceClassLabel}
                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
@@ -513,7 +600,8 @@ function renderClassCards() {
                 </div>
             </div>
         `;
-    }).join('');
+    }).join('')}
+    `;
 
     const updateMaxTime = (e) => {
         const card = e.target.closest('[data-class-name]');
@@ -539,6 +627,10 @@ function renderClassCards() {
             maxTimeOutput.textContent = '--:--';
         }
     };
+
+    container.querySelectorAll('.track-length-input, .tempo-override-input').forEach(input => {
+        input.addEventListener('input', updateMaxTime);
+    });
 
     container.querySelectorAll('.obstacle-labels-input').forEach(textarea => {
         textarea.addEventListener('input', (e) => {
@@ -584,6 +676,61 @@ function renderClassCards() {
                     </div>
                 `;
             }).join('');
+        });
+    });
+
+    setupPrecisionBulkFill(container);
+}
+
+function setPrecisionInputValue(input, value) {
+    if (!input) return;
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+function setupPrecisionBulkFill(container) {
+    container.querySelectorAll('.precision-bulk-apply').forEach(button => {
+        button.addEventListener('click', () => {
+            const row = button.closest('.precision-bulk-row');
+            const groupId = row?.dataset.bulkGroupId;
+            const mode = button.dataset.mode || 'empty';
+            const trackLength = row?.querySelector('.precision-bulk-track-length')?.value.trim() || '';
+            const labels = row?.querySelector('.precision-bulk-obstacle-labels')?.value.trim() || '';
+
+            if (!groupId || (!trackLength && !labels)) {
+                showAlert('Ange banlängd eller hinderetiketter först.', 'error');
+                return;
+            }
+
+            let changedCards = 0;
+            container.querySelectorAll('.precision-admin-card').forEach(card => {
+                if (card.dataset.bulkGroupId !== groupId) return;
+
+                let changed = false;
+                const lengthInput = card.querySelector('.track-length-input');
+                const labelsInput = card.querySelector('.obstacle-labels-input');
+
+                if (trackLength && lengthInput && (mode === 'overwrite' || !lengthInput.value.trim())) {
+                    setPrecisionInputValue(lengthInput, trackLength);
+                    changed = true;
+                }
+
+                if (labels && labelsInput && (mode === 'overwrite' || !labelsInput.value.trim())) {
+                    setPrecisionInputValue(labelsInput, labels);
+                    changed = true;
+                }
+
+                if (changed) changedCards++;
+            });
+
+            if (changedCards === 0) {
+                showAlert(mode === 'overwrite' ? 'Inga klasskort hittades för gruppen.' : 'Inga tomma fält att fylla i för gruppen.', 'error');
+                return;
+            }
+
+            renderPrecisionAdminReadiness();
+            showAlert(`Snabbifyllning klar för ${changedCards} klasskort. Kom ihåg att spara.`, 'success');
         });
     });
 }

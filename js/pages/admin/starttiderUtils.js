@@ -87,7 +87,7 @@ export function buildStarttiderClassOptions(equipages = [], allClassesLabel = 'A
         equipages
             .map(equipage => equipage?._mergedLabel || equipage?.className)
             .filter(Boolean)
-    )).sort((a, b) => a.localeCompare(b, 'sv'));
+    )).sort((a, b) => a.localeCompare(b, 'sv', { numeric: true, sensitivity: 'base' }));
 
     return {
         classes,
@@ -191,6 +191,30 @@ export function renderStarttiderToolbarSection({
 
 export function byStartNumberAsc(a, b) {
     return (a.startNumber || 0) - (b.startNumber || 0);
+}
+
+function getBulkClassLabel(row) {
+    return String(row?._mergedLabel || row?.className || '');
+}
+
+export function sortStarttiderBulkRows(rows = [], {
+    order = 'startnumber'
+} = {}) {
+    const sortedRows = [...rows];
+
+    if (order === 'classwise') {
+        return sortedRows.sort((a, b) => {
+            const classCompare = getBulkClassLabel(a).localeCompare(
+                getBulkClassLabel(b),
+                'sv',
+                { numeric: true, sensitivity: 'base' }
+            );
+            if (classCompare !== 0) return classCompare;
+            return byStartNumberAsc(a, b);
+        });
+    }
+
+    return sortedRows.sort(byStartNumberAsc);
 }
 
 export function toDateTimeLocalString(date) {

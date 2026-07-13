@@ -31,6 +31,7 @@ import {
   reorderStartTimeRow,
   resolveStarttiderStatus,
   resolveStarttiderMergeGrouping,
+  sortStarttiderBulkRows,
   toDateTimeLocalString
 } from '../js/pages/admin/starttiderUtils.js';
 
@@ -474,6 +475,22 @@ test('assignBulkStartTimes fills rows with interval and respects onlyEmpty', () 
   assert.equal(startTimes[1].dressage, '2026-05-25T09:00');
   assert.equal(startTimes[2].dressage, '2026-05-25T08:00');
   assert.equal(startTimes[3].dressage, '2026-05-25T09:10');
+});
+
+test('sortStarttiderBulkRows can generate all classes classwise', () => {
+  const rows = [
+    { startNumber: 1, className: '10. MSV 4' },
+    { startNumber: 2, className: '2. Lätt A' },
+    { startNumber: 3, className: '10. MSV 4' },
+    { startNumber: 4, className: '1. Lätt B' }
+  ];
+
+  const startNumberOrder = sortStarttiderBulkRows(rows, { order: 'startnumber' });
+  const classwiseOrder = sortStarttiderBulkRows(rows, { order: 'classwise' });
+
+  assert.deepEqual(startNumberOrder.map(row => row.startNumber), [1, 2, 3, 4]);
+  assert.deepEqual(classwiseOrder.map(row => row.startNumber), [4, 2, 1, 3]);
+  assert.deepEqual(rows.map(row => row.startNumber), [1, 2, 3, 4]);
 });
 
 test('addPauseAfterStartNumber shifts later starts only', () => {

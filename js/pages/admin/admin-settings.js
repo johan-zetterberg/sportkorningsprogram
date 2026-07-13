@@ -10,6 +10,10 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
 import { t } from '../../utils/i18n.js';
 import { getPublishedState, parseDateTime } from './starttiderUtils.js';
+import {
+    normalizeHorseTemperatureConfig,
+    normalizeHorseTemperatureValue
+} from '../shared/horseTemperatureUtils.js';
 
 let mapInstance = null;
 let markerInstance = null;
@@ -759,6 +763,43 @@ export function getSettingsHtml() {
                 </div>
             </div>
         </div>
+
+        <!-- HÄSTTEMPERATUR -->
+        <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
+            <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Hästtemperatur</h2>
+            <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">Låt kuskar rapportera temperatur per häst i Min Portal inför tävlingen. Temperaturinrapportering påverkas inte av låsningen för deklarationsändringar.</p>
+
+            <label class="flex items-start gap-3 rounded-lg border border-blue-100 bg-blue-50 p-3 dark:border-blue-900 dark:bg-blue-900/20">
+                <input type="checkbox" id="horseTempEnabledCheckbox" class="mt-1 h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 dark:bg-gray-800 dark:border-gray-600">
+                <span>
+                    <span class="block font-bold text-blue-900 dark:text-blue-100">Aktivera temperaturkontroll</span>
+                    <span class="block text-xs text-blue-800 dark:text-blue-200">Visar en egen rapporteringsdel i kuskens portal och status i veterinärvyn.</span>
+                </span>
+            </label>
+
+            <div class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                <div>
+                    <label for="horseTempDaysInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Dagar innan start</label>
+                    <input type="number" id="horseTempDaysInput" min="1" max="14" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="3">
+                </div>
+                <div>
+                    <label for="horseTempChecksPerDaySelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Kontroller per dag</label>
+                    <select id="horseTempChecksPerDaySelect" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <option value="1">1 gång per dag</option>
+                        <option value="2">2 gånger per dag</option>
+                    </select>
+                </div>
+                <div>
+                    <label for="horseTempWarningInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Varningsgräns, °C</label>
+                    <input type="text" id="horseTempWarningInput" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Valfri, t.ex. 38,5">
+                </div>
+            </div>
+
+            <div class="mt-4">
+                <label for="horseTempInstructionsInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Instruktion till kuskar</label>
+                <textarea id="horseTempInstructionsInput" rows="3" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Exempel: Fyll i temperatur morgon och kväll för varje häst de tre dagarna före tävlingen. Kontakta veterinär vid avvikande temperatur."></textarea>
+            </div>
+        </div>
         
         <!-- PLATS & KARTA -->
         <div id="settingsMapCard" class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700">
@@ -904,6 +945,9 @@ export function getSettingsHtml() {
 export async function setupSettingsLogic(competitionId) {
     try {
         const meta = await getConfig(competitionId, 'competitionMeta').catch(() => ({}));
+        const horseTemperatureConfig = normalizeHorseTemperatureConfig(
+            await getConfig(competitionId, 'horseTemperature').catch(() => ({}))
+        );
 
         // --- 1. Basic Settings (Meta) ---
         // International Toggle
@@ -934,6 +978,18 @@ export async function setupSettingsLogic(competitionId) {
         if (ldCheck) {
             ldCheck.checked = !!meta.manualLockdown;
         }
+
+        const horseTempEnabled = document.getElementById('horseTempEnabledCheckbox');
+        const horseTempDays = document.getElementById('horseTempDaysInput');
+        const horseTempChecks = document.getElementById('horseTempChecksPerDaySelect');
+        const horseTempWarning = document.getElementById('horseTempWarningInput');
+        const horseTempInstructions = document.getElementById('horseTempInstructionsInput');
+
+        if (horseTempEnabled) horseTempEnabled.checked = horseTemperatureConfig.enabled;
+        if (horseTempDays) horseTempDays.value = horseTemperatureConfig.daysBefore;
+        if (horseTempChecks) horseTempChecks.value = String(horseTemperatureConfig.checksPerDay);
+        if (horseTempWarning) horseTempWarning.value = horseTemperatureConfig.warningTemperatureC ?? '';
+        if (horseTempInstructions) horseTempInstructions.value = horseTemperatureConfig.instructions || '';
 
         // --- 2. Map & Coordinates (From Config) ---
         // We fetch 'map' config. Fallback to competition doc 'coordinates' for migration/legacy.
@@ -1069,6 +1125,13 @@ export async function setupSettingsLogic(competitionId) {
                     const newValLock = Number(document.getElementById('lockdownMinutesInput')?.value ?? 60);
                     const newValManual = !!document.getElementById('manualLockdownCheckbox')?.checked;
                     const newCompetitionMode = document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live';
+                    const newHorseTemperatureConfig = normalizeHorseTemperatureConfig({
+                        enabled: !!document.getElementById('horseTempEnabledCheckbox')?.checked,
+                        daysBefore: document.getElementById('horseTempDaysInput')?.value ?? 3,
+                        checksPerDay: document.getElementById('horseTempChecksPerDaySelect')?.value ?? 2,
+                        warningTemperatureC: normalizeHorseTemperatureValue(document.getElementById('horseTempWarningInput')?.value),
+                        instructions: document.getElementById('horseTempInstructionsInput')?.value || ''
+                    });
 
                     // Coordinates
                     const lat = document.getElementById('settingsLatInput').value;
@@ -1111,6 +1174,11 @@ export async function setupSettingsLogic(competitionId) {
                         isInternational: newValIntl,
                         lockdownMinutes: newValLock,
                         manualLockdown: newValManual
+                    });
+
+                    await saveConfig(competitionId, 'horseTemperature', {
+                        ...newHorseTemperatureConfig,
+                        updatedAt: new Date()
                     });
 
                     // Save Class Settings

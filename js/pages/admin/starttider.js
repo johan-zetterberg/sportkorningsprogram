@@ -66,6 +66,7 @@ import {
     reorderStartTimeRow,
     resolveStarttiderStatus,
     resolveStarttiderMergeGrouping,
+    sortStarttiderBulkRows,
     toDateTimeLocalString
 } from './starttiderUtils.js';
 
@@ -783,6 +784,7 @@ function doBulkFill(key) {
     const firstDateTimeStr = document.getElementById('bulkFirst').value;
     const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval').value || 7));
     const onlyEmpty = document.getElementById('bulkOnlyEmpty').checked;
+    const dressageOrder = document.querySelector('input[name="dressageSortMode"]:checked')?.value || 'startnumber';
 
     if (!firstDateTimeStr) {
         showAlert(t('valid_start_time_req'), 'warning');
@@ -795,7 +797,10 @@ function doBulkFill(key) {
         return;
     }
 
-    const rows = equipages.filter(e => !cls || (e._mergedLabel || e.className) === cls).sort(byStartNumberAsc);
+    const rows = sortStarttiderBulkRows(
+        equipages.filter(e => !cls || (e._mergedLabel || e.className) === cls),
+        { order: key === 'dressage' ? dressageOrder : 'startnumber' }
+    );
     assignBulkStartTimes(startTimes, rows, {
         discipline: key,
         firstDateTime,
@@ -1193,9 +1198,23 @@ function bindAllControls() {
 <!-- 2. GENERATORS -->
 <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
     <div class="p-4 bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 shadow-sm space-y-4">
-        <button id="bulkDressage" class="w-full px-3 py-2 text-sm font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 shadow flex justify-between items-center">
-            ${t('generate_dressage')} <span id="nextTimeDressage" class="text-xs opacity-80 font-normal ml-2"></span>
-        </button>
+        <div class="p-3 bg-slate-50 dark:bg-slate-900/20 rounded-md border border-slate-100 dark:border-slate-700">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-slate-800 dark:text-slate-300 mb-2">Generera dressyr</h4>
+            <div class="grid gap-2 text-sm sm:grid-cols-2">
+                <label class="flex items-center">
+                    <input type="radio" id="modeDressageStartNumber" name="dressageSortMode" value="startnumber" class="h-4 w-4 text-slate-600 focus:ring-slate-500" checked>
+                    <span class="ml-2 text-gray-700 dark:text-gray-300">Startnummerordning</span>
+                </label>
+                <label class="flex items-center">
+                    <input type="radio" id="modeDressageClasswise" name="dressageSortMode" value="classwise" class="h-4 w-4 text-slate-600 focus:ring-slate-500">
+                    <span class="ml-2 text-gray-700 dark:text-gray-300">Klassvis</span>
+                </label>
+            </div>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Klassvis grupperar valda ekipage per klass och behåller startnummerordning inom varje klass.</p>
+            <button id="bulkDressage" class="mt-3 w-full px-3 py-2 text-sm font-semibold rounded-md bg-slate-600 text-white hover:bg-slate-700 shadow flex justify-between items-center">
+                ${t('generate_dressage')} <span id="nextTimeDressage" class="text-xs opacity-80 font-normal ml-2"></span>
+            </button>
+        </div>
         
         <div class="p-3 bg-emerald-50 dark:bg-emerald-900/20 rounded-md border border-emerald-100 dark:border-emerald-800">
             <h4 class="text-xs font-bold uppercase tracking-wider text-emerald-800 dark:text-emerald-400 mb-2">${t('generate_marathon_advanced')}</h4>

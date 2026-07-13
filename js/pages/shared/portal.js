@@ -28,6 +28,14 @@ import {
     resolvePortalDisciplinePenalties,
     sortPortalItemsByTimestampDesc
 } from './portalDataUtils.js';
+import {
+    buildHorseTemperatureSlots,
+    getHorseTemperatureRecord,
+    getTemperatureHorses,
+    normalizeHorseTemperatureConfig,
+    normalizeHorseTemperatureValue,
+    summarizeHorseTemperatures
+} from './horseTemperatureUtils.js';
 
 import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.js';
 import { getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
@@ -192,7 +200,7 @@ export async function load() {
                     key: 'currentCompetition',
                     value: { id: compId, name: compName }
                 });
-                renderDashboard(container, compId, startNo, user);
+                renderDashboard(container, compId, startNo, userData);
             }
         }
     });
@@ -411,7 +419,7 @@ export async function load() {
         const sno = document.getElementById('adminImpersonateStartNo').value.trim();
         if (cid && sno) {
             setGlobalState({ key: 'currentCompetition', value: { id: cid, name: 'Admin Impersonation' } });
-            renderDashboard(container, cid, sno, user);
+            renderDashboard(container, cid, sno, userData);
         } else {
             showAlert('Fyll i både Tävlings-ID och Startnummer', false);
         }
@@ -422,7 +430,7 @@ export async function load() {
     if (currentComp && claims.some(c => c.competitionId === currentComp.id)) {
         const claim = claims.find(c => c.competitionId === currentComp.id);
         if (claim) {
-            renderDashboard(container, claim.competitionId, claim.startNumber, user);
+            renderDashboard(container, claim.competitionId, claim.startNumber, userData);
             return;
         }
     }
@@ -463,19 +471,20 @@ async function renderDashboard(container, compId, startNumber, user) {
             compConfig,
             computedRes,
             equipages,
+            privateEquipage,
             marathonTiming,
             marathonConfig,
             precisionConfig,
             precisionResult,
             startTimes,
+            horseTemperatureConfigRaw,
             dressyrProgramMapping,
             dressageProtocols,
             _clubLogos,
             documents,
             messages,
             officials,
-            judges,
-            privateEquipage
+            judges
         ] = await Promise.all([
             getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${compId}`)).then(d => d.data()),
             getComputedResultForEquipage(compId, startNumber),
@@ -486,6 +495,7 @@ async function renderDashboard(container, compId, startNumber, user) {
             getConfig(compId, 'precisionConfig').catch(() => ({})),
             getPrecisionResultForEquipage(compId, startNumber).catch(() => null),
             getConfig(compId, 'startTimes').catch(() => ({ times: {} })),
+            getConfig(compId, 'horseTemperature').catch(() => ({})),
             getConfig(compId, 'dressyrProgramMapping').catch(() => ({})),
             getDressageResultsForEquipage(compId, startNumber).catch(() => []),
             ensureClubLogosLoaded(),
@@ -497,9 +507,13 @@ async function renderDashboard(container, compId, startNumber, user) {
 
         const allJudges = [...(judges || []), ...(officials || [])];
         const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
+        const horseTemperatureConfig = normalizeHorseTemperatureConfig(horseTemperatureConfigRaw);
+        const horseTemperatureSlots = buildHorseTemperatureSlots(compConfig?.dates, horseTemperatureConfig);
 
         const eq = equipages.find(e => String(e.startNumber) === String(startNumber)) || {};
         const canSelfEdit = canSelfServiceEditEquipage(user, eq, privateEquipage);
+        const isAdminUser = user?.role === 'admin' || user?.role === 'superadmin';
+        const canEditTemperatures = canSelfEdit || isAdminUser;
         const selfServiceRestrictionMessage = canSelfEdit ? '' : getSelfServiceRestrictionMessage(user, eq, privateEquipage);
         const r = computedRes || {};
         const allPrograms = getPrograms();
@@ -619,6 +633,245 @@ async function renderDashboard(container, compId, startNumber, user) {
             marathonConfig: marathonConfig,
             startTimes: portalStartTimes,
             allCompetitionJudges: allJudges
+        };
+
+        const formatTemperature = (value) => {
+            const normalized = normalizeHorseTemperatureValue(value);
+            return normalized === null ? '' : String(normalized).replace('.', ',');
+        };
+
+        const renderHorseTemperatureChart = (horseKey) => {
+            if (!horseTemperatureSlots.length) return '';
+
+            const values = horseTemperatureSlots.map((slot, index) => {
+                const record = getHorseTemperatureRecord(eq, horseKey, slot.id);
+                const temperature = normalizeHorseTemperatureValue(record?.temperatureC);
+                if (temperature === null) return null;
+                return { index, temperature };
+            }).filter(Boolean);
+
+            if (values.length < 2) {
+                return '<div class="mt-3 rounded-lg border border-dashed border-gray-200 bg-gray-50 px-3 py-4 text-center text-xs text-gray-500 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-400">Graf visas när minst två temperaturer är ifyllda.</div>';
+            }
+
+            const width = 320;
+            const height = 110;
+            const padX = 18;
+            const padY = 18;
+            const minValue = Math.min(...values.map(item => item.temperature), horseTemperatureConfig.warningTemperatureC ?? 37.0) - 0.3;
+            const maxValue = Math.max(...values.map(item => item.temperature), horseTemperatureConfig.warningTemperatureC ?? 39.0) + 0.3;
+            const span = Math.max(0.5, maxValue - minValue);
+            const maxIndex = Math.max(1, horseTemperatureSlots.length - 1);
+            const pointFor = (item) => {
+                const x = padX + (item.index / maxIndex) * (width - padX * 2);
+                const y = height - padY - ((item.temperature - minValue) / span) * (height - padY * 2);
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            };
+            const points = values.map(pointFor).join(' ');
+            const warning = horseTemperatureConfig.warningTemperatureC;
+            const warningLine = warning !== null
+                ? (() => {
+                    const y = height - padY - ((warning - minValue) / span) * (height - padY * 2);
+                    return `<line x1="${padX}" y1="${y.toFixed(1)}" x2="${width - padX}" y2="${y.toFixed(1)}" stroke="#f97316" stroke-width="1.5" stroke-dasharray="4 4" />`;
+                })()
+                : '';
+
+            return `
+                <div class="mt-3 overflow-hidden rounded-lg border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900/30">
+                    <svg viewBox="0 0 ${width} ${height}" class="h-28 w-full" role="img" aria-label="Temperaturgraf">
+                        <rect x="0" y="0" width="${width}" height="${height}" fill="currentColor" class="text-gray-50 dark:text-gray-900"></rect>
+                        ${warningLine}
+                        <polyline points="${points}" fill="none" stroke="#2563eb" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></polyline>
+                        ${values.map(item => {
+                const [x, y] = pointFor(item).split(',');
+                return `<circle cx="${x}" cy="${y}" r="4" fill="#2563eb"></circle>`;
+            }).join('')}
+                    </svg>
+                </div>
+            `;
+        };
+
+        const renderHorseTemperatureSection = () => {
+            if (!horseTemperatureConfig.enabled) return '';
+
+            const horses = getTemperatureHorses(eq);
+            const summary = summarizeHorseTemperatures(eq, compConfig?.dates, horseTemperatureConfig);
+            const warningLimit = horseTemperatureConfig.warningTemperatureC;
+
+            if (!horseTemperatureSlots.length) {
+                return `
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border border-amber-200 dark:border-amber-800 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
+                        <h3 class="text-lg font-bold mb-2 text-gray-900 dark:text-white">Hästtemperatur</h3>
+                        <p class="text-sm text-amber-800 dark:text-amber-200">Temperaturkontroll är aktiverad, men tävlingsdatum kunde inte tolkas. Kontrollera datum i hubben.</p>
+                    </div>
+                `;
+            }
+
+            if (!horses.length) {
+                return `
+                    <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
+                        <h3 class="text-lg font-bold mb-2 text-gray-900 dark:text-white">Hästtemperatur</h3>
+                        <p class="text-sm text-gray-600 dark:text-gray-400">Inga hästar finns registrerade på ekipaget.</p>
+                    </div>
+                `;
+            }
+
+            const statusClass = summary.complete
+                ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100'
+                : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100';
+            const instruction = horseTemperatureConfig.instructions || 'Fyll i temperatur och tidpunkt för varje häst enligt arrangörens instruktion.';
+
+            return `
+                <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
+                    <div class="flex flex-col gap-3 border-b pb-4 dark:border-gray-700 md:flex-row md:items-start md:justify-between">
+                        <div>
+                            <h3 class="text-lg font-bold text-gray-900 dark:text-white">Hästtemperatur</h3>
+                            <p class="mt-1 text-sm text-gray-600 dark:text-gray-400">${escapeHtml(instruction)}</p>
+                            ${warningLimit !== null ? `<p class="mt-1 text-xs text-orange-700 dark:text-orange-300">Varning markeras från ${formatTemperature(warningLimit)} °C.</p>` : ''}
+                        </div>
+                        <span class="inline-flex self-start rounded-full px-3 py-1 text-sm font-bold ${statusClass}">
+                            ${summary.completed}/${summary.total} ifyllda
+                        </span>
+                    </div>
+
+                    ${!canEditTemperatures ? `
+                    <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        ${safeRestrictionMessage}
+                    </div>` : ''}
+                    ${isAdminUser && !canSelfEdit ? `
+                    <div class="mt-4 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-900 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-100">
+                        Adminläge: du kan hjälpa kusken att spara temperaturer. Övriga portaländringar är fortsatt låsta.
+                    </div>` : ''}
+
+                    <div class="mt-5 space-y-5">
+                        ${horses.map((horse, horseIndex) => {
+                const horseKey = horse._temperatureKey;
+                const horseSummary = summary.horseSummaries.find(item => item.horseKey === horseKey);
+                const highClass = horseSummary?.highCount
+                    ? 'border-orange-300 bg-orange-50 dark:border-orange-800 dark:bg-orange-900/20'
+                    : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/20';
+
+                return `
+                    <div class="rounded-xl border p-3 md:p-4 ${highClass}">
+                        <div class="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+                            <div>
+                                <h4 class="font-bold text-gray-900 dark:text-white">${escapeHtml(horse._temperatureName || `Häst ${horseIndex + 1}`)}</h4>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">${horseSummary?.completed || 0}/${horseTemperatureSlots.length} kontroller ifyllda</div>
+                            </div>
+                            ${horseSummary?.latest ? `<div class="text-sm font-semibold text-gray-800 dark:text-gray-100">Senaste: ${formatTemperature(horseSummary.latest.temperatureC)} °C</div>` : ''}
+                        </div>
+
+                        <div class="mt-3 grid gap-2">
+                            ${horseTemperatureSlots.map(slot => {
+                    const record = getHorseTemperatureRecord(eq, horseKey, slot.id);
+                    const temperature = normalizeHorseTemperatureValue(record?.temperatureC);
+                    const isHigh = warningLimit !== null && temperature !== null && temperature >= warningLimit;
+                    const rowClass = isHigh
+                        ? 'border-orange-300 bg-orange-100/70 dark:border-orange-800 dark:bg-orange-900/30'
+                        : 'border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800/70';
+                    return `
+                        <div class="horse-temp-row grid gap-2 rounded-lg border p-2 md:grid-cols-[minmax(130px,1fr)_150px_130px] md:items-center ${rowClass}"
+                            data-horse-key="${escapeAttr(horseKey)}"
+                            data-horse-name="${escapeAttr(horse._temperatureName || '')}"
+                            data-slot-id="${escapeAttr(slot.id)}"
+                            data-slot-label="${escapeAttr(slot.label)}"
+                            data-default-taken-at="${escapeAttr(slot.defaultDateTime)}">
+                            <div>
+                                <div class="text-sm font-semibold text-gray-900 dark:text-white">${escapeHtml(slot.date)}</div>
+                                <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(slot.periodLabel)}</div>
+                            </div>
+                            <input type="datetime-local" class="horse-temp-taken-at rounded border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" value="${escapeAttr(record?.takenAt || slot.defaultDateTime)}" ${canEditTemperatures ? '' : 'disabled'}>
+                            <div class="flex items-center gap-2">
+                                <input type="text" inputmode="decimal" class="horse-temp-value w-full rounded border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-700 dark:text-white" placeholder="37,8" value="${escapeAttr(formatTemperature(temperature))}" ${canEditTemperatures ? '' : 'disabled'}>
+                                <span class="text-sm text-gray-500 dark:text-gray-400">°C</span>
+                            </div>
+                        </div>
+                    `;
+                }).join('')}
+                        </div>
+                        ${renderHorseTemperatureChart(horseKey)}
+                    </div>
+                `;
+            }).join('')}
+                    </div>
+
+                    <div class="mt-5 flex justify-end">
+                        <button id="btnSaveHorseTemperatures" class="rounded bg-blue-600 px-5 py-2 text-sm font-bold text-white shadow hover:bg-blue-700 disabled:bg-gray-400" ${canEditTemperatures ? '' : 'disabled'}>
+                            Spara temperaturer
+                        </button>
+                    </div>
+                </div>
+            `;
+        };
+
+        const attachHorseTemperatureHandlers = () => {
+            const button = document.getElementById('btnSaveHorseTemperatures');
+            if (!button) return;
+
+            button.addEventListener('click', async () => {
+                if (!canEditTemperatures) {
+                    showAlert(selfServiceRestrictionMessage, false);
+                    return;
+                }
+
+                const rows = Array.from(document.querySelectorAll('.horse-temp-row'));
+                const nextTemperatures = JSON.parse(JSON.stringify(eq.horseTemperatures || {}));
+                const errors = [];
+                const now = new Date().toISOString();
+
+                rows.forEach(row => {
+                    const horseKey = row.dataset.horseKey;
+                    const slotId = row.dataset.slotId;
+                    if (!horseKey || !slotId) return;
+
+                    const valueRaw = row.querySelector('.horse-temp-value')?.value.trim() || '';
+                    const takenAt = row.querySelector('.horse-temp-taken-at')?.value || row.dataset.defaultTakenAt || '';
+                    nextTemperatures[horseKey] ||= {};
+
+                    if (!valueRaw) {
+                        nextTemperatures[horseKey][slotId] = null;
+                        return;
+                    }
+
+                    const temperature = normalizeHorseTemperatureValue(valueRaw);
+                    if (temperature === null || temperature < 35 || temperature > 42.5) {
+                        errors.push(`${row.dataset.horseName || 'Häst'} ${row.dataset.slotLabel || ''}: ange en temperatur mellan 35,0 och 42,5.`);
+                        return;
+                    }
+
+                    nextTemperatures[horseKey][slotId] = {
+                        temperatureC: temperature,
+                        takenAt,
+                        slotId,
+                        slotLabel: row.dataset.slotLabel || slotId,
+                        horseKey,
+                        horseName: row.dataset.horseName || '',
+                        updatedAt: now,
+                        updatedBy: user?.email || user?.uid || ''
+                    };
+                });
+
+                if (errors.length) {
+                    showAlert(errors.slice(0, 3).join('\n'), false);
+                    return;
+                }
+
+                const oldText = button.textContent;
+                button.disabled = true;
+                button.textContent = 'Sparar...';
+
+                try {
+                    await saveEquipage(compId, startNumber, { horseTemperatures: nextTemperatures });
+                    eq.horseTemperatures = nextTemperatures;
+                    showAlert('Temperaturer sparade.', true);
+                    renderInfo();
+                } catch (error) {
+                    console.error('Could not save horse temperatures', error);
+                    showAlert('Kunde inte spara temperaturer.', false);
+                    button.disabled = false;
+                    button.textContent = oldText;
+                }
+            });
         };
 
         // State for config
@@ -795,6 +1048,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                     `<p class="text-sm text-yellow-800 dark:text-yellow-400 mt-2">${t('contact_secretariat', compConfig?.isInternational)}</p>` : ''}
                     </div>
 
+                    ${renderHorseTemperatureSection()}
+
                     <!-- SPEAKER NOTES SECTION -->
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 border-l-yellow-400">
                         <h3 class="text-lg font-bold mb-2 flex items-center gap-2 text-gray-900 dark:text-white">
@@ -819,6 +1074,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                     </div>
                 </div>
             `;
+
+            attachHorseTemperatureHandlers();
 
             // === Edit Declaration Listener ===
             setTimeout(() => {
