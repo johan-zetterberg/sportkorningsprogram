@@ -143,6 +143,20 @@ function fmtList(items, mapFn = (item) => item) {
   return items.map(mapFn).filter(Boolean).join(', ');
 }
 
+function getDriverStartsCount(driverName) {
+  const norm = String(driverName || '').trim().toLowerCase();
+  if (!norm) return 1;
+  return allEquipages.filter(eq => String(eq.driverName || '').trim().toLowerCase() === norm).length;
+}
+
+function getDriverOtherStarts(equipage) {
+  const norm = String(equipage?.driverName || '').trim().toLowerCase();
+  if (!norm) return [];
+  return allEquipages.filter(eq => {
+    return String(eq.driverName || '').trim().toLowerCase() === norm && String(eq.startNumber) !== String(equipage?.startNumber);
+  });
+}
+
 function getSortedEquipages() {
   let list = [...allEquipages].filter((equipage) => {
     if (!searchTerm) return true;
@@ -240,6 +254,7 @@ function renderMobile() {
             <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
               <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${equipage.startNumber}</span>
               <span class="truncate">${equipage.driverName || t('namn_saknas') || 'Namn saknas'}</span>
+              ${getDriverStartsCount(equipage.driverName) > 1 ? `<span class="inline-flex items-center gap-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1 py-0.5 text-[9px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0" title="Kusken har flera starter (TR Mom 535.4)"><i class="fa fa-clone text-[8px]"></i> ${getDriverStartsCount(equipage.driverName)}</span>` : ''}
             </div>
             <div class="flex items-center gap-1 mt-0.5">
               ${getFlagHtml(equipage)}
@@ -581,7 +596,9 @@ function renderAndShowDetailsModal(equipage) {
   modal.classList.add('visible');
 
 
-  const twPrec = exists(equipage.trackWidth) ? `${equipage.trackWidth} cm` : 'Ej angivet';
+  const twPrec = exists(equipage.trackWidth)
+    ? `${equipage.trackWidth} cm${equipage.trackWidthSource === 'registry' ? ' (förifylld från sparad vagn)' : ''}`
+    : 'Ej angivet';
   const twMar = exists(equipage.marathonTrackWidth) ? `${equipage.marathonTrackWidth} cm` : 'Ej angivet';
   const portAllowance = getPortAllowanceForClass(equipage.className); // <-- ANVÄND ORIGINALKLASS för beräkning
   const trackWNum = Number(equipage.trackWidth);
@@ -717,6 +734,16 @@ function renderAndShowDetailsModal(equipage) {
           <h4 class="font-bold text-base mb-2 dark:text-white">Ekipage</h4>
           <div class="space-y-1">
             ${kv('Kusk', driverName)}
+            ${(() => {
+              const other = getDriverOtherStarts(equipage);
+              if (!other.length) return '';
+              const otherList = other.map(o => `#${o.startNumber} (${o.className || 'Okänd klass'})`).join(', ');
+              return `<div class="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 my-1.5">
+                <div class="font-bold flex items-center gap-1.5"><i class="fa fa-clone"></i> Kusk med flera starter (${other.length + 1} st)</div>
+                <div class="mt-1">Övriga starter: <span class="font-medium">${otherList}</span></div>
+                <div class="text-[11px] text-indigo-700 dark:text-indigo-300 mt-1">TR Mom 535.4: Minst 30 minuters kuskbuffert gäller mellan starter.</div>
+              </div>`;
+            })()}
             ${kv('Klubb', clubName)}
             ${kv('Startnummer', startNo)}
             ${kv('Klass', className)}
@@ -822,7 +849,12 @@ function renderDesktop() {
                 <tr class="${canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : ''} border-b dark:border-gray-700 last:border-0" data-equipage-id="${e.startNumber}">
                     <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="xl:max-w-none max-w-[80px] md:max-w-[140px] truncate" title="${e._mergedLabel || e.className || ''}">${e._mergedLabel || e.className || ''}</div></td>
                     <td class="px-2 py-2 lg:px-4 lg:py-3 whitespace-nowrap font-bold text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle text-center">${e.startNumber || ''}</td>
-                    <td class="px-2 py-2 lg:px-4 lg:py-3 font-medium text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle whitespace-nowrap">${e.driverName || ''}</td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 font-medium text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle whitespace-nowrap">
+                        <span class="inline-flex items-center gap-1.5 flex-wrap">
+                            ${e.driverName || ''}
+                            ${getDriverStartsCount(e.driverName) > 1 ? `<span class="inline-flex items-center gap-1 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${getDriverStartsCount(e.driverName)} starter (TR Mom 535.4 kräver minst 30 min kuskbuffert)"><i class="fa fa-clone text-[9px]"></i> ${getDriverStartsCount(e.driverName)} st</span>` : ''}
+                        </span>
+                    </td>
                     <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle whitespace-nowrap">
                         <span class="inline-flex items-center gap-1.5 whitespace-nowrap"> 
                             ${getFlagHtml(e)}

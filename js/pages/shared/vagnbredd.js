@@ -21,7 +21,9 @@ import {
     matchesRule,
     formatAllowedRuleValues,
     getRuleWarning,
-    getCarriageCompliance
+    getCarriageCompliance,
+    saveCarriageToRegistry,
+    lookupSavedCarriage
 } from './vagnbreddUtils.js';
 
 let competitionId = null;
@@ -182,6 +184,33 @@ function displayEquipageData(equipage) {
     approvedInput.checked = safetyCheck.approved === true;
     commentInput.value = safetyCheck.comment || '';
     renderRuleUi(equipage);
+
+    const promptContainer = byId('savedCarriagePrompt');
+    if (promptContainer) {
+        promptContainer.innerHTML = '';
+        if (equipage.driverName && (equipage.trackWidth == null || equipage.marathonTrackWidth == null)) {
+            const saved = lookupSavedCarriage(equipage.driverName);
+            if (saved && (saved.trackWidth || saved.marathonTrackWidth)) {
+                promptContainer.innerHTML = `
+                    <div class="p-2.5 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-3 text-xs">
+                        <span class="text-blue-900 dark:text-blue-200">
+                            💡 Tidigare sparad vagn: <strong>${saved.trackWidth ? saved.trackWidth + ' cm' : ''}</strong>${saved.marathonTrackWidth ? ` / <strong>${saved.marathonTrackWidth} cm</strong> (maraton)` : ''}
+                        </span>
+                        <button type="button" id="useSavedCarriageBtn" class="px-2.5 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors shrink-0">
+                            Använd
+                        </button>
+                    </div>
+                `;
+                byId('useSavedCarriageBtn')?.addEventListener('click', () => {
+                    if (saved.trackWidth && precisionInput) precisionInput.value = saved.trackWidth;
+                    if (saved.marathonTrackWidth && marathonInput) marathonInput.value = saved.marathonTrackWidth;
+                    renderRuleUi(equipage);
+                    promptContainer.innerHTML = '';
+                });
+            }
+        }
+    }
+
     precisionInput.focus();
 }
 
@@ -232,7 +261,16 @@ async function saveCheck() {
         showAlert(`Data för #${startNumber} har sparats.`);
 
         const equipageInList = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
-        if (equipageInList) Object.assign(equipageInList, updatePayload);
+        if (equipageInList) {
+            Object.assign(equipageInList, updatePayload);
+            if (equipageInList.driverName) {
+                saveCarriageToRegistry(equipageInList.driverName, {
+                    trackWidth: updatePayload.trackWidth,
+                    marathonTrackWidth: updatePayload.marathonTrackWidth,
+                    className: equipageInList.className
+                });
+            }
+        }
 
         updateStatus();
         navigateToEquipage(1);
@@ -286,6 +324,7 @@ function renderPage(page, competition) {
                         <div id="marathonWidthWarning"></div>
                     </div>
                 </div>
+                <div id="savedCarriagePrompt"></div>
 
                 <details class="border rounded-lg bg-blue-50/70 border-blue-200 dark:bg-blue-900/10 dark:border-blue-800">
                     <summary class="cursor-pointer list-none flex items-center justify-between gap-3 p-3 sm:p-4 font-semibold text-blue-900 dark:text-blue-100">

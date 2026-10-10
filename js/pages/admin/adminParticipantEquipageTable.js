@@ -30,10 +30,23 @@ export function renderAdminEquipageTable(equipages, { onSelectEquipage, onRender
     body.innerHTML = sorted.map(equipage => `
         <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer dark:text-gray-200" id="row-${equipage.startNumber}">
         <td class="p-3 font-bold">${equipage.startNumber}</td>
-        <td class="p-3">${equipage.driverName}<div class="text-xs text-gray-500 dark:text-gray-400">${equipage.clubName}</div></td>
+        <td class="p-3">
+            <div class="flex items-center gap-1.5 flex-wrap">
+                <span class="font-medium">${equipage.driverName}</span>
+                ${equipage.hasMultipleStarts ? `
+                    <span class="inline-flex items-center gap-1 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${equipage.driverStartCount} starter (TR Mom 535.4)">
+                        <i class="fa fa-clone text-[10px]"></i> ${equipage.driverStartCount} starter
+                    </span>
+                ` : ''}
+            </div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">${equipage.clubName}</div>
+        </td>
         <td class="p-3 text-sm font-mono text-gray-600 dark:text-gray-400">${formatTdbClassNumber(equipage)}</td>
         <td class="p-3">${(equipage.useMergedTestForDisplay && equipage.mergedTestLabel) ? equipage.mergedTestLabel : equipage.className}</td>
-        <td class="p-3 text-sm text-gray-600 dark:text-gray-400">${equipage.trackWidth || '-'} cm</td>
+        <td class="p-3 text-sm text-gray-600 dark:text-gray-400">
+            ${equipage.trackWidth ? `${equipage.trackWidth} cm` : '-'}
+            ${equipage.trackWidthSource === 'registry' ? '<span class="ml-1 text-[10px] text-blue-600 dark:text-blue-400 font-medium" title="Förifylld från sparad vagn">(sparad)</span>' : ''}
+        </td>
         <td class="p-3">${formatPaymentStatus(equipage.payment)}</td>
         <td class="p-3 ${equipage.status === 'struken' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${equipage.status}</td>
     </tr>

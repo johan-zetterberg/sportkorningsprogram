@@ -318,3 +318,73 @@ export function getCarriageCompliance(equipage, discipline = 'dressagePrecision'
     message: `Vagn för smal: ${actualWidth} cm (Krav: minst ${minWidth} cm per TR Bilaga 2)`
   };
 }
+
+export const CARRIAGE_REGISTRY_STORAGE_KEY = 'sportkorning_carriage_registry';
+
+export function getCarriageRegistry(storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
+  if (!storage) return {};
+  try {
+    const raw = storage.getItem(CARRIAGE_REGISTRY_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveCarriageToRegistry(driverName, { trackWidth, marathonTrackWidth, className } = {}, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
+  const cleanDriver = String(driverName || '').trim();
+  if (!cleanDriver || !storage) return false;
+  const key = cleanDriver.toLowerCase();
+
+  const registry = getCarriageRegistry(storage);
+  const existing = registry[key] || {};
+
+  registry[key] = {
+    driverName: cleanDriver,
+    trackWidth: parseWidthValue(trackWidth) ?? existing.trackWidth ?? null,
+    marathonTrackWidth: parseWidthValue(marathonTrackWidth) ?? existing.marathonTrackWidth ?? null,
+    className: className || existing.className || '',
+    updatedAt: new Date().toISOString()
+  };
+
+  try {
+    storage.setItem(CARRIAGE_REGISTRY_STORAGE_KEY, JSON.stringify(registry));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function lookupSavedCarriage(driverName, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
+  const cleanDriver = String(driverName || '').trim().toLowerCase();
+  if (!cleanDriver || !storage) return null;
+  const registry = getCarriageRegistry(storage);
+  return registry[cleanDriver] || null;
+}
+
+export function applyCarriageRegistryPrefill(equipage = {}, storage = (typeof localStorage !== 'undefined' ? localStorage : null)) {
+  if (!equipage || !equipage.driverName) return equipage;
+  const saved = lookupSavedCarriage(equipage.driverName, storage);
+  if (!saved) return equipage;
+
+  const result = { ...equipage };
+  let changed = false;
+
+  if (result.trackWidth == null && saved.trackWidth != null) {
+    result.trackWidth = saved.trackWidth;
+    result.trackWidthSource = 'registry';
+    changed = true;
+  }
+
+  if (result.marathonTrackWidth == null && saved.marathonTrackWidth != null) {
+    result.marathonTrackWidth = saved.marathonTrackWidth;
+    result.marathonTrackWidthSource = 'registry';
+    changed = true;
+  }
+
+  if (changed) {
+    result.isPrefilledFromRegistry = true;
+  }
+
+  return result;
+}

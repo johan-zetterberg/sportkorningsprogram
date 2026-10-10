@@ -9,8 +9,12 @@ import {
     normalizeTdbClassNumber,
     normalizeXmlNumber,
     resolveImportedEntryStatus,
-    resolveImportedPaymentStatus
+    resolveImportedPaymentStatus,
+    extractTrackWidthsFromTexts,
+    isSingleHarness,
+    annotateMultipleDriverStarts
 } from './adminParticipantXmlValueUtils.js';
+import { lookupSavedCarriage } from '../shared/vagnbreddUtils.js';
 
 export async function parseEqEntriesXml(file) {
     const text = await file.text();
@@ -116,7 +120,6 @@ export async function parseEqEntriesXml(file) {
                 let className = normalizeEqClassName(propInfo.label || `Okänd post(${classNumber})`);
 
                 const entryStatus = _text(classEntryNode, 'status');
-                const uniqueKey = `${driverName}| ${classNumber} `;
 
                 // Anspänning och hästtyp baserat på klassrubriken i propositionen.
                 // Exempel: "LA par" -> Par, "LB" (utan markör) -> Enbet.
@@ -139,6 +142,10 @@ export async function parseEqEntriesXml(file) {
                 }
 
 
+                const isSingle = isSingleHarness(className);
+                const horseKey = isSingle ? `|${horse.name || horse.regNo || ''}` : '';
+                const uniqueKey = `${driverName}|${classNumber}${horseKey}`;
+
                 const hasPaidAmount = totalAmountPaidByRider !== null && totalAmountPaidByRider > 0;
                 const paymentStatus = resolveImportedPaymentStatus(entryStatus, totalAmountPaidByRider);
 
@@ -154,8 +161,22 @@ export async function parseEqEntriesXml(file) {
                 const equipageStatus = resolveImportedEntryStatus(entryStatus);
 
                 if (!equipagesByClass[uniqueKey]) {
-                    const widthMatch = notes.match(/(?:vagnsbredd|bredd|spårvidd)[\s:cm]*(\d{2,3})/i);
-                    const marathonWidthMatch = notes.match(/maratonbredd[\s:cm]*(\d{2,3})/i);
+                    const extractedWidths = extractTrackWidthsFromTexts([notes, riderComment, horseComment]);
+                    let trackWidth = extractedWidths.trackWidth;
+                    let marathonTrackWidth = extractedWidths.marathonTrackWidth;
+                    let trackWidthSource = trackWidth ? 'xml' : null;
+                    let marathonTrackWidthSource = marathonTrackWidth ? 'xml' : null;
+
+                    if (!trackWidth) {
+                        const savedCarriage = lookupSavedCarriage(driverName);
+                        if (savedCarriage && savedCarriage.trackWidth) {
+                            trackWidth = savedCarriage.trackWidth;
+                            trackWidthSource = 'registry';
+                            if (!marathonTrackWidth && savedCarriage.marathonTrackWidth) {
+                                marathonTrackWidth = savedCarriage.marathonTrackWidth;
+                                marathonTrackWidthSource = 'registry';
+                            }
+                        }
 
                     const tdbClassLabel = (propInfo && propInfo.label) || '';
                     const tdbHorseCode = ((propInfo && propInfo.horse) || '').toUpperCase(); // 'H','P','A','B','C','D'
@@ -178,8 +199,10 @@ export async function parseEqEntriesXml(file) {
                         mergedTestLabel,
                         groomName,
                         notes,
-                        trackWidth: widthMatch ? normalizeXmlNumber(widthMatch[1], { integer: true }) : null,
-                        marathonTrackWidth: marathonWidthMatch ? normalizeXmlNumber(marathonWidthMatch[1], { integer: true }) : null,
+                        trackWidth,
+                        marathonTrackWidth,
+                        trackWidthSource,
+                        marathonTrackWidthSource,
                         horses: [horse],
                         status: equipageStatus,
                         administrativeFees: [],
@@ -249,6 +272,8 @@ export async function parseEqEntriesXml(file) {
         return (a.startNumber || 9999) - (b.startNumber || 9999);
     });
 
-    return { equipages: finalEquipages, competitionInfo };
+    const annotatedEquipages = annotateMultipleDriverStarts(finalEquipages);
+
+    return { equipages: annotatedEquipages, competitionInfo };
 }
 

@@ -8,7 +8,10 @@ import {
   parseWidthValue,
   resolveVagnRuleRow,
   getDressageRule,
-  getCarriageCompliance
+  getCarriageCompliance,
+  saveCarriageToRegistry,
+  lookupSavedCarriage,
+  applyCarriageRegistryPrefill
 } from '../js/pages/shared/vagnbreddUtils.js';
 
 test('normalizeVagnbreddEquipages sorts valid equipages and separates incomplete data', () => {
@@ -104,4 +107,37 @@ test('getCarriageCompliance evaluates track width and flags narrow carriages', (
   assert.equal(missingRes.compliant, null);
   assert.equal(missingRes.status, 'missing');
   assert.equal(missingRes.minWidth, 148);
+});
+
+test('saveCarriageToRegistry and lookupSavedCarriage persist and retrieve carriage widths', () => {
+  const mockStorage = {
+    _data: {},
+    getItem(k) { return this._data[k] || null; },
+    setItem(k, v) { this._data[k] = String(v); }
+  };
+
+  const saved = saveCarriageToRegistry('Anna Andersson', {
+    trackWidth: '138',
+    marathonTrackWidth: '126',
+    className: 'Svår Häst Enbet'
+  }, mockStorage);
+  assert.equal(saved, true);
+
+  const lookup = lookupSavedCarriage('anna andersson', mockStorage);
+  assert.ok(lookup);
+  assert.equal(lookup.trackWidth, 138);
+  assert.equal(lookup.marathonTrackWidth, 126);
+
+  // Apply prefill to an equipage without trackWidth
+  const equipage = {
+    startNumber: 1,
+    driverName: 'Anna Andersson',
+    trackWidth: null,
+    marathonTrackWidth: null
+  };
+  const prefilled = applyCarriageRegistryPrefill(equipage, mockStorage);
+  assert.equal(prefilled.trackWidth, 138);
+  assert.equal(prefilled.marathonTrackWidth, 126);
+  assert.equal(prefilled.trackWidthSource, 'registry');
+  assert.equal(prefilled.isPrefilledFromRegistry, true);
 });
