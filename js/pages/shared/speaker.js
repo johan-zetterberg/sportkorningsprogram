@@ -34,7 +34,6 @@ import {
     setMarathonConfig,
     limitsFor,
     calculateMarathonResult,
-    getObstacleCoefficient,
     calculateClassObstacleStats,
     calculateProjectedPenalty,
     calculateClassSplitStats,
@@ -1284,7 +1283,7 @@ function renderCurrentRiderCard() {
             <div class="bg-green-50 dark:bg-green-900/20 p-4 md:p-5 rounded-lg border border-green-100 dark:border-green-800 flex flex-col justify-center items-center h-full">
                 <div class="text-[10px] uppercase font-bold text-green-800 dark:text-green-300 mb-1">Mål att slå</div>
                 ${bestTimeHtml}
-                <div class="text-[8px] text-green-500 dark:text-green-400 uppercase font-bold">${stats?.avg ? 'Snitt: ' + (stats.avg / getObstacleCoefficient(eq.className)).toFixed(2) + 's' : 'Första start'}</div>
+                <div class="text-[8px] text-green-500 dark:text-green-400 uppercase font-bold">${stats?.avg ? 'Snitt: ' + stats.avg.toFixed(2) + 's' : 'Första start'}</div>
             </div>`;
         }
 

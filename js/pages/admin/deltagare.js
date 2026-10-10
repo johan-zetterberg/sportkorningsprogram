@@ -2,6 +2,7 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForDressageStatusCollection } from '../../services/dressageService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
+import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { getMarathonTimingForEquipage } from '../../services/marathonService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
@@ -533,7 +534,7 @@ function renderPrecisionStatus(startNo) {
 
   // 1. Resultat?
   if (res && res.finalized) {
-    const pen = res.totalPenalty ?? ((res.knocks || 0) * 3 + (res.timePenalty || 0));
+    const pen = calculatePrecisionResult(res, { startNumber: startNo, className: res.className }).totalPenalty ?? 0;
     return `<span class="text-green-700 dark:text-green-400 font-bold">Klar (${pen} straff)</span>`;
   }
 

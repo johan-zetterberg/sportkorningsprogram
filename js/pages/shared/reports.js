@@ -30,7 +30,7 @@ import { generateVetCheckPdf } from '../../pdf/vetCheckPdf.js';
 import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeDecorations, prepareMarathonResults } from '../../utils/marathonUtils.js';
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
-import { calculateDressageResult } from '../../services/calculationService.js'; // [NEW] // [NEW]
+import { calculateDressageResult, calculateTotalResult } from '../../services/calculationService.js';
 import { rankDressageRows } from '../dressage/dressageResultRanking.js';
 import { assignPlaces, compareTotalRank, totalRankKey } from '../../core-engine/ranking.js';
 import {
@@ -174,7 +174,7 @@ export async function load() {
                 movements: Array.isArray(proto.movements) ? proto.movements : [],
                 totalPoints: Number.isFinite(singleJudgeResult?.points) ? singleJudgeResult.points : finiteOrNull(proto.totalPoints ?? proto.points),
                 percent: Number.isFinite(singleJudgeResult?.percent) ? singleJudgeResult.percent : finiteOrNull(proto.percent),
-                penalty: Number.isFinite(singleJudgeResult?.penalty) ? singleJudgeResult.penalty : finiteOrNull(proto.penalty),
+                penalty: Number.isFinite(singleJudgeResult?.judgePenalty) ? singleJudgeResult.judgePenalty : finiteOrNull(proto.penalty),
                 eliminated: !!proto.eliminated
             };
         });
@@ -212,25 +212,16 @@ export async function load() {
         // getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes)
         const pCalc = getCalculatedRowData(sn, precisionPlaceMap, equipages, precisionMap, precisionConfig, startTimes);
 
-        // --- TOTAL ---
-        let totalPenalty = null;
-        let isEliminated = false;
-
-        // All three disciplines must have a result for a valid total
-        const hasD = (dressageRes.penalty !== null && !dressageRes.eliminated);
-        const hasM = (mCalc.totalPenalty !== null && mCalc.totalPenalty !== Infinity && !mCalc.eliminated);
-        const hasP = (pCalc.totalPenalty !== null && pCalc.totalPenalty !== Infinity && !pCalc.eliminated);
-
-        if (hasD && hasM && hasP) {
-            totalPenalty = Number(dressageRes.penalty) + mCalc.totalPenalty + pCalc.totalPenalty;
-        } else {
-            totalPenalty = null;
-        }
-
-        if (dressageRes.eliminated || mCalc.eliminated || pCalc.eliminated || mCalc.totalPenalty === Infinity || pCalc.totalPenalty === Infinity) {
-            isEliminated = true;
-            totalPenalty = Infinity;
-        }
+        // --- TOTAL --- (result engine: all three disciplines required, elimination wins)
+        const totalRes = calculateTotalResult(
+            eq,
+            protos,
+            { obstacleData: mDoc, timeData: t },
+            precisionMap.get(sn) || {},
+            { precisionConfig, marathonConfig }
+        );
+        const isEliminated = totalRes.isEliminated;
+        const totalPenalty = isEliminated ? Infinity : totalRes.totalPenalty;
 
         // Attach to Equipage (Mutate for PDF libs)
         eq.results = eq.results || {};

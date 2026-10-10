@@ -14,6 +14,7 @@ import {
     MARATHON_KNOCKDOWN_PENALTY,
     MARATHON_DEFAULT_PAUSE_MIN,
     DEFAULT_TRV_TEMPOS_KMH,
+    PONY_CATEGORY_MAX_HEIGHT_CM,
     round2
 } from './rules-ledger.js';
 
@@ -83,9 +84,12 @@ function readHeightCmFromEquipage(e) {
     const nums = [];
     if (Number.isFinite(e?.heightCm)) nums.push(e.heightCm);
     if (Number.isFinite(e?.horseHeightCm)) nums.push(e.horseHeightCm);
+    if (Number.isFinite(e?.withersHeightCm)) nums.push(e.withersHeightCm);
     if (Array.isArray(e?.horses)) {
         for (const h of e.horses) {
             if (Number.isFinite(h?.heightCm)) nums.push(h.heightCm);
+            if (Number.isFinite(h?.withersHeightCm)) nums.push(h.withersHeightCm);
+            if (Number.isFinite(h?.height)) nums.push(h.height);
         }
     }
 
@@ -95,16 +99,21 @@ function readHeightCmFromEquipage(e) {
     return h || null;
 }
 
+// TR V Moment 163: A ≤107, B ≤130, C ≤140, D ≤148 cm, above is horse
 function categoryFromHeightCm(cm) {
     if (!Number.isFinite(cm) || cm <= 0) return null;
-    if (cm <= 120) return 'ponyA';
-    if (cm <= 130) return 'ponyB';
-    if (cm <= 148) return 'ponyCD';
+    if (cm <= PONY_CATEGORY_MAX_HEIGHT_CM.ponyA) return 'ponyA';
+    if (cm <= PONY_CATEGORY_MAX_HEIGHT_CM.ponyB) return 'ponyB';
+    if (cm <= PONY_CATEGORY_MAX_HEIGHT_CM.ponyCD) return 'ponyCD';
     return 'horse';
 }
 
 export function detectTRCategoryFromEquipage(e) {
-    const candidates = [e?.category, e?.categoryName, e?.division, e?.type, e?.className];
+    const candidates = [
+        e?.category, e?.categoryName, e?.division, e?.animalCategory,
+        e?.equineCategory, e?.ponyCategory, e?.horseCategory,
+        e?.type, e?.equineType, e?.className
+    ];
     for (const r of candidates) {
         const k = normalizeTRCategoryKey(r);
         if (k) return k;

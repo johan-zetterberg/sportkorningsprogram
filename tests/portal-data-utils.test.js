@@ -75,6 +75,22 @@ test('portal discipline penalties prefer freshest discipline docs with computed 
   assert.deepEqual(penalties, { dRes: 45, mRes: 70, pRes: 3 });
 });
 
+test('portal discipline penalties read the flat fields stored by the Cloud Function', () => {
+  const penalties = resolvePortalDisciplinePenalties({
+    computedResult: { dressagePenalty: 45, marathonPenalty: 70, precisionPenalty: 9, totalPenalty: 124 },
+    dressagePenalty: 44,
+    marathonTiming: { totalPenalty: 68 },
+    precisionResult: null
+  });
+  assert.deepEqual(penalties, { dRes: 45, mRes: 70, pRes: 9 });
+
+  const elim = resolvePortalDisciplinePenalties({
+    computedResult: { dressagePenalty: 40, marathonPenalty: Infinity, elimReason: 'ELIM (MA)', isEliminated: true }
+  });
+  assert.equal(elim.dRes, 40);
+  assert.equal(elim.mRes, Infinity);
+});
+
 test('portal discipline penalties fallback to calculated and timing values', () => {
   const penalties = resolvePortalDisciplinePenalties({
     computedResult: {},

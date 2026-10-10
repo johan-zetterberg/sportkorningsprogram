@@ -33,7 +33,9 @@ import {
     guessProgramKeyFromClass,
     normJudgeId,
     getDressagePenaltyCoeff,
-    computeFinalFromSaved
+    computeFinalFromSaved,
+    getProtocolProgramKey,
+    resolveDressageProgramKey
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { mergeDressageProtocols } from './dressageResultBuilder.js';
@@ -603,27 +605,6 @@ function pickNum(obj, keys, fallback = null) {
     return fallback;
 }
 
-function getProtocolProgramKey(protocols = [], programs = {}) {
-    const counts = new Map();
-    (protocols || []).forEach(protocol => {
-        if (!protocol || protocol.id === 'general') return;
-        const key = protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey;
-        if (key && programs[key]) {
-            counts.set(key, (counts.get(key) || 0) + 1);
-        }
-    });
-
-    let bestKey = null;
-    let bestCount = 0;
-    counts.forEach((count, key) => {
-        if (count > bestCount) {
-            bestKey = key;
-            bestCount = count;
-        }
-    });
-    return bestKey;
-}
-
 function processAndAggregateResults(equipages, allRawResults) {
     const aggregated = {};
     const allJudgesInfo = new Map();
@@ -667,16 +648,15 @@ function processAndAggregateResults(equipages, allRawResults) {
 
         // Hämta programmet för att kunna använda utils
         const programs = getPrograms(); // Från utils
+        // Program per the result engine: saved protocols first, then live ones,
+        // the equipage key, the class mapping, a guess from the class name
         const savedProgramKey = getProtocolProgramKey(rawProtocolsForEquipage, programs);
-        const liveProgramKey = getProtocolProgramKey(liveProtocols ? Array.from(liveProtocols.values()) : [], programs);
-        let programKey = savedProgramKey || liveProgramKey || eq.testKey || eq.programKey;
-        if (!programKey && window.klassProgramMapping) {
-            programKey = window.klassProgramMapping[eq.className] || window.klassProgramMapping[eq._mergedLabel];
-        }
-        // New Robust Fallback using guessProgramKeyFromClass
-        if (!programKey && eq.className) {
-            programKey = guessProgramKeyFromClass(eq.className, programs);
-        }
+        const programKey = savedProgramKey || resolveDressageProgramKey(
+            eq,
+            liveProtocols ? Array.from(liveProtocols.values()) : [],
+            programs,
+            window.klassProgramMapping || {}
+        );
         if (programKey) eq.testKey = programKey;
         const program = programKey ? programs[programKey] : null;
 

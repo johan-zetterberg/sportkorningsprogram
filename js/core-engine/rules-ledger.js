@@ -26,6 +26,9 @@ export const MARATHON_KNOCKDOWN_PENALTY = 2;
 // Wrong gait penalty per second
 export const MARATHON_WRONG_GAIT_PENALTY_RATE = 0.2;
 
+// Swedish pony categories by height (TR V Moment 163), cm (upper limits, inclusive)
+export const PONY_CATEGORY_MAX_HEIGHT_CM = { ponyA: 107, ponyB: 130, ponyCD: 148 };
+
 // Default compulsory halt between A and B (minutes)
 export const MARATHON_DEFAULT_PAUSE_MIN = 10;
 

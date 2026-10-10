@@ -11,8 +11,6 @@ import { buildMarathonPlacementsByClass } from '../pages/marathon/marathonResult
 import {
   stageStartTS,
   stageStopTS,
-  stageDurationMsSaved,
-  stagePenaltyFromMs,
   limitsFor,
   pausedMsSince,
   formatMsLive,
@@ -20,7 +18,7 @@ import {
   toTimeLabel,
   getObstacleArray,
   obstacleValues,
-  getObstacleCoefficient,
+  calculateObstacleResult,
   calculateMarathonResult
 } from '../utils/marathonUtils.js';
 
@@ -49,11 +47,9 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
   const rawObstacles = getObstacleArray(marathonData);
   const obstacleTimes = marathonData.obstacleTimes || {};
 
-  // Hämta dynamisk koefficient
-  const obsCoeff = getObstacleCoefficient(eq.className);
-
   const obstaclesForView = rawObstacles.map(o => {
     const { timeSec, penalty, eliminated } = obstacleValues(o);
+    const obstacleCalc = calculateObstacleResult(o, eq);
     const num = Number(o.number || o.obstacleNumber || o.id);
     const numKey = String(num);
 
@@ -67,11 +63,8 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
     // Prioritera times.gateSplits (live/nytt) om det finns
     const splits = times.gateSplits || o.gateSplits || [];
 
-    // Recalculate Time Penalty if time is available
-    let calculatedTimePenalty = penalty || 0;
-    if (Number.isFinite(timeSec)) {
-      calculatedTimePenalty = timeSec * obsCoeff;
-    }
+    // Time penalty from the result engine (coefficient, clear round)
+    const calculatedTimePenalty = Number.isFinite(timeSec) ? obstacleCalc.timePenalty : (penalty || 0);
 
     return {
       number: num,
@@ -345,14 +338,14 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
 }
 
 export function renderTimeCard(container, eq, marathonData, obstaclePlacementMap = null) {
-  // Helper to get raw data
+  // Stage time and penalty from the result engine (pauses, hold time on B)
+  const engineResult = calculateMarathonResult(eq, marathonData, marathonData);
   const getStageData = (stage) => {
-    const start = stageStartTS(marathonData, stage);
-    const stop = stageStopTS(marathonData, stage);
-    let dur = stageDurationMsSaved(marathonData, stage);
-    if (!Number.isFinite(dur) && start && stop) dur = (stop - start) - pausedMsSince(start);
-
-    const fee = Number.isFinite(dur) ? stagePenaltyFromMs(dur, eq, stage) : { points: 0 };
+    const st = engineResult.stages?.[stage] || {};
+    const start = st.start ?? stageStartTS(marathonData, stage);
+    const stop = st.stop ?? stageStopTS(marathonData, stage);
+    const dur = Number.isFinite(st.rawDurationMs) ? st.rawDurationMs : null;
+    const fee = { points: Number.isFinite(st.timePenalty) ? st.timePenalty : 0, elim: !!st.eliminated };
     return { start, stop, dur, fee };
   };
 
@@ -375,11 +368,9 @@ export function renderTimeCard(container, eq, marathonData, obstaclePlacementMap
   });
 
   const rawObstacles = getObstacleArray(marathonData);
-  // Hämta dynamisk koefficient
-  const obsCoeff = getObstacleCoefficient(eq.className);
 
   const obstacles = rawObstacles.map(o => {
-    const { timeSec, penalty } = obstacleValues(o);
+    const { timeSec } = obstacleValues(o);
     const num = Number(o.number || o.obstacleNumber || o.id);
 
     // Look up reliable times
@@ -387,14 +378,8 @@ export function renderTimeCard(container, eq, marathonData, obstaclePlacementMap
     const start = times.enteredAtClient || times.enteredAt || o.enteredAtClient || o.enteredAt;
     const stop = times.exitAtClient || times.exitAt || o.exitAtClient || o.exitAt;
 
-    // Recalculate Time Penalty dynamically if time is available
-    let totalPenaltyForObs = penalty || 0;
-    if (Number.isFinite(timeSec)) {
-      const tp = timeSec * obsCoeff;
-      const kp = Number(o.knockdownPenalty || o.knockDownPenalty || 0);
-      const op = Number(o.otherPenalty || 0);
-      totalPenaltyForObs = tp + kp + op;
-    }
+    // Obstacle penalty from the result engine
+    const totalPenaltyForObs = calculateObstacleResult(o, eq).penalty ?? 0;
 
     return {
       number: num,

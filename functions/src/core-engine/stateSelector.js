@@ -8,6 +8,8 @@
  */
 
 const toHeight = (v) => Number(v) || null;
+const horseHeight = (h) => toHeight(h?.heightCm) || toHeight(h?.withersHeightCm)
+    || (typeof h?.height === 'number' ? toHeight(h.height) : null);
 
 export function buildEquipageState(equipageDoc) {
     if (!equipageDoc) return null;
@@ -17,14 +19,19 @@ export function buildEquipageState(equipageDoc) {
         category: String(equipageDoc.category || '').toLowerCase(),
         categoryName: equipageDoc.categoryName || null,
         division: equipageDoc.division || null,
+        animalCategory: equipageDoc.animalCategory || null,
+        equineCategory: equipageDoc.equineCategory || null,
+        ponyCategory: equipageDoc.ponyCategory || null,
+        horseCategory: equipageDoc.horseCategory || null,
         type: equipageDoc.type || null,
+        equineType: equipageDoc.equineType || null,
         isPara: !!equipageDoc.isPara,
         status: equipageDoc.status,
         eliminated: !!equipageDoc.eliminated,
         errorPoints: Number(equipageDoc.errorPoints) || 0,
-        heightCm: toHeight(equipageDoc.heightCm) || toHeight(equipageDoc.horseHeightCm),
+        heightCm: toHeight(equipageDoc.heightCm) || toHeight(equipageDoc.horseHeightCm) || toHeight(equipageDoc.withersHeightCm),
         horses: Array.isArray(equipageDoc.horses)
-            ? equipageDoc.horses.map(h => ({ heightCm: toHeight(h?.heightCm) }))
+            ? equipageDoc.horses.map(h => ({ heightCm: horseHeight(h) }))
             : [],
         testKey: equipageDoc.testKey || equipageDoc.programKey || null,
         // Merged classes (precision course lookup)

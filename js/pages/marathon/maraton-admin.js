@@ -114,7 +114,9 @@ function renderMarathonRulesCheatSheet() {
 // Kolumner: ponyA, ponyB, ponyCD, horse
 import {
   DEFAULT_TRV_TEMPOS_KMH,
-  normalizeClassKey
+  normalizeClassKey,
+  detectTRCategoryFromEquipage,
+  buildDominantTRCategoryByClass
 } from '../../utils/marathonUtils.js';
 
 // ------------------------------
@@ -122,16 +124,9 @@ import {
 // Nu importerad från marathonUtils som DEFAULT_TRV_TEMPOS_KMH
 const TRV_2025_MARATON_TEMPOS_KMH = DEFAULT_TRV_TEMPOS_KMH;
 
-// Gissa kategori ur klassnamn (för TR-tabellen)
-// Häst => 'horse', annars Ponny A/B/CD om det går, annars 'ponyCD' som rimlig default
+// Kategori ur klassnamn för TR-tabellen, samma igenkänning som resultatmotorn
 function guessTRCategoryFromClassName(className = '') {
-  const s = String(className).toLowerCase();
-  if (/häst|horse/.test(s)) return 'horse';
-  if (/ponny\s*a\b/.test(s)) return 'ponyA';
-  if (/ponny\s*b\b/.test(s)) return 'ponyB';
-  if (/ponny|pony/.test(s)) return 'ponyCD';
-  // Fallback: behandla som häst om helt oklart
-  return 'horse';
+  return detectTRCategoryFromEquipage({ className });
 }
 
 // Hämta TR-tempo i m/min för en given klass & sektion (A|B)
@@ -194,136 +189,7 @@ export function normalizeEquipage(e) {
 // Konvertering om du vill visa/stöda m/min på andra sidor
 const kmhToMmin = (kmh) => (kmh * 1000) / 60;
 
-// --- Robust kategoridetektion från ekipage-data ---
-
-// Normalisera godtycklig text -> TR-nyckel
-function normalizeTRCategoryKey(raw) {
-  if (!raw && raw !== 0) return null;
-  const s = String(raw).trim().toLowerCase();
-
-  // Häst?
-  if (/(häst|horse|horses?)/.test(s)) return 'horse';
-
-  // Ponny och ev. kategori
-  if (/(ponny|pony)/.test(s)) {
-    if (/\b(a|cat[\s\-]*a)\b/.test(s)) return 'ponyA';
-    if (/\b(b|cat[\s\-]*b)\b/.test(s)) return 'ponyB';
-    if (/\b(c|d|cat[\s\-]*c|cat[\s\-]*d)\b/.test(s)) return 'ponyCD';
-    return 'ponyCD'; // okänt -> slå ihop C/D
-  }
-
-  // Rent bokstavs-case (utan 'ponny') – tolka ändå
-  if (/^\s*a\s*$/.test(s)) return 'ponyA';
-  if (/^\s*b\s*$/.test(s)) return 'ponyB';
-  if (/^\s*(c|d)\s*$/.test(s)) return 'ponyCD';
-
-  return null;
-}
-
-// Försök läsa mankhöjd (cm) från ett ekipage
-function readHeightCmFromEquipage(e) {
-  const cand = [];
-
-  // vanliga fältnamn direkt på ekipaget
-  if (Number.isFinite(e?.heightCm)) cand.push(e.heightCm);
-  if (Number.isFinite(e?.horseHeightCm)) cand.push(e.horseHeightCm);
-  if (Number.isFinite(e?.withersHeightCm)) cand.push(e.withersHeightCm);
-
-  // ibland kan höjden ligga på hästobjekt i en lista
-  if (Array.isArray(e?.horses)) {
-    for (const h of e.horses) {
-      if (Number.isFinite(h?.heightCm)) cand.push(h.heightCm);
-      if (Number.isFinite(h?.withersHeightCm)) cand.push(h.withersHeightCm);
-      if (typeof h?.height === 'number') cand.push(h.height); // vissa kallar det bara 'height'
-    }
-  }
-
-  // välj första rimliga kandidat
-  let h = cand.find(Number.isFinite);
-  if (!Number.isFinite(h)) return null;
-
-  // om värdet verkar vara i meter (< 3), konvertera till cm
-  if (h > 0 && h < 3) h = Math.round(h * 100);
-
-  return Number.isFinite(h) ? h : null;
-}
-
-// Tolkning via höjd enligt TR/FEI (cm):
-// A: ≤107, B: 108–130, C: 131–140, D: 141–148, >148 = häst
-function categoryFromHeightCm(cm) {
-  if (!Number.isFinite(cm)) return null;
-  if (cm <= 107) return 'ponyA';
-  if (cm <= 130) return 'ponyB';
-  if (cm <= 148) return 'ponyCD';
-  return 'horse';
-}
-
-// Försök hitta explicit kategori i olika fält
-function directCategoryFromEquipage(e) {
-  const candidates = [
-    e?.category, e?.categoryName, e?.division, e?.animalCategory,
-    e?.equineCategory, e?.ponyCategory, e?.horseCategory,
-    e?.type, e?.equineType
-  ];
-  for (const r of candidates) {
-    const k = normalizeTRCategoryKey(r);
-    if (k) return k;
-  }
-  // kolla klassnamn om ekipaget har sitt eget
-  if (e?.className) {
-    const k2 = normalizeTRCategoryKey(e.className);
-    if (k2) return k2;
-  }
-  return null;
-}
-
-// Master: bestäm TR-kategori-nyckel för ett ekipage
-function detectTRCategoryFromEquipage(e) {
-  // 1) explicit fält
-  const direct = directCategoryFromEquipage(e);
-  if (direct) return direct;
-
-  // 2) höjd
-  const h = readHeightCmFromEquipage(e);
-  const byH = categoryFromHeightCm(h);
-  if (byH) return byH;
-
-  // 3) som sista fallback: gissa från klassnamn
-  if (e?.className) {
-    // Använder din (redan befintliga) heuristik om du har en:
-    const guess = guessTRCategoryFromClassName ? guessTRCategoryFromClassName(e.className) : null;
-    if (guess) return guess;
-  }
-
-  // 4) inget hittat -> anta häst
-  return 'horse';
-}
-
-// Bygg dominerande kategori per klass (majoritet bland ekipagen i klassen)
-export function buildDominantTRCategoryByClass(equipages = []) {
-  const map = new Map();
-  const groups = new Map();
-
-  for (const e of equipages) {
-    const cls = e?.className;
-    if (!cls) continue;
-    const cat = detectTRCategoryFromEquipage(e);
-    if (!groups.has(cls)) groups.set(cls, {});
-    const bucket = groups.get(cls);
-    bucket[cat] = (bucket[cat] || 0) + 1;
-  }
-
-  for (const [cls, counts] of groups.entries()) {
-    // välj kategori med högst röstetal
-    let bestCat = null, bestN = -1;
-    for (const [cat, n] of Object.entries(counts)) {
-      if (n > bestN) { bestN = n; bestCat = cat; }
-    }
-    // fallback om tomt av någon anledning
-    map.set(cls, bestCat || 'horse');
-  }
-  return map;
-}
+// Kategoridetektion och dominerande kategori per klass kommer från resultatmotorn (marathonUtils).
 
 // TR-tempo i m/min för (klass, sektion) med explicit kategori
 function trTempoMminForWithCat(className, section /* 'A' | 'B' */, catKey /* 'horse'|'ponyA'|'ponyB'|'ponyCD' */) {
@@ -351,9 +217,10 @@ function inferLevelFromClassName(className = '') {
 
 function fmtIdealTime(distanceM, tempoMpm) {
   if (!Number.isFinite(distanceM) || distanceM <= 0 || !Number.isFinite(tempoMpm) || tempoMpm <= 0) return '—';
-  const mins = distanceM / tempoMpm;
-  const mm = Math.floor(mins);
-  const ss = Math.round((mins - mm) * 60);
+  // Whole seconds, as the result engine rounds the ideal time
+  const totalSec = Math.round((distanceM / tempoMpm) * 60);
+  const mm = Math.floor(totalSec / 60);
+  const ss = totalSec % 60;
   return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`;
 }
 // Används för Transport (T) där TR inte anger tempo.

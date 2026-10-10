@@ -12,7 +12,7 @@ import {
   formatMsLive,
   formatSec,
   toTimeLabel,
-  getObstacleCoefficient,
+  calculateObstacleResult,
   setMarathonConfig,
 } from '../utils/marathonUtils.js';
 import { calculateMarathonResult } from '../services/calculationService.js';
@@ -255,11 +255,10 @@ export async function printMarathonPdf(eq, d, competition) {
     const enteredAt = times.enteredAtClient || times.enteredAt || o.enteredAtClient || o.enteredAt;
     const exitAt = times.exitAtClient || times.exitAt || o.exitAtClient || o.exitAt;
 
-    const obsCoeff = getObstacleCoefficient(eq.className);
-    let calculatedTimePenalty = penalty || 0;
-    if (Number.isFinite(timeSec)) {
-      calculatedTimePenalty = timeSec * obsCoeff;
-    }
+    // Time penalty from the result engine (coefficient, clear round)
+    const calculatedTimePenalty = Number.isFinite(timeSec)
+      ? calculateObstacleResult(o, eq).timePenalty
+      : (penalty || 0);
 
     // --- SPLITS ---
     let splitStr = '';

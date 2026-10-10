@@ -12,7 +12,7 @@ import {
   getPrograms,
   normalizeMovementNo,
   fmtPct,
-  guessProgramKeyFromClass,
+  resolveDressageProgramKey,
   normalizeMovements,
   deduplicateAndFilterProtocols
 } from '../utils/dressageUtils.js';
@@ -43,25 +43,6 @@ const _msToLabel = (ms, withCs = true) => {
 function expandDressagePosition(j) {
   const r = (j?.roles || []).find(r => r?.discipline === 'dressage' && r.position);
   return r ? String(r.position).toUpperCase() : (j?.position ? String(j.position).toUpperCase() : '');
-}
-
-function getProtocolProgramKey(protocols = [], programs = {}) {
-  const counts = new Map();
-  (protocols || []).forEach(protocol => {
-    if (!protocol || protocol.id === 'general') return;
-    const key = protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey;
-    if (key && programs[key]) counts.set(key, (counts.get(key) || 0) + 1);
-  });
-
-  let bestKey = null;
-  let bestCount = 0;
-  counts.forEach((count, key) => {
-    if (count > bestCount) {
-      bestKey = key;
-      bestCount = count;
-    }
-  });
-  return bestKey;
 }
 
 // --- Modalens egna stilar (injiceras en gång) ---
@@ -114,7 +95,6 @@ export async function openEquipageModal(startNumber, ctx) {
     const precisionRow = ctx?.precisionMap?.get?.(String(startNumber)) || {};
     const limFor = ctx?.limitsFor || (() => null);
     const secToMMSS = ctx?.secondsToMMSS || secondsToMMSS;
-    const kdDefault = Number(ctx?.marathonConfig?.knockdownPenaltyDefault ?? 0);
 
 
     // Set config for utils
@@ -276,37 +256,19 @@ export async function openEquipageModal(startNumber, ctx) {
     async function renderDressyrTab() {
       const programs = getPrograms();
       const validProtocols = deduplicateAndFilterProtocols(dressageProtocols || [], ctx.allCompetitionJudges || []);
-      // Försök hitta programnyckel från ekipaget, eller från första protokollet
-      let programKey = getProtocolProgramKey(validProtocols, programs) || eq.dressageProgramKey || eq.testKey || eq.programKey;
-
-      // Fallback: Slå upp via klassnamn från config (om definierat)
-      // Fallback: Slå upp via klassnamn från config (om definierat)
-      if (!programKey) {
-        // 1. Kolla ctx.classProgramMapping (från total-resultat.js)
-        const mapping = ctx.classProgramMapping || window.klassProgramMapping;
-        const cls = eq.className || eq._mergedLabel || '';
-
-        if (mapping && mapping[cls]) {
-          programKey = mapping[cls];
-        } else {
-          // 2. Kolla ctx.competitionConfig (legacy)
-          const conf = ctx.competitionConfig;
-          if (conf?.classes && conf.classes[cls]) {
-            programKey = conf.classes[cls];
-          }
-        }
-      }
-
-      // Fallback: Gissa via heuristik (fuzzy match)
-      if (!programKey) {
-        const cls = eq.className || eq._mergedLabel || '';
-        const guessed = guessProgramKeyFromClass(cls, programs);
-        if (guessed) {
-          programKey = guessed;
-        }
-      }
-
-      // Logga vad vi hittade
+      // Program enligt resultatmotorn: protokoll, ekipagets nyckel, klassmappning, gissning
+      const cls = eq.className || eq._mergedLabel || '';
+      const legacyClassKey = ctx.competitionConfig?.classes?.[cls];
+      const mapping = {
+        ...(legacyClassKey ? { [cls]: legacyClassKey } : {}),
+        ...(ctx.classProgramMapping || window.klassProgramMapping || {})
+      };
+      const programKey = resolveDressageProgramKey(
+        { ...eq, testKey: eq.dressageProgramKey || eq.testKey || eq.programKey },
+        validProtocols,
+        programs,
+        mapping
+      );
 
       const program = programKey ? programs[programKey] : null;
 

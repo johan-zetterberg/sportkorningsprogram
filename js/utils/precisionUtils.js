@@ -25,6 +25,7 @@ import {
     getCourseCandidates
 } from './precisionCalculation.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../core-engine/ranking.js';
+import { PRECISION_TIME_PENALTY_RATE } from '../core-engine/rules-ledger.js';
 
 function getBrowserGlobalState(key) {
     if (typeof window !== 'undefined' && typeof window.getGlobalState === 'function') {
@@ -78,7 +79,7 @@ export function trackWidthFromEq(eq) {
 // -------------------------------------------------------------
 // Straffberäkning (Tid)
 // -------------------------------------------------------------
-export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = 0.5) {
+export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = PRECISION_TIME_PENALTY_RATE) {
     return _calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate);
 }
 

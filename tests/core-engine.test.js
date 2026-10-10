@@ -10,7 +10,7 @@ import {
   guessProgramKeyFromClass,
   calculateDressageResult
 } from '../js/core-engine/dressage.js';
-import { calculateMarathonResult, calculateObstacleResult } from '../js/core-engine/marathon.js';
+import { calculateMarathonResult, calculateObstacleResult, detectTRCategoryFromEquipage } from '../js/core-engine/marathon.js';
 import {
   computeMaxSecondsForClass,
   calculatePrecisionResult
@@ -117,7 +117,12 @@ test('buildEquipageState normalizes common equipage fields', () => {
     category: 'ponny b',
     categoryName: null,
     division: null,
+    animalCategory: null,
+    equineCategory: null,
+    ponyCategory: null,
+    horseCategory: null,
     type: null,
+    equineType: null,
     isPara: false,
     status: undefined,
     eliminated: false,
@@ -313,6 +318,18 @@ test('calculateMarathonResult eliminates obstacle times over five minutes', () =
   assert.equal(result.eliminated, true);
   assert.equal(result.totalPenalty, Infinity);
   assert.equal(result.clearRoundApproved, false);
+});
+
+test('detectTRCategoryFromEquipage uses the TR V Moment 163 pony heights', () => {
+  assert.equal(detectTRCategoryFromEquipage({ heightCm: 107 }), 'ponyA');
+  assert.equal(detectTRCategoryFromEquipage({ heightCm: 115 }), 'ponyB');
+  assert.equal(detectTRCategoryFromEquipage({ heightCm: 130 }), 'ponyB');
+  assert.equal(detectTRCategoryFromEquipage({ heightCm: 140 }), 'ponyCD');
+  assert.equal(detectTRCategoryFromEquipage({ heightCm: 149 }), 'horse');
+  assert.equal(detectTRCategoryFromEquipage({ horses: [{ withersHeightCm: 1.05 }] }), 'ponyA');
+  assert.equal(detectTRCategoryFromEquipage({ ponyCategory: 'Ponny kat B' }), 'ponyB');
+  // The same through the engine state (Cloud Function path)
+  assert.equal(detectTRCategoryFromEquipage(buildEquipageState({ horses: [{ withersHeightCm: 112 }] })), 'ponyB');
 });
 
 test('calculateObstacleResult gives one obstacle the same penalties as the full calculation', () => {

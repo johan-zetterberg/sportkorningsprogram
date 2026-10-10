@@ -4,6 +4,8 @@ import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { competitionClasses, standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
+import { getClassTempoMpm } from '../../utils/precisionUtils.js';
+import { PRECISION_TIME_PENALTY_RATE } from '../../core-engine/rules-ledger.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import {
     hasPrecisionValidationErrors,
@@ -208,62 +210,13 @@ function parseOptionalNumber(value) {
     return Number.isFinite(number) ? number : null;
 }
 
+// Max time shown as the engine applies it: whole seconds
 function secondsToMMSS(seconds) {
     if (isNaN(seconds) || seconds < 0) return "--:--";
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.round(seconds % 60);
+    const total = Math.round(seconds);
+    const mins = Math.floor(total / 60);
+    const secs = total % 60;
     return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
-}
-
-function findTempoForClass(className, tempoData) {
-    if (!className || !tempoData) return 0;
-
-    const normalize = (str) => String(str).replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
-    const normalizedClassName = normalize(className);
-
-    // 1. Försök med en exakt (normaliserad) matchning
-    const exactKey = Object.keys(tempoData).find(key => normalize(key) === normalizedClassName);
-    // ÄNDRING HÄR: Byt ut .tempo mot .precision
-    if (exactKey && tempoData[exactKey]?.precision) {
-        return tempoData[exactKey].precision;
-    }
-
-    // 2. Om exakt matchning misslyckas, hitta den längsta nyckeln som passar generellt
-    const matchingKey = Object.keys(tempoData)
-        .filter(key => {
-            const normKey = normalize(key);
-
-            // Prevent generic names from matching special classes
-            const isSpecialDictKey = /(para|barn|children)/.test(normKey);
-            const isSpecialClass = /(para|barn|children)/.test(normalizedClassName);
-            if (isSpecialDictKey && !isSpecialClass) return false;
-
-            // Dictionary-nyckeln börjar med (el lika med) klassnamnet
-            if (normKey.startsWith(normalizedClassName)) return true;
-            // Ett generellt klassnamn ("msv4") är ett prefix för en Dictionary-nyckel ("msv4enbetponny")
-            if (normalizedClassName.length > 3 && normKey.includes(normalizedClassName)) return true;
-            // Klassnamnet innehåller Dictionary-nyckeln ("msv4" i "enbetponnymsv4")
-            if (normalizedClassName.includes(normKey)) return true;
-
-            return false;
-        })
-        .sort((a, b) => {
-            // Favor "Häst" dict keys to avoid low-tempo bias
-            const normA = normalize(a);
-            const normB = normalize(b);
-            const aHasHast = normA.includes('hast') ? 1 : 0;
-            const bHasHast = normB.includes('hast') ? 1 : 0;
-            if (bHasHast !== aHasHast) return bHasHast - aHasHast;
-
-            return b.length - a.length;
-        })[0];
-
-    // ÄNDRING HÄR: Byt ut .tempo mot .precision
-    if (matchingKey && tempoData[matchingKey]?.precision) {
-        return tempoData[matchingKey].precision;
-    }
-
-    return 0; // Returnera 0 om inget tempo alls hittas
 }
 
 function findPortAllowanceForClass(className) {
@@ -350,7 +303,7 @@ function renderLayout() {
     ensurePrecisionAdminResponsiveStyles();
     if (!root) return;
 
-    const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
+    const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
 
     root.innerHTML = `
         ${getCompetitionHeader(comp, 'Precision – Inställningar')}
@@ -737,7 +690,7 @@ function setupPrecisionBulkFill(container) {
 
 function buildPrecisionConfigFromForm() {
     const comp = getGlobalState('currentCompetition');
-    const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
+    const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
 
     const knockdownPenaltyRaw = document.getElementById('globalKnockdownPenalty')?.value ?? '';
     const timePenaltyRateRaw = document.getElementById('globalTimePenaltyRate')?.value ?? '';
@@ -840,7 +793,7 @@ async function saveData() {
     try {
         clearPrecisionValidationDom();
         const comp = getGlobalState('currentCompetition');
-        const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
+        const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
 
         const knockdownPenaltyRaw = document.getElementById('globalKnockdownPenalty')?.value ?? '';
         const timePenaltyRateRaw = document.getElementById('globalTimePenaltyRate')?.value ?? '';
@@ -1009,7 +962,7 @@ export async function load() {
         const kpInput = document.getElementById('globalKnockdownPenalty');
         const tpInput = document.getElementById('globalTimePenaltyRate');
 
-        const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? 0.5;
+        const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
 
         if (kpInput) kpInput.value = precisionConfig.knockdownPenalty != null ? precisionConfig.knockdownPenalty : 3;
         if (tpInput) tpInput.value = precisionConfig.timePenaltyRate != null ? precisionConfig.timePenaltyRate : defRate;
@@ -1116,8 +1069,9 @@ function buildPrecisionClassGroups(equipages = [], mergeMap = new Map()) {
 
 function getTempoStateForGroup(group) {
     const sourceClasses = group?.sourceClasses?.length ? group.sourceClasses : [group?.label].filter(Boolean);
+    // Standard tempo exactly as the result engine finds it (no config overrides)
     const tempos = sourceClasses
-        .map(className => findTempoForClass(className, klassTempoData))
+        .map(className => getClassTempoMpm(className, {}) || 0)
         .filter(tempo => tempo > 0);
     const uniqueTempos = [...new Set(tempos)];
 

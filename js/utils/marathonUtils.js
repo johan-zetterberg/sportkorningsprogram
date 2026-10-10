@@ -79,6 +79,10 @@ export function getPauseTime() {
   return core.getPauseTime(maraton_marathonConfig);
 }
 
+export function getStageTimePenaltyRate() {
+  return core.getStageTimePenaltyRate(maraton_marathonConfig);
+}
+
 export function getObstacleMaxTime() {
   return core.getObstacleMaxTime(maraton_marathonConfig);
 }

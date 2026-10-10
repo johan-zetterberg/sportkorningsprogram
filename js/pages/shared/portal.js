@@ -520,7 +520,7 @@ async function renderDashboard(container, compId, startNumber, user) {
         const programKey = dressyrProgramMapping[eq.className] || guessProgramKeyFromClass(eq.className, allPrograms);
 
         let calculatedDressagePenalty = null;
-        const computedDressagePenalty = r.dressage?.totalPenalty ?? r.dressage?.penalty;
+        const computedDressagePenalty = r.dressagePenalty ?? r.dressage?.totalPenalty ?? r.dressage?.penalty;
         if (computedDressagePenalty == null && dressageProtocols?.length) {
             const allPrograms = getPrograms();
             const result = calculateDressageResult(eq, dressageProtocols, allJudges, allPrograms);

@@ -77,18 +77,27 @@ export function getPortalMinutesToNextStart(startTimesConfig, startNumber, now =
     return (startTimes[0] - now) / 60000;
 }
 
+// computed_equipages (Cloud Function, same engine as the browser) stores flat
+// fields: dressagePenalty, marathonPenalty, precisionPenalty, elimReason.
+function computedPenalty(computedResult, flatKey, nestedKey, elimReason) {
+    if (computedResult?.elimReason === elimReason) return Infinity;
+    return finiteOrInfinity(computedResult?.[flatKey])
+        ?? penaltyFromSource(computedResult?.[nestedKey], 'totalPenalty', 'penalty');
+}
+
 export function resolvePortalDisciplinePenalties({
     computedResult = {},
     dressagePenalty = null,
     marathonTiming = {},
     precisionResult = {}
 } = {}) {
-    const dRes = penaltyFromSource(computedResult?.dressage, 'totalPenalty', 'penalty')
+    const dRes = computedPenalty(computedResult, 'dressagePenalty', 'dressage', 'ELIM (DR)')
         ?? finiteOrInfinity(dressagePenalty);
-    const mRes = penaltyFromSource(computedResult?.marathon, 'totalPenalty', 'penalty')
+    const mRes = computedPenalty(computedResult, 'marathonPenalty', 'marathon', 'ELIM (MA)')
         ?? penaltyFromSource(marathonTiming, 'totalPenalty');
+    // The live precision doc is fresher than the server snapshot during a run
     const pRes = penaltyFromSource(precisionResult, 'totalPenalty', 'liveTotalPenalty')
-        ?? penaltyFromSource(computedResult?.precision, 'totalPenalty', 'penalty');
+        ?? computedPenalty(computedResult, 'precisionPenalty', 'precision', 'ELIM (PR)');
 
     return { dRes, mRes, pRes };
 }

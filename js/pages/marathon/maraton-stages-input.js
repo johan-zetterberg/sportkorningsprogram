@@ -1,5 +1,5 @@
 // js/pages/maraton-stages-input.js
-import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious } from '../../utils/marathonUtils.js';
+import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious, getStageTimePenaltyRate } from '../../utils/marathonUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
@@ -74,15 +74,16 @@ function computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs = 0) {
 
   const { points, elim } = stagePenaltyFromMs(effectiveMs, eq, st);
 
+  // Seconds outside the window, as the engine counts them (no upper limit on a fixed-time A)
   let secondsOut = 0;
   const s = effectiveMs / 1000;
   if (s < lim.min) secondsOut = lim.min - s;
-  else if (s > lim.max) secondsOut = s - lim.max;
+  else if (s > lim.max && !lim.isFixedTime) secondsOut = s - lim.max;
 
   return {
     secondsOut: secondsOut > 0 ? secondsOut : null,
     points: elim ? 'ELIM' : points,
-    rate: 0.25,
+    rate: getStageTimePenaltyRate(),
     tlMs: (lim && lim.ideal) ? lim.ideal * 1000 : null,
     minMs: (lim && lim.min) ? lim.min * 1000 : null,
     maxMs: (lim && lim.max) ? lim.max * 1000 : null

@@ -1,3 +1,5 @@
+import { MARATHON_TIME_LIMIT_FACTOR_A, MARATHON_TIME_LIMIT_FACTOR_B } from '../../core-engine/rules-ledger.js';
+
 export function kmhToMmin(kmh) {
   return (Number(kmh) * 1000) / 60;
 }
@@ -60,17 +62,19 @@ export function calculateStageTiming(distanceMeters, tempoKmh, windowMinutes, st
 
   const tempoMpm = kmhToMmin(tempo);
   const windowMs = Number(windowMinutes || 0) * 60000;
-  const allowedMs = (distance / tempoMpm) * 60000;
+  // Ideal time and time limit rounded to whole seconds, as the result engine does
+  const allowedSec = Math.round((distance / tempoMpm) * 60);
+  const allowedMs = allowedSec * 1000;
   const minMs = Math.max(0, allowedMs - windowMs);
   const avgMs = (minMs + allowedMs) / 2;
-  const timeLimitFactor = stage === 'A' ? 1.2 : 2.0;
+  const timeLimitFactor = stage === 'A' ? MARATHON_TIME_LIMIT_FACTOR_A : MARATHON_TIME_LIMIT_FACTOR_B;
 
   return {
     tempoMpm,
     allowedMs,
     minMs,
     avgMs,
-    timeLimitMs: allowedMs * timeLimitFactor
+    timeLimitMs: Math.round(allowedSec * timeLimitFactor) * 1000
   };
 }
 

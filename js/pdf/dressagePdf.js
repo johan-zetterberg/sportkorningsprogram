@@ -13,7 +13,8 @@ import {
   getMomentHorseLabel,
   guessProgramKeyFromClass
 } from '../utils/dressageUtils.js';
-import { calculateDressageResult } from '../services/calculationService.js';
+import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
+import { getProgramMaxScore } from '../core-engine/dressage.js';
 import { isPrivileged } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
@@ -326,7 +327,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     if (horses && horses !== '—') { pdf.text(horses, mx, y); y += 12; }
     pdf.text(`${data._mergedLabel || data.className || ''} • ${data.clubName || ''}`, mx, y); y += 25;
 
-    const maxScore = (effectiveProgram.movements || []).reduce((s, m) => s + 10 * (m.coeff || 1), 0);
+    const maxScore = getProgramMaxScore(effectiveProgram);
     const penaltyCoeff = getDressagePenaltyCoeff(effectiveProgram);
     const today = new Date().toLocaleDateString('sv-SE');
     const headerInfo = [
@@ -407,14 +408,14 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
       testKey: data.testKey
     };
 
-    // Calculate result for just this judge
-    const judgeRes = calculateDressageResult(data, [singleJudgeProto], [], programs);
+    // This judge's own result (without the equipage's error points) from the engine
+    const judgeRes = calculateSingleJudgeDressageResult(singleJudgeProto, effectiveProgram, data) || {};
 
     let totalPoints = 0, percent = 0, penalty = 0;
     if (!jr.eliminated && !judgeRes.eliminated) {
-      totalPoints = firstFinite(jr.totalPoints, jr.points, judgeRes.points) || 0;
-      percent = firstFinite(jr.percent, judgeRes.percent) || 0;
-      penalty = firstFinite(jr.penalty, judgeRes.penalty) || 0;
+      totalPoints = firstFinite(judgeRes.points, jr.totalPoints, jr.points) || 0;
+      percent = firstFinite(judgeRes.percent, jr.percent) || 0;
+      penalty = firstFinite(judgeRes.judgePenalty, jr.penalty) || 0;
     }
 
     const summaryData = [
@@ -460,7 +461,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     if (horses && horses !== '—') { pdf.text(horses, mx, y); y += 12; }
     pdf.text(`${data._mergedLabel || data.className || ''} • ${data.clubName || ''}`, mx, y); y += 25;
 
-    const maxScore = (effectiveProgram.movements || []).reduce((s, m) => s + 10 * (m.coeff || 1), 0);
+    const maxScore = getProgramMaxScore(effectiveProgram);
     const penaltyCoeff = getDressagePenaltyCoeff(effectiveProgram);
     const today = new Date().toLocaleDateString('sv-SE');
     const totalHeaderInfo = [
@@ -508,13 +509,10 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
     const finalRes = calculateDressageResult(data, allProtocols, [], programs);
 
-    const avgPercent = firstFinite(data.finalPercent, data.avgPercent, finalRes?.percent) || 0;
-    const finalPenalty = firstFinite(data.finalPenalty, data.totalPenalty, data.results?.dressage?.penalty, data.results?.dressage?.totalPenalty, finalRes?.penalty) || 0;
-    // Note: sum logic earlier in the file (lines 323-333) calculates "average total points" manually to display row-by-row.
-    // That is fine to keep for the Table Display, but for the FINAL summary numbers we trust the service.
-    // Just ensuring `sum` (used in table generation) matches `finalRes.points` if we wanted to be strict,
-    // but replacing the final derivation is the goal here.
-    const displaySum = firstFinite(data.finalPoints, data.totalPoints, finalRes?.points, sum) || 0;
+    // Final numbers from the engine; stored values only as fallback
+    const avgPercent = firstFinite(finalRes?.percent, data.finalPercent, data.avgPercent) || 0;
+    const finalPenalty = firstFinite(finalRes?.penalty, data.finalPenalty, data.totalPenalty, data.results?.dressage?.penalty, data.results?.dressage?.totalPenalty) || 0;
+    const displaySum = firstFinite(finalRes?.points, data.finalPoints, data.totalPoints, sum) || 0;
 
     const summary = [
       ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : displaySum.toFixed(1)],
