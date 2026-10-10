@@ -1,5 +1,6 @@
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { createCompetition, listenForCompetitions, saveConfig } from '../../services/competitionService.js';
+import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -93,6 +94,14 @@ const HUB_COMPETITION_TEMPLATES = [
     subtitle: 'Full tävling med dressyr, maraton och precision',
     mode: 'live',
     durationDays: 3
+  },
+  {
+    id: 'demo_complete',
+    title: 'Demotävling (med testdata)',
+    subtitle: 'Dressyr, maraton, precision, besiktning & lag förkonfigurerat',
+    mode: 'live',
+    durationDays: 3,
+    isDemo: true
   },
   {
     id: 'field_light',
@@ -195,6 +204,14 @@ function renderLayout() {
             </div>
             <input type="hidden" id="competitionTemplatePreset" value="${escapeAttr(selectedTemplateId)}">
             <p id="competitionTemplateHint" class="mt-2 text-xs text-gray-500 dark:text-gray-400"></p>
+            <div class="mt-3 flex items-center justify-between gap-3 p-3 rounded-lg bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800">
+              <div class="text-xs text-indigo-800 dark:text-indigo-200">
+                <strong>Snabbstart med demodata:</strong> Skapa en färdig demotävling med 8 ekipage, domare, tider, besiktning och lag direkt med ett klick.
+              </div>
+              <button type="button" id="btnQuickDemoCompetition" class="shrink-0 text-xs px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white font-semibold transition-colors shadow-sm">
+                ✨ Skapa demotävling
+              </button>
+            </div>
           </div>
 
           <div class="mb-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -312,6 +329,9 @@ function getHubTemplate(templateId = selectedTemplateId) {
 
 function formatHubTemplateDuration(template) {
   if (!template) return '';
+  if (template.isDemo) {
+    return 'Komplett 3-dagarstävling med förberedd testdata för dressyr, maraton, precision, besiktning och lag.';
+  }
   if (template.mode === 'field') {
     return 'Fältläge med manuell registrering som standard.';
   }
@@ -326,6 +346,7 @@ function getTemplateDisciplines(template) {
     case 'live_2day':
       return ['dressage', 'marathon'];
     case 'live_3day':
+    case 'demo_complete':
       return ['dressage', 'marathon', 'precision'];
     case 'field_light':
       return ['dressage', 'marathon', 'precision'];
@@ -744,6 +765,34 @@ function setupEventListeners() {
       updateCompetitionTemplateUi();
     });
 
+    document.getElementById('btnQuickDemoCompetition')?.addEventListener('click', async () => {
+      const btn = document.getElementById('btnQuickDemoCompetition');
+      if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Skapar demotävling...';
+      }
+      try {
+        const res = await seedDemoCompetition();
+        const user = getCurrentUser();
+        const createdCompetition = {
+          id: res.competitionId,
+          ...res.dataset.compMeta,
+          createdBy: user?.uid || null
+        };
+        setGlobalState({ key: 'currentCompetition', value: createdCompetition });
+        saveLastOpened(createdCompetition);
+        showAlert(`Demotävlingen "${createdCompetition.name}" har skapats med 8 ekipage, domare och kompletta resultat!`);
+        window.location.hash = '#admin';
+      } catch (err) {
+        console.error('Fel vid skapande av demotävling:', err);
+        showAlert('Kunde inte skapa demotävling: ' + err.message);
+        if (btn) {
+          btn.disabled = false;
+          btn.textContent = '✨ Skapa demotävling';
+        }
+      }
+    });
+
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
       const user = getCurrentUser();
@@ -786,6 +835,16 @@ function setupEventListeners() {
         await saveConfig(newId, 'competitionMeta', {
           ...templateMetaDefaults
         });
+
+        if (selectedTemplate?.isDemo) {
+          await seedDemoCompetition({
+            competitionId: newId,
+            name: compData.name,
+            place: compData.place,
+            club: compData.club,
+            dates: compData.dates
+          });
+        }
 
         showAlert(`Tävlingen "${compData.name}" har skapats!`);
         const createdCompetition = {

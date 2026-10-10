@@ -1,6 +1,7 @@
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionById, deleteCompetition, updateCompetition } from '../../services/competitionService.js';
+import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
 import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails, getOfficials, getJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { uploadCompetitionLogo } from '../../services/storageService.js';
@@ -924,6 +925,23 @@ export function getSettingsHtml() {
             </div>
         </div>
 
+        <!-- DEMODATA -->
+        <div id="demoDataCard" class="md:col-span-2 mt-8 bg-indigo-50 dark:bg-indigo-900/10 p-6 rounded-xl shadow-md border border-indigo-200 dark:border-indigo-800">
+            <div class="flex items-start justify-between gap-4 flex-wrap">
+              <div>
+                <h2 class="text-xl font-bold text-indigo-900 dark:text-indigo-200 mb-1 flex items-center gap-2">
+                  <span>🎯</span> Test- & Demodata (TR V 2025 / FEI 2026)
+                </h2>
+                <p class="text-sm text-indigo-700 dark:text-indigo-300 max-w-2xl">
+                  Ladda tävlingen med ett fullständigt testdatapaket: ekipage med flerstartande kusk, vagnbredder, veterinärbesiktning med vilobox-puls, dressyrdomare & protokoll, maratontider & hinder med uppehållsavdrag, precision och lagtävling. Perfekt för funktionärsutbildning och systemtest!
+                </p>
+              </div>
+              <button id="btnLoadDemoData" type="button" class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-lg shadow-sm transition-colors flex items-center gap-2">
+                <span>⚡ Ladda demodata</span>
+              </button>
+            </div>
+        </div>
+
         <!-- DANGER ZONE -->
         <div id="dangerZone" class="md:col-span-2 mt-12 bg-red-50 dark:bg-red-900/10 p-6 rounded-xl shadow-md border border-red-200 dark:border-red-900" style="display:none;">
             <h2 class="text-2xl font-bold text-red-800 dark:text-red-400 mb-4 border-b border-red-200 dark:border-red-800 pb-2">Danger Zone</h2>
@@ -1409,6 +1427,29 @@ export async function setupSettingsLogic(competitionId) {
             if (currentUser.role === 'superadmin') isAllowed = true;
             if (comp && comp.createdBy && comp.createdBy === currentUser.uid) isAllowed = true;
         }
+
+        document.getElementById('btnLoadDemoData')?.addEventListener('click', async () => {
+            if (!confirm('Vill du ladda denna tävling med ett komplett demodatapaket?\n\nDetta lägger till 8 ekipage, domare, funktionärer, dressyrprotokoll, maratontider, hinderresultat med uppehållsavdrag, precision och lag.')) {
+                return;
+            }
+            const btn = document.getElementById('btnLoadDemoData');
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span>⏳ Laddar demodata...</span>';
+            }
+            try {
+                await seedDemoCompetition({ competitionId });
+                showAlert('Demodata har laddats framgångsrikt!');
+                setTimeout(() => window.location.reload(), 1200);
+            } catch (err) {
+                console.error('Kunde inte ladda demodata:', err);
+                showAlert('Fel vid laddning av demodata: ' + err.message);
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<span>⚡ Ladda demodata</span>';
+                }
+            }
+        });
 
         if (isAllowed) {
             const dz = document.getElementById('dangerZone');
