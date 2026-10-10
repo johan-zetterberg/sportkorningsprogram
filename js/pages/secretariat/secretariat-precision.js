@@ -19,6 +19,7 @@ import {
   loadSecretariatPrecisionRows,
   refinalizeResult,
   saveSecretariatPrecisionRow,
+  calculateSecretariatPrecisionDraft,
   unlockResult,
 } from '../../services/secretariatService.js';
 
@@ -66,7 +67,9 @@ function buildTableRows() {
     const view = draftFor(row);
     const isDirty = drafts.has(String(row.startNumber));
     const readOnly = row.finalized === true;
-    const totalPenalty = Number(view.obstaclePenalty || 0) + Number(view.timePenalty || 0) + Number(view.extraPenalty || 0);
+    const totalPenalty = isDirty && !view.__invalid
+      ? (calculateSecretariatPrecisionDraft(row, drafts.get(String(row.startNumber))).totalPenalty ?? 0)
+      : (row.totalPenalty ?? 0);
 
     return `
       <tr data-sn="${escapeHtml(row.startNumber)}" class="border-t border-gray-200 dark:border-gray-700 align-top ${isDirty ? 'bg-amber-50/70 dark:bg-amber-900/10' : ''}">
@@ -182,14 +185,19 @@ function collectPatch(rowEl, baseRow) {
   const obstaclePenalty = Number(rowEl.querySelector('[data-field="obstaclePenalty"]')?.value || 0);
   const timePenalty = Number(rowEl.querySelector('[data-field="timePenalty"]')?.value || 0);
   const extraPenalty = Number(rowEl.querySelector('[data-field="extraPenalty"]')?.value || 0);
+  // Editing the time penalty itself makes it a manual override; otherwise
+  // the engine calculates it from the time.
+  const timePenaltyEdited = Math.abs((Number.isFinite(timePenalty) ? timePenalty : 0) - (baseRow.timePenalty || 0)) > 1e-9;
 
   return {
     startNumber: baseRow.startNumber,
     driverName: baseRow.driverName,
     className: baseRow.className,
+    equipage: baseRow.calcContext?.equipage,
     timeMs: timeMs ?? 0,
     obstaclePenalty: Number.isFinite(obstaclePenalty) ? obstaclePenalty : 0,
     timePenalty: Number.isFinite(timePenalty) ? timePenalty : 0,
+    timePenaltyOverride: timePenaltyEdited || baseRow.timePenaltyOverride === true,
     extraPenalty: Number.isFinite(extraPenalty) ? extraPenalty : 0,
     eliminated: !!rowEl.querySelector('[data-field="eliminated"]')?.checked,
     comment: rowEl.querySelector('[data-field="comment"]')?.value?.trim() || '',
@@ -205,7 +213,7 @@ function updateDraft(rowEl) {
     const patch = collectPatch(rowEl, baseRow);
     const totalCell = rowEl.querySelector('[data-role="total"]');
     if (totalCell) {
-      const totalPenalty = Number(patch.obstaclePenalty || 0) + Number(patch.timePenalty || 0) + Number(patch.extraPenalty || 0);
+      const totalPenalty = calculateSecretariatPrecisionDraft(baseRow, patch).totalPenalty ?? 0;
       totalCell.textContent = totalPenalty.toFixed(2).replace(/\.00$/, '');
     }
 

@@ -20,6 +20,9 @@ export const MARATHON_DEFAULT_WINDOW_B_MIN = 3;
 // Obstacle time above this is elimination (seconds)
 export const MARATHON_OBSTACLE_MAX_TIME_SEC = 300;
 
+// Penalty per knocked-down breakable element/ball in an obstacle
+export const MARATHON_KNOCKDOWN_PENALTY = 2;
+
 // Wrong gait penalty per second
 export const MARATHON_WRONG_GAIT_PENALTY_RATE = 0.2;
 

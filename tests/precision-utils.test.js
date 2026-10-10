@@ -68,15 +68,32 @@ test('precision UI calculation recalculates stale stored time penalty upward', (
   assert.equal(result.totalPenalty, 3);
 });
 
-test('precision UI calculation preserves manually higher stored time penalty', () => {
+test('precision UI calculation keeps a manual time penalty (timePenaltyOverride)', () => {
+  const higher = calculatePrecisionResult(
+    { finalized: true, timeMs: 101000, knocks: [], timePenalty: 4, timePenaltyOverride: true },
+    equipage,
+    config
+  );
+  assert.equal(higher.timePenalty, 4);
+  assert.equal(higher.totalPenalty, 4);
+
+  // A manual correction downwards is kept as well (the old max() rule ignored it)
+  const lower = calculatePrecisionResult(
+    { finalized: true, timeMs: 110000, knocks: [], timePenalty: 1, timePenaltyOverride: true },
+    equipage,
+    config
+  );
+  assert.equal(lower.timePenalty, 1);
+});
+
+test('precision UI calculation recalculates a stale stored time penalty without override', () => {
   const result = calculatePrecisionResult(
     { finalized: true, timeMs: 101000, knocks: [], timePenalty: 4 },
     equipage,
     config
   );
-
-  assert.equal(result.timePenalty, 4);
-  assert.equal(result.totalPenalty, 4);
+  assert.equal(result.timePenalty, calculatePrecisionResult({ finalized: true, timeMs: 101000, knocks: [] }, equipage, config).timePenalty);
+  assert.notEqual(result.timePenalty, 4);
 });
 
 test('precision UI calculation uses live values while running', () => {

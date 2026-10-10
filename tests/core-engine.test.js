@@ -10,7 +10,7 @@ import {
   guessProgramKeyFromClass,
   calculateDressageResult
 } from '../js/core-engine/dressage.js';
-import { calculateMarathonResult } from '../js/core-engine/marathon.js';
+import { calculateMarathonResult, calculateObstacleResult } from '../js/core-engine/marathon.js';
 import {
   computeMaxSecondsForClass,
   calculatePrecisionResult
@@ -313,6 +313,30 @@ test('calculateMarathonResult eliminates obstacle times over five minutes', () =
   assert.equal(result.eliminated, true);
   assert.equal(result.totalPenalty, Infinity);
   assert.equal(result.clearRoundApproved, false);
+});
+
+test('calculateObstacleResult gives one obstacle the same penalties as the full calculation', () => {
+  const eq = { className: 'Testklass' };
+  const cfg = structuredClone(marathonConfig);
+
+  // 20 s * 0.25 + 2 knockdowns * 2 (default) + 1 other
+  const r = calculateObstacleResult({ timeInSeconds: 20, otherPenalty: 1 }, eq, cfg, null, { knockdowns: 2 });
+  assert.equal(r.timePenalty, 5);
+  assert.equal(r.knockdownPenalty, 4);
+  assert.equal(r.penalty, 10);
+  assert.equal(r.eliminated, false);
+
+  cfg.knockdownPenaltyDefault = 3;
+  assert.equal(calculateObstacleResult({ timeSec: 0 }, eq, cfg, null, { knockdowns: 2 }).penalty, 6);
+
+  assert.equal(calculateObstacleResult({ timeSec: 301 }, eq, cfg).overMaxTime, true);
+  assert.equal(calculateObstacleResult({ timeSec: 301 }, eq, cfg).eliminated, true);
+  assert.equal(calculateObstacleResult({ penalty: 7 }, eq, cfg).penalty, 7);
+
+  cfg.marathonClassData.Testklass.clearRound = true;
+  const clear = calculateObstacleResult({ timeSec: 40, knockdownPenalty: 2 }, eq, cfg);
+  assert.equal(clear.timePenalty, 0);
+  assert.equal(clear.penalty, 2);
 });
 
 test('computeMaxSecondsForClass and calculatePrecisionResult compute penalties', () => {

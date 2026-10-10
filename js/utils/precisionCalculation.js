@@ -1,9 +1,13 @@
 import { klassTempoData } from '../data/competitionData.js';
+import {
+    PRECISION_TIME_PENALTY_RATE,
+    PRECISION_KNOCKDOWN_PENALTY,
+    isNum,
+    round2 as roundNumber
+} from '../core-engine/rules-ledger.js';
 
-const PRECISION_TIME_PENALTY_RATE = 0.5;
 const norm = (value) => String(value || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
-const isNum = (value) => typeof value === 'number' && Number.isFinite(value);
-const round2 = (value) => isNum(value) ? Math.round(value * 100) / 100 : value;
+const round2 = (value) => isNum(value) ? roundNumber(value) : value;
 
 function getClassName(value) {
     return typeof value === 'string' ? value : (value?.className || '');
@@ -21,7 +25,7 @@ export function getCourseCandidates(value) {
     return [className, mergedClassName].filter(Boolean);
 }
 
-export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = 0.5) {
+export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = PRECISION_TIME_PENALTY_RATE) {
     if (!Number.isFinite(timeMs) || !Number.isFinite(maxTimeSec) || maxTimeSec <= 0) return 0;
     const maxMs = maxTimeSec * 1000;
     if (timeMs <= maxMs) return 0;
@@ -106,7 +110,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     const knocksArr = Array.isArray(d.knocks) ? d.knocks.slice() : [];
     const knocksCount = knocksArr.length;
 
-    const knockdownPenalty = (safeConfig.knockdownPenalty != null) ? Number(safeConfig.knockdownPenalty) : 3;
+    const knockdownPenalty = (safeConfig.knockdownPenalty != null) ? Number(safeConfig.knockdownPenalty) : PRECISION_KNOCKDOWN_PENALTY;
     const inferredObstacle = knocksCount > 0 ? knocksCount * knockdownPenalty : null;
     const obstaclePenalty = isNum(d.obstaclePenalty) ? d.obstaclePenalty
         : (isNum(inferredObstacle) ? inferredObstacle
@@ -121,10 +125,20 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         rate = comp.ruleSettings.precisionTimePenaltyRate;
     }
 
-    const calculatedTimePenalty = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
+    // Time penalty: calculated from the time when the max time is known, unless
+    // the secretariat set it manually (timePenaltyOverride). Without a max time
+    // the stored value is the only source.
     const storedTimePenalty = isNum(d.timePenalty) ? d.timePenalty
         : (isNum(d.liveTimePenalty) ? d.liveTimePenalty : 0);
-    const timePenalty = Math.max(storedTimePenalty, calculatedTimePenalty) || null;
+    let timePenalty;
+    if (d.timePenaltyOverride === true && isNum(d.timePenalty)) {
+        timePenalty = d.timePenalty;
+    } else if (isNum(maxSec) && maxSec > 0) {
+        timePenalty = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
+    } else {
+        timePenalty = storedTimePenalty;
+    }
+    timePenalty = timePenalty || null;
 
     const extraPenalty = isNum(d.extraPenalty) ? d.extraPenalty : null;
     const hasPerformance = (isNum(timeMs) && timeMs > 0)
@@ -171,6 +185,9 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         liveMs,
         finalMs,
         timeDiffFromAllowed,
+        maxTimeSec: isNum(maxSec) ? maxSec : null,
+        timePenaltyRate: rate,
+        timePenaltyOverride: d.timePenaltyOverride === true,
         knocks: knocksArr,
         knockDownTimes: d.knockDownTimes || {},
         knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / knockdownPenalty) : 0),

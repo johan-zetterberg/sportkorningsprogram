@@ -67,10 +67,6 @@ export async function savePrecisionResult(competitionId, equipageId, data) {
     trackWidthCm: Number.isFinite(Number(data?.trackWidthCm))
       ? data.trackWidthCm
       : (toNumber(data?.trackWidth, 0) || null),
-    knocks,
-    knockDownTimes: data?.knockDownTimes && typeof data.knockDownTimes === 'object'
-      ? data.knockDownTimes
-      : {},
     timeMs: toNumber(data?.timeMs ?? data?.ms, 0),
     liveTimeMs: toNumber(data?.liveTimeMs ?? data?.timeMs ?? data?.ms, 0),
     liveStartEpoch: data?.liveStartEpoch ?? null,
@@ -91,6 +87,12 @@ export async function savePrecisionResult(competitionId, equipageId, data) {
     comment: data?.comment ?? '',
     updatedAt: Date.now(),
   };
+
+  // Only write the knock list when the caller sends it; a save that does not
+  // know the knocks (e.g. the secretariat) must not erase them.
+  if (Array.isArray(data?.knocks)) payload.knocks = knocks;
+  if (data?.knockDownTimes && typeof data.knockDownTimes === 'object') payload.knockDownTimes = data.knockDownTimes;
+  if (typeof data?.timePenaltyOverride === 'boolean') payload.timePenaltyOverride = data.timePenaltyOverride;
 
   return trackWrite(`Sparar precisionsresultat #${equipageId}`, (async () => {
     await setDoc(ref, payload, { merge: true });

@@ -79,6 +79,14 @@ export function getPauseTime() {
   return core.getPauseTime(maraton_marathonConfig);
 }
 
+export function getObstacleMaxTime() {
+  return core.getObstacleMaxTime(maraton_marathonConfig);
+}
+
+export function getKnockdownPenaltyPerElement() {
+  return core.getKnockdownPenaltyPerElement(maraton_marathonConfig);
+}
+
 // Most common TR category per class in a list of equipages
 export function buildDominantTRCategoryByClass(equipages = []) {
   const groups = new Map();
@@ -128,6 +136,11 @@ export function isDurationSuspicious(ms, equipage, stage) {
 
 export function getObstacleCoefficient(className) {
   return core.getObstacleCoefficient(className, maraton_marathonConfig, getRuleSettings());
+}
+
+// One obstacle's penalties (see core-engine calculateObstacleResult)
+export function calculateObstacleResult(obstacle, equipage, opts = {}) {
+  return core.calculateObstacleResult(obstacle, equipage, maraton_marathonConfig, getRuleSettings(), opts);
 }
 
 export function getClassDrivenObstacles(className) {

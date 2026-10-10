@@ -8,6 +8,12 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { generateTimecardsPdf } from '../../pdf/timecardsPdf.js';
 import { hasMarathonValidationErrors, validateMarathonAdminSettings } from './marathonAdminValidation.js';
+import {
+  PENALTY_RATE,
+  MARATHON_OBSTACLE_TIME_PENALTY,
+  MARATHON_KNOCKDOWN_PENALTY,
+  MARATHON_OBSTACLE_MAX_TIME_SEC
+} from '../../core-engine/rules-ledger.js';
 
 let competitionId = null;
 let allEquipages = [];
@@ -18,7 +24,6 @@ let pageRoot = null;
 let currentCompetition = null;
 let pickerMap = null; // Global reference for cleanup
 let marathonValidationErrors = {};
-const MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY = 2;
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -631,12 +636,12 @@ async function setupGlobalSettingsForm() {
 
   const config = await getConfig(competitionId, 'maratonConfig') || {};
   const comp = getGlobalState ? getGlobalState('currentCompetition') : null;
-  const defObs = comp?.ruleSettings?.marathonObstaclePenaltyRate ?? 0.25;
+  const defObs = comp?.ruleSettings?.marathonObstaclePenaltyRate ?? MARATHON_OBSTACLE_TIME_PENALTY;
 
-  rateInput.value = config.timePenaltyRate ?? '0.25';
+  rateInput.value = config.timePenaltyRate ?? String(PENALTY_RATE);
   obsRateInput.value = config.obstaclePenaltyRate ?? String(defObs);
-  kdInput.value = config.knockdownPenaltyDefault ?? String(MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY);
-  maxTimeInput.value = config.obstacleMaxTime ?? '300';
+  kdInput.value = config.knockdownPenaltyDefault ?? String(MARATHON_KNOCKDOWN_PENALTY);
+  maxTimeInput.value = config.obstacleMaxTime ?? String(MARATHON_OBSTACLE_MAX_TIME_SEC);
 
   // Ladda regler eller default
   const rulesVal = config.tempoRules || DEFAULT_TRV_TEMPOS_KMH;
@@ -661,10 +666,10 @@ async function setupGlobalSettingsForm() {
     }
 
     const newConfig = {
-      timePenaltyRate: parseFloat(rateInput.value) || 0.25,
+      timePenaltyRate: parseFloat(rateInput.value) || PENALTY_RATE,
       obstaclePenaltyRate: parseFloat(obsRateInput.value) || defObs,
-      knockdownPenaltyDefault: parseFloat(kdInput.value) || MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY,
-      obstacleMaxTime: parseInt(maxTimeInput.value) || 300,
+      knockdownPenaltyDefault: parseFloat(kdInput.value) || MARATHON_KNOCKDOWN_PENALTY,
+      obstacleMaxTime: parseInt(maxTimeInput.value) || MARATHON_OBSTACLE_MAX_TIME_SEC,
       tempoRules: parsedRules // <-- Spara
     };
     try {

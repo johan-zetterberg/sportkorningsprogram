@@ -19,6 +19,9 @@ import {
   saveDressageJudgeProtocol
 } from './dressageService.js';
 import { getCompDocRef } from './firestoreService.js';
+import { getConfig } from './competitionService.js';
+import { calculatePrecisionResult } from '../utils/precisionCalculation.js';
+import { calculateObstacleResult } from '../core-engine/marathon.js';
 import {
   finalizePrecision,
   unfinalizePrecision,
@@ -89,12 +92,43 @@ export async function writeSecretariatAuditLog(competitionId, entry = {}) {
   });
 }
 
+async function getPrecisionCalcConfig(competitionId) {
+  try {
+    return (await getConfig(competitionId, 'precisionConfig')) || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Engine view of a secretariat row being edited: the penalties the result
+ * will get when saved. `row.calcContext` comes from loadSecretariatPrecisionRows.
+ */
+export function calculateSecretariatPrecisionDraft(row, patch = {}) {
+  const ctx = row?.calcContext || {};
+  const timeMs = numberOrDefault(patch.timeMs, row?.timeMs ?? 0);
+  return calculatePrecisionResult(
+    {
+      ...(row?.resultDoc || {}),
+      ...patch,
+      timeMs,
+      liveTimeMs: timeMs,
+      finalized: false,
+      running: false
+    },
+    ctx.equipage || { startNumber: row?.startNumber, className: row?.className },
+    ctx.config || {},
+    { currentCompetition: getGlobalState('currentCompetition') }
+  );
+}
+
 export async function loadSecretariatPrecisionRows(competitionId) {
   if (!competitionId) return [];
 
-  const [equipages, results] = await Promise.all([
+  const [equipages, results, precisionConfig] = await Promise.all([
     getEquipages(competitionId),
     getPrecisionResults(competitionId),
+    getPrecisionCalcConfig(competitionId),
   ]);
 
   const resultMap = new Map(results.map(result => [String(result.startNumber || result.id), result]));
@@ -110,16 +144,21 @@ export async function loadSecretariatPrecisionRows(competitionId) {
       timeMs: numberOrDefault(result.timeMs, 0),
       obstaclePenalty: numberOrDefault(result.obstaclePenalty, 0),
       timePenalty: numberOrDefault(result.timePenalty, 0),
+      timePenaltyOverride: result.timePenaltyOverride === true,
       extraPenalty: numberOrDefault(result.extraPenalty, 0),
       totalPenalty: result.totalPenalty == null ? null : numberOrDefault(result.totalPenalty, 0),
       eliminated: !!result.eliminated,
       comment: result.comment || '',
       resultDoc: result,
+      calcContext: { equipage: eq, config: precisionConfig },
     };
 
     row.status = derivePrecisionStatus(row);
-    if (row.totalPenalty == null && row.status !== 'not-started') {
-      row.totalPenalty = row.obstaclePenalty + row.timePenalty + row.extraPenalty;
+    if (row.status !== 'not-started') {
+      // Show the penalties the engine gives this result
+      const calc = calculateSecretariatPrecisionDraft(row);
+      row.timePenalty = calc.timePenalty ?? 0;
+      row.totalPenalty = calc.totalPenalty ?? 0;
     }
 
     return row;
@@ -258,13 +297,37 @@ export async function loadSecretariatDressageDetail(competitionId, startNumber) 
   };
 }
 
-export async function loadSecretariatMarathonObstacleDetail(competitionId, startNumber) {
+async function getMarathonCalcConfig(competitionId) {
+  try {
+    return (await getConfig(competitionId, 'maratonConfig')) || {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Engine view of one obstacle (time penalty and obstacle total). Obstacle
+ * time penalty always follows the time (TR 526), it is not entered by hand.
+ */
+export function calculateSecretariatObstacle(calcContext, obstacle) {
+  const ctx = calcContext || {};
+  return calculateObstacleResult(
+    { ...obstacle, timeSec: numberOrDefault(obstacle?.timeInSeconds ?? obstacle?.timeSeconds, 0) },
+    ctx.equipage || {},
+    ctx.marathonConfig || {},
+    getGlobalState('currentCompetition')?.ruleSettings || null
+  );
+}
+
+export async function loadSecretariatMarathonObstacleDetail(competitionId, startNumber, equipage = null) {
   if (!competitionId || startNumber == null) return { finalized: false, obstacles: [], summary: null };
 
-  const [summary, savedObstacles] = await Promise.all([
+  const [summary, savedObstacles, marathonConfig] = await Promise.all([
     getMarathonLiveDocument(competitionId, startNumber),
     getMarathonObstacleResults(competitionId, startNumber),
+    getMarathonCalcConfig(competitionId),
   ]);
+  const calcContext = { equipage: equipage || { startNumber }, marathonConfig };
 
   const byNumber = new Map();
   savedObstacles.forEach(obstacle => {
@@ -297,12 +360,17 @@ export async function loadSecretariatMarathonObstacleDetail(competitionId, start
         routeString: obstacle.routeString || '',
       };
     })
+    .map(row => {
+      const calc = calculateSecretariatObstacle(calcContext, row);
+      return { ...row, timePenalty: calc.timePenalty, penalty: calc.penalty ?? row.penalty };
+    })
     .sort((a, b) => a.obstacleNumber - b.obstacleNumber);
 
   return {
     finalized: !!summary?.finalized,
     summary: summary || null,
     obstacles,
+    calcContext,
   };
 }
 
@@ -322,6 +390,8 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     timeMs: numberOrDefault(patch.timeMs, current?.timeMs ?? 0),
     obstaclePenalty: numberOrDefault(patch.obstaclePenalty, current?.obstaclePenalty ?? 0),
     timePenalty: numberOrDefault(patch.timePenalty, current?.timePenalty ?? 0),
+    // A manually entered time penalty is kept; otherwise it follows the time
+    timePenaltyOverride: patch.timePenaltyOverride ?? current?.timePenaltyOverride === true,
     extraPenalty: numberOrDefault(patch.extraPenalty, current?.extraPenalty ?? 0),
     eliminated: patch.eliminated ?? current?.eliminated ?? false,
     comment: patch.comment ?? current?.comment ?? '',
@@ -331,7 +401,16 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     status: 'Klar',
   };
 
-  payload.totalPenalty = payload.obstaclePenalty + payload.timePenalty + payload.extraPenalty;
+  // Stored penalties come from the result engine
+  const precisionConfig = await getPrecisionCalcConfig(competitionId);
+  const calc = calculatePrecisionResult(
+    { ...current, ...payload, liveTimeMs: payload.timeMs },
+    { startNumber: payload.startNumber, className: payload.className, ...(patch.equipage || {}) },
+    precisionConfig,
+    { currentCompetition: getGlobalState('currentCompetition') }
+  );
+  payload.timePenalty = calc.timePenalty ?? 0;
+  payload.totalPenalty = calc.totalPenalty ?? 0;
 
   await savePrecisionResult(competitionId, startNumber, payload);
 
@@ -434,6 +513,15 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
     routeString: patch.routeString ?? current.routeString ?? '',
   };
   payload.timeMs = Math.round(payload.timeInSeconds * 1000);
+
+  // Time penalty and obstacle total come from the result engine
+  const calcContext = patch.calcContext || {
+    equipage: { startNumber },
+    marathonConfig: await getMarathonCalcConfig(competitionId),
+  };
+  const calc = calculateSecretariatObstacle(calcContext, payload);
+  payload.timePenalty = calc.timePenalty;
+  payload.penalty = calc.penalty ?? 0;
 
   await saveMarathonObstacleResult(competitionId, startNumber, obstacleNumber, payload);
 

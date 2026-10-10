@@ -18,6 +18,7 @@ import {
 import {
   loadSecretariatMarathonObstacleDetail,
   loadSecretariatMarathonRows,
+  calculateSecretariatObstacle,
   refinalizeResult,
   saveSecretariatMarathonObstacle,
   saveSecretariatMarathonTiming,
@@ -30,6 +31,7 @@ let rows = [];
 let timingDrafts = new Map();
 let obstacleDrafts = new Map();
 let obstacleRows = [];
+let obstacleCalcContext = null;
 let selectedStartNumber = null;
 let teardownStickyHeaders = null;
 let filters = {
@@ -354,7 +356,9 @@ function buildObstacleRows() {
   const rowsHtml = obstacleRows.map(row => {
     const view = draftObstacleFor(row);
     const isDirty = obstacleDrafts.has(String(row.obstacleNumber));
-    const totalPenalty = Number(view.timePenalty || 0) + Number(view.knockdownPenalty || 0) + Number(view.otherPenalty || 0);
+    const calc = view.__invalid ? row : calculateSecretariatObstacle(obstacleCalcContext, view);
+    const totalPenalty = Number(calc.penalty || 0);
+    const timePenaltyLabel = Number(calc.timePenalty || 0).toFixed(2).replace(/\.00$/, '');
 
     return `
       <tr data-obstacle="${escapeHtml(row.obstacleNumber)}" class="border-t border-gray-200 dark:border-gray-700 ${isDirty ? 'bg-amber-50/70 dark:bg-amber-900/10' : ''}">
@@ -362,9 +366,7 @@ function buildObstacleRows() {
         <td class="px-3 py-3 text-sm min-w-[7rem]">
           <input data-field="timeInSeconds" value="${escapeHtml(formatSeconds(view.timeInSeconds))}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
-        <td class="px-3 py-3 text-sm min-w-[6rem]">
-          <input data-field="timePenalty" type="number" step="0.01" value="${escapeHtml(view.timePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
-        </td>
+        <td data-role="obstacle-time-penalty" title="Beräknas från tiden" class="px-3 py-3 text-sm min-w-[6rem] text-gray-900 dark:text-gray-100 whitespace-nowrap">${escapeHtml(timePenaltyLabel)}</td>
         <td class="px-3 py-3 text-sm min-w-[5rem]">
           <input data-field="knockdowns" type="number" step="1" value="${escapeHtml(view.knockdowns ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
@@ -531,26 +533,27 @@ function updateTimingDraft(rowEl) {
 
 function collectObstaclePatch(rowEl, baseRow) {
   const timeInSeconds = parseSeconds(rowEl.querySelector('[data-field="timeInSeconds"]')?.value || '');
-  const timePenalty = Number(rowEl.querySelector('[data-field="timePenalty"]')?.value || 0);
   const knockdowns = Number(rowEl.querySelector('[data-field="knockdowns"]')?.value || 0);
   const knockdownPenalty = Number(rowEl.querySelector('[data-field="knockdownPenalty"]')?.value || 0);
   const otherPenalty = Number(rowEl.querySelector('[data-field="otherPenalty"]')?.value || 0);
   const holdTimeSec = Number(rowEl.querySelector('[data-field="holdTimeSec"]')?.value || 0);
 
-  return {
+  const patch = {
     obstacleNumber: baseRow.obstacleNumber,
     timeInSeconds,
-    timePenalty: Number.isFinite(timePenalty) ? timePenalty : 0,
     knockdowns: Number.isFinite(knockdowns) ? knockdowns : 0,
     knockdownPenalty: Number.isFinite(knockdownPenalty) ? knockdownPenalty : 0,
     otherPenalty: Number.isFinite(otherPenalty) ? otherPenalty : 0,
     holdTimeSec: Number.isFinite(holdTimeSec) ? holdTimeSec : 0,
-    penalty: (Number.isFinite(timePenalty) ? timePenalty : 0)
-      + (Number.isFinite(knockdownPenalty) ? knockdownPenalty : 0)
-      + (Number.isFinite(otherPenalty) ? otherPenalty : 0),
     eliminated: !!rowEl.querySelector('[data-field="eliminated"]')?.checked,
     comment: rowEl.querySelector('[data-field="comment"]')?.value?.trim() || '',
+    calcContext: obstacleCalcContext,
   };
+  // Time penalty and total from the result engine
+  const calc = calculateSecretariatObstacle(obstacleCalcContext, patch);
+  patch.timePenalty = calc.timePenalty;
+  patch.penalty = calc.penalty ?? 0;
+  return patch;
 }
 
 function updateObstacleDraft(rowEl) {
@@ -564,10 +567,13 @@ function updateObstacleDraft(rowEl) {
     if (totalCell) {
       totalCell.textContent = Number(patch.penalty || 0).toFixed(2).replace(/\.00$/, '');
     }
+    const timePenaltyCell = rowEl.querySelector('[data-role="obstacle-time-penalty"]');
+    if (timePenaltyCell) {
+      timePenaltyCell.textContent = Number(patch.timePenalty || 0).toFixed(2).replace(/\.00$/, '');
+    }
 
     const hasChanges = JSON.stringify({
       timeInSeconds: patch.timeInSeconds,
-      timePenalty: patch.timePenalty,
       knockdowns: patch.knockdowns,
       knockdownPenalty: patch.knockdownPenalty,
       otherPenalty: patch.otherPenalty,
@@ -576,7 +582,6 @@ function updateObstacleDraft(rowEl) {
       comment: patch.comment,
     }) !== JSON.stringify({
       timeInSeconds: baseRow.timeInSeconds || 0,
-      timePenalty: baseRow.timePenalty || 0,
       knockdowns: baseRow.knockdowns || 0,
       knockdownPenalty: baseRow.knockdownPenalty || 0,
       otherPenalty: baseRow.otherPenalty || 0,
@@ -638,8 +643,13 @@ async function refreshObstacleDetail() {
     obstacleRows = [];
     return;
   }
-  const detail = await loadSecretariatMarathonObstacleDetail(competitionId, selectedStartNumber);
+  const baseRow = getRowByStartNumber(selectedStartNumber);
+  const detail = await loadSecretariatMarathonObstacleDetail(competitionId, selectedStartNumber, {
+    startNumber: selectedStartNumber,
+    className: baseRow?.className || ''
+  });
   obstacleRows = detail.obstacles || [];
+  obstacleCalcContext = detail.calcContext || null;
 }
 
 async function refreshAll() {

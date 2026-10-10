@@ -18,11 +18,12 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
-import { downloadJson, round2 } from '../../utils/sharedUtils.js';
+import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
+import { PRECISION_KNOCKDOWN_PENALTY } from '../../core-engine/rules-ledger.js';
 import {
     computeMaxSecondsForClass,
-    calculatePrecisionTimePenalty,
+    calculatePrecisionResult,
     getPortAllowanceCm,
     getPrecisionCourseData,
     computePortWidth,
@@ -149,21 +150,36 @@ function getLabelsForClass(cls) {
     }
     return [];
 }
+function knockdownPenalty() {
+    return (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : PRECISION_KNOCKDOWN_PENALTY;
+}
+
+// Live penalties for the current equipage at elapsedMs, from the result engine
+function livePenalties(elapsedMs, knockList = Array.from(knocks)) {
+    const extraPenalty = parseFloat(document.getElementById('extraPenaltyInput')?.value) || 0;
+    const calc = calculatePrecisionResult({
+        running: true,
+        liveTimeMs: elapsedMs,
+        knocks: knockList,
+        extraPenalty
+    }, currentEquipage, precisionConfig);
+    return {
+        timePenalty: calc.timePenalty ?? 0,
+        obstaclePenalty: calc.obstaclePenalty ?? 0,
+        extraPenalty,
+        totalPenalty: calc.totalPenalty ?? 0,
+        maxSec: calc.maxTimeSec
+    };
+}
+
 function obstaclePenalty() {
-    const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
-    return knocks.size * kp;
+    return livePenalties(0).obstaclePenalty;
 }
 
 // Ny hjälpfunktion som samlar all live-data
 function getLivePayload() {
     const t = getElapsedMs();
-    
-    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-    const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
-
-    const liveObstaclePenalty = obstaclePenalty();
-    const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
+    const p = livePenalties(t);
 
     return {
         running: isRunning,
@@ -173,10 +189,10 @@ function getLivePayload() {
         liveStartEpoch: isRunning ? startEpoch : null,
         livePausedMs: pausedMs,
         // ---
-        liveTimePenalty: round2(liveTimePenalty),
-        liveObstaclePenalty: liveObstaclePenalty,
-        extraPenalty: extraPenaltyVal,
-        liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal),
+        liveTimePenalty: p.timePenalty,
+        liveObstaclePenalty: p.obstaclePenalty,
+        extraPenalty: p.extraPenalty,
+        liveTotalPenalty: p.totalPenalty,
         // NYTT:
         eliminated: !!document.getElementById('eliminatedInput').checked
     };
@@ -193,8 +209,7 @@ function updateObstaclePenaltySummary() {
     const summaryEl = document.getElementById('uiObstaclePenaltySummary');
     if (!summaryEl) return;
 
-    const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
-    const totalP = knocks.size * kp;
+    const totalP = obstaclePenalty();
     summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
 }
 
@@ -202,11 +217,7 @@ async function saveKnockToggle(gateLabel, shouldAdd, elapsedMs) {
     if (!currentEquipage) return;
 
     const ref = precisionDocRef(currentEquipage.startNumber);
-    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-    const liveTimePenalty = calculatePrecisionTimePenalty(getElapsedMs(), maxSec, rate);
-    const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-    const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+    const nowElapsedMs = getElapsedMs();
 
     const saved = await runTransaction(db, async (transaction) => {
         const snap = await transaction.get(ref);
@@ -227,8 +238,11 @@ async function saveKnockToggle(gateLabel, shouldAdd, elapsedMs) {
         }
 
         const knocksArray = Array.from(mergedKnocks).sort((a, b) => String(a).localeCompare(String(b), 'sv', { numeric: true }));
-        const liveObstaclePenalty = knocksArray.length * kp;
-        const liveTotalPenalty = round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal);
+        const {
+            obstaclePenalty: liveObstaclePenalty,
+            totalPenalty: liveTotalPenalty,
+            extraPenalty
+        } = livePenalties(nowElapsedMs, knocksArray);
 
         transaction.set(ref, {
             startNumber: currentEquipage.startNumber,
@@ -237,7 +251,7 @@ async function saveKnockToggle(gateLabel, shouldAdd, elapsedMs) {
             knockDownTimes: mergedTimes,
             liveObstaclePenalty,
             liveTotalPenalty,
-            extraPenalty: extraPenaltyVal,
+            extraPenalty,
             updatedAt: Date.now()
         }, { merge: true });
 
@@ -695,16 +709,16 @@ function renderTimerUI(t) {
         }
     }
 
+    const live = livePenalties(t);
+
     // --- 2) "Tidsfel" i topp-panelen ---
     const topTP = document.getElementById('uiTimePenaltyTop');
     if (topTP) {
-        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
+        const maxSec = live.maxSec;
         if (maxSec > 0) {
-            const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-            const liveTimePenaltyTop = calculatePrecisionTimePenalty(t, maxSec, rate);
             const overLimitNow = (t / 1000) > maxSec;
 
-            topTP.textContent = liveTimePenaltyTop.toFixed(2);
+            topTP.textContent = live.timePenalty.toFixed(2);
             topTP.classList.toggle('text-red-600', overLimitNow);
             topTP.classList.toggle('dark:text-red-400', overLimitNow);
             topTP.classList.toggle('animate-pulse', overLimitNow);
@@ -720,13 +734,11 @@ function renderTimerUI(t) {
     const ttEl = document.getElementById('uiTotalPenalty');
 
     if (tpEl || opEl || epEl || ttEl) {
-        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-        const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-        const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
-
-        const liveObstaclePenalty = obstaclePenalty();
-        const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-        const total = liveTimePenalty + liveObstaclePenalty + extraPenaltyVal;
+        const maxSec = live.maxSec;
+        const liveTimePenalty = live.timePenalty;
+        const liveObstaclePenalty = live.obstaclePenalty;
+        const extraPenaltyVal = live.extraPenalty;
+        const total = live.totalPenalty;
 
         if (tpEl) {
             tpEl.textContent = liveTimePenalty.toFixed(2);
@@ -738,7 +750,7 @@ function renderTimerUI(t) {
         }
         if (opEl) opEl.textContent = Number.isFinite(liveObstaclePenalty) ? liveObstaclePenalty.toFixed(0) : '0';
         if (oiEl) {
-            const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
+            const kp = knockdownPenalty();
             const rivningar = Number.isFinite(liveObstaclePenalty) ? Math.round(liveObstaclePenalty / kp) : 0;
             oiEl.textContent = rivningar > 0 ? ` (${rivningar} × ${kp})` : '';
         }
@@ -749,8 +761,7 @@ function renderTimerUI(t) {
     // --- 4) Summering i hedern (Hinder) ---
     const summaryEl = document.getElementById('uiObstaclePenaltySummary');
     if (summaryEl) {
-        const kp = (precisionConfig.knockdownPenalty != null) ? Number(precisionConfig.knockdownPenalty) : 3;
-        const totalP = knocks.size * kp;
+        const totalP = live.obstaclePenalty;
         summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
     }
 }
@@ -769,23 +780,17 @@ function updateTimerView() {
     const tick = Math.floor(t / 5000);
     if (tick !== lastPushedTick) {
         lastPushedTick = tick;
-        
-        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-        const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-        const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
-
-        const liveObstaclePenalty = obstaclePenalty();
-        const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
+        const p = livePenalties(t);
 
         pushLiveSafe({
             running: !!timerInterval,
             liveStartEpoch: startEpoch,
-            livePausedMs: pausedMs, 
+            livePausedMs: pausedMs,
             liveTimeMs: t,
-            liveTimePenalty: round2(liveTimePenalty),
-            liveObstaclePenalty: liveObstaclePenalty,
-            extraPenalty: extraPenaltyVal,
-            liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal)
+            liveTimePenalty: p.timePenalty,
+            liveObstaclePenalty: p.obstaclePenalty,
+            extraPenalty: p.extraPenalty,
+            liveTotalPenalty: p.totalPenalty
         });
     }
 }
@@ -1022,15 +1027,22 @@ async function saveFinal() {
     stopTimer();
 
     const timeMs = Math.max(0, Math.round(getElapsedMs()));
-    const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-    const timePenalty = round2(calculatePrecisionTimePenalty(timeMs, maxSec, rate));
     const obstaclePenaltyValue = obstaclePenalty();
     const extraPenaltyValue = parseFloat(document.getElementById('extraPenaltyInput')?.value) || 0;
     const eliminated = !!document.getElementById('eliminatedInput')?.checked;
     const commentValue = document.getElementById('commentInput')?.value?.trim() || '';
-    const totalPenalty = round2(timePenalty + obstaclePenaltyValue + extraPenaltyValue);
     const knocksArray = Array.from(knocks).sort((a, b) => String(a).localeCompare(String(b), 'sv', { numeric: true }));
+    // Penalties come from the result engine (rate incl. competition rule settings)
+    const calc = calculatePrecisionResult({
+        timeMs,
+        liveTimeMs: timeMs,
+        knocks: knocksArray,
+        obstaclePenalty: obstaclePenaltyValue,
+        extraPenalty: extraPenaltyValue,
+        eliminated
+    }, currentEquipage, precisionConfig);
+    const timePenalty = calc.timePenalty ?? 0;
+    const totalPenalty = calc.totalPenalty ?? 0;
     const hasAnyData = eliminated || timeMs > 0 || knocksArray.length > 0 || extraPenaltyValue > 0 || commentValue.length > 0;
 
     const payload = {
@@ -1152,17 +1164,10 @@ export async function load() {
         document.getElementById('btnResetTop')?.addEventListener('click', resetTimer);
         document.getElementById('btnSave').addEventListener('click', saveFinal);
         document.getElementById('extraPenaltyInput').addEventListener('input', () => {
-            const t = getElapsedMs();
-            const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
-            const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-            const liveTimePenalty = calculatePrecisionTimePenalty(t, maxSec, rate);
-
-            const liveObstaclePenalty = obstaclePenalty();
-            const extraPenaltyVal = parseFloat(document.getElementById('extraPenaltyInput').value) || 0;
-
+            const p = livePenalties(getElapsedMs());
             pushLiveSafe({
-                extraPenalty: extraPenaltyVal,
-                liveTotalPenalty: round2(liveTimePenalty + liveObstaclePenalty + extraPenaltyVal)
+                extraPenalty: p.extraPenalty,
+                liveTotalPenalty: p.totalPenalty
             });
         });
 

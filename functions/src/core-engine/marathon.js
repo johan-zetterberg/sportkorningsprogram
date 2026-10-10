@@ -11,6 +11,7 @@ import {
     MARATHON_DEFAULT_WINDOW_B_MIN,
     MARATHON_OBSTACLE_MAX_TIME_SEC,
     MARATHON_WRONG_GAIT_PENALTY_RATE,
+    MARATHON_KNOCKDOWN_PENALTY,
     MARATHON_DEFAULT_PAUSE_MIN,
     DEFAULT_TRV_TEMPOS_KMH,
     round2
@@ -299,6 +300,13 @@ export function isMarathonClearRound(equipage, marathonConfig) {
     return getClassSettings(equipage?.className, marathonConfig)?.clearRound === true;
 }
 
+export function getKnockdownPenaltyPerElement(marathonConfig) {
+    const v = Number(marathonConfig?.knockdownPenaltyDefault);
+    return marathonConfig?.knockdownPenaltyDefault != null && Number.isFinite(v) && v >= 0
+        ? v
+        : MARATHON_KNOCKDOWN_PENALTY;
+}
+
 export function getWrongGaitPenaltyRate(marathonConfig) {
     const rate = Number(marathonConfig?.wrongGaitPenaltyRate);
     return marathonConfig?.wrongGaitPenaltyRate != null && Number.isFinite(rate) && rate >= 0
@@ -359,6 +367,48 @@ export function obstacleValues(o) {
         timeSec: Number.isFinite(timeSec) ? timeSec : null,
         penalty: Number.isFinite(penalty) ? penalty : null,
         eliminated: !!o?.eliminated
+    };
+}
+
+/**
+ * One obstacle's penalties. Used by calculateMarathonResult and by input
+ * pages that store/show a single obstacle.
+ * @param {object} o - obstacle (timeSec/timeSeconds/timeInSeconds…, knockdownPenalty, otherPenalty)
+ * @param {object} [opts] - { knockdowns } converts a knockdown count to points
+ */
+export function calculateObstacleResult(o, equipage, marathonConfig, ruleSettings = null, { knockdowns = null } = {}) {
+    const { timeSec, penalty: storedPenalty } = obstacleValues(o);
+    const isClearRound = isMarathonClearRound(equipage, marathonConfig);
+    const coeff = getObstacleCoefficient(equipage?.className, marathonConfig, ruleSettings);
+
+    const knockdownPenalty = Number.isFinite(Number(knockdowns)) && knockdowns != null
+        ? Number(knockdowns) * getKnockdownPenaltyPerElement(marathonConfig)
+        : Number(o?.knockdownPenalty || o?.knockDownPenalty || 0);
+    const otherPenalty = Number(o?.otherPenalty || 0);
+
+    if (!Number.isFinite(timeSec)) {
+        // No time recorded: the stored obstacle penalty is all we have
+        return {
+            timeSec: null,
+            timePenalty: 0,
+            knockdownPenalty,
+            otherPenalty,
+            penalty: Number.isFinite(storedPenalty) ? storedPenalty : null,
+            overMaxTime: false,
+            eliminated: !!o?.eliminated
+        };
+    }
+
+    const overMaxTime = timeSec > getObstacleMaxTime(marathonConfig);
+    const timePenalty = isClearRound ? 0 : timeSec * coeff;
+    return {
+        timeSec,
+        timePenalty: round2(timePenalty),
+        knockdownPenalty,
+        otherPenalty,
+        penalty: round2(timePenalty + knockdownPenalty + otherPenalty),
+        overMaxTime,
+        eliminated: !!o?.eliminated || overMaxTime
     };
 }
 
@@ -543,7 +593,6 @@ export function calculateMarathonResult(state) {
     const obsCoeff = getObstacleCoefficient(eq.className, marathonConfig, config.ruleSettings);
     const drivenObs = getClassDrivenObstacles(eq.className, marathonConfig);
     const isClearRound = isMarathonClearRound(eq, marathonConfig);
-    const obstacleMaxTime = getObstacleMaxTime(marathonConfig);
 
     let obsArr = getObstacleArray(d);
     if (drivenObs) obsArr = obsArr.filter(o => drivenObs.includes(Number(o.number || o.id)));
@@ -555,28 +604,19 @@ export function calculateMarathonResult(state) {
     const obsItems = [];
 
     for (const o of obsArr) {
-        if (o.eliminated) obsElim = true;
-        const { timeSec, penalty: storedPenalty } = obstacleValues(o);
-        let currentObsPenalty = 0;
+        const item = calculateObstacleResult(o, eq, marathonConfig, config.ruleSettings);
+        if (item.eliminated) obsElim = true;
 
-        if (Number.isFinite(timeSec)) {
+        if (Number.isFinite(item.timeSec)) {
             // TR: sum all obstacle times first, then convert
-            totalObstacleSeconds += timeSec;
-            if (timeSec > obstacleMaxTime) obsElim = true;
-            currentObsPenalty = isClearRound ? 0 : (timeSec * obsCoeff);
-
-            const kp = Number(o.knockdownPenalty || o.knockDownPenalty || 0);
-            const op = Number(o.otherPenalty || 0);
-            totalOtherObstaclePenalty += (kp + op);
-            currentObsPenalty += (kp + op);
-        } else if (Number.isFinite(storedPenalty)) {
-            // No time recorded: use the stored obstacle penalty
-            totalOtherObstaclePenalty += storedPenalty;
-            currentObsPenalty = storedPenalty;
+            totalObstacleSeconds += item.timeSec;
+            totalOtherObstaclePenalty += item.knockdownPenalty + item.otherPenalty;
+        } else if (Number.isFinite(item.penalty)) {
+            totalOtherObstaclePenalty += item.penalty;
         }
 
         if (Number.isFinite(Number(o.number))) maxObsNumber = Math.max(maxObsNumber, Number(o.number));
-        obsItems.push({ ...o, timeSec, penalty: currentObsPenalty });
+        obsItems.push({ ...o, timeSec: item.timeSec, timePenalty: item.timePenalty, penalty: item.penalty ?? 0 });
     }
 
     const obsPenalty = round2((isClearRound ? 0 : totalObstacleSeconds * obsCoeff) + totalOtherObstaclePenalty);

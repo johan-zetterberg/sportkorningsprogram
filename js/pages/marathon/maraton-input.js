@@ -7,7 +7,8 @@ import { trackWrite } from '../../services/firestoreService.js';;
 import { getStartTimes, saveMarathonObstacleResult, listenForMaratonCollection } from '../../services/marathonService.js';
 import {
   setPauseWindows,
-  getObstacleCoefficient,
+  calculateObstacleResult,
+  getObstacleMaxTime,
   getClassDrivenObstacles,
   setMarathonConfig,
   parseHoldTimeInput,
@@ -37,7 +38,6 @@ let marathonStateDocsMap = new Map();
 let currentStartTimesData = null;
 let isGloballyPaused = false;
 let globalPauseStartTime = 0;
-const MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY = 2;
 
 function isFieldModeEnabled() {
   return getGlobalState('currentCompetition')?.competitionMode === 'field';
@@ -679,18 +679,14 @@ function updateTotalPenaltyDisplay() {
   const knockdowns = parseInt(document.getElementById('maratonKnockdowns').value) || 0;
   const otherPenalty = parseFloat(document.getElementById('maratonPenalty').value) || 0;
 
-  // Hämta straff per knockdown från config (använder globala värdet)
-  const penaltyPerKd = marathonConfigCache?.knockdownPenaltyDefault ?? MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY;
-  const knockdownPenaltyPoints = knockdowns * penaltyPerKd;
+  // Hinderstraff från resultatmotorn (koefficient, rivningar, fri runda)
+  const { penalty } = calculateObstacleResult(
+    { timeSec: timeInSeconds, otherPenalty },
+    currentEquipage,
+    { knockdowns }
+  );
 
-  // Hämta tidskoefficient *specifikt för hinder*
-  const timeCoefficient = getObstacleCoefficient(currentEquipage?.className);
-  const timePenalty = timeInSeconds * timeCoefficient;
-
-  // Summera de korrekta delarna
-  const totalPenalty = timePenalty + knockdownPenaltyPoints + otherPenalty;
-
-  display.textContent = totalPenalty.toFixed(2);
+  display.textContent = (penalty ?? 0).toFixed(2);
 }
 
 function startTimerMar() {
@@ -1238,32 +1234,32 @@ async function saveResult(e) {
     comment = 'Väntetid: Föregående ekipage i hinder';
   }
 
-  const maxObstacleSeconds = marathonConfigCache?.obstacleMaxTime ?? 300;
-  if (timeInSeconds > maxObstacleSeconds) {
-    eliminated = true;
-    comment += ' (' + t('marathon_auto_eliminated_time').replace('{max}', maxObstacleSeconds) + ').';
-  }
-
   const knockdowns = parseInt(document.getElementById('maratonKnockdowns').value) || 0;
   const otherPenalty = parseFloat(document.getElementById('maratonPenalty').value) || 0;
-  const penaltyPerKd = marathonConfigCache?.knockdownPenaltyDefault ?? MARATHON_DEFAULT_BREAKABLE_ELEMENT_PENALTY;
-  const knockdownPenaltyPoints = knockdowns * penaltyPerKd;
 
-  // NYTT: Hämta rätt koefficient
-  const timeCoefficient = getObstacleCoefficient(currentEquipage?.className);
-  const timePenalty = timeInSeconds * timeCoefficient;
-
-  const totalObstaclePenalty = timePenalty + knockdownPenaltyPoints + otherPenalty;
+  // Hinderstraff från resultatmotorn (koefficient, rivningar, fri runda, maxtid)
+  const obstacleCalc = calculateObstacleResult(
+    { timeSec: timeInSeconds, otherPenalty },
+    currentEquipage,
+    { knockdowns }
+  );
+  if (obstacleCalc.overMaxTime) {
+    eliminated = true;
+    comment += ' (' + t('marathon_auto_eliminated_time').replace('{max}', getObstacleMaxTime()) + ').';
+  }
+  const knockdownPenaltyPoints = obstacleCalc.knockdownPenalty;
+  const timePenalty = obstacleCalc.timePenalty;
+  const totalObstaclePenalty = obstacleCalc.penalty ?? 0;
 
   // Hämta starttid för att spara den i resultatet (gör statistiken robust)
   const enteredAt = currentLiveState.live_staticStartAt || currentLiveState.liveObstacleStartAt || Timestamp.now();
 
   const resultData = {
     number: Number(obstacleNumber),
-    timeInSeconds, timeMs, timePenalty: +timePenalty.toFixed(2),
+    timeInSeconds, timeMs, timePenalty,
     knockdowns, knockdownPenalty: knockdownPenaltyPoints, otherPenalty,
     holdTimeSec,
-    penalty: +totalObstaclePenalty.toFixed(2),
+    penalty: totalObstaclePenalty,
     comment: comment.trim(), eliminated,
     routeString: (document.getElementById('routeString')?.value || '').trim(),
     gateSplits: currentLiveState.live_gateSplits || [],
