@@ -122,3 +122,55 @@ test('buildDemoCompetitionDataset includes full judge protocols with movements f
     assert.equal(dressRes.eliminated, false);
   }
 });
+
+test('buildDemoCompetitionDataset provides live running marathon equipage #3 in obstacle 3 on stage B', async () => {
+  const fixedNow = 1778930000000;
+  const data = buildDemoCompetitionDataset({ now: fixedNow });
+  const m3 = data.marathonRecords.find(m => m.startNumber === 3);
+
+  assert.ok(m3, 'Equipage #3 must exist in marathon records');
+  assert.equal(m3.running, true);
+  assert.equal(m3.finalized, false);
+  assert.equal(m3.currentObstacle, 3);
+  assert.equal(m3.liveObstacleTimeMs, 28000);
+  assert.equal(m3.liveObstacleStartAt, fixedNow - 28000);
+  assert.equal(m3.updatedAt, fixedNow);
+  assert.equal(m3.start_B, fixedNow - 210000);
+  assert.equal(m3.finish_B, null);
+  assert.equal(m3.obstacles.length, 2, 'Obstacles 1 and 2 should be completed');
+
+  const eq3 = data.equipages.find(e => e.startNumber === 3);
+  const { buildSpeakerMarathonActiveEntry } = await import('../js/pages/shared/speakerMarathonActiveState.js');
+  const active = buildSpeakerMarathonActiveEntry(3, eq3, m3, { now: fixedNow });
+
+  assert.ok(active !== null, 'Speaker active entry should detect equipage #3 as live');
+  assert.equal(active.task.type, 'obstacle');
+  assert.equal(active.task.name, 'Hinder 3');
+  assert.equal(active.timerBaseMs, fixedNow - 28000);
+});
+
+test('buildDemoCompetitionDataset provides live running precision equipage #4 on course with knockdown', async () => {
+  const fixedNow = 1778930000000;
+  const data = buildDemoCompetitionDataset({ now: fixedNow });
+  const p4 = data.precisionResults.find(p => p.startNumber === 4);
+
+  assert.ok(p4, 'Equipage #4 must exist in precision results');
+  assert.equal(p4.running, true);
+  assert.equal(p4.inProgress, true);
+  assert.equal(p4.finalized, false);
+  assert.deepEqual(p4.knocks, ['4']);
+  assert.equal(p4.obstaclePenalty, 3.0);
+  assert.equal(p4.liveStartEpoch, fixedNow - 95000);
+  assert.equal(p4.updatedAt, fixedNow);
+
+  const { calculatePrecisionLiveElapsed, calculatePrecisionLivePenalty } = await import('../js/pages/precision/precisionResultLive.js');
+  const elapsed = calculatePrecisionLiveElapsed(p4, fixedNow);
+  assert.equal(elapsed, 95000);
+
+  const eq4 = data.equipages.find(e => e.startNumber === 4);
+  const penalty = calculatePrecisionLivePenalty(p4, eq4, { maxSec: 150, timePenaltyRate: 0.5 }, elapsed);
+  assert.equal(penalty.obstaclePenalty, 3.0);
+  assert.equal(penalty.timePenalty, 0.0);
+  assert.equal(penalty.totalPenalty, 3.0);
+});
+

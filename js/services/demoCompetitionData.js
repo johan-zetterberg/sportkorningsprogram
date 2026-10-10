@@ -38,7 +38,18 @@ export function generateDemoMovementsForProgram(program, baseScore = 7.0, judgeO
   });
 }
 
+function formatClockTime(epochMs) {
+  const d = new Date(epochMs);
+  const hh = String(d.getHours()).padStart(2, '0');
+  const mm = String(d.getMinutes()).padStart(2, '0');
+  const ss = String(d.getSeconds()).padStart(2, '0');
+  return `${hh}:${mm}:${ss}`;
+}
+
 export function buildDemoCompetitionDataset(customOverrides = {}) {
+  const now = typeof customOverrides.now === 'number'
+    ? customOverrides.now
+    : Date.now();
   const compMeta = {
     name: customOverrides.name || 'SM & Nationell Körning Flyinge (Demo)',
     place: customOverrides.place || 'Flyinge Kungsgård',
@@ -424,12 +435,21 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     });
   });
 
+  const aStart3 = now - 3920000;
+  const aFinish3 = now - 1530000;
+  const tStart3 = aFinish3;
+  const tFinish3 = now - 810000;
+  const bStart3 = now - 210000;
+
   const marathonRecords = [
     {
       startNumber: 1,
       running: false,
       finalized: true,
       status: 'Slutförd',
+      duration_A_ms: 2380000,
+      duration_T_ms: 720000,
+      duration_B_ms: 4150000,
       times: {
         A: { start: '10:00:00', finish: '10:39:40', timeSec: 2380, penalty: 0 },
         T: { start: '10:39:40', finish: '10:51:40', timeSec: 720, penalty: 0 },
@@ -450,6 +470,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       running: false,
       finalized: true,
       status: 'Slutförd',
+      duration_A_ms: 2420000,
+      duration_T_ms: 720000,
+      duration_B_ms: 4210000,
       times: {
         A: { start: '10:20:00', finish: '11:00:20', timeSec: 2420, penalty: 0 },
         T: { start: '11:00:20', finish: '11:12:20', timeSec: 720, penalty: 0 },
@@ -470,18 +493,47 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       running: true,
       finalized: false,
       status: 'Pågår',
-      times: {
-        A: { start: '11:00:00', finish: '11:39:50', timeSec: 2390, penalty: 0 },
-        T: { start: '11:39:50', finish: '11:51:50', timeSec: 720, penalty: 0 }
+      currentObstacle: 3,
+      liveObstacleStartAt: now - 28000,
+      liveObstacleTimeMs: 28000,
+      updatedAt: now,
+      start_A: aStart3,
+      finish_A: aFinish3,
+      duration_A_ms: 2390000,
+      start_T: tStart3,
+      finish_T: tFinish3,
+      duration_T_ms: 720000,
+      start_B: bStart3,
+      finish_B: null,
+      timing: {
+        A: { startAt: aStart3, stopAt: aFinish3, durationMs: 2390000 },
+        T: { startAt: tStart3, stopAt: tFinish3, durationMs: 720000 },
+        B: { startAt: bStart3, stopAt: null, durationMs: 0 }
       },
-      obstacles: [],
-      totalPenalty: 0
+      times: {
+        A: { start: formatClockTime(aStart3), finish: formatClockTime(aFinish3), timeSec: 2390, penalty: 0 },
+        T: { start: formatClockTime(tStart3), finish: formatClockTime(tFinish3), timeSec: 720, penalty: 0 },
+        B: { start: formatClockTime(bStart3), finish: null, timeSec: null, penalty: 0 }
+      },
+      obstacleTimes: {
+        '1': { enteredAt: now - 164200, exitAt: now - 120000, timeMs: 44200 },
+        '2': { enteredAt: now - 107800, exitAt: now - 60000, timeMs: 47800 },
+        '3': { enteredAt: now - 28000, exitAt: null }
+      },
+      obstacles: [
+        { number: 1, timeSec: 44.2, penalty: 11.05 },
+        { number: 2, timeSec: 47.8, penalty: 11.95 }
+      ],
+      totalPenalty: 23.00
     },
     {
       startNumber: 5,
       running: false,
       finalized: true,
       status: 'Slutförd',
+      duration_A_ms: 2730000,
+      duration_T_ms: 720000,
+      duration_B_ms: 4230000,
       times: {
         A: { start: '11:30:00', finish: '12:15:30', timeSec: 2730, penalty: 6.0 },
         T: { start: '12:15:30', finish: '12:27:30', timeSec: 720, penalty: 0 },
@@ -502,6 +554,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       running: false,
       finalized: true,
       status: 'Slutförd',
+      duration_A_ms: 2370000,
+      duration_T_ms: 720000,
+      duration_B_ms: 4150000,
       times: {
         A: { start: '12:00:00', finish: '12:39:30', timeSec: 2370, penalty: 0 },
         T: { start: '12:39:30', finish: '12:51:30', timeSec: 720, penalty: 0 },
@@ -522,6 +577,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       running: false,
       finalized: true,
       status: 'Slutförd',
+      duration_A_ms: 2385000,
+      duration_T_ms: 720000,
+      duration_B_ms: 4155000,
       times: {
         A: { start: '12:30:00', finish: '13:09:45', timeSec: 2385, penalty: 0 },
         T: { start: '13:09:45', finish: '13:21:45', timeSec: 720, penalty: 0 },
@@ -542,6 +600,27 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
   const precisionResults = [
     { startNumber: 1, timeSec: 138.2, timePenalty: 0.0, knocks: [], obstaclePenalty: 0, totalPenalty: 0.0, finalized: true },
     { startNumber: 2, timeSec: 168.0, timePenalty: 2.5, knocks: ['4', '12'], obstaclePenalty: 6, totalPenalty: 8.5, finalized: true },
+    {
+      startNumber: 4,
+      className: 'Medelsvår Ponny Par',
+      driverName: 'Cecilia Ceder',
+      running: true,
+      inProgress: true,
+      finalized: false,
+      status: 'Pågår',
+      liveStartEpoch: now - 95000,
+      livePausedMs: 0,
+      knocks: ['4'],
+      timeMs: 95000,
+      liveTimeMs: 95000,
+      obstaclePenalty: 3.0,
+      liveObstaclePenalty: 3.0,
+      timePenalty: 0.0,
+      liveTimePenalty: 0.0,
+      totalPenalty: 3.0,
+      liveTotalPenalty: 3.0,
+      updatedAt: now
+    },
     { startNumber: 5, timeSec: 142.5, timePenalty: 0.0, knocks: ['8'], obstaclePenalty: 3, totalPenalty: 3.0, finalized: true },
     { startNumber: 7, timeSec: 136.4, timePenalty: 0.0, knocks: ['2'], obstaclePenalty: 3, totalPenalty: 3.0, finalized: true },
     { startNumber: 8, timeSec: 139.1, timePenalty: 0.0, knocks: [], obstaclePenalty: 0, totalPenalty: 0.0, finalized: true }
