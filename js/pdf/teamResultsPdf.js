@@ -3,6 +3,9 @@ import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { formatPdfPenalty } from './resultPdfFormatUtils.js';
+import { formatTeamMemberDisciplineCell } from './teamResultsPdfUtils.js';
+
+export { formatTeamMemberDisciplineCell };
 
 /**
  * Generates a professional PDF report of TEAM results.
@@ -72,17 +75,38 @@ export async function generateTeamResultsPdf(teams, competition) {
         // Members (indented)
         if (team.members && team.members.length > 0) {
             team.members.forEach(m => {
-                const status = m.eliminated ? '(ELIM)' : (m.isCounting ? '' : '(Str)');
-                const name = `#${m.startNumber} ${m.name} ${status}`;
+                let status = '';
+                if (m.eliminated) {
+                    status = '(ELIM)';
+                } else if (!m.isCounting) {
+                    status = '(Str)';
+                }
+                const name = `#${m.startNumber} ${m.name}${status ? ' ' + status : ''}`;
                 const color = m.isCounting ? [30, 30, 30] : [150, 150, 150]; // Gray if scratching
+
+                const dressCell = formatTeamMemberDisciplineCell(m.dressage, {
+                    isCounting: !!m.isCountingDressage,
+                    isTeamPenalty: !!m.isDressageTeamPenalty,
+                    isElim: !!m.isDressageElim
+                });
+                const maraCell = formatTeamMemberDisciplineCell(m.marathon, {
+                    isCounting: !!m.isCountingMarathon,
+                    isTeamPenalty: !!m.isMarathonTeamPenalty,
+                    isElim: !!m.isMarathonElim
+                });
+                const precCell = formatTeamMemberDisciplineCell(m.precision, {
+                    isCounting: !!m.isCountingPrecision,
+                    isTeamPenalty: !!m.isPrecisionTeamPenalty,
+                    isElim: !!m.isPrecisionElim
+                });
 
                 body.push([
                     '', // No rank for members here
                     { content: `  ${name}`, styles: { textColor: color, fontSize: 8 } },
                     '', // No logo for members
-                    { content: formatPdfPenalty(m.dressage, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } },
-                    { content: formatPdfPenalty(m.marathon, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } },
-                    { content: formatPdfPenalty(m.precision, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } },
+                    dressCell,
+                    maraCell,
+                    precCell,
                     { content: formatPdfPenalty(m.penalty, { eliminated: m.eliminated, empty: '-' }), styles: { textColor: color, fontSize: 8, halign: 'center' } }
                 ]);
             });
@@ -136,6 +160,11 @@ export async function generateTeamResultsPdf(teams, competition) {
             }
         }
     });
+
+    const finalY = doc.lastAutoTable?.finalY || (y + 50);
+    doc.setFontSize(8);
+    doc.setTextColor(110, 110, 110);
+    doc.text('* = Räknas i lagresultatet   (str) = Struket resultat per moment   (Lagstr) = 500 straff enligt lagreglemente', mx, finalY + 16);
 
     const ts = new Date().toISOString().split('T')[0];
     doc.save(`lagresultat_${ts}.pdf`);

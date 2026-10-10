@@ -29,6 +29,13 @@ test('buildMarathonHoldDeductionRows returns only obstacles with hold time', () 
       reason: '—'
     }
   ]);
+
+  const fallbackRows = buildMarathonHoldDeductionRows([
+    { number: 4, holdTimeSec: 20, holdTimeReason: 'Väntan på funktionär' },
+    { number: 5, holdTimeSec: 10, reason: 'Tekniskt uppehåll' }
+  ]);
+  assert.equal(fallbackRows[0].reason, 'Väntan på funktionär');
+  assert.equal(fallbackRows[1].reason, 'Tekniskt uppehåll');
 });
 
 test('formatMarathonStageTimeLabel makes B section deduction explicit', () => {

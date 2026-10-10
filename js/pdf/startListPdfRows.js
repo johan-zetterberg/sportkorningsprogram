@@ -77,7 +77,8 @@ export function buildStartListPdfBody(rows = [], type, options = {}) {
     }
 
     tableRow.push(rowData.startNumber || '');
-    tableRow.push(`${rowData.driverName || ''}\n${horseLabelForPdf(rowData)}`);
+    const multiStartBadge = rowData.hasMultipleStarts ? ` (${rowData.driverStartCount || 2} starter)` : '';
+    tableRow.push(`${rowData.driverName || ''}${multiStartBadge}\n${horseLabelForPdf(rowData)}`);
     tableRow.push(getPdfDisplayClass(rowData));
     tableRow.push(rowData.clubName || '');
 

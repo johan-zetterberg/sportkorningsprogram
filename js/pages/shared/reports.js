@@ -25,6 +25,7 @@ import { generateMarathonListPdf, generateMarathonFunctionaryPdf, generateMarath
 import { generatePrecisionListPdf, generatePrecisionOfficialsPdf, generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
 import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js'; // [NEW]
+import { generateVetCheckPdf } from '../../pdf/vetCheckPdf.js';
 
 import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeDecorations, prepareMarathonResults } from '../../utils/marathonUtils.js';
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
@@ -436,6 +437,18 @@ function render() {
             </div>
             ` : ''}
 
+            <!-- VETERINÄRBESIKTNING -->
+            <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 border-t-4 border-teal-500 dark:border-teal-400">
+                <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Veterinärbesiktning</h3>
+                <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Protokoll och hästlista för besiktning (TR Mom 526 / FEI Art 948).</p>
+                <div class="space-y-2">
+                    <button class="w-full bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/30 dark:hover:bg-teal-800/50 text-teal-800 dark:text-teal-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateVetCheckPdf()">
+                        <span>📄 PDF Besiktningsprotokoll</span>
+                        <span class="text-lg">➔</span>
+                    </button>
+                </div>
+            </div>
+
         </div>
     </div>
     `;
@@ -820,3 +833,12 @@ window.reports_generateTeamCsv = function () {
 
     downloadCsv(`lagresultat_${competitionId}.csv`, headers, rows);
 }
+
+window.reports_generateVetCheckPdf = function () {
+    if (!equipages || !equipages.length) {
+        alert('Inga ekipage tillgängliga.');
+        return;
+    }
+    generateVetCheckPdf(equipages, getGlobalState('currentCompetition'));
+};
+

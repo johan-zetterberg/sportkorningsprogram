@@ -153,8 +153,13 @@ function renderPage(pageContainer, competition) {
                                 ${escapeHtml(activePhaseInfo.desc)} • <span class="font-mono text-[10px]">${escapeHtml(activePhaseInfo.trRule)}</span>
                             </p>
                         </div>
-                        <div class="text-right shrink-0">
-                            <div class="text-[11px] font-bold uppercase text-blue-600 dark:text-blue-400" id="vet-queue-count">Laddar...</div>
+                        <div class="text-right shrink-0 flex flex-col items-end gap-1">
+                            <div class="flex items-center gap-2">
+                                <div class="text-[11px] font-bold uppercase text-blue-600 dark:text-blue-400" id="vet-queue-count">Laddar...</div>
+                                <button id="btn-print-vet-pdf" class="px-2 py-0.5 text-[11px] font-semibold rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 flex items-center gap-1 transition-colors" title="Skriv ut besiktningslista som PDF">
+                                    <i class="fa fa-print text-[10px]"></i> PDF
+                                </button>
+                            </div>
                             <div class="text-[10px] font-bold uppercase text-orange-600 dark:text-orange-300" id="vet-temp-count"></div>
                         </div>
                     </div>
@@ -218,6 +223,11 @@ function attachPageHandlers() {
     });
     byId('btn-prev-eq')?.addEventListener('click', () => navigate(-1));
     byId('btn-next-eq')?.addEventListener('click', () => navigate(1));
+    byId('btn-print-vet-pdf')?.addEventListener('click', async () => {
+        const competition = getGlobalState('currentCompetition');
+        const { generateVetCheckPdf } = await import('../../pdf/vetCheckPdf.js');
+        await generateVetCheckPdf(allEquipages, competition);
+    });
 }
 
 function navigate(direction) {

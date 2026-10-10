@@ -2,7 +2,7 @@
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { getClubLogoUrl, fetchImageDataUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
-import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getPrecisionDisplayClassName } from '../utils/precisionUtils.js';
+import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
@@ -111,11 +111,18 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   y = pdf.lastAutoTable.finalY + 12;
 
   // 5. TABELL 2: DETALJER & BANA
+  const trackW = trackWidthFromEq(eq);
+  const stdW = getStandardPortWidth(eq, config);
+  const portW = data.display.portWidth || computePortWidth(eq, config);
+  const effectiveAllowLabel = Number.isFinite(stdW) && stdW > 0 ? 'Standardbredd (fast)' : allowLabel;
+
   pdf.autoTable({
     startY: y,
     head: [['Detaljer', 'Värde']],
     body: [
-      ['Porttillägg (klass)', allowLabel],
+      ['Spårvidd (vagn)', trackW ? `${trackW} cm` : '—'],
+      ['Portbredd (konor)', portW ? `${portW} cm` : '—'],
+      ['Porttillägg (klass)', effectiveAllowLabel],
       ['Maxtid', data.display.maxTimeLabel],
       ['Banlängd', data.display.trackLenLabel],
       ['Tempo (klass)', data.display.tempoLabel],
@@ -349,7 +356,18 @@ export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, 
     // Bredder
     const trackW = trackWidthFromEq(eq);
     const portW = computePortWidth(eq, precisionConfig);
-    const allowW = portW && trackW ? (portW - trackW) : null;
+    const stdW = getStandardPortWidth(eq, precisionConfig);
+    let allowLabel = '-';
+    if (Number.isFinite(stdW) && stdW > 0) {
+      allowLabel = 'Standard';
+    } else {
+      const allowCm = getPortAllowanceCm(eq, precisionConfig);
+      if (Number.isFinite(allowCm)) {
+        allowLabel = `+${allowCm} cm`;
+      } else if (portW && trackW) {
+        allowLabel = `+${portW - trackW} cm`;
+      }
+    }
 
     // Kategori
     let cat = '-';
@@ -366,7 +384,7 @@ export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, 
       `${eq.driverName}\n${eq.clubName || ''}`,
       cat,
       trackW ? `${trackW} cm` : '-',
-      allowW ? `+${allowW} cm` : '-',
+      allowLabel,
       portW ? `${portW} cm` : '-',
       maxTimeLabel
     ];

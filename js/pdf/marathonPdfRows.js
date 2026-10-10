@@ -33,7 +33,7 @@ export function buildMarathonHoldDeductionRows(obstacles = [], obstacleTimes = {
         obstacleNumber: obstacleNumber || '—',
         timeLabel,
         holdTimeSec,
-        reason: String(obstacle.comment || '').trim() || '—'
+        reason: String(obstacle.comment || obstacle.holdTimeReason || obstacle.reason || '').trim() || '—'
       };
     })
     .filter(Boolean);

@@ -45,4 +45,9 @@ test('buildStartListPdfBody builds participant and horse list rows', () => {
   assert.equal(horseList.body[0][0], 'Häst D');
   assert.equal(horseList.body[0][5], 'Far x Mor');
   assert.equal(getPdfDisplayClass({ _mergedLabel: 'Visad', className: 'Original' }), 'Visad');
+
+  const multiStart = buildStartListPdfBody([
+    { startNumber: 7, driverName: 'Erik', horseName: 'Häst E', className: 'MSV', hasMultipleStarts: true, driverStartCount: 3 }
+  ], 'precision');
+  assert.match(multiStart.body[0][2], /Erik \(3 starter\)\nHäst E/);
 });
