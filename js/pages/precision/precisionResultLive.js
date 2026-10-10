@@ -1,39 +1,39 @@
+import { calculatePrecisionLiveResult, calculatePrecisionResult } from '../../utils/precisionUtils.js';
+import { precisionElapsedMs } from '../../utils/precisionCalculation.js';
+import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
+
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
 }
 
 export function calculatePrecisionLiveElapsed(data, now = Date.now()) {
-  if (!data?.liveStartEpoch) return null;
-  const receivedAt = data._receivedLocalAt || now;
-  return (data.livePausedMs || 0) + (receivedAt - data.liveStartEpoch) + (now - receivedAt);
+  return precisionElapsedMs(data, now);
 }
 
+// Live penalty parts at elapsedMs, from the result engine
 export function calculatePrecisionLivePenalty(data, equipage, config = {}, elapsedMs) {
-  const maxSec = isFiniteNumber(config.maxSec)
-    ? config.maxSec
-    : null;
-  const rate = config.timePenaltyRate != null ? Number(config.timePenaltyRate) : 0.5;
-  const liveTimePenalty = isFiniteNumber(maxSec) && elapsedMs > maxSec * 1000
-    ? ((elapsedMs / 1000) - maxSec) * rate
-    : 0;
-  const obstaclePenalty = isFiniteNumber(data?.liveObstaclePenalty)
-    ? data.liveObstaclePenalty
-    : (isFiniteNumber(data?.obstaclePenalty) ? data.obstaclePenalty : 0);
-  const extraPenalty = isFiniteNumber(data?.extraPenalty) ? data.extraPenalty : 0;
-  const totalPenalty = liveTimePenalty + obstaclePenalty + extraPenalty;
-
+  const calc = calculatePrecisionResult(
+    { ...(data || {}), running: true, finalized: false, liveTimeMs: elapsedMs },
+    equipage,
+    config,
+    { maxSec: config?.maxSec }
+  );
   return {
-    timePenalty: liveTimePenalty,
-    obstaclePenalty,
-    extraPenalty,
-    totalPenalty
+    timePenalty: calc.timePenalty ?? 0,
+    obstaclePenalty: calc.obstaclePenalty ?? 0,
+    extraPenalty: calc.extraPenalty ?? 0,
+    totalPenalty: calc.totalPenalty ?? 0
   };
 }
 
-export function calculatePrecisionLiveRank(currentTotal, currentSn, currentEquipage, allEquipages = [], precisionMap = new Map(), getGroupKey = null) {
+/**
+ * Live position of the running equipage in its group (precision ranking
+ * rules: penalty, then time; eliminated equipages are not placed).
+ */
+export function calculatePrecisionLiveRank(currentTotal, currentSn, currentEquipage, allEquipages = [], precisionMap = new Map(), getGroupKey = null, { config = {}, currentTimeMs = null, now = Date.now() } = {}) {
   const groupKeyFor = getGroupKey || ((equipage) => equipage?._mergedLabel || equipage?.className);
   const myGroupKey = groupKeyFor(currentEquipage);
-  const totals = [];
+  const rows = [];
 
   for (const equipage of allEquipages || []) {
     const sn = String(equipage?.startNumber);
@@ -42,16 +42,13 @@ export function calculatePrecisionLiveRank(currentTotal, currentSn, currentEquip
 
     const data = precisionMap.get(sn);
     if (!data) continue;
-
-    let penalty = null;
-    if (data.finalized && isFiniteNumber(data.totalPenalty)) penalty = data.totalPenalty;
-    else if (isFiniteNumber(data.liveTotalPenalty)) penalty = data.liveTotalPenalty;
-    if (isFiniteNumber(penalty)) totals.push(penalty);
+    rows.push({ startNumber: equipage.startNumber, key: precisionRankKey(calculatePrecisionLiveResult(data, equipage, config, now)) });
   }
 
-  totals.push(currentTotal);
-  totals.sort((a, b) => a - b);
-  return totals.indexOf(currentTotal) + 1;
+  const me = { startNumber: currentSn, key: { penalty: currentTotal, timeMs: isFiniteNumber(currentTimeMs) ? currentTimeMs : null } };
+  rows.push(me);
+  const { placeOf } = assignPlaces(rows, { key: r => r.key, compare: comparePrecisionRank, outField: null });
+  return placeOf.get(me);
 }
 
 export function buildPrecisionLiveTick(data, context = {}) {
@@ -77,7 +74,11 @@ export function buildPrecisionLiveTick(data, context = {}) {
     elapsedMs
   );
   const rank = equipage
-    ? calculatePrecisionLiveRank(penalty.totalPenalty, equipage.startNumber, equipage, allEquipages, precisionMap, getGroupKey)
+    ? calculatePrecisionLiveRank(penalty.totalPenalty, equipage.startNumber, equipage, allEquipages, precisionMap, getGroupKey, {
+      config,
+      currentTimeMs: elapsedMs,
+      now
+    })
     : null;
 
   return {

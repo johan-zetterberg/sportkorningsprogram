@@ -68,8 +68,8 @@ export function startOrUpdateMarathonLiveTicker(sn, {
   formatMsLive,
   limitsFor,
   getPauseTime,
-  stagePenaltyFromMs,
   getObstacleCoefficient,
+  calculateObstacleResult,
   calculateResult
 }) {
   const key = String(sn);
@@ -107,19 +107,28 @@ export function startOrUpdateMarathonLiveTicker(sn, {
     const d = marathonMap.get(key) || {};
     const t = timingDocFor(key);
 
+    // The engine result already includes the running stage (live time,
+    // hold time on B, stage penalty)
+    let baseRes = null;
+    try {
+      baseRes = calculateResult(eq, d, t);
+    } catch (err) {
+      console.error('Total penalty tick error:', err);
+    }
+
     let isAnythingRunning = false;
     let labelText = '';
     let timeText = '';
-    let liveStageP = 0;
-    let runningStage = null;
 
     for (const stage of stageKeys) {
       const s = stageStartTS(t, stage);
       const e = stageStopTS(t, stage);
       if (s && !e) {
         isAnythingRunning = true;
-        runningStage = stage;
-        const elapsedMs = (stageDurationMsSaved(t, stage) || 0) + (Date.now() - s - pausedMsSince(s));
+        const stageRes = baseRes?.stages?.[stage] || {};
+        const elapsedMs = isNum(stageRes.rawDurationMs)
+          ? stageRes.rawDurationMs
+          : (stageDurationMsSaved(t, stage) || 0) + (Date.now() - s - pausedMsSince(s));
 
         if (stage === 'A') {
           const limitsA = limitsFor(eq, 'A');
@@ -132,20 +141,9 @@ export function startOrUpdateMarathonLiveTicker(sn, {
         }
         timeText = formatMsLive(elapsedMs);
 
-        let effectiveElapsedMs = elapsedMs;
-        if (stage === 'B') {
-          const obsArr = Array.isArray(d?.obstacles) ? d.obstacles : (d?.hinder || []);
-          const holdMs = obsArr.reduce((sum, o) => {
-            const sec = Number(o?.holdTimeSec);
-            return Number.isFinite(sec) && sec > 0 ? sum + sec * 1000 : sum;
-          }, 0);
-          effectiveElapsedMs = Math.max(0, elapsedMs - holdMs);
-        }
-        const { points, elim } = stagePenaltyFromMs(effectiveElapsedMs, eq, stage);
-        liveStageP = elim ? Infinity : (isNum(points) ? points : 0);
         setTextIfChanged(
           `[data-stage-pts="${key}"][data-stage="${stage}"]`,
-          elim ? 'ELIM' : (isNum(points) ? points.toFixed(2) : '\u2014')
+          stageRes.eliminated ? 'ELIM' : (isNum(stageRes.timePenalty) ? stageRes.timePenalty.toFixed(2) : '\u2014')
         );
         break;
       }
@@ -201,10 +199,12 @@ export function startOrUpdateMarathonLiveTicker(sn, {
       labelText = `H${d.currentObstacle}`;
       timeText = formatMsLive(obsTimeMs);
 
-      const obsCoeff = (typeof getObstacleCoefficient === 'function')
-        ? (getObstacleCoefficient(eq.className) || 1.0)
-        : 1.0;
-      liveObsP = (obsTimeMs / 1000) * obsCoeff;
+      // Running obstacle's time penalty (coefficient, clear round) from the engine
+      if (typeof calculateObstacleResult === 'function') {
+        liveObsP = calculateObstacleResult({ timeSec: obsTimeMs / 1000 }, eq).timePenalty || 0;
+      } else if (typeof getObstacleCoefficient === 'function') {
+        liveObsP = (obsTimeMs / 1000) * (getObstacleCoefficient(eq.className) || 0);
+      }
     }
 
     if (isAnythingRunning) {
@@ -225,19 +225,11 @@ export function startOrUpdateMarathonLiveTicker(sn, {
         tickerState.activeObstacle = null;
       }
 
-      try {
-        const baseRes = calculateResult(eq, d, t);
+      if (baseRes) {
         let liveTotal = baseRes.totalPenalty;
-        let liveObsSum = baseRes.obstacles.sum || 0;
+        let liveObsSum = baseRes.obstacles?.sum || 0;
 
-        if (runningStage && Number.isFinite(liveStageP) && liveStageP > 0) {
-          const baseStageP = baseRes.stages[runningStage]?.timePenalty || 0;
-          if (baseStageP === 0) {
-            const base = Number.isFinite(liveTotal) ? liveTotal : 0;
-            liveTotal = (liveTotal === Infinity) ? Infinity : (base + liveStageP);
-          }
-        }
-
+        // The running obstacle is not saved yet, so it is added on top
         if (Number.isFinite(liveObsP) && liveObsP > 0) {
           const base = Number.isFinite(liveTotal) ? liveTotal : 0;
           liveTotal = (liveTotal === Infinity) ? Infinity : (base + liveObsP);
@@ -248,8 +240,6 @@ export function startOrUpdateMarathonLiveTicker(sn, {
 
         setTextIfChanged(`td[data-sn="${key}"][data-cell="obsSum"]`, liveObsSum.toFixed(2));
         setTextIfChanged(`[data-total-pen="${key}"]`, liveTotalLabel);
-      } catch (err) {
-        console.error('Total penalty tick error:', err);
       }
     } else {
       clearObstacleHighlight(tickerState.activeObstacle);

@@ -16,6 +16,7 @@ import {
 } from './sharedUtils.js';
 import {
     calculatePrecisionResult as _calculatePrecisionResult,
+    calculatePrecisionLiveResult as _calculatePrecisionLiveResult,
     calculatePrecisionTimePenalty as _calculatePrecisionTimePenalty,
     computeMaxSecondsForClass,
     getTrackLengthMeters,
@@ -285,9 +286,18 @@ export function startTimeFor(startNumber, startTimes) {
  * @param {Object} config - Configuration object (optional).
  * @returns {Object} Calculated result object.
  */
-export function calculatePrecisionResult(data, equipage, config = {}) {
+export function calculatePrecisionResult(data, equipage, config = {}, options = {}) {
     const comp = getBrowserGlobalState('currentCompetition');
-    return _calculatePrecisionResult(data, equipage, config, { currentCompetition: comp });
+    return _calculatePrecisionResult(data, equipage, config, { currentCompetition: comp, ...options });
+}
+
+/**
+ * Result including the ticking time of a running equipage at nowMs.
+ * @param {object} [options] - { maxSec } when the caller already knows the max time
+ */
+export function calculatePrecisionLiveResult(data, equipage, config = {}, nowMs = Date.now(), options = {}) {
+    const comp = getBrowserGlobalState('currentCompetition');
+    return _calculatePrecisionLiveResult(data, equipage, config, { currentCompetition: comp, ...options }, nowMs);
 }
 
 export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes) {

@@ -22,6 +22,7 @@ import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
+import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
 
 import {
@@ -1397,48 +1398,50 @@ function renderCurrentRiderCard() {
         }
 
         // Compute Top 3 for this class (Precision only)
-        const allInClass = allEquipages.filter(e => matchesDisplayClass(e, eq._mergedLabel || eq.mergedTestLabel || eq.className)).map(e => {
+        const classRows = allEquipages.filter(e => matchesDisplayClass(e, eq._mergedLabel || eq.mergedTestLabel || eq.className)).map(e => {
             const sn = String(e.startNumber);
             const pSt = precisionStatusMap.get(sn);
-            let pen = pSt?.totalPenalty ?? null;
 
             // Robust elimination check (including previous phases)
             const mSt = maratonStatusMap.get(sn);
             const elimM = mSt && ['utgått', 'utesluten', 'retired', 'eliminated', 'elim', 'ute', 'utg'].some(s => String(mSt.status || '').toLowerCase().includes(s));
             const dSt = dressageStatusMap.get(sn);
             const elimD = dSt?.eliminated || dSt?.excluded;
-            const isElimP = !!pSt?.eliminated;
 
-            const isEliminatedOverall = elimD || elimM || isElimP;
-
-            // If live, inject live data
+            // Penalty and time from the result engine (live value for the running equipage)
+            let pen = null;
+            let timeMs = null;
+            let isElimP = false;
             if (liveInjection && String(liveInjection.sn) === sn && liveInjection.discipline === 'precision') {
                 pen = liveInjection.disciplinePenalty;
-            } else if (pen === null && pSt) {
-                 const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
-                 pen = pRes.totalPenalty;
+                timeMs = liveInjection.timeMs;
+                isElimP = !!liveInjection.eliminated;
+            } else if (pSt) {
+                const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
+                pen = pRes.totalPenalty;
+                timeMs = pRes.timeMs;
+                isElimP = !!pRes.eliminated;
             }
-            
-            return { sn, name: e.driverName, penalty: pen, timeMs: pSt?.timeMs || 0, eliminated: isEliminatedOverall };
-        }).sort((a,b) => {
-            const pA = a.eliminated ? Infinity : (a.penalty ?? Infinity);
-            const pB = b.eliminated ? Infinity : (b.penalty ?? Infinity);
-            if (pA === pB) return (a.timeMs || 0) - (b.timeMs || 0);
-            return pA - pB;
+
+            return { sn, startNumber: e.startNumber, name: e.driverName, penalty: pen, timeMs, eliminated: elimD || elimM || isElimP };
         });
 
+        // Precision placings (penalty, then time; ties share the place)
+        const allInClass = assignPlaces(classRows, {
+            key: r => (r.eliminated ? null : precisionRankKey({ totalPenalty: r.penalty, timeMs: r.timeMs })),
+            compare: comparePrecisionRank
+        }).ranked;
+
         const top3 = allInClass.slice(0, 3);
-        const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
+        const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
         const maxTimeLabel = maxSec ? msToLabel(maxSec * 1000) : '—';
 
-        // Fix ReferenceErrors: Define myRank and gapHtml locally
-        const myRankIndex = allInClass.findIndex(r => String(r.sn) === String(eq.startNumber));
-        const myRank = myRankIndex !== -1 ? myRankIndex + 1 : '-';
+        const myRow = classRows.find(r => String(r.sn) === String(eq.startNumber));
+        const myRank = myRow?.plac ?? '-';
 
         let gapHtml = '';
-        if (myRankIndex > 0) {
-            const first = allInClass[0];
-            const diff = (allInClass[myRankIndex].penalty || 0) - (first.penalty || 0);
+        if (myRow?.plac > 1 && allInClass[0]) {
+            const diff = (myRow.penalty || 0) - (allInClass[0].penalty || 0);
             gapHtml = `<div class="text-[10px] text-blue-600 dark:text-blue-300 font-bold mt-1">Marginal till ledare: +${diff.toFixed(2)}</div>`;
         }
 
@@ -1501,7 +1504,7 @@ function renderCurrentRiderCard() {
                         ${top3.length ? top3.map((r, i) => `
                             <div onclick="window.showRiderDetails('${escapeAttr(String(r.sn ?? ''))}')" class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
                                 <div class="flex items-center gap-2 overflow-hidden">
-                                    <span class="font-bold text-gray-400 w-4 text-center">${i + 1}.</span>
+                                    <span class="font-bold text-gray-400 w-4 text-center">${r.plac}.</span>
                                     <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(r.name || '')}</span>
                                 </div>
                                 <span class="font-black text-gray-900 dark:text-white ml-2">${formatSpeakerPenalty(r.penalty)}</span>
@@ -1536,19 +1539,15 @@ function renderCurrentRiderCard() {
         const dSt = dressageStatusMap.get(sn);
         let dPen = dSt?.finalPenalty ?? null;
 
+        // Discipline penalties from the result engine (not stored totals)
         const mSt = maratonStatusMap.get(sn);
-        let mPen = mSt?.totalPenalty ?? null;
-        if (mPen === null && mSt) {
-            const mRes = calculateMarathonResult(eq, mSt, mSt);
-            mPen = mRes.totalPenalty;
-        }
+        let mPen = mSt ? calculateMarathonResult(eq, mSt, mSt).totalPenalty : null;
         const pSt = precisionStatusMap.get(sn);
-        let pPen = pSt?.totalPenalty ?? null;
+        let pPen = null;
         if (liveInjection && liveInjection.discipline === 'precision' && liveInjection.disciplinePenalty != null) {
             pPen = liveInjection.disciplinePenalty;
-        } else if (pPen === null && pSt) {
-            const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
-            pPen = pRes.totalPenalty;
+        } else if (pSt) {
+            pPen = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes).totalPenalty;
         }
 
         if (liveInjection && liveInjection.discipline === 'maraton' && liveInjection.disciplinePenalty != null) {

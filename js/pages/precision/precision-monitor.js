@@ -11,7 +11,8 @@ import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosServ
 import { getFlagHtml } from '../../services/flagsService.js';
 import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { showDetailsModal } from '../../ui/precisionModal.js'; // NYTT
-import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionTimePenalty } from '../../utils/precisionUtils.js';
+import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionResult, calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
+import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { t } from '../../utils/i18n.js';
 import { renderMap, destroyMap } from './precision-monitor-map.js';
 import {
@@ -248,19 +249,9 @@ function renderCurrentDriver() {
 
   const { eq, data } = currentDriver;
 
-  // NY, EXAKT TIDSBERÄKNING
-  // Om loppet är klart (finalized), visa den fastställda sluttiden.
-  // Annars kör vi live-beräkning.
-  let elapsedMs;
-  if ((data.finalized || data.status === 'Klar') && isNum(data.totalPenalty)) {
-    elapsedMs = data.timeMs || 0;
-  } else if (data.running && data.liveStartEpoch) {
-    // RELATIV CLOCK: Använd tidpunkten då vi tog emot snapshoten för att kompensera för klockdiff.
-    const receivedAt = data._receivedLocalAt || Date.now();
-    elapsedMs = (data.livePausedMs || 0) + (receivedAt - data.liveStartEpoch) + (Date.now() - receivedAt);
-  } else {
-    elapsedMs = data.liveTimeMs || 0;
-  }
+  // Tid och straff från resultatmotorn (tickande tid om loppet pågår)
+  const live = calculatePrecisionLiveResult(data, eq, precisionConfig);
+  const elapsedMs = live.elapsedMs ?? live.timeMs ?? 0;
 
   // Hämta baninformation
   const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
@@ -275,29 +266,10 @@ function renderCurrentDriver() {
   const isSameDriver = lastDriverSn === String(eq.startNumber);
   lastDriverSn = String(eq.startNumber);
 
-  // Calculate display values
-  const displayObstaclePenalty = data.liveObstaclePenalty || data.obstaclePenalty || 0;
-  const displayExtra = data.extraPenalty || 0;
-
-  // Calculate time penalty
-  let displayTimePenalty = 0;
-  if (data.finalized || data.status === 'Klar') {
-    displayTimePenalty = data.timePenalty || 0;
-  } else if (isNum(maxSec) && maxSec > 0 && elapsedMs > maxSec * 1000) {
-    const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-    displayTimePenalty = calculatePrecisionTimePenalty(elapsedMs, maxSec, rate);
-  }
-
-  let displayTotal = 0;
-  if (data.finalized || data.status === 'Klar') {
-    displayTotal = data.totalPenalty || 0;
-  } else {
-    displayTotal = displayTimePenalty + displayObstaclePenalty + displayExtra;
-  }
-  // Handle infinite/elimination
-  if (data.eliminated) {
-    displayTotal = Infinity;
-  }
+  const displayObstaclePenalty = live.obstaclePenalty ?? 0;
+  const displayExtra = live.extraPenalty ?? 0;
+  const displayTimePenalty = live.timePenalty ?? 0;
+  const displayTotal = live.eliminated ? Infinity : (live.totalPenalty ?? 0);
 
   // Om föraren byts, rendera om hela panelen. Annars, uppdatera atomärt.
   if (!isSameDriver) {
@@ -645,34 +617,16 @@ function ensureTicker() {
           return;
         }
 
-        // NY, EXAKT TIDSBERÄKNING
-        // RELATIV CLOCK: Använd tidpunkten då vi tog emot snapshoten för att kompensera för klockdiff.
-        let elapsedMs;
-        if (data.running && data.liveStartEpoch) {
-          const receivedAt = data._receivedLocalAt || Date.now();
-          elapsedMs = (data.livePausedMs || 0) + (receivedAt - data.liveStartEpoch) + (Date.now() - receivedAt);
-        } else {
-          // Om klockan är stoppad, visa den senast kända tiden
-          elapsedMs = data.liveTimeMs || 0;
-        }
+        // Tickande tid och straff från resultatmotorn
+        const live = calculatePrecisionLiveResult(data, eq, precisionConfig);
+        const elapsedMs = live.elapsedMs ?? data.liveTimeMs ?? 0;
 
         timerEl.textContent = formatMsLive(elapsedMs);
 
         // LIVE-STRAFF UPPDATERING
-        if (data.eliminated) return;
+        if (live.eliminated) return;
 
-        const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
-        let currentTimePenalty = 0;
-
-        if (isNum(maxSec) && maxSec > 0) {
-          const elapsedSec = elapsedMs / 1000;
-          // Tidsstraff: 0.5 straff per påbörjad sekund över maxtiden (kan variera beroende på gren, men antar 0.5 här baserat på tidigare kod)
-          // Tidigare kod i precision-input.js: (elapsedSec - maxSec) * 0.5
-          // Kontrollera om precision-input har exakt samma logik?
-          // Ja: calculateLiveTimePenalty -> (elapsedSec - maxSec) * 0.5
-          const rate = (precisionConfig.timePenaltyRate != null) ? Number(precisionConfig.timePenaltyRate) : 0.5;
-          currentTimePenalty = calculatePrecisionTimePenalty(elapsedMs, maxSec, rate);
-        }
+        const currentTimePenalty = live.timePenalty ?? 0;
 
         // Uppdatera DOM
         // Tidsstraff
@@ -682,13 +636,7 @@ function ensureTicker() {
 
         // Totalt straff
         if (totalPenaltyEl) {
-          // Vi använder de senast kända värdena för hinder/annat från data
-          // OBS: data.liveObstaclePenalty uppdateras bara via snapshot (var 5:e sek eller vid ändring)
-          // Det är OK, hinder ändras inte automatiskt av tiden.
-          const obst = data.liveObstaclePenalty || 0;
-          const extra = data.extraPenalty || 0;
-          const total = currentTimePenalty + obst + extra;
-          totalPenaltyEl.textContent = formatPrecisionMonitorPenalty(total);
+          totalPenaltyEl.textContent = formatPrecisionMonitorPenalty(live.totalPenalty ?? 0);
         }
 
         // Röd markering
@@ -742,7 +690,7 @@ function processDocChange(change) {
 
       // Spara det viktiga resultatet (straffpoängen)
       // Notera: Tiden (elapsedMs) hämtas separat från allPrecisionData i renderResultsPanel
-      totalPenalty: data.totalPenalty
+      totalPenalty: calculatePrecisionResult(data, eq, precisionConfig).totalPenalty
     });
 
     // Begränsa listan till 5
@@ -802,21 +750,26 @@ function listenForUpdates() {
     }
     // Om vi inte hade någon activeDriver och ingen currentDriver sen innan => currentDriver förblir null (vänteläge)
     // Beräkna ledare i klassen
+    // Klassledare: bästa finaliserade resultat enligt precisionens rangordning
     leaderInClass = null;
     if (currentDriver) {
-      let bestScore = Infinity;
+      const finished = [];
       for (const [sn, data] of allPrecisionData.entries()) {
-        if (data.finalized && !data.eliminated && data.className === currentDriver.eq.className && data.totalPenalty < bestScore) {
-          const eq = allEquipages.find(e => String(e.startNumber) === sn);
-          if (eq) {
-            leaderInClass = {
-              name: `#${sn} ${eq.driverName}`,
-              totalPenalty: data.totalPenalty,
-              timeMs: data.timeMs || data.liveTimeMs || 0
-            };
-            bestScore = data.totalPenalty;
-          }
-        }
+        if (!data.finalized || data.className !== currentDriver.eq.className) continue;
+        const eq = allEquipages.find(e => String(e.startNumber) === sn);
+        if (eq) finished.push({ startNumber: eq.startNumber, eq, result: calculatePrecisionResult(data, eq, precisionConfig) });
+      }
+      const leader = assignPlaces(finished, {
+        key: row => precisionRankKey(row.result),
+        compare: comparePrecisionRank,
+        outField: null
+      }).ranked[0];
+      if (leader) {
+        leaderInClass = {
+          name: `#${leader.eq.startNumber} ${leader.eq.driverName}`,
+          totalPenalty: leader.result.totalPenalty,
+          timeMs: leader.result.timeMs || 0
+        };
       }
     }
 
@@ -826,7 +779,8 @@ function listenForUpdates() {
     for (const [sn, data] of allPrecisionData.entries()) {
       // Ta med allt som har ett slutgiltigt straff (även uteslutna)
       if (isNum(data.totalPenalty) || data.eliminated === true) {
-        allResults.push({ sn, data });
+        const eq = allEquipages.find(e => String(e.startNumber) === sn) || { startNumber: sn, className: data.className };
+        allResults.push({ sn, data, totalPenalty: calculatePrecisionResult(data, eq, precisionConfig).totalPenalty });
       }
     }
     // Sortera: Senast uppdaterad först (faller tillbaka på startnummer om tid saknas)
@@ -842,7 +796,7 @@ function listenForUpdates() {
         driverName: eq.driverName || item.data.driverName || '',
         clubName: eq.clubName || '',
         countryCode: eq.countryCode || eq.country || '',
-        totalPenalty: item.data.totalPenalty
+        totalPenalty: item.totalPenalty
       });
     }
 

@@ -132,8 +132,8 @@ test('precision live tick updates rank dynamically as penalty ticks up', () => {
 
   // Ekipage 1 är i mål på 4.0 straff, Ekipage 3 på 8.0 straff
   const precisionMap = new Map([
-    ['1', { finalized: true, totalPenalty: 4.0 }],
-    ['3', { finalized: true, totalPenalty: 8.0 }]
+    ['1', { finalized: true, timeMs: 90000, obstaclePenalty: 4.0 }],
+    ['3', { finalized: true, timeMs: 90000, obstaclePenalty: 8.0 }]
   ]);
 
   // Ekipage 2 tickar live:

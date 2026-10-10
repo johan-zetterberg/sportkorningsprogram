@@ -16,6 +16,7 @@ import { t } from '../../utils/i18n.js';
 import { showDetailsModal } from '../../ui/marathonModal.js';
 import { renderMap, destroyMap, updateSidebar as updateSidebarMap } from './maraton-monitor-map.js';
 import { buildObstaclePlacementsByClass, getObstaclePlacement } from './marathonObstaclePlacings.js';
+import { assignPlaces, compareMarathonRank, marathonRankKey } from '../../core-engine/ranking.js';
 
 import {
   setMarathonConfig,
@@ -756,21 +757,15 @@ function renderMonitor() {
           return `<span class="chip ${it.elim ? 'elim' : ''} ${isLive ? 'chip-live' : ''} bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200" title="Hinder ${it.n}">H${it.n}: ${lbl}</span>`;
         }).join('');
 
-        // FIX: Verify live total includes stage penalty
-        let liveStageP = 0;
-        if (active.task.type === 'stage') {
-          const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, active.task.key);
-          liveStageP = elim ? Infinity : (Number.isFinite(points) ? points : 0);
-        }
-
+        // The engine counts a running stage from its start time (incl. hold
+        // time on B). Only when the doc has no start time for the active stage
+        // is the monitor's own timer used for that stage.
         const res = calculateMarathonResult(eq, doc, doc);
         let tot = res.totalPenalty;
 
-        if (active.task.type === 'stage' && liveStageP > 0 && Number.isFinite(tot)) {
-          const baseP = res.stages[active.task.key]?.timePenalty || 0;
-          if (baseP === 0) {
-            tot += liveStageP;
-          }
+        if (active.task.type === 'stage' && !res.stages[active.task.key]?.start && Number.isFinite(tot)) {
+          const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, active.task.key);
+          tot = elim ? Infinity : tot + (Number.isFinite(points) ? points : 0);
         }
 
         const totLbl = (tot === Infinity) ? 'ELIM' : (Number.isFinite(tot) ? tot.toFixed(2) + ' p' : '—');
@@ -790,19 +785,19 @@ function renderMonitor() {
     // Rank
     const rankEl = document.getElementById(`rank-${sn}`);
     if (rankEl) {
-      const classMates = allEquipages.filter(e => e.className === eq.className);
-      const rankedList = classMates.map(e => {
-        const d = allMarathonData.get(String(e.startNumber));
-        const p = calculateTotalPenalty(d, e);
-        return { sn: e.startNumber, p: (p === null ? 0 : p) };
-      }).sort((a, b) => {
-        if (a.p === Infinity && b.p === Infinity) return 0;
-        if (a.p === Infinity) return 1;
-        if (b.p === Infinity) return -1;
-        return a.p - b.p;
+      // Live position in the class (marathon ranking rules, unfinished included)
+      const classRows = allEquipages
+        .filter(e => e.className === eq.className)
+        .map(e => {
+          const d = allMarathonData.get(String(e.startNumber)) || {};
+          return { startNumber: e.startNumber, result: calculateMarathonResult(e, d, d) };
+        });
+      const { placeOf } = assignPlaces(classRows, {
+        key: r => marathonRankKey(r.result, { requireFinished: false }),
+        compare: compareMarathonRank,
+        outField: null
       });
-      const myIndex = rankedList.findIndex(x => x.sn === eq.startNumber);
-      const placement = (myIndex !== -1) ? myIndex + 1 : '-';
+      const placement = placeOf.get(classRows.find(r => r.startNumber === eq.startNumber)) ?? '-';
       rankEl.innerHTML = `<div class="text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded inline-block ml-2" title="${t('dressage_placing')}">${t('rank_short')}: ${placement}</div>`;
     }
 

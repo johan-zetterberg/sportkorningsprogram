@@ -63,7 +63,7 @@ function getProgramMapping() {
 export function calculateDressageResult(equipage, protocols, validJudges = [], programsOverride = null) {
     const state = buildCompetitionState(equipage, protocols, null, null, null, {
         allPrograms: programsOverride || getPrograms(),
-        dressageProgramMapping: programsOverride ? {} : getProgramMapping(),
+        dressageProgramMapping: getProgramMapping(),
         judges: validJudges
     });
     return _coreDressage(state);

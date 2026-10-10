@@ -1,4 +1,4 @@
-import { computeMaxSecondsForClass, calculatePrecisionTimePenalty } from '../../utils/precisionUtils.js';
+import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { calculateMarathonResult } from '../../utils/marathonUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
 import { computeTotalPenalty } from '../../utils/sharedUtils.js';
@@ -106,23 +106,14 @@ export function calculateLiveInjection(eq, context) {
     
     // 1. Precision Live
     if (pSt && (pSt.running || pSt.inProgress)) {
-        let pen = toFiniteNumberOrZero(pSt.totalPenalty);
-        let timeMs = toFiniteNumberOrZero(pSt.liveTimeMs ?? pSt.timeMs);
-        if (pSt.running && pSt.liveStartEpoch) {
-            const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
-            const nowMs = toFiniteNumberOrZero(pSt.livePausedMs) + (Date.now() - Number(pSt.liveStartEpoch));
-            const lp = calculatePrecisionTimePenalty(nowMs, maxSec);
-            const op = toFiniteNumberOrZero(pSt.liveObstaclePenalty ?? pSt.obstaclePenalty);
-            const ep = toFiniteNumberOrZero(pSt.extraPenalty);
-            pen = op + lp + ep;
-            timeMs = nowMs;
-        }
-        return { 
-            sn: eq.startNumber, 
-            discipline: 'precision', 
-            disciplinePenalty: pen,
-            timeMs: timeMs,
-            eliminated: pSt.eliminated === true || pen === Infinity
+        // Live penalty at this moment, from the result engine
+        const live = calculatePrecisionLiveResult(pSt, eq, precisionConfig);
+        return {
+            sn: eq.startNumber,
+            discipline: 'precision',
+            disciplinePenalty: toFiniteNumberOrZero(live.totalPenalty),
+            timeMs: toFiniteNumberOrZero(live.elapsedMs ?? live.timeMs),
+            eliminated: live.eliminated === true
         };
     }
     
@@ -144,8 +135,11 @@ export function calculateLiveInjection(eq, context) {
     if (liveMap.size > 0) {
         const liveProtocols = Array.from(liveMap.values());
         const result = calculateDressageResult(eq, liveProtocols, allJudges, mergedPrograms);
-        if (result && result.penalty != null) {
-            return { sn: eq.startNumber, discipline: 'dressyr', disciplinePenalty: result.penalty, eliminated: result.eliminated === true };
+        // While judging is in progress, use the engine's projection; the final
+        // penalty would count unjudged movements as 0 points
+        const penalty = (result?.isLive && result.projectedPenalty != null) ? result.projectedPenalty : result?.penalty;
+        if (penalty != null) {
+            return { sn: eq.startNumber, discipline: 'dressyr', disciplinePenalty: penalty, eliminated: result.eliminated === true };
         }
     }
     

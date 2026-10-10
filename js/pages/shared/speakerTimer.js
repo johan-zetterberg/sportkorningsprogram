@@ -1,4 +1,4 @@
-import { computeMaxSecondsForClass, calculatePrecisionTimePenalty } from '../../utils/precisionUtils.js';
+import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { stageStartTS } from '../../utils/marathonUtils.js';
 import { calculateLiveInjection, getTotalRanking } from './speakerCalculations.js';
 import { formatSpeakerPenalty, getSpeakerPenaltyOrNull } from './speakerFormatUtils.js';
@@ -29,23 +29,13 @@ export function updateLiveClocks(context) {
         const eq = currentRider.eq;
 
         if (d.running && d.liveStartEpoch) {
-            const ms = (d.livePausedMs || 0) + (tickTimeNow - d.liveStartEpoch);
-            pTimeEl.textContent = formatMsLive(ms);
+            // Live time and penalties from the result engine
+            const live = calculatePrecisionLiveResult(d, eq, precisionConfig, tickTimeNow);
+            pTimeEl.textContent = formatMsLive(live.elapsedMs ?? 0);
 
-            // Live Penalty Ticker
             if (pPenEl && pTotEl) {
-                const maxSec = computeMaxSecondsForClass(eq.className, precisionConfig);
-                const liveTimePen = calculatePrecisionTimePenalty(ms, maxSec);
-
-                // Update Time Penalty Display
-                pPenEl.textContent = formatSpeakerPenalty(liveTimePen > 0 ? liveTimePen : (Number(d.timePenalty) || 0));
-
-                // Update Total Penalty Display (Obstacle + Time + Extra)
-                const obsPen = d.liveObstaclePenalty || d.obstaclePenalty || 0;
-                const extraPen = d.extraPenalty || 0;
-                const total = obsPen + liveTimePen + extraPen;
-
-                pTotEl.textContent = formatSpeakerPenalty(total, { eliminated: d.eliminated });
+                pPenEl.textContent = formatSpeakerPenalty(live.timePenalty ?? 0);
+                pTotEl.textContent = formatSpeakerPenalty(live.totalPenalty ?? 0, { eliminated: live.eliminated });
             }
         }
     }
@@ -63,7 +53,7 @@ export function updateLiveClocks(context) {
 
         if (myIdx !== -1) {
             const myR = totalRanking[myIdx];
-            if (cardRankEl) cardRankEl.textContent = (myIdx + 1);
+            if (cardRankEl) cardRankEl.textContent = myR.plac ?? '–';
             if (cardTotalEl) cardTotalEl.textContent = formatSpeakerPenalty(myR.total, { eliminated: myR.total === Infinity || myR.isEliminated });
 
             if (cardMarginEl && totalRanking.length > 1) {

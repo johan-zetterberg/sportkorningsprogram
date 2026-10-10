@@ -24,6 +24,7 @@ import {
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { mergeDressageProtocols } from './dressageResultBuilder.js';
+import { rankDressageRows } from './dressageResultRanking.js';
 import {
   formatDressageMonitorPenalty,
   formatDressageMonitorScore,
@@ -551,19 +552,23 @@ function findCurrentRiderAndLeader() {
   currentRider = latest;
   leaderInClass = null;
   if (currentRider) {
-    let best = Infinity;
+    // Leader = best final dressage penalty (all judges + error points) from the engine
     const currentLabel = currentRider.eq._mergedLabel || currentRider.eq.className;
+    const programs = mergedPrograms || getGlobalState('dressagePrograms') || globalDressagePrograms || {};
+    const finished = [];
     for (const [sn, data] of dressageStatusMap.entries()) {
-      if (data?.state === 'finished' && data?.finalJudgeScore) {
-        const eq = allEquipages.find(e => String(e.startNumber) === sn);
-        if (eq && (eq._mergedLabel || eq.className) === currentLabel) {
-          const pen = Number(data.finalJudgeScore.penalty);
-          if (Number.isFinite(pen) && pen < best) {
-            best = pen;
-            leaderInClass = { name: `#${sn} ${eq.driverName}`, finalPenalty: pen };
-          }
-        }
-      }
+      if (data?.state !== 'finished') continue;
+      const eq = allEquipages.find(e => String(e.startNumber) === sn);
+      if (!eq || (eq._mergedLabel || eq.className) !== currentLabel) continue;
+      const result = calculateDressageResult(eq, getMergedProtocols(sn), window.currentJudgesPresent || [], programs);
+      finished.push({ eq, startNumber: eq.startNumber, result });
+    }
+    const leader = rankDressageRows(finished, {
+      penaltyPicker: row => row.result?.penalty,
+      eliminatedPicker: row => !!row.result?.eliminated
+    })[0];
+    if (leader) {
+      leaderInClass = { name: `#${leader.eq.startNumber} ${leader.eq.driverName}`, finalPenalty: leader.result.penalty };
     }
   }
 }
@@ -611,28 +616,24 @@ function maybePushRecent(sn) {
   // 2. Attempt calculation if we have ANY data
   let computed = null;
   if (merged.length > 0) {
-    const programKey = st?.testKey || st?.programKey || eq?.testKey || (window.klassProgramMapping?.[eq?.className] ?? null);
-    // Use robust guesser if missing
+    // The engine resolves the program (protocol key, equipage key, class mapping, guess)
     const programs = mergedPrograms || getGlobalState('dressagePrograms') || globalDressagePrograms || {};
-    let programObj = programKey ? programs[programKey] : null;
-
-    if (!programObj && eq?.className) {
-      const g = guessProgramKeyFromClass(eq.className, programs);
-      if (g) programObj = programs[g];
-    }
-
-    if (programObj) {
-      const result = calculateDressageResult(eq, merged, window.currentJudgesPresent || [], programs);
-      if (result) {
-        st.finalJudgeScore = { percent: result.percent, points: result.points, penalty: result.judgePenalty };
-        st.finalPercent = result.percent;
-        st.finalPoints = result.points;
-        st.finalPenalty = result.penalty;
-        st.errorPoints = result.errorPoints;
-        st.errorPenalty = result.errorPenalty;
-        dressageStatusMap.set(S, st);
-        computed = result; // For the check below
-      }
+    const stKey = st?.testKey || st?.programKey;
+    const result = calculateDressageResult(
+      stKey && !eq?.testKey ? { ...eq, testKey: stKey } : eq,
+      merged,
+      window.currentJudgesPresent || [],
+      programs
+    );
+    if (result?.programKey) {
+      st.finalJudgeScore = { percent: result.percent, points: result.points, penalty: result.judgePenalty };
+      st.finalPercent = result.percent;
+      st.finalPoints = result.points;
+      st.finalPenalty = result.penalty;
+      st.errorPoints = result.errorPoints;
+      st.errorPenalty = result.errorPenalty;
+      dressageStatusMap.set(S, st);
+      computed = result; // For the check below
     }
   }
 

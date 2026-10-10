@@ -13,7 +13,6 @@ import {
   maraton_marathonConfig,
   setMarathonConfig,
   limitsFor,
-  stagePenaltyFromMs,
   stageStartTS,
   stageStopTS,
   stageDurationMsSaved,
@@ -21,7 +20,7 @@ import {
   formatMsLive,
   setPauseWindows,
   calculateMarathonResult,
-  getObstacleCoefficient,
+  calculateObstacleResult,
   MERGE_GROUPS,
   buildMergeMap,
   ensureMergeDecorations,
@@ -297,8 +296,7 @@ function startOrUpdateLiveTicker(sn) {
     formatMsLive,
     limitsFor,
     getPauseTime,
-    stagePenaltyFromMs,
-    getObstacleCoefficient,
+    calculateObstacleResult,
     calculateResult: calculateMarathonResult
   });
 }

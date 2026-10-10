@@ -7,6 +7,7 @@ import {
   calculatePrecisionLivePenalty,
   calculatePrecisionLiveRank
 } from '../js/pages/precision/precisionResultLive.js';
+import { calculatePrecisionLiveResult } from '../js/utils/precisionCalculation.js';
 
 test('calculatePrecisionLiveElapsed compensates from received snapshot time', () => {
   const elapsed = calculatePrecisionLiveElapsed({
@@ -39,13 +40,42 @@ test('calculatePrecisionLiveRank ranks within the current group', () => {
     { startNumber: 3, className: 'B' }
   ];
   const precisionMap = new Map([
-    ['1', { finalized: true, totalPenalty: 8 }],
-    ['3', { finalized: true, totalPenalty: 1 }]
+    ['1', { finalized: true, timeMs: 90000, obstaclePenalty: 8 }],
+    ['3', { finalized: true, timeMs: 90000, obstaclePenalty: 1 }]
   ]);
 
   const rank = calculatePrecisionLiveRank(5, '2', equipages[1], equipages, precisionMap);
 
   assert.equal(rank, 1);
+});
+
+test('calculatePrecisionLiveResult ticks the time and uses the competition time penalty rate', () => {
+  const doc = { running: true, liveStartEpoch: 1000, livePausedMs: 5000, knocks: ['3'] };
+  const eq = { startNumber: 1, className: 'A' };
+  const config = { maxTimeByClass: { A: 100 }, knockdownPenalty: 3 };
+
+  // 5 s paused + 105 s since start = 110 s -> 10 s over at the competition's rate 1.0
+  const live = calculatePrecisionLiveResult(doc, eq, config, { currentCompetition: { ruleSettings: { precisionTimePenaltyRate: 1 } } }, 106000);
+  assert.equal(live.elapsedMs, 110000);
+  assert.equal(live.timePenalty, 10);
+  assert.equal(live.obstaclePenalty, 3);
+  assert.equal(live.totalPenalty, 13);
+
+  // Not running: the normal result
+  assert.equal(calculatePrecisionLiveResult({ finalized: true, timeMs: 90000, knocks: [] }, eq, config).totalPenalty, 0);
+});
+
+test('calculatePrecisionLiveRank skips eliminated equipages and breaks ties on time', () => {
+  const equipages = [1, 2, 3].map(sn => ({ startNumber: sn, className: 'A' }));
+  const precisionMap = new Map([
+    ['1', { finalized: true, timeMs: 80000, obstaclePenalty: 0, eliminated: true }],
+    ['3', { finalized: true, timeMs: 95000, obstaclePenalty: 3 }]
+  ]);
+
+  // Same 3 penalties as #3 but faster -> 1st; eliminated #1 is not ahead
+  assert.equal(calculatePrecisionLiveRank(3, '2', equipages[1], equipages, precisionMap, null, { currentTimeMs: 90000 }), 1);
+  // Same penalties, slower -> 2nd
+  assert.equal(calculatePrecisionLiveRank(3, '2', equipages[1], equipages, precisionMap, null, { currentTimeMs: 99000 }), 2);
 });
 
 test('buildPrecisionLiveTick returns elapsed, over-time, penalty and rank', () => {
@@ -66,7 +96,7 @@ test('buildPrecisionLiveTick returns elapsed, over-time, penalty and rank', () =
       maxSec: 100,
       config: { timePenaltyRate: 0.5 },
       allEquipages: equipages,
-      precisionMap: new Map([['1', { finalized: true, totalPenalty: 10 }]])
+      precisionMap: new Map([['1', { finalized: true, timeMs: 90000, obstaclePenalty: 10 }]])
     }
   );
 

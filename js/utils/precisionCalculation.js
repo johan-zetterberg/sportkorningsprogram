@@ -95,6 +95,29 @@ export function computeMaxSecondsForClass(cls, config = {}) {
     return null;
 }
 
+// Run time of a live precision doc at nowMs (paused time + time since the clock (re)started)
+export function precisionElapsedMs(d, nowMs = Date.now()) {
+    if (!d?.liveStartEpoch) return null;
+    return (Number(d.livePausedMs) || 0) + (nowMs - Number(d.liveStartEpoch));
+}
+
+/**
+ * Result for a doc that may be running: the ticking time at nowMs is used as
+ * the live time. Not-running docs give the normal result.
+ */
+export function calculatePrecisionLiveResult(data, equipage, config = {}, options = {}, nowMs = Date.now()) {
+    const d = data || {};
+    const elapsed = (d.running === true || d.inProgress === true) ? precisionElapsedMs(d, nowMs) : null;
+    if (!isNum(elapsed)) return calculatePrecisionResult(d, equipage, config, options);
+    const result = calculatePrecisionResult(
+        { ...d, running: true, finalized: false, liveTimeMs: elapsed },
+        equipage,
+        config,
+        options
+    );
+    return { ...result, elapsedMs: elapsed };
+}
+
 export function calculatePrecisionResult(data, equipage, config = {}, options = {}) {
     const d = data || {};
     const safeConfig = config || {};
@@ -116,7 +139,9 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         : (isNum(inferredObstacle) ? inferredObstacle
             : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
 
-    const maxSec = computeMaxSecondsForClass(equipage, safeConfig);
+    const maxSec = isNum(options.maxSec) && options.maxSec > 0
+        ? options.maxSec
+        : computeMaxSecondsForClass(equipage, safeConfig);
     const comp = options.currentCompetition || null;
     let rate = PRECISION_TIME_PENALTY_RATE;
     if (Number.isFinite(safeConfig?.timePenaltyRate)) {

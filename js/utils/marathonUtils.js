@@ -323,63 +323,7 @@ export function calculateClassObstacleStats(className, obstacleNumber, allStatus
   for (const [sn, data] of allStatusMap.entries()) {
     const eq = allEquipages.find(e => String(e.startNumber) === String(sn));
     if (!eq || eq.className !== className) continue;
-    // 4. Hinder
     const obsArr = getObstacleArray(data);
-
-    // DEBUG LOG
-    if (sn === '1' || sn === '2') {
-    }
-
-    let totalObstacleSeconds = 0;
-    let totalOtherObstaclePenalty = 0;
-    let obsElim = false;
-    let maxObsNumber = 0;
-
-    // Hämta koefficient för denna klass (t.ex. 1.0 eller 0.25)
-    const obsCoeff = getObstacleCoefficient(eq.className);
-
-    const obsItems = [];
-
-    obsArr.forEach(o => {
-
-      if (o.eliminated) obsElim = true;
-
-      // Helper extracting timeSec and stored penalty
-      const { timeSec, penalty: storedPenalty } = obstacleValues(o);
-      let currentObsPenalty = 0;
-
-      // TR: Sum all times first, then convert.
-      // BUT we also store individual penalties for display.
-      if (Number.isFinite(timeSec)) {
-        totalObstacleSeconds += timeSec;
-
-        // Calculate individual for display consistency
-        currentObsPenalty = (timeSec * obsCoeff);
-
-        // Add knockdown and other penalties directly (linear)
-        const kp = Number(o.knockdownPenalty || o.knockDownPenalty || 0);
-        const op = Number(o.otherPenalty || 0);
-        totalOtherObstaclePenalty += (kp + op);
-        currentObsPenalty += (kp + op);
-      } else {
-        // Fallback: If no time, use stored penalty (could be time+knockdown sum)
-        if (Number.isFinite(storedPenalty)) {
-          totalOtherObstaclePenalty += storedPenalty;
-          currentObsPenalty = storedPenalty;
-        }
-      }
-
-      const n = Number(o.number || o.id);
-      if (Number.isFinite(n)) maxObsNumber = Math.max(maxObsNumber, n);
-
-      obsItems.push({
-        ...o,
-        number: n, // Ensure number is set explicitly
-        timeSec,
-        penalty: currentObsPenalty
-      });
-    });
-
     const obs = obsArr.find(o => Number(o.number || o.id) === Number(obstacleNumber));
 
     if (obs && !obs.eliminated) {
@@ -446,16 +390,15 @@ export function calculateProjectedPenalty(driverData, className, marathonConfig,
 
   if (driverData.eliminated) return Infinity;
 
-  // 4. Summera snitt för återstående
+  // 4. Summera snitt för återstående (klassens snittid som hindertid i motorn)
   let added = 0;
   let remaining = 0;
-  const obsCoeff = getObstacleCoefficient(className);
 
   const calculateForTarget = (i) => {
     if (!doneObs.has(i)) {
       const stats = calculateClassObstacleStats(className, i, allStatusMap, allEquipages);
       if (stats && stats.avg) {
-        added += (stats.avg * obsCoeff);
+        added += calculateObstacleResult({ timeSec: stats.avg }, { className }).timePenalty || 0;
       }
       remaining++;
     }

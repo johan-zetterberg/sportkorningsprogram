@@ -101,7 +101,7 @@ export function applySpeakerDressageCalculatedResult(dressageStatusMap, liveProt
         finalPenalty: result.penalty,
         finalJudgeScore: { percent: result.percent, points: result.points, penalty: result.penalty },
         errorPoints: result.errorPoints,
-        errorPenalty: result.penalty,
+        errorPenalty: result.errorPenalty ?? result.errorPoints ?? 0,
         ...extraFields
     });
     liveProtocolMap.delete(startNumber);
