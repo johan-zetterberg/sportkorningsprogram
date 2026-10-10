@@ -527,6 +527,31 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       totalPenalty: 23.00
     },
     {
+      startNumber: 4,
+      running: false,
+      finalized: false,
+      status: 'Vilobox',
+      start_A: now - 3600000,
+      finish_A: now - 1200000,
+      duration_A_ms: 2400000,
+      start_T: now - 1200000,
+      finish_T: now - 480000,
+      duration_T_ms: 720000,
+      start_B: null,
+      finish_B: null,
+      timing: {
+        A: { startAt: now - 3600000, stopAt: now - 1200000, durationMs: 2400000 },
+        T: { startAt: now - 1200000, stopAt: now - 480000, durationMs: 720000 },
+        B: { startAt: null, stopAt: null, durationMs: 0 }
+      },
+      times: {
+        A: { start: formatClockTime(now - 3600000), finish: formatClockTime(now - 1200000), timeSec: 2400, penalty: 0 },
+        T: { start: formatClockTime(now - 1200000), finish: formatClockTime(now - 480000), timeSec: 720, penalty: 0 }
+      },
+      obstacles: [],
+      totalPenalty: 0
+    },
+    {
       startNumber: 5,
       running: false,
       finalized: true,
@@ -548,6 +573,25 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
         { number: 6, timeSec: 42.0, penalty: 10.50 }
       ],
       totalPenalty: 75.96
+    },
+    {
+      startNumber: 6,
+      running: true,
+      finalized: false,
+      status: 'Pågår',
+      start_A: now - 1200000,
+      finish_A: null,
+      duration_A_ms: 0,
+      start_B: null,
+      finish_B: null,
+      timing: {
+        A: { startAt: now - 1200000, stopAt: null, durationMs: 0 }
+      },
+      times: {
+        A: { start: formatClockTime(now - 1200000), finish: null, timeSec: null, penalty: 0 }
+      },
+      obstacles: [],
+      totalPenalty: 0
     },
     {
       startNumber: 7,

@@ -68,10 +68,12 @@ export function buildPrecisionLiveTick(data, context = {}) {
   const elapsedMs = calculatePrecisionLiveElapsed(data, now);
   if (!isFiniteNumber(elapsedMs)) return null;
 
+  const effectiveMaxSec = isFiniteNumber(maxSec) ? maxSec : (isFiniteNumber(config?.maxSec) ? config.maxSec : null);
+
   const penalty = calculatePrecisionLivePenalty(
     data,
     equipage,
-    { ...config, maxSec },
+    { ...config, maxSec: effectiveMaxSec },
     elapsedMs
   );
   const rank = equipage
@@ -80,7 +82,7 @@ export function buildPrecisionLiveTick(data, context = {}) {
 
   return {
     elapsedMs,
-    overTime: isFiniteNumber(maxSec) && elapsedMs > maxSec * 1000,
+    overTime: isFiniteNumber(effectiveMaxSec) && elapsedMs > effectiveMaxSec * 1000,
     penalty,
     rank
   };

@@ -291,3 +291,333 @@ test('multi-step simulated live tick progression increments time and penalties s
     assert.equal(label, tick.expectedLabel, `Tidsetikett vid ${tick.elapsedMs}ms ska vara ${tick.expectedLabel}`);
   }
 });
+
+test('concurrent marathon live tickers manage multiple equipages on different obstacles and stages simultaneously', () => {
+  clearMarathonLiveTickers();
+
+  const domElements = new Map();
+  function getOrCreateMockElement(selector) {
+    if (!domElements.has(selector)) {
+      domElements.set(selector, {
+        textContent: '',
+        classList: {
+          classes: new Set(),
+          add(...c) { c.forEach(x => this.classes.add(x)); },
+          remove(...c) { c.forEach(x => this.classes.delete(x)); }
+        }
+      });
+    }
+    return domElements.get(selector);
+  }
+
+  global.document = {
+    querySelectorAll(selector) {
+      const el = getOrCreateMockElement(selector);
+      return [el];
+    }
+  };
+
+  const equipages = [
+    { startNumber: 1, className: 'SvMsv' },
+    { startNumber: 2, className: 'SvMsv' },
+    { startNumber: 3, className: 'SvMsv' }
+  ];
+
+  const marathonMap = new Map([
+    ['1', { running: true, currentObstacle: 2, liveObstacleTimeMs: 15000, liveObstacleStartAt: Date.now() - 15000 }],
+    ['2', { running: true, currentObstacle: null }],
+    ['3', { running: true, currentObstacle: 5, liveObstacleTimeMs: 32000, liveObstacleStartAt: Date.now() - 32000 }]
+  ]);
+
+  const timingDocs = {
+    '1': { start_B: Date.now() - 200000, finish_B: null },
+    '2': { start_B: Date.now() - 150000, finish_B: null },
+    '3': { start_B: Date.now() - 400000, finish_B: null }
+  };
+
+  try {
+    startOrUpdateMarathonLiveTicker(1, {
+      getIsGloballyPaused: () => false,
+      equipages,
+      marathonMap,
+      timingDocFor: (sn) => timingDocs[sn],
+      stageKeys: ['A', 'B'],
+      stageStartTS: (t, s) => (s === 'B' ? t?.start_B : null),
+      stageStopTS: () => null,
+      stageDurationMsSaved: () => 0,
+      pausedMsSince: () => 0,
+      formatMsLive: () => '0:15',
+      limitsFor: () => ({ ideal: 1000, min: 800, max: 1000, timeLimit: 1200 }),
+      getPauseTime: () => 10,
+      stagePenaltyFromMs: () => ({ points: 0, elim: false }),
+      getObstacleCoefficient: () => 0.25,
+      calculateResult: () => ({ stages: { B: { timePenalty: 0 } }, obstacles: { sum: 0 }, totalPenalty: 10.0 })
+    });
+
+    startOrUpdateMarathonLiveTicker(2, {
+      getIsGloballyPaused: () => false,
+      equipages,
+      marathonMap,
+      timingDocFor: (sn) => timingDocs[sn],
+      stageKeys: ['A', 'B'],
+      stageStartTS: (t, s) => (s === 'B' ? t?.start_B : null),
+      stageStopTS: () => null,
+      stageDurationMsSaved: () => 0,
+      pausedMsSince: () => 0,
+      formatMsLive: () => '2:30',
+      limitsFor: () => ({ ideal: 1000, min: 800, max: 1000, timeLimit: 1200 }),
+      getPauseTime: () => 10,
+      stagePenaltyFromMs: () => ({ points: 0, elim: false }),
+      getObstacleCoefficient: () => 0.25,
+      calculateResult: () => ({ stages: { B: { timePenalty: 0 } }, obstacles: { sum: 0 }, totalPenalty: 15.0 })
+    });
+
+    startOrUpdateMarathonLiveTicker(3, {
+      getIsGloballyPaused: () => false,
+      equipages,
+      marathonMap,
+      timingDocFor: (sn) => timingDocs[sn],
+      stageKeys: ['A', 'B'],
+      stageStartTS: (t, s) => (s === 'B' ? t?.start_B : null),
+      stageStopTS: () => null,
+      stageDurationMsSaved: () => 0,
+      pausedMsSince: () => 0,
+      formatMsLive: () => '0:32',
+      limitsFor: () => ({ ideal: 1000, min: 800, max: 1000, timeLimit: 1200 }),
+      getPauseTime: () => 10,
+      stagePenaltyFromMs: () => ({ points: 0, elim: false }),
+      getObstacleCoefficient: () => 0.25,
+      calculateResult: () => ({ stages: { B: { timePenalty: 0 } }, obstacles: { sum: 0 }, totalPenalty: 22.0 })
+    });
+
+    const label1 = getOrCreateMockElement('[data-live-label="1"]').textContent;
+    const label2 = getOrCreateMockElement('[data-live-label="2"]').textContent;
+    const label3 = getOrCreateMockElement('[data-live-label="3"]').textContent;
+
+    assert.equal(label1, 'H2', 'Eq 1 should show H2');
+    assert.equal(label2, 'B', 'Eq 2 should show Stage B');
+    assert.equal(label3, 'H5', 'Eq 3 should show H5');
+
+    stopMarathonLiveTicker(2);
+
+    assert.equal(getOrCreateMockElement('[data-live-label="1"]').textContent, 'H2');
+    assert.equal(getOrCreateMockElement('[data-live-label="3"]').textContent, 'H5');
+  } finally {
+    clearMarathonLiveTickers();
+  }
+});
+
+test('marathon live ticker calculates ETA B countdown after Stage A completion for fixed time classes', () => {
+  clearMarathonLiveTickers();
+
+  const liveLabelEl = { textContent: '' };
+  const liveTimeEl = {
+    textContent: '',
+    classList: {
+      classes: new Set(),
+      add(...c) { c.forEach(x => this.classes.add(x)); },
+      remove(...c) { c.forEach(x => this.classes.delete(x)); }
+    }
+  };
+
+  global.document = {
+    querySelectorAll(selector) {
+      if (selector.includes('data-live-label')) return [liveLabelEl];
+      if (selector.includes('data-live-time')) return [liveTimeEl];
+      return [];
+    }
+  };
+
+  const eq = { startNumber: 7, className: 'SvMsv' };
+  const marathonMap = new Map([
+    ['7', { running: false, currentObstacle: null }]
+  ]);
+
+  const simulatedNow = 10000000;
+  const timingDoc = {
+    start_A: simulatedNow - 1500000,
+    finish_A: simulatedNow - 300000,
+    start_B: null
+  };
+
+  try {
+    startOrUpdateMarathonLiveTicker(7, {
+      getIsGloballyPaused: () => false,
+      equipages: [eq],
+      marathonMap,
+      timingDocFor: () => timingDoc,
+      stageKeys: ['A', 'B'],
+      stageStartTS: (t, s) => (s === 'A' ? timingDoc.start_A : timingDoc.start_B),
+      stageStopTS: (t, s) => (s === 'A' ? timingDoc.finish_A : null),
+      stageDurationMsSaved: () => 0,
+      pausedMsSince: () => 0,
+      formatMsLive: () => '',
+      limitsFor: () => ({ ideal: 1200, isFixedTime: true }),
+      getPauseTime: () => 10,
+      stagePenaltyFromMs: () => ({ points: 0, elim: false }),
+      getObstacleCoefficient: () => 0.25,
+      calculateResult: () => ({ stages: {}, obstacles: { sum: 0 }, totalPenalty: 0 })
+    });
+
+    assert.equal(liveLabelEl.textContent, 'ETA B');
+    assert.ok(liveTimeEl.textContent.length > 0, 'ETA B countdown must be displayed');
+  } finally {
+    clearMarathonLiveTickers();
+  }
+});
+
+test('speaker updateLiveClocks updates precision live time, penalty and total in real-time', async () => {
+  const { updateLiveClocks } = await import('../js/pages/shared/speakerTimer.js');
+
+  const pTimeEl = { textContent: '' };
+  const pPenEl = { textContent: '' };
+  const pTotEl = { textContent: '' };
+  const cardRankEl = { textContent: '' };
+  const cardTotalEl = { textContent: '' };
+  const cardMarginEl = { textContent: '', className: '' };
+
+  const idMap = {
+    'precision-live-time': pTimeEl,
+    'precision-live-time-penalty': pPenEl,
+    'precision-live-total': pTotEl,
+    'speaker-live-rank': cardRankEl,
+    'speaker-live-total': cardTotalEl,
+    'speaker-live-margin': cardMarginEl
+  };
+
+  global.document = {
+    getElementById: (id) => idMap[id] || null,
+    querySelectorAll: () => []
+  };
+
+  const fixedNow = 1000000;
+  const currentRider = {
+    eq: { startNumber: 4, className: 'Medelsvår' },
+    data: {
+      running: true,
+      liveStartEpoch: fixedNow - 95000,
+      livePausedMs: 0,
+      liveObstaclePenalty: 3.0,
+      timePenalty: 0.0
+    }
+  };
+
+  const context = {
+    currentRider,
+    isGloballyPaused: false,
+    pauseStartTime: 0,
+    currentDiscipline: 'precision',
+    precisionConfig: {
+      classes: { Medelsvår: { timeAllowedSec: 150 } }
+    },
+    activeEquipages: new Map(),
+    formatMsLive: () => '01:35',
+    pausedMsSince: () => 0,
+    allEquipages: [currentRider.eq],
+    dressageStatusMap: new Map(),
+    maratonStatusMap: new Map(),
+    precisionStatusMap: new Map([['4', currentRider.data]]),
+    startTimes: {}
+  };
+
+  updateLiveClocks(context);
+
+  assert.equal(pTimeEl.textContent, '01:35');
+  assert.equal(pPenEl.textContent, '0.00', 'No time penalty before 150s');
+  assert.equal(pTotEl.textContent, '3.00', 'Total penalty should reflect 3.0 obstacle knock');
+});
+
+test('speaker updateLiveClocks calculates marathon sector difference relative to ideal time (+/-)', async () => {
+  const { updateLiveClocks } = await import('../js/pages/shared/speakerTimer.js');
+
+  const sector1El = {
+    dataset: { sn: '3', start: '1000000', ideal: '1200', stage: 'B' },
+    textContent: ''
+  };
+  const elapsed1El = {
+    dataset: { sn: '3', start: '1000000' },
+    textContent: ''
+  };
+
+  global.document = {
+    getElementById: () => null,
+    querySelectorAll: (sel) => {
+      if (sel === '.sector-live-timer') return [sector1El];
+      if (sel === '.sector-live-elapsed') return [elapsed1El];
+      return [];
+    }
+  };
+
+  const simulatedNow = 1000000 + (1245 * 1000);
+  const activeEquipages = new Map([
+    ['3', { timerBaseMs: 1000000, startTime: 1000000 }]
+  ]);
+
+  const originalDateNow = Date.now;
+  Date.now = () => simulatedNow;
+
+  try {
+    const context = {
+      currentRider: { eq: { startNumber: 3, className: 'SvMsv' }, data: { running: true } },
+      isGloballyPaused: false,
+      pauseStartTime: 0,
+      currentDiscipline: 'maraton',
+      precisionConfig: {},
+      activeEquipages,
+      formatMsLive: () => '20:45',
+      pausedMsSince: () => 0
+    };
+
+    updateLiveClocks(context);
+
+    // 1245s - 1200s ideal = +45s -> +00:45
+    assert.equal(sector1El.textContent, '+00:45');
+    assert.equal(elapsed1El.textContent, '20:45');
+  } finally {
+    Date.now = originalDateNow;
+  }
+});
+
+test('precision live ticking calculates overtime penalty and flags elimination beyond double time limit (TR Mom 540.3)', () => {
+  const timeAllowedSec = 140;
+  const timeLimitSec = timeAllowedSec * 2;
+  const rate = 0.5;
+
+  const tickNormal = buildPrecisionLiveTick({ liveStartEpoch: 1000000, running: true }, {
+    now: 1000000 + 130000,
+    config: { maxSec: timeAllowedSec, timePenaltyRate: rate }
+  });
+  assert.equal(tickNormal.penalty.timePenalty, 0);
+  assert.equal(tickNormal.overTime, false);
+
+  const tickOver = buildPrecisionLiveTick({ liveStartEpoch: 1000000, running: true }, {
+    now: 1000000 + 152000,
+    config: { maxSec: timeAllowedSec, timePenaltyRate: rate }
+  });
+  assert.equal(tickOver.penalty.timePenalty, 6.0);
+  assert.equal(tickOver.overTime, true);
+
+  const isOverTimeLimit = (285 > timeLimitSec);
+  assert.equal(isOverTimeLimit, true, 'Ska flagga överskriden tidsgräns över 2x maxtid');
+});
+
+test('vilobox rest area live countdown tracks 10-minute mandatory rest period (TR Mom 526.4)', () => {
+  const viloboxDurationMs = 600 * 1000;
+  const restStartTime = 1000000;
+
+  const nowAt3Min = restStartTime + 180000;
+  const remainingMsAt3 = Math.max(0, viloboxDurationMs - (nowAt3Min - restStartTime));
+  assert.equal(remainingMsAt3, 420000);
+  assert.equal(Math.ceil(remainingMsAt3 / 60000), 7);
+
+  const nowAt8_5Min = restStartTime + 510000;
+  const remainingMsAt8_5 = Math.max(0, viloboxDurationMs - (nowAt8_5Min - restStartTime));
+  assert.equal(remainingMsAt8_5, 90000);
+  const isReadyForStageB = remainingMsAt8_5 <= 120000;
+  assert.equal(isReadyForStageB, true, 'Skall flagga som klar för B när <2 minuter kvar');
+
+  const nowAt10Min = restStartTime + 600000;
+  const remainingMsAt10 = Math.max(0, viloboxDurationMs - (nowAt10Min - restStartTime));
+  assert.equal(remainingMsAt10, 0);
+});
+

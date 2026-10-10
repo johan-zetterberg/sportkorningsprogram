@@ -174,3 +174,44 @@ test('buildDemoCompetitionDataset provides live running precision equipage #4 on
   assert.equal(penalty.totalPenalty, 3.0);
 });
 
+test('buildDemoCompetitionDataset provides live running marathon equipage #6 on stage A', async () => {
+  const fixedNow = 1778930000000;
+  const data = buildDemoCompetitionDataset({ now: fixedNow });
+  const m6 = data.marathonRecords.find(m => m.startNumber === 6);
+
+  assert.ok(m6, 'Equipage #6 must exist in marathon records');
+  assert.equal(m6.running, true);
+  assert.equal(m6.finalized, false);
+  assert.equal(m6.start_A, fixedNow - 1200000);
+  assert.equal(m6.finish_A, null);
+
+  const eq6 = data.equipages.find(e => e.startNumber === 6);
+  const { buildSpeakerMarathonActiveEntry } = await import('../js/pages/shared/speakerMarathonActiveState.js');
+  const active = buildSpeakerMarathonActiveEntry(6, eq6, m6, { now: fixedNow });
+
+  assert.ok(active !== null, 'Speaker active entry should detect equipage #6 as live');
+  assert.equal(active.task.type, 'stage');
+  assert.equal(active.task.name, 'Etapp A');
+  assert.equal(active.timerBaseMs, fixedNow - 1200000);
+});
+
+test('buildDemoCompetitionDataset provides live marathon equipage #4 in vilobox 10-minute rest area', async () => {
+  const fixedNow = 1778930000000;
+  const data = buildDemoCompetitionDataset({ now: fixedNow });
+  const m4 = data.marathonRecords.find(m => m.startNumber === 4);
+
+  assert.ok(m4, 'Equipage #4 must exist in marathon records');
+  assert.equal(m4.status, 'Vilobox');
+  assert.ok(m4.finish_A > 0, 'Stage A should be finished');
+  assert.equal(m4.start_B, null, 'Stage B should not be started yet');
+
+  const eq4 = data.equipages.find(e => e.startNumber === 4);
+  const { buildSpeakerMarathonActiveEntry } = await import('../js/pages/shared/speakerMarathonActiveState.js');
+  const active = buildSpeakerMarathonActiveEntry(4, eq4, m4, { now: fixedNow });
+
+  assert.ok(active !== null, 'Speaker active entry should detect equipage #4 in vilobox');
+  assert.equal(active.task.type, 'transport');
+  assert.ok(active.task.name.includes('Vilobox'), 'Task name should indicate Vilobox');
+});
+
+
