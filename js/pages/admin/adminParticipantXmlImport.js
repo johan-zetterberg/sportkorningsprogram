@@ -177,6 +177,7 @@ export async function parseEqEntriesXml(file) {
                                 marathonTrackWidthSource = 'registry';
                             }
                         }
+                    }
 
                     const tdbClassLabel = (propInfo && propInfo.label) || '';
                     const tdbHorseCode = ((propInfo && propInfo.horse) || '').toUpperCase(); // 'H','P','A','B','C','D'
