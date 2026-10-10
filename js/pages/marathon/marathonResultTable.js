@@ -18,15 +18,21 @@ export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObsta
     const placeMarkup = Number.isFinite(place)
       ? `<div class="text-[9px] lg:text-[10px] leading-tight text-gray-500 dark:text-gray-400">(${place})</div>`
       : '';
+    const holdSec = (obsItem && Number.isFinite(Number(obsItem.holdTimeSec)) && Number(obsItem.holdTimeSec) > 0) ? Number(obsItem.holdTimeSec) : 0;
     const title = [
       `Hinder ${n}`,
       timeSec !== null ? `Tid: ${formatObstacleSeconds(timeSec)} s (${formatObstacleClock(timeSec)})` : null,
+      holdSec > 0 ? `Uppehållsavdrag: -${holdSec.toFixed(1)}s` : null,
       finalP !== null ? `Straff: ${finalP.toFixed(2)}` : null,
       Number.isFinite(place) ? `Plac i klassen: ${place}` : null
     ].filter(Boolean).join(' | ');
 
+    const holdMarkup = holdSec > 0
+      ? ` <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold" title="Uppehållsavdrag: -${holdSec.toFixed(1)}s">(-${Math.round(holdSec)}s)</span>`
+      : '';
+
     return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${res.startNumber}" data-obs="${n}" title="${title}">
-                    <span data-cell="obsVal">${label}</span>
+                    <span data-cell="obsVal">${label}</span>${holdMarkup}
                     ${placeMarkup}
                 </td>`;
   }).join('');

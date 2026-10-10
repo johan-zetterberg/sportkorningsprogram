@@ -45,15 +45,34 @@ test('speaker marathon active entry shows recent obstacle result flash', () => {
   assert.equal(entry.startTime, 90000);
 });
 
-test('speaker marathon active entry detects transport wait before B', () => {
-  const entry = buildSpeakerMarathonActiveEntry('12', eq, {
+test('speaker marathon active entry detects transport wait before B and resolves Vilobox status', () => {
+  const entryWaiting = buildSpeakerMarathonActiveEntry('12', eq, {
     start_A: 1000,
     finish_A: 2000
   }, 3000);
 
-  assert.equal(entry.task.type, 'transport');
-  assert.equal(entry.task.key, 'wait_b');
-  assert.equal(entry.timerBaseMs, 2000);
+  assert.equal(entryWaiting.task.type, 'transport');
+  assert.equal(entryWaiting.task.key, 'wait_b');
+  assert.equal(entryWaiting.task.name, 'Vilobox (10 min)');
+  assert.equal(entryWaiting.timerBaseMs, 2000);
+
+  const entryApproved = buildSpeakerMarathonActiveEntry('12', {
+    ...eq,
+    horses: [{ name: 'Häst', phases: { restArea: { status: 'besiktigad' } } }]
+  }, {
+    start_A: 1000,
+    finish_A: 2000
+  }, 3000);
+  assert.equal(entryApproved.task.name, 'Vilobox (Klar för B)');
+
+  const entryUnfit = buildSpeakerMarathonActiveEntry('12', {
+    ...eq,
+    horses: [{ name: 'Häst', phases: { restArea: { status: 'struken' } } }]
+  }, {
+    start_A: 1000,
+    finish_A: 2000
+  }, 3000);
+  assert.equal(entryUnfit.task.name, 'Vilobox (Startförbud B)');
 });
 
 test('speaker marathon active entry ignores withdrawn inactive equipages', () => {

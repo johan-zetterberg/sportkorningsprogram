@@ -21,10 +21,11 @@ export function buildVetCheckPdfRows(equipages = []) {
             : [{ name: eq.horseName || eq.horse || '—', type: eq.category || '' }];
 
         horses.forEach((h, hIdx) => {
+            const getPhaseData = (key) => h.inspections?.[key] || h.phases?.[key] || {};
             const initialStatus = formatVetInspectionStatus(h.vetStatus || eq.status);
-            const harnessStatus = formatVetInspectionStatus(h.phases?.harness?.status);
+            const harnessStatus = formatVetInspectionStatus(getPhaseData('harness').status);
 
-            const restArea = h.phases?.restArea || {};
+            const restArea = getPhaseData('restArea');
             let restStatus = '[   ]';
             if (restArea.pulseBpm) {
                 const bpm = Number(restArea.pulseBpm);
@@ -37,7 +38,7 @@ export function buildVetCheckPdfRows(equipages = []) {
                 restStatus = formatVetInspectionStatus(restArea.status);
             }
 
-            const finalStatus = formatVetInspectionStatus(h.phases?.final?.status);
+            const finalStatus = formatVetInspectionStatus(getPhaseData('final').status);
             const notes = [h.vetNote, eq.vetNote, restArea.notes].filter(Boolean).join('; ');
 
             rows.push([

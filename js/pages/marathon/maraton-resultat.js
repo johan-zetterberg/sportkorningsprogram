@@ -465,7 +465,10 @@ function renderTable() {
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center font-bold text-gray-700 dark:text-gray-300 text-[11px] lg:text-sm">${isNum(place) ? place : '—'}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm font-medium text-gray-900 dark:text-white">${sn}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowBgClass || ''}">
-            <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate" title="${eq.driverName || '-'}">${eq.driverName || '-'}</div>
+            <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1.5" title="${eq.driverName || '-'}">
+              <span class="truncate">${eq.driverName || '-'}</span>
+              ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0" title="Kusken har ${eq.driverStartCount || 2} starter i tävlingen">${eq.driverStartCount || 2} st</span>` : ''}
+            </div>
             <div class="hidden lg:block text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-nowrap">${getMomentHorseLabelStacked(eq, 'marathon')}</div>
         </td>
         ${isClass ? '' : `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400"><div class="truncate max-w-[100px] lg:max-w-none" title="${eq._mergedLabel || eq.className || ''}">${eq._mergedLabel || eq.className || '-'}</div></td>`}

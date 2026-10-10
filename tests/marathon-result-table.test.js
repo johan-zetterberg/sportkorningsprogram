@@ -19,3 +19,18 @@ test('marathon result obstacle cells display obstacle time and keep penalty in t
   assert.match(html, /Straff: 10.96/);
   assert.doesNotMatch(html, />10\.96</);
 });
+
+test('marathon result obstacle cells display hold time deduction in title and inline badge', () => {
+  const html = rowObstacleCells({
+    startNumber: 15,
+    obstacles: {
+      items: [
+        { number: 1, timeSec: 52.4, holdTimeSec: 8.5, penalty: 13.1 }
+      ]
+    }
+  }, 1);
+
+  assert.match(html, /Uppehållsavdrag: -8\.5s/);
+  assert.match(html, /\(-9s\)/);
+});
+

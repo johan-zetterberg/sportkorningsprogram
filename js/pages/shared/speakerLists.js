@@ -253,7 +253,10 @@ export function renderUpcomingList(ctx) {
         return `
     <div class="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded hover:bg-white dark:hover:bg-gray-600 border border-transparent hover:border-gray-200 dark:hover:border-gray-500 transition-colors">
             <div class="min-w-0">
-                <div class="font-bold text-gray-900 dark:text-white truncate">#${escapeHtml(String(eq.startNumber ?? ''))} ${escapeHtml(eq.driverName || '')}</div>
+                <div class="font-bold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
+                    <span>#${escapeHtml(String(eq.startNumber ?? ''))} ${escapeHtml(eq.driverName || '')}</span>
+                    ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300" title="Kusken har flera starter (TR Mom 535.4)">${eq.driverStartCount || 2} st</span>` : ''}
+                </div>
                 <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${escapeHtml(eq.clubName || '')}</div>
             </div>
             <div class="text-right shrink-0">

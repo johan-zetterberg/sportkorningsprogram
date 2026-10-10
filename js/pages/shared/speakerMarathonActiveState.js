@@ -1,3 +1,5 @@
+import { getViloboxBadgeInfo } from './vetCheckUtils.js';
+
 function timestampToMs(value) {
     if (!value) return 0;
     if (typeof value.toMillis === 'function') return value.toMillis();
@@ -142,7 +144,22 @@ export function buildSpeakerMarathonActiveEntry(sn, eq, data, options = {}) {
             const hasStartB = getStageStartTS(data, 'B');
             if (hasStopA && !hasStartB) {
                 isActive = true;
-                task = { type: 'transport', name: 'Transport / Paus', key: 'wait_b' };
+                const vBadge = typeof options?.getViloboxBadgeInfo === 'function'
+                    ? options.getViloboxBadgeInfo(eq)
+                    : getViloboxBadgeInfo(eq);
+
+                let viloboxLabel = 'Vilobox / Paus';
+                if (vBadge?.status === 'approved') viloboxLabel = 'Vilobox (Klar för B)';
+                else if (vBadge?.status === 'unfit') viloboxLabel = 'Vilobox (Startförbud B)';
+                else if (vBadge?.status === 'hold') viloboxLabel = 'Vilobox (Ombesiktning)';
+                else if (vBadge?.status === 'waiting') viloboxLabel = 'Vilobox (10 min)';
+
+                task = {
+                    type: 'transport',
+                    name: viloboxLabel,
+                    key: 'wait_b',
+                    viloboxInfo: vBadge
+                };
                 timerBaseMs = hasStopA;
                 startTime = hasStopA;
             }

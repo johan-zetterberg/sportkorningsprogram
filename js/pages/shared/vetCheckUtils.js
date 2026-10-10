@@ -90,7 +90,7 @@ export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld
 
   const statuses = list.map(horse => {
     if (phase === 'initial') return getHorseVetStatus(horse);
-    const pData = horse.inspections?.[phase];
+    const pData = horse.inspections?.[phase] || horse.phases?.[phase];
     return normalizeVetStatus(pData?.status || 'anmäld');
   });
 

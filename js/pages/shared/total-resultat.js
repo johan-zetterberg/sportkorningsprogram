@@ -712,7 +712,10 @@ function renderDesktop() {
       }</td>
       <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm sticky-col-start">${r.startNumber ?? ''}</td>
          <td class="px-2 py-1.5 lg:px-3 lg:py-2 sticky-col-driver">
-      <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight">${escapeHtml(r.driverName || '')}</div>
+      <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight flex items-center gap-1.5 flex-wrap">
+        <span>${escapeHtml(r.driverName || '')}</span>
+        ${eq?.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${eq.driverStartCount || 2} starter i tävlingen">${eq.driverStartCount || 2} st</span>` : ''}
+      </div>
       ${(() => {
         const names = [];
         if (eq?.horseName) names.push(String(eq.horseName));

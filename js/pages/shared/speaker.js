@@ -1014,7 +1014,16 @@ function renderCurrentRiderCard() {
                 <div class="text-xl text-gray-600 dark:text-gray-300 mb-2 flex items-center gap-2">
                     ${getClubLogoHtml(eq)} ${safeClubName} ${eq.address?.city ? `<span class="text-gray-400 mx-1">•</span> <span class="text-sm font-medium text-gray-500 dark:text-gray-400">${safeCity}</span>` : ''} ${getFlagHtml(eq)}
                 </div>
-                ${eq.groom ? `<div class="text-sm font-bold text-blue-600 dark:text-blue-400 mb-4 bg-blue-50 dark:bg-blue-900/30 w-fit px-2 py-0.5 rounded">Groom: ${safeGroom}</div>` : '<div class="mb-4"></div>'}
+                ${eq.groom ? `<div class="text-sm font-bold text-blue-600 dark:text-blue-400 mb-2 bg-blue-50 dark:bg-blue-900/30 w-fit px-2 py-0.5 rounded">Groom: ${safeGroom}</div>` : ''}
+                ${(() => {
+                    const isMultiStart = eq.hasMultipleStarts || allEquipages.filter(e => (e.driverName || '').trim().toLowerCase() === (eq.driverName || '').trim().toLowerCase()).length > 1;
+                    const otherStarts = allEquipages.filter(e => (e.driverName || '').trim().toLowerCase() === (eq.driverName || '').trim().toLowerCase() && String(e.startNumber) !== String(eq.startNumber));
+                    if (!isMultiStart || !otherStarts.length) return '<div class="mb-4"></div>';
+                    return `
+                    <div class="inline-flex items-center gap-1.5 rounded-full bg-indigo-100 dark:bg-indigo-900/50 px-2.5 py-0.5 text-xs font-bold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 mb-3" title="Kusken har flera starter (Minst 30 min kuskbuffert enligt TR Mom 535.4)">
+                        <i class="fa fa-clone text-[11px]"></i> ${otherStarts.length + 1} starter • Även start: ${otherStarts.map(o => '#' + o.startNumber + (o.horses?.[0]?.name ? ' ' + o.horses[0].name : '')).join(', ')}
+                    </div>`;
+                })()}
                 
                 <!-- CLICKABLE MAIN NAME -->
                 <div onclick="window.showRiderDetails('${safeStartNumber}')" class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded p-1 -ml-1 transition-colors group">
@@ -1291,7 +1300,9 @@ function renderCurrentRiderCard() {
                 if (p <= stats.bestTime + 0.01) colorClass = 'bg-green-100 text-green-800 font-bold border-green-200 dark:bg-green-900/50 dark:text-green-300 dark:border-green-800';
                 else if (stats.avg && p < stats.avg) colorClass = 'bg-yellow-100 text-yellow-800 border-yellow-200 dark:bg-yellow-900/50 dark:text-yellow-300 dark:border-yellow-800';
             }
-            return `<span class="px-1.5 py-0.5 rounded text-[10px] tabular-nums tracking-wide border ${colorClass}" title="${Number.isFinite(p) ? formatSpeakerObstacleClock(p) : ''}">H${o.number}: ${Number.isFinite(p) ? p.toFixed(2) : '-'}</span>`;
+            const holdSec = Number(o.holdTimeSec || (o.holdTimeMs ? Math.round(o.holdTimeMs / 1000) : 0));
+            const holdBadge = holdSec > 0 ? ` <span class="text-blue-600 dark:text-blue-400 font-bold" title="Hinderuppehåll: ${holdSec}s avräknat från B">(-${holdSec}s)</span>` : '';
+            return `<span class="px-1.5 py-0.5 rounded text-[10px] tabular-nums tracking-wide border ${colorClass}" title="${Number.isFinite(p) ? formatSpeakerObstacleClock(p) : ''}">H${o.number}: ${Number.isFinite(p) ? p.toFixed(2) : '-'}${holdBadge}</span>`;
         }).join('');
 
         contentHtml = `
@@ -1312,6 +1323,25 @@ function renderCurrentRiderCard() {
                         </div>
                     </div>
                     ${splitDiffHtml}
+                    ${(() => {
+                        const vb = active.task?.viloboxInfo;
+                        if (!vb && active.task?.key !== 'wait_b') return '';
+                        const pulse = eq.horses?.[0]?.phases?.restArea?.pulseBpm || eq.horses?.[0]?.inspections?.restArea?.pulseBpm;
+                        const pulseWarn = pulse && Number(pulse) > 64;
+                        let bgCls = 'bg-blue-100/60 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200';
+                        if (vb?.status === 'approved') bgCls = 'bg-emerald-100/70 dark:bg-emerald-900/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200';
+                        else if (vb?.status === 'unfit') bgCls = 'bg-rose-100/80 dark:bg-rose-900/50 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 font-bold';
+                        else if (vb?.status === 'hold') bgCls = 'bg-amber-100/80 dark:bg-amber-900/50 border-amber-300 dark:border-amber-800 text-amber-900 dark:text-amber-200';
+
+                        return `
+                        <div class="mt-2.5 p-2 rounded-lg border text-xs flex items-center justify-between gap-2 ${bgCls}">
+                            <div class="flex items-center gap-1.5 min-w-0">
+                                <span class="text-sm">🩺</span>
+                                <span class="font-bold truncate">Vilobox: ${escapeHtml(vb?.label || '10 min vila (TR Mom 526)')}</span>
+                            </div>
+                            ${pulse ? `<span class="tabular-nums font-extrabold ${pulseWarn ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300'}">${pulse} bpm${pulseWarn ? ' ⚠️' : ''}</span>` : ''}
+                        </div>`;
+                    })()}
                 </div>
 
                 <!-- Secondary Stats (Right) -->
