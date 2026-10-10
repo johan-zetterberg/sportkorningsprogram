@@ -113,21 +113,21 @@ function calculateLegacyTeamResults(teams, equipageResults) {
         validDressage.sort((a, b) => a.dressage - b.dressage);
         const countingDressage = validDressage.slice(0, 3);
         countingDressage.forEach(m => m.isCountingDressage = true);
-        const teamDressage = countingDressage.length > 0 ? countingDressage.reduce((sum, m) => sum + m.dressage, 0) : null;
+        const teamDressage = countingDressage.length > 0 ? Math.round(countingDressage.reduce((sum, m) => sum + m.dressage, 0) * 100) / 100 : null;
 
         // 2. MARATHON
         const validMarathon = members.filter(m => m.marathon !== null && !m.isMarathonElim);
         validMarathon.sort((a, b) => a.marathon - b.marathon);
         const countingMarathon = validMarathon.slice(0, 3);
         countingMarathon.forEach(m => m.isCountingMarathon = true);
-        const teamMarathon = countingMarathon.length > 0 ? countingMarathon.reduce((sum, m) => sum + m.marathon, 0) : null;
+        const teamMarathon = countingMarathon.length > 0 ? Math.round(countingMarathon.reduce((sum, m) => sum + m.marathon, 0) * 100) / 100 : null;
 
         // 3. PRECISION
         const validPrecision = members.filter(m => m.precision !== null && !m.isPrecisionElim);
         validPrecision.sort((a, b) => a.precision - b.precision);
         const countingPrecision = validPrecision.slice(0, 3);
         countingPrecision.forEach(m => m.isCountingPrecision = true);
-        const teamPrecision = countingPrecision.length > 0 ? countingPrecision.reduce((sum, m) => sum + m.precision, 0) : null;
+        const teamPrecision = countingPrecision.length > 0 ? Math.round(countingPrecision.reduce((sum, m) => sum + m.precision, 0) * 100) / 100 : null;
 
         // Set counting flags and overall counting flag for UI
         members.forEach(m => {
@@ -146,9 +146,9 @@ function calculateLegacyTeamResults(teams, equipageResults) {
         const hasFewerThanThreeStarters = potentiallyCountingCount < 3;
         const isIncomplete = !isEliminated && (isAnyCountingIncomplete || hasFewerThanThreeStarters || teamDressage === null || teamMarathon === null || teamPrecision === null);
 
-        const teamTotal = (teamDressage !== null ? teamDressage : 0) +
+        const teamTotal = Math.round(((teamDressage !== null ? teamDressage : 0) +
                           (teamMarathon !== null ? teamMarathon : 0) +
-                          (teamPrecision !== null ? teamPrecision : 0);
+                          (teamPrecision !== null ? teamPrecision : 0)) * 100) / 100;
 
         return {
             teamId: team.id,
@@ -374,7 +374,7 @@ function calculateLagSmResults(teams, equipageResults, profile) {
             });
 
             teamScores[discipline] = countingMembers.length === profile.countingPerDiscipline
-                ? countingMembers.reduce((sum, member) => sum + member[discipline], 0)
+                ? Math.round(countingMembers.reduce((sum, member) => sum + member[discipline], 0) * 100) / 100
                 : null;
         });
 
@@ -397,7 +397,7 @@ function calculateLagSmResults(teams, equipageResults, profile) {
         return {
             teamId: team.id,
             teamName: team.name,
-            total: isIncomplete ? null : teamScores.dressage + teamScores.marathon + teamScores.precision,
+            total: isIncomplete ? null : Math.round((teamScores.dressage + teamScores.marathon + teamScores.precision) * 100) / 100,
             dressage: teamScores.dressage,
             marathon: teamScores.marathon,
             precision: teamScores.precision,
@@ -691,7 +691,7 @@ function calculateFeiResults(teams, equipageResults, profile) {
                 member[`isCounting${discipline[0].toUpperCase()}${discipline.slice(1)}`] = true;
             });
             teamScores[discipline] = countingMembers.length === profile.countingPerDiscipline
-                ? countingMembers.reduce((sum, member) => sum + member[discipline], 0)
+                ? Math.round(countingMembers.reduce((sum, member) => sum + member[discipline], 0) * 100) / 100
                 : null;
         });
 
@@ -712,7 +712,7 @@ function calculateFeiResults(teams, equipageResults, profile) {
             teamId: team.id,
             teamName: team.name,
             total: (!isInvalid && !isIneligible && hasAllMomentScores)
-                ? teamScores.dressage + teamScores.marathon + teamScores.precision
+                ? Math.round((teamScores.dressage + teamScores.marathon + teamScores.precision) * 100) / 100
                 : null,
             dressage: teamScores.dressage,
             marathon: teamScores.marathon,

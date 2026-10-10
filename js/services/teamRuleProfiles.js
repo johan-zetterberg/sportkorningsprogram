@@ -84,7 +84,8 @@ const TEAM_SCORING_PROFILES = {
   }
 };
 
-export function getTeamScoringProfile(profileId) {
+export function getTeamScoringProfile(profileOrId) {
+  const profileId = profileOrId && typeof profileOrId === 'object' ? profileOrId.id : profileOrId;
   return TEAM_SCORING_PROFILES[profileId]
     || TEAM_SCORING_PROFILES[TEAM_SCORING_PROFILE_IDS.LEGACY_BEST_THREE];
 }
