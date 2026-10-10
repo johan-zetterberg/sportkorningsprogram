@@ -207,37 +207,39 @@ test('marathonResultLiveTicker updates DOM and stops cleanly', () => {
   };
 
   let tickCount = 0;
-  startOrUpdateMarathonLiveTicker(5, {
-    getIsGloballyPaused: () => false,
-    equipages: [eq],
-    marathonMap,
-    timingDocFor: () => timingDoc,
-    stageKeys: ['A', 'B'],
-    stageStartTS: (t, s) => (s === 'B' ? 1000000 : null),
-    stageStopTS: () => null,
-    stageDurationMsSaved: () => 0,
-    pausedMsSince: () => 0,
-    formatMsLive: (ms) => '12:34',
-    limitsFor: () => ({ ideal: 1000, min: 800, max: 1000, timeLimit: 1200 }),
-    getPauseTime: () => 10,
-    stagePenaltyFromMs: () => ({ points: 2.50, elim: false }),
-    getObstacleCoefficient: () => 0.25,
-    calculateResult: () => ({
-      stages: { B: { timePenalty: 2.50 } },
-      obstacles: { sum: 0 },
-      totalPenalty: 45.50
-    })
-  });
+  try {
+    startOrUpdateMarathonLiveTicker(5, {
+      getIsGloballyPaused: () => false,
+      equipages: [eq],
+      marathonMap,
+      timingDocFor: () => timingDoc,
+      stageKeys: ['A', 'B'],
+      stageStartTS: (t, s) => (s === 'B' ? 1000000 : null),
+      stageStopTS: () => null,
+      stageDurationMsSaved: () => 0,
+      pausedMsSince: () => 0,
+      formatMsLive: (ms) => '12:34',
+      limitsFor: () => ({ ideal: 1000, min: 800, max: 1000, timeLimit: 1200 }),
+      getPauseTime: () => 10,
+      stagePenaltyFromMs: () => ({ points: 2.50, elim: false }),
+      getObstacleCoefficient: () => 0.25,
+      calculateResult: () => ({
+        stages: { B: { timePenalty: 2.50 } },
+        obstacles: { sum: 0 },
+        totalPenalty: 45.50
+      })
+    });
 
-  // Verifiera att run() kördes omedelbart och inte dubbelräknar tidsstraff som redan finns i baseRes
-  assert.equal(liveLabelEl.textContent, 'B');
-  assert.equal(liveTimeEl.textContent, '12:34');
-  assert.equal(stagePtsEl.textContent, '2.50');
-  assert.equal(totalPenEl.textContent, '45.50');
-
-  // Stoppa ticker
-  stopMarathonLiveTicker(5);
-  clearMarathonLiveTickers();
+    // Verifiera att run() kördes omedelbart och inte dubbelräknar tidsstraff som redan finns i baseRes
+    assert.equal(liveLabelEl.textContent, 'B');
+    assert.equal(liveTimeEl.textContent, '12:34');
+    assert.equal(stagePtsEl.textContent, '2.50');
+    assert.equal(totalPenEl.textContent, '45.50');
+  } finally {
+    // Stoppa ticker garanterat även om ett assert fel uppstår
+    stopMarathonLiveTicker(5);
+    clearMarathonLiveTickers();
+  }
 });
 
 test('marathon live obstacle ticking calculates running obstacle duration and penalty with pause compensation', () => {

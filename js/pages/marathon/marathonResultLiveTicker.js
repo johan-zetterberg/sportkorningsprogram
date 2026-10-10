@@ -265,4 +265,5 @@ export function startOrUpdateMarathonLiveTicker(sn, {
 
   run();
   tickerState.intervalId = setInterval(run, 95);
+  tickerState.intervalId?.unref?.();
 }
