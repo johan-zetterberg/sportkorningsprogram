@@ -173,8 +173,9 @@ export function startOrUpdateMarathonLiveTicker(sn, {
 
     let liveObsP = 0;
     let obsTimeMs = null;
-    const obsNr = Number(d.currentObstacle);
-    if (d.running === true && Number.isFinite(obsNr)) {
+    const rawObs = d.currentObstacle;
+    const obsNr = (rawObs != null && rawObs !== '') ? Number(rawObs) : null;
+    if (d.running === true && Number.isFinite(obsNr) && obsNr > 0) {
       isAnythingRunning = true;
       const accumulatedMs = Number(d.liveObstacleTimeMs) || 0;
       let obsStartMs = timestampToMs(d.liveObstacleStartAt);
