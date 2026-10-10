@@ -64,14 +64,13 @@ export async function seedDemoCompetition(options = {}) {
       finalPercent: d.finalPercent,
       finalPoints: d.finalPoints
     });
-    // Spara ett representativt protokoll för domare C
-    await saveDressageJudgeProtocol(compId, d.startNumber, 'judge-C', {
-      judgeId: 'judge-C',
-      judgeName: 'Carina Domare',
-      judgePosition: 'C',
-      finalPenalty: d.finalPenalty,
-      finalPercent: d.finalPercent
-    });
+  }
+
+  // Spara alla domarprotokoll (C, E, B) med bedömningspunkter
+  if (Array.isArray(dataset.judgeProtocols)) {
+    for (const p of dataset.judgeProtocols) {
+      await saveDressageJudgeProtocol(compId, p.startNumber, p.judgeId, p);
+    }
   }
 
   // 6. Spara maratontider och live-status

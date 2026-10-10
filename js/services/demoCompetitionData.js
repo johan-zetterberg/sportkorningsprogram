@@ -7,6 +7,36 @@
  */
 
 import { TEAM_SCORING_PROFILE_IDS } from './teamRuleProfiles.js';
+import { dressagePrograms } from '../data/dressagePrograms.js';
+import { computeFinalFromSaved } from '../core-engine/dressage.js';
+import { round2 } from '../core-engine/rules-ledger.js';
+
+export function generateDemoMovementsForProgram(program, baseScore = 7.0, judgeOffset = 0) {
+  if (!program || !Array.isArray(program.movements)) return [];
+  const comments = [
+    'Bra takt och bjudning',
+    'Något hastig övergång',
+    'Väl genomfört',
+    'Fin böjning och ställning',
+    'Harmonisk övergång',
+    'God samling och bärighet',
+    'Bra framåtbjudning',
+    'Något ojämn steglängd',
+    'Lösgjord och lydig',
+    'Fin kontakt med bettet'
+  ];
+  return program.movements.map((m, idx) => {
+    const variation = ((idx % 5) - 2) * 0.25;
+    let score = baseScore + judgeOffset + variation;
+    score = Math.max(5.0, Math.min(9.5, Math.round(score * 2) / 2));
+    return {
+      momentNo: Number(m.no || (idx + 1)),
+      movementNo: Number(m.no || (idx + 1)),
+      score,
+      comment: comments[idx % comments.length]
+    };
+  });
+}
 
 export function buildDemoCompetitionDataset(customOverrides = {}) {
   const compMeta = {
@@ -37,7 +67,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
         'Svår Ponny Enbet': { speedA: 14, speedB: 13 },
         'Medelsvår Ponny Par': { speedA: 14, speedB: 13 },
         'Lätt Häst Enbet': { speedA: 14, speedB: 13 },
-        'Para Körning Grade I': { speedA: 13, speedB: 12 }
+        'Para Körning Grade I': { speedA: 13, speedB: 12 },
+        'Medelsvår Ponny Enbet': { speedA: 14, speedB: 13 }
       }
     },
     precisionConfig: {
@@ -48,7 +79,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
         'Svår Ponny Enbet': { allowanceCm: 20, speedMpm: 250, distanceM: 580, timeAllowedSec: 140, timeLimitSec: 280 },
         'Medelsvår Ponny Par': { allowanceCm: 25, speedMpm: 240, distanceM: 600, timeAllowedSec: 150, timeLimitSec: 300 },
         'Lätt Häst Enbet': { allowanceCm: 30, speedMpm: 230, distanceM: 550, timeAllowedSec: 144, timeLimitSec: 288 },
-        'Para Körning Grade I': { allowanceCm: 30, speedMpm: 220, distanceM: 500, timeAllowedSec: 137, timeLimitSec: 274 }
+        'Para Körning Grade I': { allowanceCm: 30, speedMpm: 220, distanceM: 500, timeAllowedSec: 137, timeLimitSec: 274 },
+        'Medelsvår Ponny Enbet': { allowanceCm: 20, speedMpm: 240, distanceM: 560, timeAllowedSec: 140, timeLimitSec: 280 }
       }
     },
     teamRules: {
@@ -56,12 +88,13 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       name: 'Lag-SM 2026'
     },
     dressyrProgramMapping: {
-      'Svår Häst Enbet': 'FEI 3* B HP1',
-      'Medelsvår Häst Fyrspann': 'FEI 3* B HP4',
-      'Svår Ponny Enbet': 'FEI 3* B HP1',
-      'Medelsvår Ponny Par': 'FEI 2* B HP2',
-      'Lätt Häst Enbet': 'Msv Lätt',
-      'Para Körning Grade I': 'FEI Para Test 1'
+      'Svår Häst Enbet': 'FEI3AHP1',
+      'Medelsvår Häst Fyrspann': 'FEI_3star_HP4_2025',
+      'Svår Ponny Enbet': 'FEI3AHP1',
+      'Medelsvår Ponny Par': 'FEI_3star_HP2_P2_2025',
+      'Lätt Häst Enbet': 'SvLA',
+      'Para Körning Grade I': 'FEIParaG1',
+      'Medelsvår Ponny Enbet': 'SvMsvB'
     }
   };
 
@@ -72,9 +105,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
   ];
 
   const judges = [
-    { id: 'judge-C', name: 'Carina Domare', position: 'C', level: 'Nationell' },
-    { id: 'judge-E', name: 'Erik Domare', position: 'E', level: 'Nationell' },
-    { id: 'judge-B', name: 'Birgitta Domare', position: 'B', level: 'Svår' }
+    { id: 'judge-C', name: 'Carina Domare (C)', position: 'C', level: 'Nationell' },
+    { id: 'judge-E', name: 'Erik Domare (E)', position: 'E', level: 'Nationell' },
+    { id: 'judge-B', name: 'Birgitta Domare (B)', position: 'B', level: 'Svår' }
   ];
 
   const obstacles = [
@@ -92,6 +125,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Anna Andersson',
       clubName: 'Skånska Körsällskapet',
       className: 'Svår Häst Enbet',
+      programKey: 'FEI3AHP1',
+      testKey: 'FEI3AHP1',
       horseName: 'Thunder',
       trackWidth: 142,
       marathonTrackWidth: 126,
@@ -118,6 +153,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Bengt Bengtsson',
       clubName: 'Mälardalens Körsällskap',
       className: 'Medelsvår Häst Fyrspann',
+      programKey: 'FEI_3star_HP4_2025',
+      testKey: 'FEI_3star_HP4_2025',
       horseName: 'Star 1, Star 2, Star 3, Star 4',
       hitch: 'fyrspann',
       trackWidth: 158,
@@ -176,8 +213,11 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Anna Andersson', // SAMMA KUSK som #1!
       clubName: 'Skånska Körsällskapet',
       className: 'Svår Ponny Enbet',
+      programKey: 'FEI3AHP1',
+      testKey: 'FEI3AHP1',
       horseName: 'Ponnyblixten',
       trackWidth: 138,
+      marathonTrackWidth: 126,
       safetyCheck: { approved: true },
       hasMultipleStarts: true,
       driverStartCount: 2,
@@ -204,9 +244,12 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Cecilia Ceder',
       clubName: 'Skånska Körsällskapet',
       className: 'Medelsvår Ponny Par',
+      programKey: 'FEI_3star_HP2_P2_2025',
+      testKey: 'FEI_3star_HP2_P2_2025',
       horseName: 'Castor & Pollux',
       hitch: 'par',
       trackWidth: 130,
+      marathonTrackWidth: 126,
       safetyCheck: { approved: true },
       horses: [
         {
@@ -236,8 +279,11 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'David Dahl',
       clubName: 'Mälardalens Körsällskap',
       className: 'Lätt Häst Enbet',
+      programKey: 'SvLA',
+      testKey: 'SvLA',
       horseName: 'Dunder',
       trackWidth: 140,
+      marathonTrackWidth: 126,
       safetyCheck: { approved: true },
       horses: [
         {
@@ -258,10 +304,13 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Elsa Ek',
       clubName: 'Göteborgs Körklubb',
       className: 'Para Körning Grade I',
+      programKey: 'FEIParaG1',
+      testKey: 'FEIParaG1',
       horseName: 'Eagle',
       isPara: true,
       paraGrade: 'Grade I',
       trackWidth: 140,
+      marathonTrackWidth: 126,
       safetyCheck: { approved: true },
       horses: [
         {
@@ -282,8 +331,11 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Filip Frost',
       clubName: 'Skånska Körsällskapet',
       className: 'Svår Häst Enbet',
+      programKey: 'FEI3AHP1',
+      testKey: 'FEI3AHP1',
       horseName: 'Firefox',
       trackWidth: 142,
+      marathonTrackWidth: 126,
       safetyCheck: { approved: true },
       horses: [
         {
@@ -304,8 +356,11 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       driverName: 'Greta Gran',
       clubName: 'Mälardalens Körsällskap',
       className: 'Medelsvår Ponny Enbet',
+      programKey: 'SvMsvB',
+      testKey: 'SvMsvB',
       horseName: 'Gullviva',
       trackWidth: 138,
+      marathonTrackWidth: 126,
       safetyCheck: { approved: true },
       horses: [
         {
@@ -323,16 +378,51 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     }
   ];
 
-  const dressageScores = [
-    { startNumber: 1, finalPenalty: 46.20, finalPercent: 71.13, finalPoints: 113.8 },
-    { startNumber: 2, finalPenalty: 54.80, finalPercent: 65.75, finalPoints: 105.2 },
-    { startNumber: 3, finalPenalty: 50.10, finalPercent: 68.69, finalPoints: 109.9 },
-    { startNumber: 4, finalPenalty: 52.40, finalPercent: 67.25, finalPoints: 107.6 },
-    { startNumber: 5, finalPenalty: 58.00, finalPercent: 63.75, finalPoints: 102.0 },
-    { startNumber: 6, finalPenalty: 49.50, finalPercent: 69.06, finalPoints: 110.5 },
-    { startNumber: 7, finalPenalty: 51.30, finalPercent: 67.94, finalPoints: 108.7 },
-    { startNumber: 8, finalPenalty: 48.90, finalPercent: 69.44, finalPoints: 111.1 }
-  ];
+  // Base score targets for each startNumber to produce realistic driver ratings
+  const baseScoresByStart = {
+    1: 7.3, // Anna: ~73% -> penalty ~43.3
+    2: 6.6, // Bengt: ~66% -> penalty ~54.8
+    3: 7.0, // Anna ponny: ~70% -> penalty ~48.0
+    4: 6.8, // Cecilia: ~68% -> penalty ~51.2
+    5: 6.4, // David: ~64% -> penalty ~57.6
+    6: 7.1, // Elsa para: ~71% -> penalty ~46.4
+    7: 6.9, // Filip: ~69% -> penalty ~49.6
+    8: 7.0  // Greta: ~70% -> penalty ~48.0
+  };
+
+  // Generate full judge protocols for all 3 judges (C, E, B) for all equipages
+  const judgeProtocols = [];
+  const dressageScores = [];
+
+  equipages.forEach(eq => {
+    const prog = dressagePrograms[eq.programKey];
+    const baseScore = baseScoresByStart[eq.startNumber] || 7.0;
+
+    const eqJudgeProtocols = judges.map(j => {
+      const judgeOffset = j.position === 'C' ? 0.15 : (j.position === 'E' ? 0.0 : -0.15);
+      return {
+        startNumber: eq.startNumber,
+        judgeId: j.id,
+        judgeName: j.name,
+        judgePosition: j.position,
+        position: j.position,
+        testKey: eq.programKey,
+        programKey: eq.programKey,
+        movements: generateDemoMovementsForProgram(prog, baseScore, judgeOffset)
+      };
+    });
+
+    judgeProtocols.push(...eqJudgeProtocols);
+
+    // Compute exact final summary
+    const finalCalc = prog ? computeFinalFromSaved(eqJudgeProtocols, prog, dressagePrograms) : null;
+    dressageScores.push({
+      startNumber: eq.startNumber,
+      finalPenalty: finalCalc ? round2(finalCalc.penalty) : 50.0,
+      finalPercent: finalCalc ? round2(finalCalc.percent) : 68.75,
+      finalPoints: finalCalc ? round2(finalCalc.points) : 110.0
+    });
+  });
 
   const marathonRecords = [
     {
@@ -477,6 +567,7 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     judges,
     obstacles,
     equipages,
+    judgeProtocols,
     dressageScores,
     marathonRecords,
     precisionResults,

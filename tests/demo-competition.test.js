@@ -6,6 +6,8 @@ import { getCarriageCompliance } from '../js/pages/shared/vagnbreddUtils.js';
 import { getViloboxBadgeInfo } from '../js/pages/shared/vetCheckUtils.js';
 import { calculateTeamResults } from '../js/services/teamCalculationService.js';
 import { getTeamScoringProfile } from '../js/services/teamRuleProfiles.js';
+import { calculateDressageResult } from '../js/services/calculationService.js';
+import { dressagePrograms } from '../js/data/dressagePrograms.js';
 
 test('buildDemoCompetitionDataset generates valid 3-day competition structure', () => {
   const data = buildDemoCompetitionDataset();
@@ -90,4 +92,33 @@ test('buildDemoCompetitionDataset calculates valid Lag-SM 2026 team results', ()
   assert.equal(teamResults[0].rank, 1);
   assert.equal(teamResults[1].rank, 2);
   assert.ok(teamResults[0].total < teamResults[1].total);
+});
+
+test('buildDemoCompetitionDataset includes full judge protocols with movements for all equipages and judges', () => {
+  const data = buildDemoCompetitionDataset();
+
+  assert.equal(data.judgeProtocols.length, 24, 'Should have 24 protocols (8 equipages * 3 judges)');
+
+  for (const eq of data.equipages) {
+    const protocols = data.judgeProtocols.filter(p => p.startNumber === eq.startNumber);
+    assert.equal(protocols.length, 3, `Equipage #${eq.startNumber} should have 3 judge protocols`);
+
+    const judgePositions = protocols.map(p => p.judgePosition).sort();
+    assert.deepEqual(judgePositions, ['B', 'C', 'E'], `Equipage #${eq.startNumber} should have judges B, C, E`);
+
+    for (const proto of protocols) {
+      assert.ok(Array.isArray(proto.movements) && proto.movements.length > 0, `Protocol ${proto.judgePosition} for #${eq.startNumber} must have movements`);
+      for (const m of proto.movements) {
+        assert.ok(m.momentNo > 0, 'Movement must have momentNo');
+        assert.ok(typeof m.score === 'number' && m.score > 0, 'Movement must have numerical score');
+        assert.ok(typeof m.comment === 'string', 'Movement should have comment');
+      }
+    }
+
+    const dressRes = calculateDressageResult(eq, protocols, data.judges, dressagePrograms);
+    assert.ok(dressRes.penalty !== null, `Equipage #${eq.startNumber} dressage penalty must not be null`);
+    assert.ok(dressRes.penalty > 35 && dressRes.penalty < 75, `Equipage #${eq.startNumber} penalty (${dressRes.penalty}) must be in realistic range`);
+    assert.ok(dressRes.percent > 50 && dressRes.percent < 85, `Equipage #${eq.startNumber} percent (${dressRes.percent}) must be in realistic range`);
+    assert.equal(dressRes.eliminated, false);
+  }
 });
