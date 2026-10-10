@@ -20,6 +20,7 @@ export function getDressagePenaltyCoeff(programOrKey, allPrograms = {}) {
     const nm = `${name} ${category}`.toLowerCase();
     if (/\bdot\b.*coefficient/.test(nm)) return 0.615;
     if (/cai1|para/.test(nm)) return 0.80;
+    if (/cai2.*hp2|hp2.*2\*|2\*.*hp2/.test(nm)) return 0.615;
     if (/cai2/.test(nm)) return 0.76;
     if (/cai3/.test(nm)) {
         if (/singles|enbet|single/.test(nm)) return 0.666;
@@ -170,9 +171,9 @@ export function calculateDressageResult(state) {
     let penalty = null;
 
     if (result) {
-        const coeff = getDressagePenaltyCoeff(program, config.allPrograms);
+        // TR Mom 518.9 & FEI Art 958.1.4: Error points from C are added directly 1:1
         const err = Number(equipage.errorPoints) || 0;
-        penalty = isElim ? null : round2(result.penalty + (err * coeff));
+        penalty = isElim ? null : round2(result.penalty + err);
     }
     
     return { 

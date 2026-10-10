@@ -179,7 +179,7 @@ test('calculateDressageResult averages multiple judges', () => {
   assert.equal(result.penalty, 8);
 });
 
-test('calculateDressageResult applies dressage coefficient to error points', () => {
+test('calculateDressageResult adds error points directly to penalty without applying dressage coefficient', () => {
   const state = createBaseState();
   state.config.allPrograms = {
     ...state.config.allPrograms,
@@ -200,7 +200,7 @@ test('calculateDressageResult applies dressage coefficient to error points', () 
 
   assert.equal(result.eliminated, false);
   assert.equal(result.judgePenalty, 4.8);
-  assert.equal(result.penalty, 6.4);
+  assert.equal(result.penalty, 6.8);
 });
 
 test('calculateDressageResult prefers saved protocol program over equipage class fallback', () => {

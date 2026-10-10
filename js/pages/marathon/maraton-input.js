@@ -10,10 +10,11 @@ import {
   getObstacleCoefficient,
   getClassDrivenObstacles,
   setMarathonConfig,
+  parseHoldTimeInput,
 } from '../../utils/marathonUtils.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
-import { downloadJson } from '../../utils/sharedUtils.js';
+import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
@@ -442,6 +443,18 @@ function applyLiveStateToUI(data) {
   updateTimerViewMar(); // Kör en gång direkt för att visa korrekt tid
 
   // 3. Synka alla andra formulärfält (använd "effective")
+  const pendingHold = pendingHoldTimes.get(String(currentEquipage?.startNumber));
+  if (pendingHold && (!effective.live_holdTimeSec || effective.live_holdTimeSec === '0')) {
+    effective.live_holdTimeSec = String(pendingHold.holdTimeSec);
+    const holdNote = `Väntetid: ${pendingHold.reason}`;
+    effective.live_comment = effective.live_comment
+      ? `${effective.live_comment}, ${holdNote}`
+      : holdNote;
+    pendingHoldTimes.delete(String(currentEquipage.startNumber));
+    renderWaitingList();
+    showAlert(`Väntetid (${pendingHold.holdTimeSec}s) hämtad för startnr ${currentEquipage.startNumber}!`, true);
+  }
+
   document.getElementById('routeString').value = effective.live_routeString || '';
   document.getElementById('maratonKnockdowns').value = String(effective.live_knockdowns ?? '0');
   document.getElementById('maratonPenalty').value = String(effective.live_otherPenalty ?? '0');
@@ -1220,10 +1233,9 @@ async function saveResult(e) {
 
   let comment = document.getElementById('maratonComment').value || '';
   let eliminated = !!document.getElementById('maratonEliminated').checked;
-  const holdTimeSec = Number(document.getElementById('maratonHoldTime').value || 0);
+  const holdTimeSec = parseHoldTimeInput(document.getElementById('maratonHoldTime')?.value);
   if (holdTimeSec > 0 && !comment.trim()) {
-    showAlert('Ange en kommentar som förklarar varför uppehållstiden dras av.', false);
-    return;
+    comment = 'Väntetid: Föregående ekipage i hinder';
   }
 
   const maxObstacleSeconds = marathonConfigCache?.obstacleMaxTime ?? 300;
@@ -1432,7 +1444,192 @@ async function setupPage() {
     form.addEventListener('focusout', boundHandlers.commentBlurHandler);
   }
 
+function addQuickObstaclePenalty(amount, reason) {
+  const penaltyInput = document.getElementById('maratonPenalty');
+  if (!penaltyInput) return;
+  const currentVal = parseFloat(penaltyInput.value) || 0;
+  penaltyInput.value = String(currentVal + amount);
+  updateTotalPenaltyDisplay();
+  pushFormField('live_otherPenalty', penaltyInput.value);
+
+  const commentInput = document.getElementById('maratonComment');
+  if (commentInput) {
+    const existing = commentInput.value.trim();
+    const note = `${reason} (+${amount})`;
+    if (!existing) {
+      commentInput.value = note;
+    } else if (!existing.includes(reason)) {
+      commentInput.value = `${existing}, ${note}`;
+    }
+    const btn = document.querySelector('.comment-toggle-btn');
+    if (btn) btn.classList.toggle('has-comment', commentInput.value.trim() !== '');
+    scheduleLiveCommentSave(commentInput.value);
+  }
+}
+
+let waitingTimerInterval = null;
+let waitingStartTime = 0;
+const pendingHoldTimes = new Map();
+
+function updateWaitingTimerDisplay() {
+  const disp = document.getElementById('waitingTimerDisplay');
+  if (!disp) return;
+  if (!waitingStartTime) {
+    disp.textContent = '00:00';
+    return;
+  }
+  const elapsedSec = Math.floor((Date.now() - waitingStartTime) / 1000);
+  const m = Math.floor(elapsedSec / 60);
+  const s = elapsedSec % 60;
+  disp.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function renderWaitingList() {
+  const container = document.getElementById('waitingListContainer');
+  const countBadge = document.getElementById('waitingCountBadge');
+  if (!container) return;
+  if (pendingHoldTimes.size === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    if (countBadge) countBadge.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  if (countBadge) {
+    countBadge.textContent = String(pendingHoldTimes.size);
+    countBadge.classList.remove('hidden');
+  }
+  container.innerHTML = Array.from(pendingHoldTimes.entries()).map(([sn, item]) => `
+    <div class="flex items-center justify-between bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-900 text-xs">
+      <span class="font-bold text-blue-900 dark:text-blue-200">#${escapeHtml(sn)}: ${item.holdTimeSec}s (${escapeHtml(item.reason)})</span>
+      <div class="flex items-center gap-1">
+        <button type="button" data-apply-waiting="${escapeHtml(sn)}" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline">Använd</button>
+        <button type="button" data-delete-waiting="${escapeHtml(sn)}" class="text-[10px] text-red-500 font-bold hover:underline ml-1">Ta bort</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addQuickHoldTime(seconds, defaultReason = 'Föregående ekipage i hinder') {
+  const holdInput = document.getElementById('maratonHoldTime');
+  if (!holdInput) return;
+  const currentVal = parseHoldTimeInput(holdInput.value);
+  const nextVal = Math.max(0, currentVal + seconds);
+  holdInput.value = nextVal > 0 ? String(nextVal) : '';
+  pushFormField('live_holdTimeSec', holdInput.value);
+
+  const commentInput = document.getElementById('maratonComment');
+  if (commentInput && nextVal > 0 && !commentInput.value.trim()) {
+    commentInput.value = `Väntetid: ${defaultReason}`;
+    const btn = document.querySelector('.comment-toggle-btn');
+    if (btn) btn.classList.add('has-comment');
+    scheduleLiveCommentSave(commentInput.value);
+  }
+}
+
+function setHoldReason(reason) {
+  const commentInput = document.getElementById('maratonComment');
+  if (!commentInput) return;
+  const existing = commentInput.value.trim();
+  const note = `Väntetid: ${reason}`;
+  if (!existing) {
+    commentInput.value = note;
+  } else if (!existing.includes(reason)) {
+    commentInput.value = `${existing}, ${note}`;
+  }
+  const btn = document.querySelector('.comment-toggle-btn');
+  if (btn) btn.classList.add('has-comment');
+  scheduleLiveCommentSave(commentInput.value);
+}
+
   document.getElementById('maratonObstacleSelect')?.addEventListener('change', boundHandlers.obstacleChange);
+  document.getElementById('btnQuickPenaltyGroom')?.addEventListener('click', () => addQuickObstaclePenalty(5, 'Groom avstigning'));
+  document.getElementById('btnQuickPenaltyCourse')?.addEventListener('click', () => addQuickObstaclePenalty(20, 'Korrigerad fel väg'));
+  document.getElementById('btnQuickHold15')?.addEventListener('click', () => addQuickHoldTime(15));
+  document.getElementById('btnQuickHold30')?.addEventListener('click', () => addQuickHoldTime(30));
+  document.getElementById('btnQuickHold60')?.addEventListener('click', () => addQuickHoldTime(60));
+  document.getElementById('btnQuickHoldClear')?.addEventListener('click', () => {
+    const holdInput = document.getElementById('maratonHoldTime');
+    if (holdInput) {
+      holdInput.value = '';
+      pushFormField('live_holdTimeSec', '');
+    }
+  });
+
+  document.querySelectorAll('#holdReasonPills button[data-hold-reason]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      setHoldReason(btn.dataset.holdReason);
+      const holdInput = document.getElementById('maratonHoldTime');
+      if (holdInput && parseHoldTimeInput(holdInput.value) === 0) {
+        holdInput.value = '30';
+        pushFormField('live_holdTimeSec', '30');
+      }
+    });
+  });
+
+  document.getElementById('btnToggleWaitingCard')?.addEventListener('click', () => {
+    const body = document.getElementById('waitingDriverBody');
+    if (body) body.classList.toggle('hidden');
+  });
+
+  document.getElementById('btnStartWaitingTimer')?.addEventListener('click', () => {
+    const snInput = document.getElementById('waitingStartNumber');
+    const sn = (snInput?.value || '').trim();
+    if (!sn) {
+      showAlert('Ange startnummer för det väntande ekipaget.', false);
+      snInput?.focus();
+      return;
+    }
+    waitingStartTime = Date.now();
+    document.getElementById('btnStartWaitingTimer')?.classList.add('hidden');
+    document.getElementById('btnStopWaitingTimer')?.classList.remove('hidden');
+    if (waitingTimerInterval) clearInterval(waitingTimerInterval);
+    waitingTimerInterval = setInterval(updateWaitingTimerDisplay, 500);
+    updateWaitingTimerDisplay();
+  });
+
+  document.getElementById('btnStopWaitingTimer')?.addEventListener('click', () => {
+    if (!waitingStartTime) return;
+    const snInput = document.getElementById('waitingStartNumber');
+    const sn = (snInput?.value || '').trim();
+    const elapsedSec = Math.max(1, Math.round((Date.now() - waitingStartTime) / 1000));
+    waitingStartTime = 0;
+    if (waitingTimerInterval) {
+      clearInterval(waitingTimerInterval);
+      waitingTimerInterval = null;
+    }
+    document.getElementById('btnStartWaitingTimer')?.classList.remove('hidden');
+    document.getElementById('btnStopWaitingTimer')?.classList.add('hidden');
+    updateWaitingTimerDisplay();
+    if (sn) {
+      pendingHoldTimes.set(sn, { holdTimeSec: elapsedSec, reason: 'Föregående ekipage i hinder' });
+      renderWaitingList();
+      if (snInput) snInput.value = '';
+      showAlert(`Väntetid ${elapsedSec}s sparad för ekipage #${sn}!`, true);
+    }
+  });
+
+  document.getElementById('waitingListContainer')?.addEventListener('click', (e) => {
+    const applySn = e.target.closest('[data-apply-waiting]')?.dataset.applyWaiting;
+    const deleteSn = e.target.closest('[data-delete-waiting]')?.dataset.deleteWaiting;
+    if (applySn) {
+      const item = pendingHoldTimes.get(applySn);
+      if (item) {
+        const holdInput = document.getElementById('maratonHoldTime');
+        if (holdInput) {
+          holdInput.value = String(item.holdTimeSec);
+          pushFormField('live_holdTimeSec', holdInput.value);
+        }
+        setHoldReason(item.reason);
+        pendingHoldTimes.delete(applySn);
+        renderWaitingList();
+        showAlert(`Väntetid (${item.holdTimeSec}s) applicerad!`, true);
+      }
+    } else if (deleteSn) {
+      pendingHoldTimes.delete(deleteSn);
+      renderWaitingList();
+    }
+  });
   document.getElementById('prevEquipage')?.addEventListener('click', boundHandlers.prevClick);
   document.getElementById('nextEquipage')?.addEventListener('click', boundHandlers.nextClick);
   document.getElementById('btnStartMar')?.addEventListener('click', boundHandlers.startH);
@@ -1906,6 +2103,27 @@ export function load() {
           </div>
         </div>
 
+        <!-- VÄNTANDE EKIPAGE (STOPPTID UTANFÖR HINDRET) -->
+        <div id="waitingDriverCard" class="p-2.5 rounded-lg border border-blue-200 bg-blue-50/70 dark:bg-blue-950/30 dark:border-blue-800">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-1.5 text-xs font-bold text-blue-900 dark:text-blue-200">
+              <span class="inline-block w-2 h-2 rounded-full bg-blue-500 animate-pulse"></span>
+              <span>Väntande ekipage utanför hindret</span>
+              <span id="waitingCountBadge" class="hidden ml-1 px-1.5 py-0.2 text-[10px] bg-blue-600 text-white rounded-full"></span>
+            </div>
+            <button type="button" id="btnToggleWaitingCard" class="text-[11px] text-blue-600 dark:text-blue-400 font-semibold hover:underline">Stoppur för kö</button>
+          </div>
+          <div id="waitingDriverBody" class="hidden mt-2 text-xs space-y-2">
+            <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+              <input type="number" id="waitingStartNumber" placeholder="Startnr" min="1" class="w-20 p-1.5 text-xs border rounded bg-white dark:bg-gray-700 dark:text-white dark:border-gray-600 font-bold" />
+              <button type="button" id="btnStartWaitingTimer" class="px-2.5 py-1.5 rounded font-bold bg-blue-600 text-white text-xs hover:bg-blue-700 active:scale-95 transition-all">Starta klocka</button>
+              <button type="button" id="btnStopWaitingTimer" class="hidden px-2.5 py-1.5 rounded font-bold bg-amber-600 text-white text-xs hover:bg-amber-700 active:scale-95 transition-all">Stoppa & spara</button>
+              <span id="waitingTimerDisplay" class="font-mono font-bold text-sm text-blue-800 dark:text-blue-300 min-w-[45px]">00:00</span>
+            </div>
+            <div id="waitingListContainer" class="hidden space-y-1 pt-1 border-t border-blue-200 dark:border-blue-800"></div>
+          </div>
+        </div>
+
         <!-- VÄGVAL -->
         <div class="space-y-2">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -1929,13 +2147,32 @@ export function load() {
           </div>
           
           <div>
-            <label for="maratonPenalty" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_other_penalty')}</label>
+            <div class="flex items-center justify-between mb-1">
+              <label for="maratonPenalty" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_other_penalty')}</label>
+              <div class="flex gap-1">
+                <button type="button" id="btnQuickPenaltyGroom" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Groom avstigning (+5)">+5 Groom</button>
+                <button type="button" id="btnQuickPenaltyCourse" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Korrigerad fel väg (+20)">+20 Fel väg</button>
+              </div>
+            </div>
             <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
           </div>
 
           <div>
-            <label for="maratonHoldTime" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_hold_time', 'Uppehåll (sek)')}</label>
-            <input type="number" inputmode="numeric" id="maratonHoldTime" placeholder="Sekunder" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+            <div class="flex items-center justify-between mb-1">
+              <label for="maratonHoldTime" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_hold_time', 'Uppehåll (sek)')}</label>
+              <div class="flex gap-1">
+                <button type="button" id="btnQuickHold15" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+15 sek">+15s</button>
+                <button type="button" id="btnQuickHold30" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+30 sek">+30s</button>
+                <button type="button" id="btnQuickHold60" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+60 sek">+1m</button>
+                <button type="button" id="btnQuickHoldClear" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600 active:scale-95 transition-all" title="Nollställ">0</button>
+              </div>
+            </div>
+            <input type="text" inputmode="decimal" id="maratonHoldTime" placeholder="Sekunder el mm:ss" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+            <div class="mt-1 flex flex-wrap gap-1" id="holdReasonPills">
+              <button type="button" data-hold-reason="Föregående ekipage i hinder" class="px-1.5 py-0.5 text-[9px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Föregående ekipage</button>
+              <button type="button" data-hold-reason="Domar-/Banchefsstopp" class="px-1.5 py-0.5 text-[9px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Domarstopp</button>
+              <button type="button" data-hold-reason="Hinderreparation" class="px-1.5 py-0.5 text-[9px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Hinderfel</button>
+            </div>
           </div>
 
           <div class="flex items-end">
@@ -2041,6 +2278,11 @@ export function __unload() {
     }
     equipageSearchDropdownMar = null;
     cancelPendingLiveCommentSave();
+
+    if (waitingTimerInterval) {
+      clearInterval(waitingTimerInterval);
+      waitingTimerInterval = null;
+    }
 
     boundHandlers = {};
   } catch (e) {

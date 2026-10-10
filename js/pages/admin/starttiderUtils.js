@@ -333,6 +333,17 @@ export function renderStarttiderNowNextChip(discipline, startNumber, liveStatus 
     return '';
 }
 
+export function renderDriverConflictBadge(conflict, currentSn = null) {
+    if (!conflict) return '';
+    const otherSn = (currentSn != null && String(conflict.firstStartNumber) === String(currentSn))
+        ? conflict.secondStartNumber
+        : (currentSn != null && String(conflict.secondStartNumber) === String(currentSn))
+            ? conflict.firstStartNumber
+            : (conflict.secondStartNumber || conflict.firstStartNumber);
+    const diffText = conflict.diffMinutes != null ? `${conflict.diffMinutes}m` : '<30m';
+    return `<span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-900/40 dark:text-amber-300" title="${escapeHtml(conflict.message || '')}">⚠️ ${diffText} (#${escapeHtml(otherSn ?? '')})</span>`;
+}
+
 export function renderStarttiderTimeCell({
     discipline,
     startNumber,
@@ -340,10 +351,11 @@ export function renderStarttiderTimeCell({
     editable = false,
     publicMode = false,
     nowNextHtml = '',
-    statusHtml = ''
+    statusHtml = '',
+    conflictHtml = ''
 } = {}) {
     const id = `${discipline}-${startNumber}`;
-    const badges = `${nowNextHtml} <span class="ml-1">${statusHtml}</span>`;
+    const badges = `${nowNextHtml} <span class="ml-1">${statusHtml}</span>${conflictHtml ? ` <span class="ml-1">${conflictHtml}</span>` : ''}`;
     const displayValue = formatDateTime(parseDateTime(value));
 
     if (!editable || publicMode) {
@@ -416,6 +428,7 @@ export function renderStarttiderDesktopRow({
     getClubLogoHtml = () => '',
     renderTimeCell = () => '',
     renderActions = () => '',
+    startOrderBadgeHtml = '',
     unpublishedHtml = '<span class="text-xs text-gray-400 italic">Ej publicerad</span>'
 } = {}) {
     const e = equipage || {};
@@ -444,6 +457,7 @@ export function renderStarttiderDesktopRow({
                     <div class="flex items-center justify-center font-bold text-gray-900 dark:text-white">
                         ${grabHandle}
                         ${escapeHtml(e.startNumber ?? '')}
+                        ${startOrderBadgeHtml}
                     </div>
                 </td>
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm min-w-0 align-middle">
@@ -485,6 +499,7 @@ export function renderStarttiderMobileCard({
     getHorseLabel = () => '—',
     renderStatus = () => '',
     renderActions = () => '',
+    startOrderBadgeHtml = '',
     labels = {},
     unpublishedHtml = '<span class="text-gray-400 italic text-[11px]">Ej publicerad</span>'
 } = {}) {
@@ -498,6 +513,7 @@ export function renderStarttiderMobileCard({
         marathon: labels.marathon || 'Maraton:',
         precision: labels.precision || 'Precision:'
     };
+    const startOrderBadge = startOrderBadgeHtml ? ` ${startOrderBadgeHtml}` : '';
 
     const timeRow = (discipline, value) => {
         if (!isEditable && !isPub[discipline]) return unpublishedHtml;
@@ -518,7 +534,7 @@ export function renderStarttiderMobileCard({
             ${classHeaderHtml}
             <div class="mb-1.5 rounded border border-gray-200 dark:border-gray-700 shadow-sm ${cardClass} overflow-hidden">
                 <div class="px-2 py-1.5 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
-                    <div class="font-bold text-[13px] dark:text-white leading-tight">#${escapeHtml(e.startNumber)} ${escapeHtml(e.driverName || '')}</div>
+                    <div class="font-bold text-[13px] dark:text-white leading-tight">#${escapeHtml(e.startNumber)}${startOrderBadge} ${escapeHtml(e.driverName || '')}</div>
                     <div class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-tight">${escapeHtml(getHorseLabel(e))}</div>
                 </div>
                 <div class="px-2 py-1 space-y-0.5 text-[12px]">
@@ -799,21 +815,211 @@ export function buildPrecisionResultOrderRows(equipages = [], {
             const hasValidDressage = dPenalty !== null;
             const hasValidMarathon = mRes && mRes.totalPenalty !== null;
 
+            const mPenalty = (mRes && mRes.totalPenalty != null) ? mRes.totalPenalty : null;
             if (!eliminated && hasValidDressage && hasValidMarathon) {
-                totalPenalty = dPenalty + mRes.totalPenalty;
+                totalPenalty = dPenalty + mPenalty;
             } else if (includeEliminated) {
                 totalPenalty = Infinity;
             }
 
-            return { ...row, totalPenalty };
+            return {
+                ...row,
+                totalPenalty,
+                dressagePenalty: dPenalty,
+                marathonPenalty: mPenalty,
+                eliminated
+            };
         })
         .filter(row => row.totalPenalty !== null)
-        .sort((a, b) => comparePenaltyDescending(a.totalPenalty, b.totalPenalty, a.startNumber, b.startNumber));
+        .sort((a, b) => comparePenaltyDescending(
+            a.totalPenalty,
+            b.totalPenalty,
+            a.startNumber,
+            b.startNumber,
+            a.marathonPenalty,
+            b.marathonPenalty,
+            a.dressagePenalty,
+            b.dressagePenalty
+        ));
 }
 
-function comparePenaltyDescending(pA, pB, startA, startB) {
-    if (pA === pB) return Number(startA) - Number(startB);
+export function comparePenaltyDescending(pA, pB, startA, startB, mPenA = null, mPenB = null, dPenA = null, dPenB = null) {
+    if (pA === Infinity && pB === Infinity) return Number(startA) - Number(startB);
     if (pA === Infinity) return -1;
     if (pB === Infinity) return 1;
-    return pB - pA;
+    if (pA !== pB) return pB - pA;
+    // TR Mom 535.3 & FEI Art 973: Vid lika straffpoäng startar ekipage med sämsta maratonresultat först (högre straff först)
+    if (mPenA != null && mPenB != null && mPenA !== mPenB) {
+        return mPenB - mPenA;
+    }
+    // Vid lika maraton: sämsta dressyrresultat först (högre straff först)
+    if (dPenA != null && dPenB != null && dPenA !== dPenB) {
+        return dPenB - dPenA;
+    }
+    return Number(startA) - Number(startB);
 }
+
+/**
+ * TR Mom 535.4: Kusk med flera ekipage.
+ * Säkerställer minst 30 minuters mellanrum mellan samma kusks starter.
+ * Vid omvänd startordning flyttas det tidigare ekipaget framåt (tidigareläggs)
+ * så att det bäst placerade ekipagets fördelaktiga startposition inte rubbas.
+ */
+export function adjustStartOrderForDriverBuffer(rows = [], {
+    intervalMin = 7,
+    minBufferMinutes = 30
+} = {}) {
+    if (!Array.isArray(rows) || rows.length <= 1) {
+        return { rows: [...(rows || [])], adjustedCount: 0, adjustments: [], unresolvedIssues: [] };
+    }
+
+    const minSlots = Math.ceil(minBufferMinutes / Math.max(1, Number(intervalMin) || 7));
+    const resultRows = [...rows];
+    const adjustments = [];
+    const unresolvedIssues = [];
+
+    let changed = true;
+    let maxPasses = resultRows.length * 2;
+    let pass = 0;
+
+    while (changed && pass < maxPasses) {
+        changed = false;
+        pass++;
+
+        // Sök från slutet (bäst placerade ekipage) mot början
+        for (let j = resultRows.length - 1; j >= 0; j--) {
+            const driverJ = (resultRows[j]?.driverName || '').trim().toLowerCase();
+            if (!driverJ) continue;
+
+            // Kontrollera om det finns ett tidigare ekipage för samma kusk inom minSlots
+            for (let i = j - 1; i >= Math.max(0, j - minSlots + 1); i--) {
+                const driverI = (resultRows[i]?.driverName || '').trim().toLowerCase();
+                if (driverI === driverJ) {
+                    // Konflikt! i och j ligger för nära.
+                    // TR Mom 535.4: Flytta det tidigare ekipaget (i) framåt (lägre index)
+                    const desiredIndex = j - minSlots;
+                    const targetIndex = Math.max(0, desiredIndex);
+
+                    if (targetIndex < i) {
+                        const [movedRow] = resultRows.splice(i, 1);
+                        resultRows.splice(targetIndex, 0, movedRow);
+                        adjustments.push({
+                            driverName: resultRows[targetIndex].driverName,
+                            startNumber: resultRows[targetIndex].startNumber,
+                            fromIndex: i,
+                            toIndex: targetIndex,
+                            referenceStartNumber: resultRows[j].startNumber
+                        });
+                        changed = true;
+                        break;
+                    }
+                }
+            }
+            if (changed) break;
+        }
+    }
+
+    // Efterjustering: Identifiera eventuellt kvarvarande konflikter om klassen är för liten
+    for (let j = 0; j < resultRows.length; j++) {
+        const driverJ = (resultRows[j]?.driverName || '').trim().toLowerCase();
+        if (!driverJ) continue;
+
+        for (let i = 0; i < j; i++) {
+            const driverI = (resultRows[i]?.driverName || '').trim().toLowerCase();
+            if (driverI === driverJ && (j - i) < minSlots) {
+                const actualMinutes = (j - i) * intervalMin;
+                unresolvedIssues.push({
+                    driverName: resultRows[j].driverName,
+                    earlierStartNumber: resultRows[i].startNumber,
+                    laterStartNumber: resultRows[j].startNumber,
+                    slotDiff: j - i,
+                    actualMinutes,
+                    requiredMinutes: minBufferMinutes,
+                    message: `${resultRows[j].driverName}: Endast ${actualMinutes} minuter mellan start #${resultRows[i].startNumber} och #${resultRows[j].startNumber} (minst ${minBufferMinutes} min krävs enligt TR Mom 535.4). Lägg till paus (☕) mellan starterna.`
+                });
+            }
+        }
+    }
+
+    return {
+        rows: resultRows,
+        adjustedCount: adjustments.length,
+        adjustments,
+        unresolvedIssues
+    };
+}
+
+/**
+ * TR Mom 535.4 Validering:
+ * Identifierar starter för samma kusk som har mindre än minBufferMinutes mellanrum.
+ */
+export function findDriverStartConflicts(startTimes = {}, equipages = [], {
+    minBufferMinutes = 30,
+    discipline = null
+} = {}) {
+    const conflicts = [];
+    if (!startTimes || !equipages || !equipages.length) return conflicts;
+
+    const byDriver = new Map();
+    equipages.forEach(eq => {
+        const driver = (eq.driverName || '').trim();
+        if (!driver) return;
+        const norm = driver.toLowerCase();
+        if (!byDriver.has(norm)) byDriver.set(norm, []);
+        byDriver.get(norm).push(eq);
+    });
+
+    const disciplinesToCheck = discipline
+        ? [discipline]
+        : ['dressage', 'marathon', 'precision'];
+
+    for (const [normDriver, driverEquipages] of byDriver.entries()) {
+        if (driverEquipages.length < 2) continue;
+
+        for (const disc of disciplinesToCheck) {
+            const starts = [];
+            driverEquipages.forEach(eq => {
+                const sn = String(eq.startNumber);
+                const timeStr = startTimes[sn]?.[disc];
+                const dt = parseDateTime(timeStr);
+                if (dt && !isNaN(dt.getTime())) {
+                    starts.push({
+                        equipage: eq,
+                        startNumber: eq.startNumber,
+                        dateTime: dt,
+                        timeMs: dt.getTime(),
+                        timeStr
+                    });
+                }
+            });
+
+            if (starts.length < 2) continue;
+
+            starts.sort((a, b) => a.timeMs - b.timeMs);
+
+            for (let i = 0; i < starts.length - 1; i++) {
+                const s1 = starts[i];
+                const s2 = starts[i + 1];
+                const diffMs = s2.timeMs - s1.timeMs;
+                const diffMin = Math.round(diffMs / 60000);
+
+                if (diffMin < minBufferMinutes) {
+                    conflicts.push({
+                        driverName: s1.equipage.driverName,
+                        discipline: disc,
+                        firstStartNumber: s1.startNumber,
+                        secondStartNumber: s2.startNumber,
+                        firstTime: s1.timeStr,
+                        secondTime: s2.timeStr,
+                        diffMinutes: diffMin,
+                        requiredMinutes: minBufferMinutes,
+                        message: `${s1.equipage.driverName}: Endast ${diffMin} minuter mellan start #${s1.startNumber} och #${s2.startNumber} i ${disc} (minst ${minBufferMinutes} min krävs enligt TR Mom 535.4).`
+                    });
+                }
+            }
+        }
+    }
+
+    return conflicts;
+}
+

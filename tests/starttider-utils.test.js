@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   addPauseAfterStartNumber,
+  adjustStartOrderForDriverBuffer,
   assignBulkStartTimes,
   buildLiveStatus,
   buildMarathonDressageResultRows,
@@ -11,6 +12,7 @@ import {
   buildStarttiderClassOptions,
   buildStarttiderMergeMap,
   byStartNumberAsc,
+  findDriverStartConflicts,
   formatDateTime,
   getStarttiderPublishButtonView,
   getPublishedState,
@@ -626,3 +628,94 @@ test('buildPrecisionResultOrderRows ranks worst combined result first', () => {
 
   assert.deepEqual(ranked.map(row => row.startNumber), [3, 1, 2]);
 });
+
+test('buildPrecisionResultOrderRows breaks tied combined penalties by worst marathon result per TR Mom 535.3 & FEI Art 973', () => {
+  // Start 1: Dressage 40 + Marathon 25 = 65
+  // Start 2: Dressage 45 + Marathon 20 = 65
+  // Same total! Start 1 has worse marathon penalty (25 > 20) -> Start 1 must start BEFORE Start 2.
+  const rows = [{ startNumber: 1 }, { startNumber: 2 }];
+  const dressage = new Map([
+    ['1', { penalty: 40 }],
+    ['2', { penalty: 45 }]
+  ]);
+  const marathon = new Map([
+    ['1', { totalPenalty: 25 }],
+    ['2', { totalPenalty: 20 }]
+  ]);
+
+  const ranked = buildPrecisionResultOrderRows(rows, {
+    includeEliminated: false,
+    getDressageResult: row => dressage.get(String(row.startNumber)),
+    getMarathonData: row => marathon.get(String(row.startNumber)),
+    getMarathonResult: (_row, data) => data
+  });
+
+  assert.deepEqual(ranked.map(row => row.startNumber), [1, 2]);
+});
+
+test('adjustStartOrderForDriverBuffer shifts earlier turnout forward to guarantee 30 min buffer per TR Mom 535.4', () => {
+  // 6 equipages, interval 7 min. Required slot distance = ceil(30 / 7) = 5 slots.
+  // Driver "Johan" has start 10 (leader at index 5) and start 11 (placed at index 4, distance 1 slot = 7 min).
+  // Per TR Mom 535.4: start 11 must be shifted forward to index 0 so that distance = 5 slots (35 min >= 30 min),
+  // while start 10 (leader) remains at index 5.
+  const rows = [
+    { startNumber: 1, driverName: 'Anna' },
+    { startNumber: 2, driverName: 'Bengt' },
+    { startNumber: 3, driverName: 'Cecilia' },
+    { startNumber: 4, driverName: 'David' },
+    { startNumber: 11, driverName: 'Johan' },
+    { startNumber: 10, driverName: 'Johan' }
+  ];
+
+  const result = adjustStartOrderForDriverBuffer(rows, { intervalMin: 7, minBufferMinutes: 30 });
+
+  assert.equal(result.adjustedCount, 1);
+  assert.equal(result.unresolvedIssues.length, 0);
+  assert.deepEqual(result.rows.map(r => r.startNumber), [11, 1, 2, 3, 4, 10]);
+  // Verify slot distance between start 11 and start 10: index 0 and index 5 -> diff = 5 slots -> 35 min
+  const idx11 = result.rows.findIndex(r => r.startNumber === 11);
+  const idx10 = result.rows.findIndex(r => r.startNumber === 10);
+  assert.ok((idx10 - idx11) * 7 >= 30);
+});
+
+test('adjustStartOrderForDriverBuffer flags unresolved buffer warning when class is too small without pause', () => {
+  // 3 equipages in class, interval 7 min. Max possible span = 2 * 7 = 14 min (< 30 min).
+  const rows = [
+    { startNumber: 1, driverName: 'Anna' },
+    { startNumber: 11, driverName: 'Johan' },
+    { startNumber: 10, driverName: 'Johan' }
+  ];
+
+  const result = adjustStartOrderForDriverBuffer(rows, { intervalMin: 7, minBufferMinutes: 30 });
+
+  assert.equal(result.unresolvedIssues.length, 1);
+  assert.match(result.unresolvedIssues[0].message, /TR Mom 535.4/);
+  assert.match(result.unresolvedIssues[0].message, /paus/i);
+});
+
+test('findDriverStartConflicts identifies starts for same driver closer than 30 minutes', () => {
+  const equipages = [
+    { startNumber: 1, driverName: 'Johan Lind' },
+    { startNumber: 2, driverName: 'Johan Lind' },
+    { startNumber: 3, driverName: 'Anna Berg' }
+  ];
+
+  // Start 1 at 10:00, Start 2 at 10:20 (diff = 20 min < 30 min)
+  const startTimes = {
+    '1': { precision: '2026-05-25T10:00' },
+    '2': { precision: '2026-05-25T10:20' },
+    '3': { precision: '2026-05-25T10:40' }
+  };
+
+  const conflicts = findDriverStartConflicts(startTimes, equipages, {
+    minBufferMinutes: 30,
+    discipline: 'precision'
+  });
+
+  assert.equal(conflicts.length, 1);
+  assert.equal(conflicts[0].driverName, 'Johan Lind');
+  assert.equal(conflicts[0].firstStartNumber, 1);
+  assert.equal(conflicts[0].secondStartNumber, 2);
+  assert.equal(conflicts[0].diffMinutes, 20);
+});
+

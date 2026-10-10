@@ -4,6 +4,10 @@ import { updateCompetition } from '../../services/competitionService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { getClubLogoHtml, getClubLogoUrl, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
+import { getTeamScoringProfile, getTeamScoringProfileOptions } from '../../services/teamRuleProfiles.js';
+import { getTeamCompositionIssues } from '../../services/teamCalculationService.js';
+import { getFeiDressageStartSlots, supportsFeiTeamBlocks } from '../../services/feiStartOrderService.js';
+import { setGlobalState } from '../../main.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -21,6 +25,7 @@ function escapeAttr(value) {
 let currentTeams = [];
 let currentEquipages = [];
 let currentCompetitionId = null;
+let currentCompetition = null;
 let unsubscribeTeams = null;
 let unsubscribeEquipages = null;
 
@@ -37,6 +42,7 @@ export function unloadTeamsTab() {
   currentTeams = [];
   currentEquipages = [];
   currentCompetitionId = null;
+  currentCompetition = null;
 
   if (window.deleteTeamHandler === deleteTeamHandler) {
     delete window.deleteTeamHandler;
@@ -49,6 +55,7 @@ export function unloadTeamsTab() {
 export function renderTeamsTab(container, competition) {
   if (!container || !competition) return;
   currentCompetitionId = competition.id;
+  currentCompetition = competition;
   window.deleteTeamHandler = deleteTeamHandler;
   window.removeMemberHandler = removeMemberHandler;
 
@@ -70,6 +77,14 @@ export function renderTeamsTab(container, competition) {
           <div class="text-sm text-gray-500 dark:text-gray-400">
             (Visar fliken "Lagtävling" för publiken)
           </div>
+        </div>
+        <div class="mt-5 pt-5 border-t border-gray-200 dark:border-gray-700">
+          <label for="team-scoring-profile" class="block text-sm font-semibold text-gray-800 dark:text-gray-100 mb-2">Regelverk för lagresultat</label>
+          <select id="team-scoring-profile" class="w-full max-w-xl rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 p-2.5">
+            ${getTeamScoringProfileOptions().map(profile => `<option value="${escapeAttr(profile.id)}" ${(competition.teamScoringProfile || '') === profile.id ? 'selected' : ''}>${escapeHtml(profile.label)}</option>`).join('')}
+          </select>
+          <p id="team-scoring-profile-description" class="mt-2 text-sm text-gray-600 dark:text-gray-300"></p>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Lagets sammansättning kontrolleras direkt nedan och igen när resultatet räknas.</p>
         </div>
       </div>
 
@@ -127,6 +142,23 @@ function setupEventListeners() {
     }
   });
 
+  const profileSelect = document.getElementById('team-scoring-profile');
+  updateTeamProfileDescription();
+  profileSelect?.addEventListener('change', async (e) => {
+    const profileId = e.target.value;
+    try {
+      await updateCompetition(currentCompetitionId, { teamScoringProfile: profileId });
+      currentCompetition = { ...currentCompetition, teamScoringProfile: profileId };
+      setGlobalState({ key: 'currentCompetition', value: currentCompetition });
+      updateTeamProfileDescription();
+      renderTeamsList();
+    } catch (error) {
+      console.error(error);
+      alert('Kunde inte spara lagregelverk.');
+      e.target.value = currentCompetition?.teamScoringProfile || '';
+    }
+  });
+
   // Create Team
   document.getElementById('btn-create-team').addEventListener('click', async () => {
     const input = document.getElementById('new-team-name');
@@ -149,6 +181,79 @@ function setupEventListeners() {
   document.getElementById('search-pool').addEventListener('input', (e) => {
     renderPool(e.target.value);
   });
+}
+
+function getSelectedTeamProfile() {
+  return getTeamScoringProfile(currentCompetition?.teamScoringProfile);
+}
+
+function updateTeamProfileDescription() {
+  const description = document.getElementById('team-scoring-profile-description');
+  if (!description) return;
+
+  description.textContent = getSelectedTeamProfile().description;
+}
+
+function renderFeiDressageDeclaration(team, memberObjects, profile) {
+  if (!supportsFeiTeamBlocks(profile) || !memberObjects.length) return '';
+
+  const slots = getFeiDressageStartSlots(team);
+  const memberOptions = memberObjects.map((equipage) => (
+    `<option value="${escapeAttr(equipage.id)}">#${escapeHtml(equipage.startNumber)} ${escapeHtml(equipage.driverName)}</option>`
+  )).join('');
+  const slotLabels = [
+    { position: 1, block: 'B' },
+    { position: 2, block: 'D' },
+    { position: 3, block: 'F' }
+  ];
+
+  return `
+    <div class="border-t border-sky-200 bg-sky-50/70 p-3 dark:border-sky-900/60 dark:bg-sky-950/20" data-fei-dressage-declaration="${escapeAttr(team.id)}">
+      <div class="text-sm font-semibold text-sky-950 dark:text-sky-100">FEI-deklaration för dressyr</div>
+      <p class="mt-1 text-xs text-sky-800 dark:text-sky-200">Välj lagets positioner efter hästbesiktningen. Position 1, 2 och 3 hamnar i block B, D respektive F. För ett lag med två ekipage lämnas en position ledig.</p>
+      <div class="mt-3 grid gap-2 sm:grid-cols-3">
+        ${slotLabels.map(({ position, block }, index) => `
+          <label class="text-xs font-medium text-sky-950 dark:text-sky-100">
+            Position ${position} (block ${block})
+            <select data-fei-dressage-slot="${index}" class="mt-1 w-full rounded border border-sky-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-sky-800 dark:bg-gray-900 dark:text-gray-100">
+              <option value="">Ledig position</option>
+              ${memberOptions.replace(`value="${escapeAttr(slots[index] || '')}"`, `value="${escapeAttr(slots[index] || '')}" selected`)}
+            </select>
+          </label>
+        `).join('')}
+      </div>
+      <button type="button" data-action="save-fei-dressage-declaration" data-team-id="${escapeAttr(team.id)}" class="mt-3 rounded bg-sky-700 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-800">Spara deklaration</button>
+    </div>
+  `;
+}
+
+async function saveFeiDressageDeclaration(button) {
+  const teamId = button?.dataset?.teamId;
+  const team = currentTeams.find(item => String(item.id) === String(teamId));
+  const declaration = button?.closest('[data-fei-dressage-declaration]');
+  if (!team || !declaration) return;
+
+  const slots = [0, 1, 2].map((index) => (
+    declaration.querySelector(`[data-fei-dressage-slot="${index}"]`)?.value || null
+  ));
+  const members = (team.members || []).map(String);
+  const selected = slots.filter(Boolean);
+  const isValid = selected.length === members.length
+    && new Set(selected).size === selected.length
+    && selected.every(memberId => members.includes(memberId))
+    && members.every(memberId => selected.includes(memberId));
+
+  if (!isValid) {
+    alert('Välj varje lagekipage exakt en gång. Ett lag med två ekipage ska ha en ledig position.');
+    return;
+  }
+
+  try {
+    await saveTeam(currentCompetitionId, { id: team.id, feiDressageStartSlots: slots });
+  } catch (error) {
+    console.error(error);
+    alert('Kunde inte spara FEI-deklarationen.');
+  }
 }
 
 function startListeners(competition) {
@@ -209,12 +314,17 @@ function renderPool(filterText = '') {
 function renderTeamsList() {
   const container = document.getElementById('teams-list');
   if (!container) return;
+  const profile = getSelectedTeamProfile();
 
   container.innerHTML = currentTeams.map(team => {
     const members = Array.isArray(team.members) ? team.members : [];
-
     // Hämta hela ekipageobjekten för medlemmarna
     const memberObjects = members.map(mId => currentEquipages.find(e => String(e.id) === String(mId))).filter(Boolean);
+    const compositionIssues = getTeamCompositionIssues(memberObjects, profile);
+    const memberCountIsValid = compositionIssues.length === 0;
+    const memberCountMessage = memberCountIsValid
+      ? ''
+      : `<div class="px-3 py-2 text-xs font-medium text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">${compositionIssues.map(issue => `<div>${escapeHtml(issue)}</div>`).join('')}</div>`;
 
     // Resolve Team Assets
     let teamAssetHtml = '';
@@ -240,13 +350,15 @@ function renderTeamsList() {
             ${teamAssetHtml}
             <h3 class="font-bold text-gray-800 dark:text-white flex items-center gap-2">
                 <span class="text-blue-600">🏆</span> ${team.name}
-                <span class="text-xs bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300 px-2 py-0.5 rounded-full">${members.length} / 3-4</span>
+                <span class="text-xs ${memberCountIsValid ? 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'} px-2 py-0.5 rounded-full">${members.length} / ${profile.minimumMembers}-${profile.maximumMembers}</span>
             </h3>
           </div>
           <button class="text-red-500 hover:text-red-700 text-sm px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20" onclick="window.deleteTeamHandler('${team.id}', '${team.name}')">
             Ta bort lag
           </button>
         </div>
+
+        ${memberCountMessage}
 
         <!-- Drop Zone for this team -->
         <div class="p-3 min-h-[80px] space-y-2 drop-zone bg-gray-50/50 dark:bg-gray-900/20 transition-colors" data-team-id="${team.id}">
@@ -255,12 +367,16 @@ function renderTeamsList() {
         : memberObjects.map(eq => createDraggableCard(eq, team.id)).join('')
       }
         </div>
+        ${renderFeiDressageDeclaration(team, memberObjects, profile)}
       </div>
     `;
   }).join('');
 
   // Re-attach drag events to new zones
   container.querySelectorAll('.drop-zone').forEach(el => addDragEvents(el));
+  container.querySelectorAll('[data-action="save-fei-dressage-declaration"]').forEach((button) => {
+    button.addEventListener('click', () => saveFeiDressageDeclaration(button));
+  });
 }
 
 function createDraggableCard(eq, currentTeamId = null) {
@@ -352,6 +468,18 @@ async function handleMove(equipageId, targetTeamId) {
 
   if (sourceTeamId === targetTeamId) return; // No change
 
+  const targetTeam = targetTeamId === 'pool'
+    ? null
+    : currentTeams.find(team => team.id === targetTeamId);
+  const profile = getSelectedTeamProfile();
+  if (targetTeam) {
+    const targetMembers = targetTeam.members || [];
+    if (!targetMembers.includes(eqId) && targetMembers.length >= profile.maximumMembers) {
+      alert(`${profile.label} tillåter högst ${profile.maximumMembers} ekipage per lag.`);
+      return;
+    }
+  }
+
   // Optimistic UI Update (optional, but let's trust Firestore listener for simplicity first)
 
   // 1. Remove from source
@@ -362,7 +490,6 @@ async function handleMove(equipageId, targetTeamId) {
 
   // 2. Add to target
   if (targetTeamId !== 'pool') {
-    const targetTeam = currentTeams.find(t => t.id === targetTeamId);
     if (targetTeam) {
       const currentMembers = targetTeam.members || [];
       // Safety check: avoid duplicates (though UI prevents it by removing from pool)

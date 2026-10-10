@@ -50,6 +50,12 @@ export function buildMarathonPlacementsByClass({
       const diff = a.tot - b.tot;
       if (Math.abs(diff) > 1e-6) return diff;
 
+      // TR Mom 527.1: Vid lika straffpoang vinner det ekipage som har lagst straffpoang pa B-strackan
+      const bStageA = Number(a.res?.stages?.B?.timePenalty || 0);
+      const bStageB = Number(b.res?.stages?.B?.timePenalty || 0);
+      const bDiff = bStageA - bStageB;
+      if (Math.abs(bDiff) > 1e-6) return bDiff;
+
       const obsPenDiff = (a.res.obstaclePenaltySum || 0) - (b.res.obstaclePenaltySum || 0);
       if (Math.abs(obsPenDiff) > 1e-6) return obsPenDiff;
 
@@ -67,13 +73,16 @@ export function buildMarathonPlacementsByClass({
 
     let place = 1;
     let prevTot = -1;
+    let prevBStagePen = -1;
     let prevObsPen = -1;
     let prevTimes = null;
 
     arr.forEach((row, i) => {
       let isTie = false;
+      const currentBStagePen = Number(row.res?.stages?.B?.timePenalty || 0);
       if (prevTot !== -1) {
         const totTie = Math.abs(row.tot - prevTot) < 1e-6;
+        const bStageTie = Math.abs(currentBStagePen - prevBStagePen) < 1e-6;
         const obsPenTie = Math.abs((row.res.obstaclePenaltySum || 0) - prevObsPen) < 1e-6;
         const rTimes = row.res.obstacleTimes || [];
         const pTimes = prevTimes || [];
@@ -88,7 +97,7 @@ export function buildMarathonPlacementsByClass({
           }
         }
 
-        if (totTie && obsPenTie && timesTie) {
+        if (totTie && bStageTie && obsPenTie && timesTie) {
           isTie = true;
         }
       }
@@ -99,6 +108,7 @@ export function buildMarathonPlacementsByClass({
 
       map.set(row.sn, place);
       prevTot = row.tot;
+      prevBStagePen = currentBStagePen;
       prevObsPen = row.res.obstaclePenaltySum || 0;
       prevTimes = row.res.obstacleTimes || [];
     });

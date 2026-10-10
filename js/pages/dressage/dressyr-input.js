@@ -622,8 +622,8 @@ function calculateTotals() {
 
     // Calculate total including local error points
     // Note: getDressagePenaltyCoeff is used inside service, but we might need it here for the error penalty if not returned
-    const coeff = getDressagePenaltyCoeff(currentDressageTest);
-    const errorPenalty = errorPoints * coeff;
+    // TR Mom 518.9 & FEI Art 958.1.4: Error points added 1:1
+    const errorPenalty = errorPoints;
     const totalPenalty = judgePenalty + errorPenalty;
 
     document.getElementById('totalPointsDisplay').textContent = points.toFixed(1);

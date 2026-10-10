@@ -32,9 +32,10 @@ export function compareTotalTiebreak(a, b) {
   const precisionB = b.precision?.pen ?? Infinity;
   if (Math.abs(precisionA - precisionB) > 1e-6) return precisionA - precisionB;
 
-  const precisionDiffA = a.precision?.timeDiffFromAllowed ?? Infinity;
-  const precisionDiffB = b.precision?.timeDiffFromAllowed ?? Infinity;
-  if (Math.abs(precisionDiffA - precisionDiffB) > 1e-6) return precisionDiffA - precisionDiffB;
+  // TR Mom 530.1.2 & FEI Art 977: Snabbast tid i precision
+  const precisionTimeA = a.precision?.timeMs ?? a.precision?.time ?? Infinity;
+  const precisionTimeB = b.precision?.timeMs ?? b.precision?.time ?? Infinity;
+  if (Math.abs(precisionTimeA - precisionTimeB) > 1e-3) return precisionTimeA - precisionTimeB;
 
   return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
 }

@@ -270,7 +270,7 @@ export async function load() {
 
     // [NEW] Calculate Team Results if enabled
     if (currentComp?.showTeams) {
-        processedTeams = calculateTeamResults(teams, reportRows);
+        processedTeams = calculateTeamResults(teams, reportRows, currentComp?.teamScoringProfile);
     }
 
     render();

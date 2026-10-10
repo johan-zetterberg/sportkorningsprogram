@@ -17,6 +17,7 @@ import { t } from '../../utils/i18n.js';
 
 import { calculateTotalResult } from '../../services/calculationService.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
+import { getTeamScoringProfile } from '../../services/teamRuleProfiles.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
@@ -871,6 +872,7 @@ function renderTeams() {
   if (!container) return;
 
   const showTeams = getGlobalState('currentCompetition')?.showTeams;
+  const teamProfile = getTeamScoringProfile(getGlobalState('currentCompetition')?.teamScoringProfile);
   if (!showTeams) return;
 
   if (!processedTeams || processedTeams.length === 0) {
@@ -910,11 +912,20 @@ function renderTeams() {
       index: idx,
       teamBests,
       teamAssetHtml,
-      membersHtml
+      membersHtml,
+      profile: teamProfile
     });
   }).join('');
 
-  container.innerHTML = `<div class="max-w-4xl mx-auto mt-6">${rows}</div>`;
+  container.innerHTML = `
+    <div class="max-w-4xl mx-auto mt-6">
+      <div class="mb-4 px-1">
+        <h2 class="text-xl font-bold text-gray-900 dark:text-white">Lagresultat</h2>
+        <p class="text-sm text-gray-500 dark:text-gray-400">${escapeHtml(teamProfile.label)}: ${escapeHtml(teamProfile.description)}</p>
+      </div>
+      ${rows}
+    </div>
+  `;
 }
 
 function renderLayout() {
@@ -1365,6 +1376,7 @@ async function recompute() {
   processedTeams = buildProcessedTotalTeams({
     rawTeams,
     processedResults,
+    teamScoringProfile: getGlobalState('currentCompetition')?.teamScoringProfile,
     calculateTeamResults
   });
 

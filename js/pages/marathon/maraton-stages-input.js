@@ -10,9 +10,10 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
-import { downloadJson } from '../../utils/sharedUtils.js';
+import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
 
 // --- Wrapper functions for marathonUtils ---
 
@@ -38,7 +39,7 @@ function getStageThresholds(equipageSnOrObj, stage) {
   };
 }
 
-function computeTimePenalty(equipageSnOrObj, stage, ms) {
+function computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs = 0) {
   const eq = resolveEquipage(equipageSnOrObj);
   const st = normStage(stage);
 
@@ -67,10 +68,14 @@ function computeTimePenalty(equipageSnOrObj, stage, ms) {
     };
   }
 
-  const { points, elim } = stagePenaltyFromMs(ms, eq, st);
+  const effectiveMs = (st === 'B' && Number.isFinite(ms))
+    ? Math.max(0, ms - (Number(holdTimeMs) || 0))
+    : ms;
+
+  const { points, elim } = stagePenaltyFromMs(effectiveMs, eq, st);
 
   let secondsOut = 0;
-  const s = ms / 1000;
+  const s = effectiveMs / 1000;
   if (s < lim.min) secondsOut = lim.min - s;
   else if (s > lim.max) secondsOut = s - lim.max;
 
@@ -758,9 +763,9 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
   const devEl = document.getElementById(`info-${stage}-dev`);
   const penEl = document.getElementById(`info-${stage}-pen`);
   const timerEl = document.getElementById(`timer-${stage}`);
-  if (!tlEl && !devEl && !penEl) return;
-
-  const res = computeTimePenalty(equipageSnOrObj, stage, ms);
+  const obsList = Array.isArray(currentDocData?.obstacles) ? currentDocData.obstacles : [];
+  const holdTimeMs = (stage === 'B') ? obsList.reduce((acc, o) => acc + (Number(o?.holdTimeSec) || 0) * 1000, 0) : 0;
+  const res = computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs);
 
   // --- NYTT: DISKREPANS-KOLL (Tid vs Klockslag) ---
   const stData = currentDocData?.timing?.[stage];
@@ -857,6 +862,20 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
       }
     } else {
       etaBox.classList.add('hidden');
+    }
+  }
+
+  // Vilobox-status (TR Mom 526.4 / FEI Art 948.3)
+  const viloboxEl = document.getElementById(`box-${stage}-vilobox`);
+  if (viloboxEl) {
+    const eq = resolveEquipage(equipageSnOrObj);
+    if (eq && (stage === 'B' || stage === 'A' || stage === 'warmup')) {
+      const vInfo = getViloboxBadgeInfo(eq);
+      viloboxEl.classList.remove('hidden');
+      viloboxEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${vInfo.colorClass}">🩺 Vilobox: ${escapeHtml(vInfo.label)}</span>`;
+    } else {
+      viloboxEl.classList.add('hidden');
+      viloboxEl.innerHTML = '';
     }
   }
 
@@ -1168,6 +1187,7 @@ function renderStagePanel(stage) {
             <span class="text-[10px] uppercase font-bold text-gray-400">${t('marathon_stages_penalty')}</span>
             <span id="info-${stage}-pen" class="tabular-nums text-xs font-bold dark:text-gray-200">—</span>
           </div>
+          <div id="box-${stage}-vilobox" class="hidden flex items-center gap-2 mt-1"></div>
         </div>
       </div>
 
@@ -1235,6 +1255,13 @@ function renderStagePanel(stage) {
       </div>
 
       ${stage === 'B' ? `
+      <div id="holdTimeNotice-B" class="hidden p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-xs space-y-1">
+        <div class="font-bold text-blue-900 dark:text-blue-200 flex items-center justify-between">
+          <span>⏱️ Registrerat uppehåll vid hinder:</span>
+          <span id="holdTimeNoticeAmount-B" class="font-mono font-bold">-0s</span>
+        </div>
+        <div id="holdTimeNoticeDetails-B" class="text-blue-800 dark:text-blue-300"></div>
+      </div>
       <div class="pt-2 border-t dark:border-gray-700 space-y-2">
         <label class="flex items-center gap-2 cursor-pointer">
           <input id="bitOk" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600">
@@ -1549,6 +1576,26 @@ function populateStageUI(stage, docData = {}) {
     bitCommentEl.value = docData.bitCheckComment ?? docData.bettComment ?? '';
   }
 
+  if (stage === 'B') {
+    const noticeEl = document.getElementById('holdTimeNotice-B');
+    const amountEl = document.getElementById('holdTimeNoticeAmount-B');
+    const detailsEl = document.getElementById('holdTimeNoticeDetails-B');
+    if (noticeEl) {
+      const obsList = Array.isArray(docData?.obstacles) ? docData.obstacles : [];
+      const holdObs = obsList.filter(o => Number(o?.holdTimeSec) > 0);
+      const totalHoldSec = holdObs.reduce((s, o) => s + Number(o.holdTimeSec), 0);
+      if (totalHoldSec > 0) {
+        noticeEl.classList.remove('hidden');
+        if (amountEl) amountEl.textContent = `-${totalHoldSec}s`;
+        if (detailsEl) {
+          detailsEl.innerHTML = holdObs.map(o => `<div>Hinder ${escapeHtml(o.number || o.obstacleNumber || '?')}: -${Number(o.holdTimeSec)}s ${o.comment ? `(${escapeHtml(o.comment)})` : ''}</div>`).join('');
+        }
+      } else {
+        noticeEl.classList.add('hidden');
+      }
+    }
+  }
+
   updateTimerLabel(stage);
   refreshCommentToggleState(stage);
 }
@@ -1571,6 +1618,20 @@ async function startStage(stage) {
   if (!currentEquipage) return;
 
   const actualStage = normalizeStageForEquipage(currentEquipage, stage);
+  if (actualStage === 'B' || stage === 'B') {
+    const vInfo = getViloboxBadgeInfo(currentEquipage);
+    if (vInfo && vInfo.status === 'unfit') {
+      const confirmed = (typeof window !== 'undefined' && typeof window.confirm === 'function')
+        ? window.confirm(
+            'VARNING: Detta ekipage har erhållit Startförbud B i viloboxbesiktningen (TR Mom 526.4 / FEI Art 948.3).\n\nÄr du säker på att du vill starta etapp B ändå?'
+          )
+        : true;
+      if (!confirmed) {
+        return;
+      }
+    }
+  }
+
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   const now = Date.now();
   const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};

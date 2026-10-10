@@ -177,12 +177,28 @@ async function loadGlobalPrograms() {
 }
 
 // ---- PDF.js (dynamisk import när behövs) ----
+let pdfJsLoadPromise = null;
+
 async function ensurePdfJs() {
-  const lib = window.pdfjsLib;
-  if (!lib || !lib.getDocument) {
-    throw new Error('PDF.js saknas (kolla index.html-import av pdf.mjs och worker .mjs).');
+  if (window.pdfjsLib?.getDocument) return window.pdfjsLib;
+
+  if (!pdfJsLoadPromise) {
+    pdfJsLoadPromise = import('../../../lib/pdfjs/build/pdf.mjs')
+      .then((lib) => {
+        lib.GlobalWorkerOptions.workerSrc = new URL(
+          '../../../lib/pdfjs/build/pdf.worker.min.mjs',
+          import.meta.url
+        ).href;
+        window.pdfjsLib = lib;
+        return lib;
+      })
+      .catch((error) => {
+        pdfJsLoadPromise = null;
+        throw error;
+      });
   }
-  return lib;
+
+  return pdfJsLoadPromise;
 }
 
 async function extractPdfText(file) {

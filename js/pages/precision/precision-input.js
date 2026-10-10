@@ -20,7 +20,16 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 import { downloadJson, round2 } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
-import { computeMaxSecondsForClass, calculatePrecisionTimePenalty, getPortAllowanceCm, getPrecisionCourseData } from '../../utils/precisionUtils.js';
+import {
+    computeMaxSecondsForClass,
+    calculatePrecisionTimePenalty,
+    getPortAllowanceCm,
+    getPrecisionCourseData,
+    computePortWidth,
+    isStandardPortWidthClass,
+    trackWidthFromEq
+} from '../../utils/precisionUtils.js';
+import { getCarriageCompliance } from '../shared/vagnbreddUtils.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
 // ---------- State ----------
@@ -128,10 +137,7 @@ function getAllowanceForClass(cls) {
     return getPortAllowanceCm(cls, precisionConfig);
 }
 function computePortWidthForEquipage(eq) {
-    const trackWidth = Number(eq?.trackWidth);
-    const allowance = getAllowanceForClass(eq?.className || '');
-    if (!Number.isFinite(trackWidth) || !Number.isFinite(allowance)) return null;
-    return trackWidth + allowance;
+    return computePortWidth(eq, precisionConfig);
 }
 function getLabelsForClass(cls) {
     const courseData = getPrecisionCourseData(
@@ -490,9 +496,13 @@ function renderLayout() {
                     </div>
                     
                     <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
-                        <div id="infoEquipageLine" class="font-bold dark:text-white text-base md:text-lg">–</div>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <div id="infoEquipageLine" class="font-bold dark:text-white text-base md:text-lg">–</div>
+                            <div id="infoCarriageWarning" class="inline-flex"></div>
+                        </div>
                         <div class="info-meta text-xs md:text-sm text-gray-600 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">
-                            Hinder: <span id="infoPortWidth" class="text-blue-700 dark:text-blue-400">–</span> | 
+                            Hinder: <span id="infoPortWidth" class="text-blue-700 dark:text-blue-400 font-bold">–</span> | 
+                            Vagn: <span id="infoTrackWidth" class="text-gray-700 dark:text-gray-300 font-semibold">–</span> | 
                             Max: <span id="infoMaxTime" class="text-blue-700 dark:text-blue-400">–</span>
                         </div>
                     </div>
@@ -561,19 +571,53 @@ function updateHeaderInfo() {
     const eq = currentEquipage;
     const equipageEl = document.getElementById('infoEquipageLine');
     const portEl = document.getElementById('infoPortWidth');
+    const trackEl = document.getElementById('infoTrackWidth');
     const maxEl = document.getElementById('infoMaxTime');
+    const warningEl = document.getElementById('infoCarriageWarning');
 
     if (!eq) {
-        [equipageEl, portEl, maxEl].forEach(el => { if (el) el.textContent = '–'; });
+        [equipageEl, portEl, trackEl, maxEl].forEach(el => { if (el) el.textContent = '–'; });
+        if (warningEl) warningEl.innerHTML = '';
         return;
     }
 
+    const isStandard = isStandardPortWidthClass(eq, precisionConfig);
     const portWidth = computePortWidthForEquipage(eq);
+    const trackWidth = trackWidthFromEq(eq);
     const maxSeconds = computeMaxSecondsForClass(eq, precisionConfig);
+    const compliance = getCarriageCompliance(eq, 'dressagePrecision');
 
-    equipageEl.textContent = `#${eq.startNumber} ${eq.driverName || ''} (${eq.className})`;
-    portEl.textContent = Number.isFinite(portWidth) ? `${portWidth} cm` : t('precision_not_specified');
-    maxEl.textContent = Number.isFinite(maxSeconds) ? secondsToMMSS(maxSeconds) : t('precision_not_specified');
+    if (equipageEl) {
+        equipageEl.textContent = `#${eq.startNumber} ${eq.driverName || ''} (${eq.className})`;
+    }
+
+    if (portEl) {
+        if (Number.isFinite(portWidth)) {
+            portEl.textContent = `${portWidth} cm${isStandard ? ' (Standard)' : ''}`;
+        } else {
+            portEl.textContent = t('precision_not_specified') || 'Ej angivet';
+        }
+    }
+
+    if (trackEl) {
+        trackEl.textContent = Number.isFinite(trackWidth) ? `${trackWidth} cm` : 'Ej mätt';
+    }
+
+    if (maxEl) {
+        maxEl.textContent = Number.isFinite(maxSeconds) ? secondsToMMSS(maxSeconds) : t('precision_not_specified');
+    }
+
+    if (warningEl) {
+        if (compliance.status === 'too_narrow') {
+            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200" title="${compliance.message}">⚠️ Vagn ${compliance.actualWidth}cm (< min ${compliance.minWidth}cm)</span>`;
+        } else if (compliance.status === 'forbidden') {
+            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200" title="${compliance.message}">⛔ Ej tillåten (TR Bilaga 2)</span>`;
+        } else if (compliance.safetyApproved === false) {
+            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200" title="Funktionskontroll underkänd">⚠️ Ej godkänd vagnkontroll</span>`;
+        } else {
+            warningEl.innerHTML = '';
+        }
+    }
 }
 
 function renderGates() {

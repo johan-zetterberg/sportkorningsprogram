@@ -1,11 +1,11 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v32'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v34'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
 const abs = (p) => (SCOPE_PATH === '/' ? p : (SCOPE_PATH + (p.startsWith('/') ? p : '/' + p)));
 const LOCAL_JS_SCOPE = SCOPE_PATH === '/' ? '/js/' : `${SCOPE_PATH}/js/`;
-const MODULE_IMPORT_PATTERN = /(?:import\s+(?:[^'"]+?\s+from\s+)?|import\s*\()\s*['"]([^'"]+\.(?:js|mjs))['"]/g;
+const MODULE_IMPORT_PATTERN = /\bimport\s+(?:(?:[\w*\s{},]+)\s+from\s+)?['"]([^'"]+\.(?:js|mjs))['"]/g;
 const MODULE_GRAPH_ENTRY_POINTS = [
   abs('/js/main.js')
 ];
@@ -246,7 +246,7 @@ const urlsToCache = [
 
 // Separera interna (kritiska) filer från externa (som kan misslyckas utan att döda appen)
 const internalUrls = urlsToCache.filter(u => !u.startsWith('http'));
-const externalUrls = urlsToCache.filter(u => u.startsWith('http'));
+const externalUrls = [];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -269,14 +269,14 @@ self.addEventListener('install', (event) => {
         abs('/index.html'),
         abs('/manifest.json'),
         abs('/js/main.js'),
+        abs('/css/tailwind.css'),
         abs('/css/style.css')
       ];
       await cache.addAll(criticalInternalUrls);
 
-      const optionalInternalUrls = Array.from(new Set([
-        ...internalUrls.filter(url => !criticalInternalUrls.includes(url)),
-        ...discoveredModuleUrls.filter(url => !criticalInternalUrls.includes(url))
-      ]));
+      const optionalInternalUrls = Array.from(new Set(
+        discoveredModuleUrls.filter(url => !criticalInternalUrls.includes(url))
+      ));
       const results = await Promise.allSettled(optionalInternalUrls.map(u => cache.add(u)));
       const failed = results
         .map((r, i) => ({ result: r, url: optionalInternalUrls[i] }))
@@ -372,6 +372,20 @@ self.addEventListener('fetch', (event) => {
   if (isJs(req, url)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
+      const cached = await cache.match(req) || await cache.match(req, { ignoreVary: true });
+      if (cached) {
+        const refresh = fetch(req, { cache: 'no-cache' })
+          .then((net) => {
+            const contentType = net.headers.get('content-type') || '';
+            if (!contentType.includes('text/html')) {
+              return cache.put(req, net.clone());
+            }
+            return undefined;
+          });
+        event.waitUntil(refresh.catch(() => {}));
+        return cached;
+      }
+
       try {
         const net = await fetch(req, { cache: 'no-cache' });
         const ct = net.headers.get('content-type') || '';

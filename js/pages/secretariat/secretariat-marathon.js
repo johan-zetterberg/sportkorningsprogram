@@ -269,6 +269,7 @@ function buildTimingRows() {
         </td>
         <td class="px-3 py-3 text-sm min-w-[8rem]">
           <input data-field="duration_B" value="${escapeHtml(formatEditableTime(view.duration_B))}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+          ${row.holdTimeSec > 0 ? `<div class="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mt-0.5">Avdrag: -${row.holdTimeSec}s</div>` : ''}
         </td>
         <td class="px-3 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">${escapeHtml(String(row.obstacleCount || 0))}</td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">${renderStatusBadge(view.status, row.finalized)}</td>
@@ -373,6 +374,9 @@ function buildObstacleRows() {
         <td class="px-3 py-3 text-sm min-w-[6rem]">
           <input data-field="otherPenalty" type="number" step="0.01" value="${escapeHtml(view.otherPenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
+        <td class="px-3 py-3 text-sm min-w-[5rem]">
+          <input data-field="holdTimeSec" type="number" step="1" min="0" value="${escapeHtml(view.holdTimeSec ?? 0)}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        </td>
         <td data-role="obstacle-total" class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">${escapeHtml(totalPenalty.toFixed(2).replace(/\.00$/, ''))}</td>
         <td class="px-3 py-3 text-sm text-center">
           <input data-field="eliminated" type="checkbox" ${view.eliminated ? 'checked' : ''} ${readOnly ? 'disabled' : ''} class="h-4 w-4 rounded border-gray-300 text-red-600 disabled:opacity-60">
@@ -405,6 +409,7 @@ function buildObstacleRows() {
             <th class="px-3 py-3">KD</th>
             <th class="px-3 py-3">KD-straff</th>
             <th class="px-3 py-3">Övrigt</th>
+            <th class="px-3 py-3">Uppehåll (s)</th>
             <th class="px-3 py-3">Totalt</th>
             <th class="px-3 py-3">Elim.</th>
             <th class="px-3 py-3">Kommentar</th>
@@ -530,6 +535,7 @@ function collectObstaclePatch(rowEl, baseRow) {
   const knockdowns = Number(rowEl.querySelector('[data-field="knockdowns"]')?.value || 0);
   const knockdownPenalty = Number(rowEl.querySelector('[data-field="knockdownPenalty"]')?.value || 0);
   const otherPenalty = Number(rowEl.querySelector('[data-field="otherPenalty"]')?.value || 0);
+  const holdTimeSec = Number(rowEl.querySelector('[data-field="holdTimeSec"]')?.value || 0);
 
   return {
     obstacleNumber: baseRow.obstacleNumber,
@@ -538,6 +544,7 @@ function collectObstaclePatch(rowEl, baseRow) {
     knockdowns: Number.isFinite(knockdowns) ? knockdowns : 0,
     knockdownPenalty: Number.isFinite(knockdownPenalty) ? knockdownPenalty : 0,
     otherPenalty: Number.isFinite(otherPenalty) ? otherPenalty : 0,
+    holdTimeSec: Number.isFinite(holdTimeSec) ? holdTimeSec : 0,
     penalty: (Number.isFinite(timePenalty) ? timePenalty : 0)
       + (Number.isFinite(knockdownPenalty) ? knockdownPenalty : 0)
       + (Number.isFinite(otherPenalty) ? otherPenalty : 0),
@@ -564,6 +571,7 @@ function updateObstacleDraft(rowEl) {
       knockdowns: patch.knockdowns,
       knockdownPenalty: patch.knockdownPenalty,
       otherPenalty: patch.otherPenalty,
+      holdTimeSec: patch.holdTimeSec,
       eliminated: patch.eliminated,
       comment: patch.comment,
     }) !== JSON.stringify({
@@ -572,6 +580,7 @@ function updateObstacleDraft(rowEl) {
       knockdowns: baseRow.knockdowns || 0,
       knockdownPenalty: baseRow.knockdownPenalty || 0,
       otherPenalty: baseRow.otherPenalty || 0,
+      holdTimeSec: baseRow.holdTimeSec || 0,
       eliminated: !!baseRow.eliminated,
       comment: baseRow.comment || '',
     });

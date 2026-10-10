@@ -6,9 +6,42 @@ export const VET_STATUS_PRIORITY = {
   struken: 4
 };
 
+export const VET_PHASES = {
+  initial: {
+    id: 'initial',
+    label: 'Förbesiktning',
+    shortLabel: 'Förbesiktning',
+    trRule: 'TR Mom 526.1 / FEI Art 948.1',
+    desc: 'Vid ankomst / före dressyr. Mönstring vid hand, ID och temp.'
+  },
+  harness: {
+    id: 'harness',
+    label: 'Selningskontroll',
+    shortLabel: 'Selning',
+    trRule: 'TR Mom 526.3 / FEI Art 948.2',
+    desc: 'Före start i maraton. Seldon, bett, vagn och utrustning.'
+  },
+  restArea: {
+    id: 'restArea',
+    label: 'Vilobox (Maraton)',
+    shortLabel: 'Vilobox',
+    trRule: 'TR Mom 526.4 / FEI Art 948.3',
+    desc: '10 min obligatorisk vila mellan A/T och B. Puls och andning.'
+  },
+  final: {
+    id: 'final',
+    label: 'Slutbesiktning',
+    shortLabel: 'Slutbesiktning',
+    trRule: 'TR Mom 526.5 / FEI Art 948.4',
+    desc: 'Före precision. Säkerställer att hästen är i fullgott skick efter maraton.'
+  }
+};
+
+export const MAX_RECOMMENDED_PULSE_BPM = 64;
+
 export function normalizeVetStatus(status) {
   const value = String(status || 'anmäld').trim().toLowerCase();
-  if (value === 'anmäld' || value === 'anmäld') return 'anmäld';
+  if (value === 'anmäld') return 'anmäld';
   return value;
 }
 
@@ -30,11 +63,37 @@ export function getHorseStableKey(horse = {}, index = 0) {
   );
 }
 
-export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld') {
+export function getHorsePhaseInspection(horse = {}, phase = 'initial') {
+  if (phase === 'initial') {
+    const directStatus = getHorseVetStatus(horse);
+    const stored = horse.inspections?.[phase] || {};
+    return {
+      status: normalizeVetStatus(stored.status || directStatus),
+      checkedAt: stored.checkedAt || horse.vetCheckedAt || null,
+      ...stored
+    };
+  }
+  return horse.inspections?.[phase] || {
+    status: 'anmäld',
+    checkedAt: null
+  };
+}
+
+export function isPulseWarning(pulse) {
+  const bpm = Number(pulse);
+  return Number.isFinite(bpm) && bpm > MAX_RECOMMENDED_PULSE_BPM;
+}
+
+export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld', phase = 'initial') {
   const list = Array.isArray(horses) ? horses : [];
   if (!list.length) return normalizeVetStatus(fallbackStatus);
 
-  const statuses = list.map(getHorseVetStatus);
+  const statuses = list.map(horse => {
+    if (phase === 'initial') return getHorseVetStatus(horse);
+    const pData = horse.inspections?.[phase];
+    return normalizeVetStatus(pData?.status || 'anmäld');
+  });
+
   if (statuses.some(status => status === 'struken')) return 'struken';
   if (statuses.some(status => status === 'ombesiktning')) return 'ombesiktning';
   if (statuses.every(status => status === 'besiktigad')) return 'besiktigad';
@@ -45,18 +104,56 @@ export function updateHorseVetStatus(horses = [], horseKey, status) {
   const key = String(horseKey || '');
   return (Array.isArray(horses) ? horses : []).map((horse, index) => {
     if (getHorseStableKey(horse, index) !== key) return horse;
+    const nowIso = new Date().toISOString();
     return {
       ...horse,
       vetStatus: normalizeVetStatus(status),
-      vetCheckedAt: new Date().toISOString()
+      vetCheckedAt: nowIso,
+      inspections: {
+        ...(horse.inspections || {}),
+        initial: {
+          ...(horse.inspections?.initial || {}),
+          status: normalizeVetStatus(status),
+          checkedAt: nowIso
+        }
+      }
     };
   });
 }
 
-export function sortVetEquipages(equipages = []) {
+export function updateHorsePhaseInspection(horses = [], horseKey, phase = 'initial', updateData = {}) {
+  const key = String(horseKey || '');
+  return (Array.isArray(horses) ? horses : []).map((horse, index) => {
+    if (getHorseStableKey(horse, index) !== key) return horse;
+    const nowIso = new Date().toISOString();
+    const currentPhaseData = horse.inspections?.[phase] || {};
+    const newPhaseData = {
+      ...currentPhaseData,
+      ...updateData,
+      checkedAt: nowIso
+    };
+    if (updateData.status) {
+      newPhaseData.status = normalizeVetStatus(updateData.status);
+    }
+    const updatedHorse = {
+      ...horse,
+      inspections: {
+        ...(horse.inspections || {}),
+        [phase]: newPhaseData
+      }
+    };
+    if (phase === 'initial' && updateData.status) {
+      updatedHorse.vetStatus = normalizeVetStatus(updateData.status);
+      updatedHorse.vetCheckedAt = nowIso;
+    }
+    return updatedHorse;
+  });
+}
+
+export function sortVetEquipages(equipages = [], phase = 'initial') {
   return [...(equipages || [])].sort((a, b) => {
-    const statusA = deriveVetStatusFromHorses(a?.horses, a?.status);
-    const statusB = deriveVetStatusFromHorses(b?.horses, b?.status);
+    const statusA = deriveVetStatusFromHorses(a?.horses, a?.status, phase);
+    const statusB = deriveVetStatusFromHorses(b?.horses, b?.status, phase);
     const priorityA = VET_STATUS_PRIORITY[statusA] ?? VET_STATUS_PRIORITY['anmäld'];
     const priorityB = VET_STATUS_PRIORITY[statusB] ?? VET_STATUS_PRIORITY['anmäld'];
     if (priorityA !== priorityB) return priorityA - priorityB;
@@ -64,9 +161,9 @@ export function sortVetEquipages(equipages = []) {
   });
 }
 
-export function getVetRemainingCount(equipages = []) {
+export function getVetRemainingCount(equipages = [], phase = 'initial') {
   return (equipages || []).filter(eq => {
-    const status = deriveVetStatusFromHorses(eq?.horses, eq?.status);
+    const status = deriveVetStatusFromHorses(eq?.horses, eq?.status, phase);
     return status !== 'besiktigad' && status !== 'struken';
   }).length;
 }
@@ -76,9 +173,9 @@ export function getVetSearchStartNumber(searchTerm = '') {
   return match ? match[1] : '';
 }
 
-export function filterVetEquipages(equipages = [], searchTerm = '') {
+export function filterVetEquipages(equipages = [], searchTerm = '', phase = 'initial') {
   const term = String(searchTerm || '').trim().toLowerCase();
-  if (!term) return sortVetEquipages(equipages);
+  if (!term) return sortVetEquipages(equipages, phase);
 
   const jumpStartNumber = getVetSearchStartNumber(term);
   const cleanTerm = jumpStartNumber || (term.includes('-') ? term.split('-')[0].trim() : term);
@@ -95,28 +192,42 @@ export function filterVetEquipages(equipages = [], searchTerm = '') {
       horseNames
     ].join(' ').toLowerCase();
     return haystack.includes(cleanTerm);
-  }));
+  }), phase);
 }
 
-export function buildVetDatalistOptions(equipages = []) {
-  return sortVetEquipages(equipages).map(eq => ({
+export function buildVetDatalistOptions(equipages = [], phase = 'initial') {
+  return sortVetEquipages(equipages, phase).map(eq => ({
     value: `${eq.startNumber} - ${eq.driverName || ''}`.trim(),
     startNumber: String(eq.startNumber)
   }));
 }
 
-export function resolveVetFilteredState(equipages = [], searchTerm = '') {
+export function resolveVetFilteredState(equipages = [], searchTerm = '', phase = 'initial') {
   const jumpStartNumber = getVetSearchStartNumber(searchTerm);
   if (jumpStartNumber) {
-    const sorted = sortVetEquipages(equipages);
+    const sorted = sortVetEquipages(equipages, phase);
     const index = sorted.findIndex(eq => String(eq.startNumber) === jumpStartNumber);
     if (index !== -1) return { filtered: sorted, index, clearSearch: true };
   }
 
   return {
-    filtered: filterVetEquipages(equipages, searchTerm),
+    filtered: filterVetEquipages(equipages, searchTerm, phase),
     index: 0,
     clearSearch: false
   };
 }
 
+export function getViloboxBadgeInfo(equipage = {}) {
+  const horses = Array.isArray(equipage.horses) ? equipage.horses : [];
+  const status = deriveVetStatusFromHorses(horses, equipage.status, 'restArea');
+  if (status === 'besiktigad') {
+    return { status: 'approved', label: 'Godkänd för B', colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  }
+  if (status === 'ombesiktning') {
+    return { status: 'hold', label: 'Ombesiktning', colorClass: 'bg-amber-100 text-amber-800 border-amber-300' };
+  }
+  if (status === 'struken') {
+    return { status: 'unfit', label: 'Startförbud B', colorClass: 'bg-rose-100 text-rose-800 border-rose-300' };
+  }
+  return { status: 'waiting', label: 'Väntar', colorClass: 'bg-gray-100 text-gray-700 border-gray-300' };
+}

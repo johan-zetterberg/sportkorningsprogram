@@ -1,12 +1,15 @@
 export function buildProcessedTotalTeams({
   rawTeams = [],
   processedResults = [],
+  teamScoringProfile,
   calculateTeamResults
 } = {}) {
   if (typeof calculateTeamResults !== 'function') {
     throw new Error('buildProcessedTotalTeams: calculateTeamResults saknas');
   }
-  return calculateTeamResults(rawTeams, processedResults);
+  return teamScoringProfile == null
+    ? calculateTeamResults(rawTeams, processedResults)
+    : calculateTeamResults(rawTeams, processedResults, teamScoringProfile);
 }
 
 export function buildTeamDisciplineBests(teams = []) {
@@ -17,7 +20,7 @@ export function buildTeamDisciplineBests(teams = []) {
   };
 
   (teams || []).forEach((team) => {
-    if (team?.isEliminated) return;
+    if (team?.isEliminated || team?.isInvalid || team?.isIneligible) return;
     if (Number.isFinite(team.dressage)) bests.dressage = Math.min(bests.dressage, team.dressage);
     if (Number.isFinite(team.marathon)) bests.marathon = Math.min(bests.marathon, team.marathon);
     if (Number.isFinite(team.precision)) bests.precision = Math.min(bests.precision, team.precision);
@@ -38,6 +41,12 @@ export function isBestTeamDiscipline(team, discipline, bests = {}) {
 export function renderTeamRankBadge(team, index = 0) {
   if (team?.isEliminated) {
     return '<span class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-bold uppercase tracking-wider">ELIM</span>';
+  }
+  if (team?.isInvalid) {
+    return '<span class="px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200 text-xs font-bold uppercase tracking-wider">Ofullst&auml;ndigt lag</span>';
+  }
+  if (team?.isIneligible) {
+    return '<span class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-bold uppercase tracking-wider">Ej kvalificerat</span>';
   }
   if (team?.isIncomplete) {
     return '<span class="px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold uppercase tracking-wider">Pågår</span>';
@@ -62,7 +71,7 @@ export function formatTeamScore(value, { eliminated = false, eliminatedLabel = '
 }
 
 export function getTeamCardBorderClass(team, index = 0) {
-  return index === 0 && !team?.isEliminated && !team?.isIncomplete
+  return index === 0 && !team?.isEliminated && !team?.isIncomplete && !team?.isIneligible
     ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50'
     : 'dark:border-gray-700';
 }
@@ -127,12 +136,14 @@ export function renderTeamDisciplineSummaryCell({
   value,
   isEliminated = false,
   isBest = false,
+  rank = null,
   title = ''
 } = {}) {
   const highlightClass = 'text-amber-600 dark:text-amber-400 font-extrabold';
   return `
             <div class="col-span-2 text-right font-bold ${isBest ? highlightClass : ''}" title="${isBest ? title : ''}">
                 ${formatTeamScore(value, { eliminated: isEliminated })}
+                ${Number.isFinite(rank) ? `<span class="ml-1 text-[10px] font-semibold text-gray-500 dark:text-gray-400">${rank}:a</span>` : ''}
                 ${isBest ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
             </div>
             `;
@@ -141,16 +152,18 @@ export function renderTeamDisciplineSummaryCell({
 export function renderTeamSummaryFooter(team = {}, {
   isBestDressage = false,
   isBestMarathon = false,
-  isBestPrecision = false
+  isBestPrecision = false,
+  countingLabel = 'Bästa 3'
 } = {}) {
   return `
           <div class="grid grid-cols-12 gap-2 px-2 py-3 text-sm border-t dark:border-gray-600/50 mt-0 bg-blue-50/50 dark:bg-blue-900/10 text-gray-900 dark:text-gray-100">
-            <div class="col-span-4 text-right pr-2 font-bold self-center text-blue-900 dark:text-blue-200">Bästa 3 (Summa):</div>
+            <div class="col-span-4 text-right pr-2 font-bold self-center text-blue-900 dark:text-blue-200">${countingLabel} (Summa):</div>
             
             ${renderTeamDisciplineSummaryCell({
               value: team.dressage,
               isEliminated: team.isEliminated,
               isBest: isBestDressage,
+              rank: team.disciplineRanks?.dressage,
               title: 'Bästa lagdressyr (för godkända lag)'
             })}
             
@@ -158,6 +171,7 @@ export function renderTeamSummaryFooter(team = {}, {
               value: team.marathon,
               isEliminated: team.isEliminated,
               isBest: isBestMarathon,
+              rank: team.disciplineRanks?.marathon,
               title: 'Bästa lagmaraton (för godkända lag)'
             })}
             
@@ -165,6 +179,7 @@ export function renderTeamSummaryFooter(team = {}, {
               value: team.precision,
               isEliminated: team.isEliminated,
               isBest: isBestPrecision,
+              rank: team.disciplineRanks?.precision,
               title: 'Bästa lagprecision (för godkända lag)'
             })}
             
@@ -179,13 +194,20 @@ export function renderTeamCard(team = {}, {
   index = 0,
   teamBests = {},
   teamAssetHtml = '',
-  membersHtml = ''
+  membersHtml = '',
+  profile = null
 } = {}) {
   const rankBadge = renderTeamRankBadge(team, index);
   const cardBorder = getTeamCardBorderClass(team, index);
   const isBestDressage = isBestTeamDiscipline(team, 'dressage', teamBests);
   const isBestMarathon = isBestTeamDiscipline(team, 'marathon', teamBests);
   const isBestPrecision = isBestTeamDiscipline(team, 'precision', teamBests);
+  const validationNotice = team.validationIssues?.length
+    ? `<div class="px-4 py-2 text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">${team.validationIssues.join(' ')}</div>`
+    : '';
+  const eligibilityNotice = team.isIneligible
+    ? '<div class="px-4 py-2 text-sm text-red-800 dark:text-red-200 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">För få ekipage har fullföljt alla tre moment utan uteslutning för att laget ska få ett FEI-resultat.</div>'
+    : '';
 
   return `
       <div class="mb-6 rounded-xl border ${cardBorder} shadow-sm bg-white dark:bg-gray-800 overflow-hidden transition-all hover:shadow-md">
@@ -206,6 +228,8 @@ export function renderTeamCard(team = {}, {
             </div>
           </div>
         </div>
+
+        ${validationNotice}${eligibilityNotice}
         
         <div class="p-0">
           <div class="grid grid-cols-12 gap-2 px-2 py-2 text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider bg-gray-50/50 dark:bg-gray-800/50 border-b dark:border-gray-700/50">
@@ -223,7 +247,8 @@ export function renderTeamCard(team = {}, {
           ${renderTeamSummaryFooter(team, {
             isBestDressage,
             isBestMarathon,
-            isBestPrecision
+            isBestPrecision,
+            countingLabel: `Bästa ${profile?.countingPerDiscipline || 3}`
           })}
 
         </div>

@@ -1,14 +1,15 @@
 // starttider.js — Korrigerad och rensad version
 
 import { getEquipages } from '../../services/equipageService.js';
-import { getConfig, saveConfig } from '../../services/competitionService.js';
+import { getTeams } from '../../services/teamService.js';
+import { getCompetitionById, getConfig, saveConfig } from '../../services/competitionService.js';
 import { listenForDressageProtocolsCollectionGroup, listenForDressageStatusCollection } from '../../services/dressageService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
 import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults } from '../../services/marathonService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
 import { listenForDressageFinalizationCollection } from '../../services/dressageService.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, setGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
@@ -33,12 +34,22 @@ import { db, appId } from '../../config/firebase-config.js';
 import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
 import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateMarathonResult } from '../../services/calculationService.js';
+import { getTeamScoringProfile } from '../../services/teamRuleProfiles.js';
+import {
+    buildFeiDressageStartOrder,
+    buildFeiMarathonStartOrder,
+    buildFeiPrecisionStartOrder,
+    supportsFeiTeamBlocks
+} from '../../services/feiStartOrderService.js';
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { t } from '../../utils/i18n.js';
 import {
     addPauseAfterStartNumber,
+    adjustStartOrderForDriverBuffer,
     assignBulkStartTimes,
+    findDriverStartConflicts,
+    renderDriverConflictBadge,
     buildLiveStatus,
     buildMarathonDressageResultRows,
     buildPrecisionDressageOrderRows,
@@ -73,7 +84,9 @@ import {
 // ======= Modulstat =======
 let competitionId = null;
 let equipages = [];
+let teams = [];
 let startTimes = {};
+let feiStartOrderMeta = {};
 let unsubscribers = new Map();
 let pendingListenerRenderFrame = null;
 let precisionResultsMap = new Map();
@@ -285,7 +298,14 @@ function chipNowNext(discipline, sn) {
     });
 }
 
+let currentDriverConflicts = [];
+
+function updateDriverConflicts() {
+    currentDriverConflicts = findDriverStartConflicts(startTimes, equipages, { minBufferMinutes: 30 });
+}
+
 function timeCell(key, sn, value, editable) {
+    const conflict = currentDriverConflicts.find(c => c.discipline === key && (String(c.firstStartNumber) === String(sn) || String(c.secondStartNumber) === String(sn)));
     return renderStarttiderTimeCell({
         discipline: key,
         startNumber: sn,
@@ -293,7 +313,8 @@ function timeCell(key, sn, value, editable) {
         editable,
         publicMode,
         nowNextHtml: chipNowNext(key, sn),
-        statusHtml: statusBadge(key, sn)
+        statusHtml: statusBadge(key, sn),
+        conflictHtml: conflict ? renderDriverConflictBadge(conflict, sn) : ''
     });
 }
 
@@ -371,7 +392,8 @@ function renderStarttiderReadiness() {
 
     const readiness = getStarttiderReadinessSummary();
     const hasCritical = readiness.some(item => item.tone === 'red');
-    const hasWarning = readiness.some(item => item.tone === 'amber' || item.tone === 'blue');
+    const hasConflicts = currentDriverConflicts.length > 0;
+    const hasWarning = readiness.some(item => item.tone === 'amber' || item.tone === 'blue') || hasConflicts;
 
     let shellClass = 'mb-4 rounded-xl border p-4';
     let title = 'Starttider ser klara ut';
@@ -381,6 +403,10 @@ function renderStarttiderReadiness() {
         shellClass += ' border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
         title = 'Starttider behover kompletteras';
         intro = 'Minst en startlista ar publicerad innan alla ekipage har fatt tider.';
+    } else if (hasConflicts) {
+        shellClass += ' border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
+        title = 'Buffertvarning: Kusk med flera ekipage (TR Mom 535.4)';
+        intro = 'Minst en kusk har mindre än 30 minuter mellan sina starter.';
     } else if (hasWarning) {
         shellClass += ' border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
         title = 'Starttider ar delvis forberedda';
@@ -417,6 +443,16 @@ function renderStarttiderReadiness() {
                 </div>
             `).join('')}
         </div>
+        ${hasConflicts ? `
+            <div class="mt-4 rounded-lg border border-amber-300 bg-amber-100/90 dark:border-amber-700 dark:bg-amber-950/40 p-3 text-xs text-amber-950 dark:text-amber-100">
+                <div class="font-bold flex items-center gap-1.5 mb-1.5 text-sm text-amber-900 dark:text-amber-200">
+                    <span>⚠️</span> Reglementskontroll TR Mom 535.4: Kusk med flera ekipage har för kort mellanrum (&lt;30 min)
+                </div>
+                <ul class="list-disc pl-5 space-y-1">
+                    ${currentDriverConflicts.map(c => `<li>${c.message}</li>`).join('')}
+                </ul>
+            </div>
+        ` : ''}
     `;
 }
 
@@ -492,7 +528,7 @@ function reorderRow(droppedSn, targetSn) {
 
 // ======= Rendering =======
 function renderLayout() {
-    const competition = getGlobalState('currentCompetition');
+    let competition = getGlobalState('currentCompetition');
     const page = document.getElementById('page-starttider');
 
     // Inject DnD Styles
@@ -568,6 +604,7 @@ function isEliminatedOrIncomplete(e) {
 
 // ======= Rendering =======
 function render() {
+    updateDriverConflicts();
     if (isMobile()) {
         try { window.__teardownXbarSync?.(); } catch { }
         renderMobile();
@@ -666,6 +703,7 @@ function renderDesktop() {
             getClubLogoHtml,
             renderTimeCell: timeCell,
             renderActions,
+            startOrderBadgeHtml: getFeiDressageBlockBadgeHtml(e.startNumber),
             unpublishedHtml: '<span class="text-xs text-gray-400 italic">Ej publicerad</span>'
         });
     };
@@ -765,6 +803,7 @@ function renderMobile() {
             getHorseLabel: horseLabel,
             renderStatus: statusBadge,
             renderActions,
+            startOrderBadgeHtml: getFeiDressageBlockBadgeHtml(e.startNumber),
             labels: {
                 class: 'Klass:',
                 dressage: 'Dressyr:',
@@ -779,6 +818,195 @@ function renderMobile() {
     container.innerHTML = `<div class="bg-transparent py-1">${cardsHtml}</div>`;
 }
 // ======= Kontroller och Event Listeners =======
+function getSelectedTeamProfile() {
+    return getTeamScoringProfile(getGlobalState('currentCompetition')?.teamScoringProfile);
+}
+
+function canUseFeiStartOrderAssistant() {
+    return supportsFeiTeamBlocks(getSelectedTeamProfile());
+}
+
+function getBulkGenerationSettings() {
+    const firstDateTimeStr = document.getElementById('bulkFirst')?.value;
+    if (!firstDateTimeStr) {
+        showAlert(t('valid_start_time_req'), 'warning');
+        return null;
+    }
+
+    const firstDateTime = new Date(firstDateTimeStr);
+    if (isNaN(firstDateTime.getTime())) {
+        showAlert(t('valid_date_req'), 'warning');
+        return null;
+    }
+
+    return {
+        firstDateTime,
+        intervalMin: Math.max(1, Number(document.getElementById('bulkInterval')?.value || 7)),
+        onlyEmpty: Boolean(document.getElementById('bulkOnlyEmpty')?.checked)
+    };
+}
+
+function getDressageResultForEquipage(equipage) {
+    const startNumber = String(equipage.startNumber);
+    const rawProtocols = window.__dressageCache?.get(startNumber);
+    const protocols = rawProtocols ? Array.from(rawProtocols.values()) : [];
+    return calculateDressageResult(
+        equipage,
+        deduplicateAndFilterProtocols(protocols, []),
+        [],
+        getPrograms()
+    );
+}
+
+function getMarathonResultForEquipage(equipage) {
+    const data = marathonMap.get(String(equipage.startNumber)) || {};
+    return calculateMarathonResult(equipage, data, data);
+}
+
+function isRetiredForFeiStartOrder(equipage, marathonResult) {
+    const status = `${equipage?.status || ''} ${marathonResult?.status || ''}`.toLowerCase();
+    return equipage?.retired === true || /retired|utgatt|utgått/.test(status);
+}
+
+function applyFeiGeneratedTimes(discipline, order, settings, metadata = {}) {
+    if (order.issues?.length) {
+        showAlert(order.issues.join('\n'), 'warning', 12000);
+        return false;
+    }
+
+    const overwriteText = settings.onlyEmpty ? 'Endast tomma starttider fylls.' : 'Befintliga starttider i grenen skrivs över.';
+    if (!confirm(`Använd FEI-startordningen för ${discipline}?\n\n${overwriteText}\nOrdningen kan finjusteras manuellt efteråt.`)) {
+        return false;
+    }
+
+    const { assignedCount } = assignBulkStartTimes(startTimes, order.rows, {
+        discipline,
+        firstDateTime: settings.firstDateTime,
+        intervalMin: settings.intervalMin,
+        onlyEmpty: settings.onlyEmpty
+    });
+
+    feiStartOrderMeta = {
+        ...feiStartOrderMeta,
+        [discipline]: {
+            profileId: getSelectedTeamProfile().id,
+            generatedAt: Date.now(),
+            sequence: order.rows.map(row => String(row.startNumber)),
+            assignments: order.assignments || {},
+            ...metadata
+        }
+    };
+    saveConfig(competitionId, 'feiStartOrder', feiStartOrderMeta)
+        .catch((error) => console.warn('Kunde inte spara FEI-startordningsmetadata:', error));
+
+    sortConfig = { key: discipline, direction: 'asc' };
+    viewMode = 'startorder';
+    render();
+    updateNextStartTimes();
+    showAlert(`FEI-startordning för ${discipline} skapad (${assignedCount} starttider).`, 'success');
+    return true;
+}
+
+function generateFeiDressageStartOrder() {
+    const settings = getBulkGenerationSettings();
+    if (!settings) return;
+
+    const referenceInput = document.getElementById('feiDrawReference');
+    const drawReference = referenceInput?.value.trim() || `FEI-${Date.now()}`;
+    if (referenceInput) referenceInput.value = drawReference;
+
+    const order = buildFeiDressageStartOrder({
+        teams,
+        equipages,
+        profileId: getSelectedTeamProfile().id,
+        seed: drawReference
+    });
+    applyFeiGeneratedTimes('dressage', order, settings, { drawReference });
+}
+
+function generateFeiMarathonStartOrder() {
+    const settings = getBulkGenerationSettings();
+    if (!settings) return;
+
+    const dressageAssignments = feiStartOrderMeta?.dressage?.assignments;
+    if (!dressageAssignments || !Object.keys(dressageAssignments).length) {
+        showAlert('Skapa först dressyrens FEI-blockordning så att maraton kan behålla den deklarerade blockstrukturen.', 'warning');
+        return;
+    }
+
+    const resultRows = equipages.map((equipage) => ({
+        ...equipage,
+        dressagePenalty: getDressageResultForEquipage(equipage)?.penalty
+    }));
+    const order = buildFeiMarathonStartOrder({
+        teams,
+        rows: resultRows,
+        profileId: getSelectedTeamProfile().id,
+        dressageAssignments,
+        dressageSequence: feiStartOrderMeta?.dressage?.sequence || []
+    });
+    applyFeiGeneratedTimes('marathon', order, settings);
+}
+
+function generateFeiPrecisionStartOrder() {
+    const settings = getBulkGenerationSettings();
+    if (!settings) return;
+
+    const resultRows = equipages.map((equipage) => {
+        const dressage = getDressageResultForEquipage(equipage);
+        const marathon = getMarathonResultForEquipage(equipage);
+        const marathonData = marathonMap.get(String(equipage.startNumber)) || {};
+        const eliminated = Boolean(
+            dressage?.eliminated
+            || marathon?.eliminated
+            || marathonData.eliminated
+            || /elim|utesluten|disqual/.test(String(marathonData.status || '').toLowerCase())
+        );
+
+        return {
+            ...equipage,
+            dressagePenalty: dressage?.penalty,
+            marathonPenalty: marathon?.totalPenalty,
+            retired: isRetiredForFeiStartOrder(equipage, marathonData),
+            eliminated
+        };
+    });
+    const order = buildFeiPrecisionStartOrder(resultRows);
+    applyFeiGeneratedTimes('precision', order, settings);
+}
+
+function getFeiDressageBlockBadgeHtml(startNumber) {
+    const block = feiStartOrderMeta?.dressage?.assignments?.[String(startNumber)];
+    if (!/^[A-F]$/.test(String(block || ''))) return '';
+    return `<span class="ml-1 rounded bg-sky-100 px-1.5 py-0.5 text-[10px] font-semibold text-sky-800 dark:bg-sky-900/40 dark:text-sky-100" title="FEI dressyrblock">${block}</span>`;
+}
+
+function renderFeiStartOrderAssistant() {
+    if (!canUseFeiStartOrderAssistant()) return '';
+
+    const dressageMeta = feiStartOrderMeta?.dressage;
+    const savedDraw = dressageMeta?.drawReference || '';
+    return `
+      <div class="mb-4 rounded-lg border border-sky-200 bg-sky-50 p-4 shadow-sm dark:border-sky-900/60 dark:bg-sky-950/20">
+        <div class="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h4 class="text-sm font-bold text-sky-950 dark:text-sky-100">FEI startordningsassistent</h4>
+            <p class="mt-1 text-xs text-sky-900 dark:text-sky-200">Använd som utkast efter den officiella lottningen och lagens deklaration. Dressyr skapas i block A-F, maraton följer dressyrresultatet och precision startar med retired, därefter uteslutna och sedan omvänd Dressyr + Maraton. FEI-assistenten använder alltid hela startfältet, oavsett klassfiltret.</p>
+          </div>
+          <span class="text-xs font-semibold text-sky-800 dark:text-sky-200">${getSelectedTeamProfile().label}</span>
+        </div>
+        <div class="mt-3 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto_auto_auto] lg:items-end">
+          <label class="text-xs font-medium text-sky-950 dark:text-sky-100">Lottningens referens
+            <input id="feiDrawReference" type="text" value="${String(savedDraw).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}" placeholder="Protokollnummer eller seed" class="mt-1 w-full rounded border border-sky-200 bg-white px-2 py-1.5 text-sm text-gray-900 dark:border-sky-800 dark:bg-gray-900 dark:text-gray-100">
+          </label>
+          <button id="generateFeiDressageOrder" type="button" class="rounded bg-sky-700 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-800">Skapa dressyrblock</button>
+          <button id="generateFeiMarathonOrder" type="button" class="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Skapa maratonordning</button>
+          <button id="generateFeiPrecisionOrder" type="button" class="rounded bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">Skapa precisionsordning</button>
+        </div>
+      </div>
+    `;
+}
+
 function doBulkFill(key) {
     const cls = document.getElementById('bulkClass').value;
     const firstDateTimeStr = document.getElementById('bulkFirst').value;
@@ -852,6 +1080,7 @@ function generatePrecisionByDressageOrder() {
     const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval').value || 7));
     const includeElim = document.getElementById('bulkIncludeEliminated')?.checked;
     const onlyEmpty = document.getElementById('bulkOnlyEmpty').checked;
+    const enforceBuffer = document.getElementById('bulkEnforceDriverBuffer')?.checked ?? true;
 
     if (!firstDateTimeStr) {
         showAlert(t('valid_start_time_req'), 'warning');
@@ -864,7 +1093,20 @@ function generatePrecisionByDressageOrder() {
         includeEliminated: includeElim
     });
 
-    const { assignedCount } = assignBulkStartTimes(startTimes, sortedByDressage, {
+    let targetEquipages = sortedByDressage;
+    let bufferWarnings = [];
+    if (enforceBuffer) {
+        const adjusted = adjustStartOrderForDriverBuffer(sortedByDressage, {
+            intervalMin,
+            minBufferMinutes: 30
+        });
+        targetEquipages = adjusted.rows;
+        if (adjusted.unresolvedIssues?.length > 0) {
+            bufferWarnings = adjusted.unresolvedIssues;
+        }
+    }
+
+    const { assignedCount } = assignBulkStartTimes(startTimes, targetEquipages, {
         discipline: 'precision',
         firstDateTime,
         intervalMin,
@@ -873,7 +1115,12 @@ function generatePrecisionByDressageOrder() {
 
     render();
     updateNextStartTimes();
-    showAlert(t('generated_precision_dressage').replace('{count}', assignedCount), 'success');
+
+    if (bufferWarnings.length > 0) {
+        showAlert(`${t('generated_precision_dressage').replace('{count}', assignedCount)}\n\n⚠️ TR Mom 535.4-varning:\n${bufferWarnings.map(b => b.message).join('\n')}`, 'warning', 15000);
+    } else {
+        showAlert(t('generated_precision_dressage').replace('{count}', assignedCount), 'success');
+    }
 }
 
 
@@ -899,6 +1146,7 @@ function generateMarathonByDressageResults() {
     const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval').value || 7));
     const includeElim = document.getElementById('bulkIncludeEliminated')?.checked;
     const onlyEmpty = document.getElementById('bulkOnlyEmpty').checked;
+    const enforceBuffer = document.getElementById('bulkEnforceDriverBuffer')?.checked ?? true;
 
     if (!firstDateTimeStr) {
         showAlert(t('valid_start_time_req'), 'warning');
@@ -930,7 +1178,20 @@ function generateMarathonByDressageResults() {
         return;
     }
 
-    const { assignedCount } = assignBulkStartTimes(startTimes, rankedEquipages, {
+    let targetEquipages = rankedEquipages;
+    let bufferWarnings = [];
+    if (enforceBuffer) {
+        const adjusted = adjustStartOrderForDriverBuffer(rankedEquipages, {
+            intervalMin,
+            minBufferMinutes: 30
+        });
+        targetEquipages = adjusted.rows;
+        if (adjusted.unresolvedIssues?.length > 0) {
+            bufferWarnings = adjusted.unresolvedIssues;
+        }
+    }
+
+    const { assignedCount } = assignBulkStartTimes(startTimes, targetEquipages, {
         discipline: 'marathon',
         firstDateTime,
         intervalMin,
@@ -939,7 +1200,12 @@ function generateMarathonByDressageResults() {
 
     render();
     updateNextStartTimes();
-    showAlert(t('generated_marathon_dressage').replace('{count}', assignedCount), 'success');
+
+    if (bufferWarnings.length > 0) {
+        showAlert(`${t('generated_marathon_dressage').replace('{count}', assignedCount)}\n\n⚠️ TR Mom 535.4-varning:\n${bufferWarnings.map(b => b.message).join('\n')}`, 'warning', 15000);
+    } else {
+        showAlert(t('generated_marathon_dressage').replace('{count}', assignedCount), 'success');
+    }
 }
 
 /**
@@ -951,6 +1217,7 @@ function generatePrecisionByResults() {
     const intervalMin = Math.max(1, Number(document.getElementById('bulkInterval').value || 7));
     const includeElim = document.getElementById('bulkIncludeEliminated')?.checked;
     const onlyEmpty = document.getElementById('bulkOnlyEmpty').checked;
+    const enforceBuffer = document.getElementById('bulkEnforceDriverBuffer')?.checked ?? true;
 
     if (!firstDateTimeStr) {
         showAlert(t('valid_start_time_req'), 'warning');
@@ -974,7 +1241,20 @@ function generatePrecisionByResults() {
         getMarathonResult: (e, data) => calculateMarathonResult(e, data, data)
     });
 
-    const { assignedCount } = assignBulkStartTimes(startTimes, rankedEquipages, {
+    let targetEquipages = rankedEquipages;
+    let bufferWarnings = [];
+    if (enforceBuffer) {
+        const adjusted = adjustStartOrderForDriverBuffer(rankedEquipages, {
+            intervalMin,
+            minBufferMinutes: 30
+        });
+        targetEquipages = adjusted.rows;
+        if (adjusted.unresolvedIssues?.length > 0) {
+            bufferWarnings = adjusted.unresolvedIssues;
+        }
+    }
+
+    const { assignedCount } = assignBulkStartTimes(startTimes, targetEquipages, {
         discipline: 'precision',
         firstDateTime,
         intervalMin,
@@ -983,7 +1263,12 @@ function generatePrecisionByResults() {
 
     render();
     updateNextStartTimes();
-    showAlert(t('generated_precision_results').replace('{count}', assignedCount), 'success');
+
+    if (bufferWarnings.length > 0) {
+        showAlert(`${t('generated_precision_results').replace('{count}', assignedCount)}\n\n⚠️ TR Mom 535.4-varning:\n${bufferWarnings.map(b => b.message).join('\n')}`, 'warning', 15000);
+    } else {
+        showAlert(t('generated_precision_results').replace('{count}', assignedCount), 'success');
+    }
 }
 
 /**
@@ -1183,7 +1468,7 @@ function bindAllControls() {
             <input id="bulkInterval" type="number" min="1" max="60" value="7" class="w-full mt-1 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
         </div>
     </div>
-    <div class="flex items-center pt-6 gap-6">
+    <div class="flex items-center pt-6 gap-6 flex-wrap">
         <label class="flex items-center">
             <input id="bulkOnlyEmpty" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700" checked>
             <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">${t('fill_empty_only')}</span>
@@ -1191,6 +1476,10 @@ function bindAllControls() {
         <label class="flex items-center">
             <input id="bulkIncludeEliminated" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700" checked>
             <span class="ml-2 text-sm text-gray-700 dark:text-gray-300">Starta eliminerade/ofullständiga först</span>
+        </label>
+        <label class="flex items-center" title="Minst 30 minuters mellanrum mellan samma kusks starter enligt TR Mom 535.4">
+            <input id="bulkEnforceDriverBuffer" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700" checked>
+            <span class="ml-2 text-sm text-gray-700 dark:text-gray-300 font-medium">30 min kuskbuffert (TR Mom 535.4)</span>
         </label>
     </div>
 </div>
@@ -1258,6 +1547,8 @@ function bindAllControls() {
     </div>
 </div>
 
+${renderFeiStartOrderAssistant()}
+
 ${renderStarttiderPublishResetSection({
     publishButtons: {
         dressage: pubDressage,
@@ -1293,6 +1584,9 @@ ${renderStarttiderToolbarSection({
     document.getElementById('bulkDressage')?.addEventListener('click', () => doBulkFill('dressage'));
     document.getElementById('generateMarathonAdvancedBtn')?.addEventListener('click', generateMarathonAdvanced);
     document.getElementById('generatePrecisionAdvancedBtn')?.addEventListener('click', generatePrecisionAdvanced);
+    document.getElementById('generateFeiDressageOrder')?.addEventListener('click', generateFeiDressageStartOrder);
+    document.getElementById('generateFeiMarathonOrder')?.addEventListener('click', generateFeiMarathonStartOrder);
+    document.getElementById('generateFeiPrecisionOrder')?.addEventListener('click', generateFeiPrecisionStartOrder);
 
     // Publish Listeners
     document.getElementById('pubDressage')?.addEventListener('click', () => togglePublish('dressage'));
@@ -1426,7 +1720,7 @@ ${renderStarttiderToolbarSection({
 // ======= Datainhämtning & Realtidslyssnare =======
 async function loadData() {
     // === ÄNDRING: Lade till displayCfg och de gamla merge-filerna ===
-    const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy] = await Promise.all([
+    const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy, teamsData, feiStartOrderConfig] = await Promise.all([
         getConfig(competitionId, 'startTimes'),
         getEquipages(competitionId),
         getMarathonStateDocuments(competitionId),
@@ -1437,7 +1731,9 @@ async function loadData() {
         getConfig(competitionId, 'classMergeMap').catch(() => null),
         getConfig(competitionId, 'tdbMergeMap').catch(() => null),
         getConfig(competitionId, 'marathon').catch(() => null),
-        getConfig(competitionId, 'maratonConfig').catch(() => null)
+        getConfig(competitionId, 'maratonConfig').catch(() => null),
+        getTeams(competitionId).catch(() => []),
+        getConfig(competitionId, 'feiStartOrder').catch(() => ({}))
     ]);
 
     let mergedMarathonConfig = marathonCfg || {};
@@ -1473,6 +1769,8 @@ async function loadData() {
     }
 
     startTimes = cfgDoc?.times || {};
+    teams = teamsData || [];
+    feiStartOrderMeta = feiStartOrderConfig || {};
     // Ensure published state is loaded and attached to startTimes
     if (cfgDoc?.published) {
         Object.defineProperty(startTimes, 'published', {
@@ -1661,7 +1959,7 @@ export async function load() {
     injectScrollStyles();
     initializeScrollSync('starttider');
 
-    const competition = getGlobalState('currentCompetition');
+    let competition = getGlobalState('currentCompetition');
     competitionId = competition?.id;
     if (!competitionId) {
         document.getElementById('page-starttider').innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
@@ -1671,6 +1969,16 @@ export async function load() {
     // (Funktionen injectStarttiderBaseStyles har redan körts via IIFE)
 
     // NYTT: Säkerställ att loggor laddas innan något annat renderas
+    try {
+        const latestCompetition = await getCompetitionById(competitionId);
+        if (latestCompetition) {
+            competition = latestCompetition;
+            setGlobalState({ key: 'currentCompetition', value: competition });
+        }
+    } catch (error) {
+        console.warn('Kunde inte uppdatera tävlingsprofilen för Starttider:', error);
+    }
+
     await ensureClubLogosLoaded(competitionId);
 
     renderLayout();

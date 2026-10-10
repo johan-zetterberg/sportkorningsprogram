@@ -50,6 +50,31 @@ export function getPauseTime() {
   return Number(maraton_marathonConfig?.pauseTime) || 10;
 }
 
+export function parseHoldTimeInput(val) {
+  if (val == null) return 0;
+  const str = String(val).trim();
+  if (!str) return 0;
+  if (str.includes(':')) {
+    const parts = str.split(':');
+    const m = parseInt(parts[0], 10) || 0;
+    const s = parseFloat(parts[1]) || 0;
+    return Math.max(0, Math.round(m * 60 + s));
+  }
+  const num = parseFloat(str.replace(',', '.'));
+  return Number.isFinite(num) ? Math.max(0, Math.round(num)) : 0;
+}
+
+export function getTotalHoldTimeMs(dataOrObstacles) {
+  if (!dataOrObstacles) return 0;
+  const list = Array.isArray(dataOrObstacles)
+    ? dataOrObstacles
+    : getObstacleArray(dataOrObstacles);
+  return list.reduce((sum, o) => {
+    const ht = parseHoldTimeInput(o?.holdTimeSec);
+    return ht > 0 ? sum + ht * 1000 : sum;
+  }, 0);
+}
+
 // === Klass- & kategori-hjälpare ===
 
 const kmhToMmin = (kmh) => (kmh * 1000) / 60;
@@ -415,8 +440,7 @@ export function stagePenaltyFromMs(ms, equipage, stage) {
   const coeff = Number.isFinite(cfgRate) && cfgRate > 0 ? cfgRate : PENALTY_RATE;
 
 
-  const penaltySeconds = Math.ceil(secondsOutsideWindow);
-  const penaltyPoints = (penaltySeconds * coeff);
+  const penaltyPoints = secondsOutsideWindow * coeff;
   return { points: +penaltyPoints.toFixed(2), elim: false };
 }
 
@@ -636,14 +660,7 @@ export function calculateMarathonResult(equipage, marathonDoc, timingDoc) {
     };
   }
   // 1.5. Calculate total hold time (uppehåll) from obstacles
-  let totalHoldTimeMs = 0;
-  const rawObsArr = getObstacleArray(d);
-  rawObsArr.forEach(o => {
-    const ht = Number(o.holdTimeSec);
-    if (Number.isFinite(ht) && ht > 0) {
-      totalHoldTimeMs += ht * 1000;
-    }
-  });
+  const totalHoldTimeMs = getTotalHoldTimeMs(d);
 
   // 2. Beräkna etapper (A, T, B)
   const stages = {};
@@ -676,6 +693,7 @@ export function calculateMarathonResult(equipage, marathonDoc, timingDoc) {
     }
 
     // Deduct hold time for B-stage
+    const rawMs = ms;
     if (s === 'B' && Number.isFinite(ms)) {
       ms = Math.max(0, ms - totalHoldTimeMs);
     }
@@ -690,6 +708,7 @@ export function calculateMarathonResult(equipage, marathonDoc, timingDoc) {
       start,
       stop,
       durationMs: ms,
+      rawDurationMs: rawMs,
       timePenalty: points,
       eliminated: elim,
       holdTimeMs: (s === 'B') ? totalHoldTimeMs : 0, // NEW: For UI display

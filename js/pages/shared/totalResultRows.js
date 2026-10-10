@@ -59,6 +59,11 @@ export function buildTotalResultRow({
     driverName: equipage.driverName || equipage.name || '',
     clubName: equipage.clubName || '',
     className: cls,
+    country: equipage.country || equipage.nation || equipage.nationality || '',
+    nation: equipage.nation || '',
+    nationality: equipage.nationality || '',
+    isPara: Boolean(equipage.isPara),
+    paraGrade: equipage.paraGrade || '',
     displayGroupKey: group.key,
     displayGroupLabel: group.label,
 

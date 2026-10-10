@@ -75,10 +75,11 @@ export function sortPrecisionEquipages(equipages = [], options = {}) {
     if (valueA > valueB) return 1 * direction;
 
     if (column === 'penalty' || column === 'place') {
-      const diffA = dataA.timeDiffFromAllowed || Infinity;
-      const diffB = dataB.timeDiffFromAllowed || Infinity;
-      if (Math.abs(diffA - diffB) > 1e-6) {
-        return (diffA - diffB) * direction;
+      // TR Mom 530.1.2 & FEI Art 977: Vid lika straff vinner snabbast tid (lägst timeMs)
+      const timeA = isFiniteNumber(dataA.timeMs) ? dataA.timeMs : Infinity;
+      const timeB = isFiniteNumber(dataB.timeMs) ? dataB.timeMs : Infinity;
+      if (Math.abs(timeA - timeB) > 1e-3) {
+        return (timeA - timeB) * direction;
       }
     }
 

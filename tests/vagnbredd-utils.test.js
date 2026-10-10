@@ -5,7 +5,10 @@ import {
   buildVagnbreddDropdownItems,
   buildVagnbreddSavePayload,
   normalizeVagnbreddEquipages,
-  parseWidthValue
+  parseWidthValue,
+  resolveVagnRuleRow,
+  getDressageRule,
+  getCarriageCompliance
 } from '../js/pages/shared/vagnbreddUtils.js';
 
 test('normalizeVagnbreddEquipages sorts valid equipages and separates incomplete data', () => {
@@ -55,4 +58,50 @@ test('buildVagnbreddSavePayload includes null widths so saved values can be clea
       comment: 'kontroll'
     }
   });
+});
+
+test('resolveVagnRuleRow resolves correct TR Bilaga 2 row per discipline and category', () => {
+  const horseSingle = { className: 'Medelsvår Häst Enbet' };
+  const rowSingle = resolveVagnRuleRow(horseSingle);
+  assert.equal(rowSingle.label, 'Häst enbet/tandem');
+  assert.equal(getDressageRule(rowSingle, horseSingle.className).value, 125);
+  assert.equal(getDressageRule(rowSingle, 'Svår Häst Enbet').value, 138);
+
+  const horseFour = { className: 'Svår Häst Fyrspann' };
+  const rowFour = resolveVagnRuleRow(horseFour);
+  assert.equal(rowFour.label, 'Häst fyrspann');
+  assert.equal(getDressageRule(rowFour, horseFour.className).value, 158);
+
+  const ponyA = { className: 'Lätt A Ponny Enbet', horses: [{ type: 'A-ponny' }] };
+  const rowPonyA = resolveVagnRuleRow(ponyA);
+  assert.equal(rowPonyA.label, 'A-ponny enbet/tandem');
+  assert.equal(getDressageRule(rowPonyA, 'Svår A-ponny').kind, 'forbidden');
+});
+
+test('getCarriageCompliance evaluates track width and flags narrow carriages', () => {
+  // Compliant horse single in MSV (min 125 cm)
+  const okEq = { className: 'Msv Häst Enbet', trackWidth: 126, safetyCheck: { approved: true } };
+  const okRes = getCarriageCompliance(okEq, 'dressagePrecision');
+  assert.equal(okRes.compliant, true);
+  assert.equal(okRes.status, 'ok');
+
+  // Too narrow in Svår Häst Enbet (min 138 cm, measured 130 cm)
+  const narrowEq = { className: 'Svår Häst Enbet', trackWidth: 130 };
+  const narrowRes = getCarriageCompliance(narrowEq, 'dressagePrecision');
+  assert.equal(narrowRes.compliant, false);
+  assert.equal(narrowRes.status, 'too_narrow');
+  assert.equal(narrowRes.minWidth, 138);
+
+  // Free track width in Lätt B
+  const lbEq = { className: 'Lätt B Häst Enbet', trackWidth: 110 };
+  const lbRes = getCarriageCompliance(lbEq, 'dressagePrecision');
+  assert.equal(lbRes.compliant, true);
+  assert.equal(lbRes.status, 'free');
+
+  // Missing track width
+  const missingEq = { className: 'Svår Häst Par' };
+  const missingRes = getCarriageCompliance(missingEq, 'dressagePrecision');
+  assert.equal(missingRes.compliant, null);
+  assert.equal(missingRes.status, 'missing');
+  assert.equal(missingRes.minWidth, 148);
 });

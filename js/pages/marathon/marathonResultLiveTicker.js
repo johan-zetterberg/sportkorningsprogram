@@ -132,7 +132,16 @@ export function startOrUpdateMarathonLiveTicker(sn, {
         }
         timeText = formatMsLive(elapsedMs);
 
-        const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, stage);
+        let effectiveElapsedMs = elapsedMs;
+        if (stage === 'B') {
+          const obsArr = Array.isArray(d?.obstacles) ? d.obstacles : (d?.hinder || []);
+          const holdMs = obsArr.reduce((sum, o) => {
+            const sec = Number(o?.holdTimeSec);
+            return Number.isFinite(sec) && sec > 0 ? sum + sec * 1000 : sum;
+          }, 0);
+          effectiveElapsedMs = Math.max(0, elapsedMs - holdMs);
+        }
+        const { points, elim } = stagePenaltyFromMs(effectiveElapsedMs, eq, stage);
         liveStageP = elim ? Infinity : (isNum(points) ? points : 0);
         setTextIfChanged(
           `[data-stage-pts="${key}"][data-stage="${stage}"]`,

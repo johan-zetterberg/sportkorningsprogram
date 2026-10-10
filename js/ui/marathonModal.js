@@ -215,7 +215,23 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
                <div>${t('time')}: ${Number.isFinite(dur) ? formatMsLive(dur) : '—'}</div>
                <div>${t('penalty')}: <b>${sp.elim ? 'ELIM' : (sp.points ?? '—')}</b></div>
             </div>
-            ${stage.holdTimeMs > 0 ? `<div class="text-xs text-blue-600 dark:text-blue-400 mt-1 font-semibold">Inkluderar avdrag för uppehåll: -${(stage.holdTimeMs / 1000).toFixed(0)}s</div>` : ''}
+            ${stage.holdTimeMs > 0 ? `
+              <div class="mt-2 p-2.5 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded text-xs space-y-1">
+                <div class="font-bold text-blue-900 dark:text-blue-200 flex items-center justify-between">
+                  <span>⏱️ Avdrag för uppehåll vid hinder:</span>
+                  <span class="font-mono">-${(stage.holdTimeMs / 1000).toFixed(0)}s</span>
+                </div>
+                <div class="text-blue-800 dark:text-blue-300">
+                  Körd bruttotid: <b>${formatMsLive(stage.rawDurationMs || (dur + stage.holdTimeMs))}</b> • 
+                  Nettotid (straffgrundande): <b>${formatMsLive(dur)}</b>
+                </div>
+                ${obstaclesForView.filter(o => o.holdTimeSec > 0).map(o => `
+                  <div class="text-gray-600 dark:text-gray-400 pl-2 border-l-2 border-blue-400">
+                    Hinder ${o.number}: -${o.holdTimeSec}s ${o.comment ? `(${escapeHtml(o.comment)})` : ''}
+                  </div>
+                `).join('')}
+              </div>
+            ` : ''}
             <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 flex gap-4">
                 ${limitsInfo ? `<span>${limitsInfo}</span>` : ''}
                 ${isRunning ? `<span>${t('eta_label')}: ${etaLabel}</span>` : ''}

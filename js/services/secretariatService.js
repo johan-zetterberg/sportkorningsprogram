@@ -143,6 +143,11 @@ export async function loadSecretariatMarathonRows(competitionId) {
     const state = stateMap.get(sn) || {};
     const obstacles = Array.isArray(state.obstacles) ? state.obstacles : [];
 
+    const holdTimeSec = obstacles.reduce((sum, o) => {
+      const s = Number(o?.holdTimeSec);
+      return Number.isFinite(s) && s > 0 ? sum + s : sum;
+    }, 0);
+
     const row = {
       startNumber: eq.startNumber,
       driverName: eq.driverName || '',
@@ -155,6 +160,7 @@ export async function loadSecretariatMarathonRows(competitionId) {
       finish_B: state.finish_B ?? timing.finish_B ?? null,
       duration_A: numberOrDefault(state.duration_A_ms ?? timing.duration_A, 0),
       duration_B: numberOrDefault(state.duration_B_ms ?? timing.duration_B, 0),
+      holdTimeSec,
       obstacleCount: obstacles.length,
       stateDoc: state,
       timingDoc: timing,
@@ -285,6 +291,7 @@ export async function loadSecretariatMarathonObstacleDetail(competitionId, start
         otherPenalty: numberOrDefault(obstacle.otherPenalty, 0),
         timePenalty: numberOrDefault(obstacle.timePenalty, 0),
         penalty: numberOrDefault(obstacle.penalty, 0),
+        holdTimeSec: numberOrDefault(obstacle.holdTimeSec, 0),
         eliminated: !!obstacle.eliminated,
         comment: obstacle.comment || '',
         routeString: obstacle.routeString || '',
@@ -421,6 +428,7 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
     knockdownPenalty: numberOrDefault(patch.knockdownPenalty ?? patch.knockDownPenalty, current.knockdownPenalty ?? current.knockDownPenalty ?? 0),
     otherPenalty: numberOrDefault(patch.otherPenalty, current.otherPenalty ?? 0),
     penalty: numberOrDefault(patch.penalty, current.penalty ?? 0),
+    holdTimeSec: numberOrDefault(patch.holdTimeSec, current.holdTimeSec ?? 0),
     eliminated: patch.eliminated ?? current.eliminated ?? false,
     comment: patch.comment ?? current.comment ?? '',
     routeString: patch.routeString ?? current.routeString ?? '',
@@ -430,7 +438,7 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
   await saveMarathonObstacleResult(competitionId, startNumber, obstacleNumber, payload);
 
   const after = { ...current, ...payload, obstacleNumber: Number(obstacleNumber) };
-  const changes = buildFieldDiff(current, after, ['timeInSeconds', 'timePenalty', 'knockdowns', 'knockdownPenalty', 'otherPenalty', 'penalty', 'eliminated', 'comment']);
+  const changes = buildFieldDiff(current, after, ['timeInSeconds', 'timePenalty', 'knockdowns', 'knockdownPenalty', 'otherPenalty', 'holdTimeSec', 'penalty', 'eliminated', 'comment']);
   if (changes.length > 0) {
     await writeSecretariatAuditLog(competitionId, {
       discipline: 'marathon',

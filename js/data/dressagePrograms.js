@@ -269,9 +269,10 @@ export const dressagePrograms = {
     },
 
     'FEI_2star_HP2_2024': {
-        penaltyCoeff: 0.76,
+        penaltyCoeff: 0.615,
         name: 'FEI Test 2* HP2 (används för U25)',
         category: 'FEI Senior/U25',
+        calculationType: 'fei',
         arena: "80x40",
         source: "CAI2HP2_05.04.pdf",
         version: "2024",
@@ -296,12 +297,13 @@ export const dressagePrograms = {
             { no: 17, text: 'KAF: Working Trot', judge: 'Transition to Working Trot. Regularity, bending, impulsion, contact.', coeff: 1 },
             { no: 18, text: 'FXH: Free Walk', judge: 'Transition. Relaxation. Rhythm.. Stretching forward and downward. Energy. Ground covering.', coeff: 1 },
             { no: 19, text: 'HC, CI: Working Trot, Serpentine loop right', judge: 'Transition to Working Trot. Impulsion, Contact, bending, activity of the hindquarters. Elastic steps and good hock action.', coeff: 1 },
-            { no: 20, text: 'I, IL: Halt, 8 seconds, Driver on centre line, Collected Trot, Serpentine loop left', judge: 'Transition to halt, standing square, immobility, remaining on the bit. Transition to Collected Trot. Impulsion. Bending. Accuracy. Cadence.', coeff: 1 },
-            { no: 21, text: 'L: Halt, Driver on centre line, Rein Back, 3 m', judge: 'Transition to halt and rein back. Obedience, contact, straightness, quality of diagonal steps.', coeff: 1 },
-            { no: 22, text: 'LA, AD: Working Trot, Serpentine loop right, Working Trot', judge: 'Transition to Working Trot. Impulsion, Contact, bending, activity of the hindquarters. Elastic steps and good hock action.', coeff: 1 },
-            { no: 23, text: 'DXG, G: Extended Trot, Halt, Salute', judge: 'Transitions. Impulsion. Rhythm. Straightness. Immobility.', coeff: 1 },
-            { no: 24, text: 'ATHLETE', judge: 'Use of aids, handling of reins and whip, position on the box, accuracy of figures and transitions.', coeff: 2 },
-            { no: 25, text: 'GENERAL IMPRESSION & PRESENTATION', judge: 'Appearance of athlete and grooms, correctness, cleanliness harmonizing with of harness and carriage. Fitness, matching and condition of Horse(s), balanced picture of the complete turnout.', coeff: 2 }
+            { no: 20, text: 'I: Halt, 8 seconds, Driver on centre line', judge: 'Transition to halt, standing square, immobility, remaining on the bit.', coeff: 1 },
+            { no: 21, text: 'IL: Collected Trot, Serpentine loop left', judge: 'Transition to Collected Trot. Impulsion. Bending. Accuracy. Cadence.', coeff: 1 },
+            { no: 22, text: 'L: Halt, Driver on centre line, Rein Back, 3 m', judge: 'Transition to halt and rein back. Obedience, contact, straightness, quality of diagonal steps.', coeff: 1 },
+            { no: 23, text: 'LA, AD: Working Trot, Serpentine loop right, Working Trot', judge: 'Transition to Working Trot. Impulsion, Contact, bending, activity of the hindquarters. Elastic steps and good hock action.', coeff: 1 },
+            { no: 24, text: 'DXG, G: Extended Trot, Halt, Salute', judge: 'Transitions. Impulsion. Rhythm. Straightness. Immobility.', coeff: 1 },
+            { no: 25, text: 'ATHLETE', judge: 'Use of aids, handling of reins and whip, position on the box, accuracy of figures and transitions.', coeff: 1 },
+            { no: 26, text: 'GENERAL IMPRESSION & PRESENTATION', judge: 'Appearance of athlete and grooms, correctness, cleanliness harmonizing with of harness and carriage. Fitness, matching and condition of Horse(s), balanced picture of the complete turnout.', coeff: 1 }
         ]
     },
 
@@ -492,6 +494,41 @@ export const dressagePrograms = {
         ]
     },
 
+    'FEI_3star_HP2_P4_2023': {
+        penaltyCoeff: 0.73,
+        name: 'FEI Test CAI3* HP2-P4 (nr 528)',
+        category: 'FEI Senior',
+        calculationType: 'fei',
+        arena: "80x40",
+        source: "528.FEI_Senior_Test_CAI3_HP2_P4_80x40_2023.vers.16 juli 2023.pdf",
+        version: "2023",
+        verified: true,
+        movements: [
+            { no: 1, text: 'AX, X: Arbetstrav, Halt & Hälsning', judge: 'Rakhet, framåtbjudning, kontakt, bakbensaktivitet, eftergift och schwung. Övergång till halt, ingen mellanliggande skritt. Stillhet, korrekt uppställning på töm. Hästarnas nos vid X.', coeff: 1 },
+            { no: 2, text: 'XI: Samlad trav', judge: 'Övergång till samlad trav. Bjudning, kvalitet på samlingen.', coeff: 1 },
+            { no: 3, text: 'I, I: Volt vänster 20 m valfri tömfattning, Volt höger 20 m med enhandsfattning', judge: 'Ställning, böjning. Övergång mellan cirklarna på rätt punkt. Bärighet.', coeff: 1 },
+            { no: 4, text: 'ICM: Samlad trav, valfri tömfattning', judge: 'Ställning, böjning höger. Kontakt, eftergift, framåtbjudning och rakhet. Hörnpasseringar.', coeff: 1 },
+            { no: 5, text: 'MK: Ökad trav med enhandsfattning', judge: 'Övergång till ökad trav. Längning av överlinjen. Framåtbjudning, takt, balans, rakhet, kvalitet på längningen.', coeff: 1 },
+            { no: 6, text: 'KAL: Arbetstrav med valfri tömfattning', judge: 'Övergång till arbetstrav. Ställning, böjning, kontakt, bakbensaktivitet, schwung.', coeff: 1 },
+            { no: 7, text: 'L: Halt, orörlighet 8 sekunder', judge: 'Övergång till halt, ingen mellanliggande skritt. Rakhet, uppställning med lika mycket vikt på alla fyra benen. På töm, mjuk kontakt. Rak igångsättning. Hästarnas nos vid L.', coeff: 1 },
+            { no: 8, text: 'LXI, I: Skritt med kontakt, Halt', judge: 'Mjuk igångsättning, regelbundenhet, tydlig 4-takt, avspänd. Hästarnas nos halt vid I.', coeff: 1 },
+            { no: 9, text: 'I: Ryggning 3m', judge: 'Takt, lydnad, på töm. Kvalitet på diagonala steg. Kontakt och rakhet.', coeff: 1 },
+            { no: 10, text: 'ICH: Samlad trav', judge: 'Ställning, böjning och kontakt. Mjuk övergång, eftergift, framåtbjudning. Hörnpasseringar. Bakbensaktivitet.', coeff: 1 },
+            { no: 11, text: 'HP: Fri Skritt', judge: 'Regelbundenhet, 4-takt. Energi. Längning av överlinjen, full frihet att sänka och sträcka ut huvud och hals. Tydligt övertramp. Avspänt.', coeff: 1 },
+            { no: 12, text: 'PAV: Samlad trav, Halvcirkel 40 m start 5 m efter P slut 5 m före V', judge: 'Övergång till samlad trav. Eftergift, bjudning, ställning, böjning. Figurens rätta utförande. Bakbensaktivitet.', coeff: 1 },
+            { no: 13, text: 'VM: Ökad trav med enhandsfattning', judge: 'Övergång till ökad trav. Tydlig längning av steget. Bakbensaktivitet, takt, balans, rakhet. Längning av överlinjen.', coeff: 1 },
+            { no: 14, text: 'MC, CHXS: Arbetstrav med valfri tömfattning, Loop 20 m vänster följd av Loop 20 m höger', judge: 'Övergång till arbetstrav. Tydlig ställning och böjning, kontakt, bakbensaktivitet, schwung. Rakhet mellan vänster och höger loop. Spåret till höger.', coeff: 1 },
+            { no: 15, text: 'SCR: Arbetstrav, Längning av överlinjen, Halv cirkel 40 m start 5 m efter S slut 5 m före R', judge: 'Övergång till arbetstrav. Gradvis längning av överlinje. Kontakt. Bakbensaktivitet. Figurens rätta utförande. Bibehållande av takt.', coeff: 1 },
+            { no: 16, text: 'RX, XV: Samlad trav, Böjt spår till höger, Böjt spår till vänster', judge: 'Övergång till samling. Eftergift, ställning, böjning. Bakbensaktivitet. Figurens rätta utförande. Omställning från höger till vänster, kort rakställning över X.', coeff: 1 },
+            { no: 17, text: 'VAP: Arbetstrav, Längning av överlinjen, Halv cirkel 40 m start 5 m efter V slut 5 m före P', judge: 'Övergång till arbetstrav. Gradvis längning överlinje. Kontakt. Bakbensaktivitet. Figurens rätta utförande. Bibehållande av takt.', coeff: 1 },
+            { no: 18, text: 'PM, MCHS: Arbetstrav, avvikelse 20 m, Arbetstrav', judge: 'Övergång till arbetstrav. Bjudning, kontakt, bakbensaktivitet, schwung. På töm, i balans, energi. Figurens rätta utförande. Bibehållen takt.', coeff: 1 },
+            { no: 19, text: 'SK, KAD: Samlad trav, avvikelse 20 m, Samlad trav', judge: 'Övergång till samlad trav. Bakbensaktivitet. Kvalitet på samling. Figurens rätta utförande. Bärighet och bibehållen takt.', coeff: 1 },
+            { no: 20, text: 'DG, G: Ökad trav, Halt & Hälsning, Utkörning i arbetstrav', judge: 'Övergång till ökad trav. Längning av steg och överlinje. Bakbensaktivitet, takt, rakhet, balans. Övergång till halt. Stillhet, uppställning på töm. Hästarnas nos vid G.', coeff: 1 },
+            { no: 21, text: 'Kusken', judge: 'Användning av hjälper. Hantering av tömmar och piska. Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 22, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
+        ]
+    },
+
     'FEI_3star_B_HP4_2022': {
         penaltyCoeff: 0.666,
         name: 'FEI Test 3* B H4 (nr 518)',
@@ -641,6 +678,7 @@ export const dressagePrograms = {
         penaltyCoeff: 1.00,
         name: 'Svenskt Lätt nr 1 (Inomhus)',
         category: 'Svenska Program',
+        calculationType: 'national',
         arena: "20x60",
         source: "501_Sv_l-tt_nr1_inomhus.pdf",
         version: "2017",
@@ -658,10 +696,10 @@ export const dressagePrograms = {
             { no: 10, text: 'KXM, MH: Vänd snett igenom - mellantrav, Arbetstrav', judge: 'Taktmässighet. Övergångar, regelbundenhet, taktmässighet.', coeff: 1 },
             { no: 11, text: 'HXF, FAKE: Vänd snett igenom - mellantrav, Arbetstrav', judge: 'Övergång.', coeff: 1 },
             { no: 12, text: 'EH, H: Skritt med lätt stöd, Halt - hälsning', judge: 'Övergångar, taktmässighet. Halt på bettet, rak uppställning.', coeff: 1 },
-            { no: 13, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna.', coeff: 2 },
-            { no: 14, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 2 },
-            { no: 15, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet.', coeff: 2 },
-            { no: 16, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken.', coeff: 2 }
+            { no: 13, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna.', coeff: 1 },
+            { no: 14, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 1 },
+            { no: 15, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet.', coeff: 1 },
+            { no: 16, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken.', coeff: 1 }
         ]
     },
 
@@ -669,6 +707,7 @@ export const dressagePrograms = {
         penaltyCoeff: 1.00,
         name: 'Svenskt Lätt nr 2 (Inomhus)',
         category: 'Svenska Program',
+        calculationType: 'national',
         arena: "20x60",
         source: "503-_Svenskt_l-tt_nr_2_-ridhus-.pdf",
         version: "2017",
@@ -685,18 +724,19 @@ export const dressagePrograms = {
             { no: 9, text: 'X: Volt till vänster omedelbart följt av volt till höger 20 m diameter', judge: 'Framåtbjudningen. Figurernas rätta utförande, regelbundenhet.', coeff: 1 },
             { no: 10, text: 'XEHC, CA: Arbetstrav, Serpentin 3 bågar', judge: 'Figurernas rätta utförande, regelbundenheten.', coeff: 1 },
             { no: 11, text: 'AKEH, Vid H: Arbetstrav, Halt - Hälsning, Utkörning i arbetstrav', judge: 'Regelbundenheten, bjudningen, rakheten. Övergången till halt, halt på bettet.', coeff: 1 },
-            { no: 12, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna. Samtliga hästar bibehåller gångarterna.', coeff: 2 },
-            { no: 13, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 2 },
-            { no: 14, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 2 },
-            { no: 15, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 16, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 12, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna. Samtliga hästar bibehåller gångarterna.', coeff: 1 },
+            { no: 13, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 1 },
+            { no: 14, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 1 },
+            { no: 15, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 16, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
     'sv_msv_1_inomhus': {
-        penaltyCoeff: 0.80,
+        penaltyCoeff: 1.00,
         name: 'Svenskt Medelsvårt nr 1 (Inomhus)',
         category: 'Svenska Program',
+        calculationType: 'national',
         arena: "20x60",
         source: "505-_Svenskt_Msv_nr_1_-ridhus-.pdf",
         version: "2017",
@@ -713,18 +753,19 @@ export const dressagePrograms = {
             { no: 9, text: 'X, XEHC: Samlad trav volt till vänster omedelbart följt av volt till höger 20 m diameter, Arbetstrav', judge: 'Övergången till samlad trav, framåtbjudningen. Figurernas rätta utförande, regelbundenheten. Övergången till arbetstrav, framåtbjudningen.', coeff: 1 },
             { no: 10, text: 'CA: Serpentin 3 bågar', judge: 'Figurernas rätta utförande, regelbundenheten.', coeff: 1 },
             { no: 11, text: 'AKEH, Vid H: Arbetstrav, Halt - Hälsning, Utkörning i arbetstrav', judge: 'Regelbundenheten, bjudningen, rakheten. Övergången till halt, halt på bettet.', coeff: 1 },
-            { no: 12, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna. Samtliga hästar bibehåller gångarterna.', coeff: 2 },
-            { no: 13, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 2 },
-            { no: 14, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 2 },
-            { no: 15, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 16, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 12, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna. Samtliga hästar bibehåller gångarterna.', coeff: 1 },
+            { no: 13, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 1 },
+            { no: 14, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 1 },
+            { no: 15, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 16, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 
     'sv_svar_1_inomhus': {
-        penaltyCoeff: 0.76,
+        penaltyCoeff: 1.00,
         name: 'Svenskt Svårt nr 1 (Inomhus)',
         category: 'Svenska Program',
+        calculationType: 'national',
         arena: "20x60",
         source: "507-_Svenskt_sv-rt_nr_1_-ridhus-.pdf",
         version: "2017",
@@ -738,14 +779,14 @@ export const dressagePrograms = {
             { no: 6, text: 'CME, E, EF: Samlad trav, Tömmarna i en hand, volt till vänster 20 m diameter, Arbetstrav, tömmarna på valfritt sätt', judge: 'Övergång till samlad trav, figurens rätta utförande, regelbundenheten, övergång till arbetstrav.', coeff: 1 },
             { no: 7, text: 'FAK, KXM, MCHB: Arbetstrav, Ökad trav, Samlad trav', judge: 'Övergång till ökad trav, rakhet, framåtbjudning och regelbundenhet och övergång till samlad trav.', coeff: 1 },
             { no: 8, text: 'B, BFA: Tömmarna i en hand, volt till höger 20 m diameter, Arbetstrav, tömmarna på valfritt sätt', judge: 'Övergång till samlad trav, figurens rätta utförande, regelbundenheten, övergång till samlad trav, övergång till arbetstrav, bjudning och lätthet.', coeff: 1 },
-            { no: 9, text: 'Efter A, I linje mellan E och X, CA: Vänd in på trekvartslinjen, Halt 10 sek. Ryggning 6 steg. Framkörning i arbetstrav, kom ut i höger varv innan C', judge: 'Övergång till halt, halt på bettet, orörlighet i halten. Villighet i ryggning, taktmässighet och rakhet i ryggning. Övergång till arbetstrav och framåtbjudning.', coeff: 2 },
+            { no: 9, text: 'Efter A, I linje mellan E och X, CA: Vänd in på trekvartslinjen, Halt 10 sek. Ryggning 6 steg. Framkörning i arbetstrav, kom ut i höger varv innan C', judge: 'Övergång till halt, halt på bettet, orörlighet i halten. Villighet i ryggning, taktmässighet och rakhet i ryggning. Övergång till arbetstrav och framåtbjudning.', coeff: 1 },
             { no: 10, text: 'Serpentin med 3 bågar', judge: 'Figurens rätta utförande. regelbundenhet och taktmässighet.', coeff: 1 },
             { no: 11, text: 'AKEH, Vid H: Ökad trav, Halt - Hälsning, Utkörning i arbetstrav', judge: 'Övergång till ökad trav. Övergången till halt, halt på bettet, orörlighet i halten.', coeff: 1 },
-            { no: 12, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna. Samtliga hästar bibehåller gångarterna.', coeff: 2 },
-            { no: 13, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 2 },
-            { no: 14, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 2 },
-            { no: 15, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 2 },
-            { no: 16, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 2 }
+            { no: 12, text: 'Gångarter', judge: 'Regelbundenhet och frihet i rörelserna. Samtliga hästar bibehåller gångarterna.', coeff: 1 },
+            { no: 13, text: 'Framåtbjudning', judge: 'Samtliga hästar rör sig framåt och är lösgjorda.', coeff: 1 },
+            { no: 14, text: 'Lydnad och lätthet', judge: 'Svar på hjälper villigt och utan motstånd. Acceptans av bettet. Korrekta ställningar och eftergift.', coeff: 1 },
+            { no: 15, text: 'Kusken', judge: 'Användning av hjälper, Hantering av tömmar och piska, Ställning på kuskbocken, noggrannheten i rörelsernas utövande.', coeff: 1 },
+            { no: 16, text: 'Presentation', judge: 'Uppträdande av kusk och groom, puts, tillpassning, kondition och helhetsintryck av hästar, seldon och vagn.', coeff: 1 }
         ]
     },
 

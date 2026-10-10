@@ -10,10 +10,19 @@ let currentUserRole = 'publik'; // 'publik' är standardrollen
 let currentUserId = null;
 let onAuthReadyCallback = null;
 let recoveryAccessAttemptedForUid = null;
+const OWNER_RECOVERY_EMAIL = 'johan.zetterberg@gmail.com';
 
 async function ensureRecoveryAccess(user) {
     if (!user?.uid) return false;
+    if (String(user.email || '').trim().toLowerCase() !== OWNER_RECOVERY_EMAIL) return false;
     if (recoveryAccessAttemptedForUid === user.uid) return false;
+
+    try {
+        const tokenResult = await user.getIdTokenResult();
+        if (tokenResult.claims?.superadmin === true) return false;
+    } catch (error) {
+        console.warn('Kunde inte kontrollera befintlig superadmin-claim:', error);
+    }
 
     recoveryAccessAttemptedForUid = user.uid;
 

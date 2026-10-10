@@ -346,3 +346,256 @@ test('calculateTeamResults correctly ranks teams with tie-breakers', () => {
   assert.equal(sortedTeams[1].teamId, 'team-tied-1');
   assert.equal(sortedTeams[1].rank, 2);
 });
+
+test('Lag-SM 2026 counts the best two results in each discipline', () => {
+  const teams = [{
+    id: 'team-1',
+    name: 'Lag-SM lag',
+    members: ['eq-1', 'eq-2', 'eq-3']
+  }];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 30 }, marathon: { totalPenalty: 90 }, precision: { totalPenalty: 5 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 40 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 15 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 45 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 2 } }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows, 'lag_sm_2026');
+
+  assert.equal(team.dressage, 70);
+  assert.equal(team.marathon, 90);
+  assert.equal(team.precision, 7);
+  assert.equal(team.total, 167);
+  assert.equal(team.isIncomplete, false);
+  assert.equal(team.members.find(member => member.memberId === 'eq-1').isCountingMarathon, false);
+  assert.equal(team.members.find(member => member.memberId === 'eq-2').isCountingPrecision, false);
+});
+
+test('Lag-SM 2026 gives 500 penalties for an eliminated phase result', () => {
+  const teams = [{
+    id: 'team-1',
+    name: 'Lag med 500',
+    members: ['eq-1', 'eq-2']
+  }];
+  const rows = [
+    {
+      id: 'eq-1', startNumber: 1, driverName: 'A', isEliminated: true,
+      dressage: { penalty: null, eliminated: true },
+      marathon: { totalPenalty: 55 },
+      precision: { totalPenalty: 10 }
+    },
+    {
+      id: 'eq-2', startNumber: 2, driverName: 'B',
+      dressage: { penalty: 40 },
+      marathon: { totalPenalty: 50 },
+      precision: { totalPenalty: 5 }
+    }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows, 'lag_sm_2026');
+  const eliminatedMember = team.members.find(member => member.memberId === 'eq-1');
+
+  assert.equal(team.dressage, 540);
+  assert.equal(team.marathon, 105);
+  assert.equal(team.precision, 15);
+  assert.equal(team.total, 660);
+  assert.equal(team.isIncomplete, false);
+  assert.equal(eliminatedMember.isDressageTeamPenalty, true);
+  assert.equal(eliminatedMember.isCountingDressage, true);
+});
+
+test('Lag-SM 2026 requires two to three team members and ranks each phase', () => {
+  const teams = [
+    { id: 'invalid', name: 'For litet lag', members: ['eq-1'] },
+    { id: 'first', name: 'Forsta laget', members: ['eq-1', 'eq-2'] },
+    { id: 'second', name: 'Andra laget', members: ['eq-3', 'eq-4'] }
+  ];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 60 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 50 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 60 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'lag_sm_2026');
+  const invalid = results.find(team => team.teamId === 'invalid');
+  const first = results.find(team => team.teamId === 'first');
+  const second = results.find(team => team.teamId === 'second');
+
+  assert.equal(invalid.isInvalid, true);
+  assert.equal(invalid.total, null);
+  assert.equal(first.rank, 1);
+  assert.equal(second.rank, 2);
+  assert.equal(first.disciplineRanks.dressage, 1);
+  assert.equal(second.disciplineRanks.dressage, 2);
+});
+
+test('Lag-SM 2026 tie-breakers use marathon, dressage, then lowest individual dressage penalty', () => {
+  const marathonTeams = [
+    { id: 'marathon-first', name: 'Marathon fore dressyr', members: ['eq-1', 'eq-2'] },
+    { id: 'dressage-first', name: 'Bast dressyr men samre maraton', members: ['eq-3', 'eq-4'] }
+  ];
+  const marathonRows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 60 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 30 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 60 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const marathonRanked = calculateTeamResults(marathonTeams, marathonRows, 'lag_sm_2026');
+  assert.equal(marathonRanked[0].teamId, 'marathon-first');
+
+  const dressageTeams = [
+    { id: 'higher-individual', name: 'Hogre individuell dressyr', members: ['eq-1', 'eq-2'] },
+    { id: 'lower-individual', name: 'Lagst individuell dressyr', members: ['eq-3', 'eq-4'] }
+  ];
+  const dressageRows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 60 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 30 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 70 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const dressageRanked = calculateTeamResults(dressageTeams, dressageRows, 'lag_sm_2026');
+  assert.equal(dressageRanked[0].teamId, 'lower-individual');
+});
+
+test('Lag-SM 2026 keeps equal teams on the same rank when the stated tie-breakers are equal', () => {
+  const teams = [
+    { id: 'team-a', name: 'Alfa', members: ['eq-1', 'eq-2'] },
+    { id: 'team-b', name: 'Beta', members: ['eq-3', 'eq-4'] }
+  ];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', dressage: { penalty: 60 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-4', startNumber: 4, driverName: 'D', dressage: { penalty: 60 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'lag_sm_2026');
+
+  assert.equal(results[0].rank, 1);
+  assert.equal(results[1].rank, 1);
+});
+
+test('FEI Championship / CAIO counts the best two fully completed members in each discipline', () => {
+  const teams = [{ id: 'fei-standard', name: 'Sweden', members: ['eq-1', 'eq-2', 'eq-3'] }];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', country: 'SWE', dressage: { penalty: 30 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', country: 'SE', dressage: { penalty: 40 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 9 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', country: 'Sweden', dressage: { penalty: 50 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 8 } }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows, 'fei_championship_caio');
+
+  assert.equal(team.isIncomplete, false);
+  assert.equal(team.isInvalid, false);
+  assert.equal(team.dressage, 70);
+  assert.equal(team.marathon, 90);
+  assert.equal(team.precision, 17);
+  assert.equal(team.total, 177);
+  assert.equal(team.members.find(member => member.memberId === 'eq-1').isCountingMarathon, false);
+});
+
+test('FEI Championship / CAIO does not replace an eliminated member with a 500 penalty', () => {
+  const teams = [{ id: 'fei-standard', name: 'Sweden', members: ['eq-1', 'eq-2', 'eq-3'] }];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', country: 'SWE', dressage: { penalty: 30 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', country: 'SWE', dressage: { penalty: 40 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 9 } },
+    {
+      id: 'eq-3', startNumber: 3, driverName: 'C', country: 'SWE', isEliminated: true,
+      dressage: { penalty: 5 }, marathon: { totalPenalty: 5 }, precision: { totalPenalty: Infinity, eliminated: true }
+    }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows, 'fei_championship_caio');
+  const eliminatedMember = team.members.find(member => member.memberId === 'eq-3');
+
+  assert.equal(team.total, 179);
+  assert.equal(team.dressage, 70);
+  assert.equal(eliminatedMember.eliminated, true);
+  assert.equal(eliminatedMember.isCounting, false);
+  assert.equal(eliminatedMember.penalty, null);
+});
+
+test('FEI Championship / CAIO breaks a tied total by marathon before dressage', () => {
+  const teams = [
+    { id: 'marathon-first', name: 'Sweden', members: ['se-1', 'se-2'] },
+    { id: 'dressage-first', name: 'Denmark', members: ['dk-1', 'dk-2'] }
+  ];
+  const rows = [
+    { id: 'se-1', startNumber: 1, driverName: 'SE A', country: 'SWE', dressage: { penalty: 50 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 10 } },
+    { id: 'se-2', startNumber: 2, driverName: 'SE B', country: 'SWE', dressage: { penalty: 50 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 10 } },
+    { id: 'dk-1', startNumber: 3, driverName: 'DK A', country: 'DEN', dressage: { penalty: 45 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 10 } },
+    { id: 'dk-2', startNumber: 4, driverName: 'DK B', country: 'DEN', dressage: { penalty: 45 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'fei_championship_caio');
+
+  assert.equal(results[0].teamId, 'marathon-first');
+  assert.equal(results[0].rank, 1);
+  assert.equal(results[1].rank, 2);
+});
+
+test('FEI Pony Championship requires and counts one completed member from each driving category', () => {
+  const teams = [
+    { id: 'pony-valid', name: 'Sweden', members: ['single', 'pair', 'four'] },
+    { id: 'pony-invalid', name: 'Denmark', members: ['single-a', 'single-b', 'pair-a'] }
+  ];
+  const rows = [
+    { id: 'single', startNumber: 1, driverName: 'Single', country: 'SWE', className: 'FEI 3* Enbet Ponny', dressage: { penalty: 35 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 9 } },
+    { id: 'pair', startNumber: 2, driverName: 'Pair', country: 'SWE', className: 'FEI 3* Par Ponny', dressage: { penalty: 40 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 8 } },
+    { id: 'four', startNumber: 3, driverName: 'Four', country: 'SWE', className: 'FEI 3* Fyrspann Ponny', dressage: { penalty: 30 }, marathon: { totalPenalty: 60 }, precision: { totalPenalty: 10 } },
+    { id: 'single-a', startNumber: 4, driverName: 'Single A', country: 'DEN', className: 'FEI 3* Enbet Ponny', dressage: { penalty: 30 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 8 } },
+    { id: 'single-b', startNumber: 5, driverName: 'Single B', country: 'DEN', className: 'FEI 3* Enbet Ponny', dressage: { penalty: 35 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 9 } },
+    { id: 'pair-a', startNumber: 6, driverName: 'Pair A', country: 'DEN', className: 'FEI 3* Par Ponny', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'fei_pony_championship');
+  const valid = results.find(team => team.teamId === 'pony-valid');
+  const invalid = results.find(team => team.teamId === 'pony-invalid');
+
+  assert.equal(valid.total, 287);
+  assert.equal(valid.members.every(member => member.isCounting), true);
+  assert.equal(invalid.isInvalid, true);
+  assert.match(invalid.validationIssues.join(' '), /fyrspann/);
+});
+
+test('FEI Youth Championship validates each age category and uses its best completed member', () => {
+  const teams = [{ id: 'youth', name: 'Sweden', members: ['child', 'junior', 'u25'] }];
+  const rows = [
+    { id: 'child', startNumber: 1, driverName: 'Child', country: 'SWE', className: 'FEI Children 1*', dressage: { penalty: 30 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 8 } },
+    { id: 'junior', startNumber: 2, driverName: 'Junior', country: 'SWE', className: 'FEI Junior 2*', dressage: { penalty: 40 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 9 } },
+    { id: 'u25', startNumber: 3, driverName: 'U25', country: 'SWE', className: 'FEI U25 3*', dressage: { penalty: 50 }, marathon: { totalPenalty: 55 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const [team] = calculateTeamResults(teams, rows, 'fei_youth_championship');
+
+  assert.equal(team.isInvalid, false);
+  assert.equal(team.dressage, 120);
+  assert.equal(team.marathon, 150);
+  assert.equal(team.precision, 27);
+  assert.equal(team.total, 297);
+});
+
+test('FEI Para Driving Championship requires Grade I and no more than two members in one grade', () => {
+  const teams = [
+    { id: 'para-valid', name: 'Sweden', members: ['grade-1', 'grade-2'] },
+    { id: 'para-invalid', name: 'Denmark', members: ['grade-2a', 'grade-2b', 'grade-2c'] }
+  ];
+  const rows = [
+    { id: 'grade-1', startNumber: 1, driverName: 'Grade I', country: 'SWE', paraGrade: '1', dressage: { penalty: 30 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 8 } },
+    { id: 'grade-2', startNumber: 2, driverName: 'Grade II', country: 'SWE', paraGrade: '2', dressage: { penalty: 40 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 9 } },
+    { id: 'grade-2a', startNumber: 3, driverName: 'Grade II A', country: 'DEN', paraGrade: '2', dressage: { penalty: 30 }, marathon: { totalPenalty: 40 }, precision: { totalPenalty: 8 } },
+    { id: 'grade-2b', startNumber: 4, driverName: 'Grade II B', country: 'DEN', paraGrade: '2', dressage: { penalty: 35 }, marathon: { totalPenalty: 45 }, precision: { totalPenalty: 9 } },
+    { id: 'grade-2c', startNumber: 5, driverName: 'Grade II C', country: 'DEN', paraGrade: '2', dressage: { penalty: 40 }, marathon: { totalPenalty: 50 }, precision: { totalPenalty: 10 } }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'fei_para_championship');
+  const valid = results.find(team => team.teamId === 'para-valid');
+  const invalid = results.find(team => team.teamId === 'para-invalid');
+
+  assert.equal(valid.total, 182);
+  assert.equal(invalid.isInvalid, true);
+  assert.match(invalid.validationIssues.join(' '), /Grade I/);
+  assert.match(invalid.validationIssues.join(' '), /Högst 2 deltagare/);
+});

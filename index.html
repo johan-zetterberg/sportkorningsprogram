@@ -9,24 +9,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Tävlingssystem Sportkörning</title>
 
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <script>
-    window.tailwind = window.tailwind || {};
-    tailwind.config = {
-      darkMode: 'class', // Enable class-based dark mode
-      theme: {
-        extend: {
-          colors: {
-            'brand-darkblue': '#0A1F37',
-            'brand-gold': '#C2A145',
-            'brand-lightblue': '#69C9D6',
-          }
-        }
-      }
-    }
-  </script>
-
   <script>
       // Init theme as early as possible to prevent flash
       (function () {
@@ -46,13 +28,11 @@
   <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32x32.png">
   <link rel="icon" type="image/png" sizes="16x16" href="./favicon-16x16.png">
 
+  <link rel="stylesheet" href="css/tailwind.css">
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
     integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.28/jspdf.plugin.autotable.min.js"></script>
   <style>
     #controlsContainer button span {
       display: block !important;
@@ -503,14 +483,16 @@
 
   <!-- PDF.js (self-hostad, ESM) -->
   <script type="module">
-    import * as pdfjsLib from './lib/pdfjs/build/pdf.mjs';
+    const pdfjsLib = window.pdfjsLib;
     // Gör biblioteket globalt för sidor som behöver det (t.ex. dressyr-admin):
-    window.pdfjsLib = pdfjsLib;
+    // PDF.js is loaded on demand from the dressage import view.
 
     // SÄTT WORKERN (mjs). Två fungerande varianter – välj EN:
 
     // 1) Enkel: låt PDF.js hämta worker via URL till .mjs
-    pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdfjs/build/pdf.worker.min.mjs';
+    if (pdfjsLib) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdfjs/build/pdf.worker.min.mjs';
+    }
 
     // -- eller --
 
@@ -520,16 +502,21 @@
   </script>
 
   <script type="module" src="js/main.js"></script>
-  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
     integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
   
   <script>
     // Fix for Leaflet missing slash in image paths
-    if (window.L && window.L.Icon && window.L.Icon.Default) {
-      window.L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
-    } else {
-      console.warn('[Leaflet] Library unavailable, map views will use fallback UI.');
+    function configureLeafletIcons() {
+      if (window.L && window.L.Icon && window.L.Icon.Default) {
+        window.L.Icon.Default.imagePath = 'https://unpkg.com/leaflet@1.9.4/dist/images/';
+      } else {
+        console.warn('[Leaflet] Library unavailable, map views will use fallback UI.');
+      }
     }
+
+    if (window.L) configureLeafletIcons();
+    else window.addEventListener('load', configureLeafletIcons, { once: true });
   </script>
 
   <script>

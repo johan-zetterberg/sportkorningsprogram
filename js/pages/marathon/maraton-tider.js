@@ -9,6 +9,7 @@ import { fetchFlagDataUrl, getFlagHtml, normalizeCountryCode } from '../../servi
 import { t } from '../../utils/i18n.js';
 import { getCompetitionLogoUrl } from '../../utils/competitionLogo.js';
 import { resolvePdfCompetition } from '../../pdf/pdfCompetitionUtils.js';
+import { loadPdfLibs } from '../../pdf/pdfBase.js';
 import {
   buildStageTimingRows,
   calculateTransportTiming,
@@ -736,6 +737,7 @@ async function generateMarathonPdfFromCurrent() {
   const sections = buildMarathonPdfSections(host);
 
   // 5) Initiera jsPDF
+  await loadPdfLibs();
   const jsPDFCtor = (window?.jspdf && window.jspdf.jsPDF) || window.jsPDF;
   if (typeof jsPDFCtor !== 'function') {
     showAlert(t('pdf_lib_missing'), false);

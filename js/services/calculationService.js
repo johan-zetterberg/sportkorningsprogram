@@ -91,7 +91,7 @@ export function calculateDressageResult(equipage, protocols, validJudges = [], p
             eliminated: isEliminated,
             programName: program ? program.name : null,
             errorPoints: effectiveErrorPoints,
-            errorPenalty: effectiveErrorPoints * getDressagePenaltyCoeff(program)
+            errorPenalty: effectiveErrorPoints
         };
     }
 
@@ -139,7 +139,8 @@ export function calculateDressageResult(equipage, protocols, validJudges = [], p
     let finalPenalty = null;
     let coeff = getDressagePenaltyCoeff(program);
     const errorPoints = effectiveErrorPoints;
-    const errorPenalty = errorPoints * coeff;
+    // TR Mom 518.9 & FEI Art 958.1.4: Error points added 1:1
+    const errorPenalty = errorPoints;
 
     if (result) {
         finalPenalty = round2(result.penalty + errorPenalty);

@@ -184,6 +184,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
 
   const sn = String(startNumber);
   const pdfCompetition = await resolvePdfCompetition(opts?.competition);
+  await loadPdfLibs();
 
   const providers = opts?.providers || __pdfProviders || null;
   const programs = providers?.getPrograms?.() || (typeof getPrograms === 'function' ? getPrograms() : null) || window.dressagePrograms || {};

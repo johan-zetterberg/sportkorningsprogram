@@ -112,76 +112,78 @@ export const klassProgramMapping = {
  * Definierar tempon (m/min) för precision och maraton (Sträcka E).
  */
 export const klassTempoData = {
-  // --- LÄTTA KLASSER ---
-  "Lätt C Enbet Ponny": { maraton: 220, precision: 190 },
-  "Lätt C Enbet Häst": { maraton: 230, precision: 200 },
-  "Lätt B Enbet Ponny": { maraton: 220, precision: 190 },
-  "Lätt B Enbet Häst": { maraton: 230, precision: 200 },
+  // --- LÄTTA KLASSER (TR V 2025 Bilaga 5) ---
+  "Lätt C Enbet Ponny": { maraton: 220, precision: 160 },
+  "Lätt C Enbet Häst": { maraton: 230, precision: 180 },
+  "Lätt B Enbet Ponny": { maraton: 220, precision: 160 },
+  "Lätt B Enbet Häst": { maraton: 230, precision: 180 },
   "Lätt A Enbet Ponny": { maraton: 220, precision: 200 },
-  "Lätt A Enbet Häst": { maraton: 230, precision: 220 },
+  "Lätt A Enbet Häst": { maraton: 230, precision: 210 },
   "Lätt A Par Ponny": { maraton: 220, precision: 200 },
-  "Lätt A Par Häst": { maraton: 230, precision: 220 },
+  "Lätt A Par Häst": { maraton: 230, precision: 210 },
 
-  // --- MEDELSVÅRA KLASSER ---
-  "MSV 2 Enbet Ponny": { maraton: 230, precision: 220 }, // MSV C
+  // --- MEDELSVÅRA KLASSER (TR V 2025 Bilaga 5) ---
+  "MSV 2 Enbet Ponny": { maraton: 230, precision: 230 }, // MSV C
   "MSV 2 Enbet Häst": { maraton: 240, precision: 230 },
-  "MSV 3 Enbet Ponny": { maraton: 240, precision: 220 }, // MSV B
+  "MSV 3 Enbet Ponny": { maraton: 240, precision: 230 }, // MSV B
   "MSV 3 Enbet Häst": { maraton: 250, precision: 230 },
-  "MSV 3 Par Ponny": { maraton: 240, precision: 220 },
+  "MSV 3 Par Ponny": { maraton: 240, precision: 230 },
   "MSV 3 Par Häst": { maraton: 250, precision: 230 },
-  "MSV 4 Enbet Ponny": { maraton: 240, precision: 220 }, // MSV A
+  "MSV 4 Enbet Ponny": { maraton: 240, precision: 230 }, // MSV A
   "MSV 4 Enbet Häst": { maraton: 250, precision: 230 },
-  "MSV 4 Par Ponny": { maraton: 240, precision: 220 },
+  "MSV 4 Par Ponny": { maraton: 240, precision: 230 },
   "MSV 4 Par Häst": { maraton: 250, precision: 230 },
 
-  // --- SVÅRA KLASSER ---
-  "Svår Enbet Ponny": { maraton: 250, precision: 220 },
-  "Svår Enbet Häst": { maraton: 260, precision: 230 },
-  "Svår Par Ponny": { maraton: 250, precision: 220 },
-  "Svår Par Häst": { maraton: 260, precision: 230 },
+  // --- SVÅRA KLASSER (TR V 2025 Bilaga 5 / FEI Art 975) ---
+  "Svår Enbet Ponny": { maraton: 250, precision: 260 },
+  "Svår Enbet Häst": { maraton: 260, precision: 250 },
+  "Svår Par Ponny": { maraton: 250, precision: 250 },
+  "Svår Par Häst": { maraton: 260, precision: 250 },
 
-  // --- FYRSPANN ---
-  "MSV Fyrspann Ponny": { maraton: 230, precision: 220 },
+  // --- FYRSPANN (TR V 2025 Bilaga 5 / FEI Art 975) ---
+  "MSV Fyrspann Ponny": { maraton: 230, precision: 230 },
   "MSV Fyrspann Häst": { maraton: 240, precision: 230 },
-  "Svår Fyrspann Ponny": { maraton: 240, precision: 220 },
-  "Svår Fyrspann Häst": { maraton: 250, precision: 230 },
+  "Svår Fyrspann Ponny": { maraton: 240, precision: 240 },
+  "Svår Fyrspann Häst": { maraton: 250, precision: 240 },
 
-  // --- PARAKLASSER ---
-  "Lätt A Para Häst": { maraton: 220, precision: 150 },
-  "Lätt A Para Ponny": { maraton: 200, precision: 150 },
-  "Msv Para Häst": { maraton: 240, precision: 180 },
-  "Msv Para Ponny": { maraton: 220, precision: 180 },
-  "Svår Para Häst": { maraton: 240, precision: 180 },
-  "Svår Para Ponny": { maraton: 220, precision: 180 },
+  // --- PARAKLASSER (TR V 2025 Bilaga 5) ---
+  "Lätt A Para Häst": { maraton: 220, precision: 210 },
+  "Lätt A Para Ponny": { maraton: 200, precision: 200 },
+  "Msv Para Häst": { maraton: 240, precision: 220 },
+  "Msv Para Ponny": { maraton: 220, precision: 210 },
+  "Svår Para Häst": { maraton: 240, precision: 230 },
+  "Svår Para Ponny": { maraton: 220, precision: 230 },
 
-  // --- BARNKLASSER ---
-  "Lätt C Barn Ponny": { maraton: 200, precision: 180 },
-  "Lätt B Barn Ponny": { maraton: 200, precision: 180 },
-  "Lätt A Barn Ponny": { maraton: 220, precision: 200 },
+  // --- BARNKLASSER (TR V 2025 Bilaga 5) ---
+  "Lätt C Barn Ponny": { maraton: 200, precision: 100 },
+  "Lätt B Barn Ponny": { maraton: 200, precision: 100 },
+  "Lätt A Barn Ponny": { maraton: 220, precision: 180 },
 
-  // --- FEI KLASSER ---
+  // --- FEI KLASSER (FEI 2026 Art 975.10.5 & 978.3) ---
   "FEI Children 1*": { maraton: 230, precision: 230 },
-  "FEI Junior 2*": { maraton: 240, precision: 230 },
-  "FEI U25 3*": { maraton: 250, precision: 230 },
-  "FEI 1* Häst": { maraton: 240, precision: 230 }, "FEI 1* Ponny": { maraton: 230, precision: 230 },
-  "FEI 2* Enbet Häst": { maraton: 250, precision: 230 }, "FEI 2* Par Häst": { maraton: 250, precision: 230 },
-  "FEI 2* Enbet Ponny": { maraton: 240, precision: 230 }, "FEI 2* Par Ponny": { maraton: 240, precision: 230 },
-  "FEI 3* Enbet Häst": { maraton: 260, precision: 230 }, "FEI 3* Par Häst": { maraton: 260, precision: 230 },
-  "FEI 3* Fyrspann Häst": { maraton: 250, precision: 230 }, "FEI 3* Enbet Ponny": { maraton: 250, precision: 230 },
-  "FEI 3* Par Ponny": { maraton: 250, precision: 230 }, "FEI 3* Fyrspann Ponny": { maraton: 240, precision: 230 }
+  "FEI Junior 2*": { maraton: 240, precision: 240 },
+  "FEI U25 3*": { maraton: 250, precision: 250 },
+  "FEI 1* Häst": { maraton: 240, precision: 250 }, "FEI 1* Ponny": { maraton: 230, precision: 260 },
+  "FEI 2* Enbet Häst": { maraton: 250, precision: 250 }, "FEI 2* Par Häst": { maraton: 250, precision: 250 },
+  "FEI 2* Enbet Ponny": { maraton: 240, precision: 260 }, "FEI 2* Par Ponny": { maraton: 240, precision: 250 },
+  "FEI 3* Enbet Häst": { maraton: 260, precision: 250 }, "FEI 3* Par Häst": { maraton: 260, precision: 250 },
+  "FEI 3* Fyrspann Häst": { maraton: 250, precision: 240 }, "FEI 3* Enbet Ponny": { maraton: 250, precision: 260 },
+  "FEI 3* Par Ponny": { maraton: 250, precision: 250 }, "FEI 3* Fyrspann Ponny": { maraton: 240, precision: 240 }
 };
 
 /**
  * Definierar tillåten extra bredd på portar i precisionen.
  */
 export const standardPortAllowance = {
-  // LB
+  // LB (fyrspann har +10 cm per TR Bilaga 5 fotnot *)
   'LB "Barn"': 45,
   'Lätt B Barn': 45,
+  'LB Fyrspann': 45,
+  'Lätt B Fyrspann': 45,
   'LB': 35,
   'Lätt B': 35,
 
-  // LA
+  // LA (fyrspann har +10 cm per TR Bilaga 5 fotnot *)
   'LA "Barn"': 45,
   'Lätt A Barn': 45,
   'LA CH': 45,
@@ -192,16 +194,21 @@ export const standardPortAllowance = {
   'LA "U25"': 30,
   'Lätt A J': 30,
   'Lätt A U25': 30,
+  'LA Fyrspann': 40,
+  'Lätt A Fyrspann': 40,
   'LA': 30,
   'Lätt A': 30,
 
-  // MSV
+  // MSV (fyrspann har +10 cm per TR Bilaga 5 fotnot *)
   'MSV "PARA"': 25,
   'Msv Para': 25,
   'MSV "CH"': 40,
   'Msv CH': 40,
   'MSV "J"': 25,
   'MSV "U25"': 25,
+  'MSV Fyrspann': 35,
+  'Msv Fyrspann': 35,
+  'Medelsvår Fyrspann': 35,
   'Msv': 25,
   'Medelsvår': 25,
 

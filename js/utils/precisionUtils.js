@@ -73,7 +73,7 @@ export function statusClass(status) {
 // -------------------------------------------------------------
 export function trackWidthFromEq(eq) {
     if (!eq) return null;
-    const v = Number(eq.trackWidthCm ?? eq.trackWidth);
+    const v = Number(eq.trackWidthCm ?? eq.trackWidth ?? eq.vagnbredd ?? eq.spannvidd);
     return Number.isFinite(v) && v > 0 ? v : null;
 }
 
@@ -87,6 +87,36 @@ export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRat
 // -------------------------------------------------------------
 // Porttillägg & portbredd
 // -------------------------------------------------------------
+export function isFourInHand(eqOrClass) {
+    if (!eqOrClass) return false;
+    if (typeof eqOrClass === 'string') {
+        return _norm(eqOrClass).includes('fyrspann');
+    }
+    const cls = getClassName(eqOrClass);
+    if (_norm(cls).includes('fyrspann')) return true;
+    if (Array.isArray(eqOrClass?.horses) && eqOrClass.horses.length === 4) return true;
+    const hitch = _norm(eqOrClass?.hitch || eqOrClass?.division || '');
+    return hitch.includes('fyrspann') || hitch.includes('four');
+}
+
+export const FEI_STANDARD_CONES_WIDTH = {
+    horse_four: 190,
+    horse_pair: 180,
+    horse_single: 160,
+    pony_four: 180,
+    pony_pair: 160,
+    pony_single: 150
+};
+
+export const TR_SVAR_STANDARD_CONES_WIDTH = {
+    horse_four: 183,
+    horse_pair: 168,
+    horse_single: 158,
+    pony_four: 163,
+    pony_pair: 158,
+    pony_single: 158
+};
+
 function resolveStandardPortAllowanceInternal(className) {
     if (!className) {
         return isNum(standardPortAllowance['*']) ? standardPortAllowance['*'] : null;
@@ -131,13 +161,100 @@ export function allowanceForClass(className, precisionConfig = {}) {
 }
 
 // Porttillägg givet antingen ett ekipage eller ett klassnamn
+// Per TR Mom 517 Bilaga 5 fotnot *: Fyrspann i LB, LA och MSV har 10 cm bredare mellan konerna än enbet.
 export function getPortAllowanceCm(eqOrClass, precisionConfig = {}) {
     const cls = getClassName(eqOrClass);
-    return allowanceForClass(cls, precisionConfig);
+    let allow = allowanceForClass(cls, precisionConfig);
+
+    if (isFourInHand(eqOrClass) && allow != null) {
+        const normCls = _norm(cls);
+        if (!normCls.includes('fyrspann')) {
+            if (normCls.startsWith('lb') || normCls.startsWith('lattb') || normCls.startsWith('lättb')) {
+                allow = 45;
+            } else if (normCls.startsWith('la') || normCls.startsWith('latta') || normCls.startsWith('lätta')) {
+                allow = 40;
+            } else if (normCls.startsWith('msv') || normCls.startsWith('medelsvar') || normCls.startsWith('medelsvår')) {
+                allow = 35;
+            }
+        }
+    }
+    return allow;
 }
 
-// Total portbredd (cm) = vagnbredd + porttillägg
+export function isStandardPortWidthClass(eqOrClass, precisionConfig = {}) {
+    const cls = getClassName(eqOrClass);
+    if (!cls) return false;
+
+    // 1) Explicit course setting or class setting
+    const courseData = getPrecisionCourseData(eqOrClass, precisionConfig)?.course;
+    if (courseData && courseData.useStandardPortWidth != null) {
+        return !!courseData.useStandardPortWidth;
+    }
+    if (courseData && Number.isFinite(Number(courseData.standardPortWidth)) && Number(courseData.standardPortWidth) > 0) {
+        return true;
+    }
+    if (Number.isFinite(Number(precisionConfig?.standardPortWidthByClass?.[cls]))) {
+        return true;
+    }
+
+    // 2) By rule: Svår klass (TR Bilaga 2 & 5) or FEI classes (FEI Art 974)
+    const normCls = _norm(cls);
+    if (normCls.includes('fei') || normCls.includes('cai') || normCls.includes('caio')) {
+        return true;
+    }
+    if (normCls.startsWith('svar') || normCls.startsWith('svår') || normCls.includes('svarklass') || normCls.includes('svårklass')) {
+        return true;
+    }
+
+    return false;
+}
+
+export function getStandardPortWidth(eqOrClass, precisionConfig = {}) {
+    const cls = getClassName(eqOrClass);
+    if (!cls) return null;
+
+    // 1) Explicit course standardPortWidth
+    const courseData = getPrecisionCourseData(eqOrClass, precisionConfig)?.course;
+    if (courseData && Number.isFinite(Number(courseData.standardPortWidth)) && Number(courseData.standardPortWidth) > 0) {
+        return Number(courseData.standardPortWidth);
+    }
+    const classOverride = precisionConfig?.standardPortWidthByClass?.[cls];
+    if (Number.isFinite(Number(classOverride)) && Number(classOverride) > 0) {
+        return Number(classOverride);
+    }
+
+    if (!isStandardPortWidthClass(eqOrClass, precisionConfig)) {
+        return null;
+    }
+
+    const normCls = _norm(cls);
+    const isFei = normCls.includes('fei') || normCls.includes('cai');
+    const isPony = normCls.includes('ponny') || normCls.includes('pony');
+    const isFour = isFourInHand(eqOrClass);
+    const isPair = normCls.includes('par') && !isFour;
+
+    const table = isFei ? FEI_STANDARD_CONES_WIDTH : TR_SVAR_STANDARD_CONES_WIDTH;
+
+    if (isPony) {
+        if (isFour) return table.pony_four;
+        if (isPair) return table.pony_pair;
+        return table.pony_single;
+    } else {
+        if (isFour) return table.horse_four;
+        if (isPair) return table.horse_pair;
+        return table.horse_single;
+    }
+}
+
+// Total portbredd (cm):
+// Om fast standardbredd gäller (Svår / FEI / banoverride): standardbredd per TR Bilaga 5 / FEI Art 974
+// Annars: vagnbredd + porttillägg per TR Bilaga 5
 export function computePortWidth(eqOrDoc, precisionConfig = {}) {
+    const stdWidth = getStandardPortWidth(eqOrDoc, precisionConfig);
+    if (Number.isFinite(stdWidth) && stdWidth > 0) {
+        return stdWidth;
+    }
+
     const tw = trackWidthFromEq(eqOrDoc);
     const allow = getPortAllowanceCm(eqOrDoc, precisionConfig);
     if (!isNum(tw) || !isNum(allow)) return null;
@@ -461,8 +578,9 @@ export function buildPlaceMap(rows, precisionMap, config = {}) {
         const penalty = hasScore ? d.totalPenalty : null;
 
         const eliminated = !!d.eliminated;
+        const timeMs = isNum(d.timeMs) ? d.timeMs : (isNum(d.liveTimeMs) ? d.liveTimeMs : null);
 
-        byClass.get(cls).push({ sn: String(r.startNumber), penalty, eliminated });
+        byClass.get(cls).push({ sn: String(r.startNumber), penalty, eliminated, timeMs });
     });
 
     // Beräkna placering inom varje klass
@@ -477,32 +595,35 @@ export function buildPlaceMap(rows, precisionMap, config = {}) {
                 return a.penalty - b.penalty;
             }
 
-            // TR Tie-breaker: Time closest to allowed time
-            const d1 = precisionMap.get(a.sn) || {};
-            const d2 = precisionMap.get(b.sn) || {};
-            const eq1 = rows.find(r => String(r.startNumber) === a.sn);
-            const eq2 = rows.find(r => String(r.startNumber) === b.sn);
-            
-            // Re-calculate to get timeDiffFromAllowed which is robust
-            const c1 = calculatePrecisionResult(d1, eq1, config);
-            const c2 = calculatePrecisionResult(d2, eq2, config);
-            
-            return (c1.timeDiffFromAllowed || Infinity) - (c2.timeDiffFromAllowed || Infinity);
+            // TR Mom 530.1.2 & FEI Art 977: Vid lika straff vinner snabbast tid (lägst timeMs)
+            const t1 = isNum(a.timeMs) ? a.timeMs : Infinity;
+            const t2 = isNum(b.timeMs) ? b.timeMs : Infinity;
+            return t1 - t2;
         });
 
-        let place = 0;
-        let lastPenalty = -Infinity;
+        let place = 1;
+        let prevItem = null;
 
         sorted.forEach((item, index) => {
             if (item.eliminated || item.penalty === null) {
                 placeMap.set(item.sn, null);
                 return;
             }
-            if (Math.abs(item.penalty - lastPenalty) > 1e-6) {
+            let isTie = false;
+            if (prevItem && prevItem.penalty !== null) {
+                const penaltyTie = Math.abs(item.penalty - prevItem.penalty) < 1e-6;
+                const timeTie = (isNum(item.timeMs) && isNum(prevItem.timeMs))
+                    ? Math.abs(item.timeMs - prevItem.timeMs) < 1e-3
+                    : false;
+                if (penaltyTie && timeTie) {
+                    isTie = true;
+                }
+            }
+            if (!isTie) {
                 place = index + 1;
             }
             placeMap.set(item.sn, place);
-            lastPenalty = item.penalty;
+            prevItem = item;
         });
     }
     return placeMap;
