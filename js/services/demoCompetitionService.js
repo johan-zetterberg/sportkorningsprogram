@@ -9,7 +9,7 @@ import { db, appId } from '../config/firebase-config.js';
 import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { createCompetition, saveConfig } from './competitionService.js';
 import { saveEquipage } from './equipageService.js';
-import { setDressageStatus, saveDressageProtocol } from './dressageService.js';
+import { setDressageStatus, saveDressageJudgeProtocol } from './dressageService.js';
 import { savePrecisionResult } from './precisionService.js';
 import { saveTeam } from './teamService.js';
 import { saveOfficial, saveJudge } from './adminService.js';
@@ -43,7 +43,7 @@ export async function seedDemoCompetition(options = {}) {
     await saveOfficial(compId, official);
   }
   for (const judge of dataset.judges) {
-    await saveJudge(compId, judge);
+    await saveJudge(compId, judge.id, judge);
   }
 
   // 3. Spara maratonhinder
@@ -65,7 +65,7 @@ export async function seedDemoCompetition(options = {}) {
       finalPoints: d.finalPoints
     });
     // Spara ett representativt protokoll för domare C
-    await saveDressageProtocol(compId, d.startNumber, 'judge-C', {
+    await saveDressageJudgeProtocol(compId, d.startNumber, 'judge-C', {
       judgeId: 'judge-C',
       judgeName: 'Carina Domare',
       judgePosition: 'C',
