@@ -419,15 +419,22 @@ export async function generateMarathonListPdf(equipages, competition) {
 
     const obsItems = mRes.obstacles?.items || [];
 
+    const formatStagePenalty = (stageData) => {
+      if (!stageData || (stageData.durationMs == null && stageData.start == null && stageData.stop == null)) {
+        return '—';
+      }
+      return formatMarathonPenaltyExportValue(stageData.timePenalty, { equipage: eq, marathonResult: stageData });
+    };
+
     const row = [
       eq.place || '–',
       eq.startNumber || '',
       { content: `${eq.driverName}\n${horseText}`, styles: { fontSize: 8 } },
       eq.className || '',
       eq.clubName || '',
-      formatMarathonPenaltyExportValue(mRes.stages?.A?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.A }),
-      formatMarathonPenaltyExportValue(mRes.stages?.transport?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.transport }),
-      formatMarathonPenaltyExportValue(mRes.stages?.B?.timePenalty, { equipage: eq, marathonResult: mRes.stages?.B })
+      formatStagePenalty(mRes.stages?.A),
+      formatStagePenalty(mRes.stages?.transport),
+      formatStagePenalty(mRes.stages?.B)
     ];
 
     for (let i = 1; i <= maxObstacles; i++) {
@@ -441,10 +448,18 @@ export async function generateMarathonListPdf(equipages, competition) {
       }
     }
 
-    row.push(formatMarathonPenaltyExportValue(mRes.obstacles?.sum, { equipage: eq, marathonResult: mRes }));
+    const hasDrivenObstacles = obsItems.some(o => o.penalty != null || o.timeSec != null || o.eliminated);
+    const obsSumVal = hasDrivenObstacles
+      ? formatMarathonPenaltyExportValue(mRes.obstacles?.sum, { equipage: eq, marathonResult: mRes })
+      : '—';
+    const totalVal = (hasDrivenObstacles || mRes.stages?.B?.durationMs != null || mRes.eliminated)
+      ? formatMarathonPenaltyExportValue(mRes.totalPenalty, { equipage: eq, marathonResult: mRes })
+      : '—';
+
+    row.push(obsSumVal);
     row.push(formatMarathonExternalOtherPenalty(mRes, { equipage: eq }));
     row.push({
-      content: formatMarathonPenaltyExportValue(mRes.totalPenalty, { equipage: eq, marathonResult: mRes }),
+      content: totalVal,
       styles: { fontStyle: 'bold' }
     });
 

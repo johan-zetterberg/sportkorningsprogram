@@ -4,16 +4,42 @@ import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 
+function loadScriptTag(src) {
+  return new Promise((resolve, reject) => {
+    if (typeof document === 'undefined') return resolve();
+    const existing = document.querySelector(`script[src="${src}"]`);
+    if (existing) {
+      if (typeof window !== 'undefined' && window.jspdf?.jsPDF) return resolve();
+      existing.addEventListener('load', () => resolve(), { once: true });
+      existing.addEventListener('error', (e) => reject(e), { once: true });
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = src;
+    script.onload = () => resolve();
+    script.onerror = (e) => reject(e);
+    document.head.appendChild(script);
+  });
+}
+
 export async function loadPdfLibs() {
-  if (window.jspdf && window.jspdf.jsPDF) return;
-  // Försök ladda lokalt för offline-stöd, annars fall tillbaka till CDN
+  if (typeof window !== 'undefined' && window.jspdf && window.jspdf.jsPDF) return;
+
+  // 1. Försök ladda lokalt för fullt offline-stöd
   try {
-    await import("/lib/jspdf.umd.min.js");
-    await import("/lib/jspdf.plugin.autotable.min.js");
+    await loadScriptTag("/lib/jspdf.umd.min.js");
+    await loadScriptTag("/lib/jspdf.plugin.autotable.min.js");
+    if (typeof window !== 'undefined' && window.jspdf?.jsPDF) return;
   } catch (err) {
     console.warn("Kunde inte ladda lokala PDF-bibliotek, använder CDN-fallback:", err);
-    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-    await import("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+  }
+
+  // 2. CDN-fallback om lokala saknas
+  try {
+    await loadScriptTag("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
+    await loadScriptTag("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+  } catch (err) {
+    console.error("Kunde inte ladda PDF-bibliotek från CDN:", err);
   }
 }
 

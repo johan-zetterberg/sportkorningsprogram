@@ -556,6 +556,7 @@ export function stageStartTS(t, s) {
   const flat = (s === 'transport') ? 'transfer' : s;
   let val = t?.[`start_${upper}`] || t?.[`start_${flat}`] || t?.stages?.[s]?.startClock || t?.timing?.[s]?.startClock;
   if (!val && s === 'A') val = t?.timing?.['warmup']?.startClock;
+  if (!val) val = t?.times?.[s]?.start || t?.times?.[upper]?.start;
   return parseTS(val);
 }
 
@@ -565,6 +566,7 @@ export function stageStopTS(t, s) {
   const flat = (s === 'transport') ? 'transfer' : s;
   let val = t?.[`finish_${upper}`] || t?.[`finish_${flat}`] || t?.stages?.[s]?.stopClock || t?.timing?.[s]?.stopClock;
   if (!val && s === 'A') val = t?.timing?.['warmup']?.stopClock;
+  if (!val) val = t?.times?.[s]?.finish || t?.times?.[upper]?.finish;
   return parseTS(val);
 }
 
@@ -574,6 +576,11 @@ export function stageDurationMsSaved(t, s) {
   const flat = (s === 'transport') ? 'transfer' : s;
   let v = t?.[`duration_${flat}_ms`] || t?.[`duration_${s}_ms`] || t?.[s]?.durationMs || t?.timing?.[s]?.durationMs;
   if (v == null && s === 'A') v = t?.timing?.['warmup']?.durationMs;
+  if (v == null && Number.isFinite(t?.times?.[s]?.timeSec)) v = t.times[s].timeSec * 1000;
+  if (v == null && Number.isFinite(t?.times?.[upper]?.timeSec)) v = t.times[upper].timeSec * 1000;
+  if (v == null && Number.isFinite(t?.times?.[s]?.durationMs)) v = t.times[s].durationMs;
+  if (v == null && Number.isFinite(t?.times?.[upper]?.durationMs)) v = t.times[upper].durationMs;
+  if (v == null && Number.isFinite(t?.[`duration_${s}`])) v = t[`duration_${s}`] * 1000;
   return Number.isFinite(v) ? Number(v) : null;
 }
 

@@ -49,3 +49,47 @@ test('formatMarathonStageTimeLabel makes B section deduction explicit', () => {
     '1200s'
   );
 });
+
+test('prepareMarathonResults calculates non-zero obstacle penalties and totals for PDF export', async () => {
+  const { buildDemoCompetitionDataset } = await import('../js/services/demoCompetitionData.js');
+  const { prepareMarathonResults } = await import('../js/utils/marathonUtils.js');
+
+  const data = buildDemoCompetitionDataset();
+  const timingMap = new Map();
+  const stateMap = new Map();
+  const obstaclesMap = new Map();
+
+  data.marathonRecords.forEach(r => {
+    stateMap.set(String(r.startNumber), r);
+    timingMap.set(String(r.startNumber), r);
+  });
+
+  data.marathonRecords.forEach(r => {
+    const sn = String(r.startNumber);
+    const obs = (r.obstacles || []).map(o => ({
+      equipageId: sn,
+      obstacleNumber: o.number,
+      number: o.number,
+      timeSec: o.timeSec,
+      timeInSeconds: o.timeSec,
+      penalty: o.penalty,
+      holdTimeSec: o.holdTimeSec || 0
+    }));
+    obstaclesMap.set(sn, obs);
+  });
+
+  const list = prepareMarathonResults(data.equipages, data.configs.marathon, {
+    timingMap,
+    stateMap,
+    obstaclesMap
+  });
+
+  const eq1 = list.find(e => e.startNumber === 1);
+  assert.ok(eq1);
+  assert.ok(eq1.results?.marathon);
+  assert.equal(eq1.results.marathon.obstacles.items.length, 6);
+  assert.ok(eq1.results.marathon.obstacles.sum > 60, 'Obstacle sum should be populated with penalties');
+  assert.ok(eq1.results.marathon.totalPenalty > 60, 'Total penalty should not be zero');
+  assert.equal(eq1.results.marathon.obstacles.items[0].number, 1);
+  assert.equal(eq1.results.marathon.obstacles.items[0].timeSec, 42.5);
+});

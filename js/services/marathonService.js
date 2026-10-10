@@ -64,11 +64,21 @@ export function listenForMarathonObstacleResults(competitionId, equipageId, call
 
 function normalizeObstacleResultRow(equipageId, data = {}, fallbackId = '') {
   const obstacleNumber = Number(data.obstacleNumber ?? data.number ?? fallbackId);
+  const timeRaw = data.timeSec ?? data.timeInSeconds ?? data.timeSeconds ?? data.seconds ?? (Number.isFinite(data.timeMs) ? data.timeMs / 1000 : null);
+  const timeSec = timeRaw != null && Number.isFinite(Number(timeRaw)) ? Number(timeRaw) : 0;
+  const num = Number.isFinite(obstacleNumber) ? obstacleNumber : 0;
   return {
     equipageId: String(equipageId),
-    obstacleNumber: Number.isFinite(obstacleNumber) ? obstacleNumber : 0,
-    timeInSeconds: Number(data.timeInSeconds ?? data.timeSeconds ?? 0),
+    obstacleNumber: num,
+    number: num,
+    timeSec,
+    timeInSeconds: timeSec,
+    timeSeconds: timeSec,
     penalty: Number(data.penalty || 0),
+    holdTimeSec: Number(data.holdTimeSec ?? data.holdTimeSeconds ?? 0),
+    knockdownPenalty: Number(data.knockdownPenalty || data.knockDownPenalty || 0),
+    otherPenalty: Number(data.otherPenalty || 0),
+    ballsDown: Number(data.ballsDown || 0),
     eliminated: !!data.eliminated,
     comment: data.comment || '',
     routeString: data.routeString || '',
