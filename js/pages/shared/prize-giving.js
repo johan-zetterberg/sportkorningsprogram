@@ -9,7 +9,18 @@ import { updateEquipage } from '../../services/equipageService.js';
 import { listenForMarathonConfig } from '../../services/marathonService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { horseLabel, escapeHtml } from '../../utils/sharedUtils.js';
+import { horseLabel, escapeHtml, round2 } from '../../utils/sharedUtils.js';
+import {
+    assignPlaces,
+    compareDressageRank,
+    compareMarathonRank,
+    comparePrecisionRank,
+    compareTotalRank,
+    dressageRankKey,
+    marathonRankKey,
+    precisionRankKey,
+    totalRankKey
+} from '../../core-engine/ranking.js';
 import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
@@ -267,10 +278,11 @@ function setupListeners() {
         const pData = precisionResults.get(sn);
         let pPen = null;
         let pElim = false;
+        let pCalc = null;
         if (pData) {
-            const calc = calculatePrecisionResult(pData, eq, precisionConfig);
-            pPen = calc.totalPenalty;
-            pElim = calc.eliminated;
+            pCalc = calculatePrecisionResult(pData, eq, precisionConfig);
+            pPen = pCalc.totalPenalty;
+            pElim = pCalc.eliminated;
         }
 
         let displayScore = null;
@@ -284,7 +296,7 @@ function setupListeners() {
         if (!isEliminated) {
             if (activeDiscipline === 'total') {
                 const allCompleted = dPen !== null && mPen !== null && pPen !== null;
-                if (allCompleted) displayScore = dPen + mPen + pPen;
+                if (allCompleted) displayScore = round2(dPen + mPen + pPen);
             } else if (activeDiscipline === 'dressage') {
                 displayScore = dPen;
             } else if (activeDiscipline === 'marathon') {
@@ -304,43 +316,45 @@ function setupListeners() {
         return {
             ...eq,
             dPen, mPen, pPen,
+            mRes, pCalc,
             score: displayScore,
             isEliminated,
             present: eq.prizeGivingPresent === true
         };
     });
 
-    // Sort: Score asc, then eliminations at bottom
-    rows.sort((a, b) => {
-        if (a.isEliminated && b.isEliminated) return Number(a.startNumber) - Number(b.startNumber);
-        if (a.isEliminated) return 1;
-        if (b.isEliminated) return -1;
-
-        if (!isPrizeGivingScore(a.score) && !isPrizeGivingScore(b.score)) return Number(a.startNumber) - Number(b.startNumber);
-        if (!isPrizeGivingScore(a.score)) return 1;
-        if (!isPrizeGivingScore(b.score)) return -1;
-
-        const diff = a.score - b.score;
-        if (Math.abs(diff) > 0.001) return diff;
-
-        // Tie-breaker for Total: Best Marathon Score
-        if (activeDiscipline === 'total') {
-            const mA = typeof a.mPen === 'number' ? a.mPen : 999999;
-            const mB = typeof b.mPen === 'number' ? b.mPen : 999999;
-            if (mA !== mB) return mA - mB;
-        }
-
-        // Final Tie-breaker: Start Number
-        return Number(a.startNumber) - Number(b.startNumber);
-    });
+    // Placings (shared places on ties) from core-engine/ranking.js
+    const { ranked } = assignPlaces(rows, prizeGivingRanking(activeDiscipline));
+    const unplaced = rows
+        .filter(r => r.plac == null)
+        .sort((a, b) => (a.isEliminated === b.isEliminated ? 0 : (a.isEliminated ? 1 : -1))
+            || (Number(a.startNumber) - Number(b.startNumber)));
+    rows.splice(0, rows.length, ...ranked, ...unplaced);
 
     // Render
     renderPodiumList(rows, content);
 }
 
+function prizeGivingRanking(discipline) {
+    const unlessEliminated = (fn) => (row) => (row.isEliminated || !isPrizeGivingScore(row.score)) ? null : fn(row);
+    switch (discipline) {
+        case 'dressage':
+            return { key: unlessEliminated(r => dressageRankKey({ penalty: r.dPen })), compare: compareDressageRank };
+        case 'marathon':
+            return { key: unlessEliminated(r => marathonRankKey(r.mRes, { requireFinished: false })), compare: compareMarathonRank };
+        case 'precision':
+            return { key: unlessEliminated(r => precisionRankKey(r.pCalc)), compare: comparePrecisionRank };
+        default:
+            return {
+                key: unlessEliminated(r => totalRankKey({ totalPenalty: r.score, marathonPenalty: r.mPen, dressagePenalty: r.dPen })),
+                compare: compareTotalRank
+            };
+    }
+}
+
 function renderPodiumList(rows, container) {
-    const validRows = rows.filter(r => !r.isEliminated && isPrizeGivingScore(r.score));
-    const others = rows.filter(r => r.isEliminated || !isPrizeGivingScore(r.score));
+    const validRows = rows.filter(r => r.plac != null);
+    const others = rows.filter(r => r.plac == null);
     
     // Placed count
     const starters = rows.length;
@@ -368,7 +382,7 @@ function renderPodiumList(rows, container) {
     if (validRows.length > 0) {
         html += `<div class="space-y-4">`;
         validRows.forEach((row, idx) => {
-            const place = idx + 1;
+            const place = row.plac;
             const isPodium = place <= 3;
 
             // Big card for winner

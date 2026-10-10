@@ -156,13 +156,13 @@ test('buildPlaceMap breaks ties by fastest time under TR Mom 530.1.2 and FEI Art
 
   const precisionMap = new Map([
     // Eq 1: 0 penalties, 125.40s
-    ['1', { totalPenalty: 0, timeMs: 125400, eliminated: false }],
+    ['1', { finalized: true, timeMs: 125400, knocks: [], eliminated: false }],
     // Eq 2: 0 penalties, 118.20s (faster -> 1st place)
-    ['2', { totalPenalty: 0, timeMs: 118200, eliminated: false }],
+    ['2', { finalized: true, timeMs: 118200, knocks: [], eliminated: false }],
     // Eq 3: 0 penalties, 118.20s (exact same time and penalties -> tied 1st place)
-    ['3', { totalPenalty: 0, timeMs: 118200, eliminated: false }],
+    ['3', { finalized: true, timeMs: 118200, knocks: [], eliminated: false }],
     // Eq 4: 3 penalties -> 4th place
-    ['4', { totalPenalty: 3, timeMs: 110000, eliminated: false }]
+    ['4', { finalized: true, timeMs: 110000, knocks: [5], eliminated: false }]
   ]);
 
   const placeMap = buildPlaceMap(rows, precisionMap);

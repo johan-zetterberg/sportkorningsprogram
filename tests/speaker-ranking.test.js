@@ -31,7 +31,8 @@ test('speaker total ranking shares place when stated tiebreakers are equal', () 
 
   rankSpeakerResultRows(rows);
 
-  assert.deepEqual(rows.map(row => row.startNumber), [9, 2, 3]);
+  // Tied rows share the place and are listed by start number
+  assert.deepEqual(rows.map(row => row.startNumber), [2, 9, 3]);
   assert.deepEqual(rows.map(row => row.plac), [1, 1, 3]);
 });
 

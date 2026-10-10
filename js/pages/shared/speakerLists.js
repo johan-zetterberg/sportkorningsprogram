@@ -13,6 +13,15 @@ import {
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import {
+    assignPlaces,
+    compareDressageRank,
+    compareMarathonRank,
+    comparePrecisionRank,
+    dressageRankKey,
+    marathonRankKey,
+    precisionRankKey
+} from '../../core-engine/ranking.js';
 import { formatSpeakerPenalty, getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
 
 const escapeAttr = (value) => escapeHtml(value ?? '');
@@ -34,70 +43,63 @@ export function renderTop3List(className, discipline, ctx) {
                     name: eq.driverName,
                     club: eq.clubName,
                     eq: eq,
+                    startNumber: eq.startNumber,
                     penalty: Number(pen),
-                    percent: Number(result.percent || 0)
+                    percent: Number(result.percent || 0),
+                    rankKey: pen > 0.01 ? dressageRankKey({ penalty: Number(pen), eliminated: result.eliminated }) : null
                 });
             }
         });
-        results = results.filter(r => r.penalty > 0.01);
-        results.sort((a, b) => a.penalty - b.penalty);
-    } else if (discipline === 'maraton') {
+        results = assignPlaces(results, { key: r => r.rankKey, compare: compareDressageRank }).ranked;
+    } else if (discipline === 'maraton' || discipline === 'precision') {
+        const isMarathon = discipline === 'maraton';
         allEquipages.forEach(eq => {
             if (!matchesDisplayClass(eq, className)) return;
             const sn = String(eq.startNumber);
-            const result = getSpeakerDisciplineResult(eq, 'maraton', ctx);
+            const result = getSpeakerDisciplineResult(eq, discipline, ctx);
             if (result.penalty != null) {
                 results.push({
                     sn: sn,
                     name: eq.driverName,
                     club: eq.clubName,
                     eq: eq,
-                    penalty: result.penalty
+                    startNumber: eq.startNumber,
+                    penalty: result.penalty,
+                    rankKey: result.eliminated ? null : (isMarathon
+                        ? marathonRankKey(result.result, { requireFinished: false })
+                        : precisionRankKey(result.result))
                 });
             }
         });
-        results.sort((a, b) => a.penalty - b.penalty);
-    } else if (discipline === 'precision') {
-        allEquipages.forEach(eq => {
-            if (!matchesDisplayClass(eq, className)) return;
-            const sn = String(eq.startNumber);
-            const result = getSpeakerDisciplineResult(eq, 'precision', ctx);
-            if (result.penalty != null) {
-                results.push({
-                    sn: sn,
-                    name: eq.driverName,
-                    club: eq.clubName,
-                    eq: eq,
-                    penalty: result.penalty
-                });
-            }
-        });
-        results.sort((a, b) => a.penalty - b.penalty);
+        results = assignPlaces(results, {
+            key: r => r.rankKey,
+            compare: isMarathon ? compareMarathonRank : comparePrecisionRank
+        }).ranked;
     } else if (discipline === 'totalt') {
         const rows = getTotalRanking(className, null, ctx);
         rows.forEach(r => {
-            if (!r.isEliminated && r.totalPenalty != null) {
+            if (Number.isFinite(r.plac)) {
                 results.push({
                     sn: r.startNumber,
                     name: r.driverName,
                     club: r.clubName,
                     eq: { startNumber: r.startNumber, driverName: r.driverName, clubName: r.clubName },
-                    penalty: r.totalPenalty
+                    penalty: r.totalPenalty,
+                    plac: r.plac
                 });
             }
         });
-        results.sort((a, b) => a.penalty - b.penalty);
     }
 
-    if (results.length === 0) return '';
-
-    const top3 = results.slice(0, 3);
-    const cells = top3.map((r, i) => {
-        const medalColor = i === 0 ? 'text-yellow-500' : (i === 1 ? 'text-gray-400' : 'text-amber-600');
+    // Places come from core-engine/ranking.js (tied equipages share the place)
+    const top3 = results.filter(r => r.plac != null && r.plac <= 3);
+    if (top3.length === 0) return '';
+    const cells = top3.map((r) => {
+        const medalColor = r.plac === 1 ? 'text-yellow-500' : (r.plac === 2 ? 'text-gray-400' : 'text-amber-600');
         return `
             <div class="flex items-center justify-between p-2 rounded bg-gray-50 dark:bg-gray-700">
                 <div class="flex items-center gap-2">
-                    <span class="font-bold ${medalColor}">${i + 1}</span>
+                    <span class="font-bold ${medalColor}">${r.plac}</span>
                     <span class="text-sm font-medium text-gray-900 dark:text-white">${escapeHtml(r.name || '')}</span>
                 </div>
                 <div class="text-sm font-bold text-gray-900 dark:text-white">

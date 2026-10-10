@@ -32,6 +32,7 @@ import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { calculateDressageResult } from '../../services/calculationService.js'; // [NEW] // [NEW]
 import { rankDressageRows } from '../dressage/dressageResultRanking.js';
+import { assignPlaces, compareTotalRank, totalRankKey } from '../../core-engine/ranking.js';
 import {
     buildDressageCsvExport,
     buildMarathonCsvExport,
@@ -256,18 +257,29 @@ export async function load() {
     // Validates and decorates with _mergedKey/_mergedLabel for marathon grouping
     reportRows = ensureMergeDecorations(reportRows);
 
-    // Sort by class then total penalty (default view)
+    // Total placings per class (core-engine/ranking.js), used by the total PDF and teams
+    const reportTotalKey = (row) => totalRankKey({
+        totalPenalty: row.totalPenalty,
+        isEliminated: row.isEliminated,
+        marathonPenalty: row.marathon?.totalPenalty,
+        dressagePenalty: row.dressage?.penalty
+    });
+    assignPlaces(reportRows, {
+        key: reportTotalKey,
+        compare: compareTotalRank,
+        group: (row) => row.className || ''
+    });
+
+    // Sort by class, then placing; unplaced rows by start number, eliminated last
     reportRows.sort((a, b) => {
         const c = (a.className || '').localeCompare(b.className || '');
         if (c !== 0) return c;
         if (a.isEliminated && !b.isEliminated) return 1;
         if (!a.isEliminated && b.isEliminated) return -1;
-
-        if (a.totalPenalty === null && b.totalPenalty === null) return 0;
-        if (a.totalPenalty === null) return 1;
-        if (b.totalPenalty === null) return -1;
-
-        return (a.totalPenalty - b.totalPenalty);
+        const pa = a.plac ?? Infinity;
+        const pb = b.plac ?? Infinity;
+        if (pa !== pb) return pa - pb;
+        return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
     });
 
     // [NEW] Calculate Team Results if enabled

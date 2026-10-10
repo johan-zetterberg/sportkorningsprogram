@@ -23,6 +23,7 @@ import {
     getMergedClassName,
     getCourseCandidates
 } from './precisionCalculation.js';
+import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../core-engine/ranking.js';
 
 function getBrowserGlobalState(key) {
     if (typeof window !== 'undefined' && typeof window.getGlobalState === 'function') {
@@ -495,156 +496,21 @@ export function getToBeatInfo(sn, standings) {
     };
 }
 
+// Placings per class/merged group from the engine result (penalty, then
+// fastest time; see core-engine/ranking.js)
 export function buildPlaceMap(rows, precisionMap, config = {}) {
+    const results = new Map(rows.map((r) => [
+        r,
+        calculatePrecisionResult(precisionMap.get(String(r.startNumber)) || {}, r, config || {})
+    ]));
+    const { placeOf } = assignPlaces(rows, {
+        key: (r) => precisionRankKey(results.get(r)),
+        compare: comparePrecisionRank,
+        group: (r) => r._mergedKey || `CLASS:${r.className || '—'}`,
+        outField: null
+    });
+
     const placeMap = new Map();
-    const byClass = new Map();
-
-    // Gruppera efter klass
-    rows.forEach((r) => {
-        const cls = r._mergedKey || `CLASS:${r.className || '—'}`;
-
-        if (!byClass.has(cls)) byClass.set(cls, []);
-        // Hämta totalPenalty från precisionMap eller beräkna om det behövs
-        const d = precisionMap.get(String(r.startNumber)) || {};
-
-        // FIX: Räkna placering även för preliminära resultat så länge vi har straffpoäng
-        const hasScore = isNum(d.totalPenalty); // || (d.running === false && isNum(d.timePenalty));
-        const penalty = hasScore ? d.totalPenalty : null;
-
-        const eliminated = !!d.eliminated;
-        const timeMs = isNum(d.timeMs) ? d.timeMs : (isNum(d.liveTimeMs) ? d.liveTimeMs : null);
-
-        byClass.get(cls).push({ sn: String(r.startNumber), penalty, eliminated, timeMs });
-    });
-
-    // Beräkna placering inom varje klass
-    for (const [cls, arr] of byClass) {
-        const sorted = arr.sort((a, b) => {
-            if (a.eliminated !== b.eliminated) return a.eliminated ? 1 : -1;
-            if (a.penalty === null && b.penalty === null) return 0;
-            if (a.penalty === null) return 1;
-            if (b.penalty === null) return -1;
-            
-            if (Math.abs(a.penalty - b.penalty) > 1e-6) {
-                return a.penalty - b.penalty;
-            }
-
-            // TR Mom 530.1.2 & FEI Art 977: Vid lika straff vinner snabbast tid (lägst timeMs)
-            const t1 = isNum(a.timeMs) ? a.timeMs : Infinity;
-            const t2 = isNum(b.timeMs) ? b.timeMs : Infinity;
-            return t1 - t2;
-        });
-
-        let place = 1;
-        let prevItem = null;
-
-        sorted.forEach((item, index) => {
-            if (item.eliminated || item.penalty === null) {
-                placeMap.set(item.sn, null);
-                return;
-            }
-            let isTie = false;
-            if (prevItem && prevItem.penalty !== null) {
-                const penaltyTie = Math.abs(item.penalty - prevItem.penalty) < 1e-6;
-                const timeTie = (isNum(item.timeMs) && isNum(prevItem.timeMs))
-                    ? Math.abs(item.timeMs - prevItem.timeMs) < 1e-3
-                    : false;
-                if (penaltyTie && timeTie) {
-                    isTie = true;
-                }
-            }
-            if (!isTie) {
-                place = index + 1;
-            }
-            placeMap.set(item.sn, place);
-            prevItem = item;
-        });
-    }
+    rows.forEach((r) => placeMap.set(String(r.startNumber), placeOf.get(r)));
     return placeMap;
-}
-
-// -------------------------------------------------------------
-/**
- * Ranking (Live & Final)
- * @param {Array} allEquipages 
- * @param {Map} precisionStatusMap 
- * @param {string} className 
- * @param {Object} liveRiderInjection 
- * @param {Object} config - Optional. If provided, used to RECALCULATE penalties for correctness.
- */
-export function getPrecisionRanking(allEquipages, precisionStatusMap, className, liveRiderInjection = null, config = null) {
-    if (!className) return [];
-
-    // 1. Gather all candidates
-    const results = [];
-
-    // Helper to add/parse
-    const addFn = (eq, st, isLiveInjection = false) => {
-        // Must have data OR be the live injection
-        if (st || isLiveInjection) {
-            let pen = 0;
-            let tm = 0;
-            let timeLabel = '—';
-
-            if (config && eq && (st || isLiveInjection)) {
-                // RECALCULATE for maximum accuracy (avoids stale Firestore data issues)
-                const calc = calculatePrecisionResult(st, eq, config);
-                pen = calc.totalPenalty ?? 0;
-                tm = calc.timeMs ?? 0;
-                timeLabel = calc.timeLabel ?? (tm > 0 ? msToLabel(tm) : '—');
-            } else {
-                // Fallback to stored values
-                pen = st?.totalPenalty != null ? st.totalPenalty : (isLiveInjection ? st?.liveTotalPenalty : 0);
-                tm = st?.timeMs || (isLiveInjection ? st?.liveTimeMs : 0);
-                timeLabel = st?.time || '—';
-            }
-
-            results.push({
-                sn: eq.startNumber,
-                name: eq.driverName,
-                club: eq.clubName,
-                eq: eq, // Keep full ref
-                penalty: pen,
-                time: timeLabel,
-                timeMs: tm,
-                finished: !!st?.finalized,
-                isLive: isLiveInjection
-            });
-        }
-    };
-
-    // 2. Add normal participants
-    allEquipages.forEach(eq => {
-        if (eq.className !== className) return;
-        const sn = String(eq.startNumber);
-
-        // If we are injecting a live rider, skip their "normal" entry to avoid dupe
-        if (liveRiderInjection && String(liveRiderInjection.sn) === sn) return;
-
-        const st = precisionStatusMap.get(sn);
-        addFn(eq, st, false);
-    });
-
-    // 3. Add Live Rider Injection (if any)
-    if (liveRiderInjection) {
-        // construct a "fake" status object
-        const fakeSt = {
-            totalPenalty: liveRiderInjection.totalPenalty,
-            timeMs: liveRiderInjection.timeMs,
-            timeLabel: liveRiderInjection.timeLabel,
-            liveTotalPenalty: liveRiderInjection.totalPenalty,
-            liveTimeMs: liveRiderInjection.timeMs,
-            finalized: false,
-            // also include the raw fields for calculatePrecisionResult if we have them
-            ...liveRiderInjection.d
-        };
-        addFn(liveRiderInjection.eq, fakeSt, true);
-    }
-
-    // 4. Sort
-    return results.sort((a, b) => {
-        // Eliminated (Infinity) always last
-        if (Math.abs(a.penalty - b.penalty) > 0.001) return a.penalty - b.penalty;
-        return a.timeMs - b.timeMs;
-    });
 }

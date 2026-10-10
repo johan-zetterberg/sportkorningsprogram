@@ -112,7 +112,7 @@ test('rankTotalRowsWithinClass ranks valid rows within original class', () => {
 
   assert.equal(ranked[1].posPercent, 1);
   assert.equal(ranked[0].posPercent, 2);
-  assert.equal(ranked[2].posPercent, undefined);
+  assert.equal(ranked[2].posPercent, null);
   assert.equal(ranked[3].posPercent, 1);
 });
 
@@ -124,7 +124,7 @@ test('applyTotalDisciplinePlacements sets dressage, marathon and precision posit
   assert.equal(ranked.find((row) => row.startNumber === 2).posDress, 2);
   assert.equal(ranked.find((row) => row.startNumber === 2).posMar, 1);
   assert.equal(ranked.find((row) => row.startNumber === 1).posPrec, 1);
-  assert.equal(ranked.find((row) => row.startNumber === 3).posDress, undefined);
+  assert.equal(ranked.find((row) => row.startNumber === 3).posDress, null);
 });
 
 test('applyTotalDisciplinePlacements keeps equal dressage penalties on equal place', () => {

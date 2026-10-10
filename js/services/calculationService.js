@@ -10,6 +10,7 @@ import {
 
 import { buildCompetitionState } from '../core-engine/stateSelector.js';
 import { calculateDressageResult as _coreDressage } from '../core-engine/dressage.js';
+import { calculateMarathonResult as _coreMarathon } from '../core-engine/marathon.js';
 import { calculateTotalResult as _coreTotal } from '../core-engine/calculation.js';
 
 // =========================================================================
@@ -30,6 +31,18 @@ function getRuleSettings() {
         return window.getGlobalState('currentCompetition')?.ruleSettings || null;
     }
     return null;
+}
+
+function hasClassData(marathonConfig) {
+    return !!(marathonConfig && (marathonConfig.marathonClassData || marathonConfig.maratonClassData));
+}
+
+// Marathon inputs for this browser session; an explicitly passed config wins
+// (e.g. the archive, which runs without the marathon pages' setMarathonConfig)
+function marathonInputsWith(marathonConfig) {
+    const inputs = getMarathonEngineConfig();
+    if (hasClassData(marathonConfig)) inputs.marathonConfig = marathonConfig;
+    return inputs;
 }
 
 function getProgramMapping() {
@@ -86,10 +99,13 @@ export function calculateSingleJudgeDressageResult(protocol, program, equipage =
  * @param {Object} equipage - The equipage object.
  * @param {Object} obstacleData - Marathon result doc (obstacles etc).
  * @param {Object} timingData - Object containing stage times (A/T/B).
+ * @param {Object} [marathonConfig] - Marathon config; defaults to the one set via setMarathonConfig.
  * @returns {Object} Standardized marathon result object.
  */
-export function calculateMarathonResult(equipage, obstacleData, timingData) {
-    return _calcMarathon(equipage, obstacleData, timingData);
+export function calculateMarathonResult(equipage, obstacleData, timingData, marathonConfig = null) {
+    if (!hasClassData(marathonConfig)) return _calcMarathon(equipage, obstacleData, timingData);
+    const state = buildCompetitionState(equipage, null, obstacleData, timingData, null, marathonInputsWith(marathonConfig));
+    return _coreMarathon(state);
 }
 
 // --- PRECISION ---
@@ -117,7 +133,7 @@ export function calculatePrecisionResult(data, equipage, config) {
  * @returns {Object} Comprehensive result including sub-results and total.
  */
 export function calculateTotalResult(equipage, dressageProtocols, marathonData, precisionData, context = {}) {
-    const marathonInputs = getMarathonEngineConfig();
+    const marathonInputs = marathonInputsWith(context.marathonConfig);
     const state = buildCompetitionState(
         equipage,
         dressageProtocols,
@@ -126,7 +142,6 @@ export function calculateTotalResult(equipage, dressageProtocols, marathonData, 
         precisionData,
         {
             ...marathonInputs,
-            marathonConfig: marathonInputs.marathonConfig || context.marathonConfig,
             allPrograms: context.allPrograms || getPrograms(),
             dressageProgramMapping: getProgramMapping(),
             judges: context.judges,

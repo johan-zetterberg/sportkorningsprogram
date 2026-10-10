@@ -7,7 +7,15 @@ import { matchesDisplayClass } from './speakerHelpers.js';
 import { getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
 import { isLiveInjectionEliminated, toFiniteNumberOrNull, toFiniteNumberOrZero } from './speakerCalculationUtils.js';
 import { rankDressageRows } from '../dressage/dressageResultRanking.js';
-import { compareTotalTiebreak } from './totalResultRanking.js';
+import {
+    assignPlaces,
+    compareTotalRank,
+    compareMarathonRank,
+    comparePrecisionRank,
+    totalRankKey,
+    marathonRankKey,
+    precisionRankKey
+} from '../../core-engine/ranking.js';
 
 export function getLeaderToBeat(className, discipline, context) {
     const { allEquipages, precisionStatusMap, precisionConfig, startTimes } = context;
@@ -144,36 +152,33 @@ export function calculateLiveInjection(eq, context) {
     return null;
 }
 
+// Speaker standings use the (possibly partial) running total; placing rules
+// come from core-engine/ranking.js
 export function rankSpeakerResultRows(results = []) {
     results.sort((a, b) => {
         if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+        return compareTotalRank(
+            { penalty: a.totalPenalty, marathon: a.marathon?.totalPenalty, dressage: a.dressage?.penalty },
+            { penalty: b.totalPenalty, marathon: b.marathon?.totalPenalty, dressage: b.dressage?.penalty }
+        ) || ((Number(a.startNumber) || 0) - (Number(b.startNumber) || 0));
+    });
 
-        const totalA = Number.isFinite(a.totalPenalty) ? a.totalPenalty : Infinity;
-        const totalB = Number.isFinite(b.totalPenalty) ? b.totalPenalty : Infinity;
-        if (Math.abs(totalA - totalB) > 1e-6) return totalA - totalB;
-        return compareTotalTiebreak(a, b);
+    assignPlaces(results, {
+        key: (row) => totalRankKey({
+            totalPenalty: row.totalPenalty,
+            isEliminated: row.isEliminated,
+            marathonPenalty: row.marathon?.totalPenalty,
+            dressagePenalty: row.dressage?.penalty
+        }),
+        compare: compareTotalRank
     });
 
     const leader = results.find(row => !row.isEliminated && Number.isFinite(row.totalPenalty));
-    let previousRankedRow = null;
-    results.forEach((row, index) => {
-        if (row.isEliminated) {
-            row.plac = 'ELIM';
-            row.diffFromLeader = null;
-            return;
-        }
-        if (!Number.isFinite(row.totalPenalty)) {
-            row.plac = null;
-            row.diffFromLeader = null;
-            return;
-        }
-
-        const isTied = previousRankedRow
-            && Math.abs(row.totalPenalty - previousRankedRow.totalPenalty) <= 1e-6
-            && compareTotalTiebreak(row, previousRankedRow) === 0;
-        row.plac = isTied ? previousRankedRow.plac : index + 1;
-        row.diffFromLeader = leader ? row.totalPenalty - leader.totalPenalty : null;
-        previousRankedRow = row;
+    results.forEach((row) => {
+        if (row.isEliminated) row.plac = 'ELIM';
+        row.diffFromLeader = (leader && row.plac !== 'ELIM' && Number.isFinite(row.totalPenalty))
+            ? row.totalPenalty - leader.totalPenalty
+            : null;
     });
 
     results.forEach(row => { row.posDress = null; });
@@ -244,34 +249,31 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             tieBreakerTime: pTimeMs,
             isEliminated: totalEliminated,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD },
-            marathon: { totalPenalty: mPen, eliminated: isElimM },
+            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0 },
             precision: { pen: pPen, eliminated: isElimP }
         });
     });
 
     rankSpeakerResultRows(results);
 
-    // Maraton Rank
-    const marathonSorted = [...results].sort((a, b) => {
-        if (a.marathon.eliminated !== b.marathon.eliminated) return a.marathon.eliminated ? 1 : -1;
-        return (a.marathon.totalPenalty ?? Infinity) - (b.marathon.totalPenalty ?? Infinity);
+    // Discipline positions (live: an unfinished marathon also gets a position)
+    assignPlaces(results, {
+        key: (r) => marathonRankKey({
+            totalPenalty: r.marathon.totalPenalty,
+            eliminated: r.marathon.eliminated,
+            stages: { B: { timePenalty: r.marathon.bPenalty } }
+        }, { requireFinished: false }),
+        compare: compareMarathonRank,
+        outField: 'posMar'
     });
-    results.forEach(r => {
-        if (r.marathon.totalPenalty !== null && !r.marathon.eliminated) {
-            r.posMar = marathonSorted.findIndex(x => x.startNumber === r.startNumber) + 1;
-        } else r.posMar = null;
-    });
-
-    // Precision Rank
-    const precisionSorted = [...results].sort((a, b) => {
-        if (a.precision.eliminated !== b.precision.eliminated) return a.precision.eliminated ? 1 : -1;
-        if (a.precision.pen === b.precision.pen) return (a.tieBreakerTime || 0) - (b.tieBreakerTime || 0);
-        return (a.precision.pen ?? Infinity) - (b.precision.pen ?? Infinity);
-    });
-    results.forEach(r => {
-        if (r.precision.pen !== null && !r.precision.eliminated) {
-            r.posPrec = precisionSorted.findIndex(x => x.startNumber === r.startNumber) + 1;
-        } else r.posPrec = null;
+    assignPlaces(results, {
+        key: (r) => precisionRankKey({
+            totalPenalty: r.precision.pen,
+            eliminated: r.precision.eliminated,
+            timeMs: r.tieBreakerTime
+        }),
+        compare: comparePrecisionRank,
+        outField: 'posPrec'
     });
 
     return results;

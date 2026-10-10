@@ -5,6 +5,7 @@ import {
     calculateMarathonResult,
     calculatePrecisionResult
 } from './calculationService.js';
+import { assignPlaces, compareTotalRank, totalRankKey } from '../core-engine/ranking.js';
 
 function pickDefined(primaryObj, primaryKey, fallbackObj, fallbackKey) {
     if (primaryObj && Object.prototype.hasOwnProperty.call(primaryObj, primaryKey)) {
@@ -13,26 +14,22 @@ function pickDefined(primaryObj, primaryKey, fallbackObj, fallbackKey) {
     return fallbackObj ? fallbackObj[fallbackKey] : undefined;
 }
 
+const archiveTotalKey = (row) => totalRankKey({
+    totalPenalty: row.totalPenalty,
+    isEliminated: row.isEliminated,
+    marathonPenalty: row.marathon?.totalPenalty,
+    dressagePenalty: row.dressage?.penalty
+});
+
+// Placings per class (TR 533.3 / FEI 904, see core-engine/ranking.js)
 function buildPlacements(rows) {
-    const grouped = new Map();
-    rows.forEach(row => {
-        const key = row.className || '';
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(row);
+    assignPlaces(rows, {
+        key: archiveTotalKey,
+        compare: compareTotalRank,
+        group: (row) => row.className || ''
     });
-
-    grouped.forEach(list => {
-        const ranked = list
-            .filter(row => !row.isEliminated && row.totalPenalty != null && Number.isFinite(row.totalPenalty))
-            .sort((a, b) => a.totalPenalty - b.totalPenalty);
-
-        ranked.forEach((row, index) => {
-            row.plac = index + 1;
-        });
-
-        list.forEach(row => {
-            if (row.plac == null) row.plac = '';
-        });
+    rows.forEach(row => {
+        if (row.plac == null) row.plac = '';
     });
 }
 
@@ -44,11 +41,12 @@ function sortRowsForPdf(rows) {
         if (a.isEliminated && !b.isEliminated) return 1;
         if (!a.isEliminated && b.isEliminated) return -1;
 
-        if (a.totalPenalty == null && b.totalPenalty == null) return 0;
-        if (a.totalPenalty == null) return 1;
-        if (b.totalPenalty == null) return -1;
-
-        return a.totalPenalty - b.totalPenalty;
+        const keyA = archiveTotalKey(a);
+        const keyB = archiveTotalKey(b);
+        if (keyA && keyB) return compareTotalRank(keyA, keyB) || ((Number(a.startNumber) || 0) - (Number(b.startNumber) || 0));
+        if (keyA) return -1;
+        if (keyB) return 1;
+        return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
     });
 }
 
@@ -95,7 +93,7 @@ export function buildArchiveRowsFromData({
         const precisionDoc = precisionMap.get(sn) || null;
 
         const dressage = calculateDressageResult(eq, protocols, judges, normalizedPrograms);
-        const marathon = calculateMarathonResult(eq, marathonDoc, timingDoc);
+        const marathon = calculateMarathonResult(eq, marathonDoc, timingDoc, normalizedMarathonConfig);
         const precision = calculatePrecisionResult(precisionDoc, eq, normalizedPrecisionConfig);
         const total = calculateTotalResult(
             eq,

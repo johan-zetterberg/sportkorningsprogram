@@ -1,5 +1,6 @@
 import { isNum } from '../../utils/sharedUtils.js';
 import { safeLower } from './marathonResultFormatters.js';
+import { assignPlaces, compareMarathonRank, marathonRankKey } from '../../core-engine/ranking.js';
 
 export function isFinalizedMarathonDoc(d) {
   return d?.finalized === true || d?.status === 'finalized' || d?.isFinal === true;
@@ -25,95 +26,32 @@ export function buildMarathonPlacementsByClass({
   timingDocFor,
   calculateResult
 }) {
-  const byGroup = {};
-  const map = new Map();
-
-  for (const eq of equipages) {
+  const rows = equipages.map((eq) => {
     const sn = String(eq.startNumber);
     const d = marathonMap.get(sn) || {};
-    const t = timingDocFor(sn);
-    const res = calculateResult(eq, d, t);
+    const res = calculateResult(eq, d, timingDocFor(sn));
+    // A finalized doc counts as finished even before status reaches 'Klar'
+    const result = (isFinalizedMarathonDoc(d) && res.status !== 'Eliminerad') ? { ...res, status: 'Klar' } : res;
+    return { sn, startNumber: eq.startNumber, groupKey: eq._mergedKey || `CLS:${eq.className || 'Ok\u00e4nd klass'}`, result };
+  });
 
-    const finalized = isFinalizedMarathonDoc(d);
-    const finished = res.status === 'Klar' || finalized;
-    const tot = res.totalPenalty;
+  return marathonPlaceMap(rows);
+}
 
-    if (res.isClearRound || !finished || !Number.isFinite(tot) || tot === Infinity) continue;
+// TR 527.1: lowest total, then lowest B-section penalty, then shared place
+export function marathonPlaceMap(rows) {
+  const { placeOf } = assignPlaces(rows, {
+    key: (row) => marathonRankKey(row.result),
+    compare: compareMarathonRank,
+    group: (row) => row.groupKey,
+    outField: null
+  });
 
-    const grpKey = eq._mergedKey || `CLS:${eq.className || 'Ok\u00e4nd klass'}`;
-    (byGroup[grpKey] ||= []).push({ sn, tot, res });
-  }
-
-  for (const grpKey of Object.keys(byGroup)) {
-    const arr = byGroup[grpKey];
-    arr.sort((a, b) => {
-      const diff = a.tot - b.tot;
-      if (Math.abs(diff) > 1e-6) return diff;
-
-      // TR Mom 527.1: Vid lika straffpoang vinner det ekipage som har lagst straffpoang pa B-strackan
-      const bStageA = Number(a.res?.stages?.B?.timePenalty || 0);
-      const bStageB = Number(b.res?.stages?.B?.timePenalty || 0);
-      const bDiff = bStageA - bStageB;
-      if (Math.abs(bDiff) > 1e-6) return bDiff;
-
-      const obsPenDiff = (a.res.obstaclePenaltySum || 0) - (b.res.obstaclePenaltySum || 0);
-      if (Math.abs(obsPenDiff) > 1e-6) return obsPenDiff;
-
-      const aTimes = a.res.obstacleTimes || [];
-      const bTimes = b.res.obstacleTimes || [];
-      const maxLen = Math.max(aTimes.length, bTimes.length);
-      for (let j = 0; j < maxLen; j++) {
-        const ta = aTimes[j] || 0;
-        const tb = bTimes[j] || 0;
-        if (Math.abs(ta - tb) > 1e-6) return ta - tb;
-      }
-
-      return 0;
-    });
-
-    let place = 1;
-    let prevTot = -1;
-    let prevBStagePen = -1;
-    let prevObsPen = -1;
-    let prevTimes = null;
-
-    arr.forEach((row, i) => {
-      let isTie = false;
-      const currentBStagePen = Number(row.res?.stages?.B?.timePenalty || 0);
-      if (prevTot !== -1) {
-        const totTie = Math.abs(row.tot - prevTot) < 1e-6;
-        const bStageTie = Math.abs(currentBStagePen - prevBStagePen) < 1e-6;
-        const obsPenTie = Math.abs((row.res.obstaclePenaltySum || 0) - prevObsPen) < 1e-6;
-        const rTimes = row.res.obstacleTimes || [];
-        const pTimes = prevTimes || [];
-        let timesTie = rTimes.length === pTimes.length;
-
-        if (timesTie) {
-          for (let j = 0; j < rTimes.length; j++) {
-            if (Math.abs(rTimes[j] - pTimes[j]) > 1e-6) {
-              timesTie = false;
-              break;
-            }
-          }
-        }
-
-        if (totTie && bStageTie && obsPenTie && timesTie) {
-          isTie = true;
-        }
-      }
-
-      if (!isTie) {
-        place = i + 1;
-      }
-
-      map.set(row.sn, place);
-      prevTot = row.tot;
-      prevBStagePen = currentBStagePen;
-      prevObsPen = row.res.obstaclePenaltySum || 0;
-      prevTimes = row.res.obstacleTimes || [];
-    });
-  }
-
+  const map = new Map();
+  rows.forEach((row) => {
+    const place = placeOf.get(row);
+    if (place != null) map.set(row.sn, place);
+  });
   return map;
 }
 

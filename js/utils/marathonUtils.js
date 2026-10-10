@@ -12,6 +12,7 @@ import {
   stageDurationMsSaved
 } from '../core-engine/marathon.js';
 import { buildCompetitionState } from '../core-engine/stateSelector.js';
+import { assignPlaces, compareMarathonRank, marathonRankKey } from '../core-engine/ranking.js';
 
 import {
   PENALTY_RATE,
@@ -599,42 +600,20 @@ export function calculateClassSplitStats(className, obstacleNumber, allStatusMap
 
 // === PLACERINGAR & PDF-PREP ===
 
+// Placings per class/merged group from eq.results.marathon (TR 527.1, see core-engine/ranking.js)
 export function calculateMarathonPlacements(equipages) {
-  const byGroup = {};
+  const { placeOf } = assignPlaces(equipages, {
+    key: (eq) => marathonRankKey(eq.results?.marathon),
+    compare: compareMarathonRank,
+    group: (eq) => eq._mergedKey || `CLS:${eq.className || 'Okänd klass'}`,
+    outField: null
+  });
+
   const map = new Map();
-
-  for (const eq of equipages) {
-    const sn = String(eq.startNumber);
-    const res = eq.results?.marathon;
-    if (!res) continue;
-
-    // Bedöm om ekipaget ska ha en placering
-    // Kriterium: Status 'Klar' (eller 'Färdig') och ett giltigt totalstraff.
-    const finished = res.status === 'Klar' || res.status === 'Färdig';
-    const tot = res.totalPenalty;
-
-    if (res.isClearRound || !finished || !Number.isFinite(tot) || tot === Infinity) continue;
-
-    // Gruppnyckel
-    const grpKey = eq._mergedKey || `CLS:${eq.className || 'Okänd klass'}`;
-    (byGroup[grpKey] ||= []).push({ sn, tot });
-  }
-
-  for (const grpKey of Object.keys(byGroup)) {
-    const arr = byGroup[grpKey].sort((a, b) => a.tot - b.tot);
-    let place = 1;
-    let prev = null;
-    arr.forEach((row, i) => {
-      if (prev !== null && Math.abs(row.tot - prev) < 1e-6) {
-        // delad
-      } else {
-        place = i + 1;
-        prev = row.tot;
-      }
-      map.set(row.sn, place);
-    });
-  }
-
+  equipages.forEach((eq) => {
+    const place = placeOf.get(eq);
+    if (place != null) map.set(String(eq.startNumber), place);
+  });
   return map;
 }
 

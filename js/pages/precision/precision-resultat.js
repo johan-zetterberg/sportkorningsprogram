@@ -621,7 +621,7 @@ function renderMobile() {
   if (!container) return;
 
   const visibleEquipages = filteredSortedEquipages();
-  const placeMap = buildPlaceMap(visibleEquipages, precision_precisionMap);
+  const placeMap = buildPlaceMap(visibleEquipages, precision_precisionMap, precision_precisionConfig);
 
   // 1. Calculate starters per class for dynamic placement counts
   const classStarters = new Map();
@@ -729,7 +729,7 @@ function renderDesktop() {
   })();
 
   const visible = filteredSortedEquipages();
-  const placeMap = buildPlaceMap(visible, precision_precisionMap);
+  const placeMap = buildPlaceMap(visible, precision_precisionMap, precision_precisionConfig);
 
   // Beräkna totalställning EN GÅNG per render
   const overallEntries = getOverallEntries(visible);

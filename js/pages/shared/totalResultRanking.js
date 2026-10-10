@@ -1,98 +1,111 @@
 import { rankDressageRows } from '../dressage/dressageResultRanking.js';
+import {
+  assignPlaces,
+  compareTotalRank,
+  compareMarathonRank,
+  comparePrecisionRank,
+  totalRankKey,
+  marathonRankKey,
+  precisionRankKey
+} from '../../core-engine/ranking.js';
 
 const fallbackClass = '-';
 const fallbackNumber = 999999;
 const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-export function compareTotalTiebreak(a, b) {
-  const marathonA = a.marathon?.totalPenalty ?? Infinity;
-  const marathonB = b.marathon?.totalPenalty ?? Infinity;
-  if (Math.abs(marathonA - marathonB) > 1e-6) return marathonA - marathonB;
+const groupKeyOf = (row) => row.displayGroupKey || `CLASS:${row.className || fallbackClass}`;
+const startNumberOf = (row) => Number(row.startNumber) || 0;
 
-  const dressageA = a.dressage?.penalty ?? Infinity;
-  const dressageB = b.dressage?.penalty ?? Infinity;
-  if (Math.abs(dressageA - dressageB) > 1e-6) return dressageA - dressageB;
-
-  // TR V Mom 533.3 and FEI Art 904 contain no further tiebreaker.
-  return 0;
+function totalRowRankKey(row) {
+  return totalRankKey({
+    totalPenalty: row.totalPenalty,
+    isEliminated: row.isEliminated,
+    marathonPenalty: row.marathon?.totalPenalty,
+    dressagePenalty: row.dressage?.penalty
+  });
 }
 
+// Tie-break for equal totals: marathon, then dressage (TR V Mom 533.3, FEI Art 904)
+export function compareTotalTiebreak(a, b) {
+  return compareTotalRank(
+    { penalty: 0, marathon: a.marathon?.totalPenalty, dressage: a.dressage?.penalty },
+    { penalty: 0, marathon: b.marathon?.totalPenalty, dressage: b.dressage?.penalty }
+  );
+}
+
+// Sets row.plac per display group. Returns rows per group: placed rows in
+// ranking order, then rows without a result, then eliminated rows.
 export function placeTotalRowsWithinClass(rows = []) {
-  const byGroup = new Map();
+  const { ranked } = assignPlaces(rows, {
+    key: totalRowRankKey,
+    compare: compareTotalRank,
+    group: groupKeyOf
+  });
+
+  const rankedByGroup = new Map();
+  ranked.forEach((row) => {
+    const g = groupKeyOf(row);
+    if (!rankedByGroup.has(g)) rankedByGroup.set(g, []);
+    rankedByGroup.get(g).push(row);
+  });
+
+  const groups = new Map();
   rows.forEach((row) => {
-    const groupKey = row.displayGroupKey || `CLASS:${row.className || fallbackClass}`;
-    if (!byGroup.has(groupKey)) byGroup.set(groupKey, []);
-    byGroup.get(groupKey).push(row);
+    const g = groupKeyOf(row);
+    if (!groups.has(g)) groups.set(g, []);
+    groups.get(g).push(row);
   });
 
   const output = [];
-  for (const groupRows of byGroup.values()) {
-    groupRows.sort((a, b) => {
-      const totalA = a.totalPenalty;
-      const totalB = b.totalPenalty;
-      if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
-      if (totalA == null && totalB == null) return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
-      if (totalA == null) return 1;
-      if (totalB == null) return -1;
-      if (totalA !== totalB) return totalA - totalB;
-      return compareTotalTiebreak(a, b);
-    });
-
-    let previousRankedRow = null;
-    groupRows.forEach((row, index) => {
-      if (row.isEliminated || row.totalPenalty == null) {
-        row.plac = null;
-        return;
-      }
-
-      const isTied = previousRankedRow
-        && Math.abs(row.totalPenalty - previousRankedRow.totalPenalty) <= 1e-6
-        && compareTotalTiebreak(row, previousRankedRow) === 0;
-      row.plac = isTied ? previousRankedRow.plac : index + 1;
-      previousRankedRow = row;
-    });
-    output.push(...groupRows);
-  }
-
+  groups.forEach((groupRows, g) => {
+    const unplaced = groupRows
+      .filter((row) => row.plac == null)
+      .sort((a, b) => (a.isEliminated === b.isEliminated ? 0 : (a.isEliminated ? 1 : -1)) || (startNumberOf(a) - startNumberOf(b)));
+    output.push(...(rankedByGroup.get(g) || []), ...unplaced);
+  });
   return output;
 }
 
+// Generic per-class position on a single value, equal values share the place
 export function rankTotalRowsWithinClass(rows = [], valuePicker, outField, higherIsBetter = false) {
   if (typeof valuePicker !== 'function' || !outField) return rows;
-
-  const byClass = new Map();
-  rows.forEach((row) => {
-    const className = row.className || fallbackClass;
-    if (!byClass.has(className)) byClass.set(className, []);
-    byClass.get(className).push(row);
+  assignPlaces(rows, {
+    key: (row) => {
+      const value = valuePicker(row);
+      if (row.isEliminated || !Number.isFinite(value)) return null;
+      return { penalty: higherIsBetter ? -value : value };
+    },
+    compare: compareTotalRank,
+    group: (row) => row.className || fallbackClass,
+    outField
   });
-
-  for (const classRows of byClass.values()) {
-    const validRows = classRows
-      .filter((row) => !row.isEliminated && Number.isFinite(valuePicker(row)))
-      .sort((a, b) => {
-        const valueA = valuePicker(a);
-        const valueB = valuePicker(b);
-        return higherIsBetter ? valueB - valueA : valueA - valueB;
-      });
-
-    validRows.forEach((row, index) => {
-      row[outField] = index + 1;
-    });
-  }
-
   return rows;
 }
 
 export function applyTotalDisciplinePlacements(rows = []) {
+  const byClass = (row) => row?.className || fallbackClass;
+
   rankDressageRows(rows, {
     penaltyPicker: row => row?.dressage?.penalty,
     eliminatedPicker: row => !!row?.isEliminated,
-    groupPicker: row => row?.className || fallbackClass,
+    groupPicker: byClass,
     outputField: 'posDress'
   });
-  rankTotalRowsWithinClass(rows, (row) => row?.marathon?.totalPenalty, 'posMar');
-  rankTotalRowsWithinClass(rows, (row) => row?.precision?.pen, 'posPrec');
+  assignPlaces(rows, {
+    key: (row) => (row.isEliminated ? null : marathonRankKey(row.marathon, { requireFinished: false })),
+    compare: compareMarathonRank,
+    group: byClass,
+    outField: 'posMar'
+  });
+  assignPlaces(rows, {
+    key: (row) => (row.isEliminated ? null : precisionRankKey({
+      ...row.precision,
+      totalPenalty: row.precision?.pen ?? row.precision?.totalPenalty
+    })),
+    compare: comparePrecisionRank,
+    group: byClass,
+    outField: 'posPrec'
+  });
   return rows;
 }
 
