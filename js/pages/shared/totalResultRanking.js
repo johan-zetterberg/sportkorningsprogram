@@ -1,3 +1,5 @@
+import { rankDressageRows } from '../dressage/dressageResultRanking.js';
+
 const fallbackClass = '-';
 const fallbackNumber = 999999;
 const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -11,33 +13,8 @@ export function compareTotalTiebreak(a, b) {
   const dressageB = b.dressage?.penalty ?? Infinity;
   if (Math.abs(dressageA - dressageB) > 1e-6) return dressageA - dressageB;
 
-  const marathonObstacleA = a.marathon?.obstaclePenaltySum ?? 0;
-  const marathonObstacleB = b.marathon?.obstaclePenaltySum ?? 0;
-  if (Math.abs(marathonObstacleA - marathonObstacleB) > 1e-6) return marathonObstacleA - marathonObstacleB;
-
-  const timesA = a.marathon?.obstacleTimes || [];
-  const timesB = b.marathon?.obstacleTimes || [];
-  const maxTimes = Math.max(timesA.length, timesB.length);
-  for (let index = 0; index < maxTimes; index += 1) {
-    const timeA = timesA[index] || 0;
-    const timeB = timesB[index] || 0;
-    if (Math.abs(timeA - timeB) > 1e-6) return timeA - timeB;
-  }
-
-  const generalA = a.dressage?.generalImpressionsSum ?? 0;
-  const generalB = b.dressage?.generalImpressionsSum ?? 0;
-  if (Math.abs(generalA - generalB) > 1e-6) return generalB - generalA;
-
-  const precisionA = a.precision?.pen ?? Infinity;
-  const precisionB = b.precision?.pen ?? Infinity;
-  if (Math.abs(precisionA - precisionB) > 1e-6) return precisionA - precisionB;
-
-  // TR Mom 530.1.2 & FEI Art 977: Snabbast tid i precision
-  const precisionTimeA = a.precision?.timeMs ?? a.precision?.time ?? Infinity;
-  const precisionTimeB = b.precision?.timeMs ?? b.precision?.time ?? Infinity;
-  if (Math.abs(precisionTimeA - precisionTimeB) > 1e-3) return precisionTimeA - precisionTimeB;
-
-  return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
+  // TR V Mom 533.3 and FEI Art 904 contain no further tiebreaker.
+  return 0;
 }
 
 export function placeTotalRowsWithinClass(rows = []) {
@@ -61,9 +38,18 @@ export function placeTotalRowsWithinClass(rows = []) {
       return compareTotalTiebreak(a, b);
     });
 
-    let place = 1;
-    groupRows.forEach((row) => {
-      row.plac = (!row.isEliminated && row.totalPenalty != null) ? place++ : null;
+    let previousRankedRow = null;
+    groupRows.forEach((row, index) => {
+      if (row.isEliminated || row.totalPenalty == null) {
+        row.plac = null;
+        return;
+      }
+
+      const isTied = previousRankedRow
+        && Math.abs(row.totalPenalty - previousRankedRow.totalPenalty) <= 1e-6
+        && compareTotalTiebreak(row, previousRankedRow) === 0;
+      row.plac = isTied ? previousRankedRow.plac : index + 1;
+      previousRankedRow = row;
     });
     output.push(...groupRows);
   }
@@ -99,7 +85,12 @@ export function rankTotalRowsWithinClass(rows = [], valuePicker, outField, highe
 }
 
 export function applyTotalDisciplinePlacements(rows = []) {
-  rankTotalRowsWithinClass(rows, (row) => row?.dressage?.penalty, 'posDress');
+  rankDressageRows(rows, {
+    penaltyPicker: row => row?.dressage?.penalty,
+    eliminatedPicker: row => !!row?.isEliminated,
+    groupPicker: row => row?.className || fallbackClass,
+    outputField: 'posDress'
+  });
   rankTotalRowsWithinClass(rows, (row) => row?.marathon?.totalPenalty, 'posMar');
   rankTotalRowsWithinClass(rows, (row) => row?.precision?.pen, 'posPrec');
   return rows;
@@ -229,9 +220,8 @@ export function sortTotalRows(rows = [], sortConfig = { key: 'plac', direction: 
     if (valueA > valueB) return 1 * sortDir;
 
     if (sortKey === 'totalPenalty' && valueA === valueB) {
-      const marathonA = a.marathon?.totalPenalty ?? fallbackNumber;
-      const marathonB = b.marathon?.totalPenalty ?? fallbackNumber;
-      if (marathonA !== marathonB) return (marathonA - marathonB) * sortDir;
+      const tiebreak = compareTotalTiebreak(a, b);
+      if (tiebreak !== 0) return tiebreak * sortDir;
     }
 
     return ((Number(a.startNumber) || 0) - (Number(b.startNumber) || 0)) * sortDir;

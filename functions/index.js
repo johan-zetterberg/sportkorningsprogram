@@ -12,8 +12,9 @@ import { getAuth } from "firebase-admin/auth";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { buildCompetitionState } from "./src/core-engine/stateSelector.js";
+import { RESULT_ENGINE_VERSION } from "./src/core-engine/version.js";
 import { dressagePrograms } from "./src/data/dressagePrograms.js";
-import { competitionClasses } from "./src/data/competitionData.js";
+import { buildRecalculationValidation } from "./src/resultRecalculationUtils.js";
 import {
     buildCompetitionAdminJoinPayload,
     resolveJoinRoleForPin,
@@ -82,36 +83,58 @@ function buildVolunteerSignupPayload(raw = {}) {
     return payload;
 }
 
-// Helper to load context (Configs) efficiently
-async function getContext(competitionId) {
-    const compRef = db.collection('artifacts').doc('combined-driving').collection('public').doc('data').collection('competitions').doc(competitionId);
-
-    // FIX: Match frontend paths
-    const [marCfgSn, precCfgSn] = await Promise.all([
+// Load every configurable dependency used by the shared result engine.
+// These are the same inputs the browser feeds to buildCompetitionState.
+async function getContext(compRef) {
+    const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, statusSnap] = await Promise.all([
+        compRef.get(),
         compRef.collection('config').doc('maratonConfig').get(),
-        compRef.collection('config').doc('precisionConfig').get()
+        compRef.collection('config').doc('precisionConfig').get(),
+        compRef.collection('config').doc('dressagePrograms').get(),
+        compRef.collection('config').doc('dressyrProgramMapping').get(),
+        compRef.collection('config').doc('globalStatus').get()
     ]);
+    const pauseLog = statusSnap.exists ? statusSnap.data()?.pauseLog : null;
 
     return {
-        allPrograms: dressagePrograms,
-        judges: [], 
+        allPrograms: {
+            ...dressagePrograms,
+            ...(programsSnap.exists ? programsSnap.data() : {})
+        },
+        dressageProgramMapping: mappingSnap.exists ? mappingSnap.data() : {},
+        judges: [],
         marathonConfig: marCfgSn.exists ? marCfgSn.data() : {},
-        precisionConfig: precCfgSn.exists ? precCfgSn.data() : {}
+        precisionConfig: precCfgSn.exists ? precCfgSn.data() : {},
+        ruleSettings: compSnap.exists ? (compSnap.data()?.ruleSettings || null) : null,
+        pauseWindows: Array.isArray(pauseLog) ? pauseLog : []
+        // nowMs is deliberately omitted: running stages are not ticked on the server
     };
 }
 
-async function recalculateEquipage(competitionId, startNumber) {
-    const compPath = `artifacts/combined-driving/public/data/competitions/${competitionId}`;
-    const eqKey = String(startNumber);
+// Flat fields stored in computed_equipages (sub-results hold live and
+// nested data that is not meant to be persisted)
+function toStoredResult(result) {
+    return {
+        totalPenalty: result.totalPenalty,
+        isEliminated: result.isEliminated,
+        elimReason: result.elimReason,
+        isOngoing: result.isOngoing,
+        dressagePenalty: result.dressagePenalty ?? null,
+        marathonPenalty: result.marathonPenalty ?? null,
+        precisionPenalty: result.precisionPenalty ?? null
+    };
+}
 
-    const eqDocRef = db.doc(`${compPath}/equipages/${eqKey}`);
-    const dressColRef = db.collection(`${compPath}/dressage/${eqKey}/protocols`);
-    const marDocRef = db.doc(`${compPath}/maraton/${eqKey}`);
-    const timingDocRef = db.doc(`${compPath}/maraton-timing/${eqKey}`); // FIX: Correct timing path
-    const precDocRef = db.doc(`${compPath}/precision/${eqKey}`);
+async function calculateEquipageRecord(compRef, startNumber, context, equipageSnapshot = null) {
+    const eqKey = String(startNumber);
+    const eqDocRef = compRef.collection('equipages').doc(eqKey);
+    const dressColRef = compRef.collection('dressage').doc(eqKey).collection('protocols');
+    const marDocRef = compRef.collection('maraton').doc(eqKey);
+    const timingDocRef = compRef.collection('maraton-timing').doc(eqKey);
+    const precDocRef = compRef.collection('precision').doc(eqKey);
 
     const [eqSnap, dressSnap, marSnap, timingSnap, precSnap] = await Promise.all([
-        eqDocRef.get(),
+        equipageSnapshot ? Promise.resolve(equipageSnapshot) : eqDocRef.get(),
         dressColRef.get(),
         marDocRef.get(),
         timingDocRef.get(),
@@ -119,22 +142,13 @@ async function recalculateEquipage(competitionId, startNumber) {
     ]);
 
     if (!eqSnap.exists) {
-        return;
+        return null;
     }
 
-    const equipage = eqSnap.data();
-    
-    let errorPoints = 0;
-    const dressProtocols = dressSnap.docs.map(d => {
-        const docData = d.data();
-        if (d.id === 'general') {
-            errorPoints = docData.errorPoints || 0;
-        }
-        return { id: d.id, ...docData };
-    });
+    const equipage = { ...eqSnap.data() };
 
-    // Merge errorPoints into equipage so buildCompetitionState finds it
-    equipage.errorPoints = errorPoints;
+    // The 'general' doc (error points) stays in the list; the engine reads it.
+    const dressProtocols = dressSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
     const timingData = timingSnap.exists ? timingSnap.data() : {};
     let marData = marSnap.exists ? marSnap.data() : {};
@@ -146,8 +160,6 @@ async function recalculateEquipage(competitionId, startNumber) {
 
     const precData = precSnap.exists ? precSnap.data() : {};
 
-    const context = await getContext(competitionId);
-
     const state = buildCompetitionState(
         equipage,
         dressProtocols,
@@ -158,13 +170,31 @@ async function recalculateEquipage(competitionId, startNumber) {
     );
     const result = calculateTotalResult(state);
 
-    const targetRef = db.doc(`${compPath}/computed_equipages/${eqKey}`);
-    await targetRef.set({
-        ...result,
-        updatedAt: new Date().toISOString(),
-        calculatedBy: 'server-function'
-    }, { merge: true });
+    return {
+        startNumber: eqKey,
+        equipage,
+        dressageProtocols: dressProtocols,
+        result
+    };
+}
 
+async function recalculateEquipage(appId, competitionId, startNumber) {
+    const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
+    const context = await getContext(compRef);
+    const record = await calculateEquipageRecord(compRef, startNumber, context);
+    if (!record) return;
+
+    const targetRef = compRef.collection('computed_equipages').doc(record.startNumber);
+    await targetRef.set({
+        ...toStoredResult(record.result),
+        updatedAt: new Date().toISOString(),
+        calculatedBy: 'server-function',
+        calculationAudit: {
+            engineVersion: RESULT_ENGINE_VERSION,
+            recalculatedAt: new Date().toISOString(),
+            triggerType: 'automatic'
+        }
+    }, { merge: true });
 }
 
 // --- TRIGGERS ---
@@ -173,8 +203,8 @@ async function recalculateEquipage(competitionId, startNumber) {
 export const onDressageProtocolWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/protocols/{protoId}",
     async (event) => {
-        const { compId, startNo } = event.params;
-        await recalculateEquipage(compId, startNo);
+        const { appId, compId, startNo } = event.params;
+        await recalculateEquipage(appId, compId, startNo);
     }
 );
 
@@ -182,16 +212,16 @@ export const onDressageProtocolWrite = onDocumentWritten(
 export const onMarathonResultWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/maraton/{startNo}",
     async (event) => {
-        const { compId, startNo } = event.params;
-        await recalculateEquipage(compId, startNo);
+        const { appId, compId, startNo } = event.params;
+        await recalculateEquipage(appId, compId, startNo);
     }
 );
 // FIX: Add missing trigger for timing
 export const onMarathonTimingWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/maraton-timing/{startNo}",
     async (event) => {
-        const { compId, startNo } = event.params;
-        await recalculateEquipage(compId, startNo);
+        const { appId, compId, startNo } = event.params;
+        await recalculateEquipage(appId, compId, startNo);
     }
 );
 
@@ -199,8 +229,8 @@ export const onMarathonTimingWrite = onDocumentWritten(
 export const onPrecisionResultWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/precision/{startNo}",
     async (event) => {
-        const { compId, startNo } = event.params;
-        await recalculateEquipage(compId, startNo);
+        const { appId, compId, startNo } = event.params;
+        await recalculateEquipage(appId, compId, startNo);
     }
 );
 
@@ -208,8 +238,160 @@ export const onPrecisionResultWrite = onDocumentWritten(
 export const onEquipageUpdate = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/equipages/{startNo}",
     async (event) => {
-        const { compId, startNo } = event.params;
-        await recalculateEquipage(compId, startNo);
+        const { appId, compId, startNo } = event.params;
+        await recalculateEquipage(appId, compId, startNo);
+    }
+);
+
+async function assertCanMaintainResults(request, competition) {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    }
+
+    const uid = request.auth.uid;
+    const competitionData = competition.data || {};
+    const tokenRoles = Array.isArray(request.auth.token?.roles) ? request.auth.token.roles : [];
+    const tokenIsAdmin = request.auth.token?.superadmin === true
+        || request.auth.token?.role === 'superadmin'
+        || request.auth.token?.role === 'admin'
+        || tokenRoles.includes('superadmin')
+        || tokenRoles.includes('admin');
+    const isOwner = competitionData.createdBy === uid || competitionData.ownerId === uid;
+    const listedAdmin = Array.isArray(competitionData.admins) && competitionData.admins.includes(uid);
+    const [adminSnap, userSnap] = await Promise.all([
+        competition.ref.collection('admins').doc(uid).get(),
+        db.doc(`users/${uid}`).get()
+    ]);
+    const adminData = adminSnap.exists ? adminSnap.data() : {};
+    const adminRoles = Array.isArray(adminData.roles) ? adminData.roles : [];
+    const isCompetitionAdmin = adminData.role === 'admin' || adminRoles.includes('admin');
+    const userData = userSnap.exists ? userSnap.data() : {};
+    const userRoles = Array.isArray(userData.roles) ? userData.roles : [];
+    const isGlobalAdmin = userData.role === 'admin'
+        || userData.role === 'superadmin'
+        || userRoles.includes('admin')
+        || userRoles.includes('superadmin');
+
+    if (!tokenIsAdmin && !isOwner && !listedAdmin && !isCompetitionAdmin && !isGlobalAdmin) {
+        throw new HttpsError('permission-denied', 'Endast tävlingsägare eller full administratör får räkna om resultat.');
+    }
+}
+
+async function buildCompetitionRecalculationPreview(competition) {
+    const context = await getContext(competition.ref);
+    const equipagesSnapshot = await competition.ref.collection('equipages').get();
+    const records = await Promise.all(equipagesSnapshot.docs.map(async (equipageSnapshot) => {
+        try {
+            return await calculateEquipageRecord(
+                competition.ref,
+                equipageSnapshot.id,
+                context,
+                equipageSnapshot
+            );
+        } catch (error) {
+            return {
+                startNumber: equipageSnapshot.id,
+                equipage: equipageSnapshot.data(),
+                dressageProtocols: [],
+                calculationError: String(error?.message || error)
+            };
+        }
+    }));
+    const availableRecords = records.filter(Boolean);
+    const validation = buildRecalculationValidation(availableRecords, context);
+
+    if (availableRecords.length === 0) {
+        validation.criticalErrors.push({ startNumber: '', message: 'Tävlingen saknar ekipage.' });
+        validation.recalculableCount = 0;
+    }
+
+    return { context, records: availableRecords, validation };
+}
+
+function getRecalculationRequestData(request) {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!competitionId) {
+        throw new HttpsError('invalid-argument', 'Competition ID saknas.');
+    }
+    return { competitionId };
+}
+
+export const validateCompetitionResultRecalculation = onCall(
+    { timeoutSeconds: 540, memory: '512MiB' },
+    async (request) => {
+        const { competitionId } = getRecalculationRequestData(request);
+        const competition = await getCompetitionArtifactsDoc(competitionId);
+        if (!competition) {
+            throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+        }
+
+        await assertCanMaintainResults(request, competition);
+        const { validation } = await buildCompetitionRecalculationPreview(competition);
+        return {
+            ...validation,
+            engineVersion: RESULT_ENGINE_VERSION
+        };
+    }
+);
+
+export const recalculateCompetitionResults = onCall(
+    { timeoutSeconds: 540, memory: '512MiB' },
+    async (request) => {
+        const { competitionId } = getRecalculationRequestData(request);
+        const competition = await getCompetitionArtifactsDoc(competitionId);
+        if (!competition) {
+            throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+        }
+
+        await assertCanMaintainResults(request, competition);
+        const { records, validation } = await buildCompetitionRecalculationPreview(competition);
+        if (validation.criticalErrors.length > 0) {
+            throw new HttpsError('failed-precondition', 'Omräkningen blockeras av kritiska valideringsfel.', validation);
+        }
+        if (validation.warnings.length > 0 && request.data?.confirmedWarnings !== true) {
+            throw new HttpsError('failed-precondition', 'Varningarna måste bekräftas före omräkning.', validation);
+        }
+
+        const recalculatedAt = new Date().toISOString();
+        const initiatedBy = {
+            uid: request.auth.uid,
+            email: String(request.auth.token?.email || '').trim().toLowerCase() || null
+        };
+        const audit = {
+            engineVersion: RESULT_ENGINE_VERSION,
+            recalculatedAt,
+            initiatedBy,
+            triggerType: 'manual-full-competition'
+        };
+
+        for (let offset = 0; offset < records.length; offset += 400) {
+            const batch = db.batch();
+            records.slice(offset, offset + 400).forEach((record) => {
+                const targetRef = competition.ref.collection('computed_equipages').doc(record.startNumber);
+                batch.set(targetRef, {
+                    ...toStoredResult(record.result),
+                    updatedAt: recalculatedAt,
+                    calculatedBy: 'server-function',
+                    calculationAudit: audit
+                }, { merge: true });
+            });
+            await batch.commit();
+        }
+
+        await competition.ref.collection('maintenanceRuns').add({
+            type: 'result-recalculation',
+            competitionId,
+            equipageCount: records.length,
+            warningCount: validation.warnings.length,
+            ...audit
+        });
+
+        return {
+            recalculatedCount: records.length,
+            warningCount: validation.warnings.length,
+            engineVersion: RESULT_ENGINE_VERSION,
+            recalculatedAt
+        };
     }
 );
 

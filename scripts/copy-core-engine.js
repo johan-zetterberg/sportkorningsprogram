@@ -6,8 +6,14 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const sourceDir = path.resolve(__dirname, '../js/core-engine');
-const targetDir = path.resolve(__dirname, '../functions/src/core-engine');
+const projectRoot = path.resolve(__dirname, '..');
+
+export const syncTargets = [
+    ['js/core-engine', 'functions/src/core-engine'],
+    ['js/data/dressagePrograms.js', 'functions/src/data/dressagePrograms.js'],
+    ['js/data/competitionData.js', 'functions/src/data/competitionData.js'],
+    ['js/utils/precisionCalculation.js', 'functions/src/utils/precisionCalculation.js']
+];
 
 function copyFolderSync(from, to) {
     if (!fs.existsSync(to)) {
@@ -30,10 +36,22 @@ function copyFolderSync(from, to) {
 }
 
 try {
-    console.log(`Copying core-engine from ${sourceDir} to ${targetDir}...`);
-    copyFolderSync(sourceDir, targetDir);
-    console.log('Successfully copied core-engine to functions directory.');
+    console.log('Synchronizing result engine and its data dependencies...');
+    for (const [sourceRelative, targetRelative] of syncTargets) {
+        const sourcePath = path.resolve(projectRoot, sourceRelative);
+        const targetPath = path.resolve(projectRoot, targetRelative);
+        const sourceStat = fs.statSync(sourcePath);
+
+        if (sourceStat.isDirectory()) {
+            copyFolderSync(sourcePath, targetPath);
+        } else {
+            fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+            fs.copyFileSync(sourcePath, targetPath);
+            console.log(`Copied: ${sourceRelative}`);
+        }
+    }
+    console.log('Successfully synchronized the result engine.');
 } catch (error) {
-    console.error('Error copying core-engine:', error);
+    console.error('Error synchronizing the result engine:', error);
     process.exit(1);
 }

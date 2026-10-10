@@ -1,5 +1,5 @@
 // js/core-engine/precision.js
-// Adapter mot den delade precision-kalkylen så total/arkiv och UI räknar lika.
+// Adapter to the shared precision calculation so total/archive and UI calculate alike.
 
 import {
     calculatePrecisionResult as calculatePrecisionResultFromData,
@@ -17,6 +17,7 @@ export function calculatePrecisionResult(state) {
     return calculatePrecisionResultFromData(
         precision?.resultDoc || {},
         equipage,
-        config?.precisionConfig || {}
+        config?.precisionConfig || {},
+        { currentCompetition: config?.ruleSettings ? { ruleSettings: config.ruleSettings } : null }
     );
 }

@@ -11,6 +11,20 @@ export const MARATHON_OBSTACLE_TIME_PENALTY = 0.25;
 // Time limit factors for elimination (TR rules)
 export const MARATHON_TIME_LIMIT_FACTOR_A = 1.2; // max + 20%
 export const MARATHON_TIME_LIMIT_FACTOR_B = 2.0; // 2x max
+export const MARATHON_TIME_LIMIT_FACTOR_TRANSPORT = 2.0;
+
+// Default time windows below the ideal time (minutes)
+export const MARATHON_DEFAULT_WINDOW_A_MIN = 2;
+export const MARATHON_DEFAULT_WINDOW_B_MIN = 3;
+
+// Obstacle time above this is elimination (seconds)
+export const MARATHON_OBSTACLE_MAX_TIME_SEC = 300;
+
+// Wrong gait penalty per second
+export const MARATHON_WRONG_GAIT_PENALTY_RATE = 0.2;
+
+// Default compulsory halt between A and B (minutes)
+export const MARATHON_DEFAULT_PAUSE_MIN = 10;
 
 // Marathon Speeds Table (TR V 2025) - km/h
 export const DEFAULT_TRV_TEMPOS_KMH = {

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   calculateDressageResult,
+  calculateSingleJudgeDressageResult,
   calculateMarathonResult,
   calculatePrecisionResult,
   calculateTotalResult
@@ -75,6 +76,26 @@ test('calculateDressageResult uses the highest available general error points so
   assert.equal(result.errorPenalty, 2);
   assert.equal(result.penalty, 6);
   assert.equal(result.eliminated, false);
+});
+
+test('calculateSingleJudgeDressageResult gives the judge score used by dressyr-input on save', () => {
+  const program = {
+    id: 'P',
+    penaltyCoeff: 0.8,
+    movements: [{ no: 1, coeff: 2 }, { no: 2 }]
+  };
+  const protocol = {
+    judgeId: 'c',
+    movements: [{ momentNo: 1, score: 7 }, { momentNo: 2, score: 6.5 }]
+  };
+
+  const result = calculateSingleJudgeDressageResult(protocol, program, { errorPoints: 3 });
+
+  // max 30, points 20.5 -> 68.33 %, penalty (30 - 20.5) * 0.8 = 7.6; equipage error points ignored
+  assert.equal(result.points, 20.5);
+  assert.equal(result.percent, 68.33);
+  assert.equal(result.judgePenalty, 7.6);
+  assert.equal(result.penalty, 7.6);
 });
 
 test('calculatePrecisionResult returns shared total penalties for finalized rows', () => {

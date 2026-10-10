@@ -24,7 +24,8 @@ export function validateDrivenObstacles(value) {
 
 export function validateMarathonClassSettings(row = {}, {
   hasTempoA = false,
-  hasTempoB = false
+  hasTempoB = false,
+  isLightB = false
 } = {}) {
   const errors = [];
   const fixedTimeA = Number(row.fixedTimeA);
@@ -70,6 +71,10 @@ export function validateMarathonClassSettings(row = {}, {
 
   if (!validateDrivenObstacles(row.drivenObstacles)) {
     addError(errors, 'drivenObstacles', 'Körda hinder ska anges som kommaseparerade nummer, t.ex. 1,2,3,4.');
+  }
+
+  if (row.clearRound === true && !isLightB) {
+    addError(errors, 'clearRound', 'Clear Round kan endast aktiveras för Lätt B enligt TR V. Välj Lätt B som tempo-mall.');
   }
 
   return errors;

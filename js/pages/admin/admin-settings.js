@@ -4,6 +4,10 @@ import { getCompetitionById, deleteCompetition, updateCompetition } from '../../
 import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
 import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails, getOfficials, getJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
+import {
+    recalculateCompetitionResults,
+    validateCompetitionResultRecalculation
+} from '../../services/resultMaintenanceService.js';
 import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
@@ -20,6 +24,94 @@ let mapInstance = null;
 let markerInstance = null;
 let activeAdminsUnsub = null;
 let latestSettingsChecklistContext = null;
+
+function renderRecalculationIssues(issues, emptyText) {
+    if (!Array.isArray(issues) || issues.length === 0) {
+        return `<p class="text-sm text-gray-500 dark:text-gray-400">${escapeHtml(emptyText)}</p>`;
+    }
+    return `<ul class="space-y-1 text-sm">${issues.map((issue) => `
+        <li><strong>${escapeHtml(issue.startNumber ? `#${issue.startNumber}` : 'Tävlingen')}:</strong> ${escapeHtml(issue.message || '')}</li>
+    `).join('')}</ul>`;
+}
+
+function setupResultMaintenance(competitionId) {
+    const card = document.getElementById('resultMaintenanceCard');
+    const validateButton = document.getElementById('btnValidateResultRecalculation');
+    const executeButton = document.getElementById('btnExecuteResultRecalculation');
+    const status = document.getElementById('resultRecalculationStatus');
+    if (!card || !validateButton || !executeButton || !status) return;
+
+    card.style.display = 'block';
+    let latestValidation = null;
+
+    validateButton.onclick = async () => {
+        validateButton.disabled = true;
+        executeButton.classList.add('hidden');
+        status.innerHTML = '<p class="text-sm text-gray-600 dark:text-gray-300">Kontrollerar samtliga ekipage...</p>';
+        try {
+            latestValidation = await validateCompetitionResultRecalculation(competitionId);
+            const criticalErrors = latestValidation.criticalErrors || [];
+            const warnings = latestValidation.warnings || [];
+            const isBlocked = criticalErrors.length > 0;
+            status.innerHTML = `
+                <div class="rounded-md border ${isBlocked ? 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20' : 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20'} p-4">
+                    <p class="font-semibold ${isBlocked ? 'text-red-800 dark:text-red-200' : 'text-green-800 dark:text-green-200'}">
+                        ${escapeHtml(String(latestValidation.equipageCount || 0))} ekipage kontrollerade med motor ${escapeHtml(latestValidation.engineVersion || 'okänd')}.
+                    </p>
+                    <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                        ${isBlocked ? 'Omräkningen är blockerad tills de kritiska felen är lösta.' : 'Kontrollen är klar. Omräkningen kan genomföras.'}
+                    </p>
+                </div>
+                <div class="mt-4">
+                    <h3 class="font-semibold text-red-700 dark:text-red-300">Kritiska fel (${criticalErrors.length})</h3>
+                    ${renderRecalculationIssues(criticalErrors, 'Inga kritiska fel.')}
+                </div>
+                <div class="mt-4">
+                    <h3 class="font-semibold text-amber-700 dark:text-amber-300">Varningar (${warnings.length})</h3>
+                    ${renderRecalculationIssues(warnings, 'Inga varningar.')}
+                </div>
+            `;
+            if (!isBlocked) executeButton.classList.remove('hidden');
+        } catch (error) {
+            console.error('Kunde inte validera resultatomräkning:', error);
+            latestValidation = null;
+            status.innerHTML = `<p class="text-sm font-medium text-red-700 dark:text-red-300">Kontrollen misslyckades: ${escapeHtml(error?.message || 'Okänt fel')}</p>`;
+        } finally {
+            validateButton.disabled = false;
+        }
+    };
+
+    executeButton.onclick = async () => {
+        if (!latestValidation || (latestValidation.criticalErrors || []).length > 0) return;
+        const warningCount = (latestValidation.warnings || []).length;
+        const confirmationText = warningCount > 0
+            ? `Kontrollen innehåller ${warningCount} varning(ar). Vill du ändå räkna om hela tävlingen?`
+            : 'Vill du räkna om resultaten för hela tävlingen?';
+        if (!window.confirm(confirmationText)) return;
+
+        executeButton.disabled = true;
+        validateButton.disabled = true;
+        executeButton.textContent = 'Räknar om...';
+        try {
+            const result = await recalculateCompetitionResults(competitionId, warningCount > 0);
+            status.innerHTML = `
+                <div class="rounded-md border border-green-300 bg-green-50 p-4 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200">
+                    <p class="font-semibold">${escapeHtml(String(result.recalculatedCount || 0))} ekipage räknades om.</p>
+                    <p class="mt-1 text-sm">Motor ${escapeHtml(result.engineVersion || 'okänd')}, ${escapeHtml(result.recalculatedAt || '')}.</p>
+                </div>
+            `;
+            executeButton.classList.add('hidden');
+            latestValidation = null;
+        } catch (error) {
+            console.error('Kunde inte räkna om tävlingsresultat:', error);
+            status.innerHTML = `<p class="text-sm font-medium text-red-700 dark:text-red-300">Omräkningen misslyckades: ${escapeHtml(error?.message || 'Okänt fel')}</p>`;
+        } finally {
+            executeButton.disabled = false;
+            validateButton.disabled = false;
+            executeButton.textContent = 'Räkna om hela tävlingen';
+        }
+    };
+}
 
 export function unloadSettingsTab() {
     latestSettingsChecklistContext = null;
@@ -942,6 +1034,23 @@ export function getSettingsHtml() {
             </div>
         </div>
 
+        <!-- AVANCERAT UNDERHÅLL -->
+        <div id="resultMaintenanceCard" class="md:col-span-2 mt-8 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700" style="display:none;">
+            <h2 class="text-2xl font-semibold mb-2 border-b dark:border-gray-700 pb-2 dark:text-white">Avancerat underhåll</h2>
+            <p class="text-sm text-gray-600 dark:text-gray-300 max-w-3xl">
+                Kontrollera först hela tävlingens resultatdata. Om inga kritiska fel finns kan samtliga beräknade resultat uppdateras med den aktuella regelmotorn.
+            </p>
+            <div class="mt-4 flex flex-wrap gap-3">
+                <button id="btnValidateResultRecalculation" type="button" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white font-semibold rounded-md">
+                    Kontrollera resultatdata
+                </button>
+                <button id="btnExecuteResultRecalculation" type="button" class="hidden px-4 py-2.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white font-semibold rounded-md">
+                    Räkna om hela tävlingen
+                </button>
+            </div>
+            <div id="resultRecalculationStatus" class="mt-4" aria-live="polite"></div>
+        </div>
+
         <!-- DANGER ZONE -->
         <div id="dangerZone" class="md:col-span-2 mt-12 bg-red-50 dark:bg-red-900/10 p-6 rounded-xl shadow-md border border-red-200 dark:border-red-900" style="display:none;">
             <h2 class="text-2xl font-bold text-red-800 dark:text-red-400 mb-4 border-b border-red-200 dark:border-red-800 pb-2">Danger Zone</h2>
@@ -1284,6 +1393,8 @@ export async function setupSettingsLogic(competitionId) {
         }
 
         if (isOwner) {
+            setupResultMaintenance(competitionId);
+
             // Hämta / Generera PIN-kod
             let secretData = await getSecretConfig(competitionId);
             

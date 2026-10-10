@@ -1,7 +1,16 @@
 // Delad fil för all gemensam dressyrlogik.
+// Beräkningarna finns i core-engine/dressage.js; här binds de till webbläsarens programlista.
 
 // Importera den globala programlistan som en fallback
 import { dressagePrograms as _programs } from '../data/dressagePrograms.js';
+import {
+  getDressagePenaltyCoeff as _getCoeff,
+  computeFinalFromSaved as _computeFinal,
+  guessProgramKeyFromClass as _guessProg,
+  deduplicateAndFilterProtocols as _dedupe
+} from '../core-engine/dressage.js';
+
+export { normJudgeId, getProtocolProgramKey, resolveDressageProgramKey } from '../core-engine/dressage.js';
 
 /**
  * Hämtar den globala listan över dressyrprogram, med stöd för overrides via window-objektet.
@@ -11,8 +20,6 @@ export function getPrograms() {
   if (w && Object.keys(w).length) return w;
   return (typeof _programs !== 'undefined' ? _programs : {});
 }
-
-import { getDressagePenaltyCoeff as _getCoeff, computeFinalFromSaved as _computeFinal, guessProgramKeyFromClass as _guessProg } from '../core-engine/dressage.js';
 
 /**
  * Hämtar den korrekta straffkoefficienten för ett givet dressyrprogram.
@@ -30,36 +37,11 @@ export function getDressagePenaltyCoeff(programOrKey) {
  * @param {object} eq - Ekipageobjektet.
  * @param {Array<object>} savedArr - En array av sparade protokoll-objekt.
  * @param {object} program - Det fullständiga programobjektet (från getPrograms()).
- * @returns {object | null} - Ett objekt med { points, percent, penalty } eller null.
+ * @returns {object | null} - { points, percent, penalty, generalImpressionsSum } eller null.
  */
 export function computeFinalFromSaved(eq, savedArr, program) {
   if (!eq) return null;
-  const allPrograms = getPrograms();
-  const res = _computeFinal(savedArr, program, allPrograms);
-  if (!res) return null;
-
-  // För bakåtkompatibilitet beräknar vi generalImpressionsSum också om det behövs i UI
-  const generalKeywords = ['gångarter', 'framåtbjudning', 'lydnad', 'kusken', 'presentation', 'helhetsintryck', 'impulsion', 'athlete', 'general impression'];
-  let genSum = 0;
-  for (const p of savedArr) {
-    const movements = Array.isArray(p.movements) ? p.movements : [];
-    const generalTotal = movements.reduce((sum, mv) => {
-      const no = Number(mv.momentNo ?? mv.movementNo ?? mv.no);
-      const pm = (program.movements || []).find(x => Number(x.no) === no);
-      if (!pm) return sum;
-      const text = (pm.text || '').toLowerCase();
-      if (generalKeywords.some(k => text.includes(k))) {
-        const c = Number(pm.coeff) || 1;
-        const sc = (mv.score !== '' && mv.score != null) ? Number(mv.score) : null;
-        return (sc != null ? (sum + sc * c) : sum);
-      }
-      return sum;
-    }, 0);
-    genSum += generalTotal;
-  }
-  res.generalImpressionsSum = genSum / savedArr.length;
-  
-  return res;
+  return _computeFinal(savedArr, program, getPrograms());
 }
 
 /**
@@ -158,203 +140,25 @@ export function getMomentHorseLabelStacked(equipage) {
 }
 
 /**
- * @deprecated Use calculateDressageResult from calculationService.js instead.
- * Beräknar den samlade dressyrstraffpoängen för ett ekipage baserat på en samling protokoll.
- * @param {Map | Array} protocols - Samling av protokoll (från olika domare).
- * @param {Object} allPrograms - Map med alla tillgängliga dressyrprogram (nyckel -> programobjekt).
- * @returns {number | null} - Genomsnittlig straffpoäng eller null om eliminerad/inga resultat.
- */
-export function calculateAggregateDressagePenalty(protocols, allPrograms) {
-  console.warn('Using deprecated calculateAggregateDressagePenalty. Use calculationService.js instead.');
-  if (!protocols) return null;
-
-  const protoList = (protocols instanceof Map) ? Array.from(protocols.values()) : (Array.isArray(protocols) ? protocols : []);
-  if (protoList.length === 0) return null;
-
-  let judgePenalties = [];
-  let isEliminated = false;
-
-  for (const proto of protoList) {
-    if (proto.eliminated) isEliminated = true;
-
-    // Hitta programmet
-    const testKey = proto.testKey || proto.programKey;
-    const program = testKey ? allPrograms[testKey] : null;
-
-    if (program) {
-      // Maxpoäng
-      const maxScore = (program.movements || []).reduce((s, m) => s + 10 * (Number(m.coeff) || 1), 0);
-
-      if (maxScore > 0) {
-        // Normalisera och summera rörelser
-        const moves = normalizeMovements(proto.movements || []);
-        const totalScore = moves.reduce((s, m) => {
-          const pm = program.movements.find(x => Number(x.no) === m.momentNo);
-          const coeff = Number(pm?.coeff) || 1;
-          const score = (typeof m.score === 'number') ? m.score : 0;
-          return s + (score * coeff);
-        }, 0);
-
-        // Beräkna straff för denna domare
-        const coeffP = getDressagePenaltyCoeff(program);
-        judgePenalties.push((maxScore - totalScore) * coeffP);
-      }
-    }
-  }
-
-  if (isEliminated) return null;
-  if (judgePenalties.length === 0) return null;
-
-  const sum = judgePenalties.reduce((a, b) => a + b, 0);
-  return sum / judgePenalties.length;
-}
-
-/**
- * Rensa, normalisera och filtrera protokoll-listan för att ta bort dubbletter och "spökprotokoll" (tomma).
- * Används av både Monitor och Resultat-sidan för att säkerställa att beräkningar blir korrekta.
+ * Rensa protokoll-listan: en per domare, inga tomma protokoll.
+ * 'general'-dokumentet (felpoäng) behålls så att anroparen kan skicka listan vidare
+ * till calculateDressageResult.
  * @param {Array} protocols - Rå lista av protokoll.
- * @param {Array} validJudgesList - Lista över giltiga domar-objekt (t.ex. window.currentJudgesPresent).
+ * @param {Array} validJudgesList - Lista över konfigurerade domare (valfri).
  * @returns {Array} - Ren lista av protokoll att använda för beräkning.
  */
 export function deduplicateAndFilterProtocols(protocols, validJudgesList) {
   if (!Array.isArray(protocols)) return [];
-  // Allow processing even if judge list is missing (fallback to 'accept all unique')
-  if (!Array.isArray(validJudgesList) || validJudgesList.length === 0) return protocols;
-
-
-  const validIds = validJudgesList.map(j => String(j.id));
-  const validPos = validJudgesList.map(j => String(j.position || '').toUpperCase());
-
-  // 1. Normalisera IDn (ta bort 'judge_' prefix etc)
-  // 1. Normalisera IDn 
-  // (Data is already normalized by service. We just ensure enrichment from config)
-  const normalized = protocols.map(p => {
-    // If enriched with official ID, use it. Otherwise use clean ID from service.
-    const cleanId = p.judgeId || ''; // Guaranteed clean by service
-
-    if (cleanId) {
-      const byId = validJudgesList.find(j => String(j.id || '').replace(/^judge_/i, '') === cleanId);
-      if (byId) return { ...p, judgeId: byId.id, id: byId.id, position: byId.position };
-    }
-
-    // Match by Position
-    const pos = String(p.position || p.judgePosition || '').toUpperCase();
-    if (pos) {
-      const judgeCfg = validJudgesList.find(j => String(j.position || '').toUpperCase() === pos);
-      if (judgeCfg) return { ...p, judgeId: judgeCfg.id, id: judgeCfg.id, position: pos };
-    }
-
-    return p;
-  });
-
-  // 2. Deduplicera (senaste/översta vinner om dubblett på ID eller Position)
-  const dedupMap = new Map();
-  normalized.forEach(p => {
-    if (p.id === 'general') dedupMap.set('general', p); // Keep explicit reference
-    else if (p.judgeId) dedupMap.set(String(p.judgeId), p);
-    else if (p.position) dedupMap.set('POS:' + String(p.position).toUpperCase(), p);
-    else dedupMap.set('UNKNOWN:' + Math.random(), p); // Temporärt behålla okända
-  });
-
-  // 3. Strikt Filtrering (måste matcha giltig domare OCH ha poäng)
-  return Array.from(dedupMap.values()).filter(p => {
-    // Preserve the general document for error points
-    if (p.id === 'general') return true;
-
-    // A. Måste matcha en konfigurerad domare - RELAXED: allow all for now to show results
-    // const matchesJudge = (p.judgeId && validIds.includes(String(p.judgeId))) ||
-    //   (p.position && validPos.includes(String(p.position).toUpperCase()));
-    // if (!matchesJudge) return false;
-
-    // B. Måste ha minst ett giltigt betyg (för att inte räknas som 0 i snittet)
-    const hasMoves = Array.isArray(p.movements) && p.movements.length > 0;
-    if (!hasMoves) return false;
-
-    const hasScore = p.movements.some(m => m.score !== null && m.score !== '' && !isNaN(m.score));
-    // Relaxed: Allow if it has movements defined, even if scores are 0/null (Live started)
-    // return hasScore; 
-    return true;
-  });
+  const general = protocols.filter(p => p && p.id === 'general');
+  return [..._dedupe(protocols, validJudgesList), ...general];
 }
 
 /**
- * Heuristik: gissa program-nyckel från klassnamn (synkad logic f.d. i admin/input).
+ * Heuristik: gissa program-nyckel från klassnamn.
  */
 export function guessProgramKeyFromClass(className, programs) {
   const all = programs || getPrograms();
   return _guessProg(className, all);
-}
-
-/**
- * Normaliserar domar-ID till gemensamt format (lowercase, utan judge_ prefix).
- */
-export function normJudgeId(id) {
-  return String(id || '').replace(/^judge_/i, '').trim().toLowerCase();
-}
-
-/**
- * Helper to calculate live projection (Copied/Adapted for reuse)
- */
-export function calcLiveJudgeProjection(liveProtocol, programsDict, equipage) {
-  if (!liveProtocol) return null;
-  let testKey = liveProtocol.testKey || liveProtocol.programKey;
-  const allPrograms = programsDict || {};
-
-  if ((!testKey || !allPrograms[testKey]) && equipage && window.klassProgramMapping) {
-    testKey = equipage.testKey
-      || equipage.programKey
-      || window.klassProgramMapping[equipage.className]
-      || window.klassProgramMapping[equipage._mergedLabel];
-  }
-
-  let program = allPrograms[testKey];
-  if (!program && equipage && equipage.className) {
-    const guessed = guessProgramKeyFromClass(equipage.className, allPrograms);
-    if (guessed && allPrograms[guessed]) program = allPrograms[guessed];
-    if (!program) {
-      const cls = String(equipage.className).trim();
-      program = Object.values(allPrograms).find(p => p.name === cls || p.title === cls || p.id === cls);
-    }
-  }
-
-  if (!program) return null;
-  if (!program) return null;
-  const effectiveKey = program.id || program.code || testKey;
-  const movements = normalizeMovements(liveProtocol.movements || []);
-
-  // Calculate specific prognosis (Projected Final)
-  // Instead of computeFinalFromSaved (which assumes 0 for missing), we calculate average of RIDDEN movements.
-  let totalPointsNow = 0;
-  let maxPointsRidder = 0;
-
-  movements.forEach(m => {
-    const pm = program.movements.find(x => x.no === m.momentNo);
-    if (pm && m.score != null && m.score !== '') {
-      const coeff = (Number(pm.coeff) || 1);
-      totalPointsNow += Number(m.score) * coeff;
-      maxPointsRidder += 10 * coeff;
-    }
-  });
-
-  if (maxPointsRidder === 0) return { percent: 0, points: 0, penalty: 0, pointsNow: 0 };
-
-  const currentPercent = (totalPointsNow / maxPointsRidder); // 0.0 to 1.0
-
-  // Total Max
-  const maxScoreTotal = (program.movements || []).reduce((s, m) => s + 10 * (Number(m.coeff) || 1), 0);
-  const penaltyCoeff = getDressagePenaltyCoeff(program);
-
-  // Projected Values
-  const projPoints = currentPercent * maxScoreTotal;
-  const projPercent = currentPercent * 100;
-  const projPenalty = (maxScoreTotal - projPoints) * penaltyCoeff;
-
-  return {
-    percent: projPercent,
-    points: projPoints,
-    penalty: projPenalty,
-    pointsNow: totalPointsNow
-  };
 }
 
 // Expose for non-module usage (e.g. PDF generation)

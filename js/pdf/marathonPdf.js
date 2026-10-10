@@ -452,9 +452,11 @@ export async function generateMarathonListPdf(equipages, competition) {
     const obsSumVal = hasDrivenObstacles
       ? formatMarathonPenaltyExportValue(mRes.obstacles?.sum, { equipage: eq, marathonResult: mRes })
       : '—';
-    const totalVal = (hasDrivenObstacles || mRes.stages?.B?.durationMs != null || mRes.eliminated)
-      ? formatMarathonPenaltyExportValue(mRes.totalPenalty, { equipage: eq, marathonResult: mRes })
-      : '—';
+    const totalVal = mRes.isClearRound && !mRes.eliminated && mRes.totalPenalty != null
+      ? (mRes.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+      : ((hasDrivenObstacles || mRes.stages?.B?.durationMs != null || mRes.eliminated)
+          ? formatMarathonPenaltyExportValue(mRes.totalPenalty, { equipage: eq, marathonResult: mRes })
+          : '—');
 
     row.push(obsSumVal);
     row.push(formatMarathonExternalOtherPenalty(mRes, { equipage: eq }));

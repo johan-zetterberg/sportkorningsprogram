@@ -14,7 +14,9 @@ function buildCardData(eq, {
   const res = calculateResult(eq, d, timingDocFor(sn));
 
   const totalPen = res.totalPenalty;
-  const totalLabel = (totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '\u2014');
+  const totalLabel = res.isClearRound && !res.eliminated && totalPen != null
+    ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+    : ((totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '\u2014'));
   const etaLabel = res.eta.B ? fmtClock(res.eta.B) : (res.eta.A ? fmtClock(res.eta.A) : '\u2014');
   const startVal = startTimeFor(sn);
   const startLabel = formatStartTimeLabel(startVal);

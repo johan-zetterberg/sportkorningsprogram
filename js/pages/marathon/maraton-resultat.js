@@ -459,7 +459,9 @@ function renderTable() {
 
     const place = placeMap.get(sn);
     const totalPen = res.totalPenalty;
-    const totalLabel = (totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '—');
+    const totalLabel = res.isClearRound && !res.eliminated && totalPen != null
+      ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+      : ((totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '—'));
 
     return `<tr class="${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors" data-sn="${sn}" style="cursor: pointer; ${rowStyle}">
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center font-bold text-gray-700 dark:text-gray-300 text-[11px] lg:text-sm">${isNum(place) ? place : '—'}</td>

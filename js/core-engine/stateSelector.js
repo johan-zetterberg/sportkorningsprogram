@@ -3,7 +3,11 @@
 /**
  * Normalizes raw Firestore document data into a strictly-typed CompetitionState object
  * that the core calculation engine can process deterministically.
+ * Browser adapters and the Cloud Function both build state here, so every
+ * field an engine reads must be carried over.
  */
+
+const toHeight = (v) => Number(v) || null;
 
 export function buildEquipageState(equipageDoc) {
     if (!equipageDoc) return null;
@@ -11,11 +15,22 @@ export function buildEquipageState(equipageDoc) {
         startNumber: equipageDoc.startNumber || equipageDoc.startNo,
         className: String(equipageDoc.className || equipageDoc.class || equipageDoc.klass || '').trim(),
         category: String(equipageDoc.category || '').toLowerCase(),
+        categoryName: equipageDoc.categoryName || null,
+        division: equipageDoc.division || null,
+        type: equipageDoc.type || null,
         isPara: !!equipageDoc.isPara,
         status: equipageDoc.status,
+        eliminated: !!equipageDoc.eliminated,
         errorPoints: Number(equipageDoc.errorPoints) || 0,
-        heightCm: Number(equipageDoc.heightCm) || Number(equipageDoc.horseHeightCm) || null,
-        testKey: equipageDoc.testKey || equipageDoc.programKey || null
+        heightCm: toHeight(equipageDoc.heightCm) || toHeight(equipageDoc.horseHeightCm),
+        horses: Array.isArray(equipageDoc.horses)
+            ? equipageDoc.horses.map(h => ({ heightCm: toHeight(h?.heightCm) }))
+            : [],
+        testKey: equipageDoc.testKey || equipageDoc.programKey || null,
+        // Merged classes (precision course lookup)
+        _mergedLabel: equipageDoc._mergedLabel || null,
+        useMergedTestForDisplay: !!equipageDoc.useMergedTestForDisplay,
+        mergedTestLabel: equipageDoc.mergedTestLabel || null
     };
 }
 
@@ -34,9 +49,14 @@ export function buildCompetitionState(equipageDoc, dressageProtocols, marathonDo
         },
         config: {
             allPrograms: config.allPrograms || {},
+            dressageProgramMapping: config.dressageProgramMapping || {},
             judges: config.judges || [],
             marathonConfig: config.marathonConfig || {},
-            precisionConfig: config.precisionConfig || {}
+            precisionConfig: config.precisionConfig || {},
+            ruleSettings: config.ruleSettings || null,
+            pauseWindows: Array.isArray(config.pauseWindows) ? config.pauseWindows : [],
+            // Current time for live stages; omitted on the server
+            nowMs: Number.isFinite(config.nowMs) ? config.nowMs : null
         }
     };
 }

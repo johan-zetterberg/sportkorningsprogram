@@ -37,12 +37,29 @@ export function getDressagePenaltyCoeff(programOrKey, allPrograms = {}) {
     return 1.00;
 }
 
+const movementNo = (mv) => Number(mv?.momentNo ?? mv?.movementNo ?? mv?.no);
+const scoreOf = (mv) => (mv && mv.score !== '' && mv.score != null && Number.isFinite(Number(mv.score)))
+    ? Number(mv.score)
+    : null;
+
+export function getProgramMaxScore(program) {
+    return (Array.isArray(program?.movements) ? program.movements : [])
+        .reduce((s, m) => s + 10 * (Number(m.coeff) || 1), 0);
+}
+
+// Movements counted for the TR general-impressions tie-break
+const GENERAL_IMPRESSION_KEYWORDS = ['gångarter', 'framåtbjudning', 'lydnad', 'kusken', 'presentation', 'helhetsintryck', 'impulsion', 'athlete', 'general impression'];
+
+function isGeneralImpressionMovement(pm) {
+    const text = String(pm?.text || '').toLowerCase();
+    return GENERAL_IMPRESSION_KEYWORDS.some(k => text.includes(k));
+}
+
+// Per-judge points/percent/penalty, averaged over the given protocols
 export function computeFinalFromSaved(savedArr, program, allPrograms) {
     if (!Array.isArray(savedArr) || !program) return null;
 
-    const maxScore = (Array.isArray(program.movements) ? program.movements : [])
-        .reduce((s, m) => s + 10 * (Number(m.coeff) || 1), 0);
-
+    const maxScore = getProgramMaxScore(program);
     if (maxScore <= 0) return null;
 
     const penaltyCoeff = getDressagePenaltyCoeff(program, allPrograms);
@@ -50,17 +67,22 @@ export function computeFinalFromSaved(savedArr, program, allPrograms) {
 
     for (const p of savedArr) {
         const movements = Array.isArray(p.movements) ? p.movements : [];
-        const total = movements.reduce((sum, mv) => {
-            const pm = (program.movements || []).find(x => Number(x.no) === Number(mv.momentNo ?? mv.movementNo ?? mv.no));
+        let total = 0;
+        let general = 0;
+        for (const mv of movements) {
+            const pm = (program.movements || []).find(x => Number(x.no) === movementNo(mv));
+            const sc = scoreOf(mv);
+            if (sc == null) continue;
             const c = Number(pm?.coeff) || 1;
-            const sc = (mv.score !== '' && mv.score != null) ? Number(mv.score) : null;
-            return (sc != null ? (sum + sc * c) : sum);
-        }, 0);
+            total += sc * c;
+            if (pm && isGeneralImpressionMovement(pm)) general += sc * c;
+        }
 
         finals.push({
             points: total,
-            percent: maxScore ? (total / maxScore) * 100 : 0,
-            penalty: (maxScore - total) * penaltyCoeff
+            percent: (total / maxScore) * 100,
+            penalty: (maxScore - total) * penaltyCoeff,
+            generalImpressionsSum: general
         });
     }
 
@@ -69,33 +91,75 @@ export function computeFinalFromSaved(savedArr, program, allPrograms) {
     const avg = finals.reduce((a, b) => ({
         points: a.points + b.points,
         percent: a.percent + b.percent,
-        penalty: a.penalty + b.penalty
-    }), { points: 0, percent: 0, penalty: 0 });
+        penalty: a.penalty + b.penalty,
+        generalImpressionsSum: a.generalImpressionsSum + b.generalImpressionsSum
+    }), { points: 0, percent: 0, penalty: 0, generalImpressionsSum: 0 });
 
     avg.points /= finals.length;
     avg.percent /= finals.length;
     avg.penalty /= finals.length;
+    avg.generalImpressionsSum /= finals.length;
 
     return avg;
 }
 
-export function deduplicateAndFilterProtocols(protocols, validJudgesList) {
-    if (!Array.isArray(protocols)) return [];
-
-    const dedupMap = new Map();
-    protocols.forEach(p => {
-        if (p.judgeId) dedupMap.set(String(p.judgeId), p);
-        else if (p.position) dedupMap.set('POS:' + String(p.position).toUpperCase(), p);
-        else dedupMap.set('UNKNOWN:' + Math.random(), p);
-    });
-
-    return Array.from(dedupMap.values()).filter(p => {
-        const hasMoves = Array.isArray(p.movements) && p.movements.length > 0;
-        return hasMoves;
-    });
+export function normJudgeId(id) {
+    return String(id || '').replace(/^judge_/i, '').trim().toLowerCase();
 }
 
-function getProtocolProgramKey(protocols = [], allPrograms = {}) {
+/**
+ * Cleans the protocol list: matches protocols to configured judges (by id or
+ * position) when a judge list is given, keeps one protocol per judge (last
+ * wins) and drops protocols without movements. The 'general' document
+ * (error points) is never a judge protocol.
+ */
+export function deduplicateAndFilterProtocols(protocols, validJudgesList = []) {
+    if (!Array.isArray(protocols)) return [];
+    const judges = Array.isArray(validJudgesList) ? validJudgesList : [];
+
+    const normalized = protocols.filter(p => p && p.id !== 'general').map(p => {
+        const cleanId = normJudgeId(p.judgeId);
+        if (cleanId) {
+            const byId = judges.find(j => normJudgeId(j.id) === cleanId);
+            if (byId) return { ...p, judgeId: byId.id, id: byId.id, position: byId.position };
+        }
+        const pos = String(p.position || p.judgePosition || '').toUpperCase();
+        if (pos) {
+            const byPos = judges.find(j => String(j.position || '').toUpperCase() === pos);
+            if (byPos) return { ...p, judgeId: byPos.id, id: byPos.id, position: pos };
+        }
+        return p;
+    });
+
+    const dedupMap = new Map();
+    normalized.forEach((p, idx) => {
+        const id = normJudgeId(p.judgeId);
+        const pos = String(p.position || p.judgePosition || '').toUpperCase();
+        if (id) dedupMap.set(id, p);
+        else if (pos) dedupMap.set('POS:' + pos, p);
+        else dedupMap.set('UNKNOWN:' + idx, p);
+    });
+
+    return Array.from(dedupMap.values())
+        .filter(p => Array.isArray(p.movements) && p.movements.length > 0);
+}
+
+/**
+ * Error points (felkörning) from C. Stored on the 'general' protocol doc;
+ * an equipage-level value is also honoured. The highest value wins.
+ */
+export function resolveDressageErrorPoints(equipage, protocols = []) {
+    const values = [Number(equipage?.errorPoints) || 0];
+    for (const p of protocols || []) {
+        if (p && (p.id === 'general' || typeof p.errorPoints === 'number')) {
+            values.push(Number(p.errorPoints) || 0);
+        }
+    }
+    return Math.max(...values);
+}
+
+// Most common valid program key among the saved protocols
+export function getProtocolProgramKey(protocols = [], allPrograms = {}) {
     const counts = new Map();
     (protocols || []).forEach(protocol => {
         if (!protocol || protocol.id === 'general') return;
@@ -153,32 +217,113 @@ export function guessProgramKeyFromClass(className, allPrograms) {
     return null;
 }
 
+/**
+ * Program for an equipage: saved protocols first (a single equipage may
+ * deliberately use another program than its class), then the equipage's own
+ * key, then the competition's class mapping, then a guess from the class name.
+ */
+export function resolveDressageProgramKey(equipage, protocols = [], allPrograms = {}, programMapping = {}) {
+    const fromProtocols = getProtocolProgramKey(protocols, allPrograms);
+    if (fromProtocols) return fromProtocols;
+
+    const explicitKey = equipage?.testKey || equipage?.programKey;
+    if (explicitKey && allPrograms[explicitKey]) return explicitKey;
+
+    const className = String(equipage?.className || equipage?.class || equipage?.klass || '').trim();
+    // The dressyrProgramMapping doc is stored either flat or under .mapping
+    const mapping = (programMapping?.mapping && typeof programMapping.mapping === 'object')
+        ? programMapping.mapping
+        : (programMapping || {});
+    const mappedKey = mapping[className] || (equipage?._mergedLabel ? mapping[equipage._mergedLabel] : null);
+    if (mappedKey && allPrograms[mappedKey]) return mappedKey;
+
+    return guessProgramKeyFromClass(className, allPrograms);
+}
+
+// Live prognosis: average of the judged movements, projected over the program
+function computePrognosis(judgeProtocols, program) {
+    const movs = program.movements || [];
+    let pointsNow = 0;
+    let maxPointsNow = 0;
+
+    for (const pm of movs) {
+        const scores = judgeProtocols
+            .map(p => scoreOf((p.movements || []).find(m => movementNo(m) === Number(pm.no))))
+            .filter(s => s != null);
+        if (scores.length === 0) continue;
+        const c = Number(pm.coeff) || 1;
+        pointsNow += (scores.reduce((a, b) => a + b, 0) / scores.length) * c;
+        maxPointsNow += 10 * c;
+    }
+
+    return { pointsNow, maxPointsNow };
+}
+
 export function calculateDressageResult(state) {
     const { equipage, dressage, config } = state;
-    if (!equipage) return { penalty: null, eliminated: false };
-
-    const clean = deduplicateAndFilterProtocols(dressage.protocols || [], config.judges);
-    const progKey = getProtocolProgramKey(clean, config.allPrograms)
-        || equipage.testKey
-        || equipage.programKey
-        || guessProgramKeyFromClass(equipage.className, config.allPrograms);
-    const program = config.allPrograms[progKey];
-    const isElim = clean.some(p => p.eliminated);
-
-    if (!program || clean.length === 0) return { penalty: null, eliminated: isElim };
-
-    const result = computeFinalFromSaved(clean, program, config.allPrograms);
-    let penalty = null;
-
-    if (result) {
-        // TR Mom 518.9 & FEI Art 958.1.4: Error points from C are added directly 1:1
-        const err = Number(equipage.errorPoints) || 0;
-        penalty = isElim ? null : round2(result.penalty + err);
+    if (!equipage) {
+        return { penalty: null, percent: null, points: null, judgePenalty: null, errorPoints: 0, errorPenalty: 0, eliminated: false };
     }
-    
-    return { 
-        penalty, 
-        eliminated: isElim, 
-        judgePenalty: isElim ? null : (result ? round2(result.penalty) : null)
+
+    const allPrograms = config.allPrograms || {};
+    const rawProtocols = dressage?.protocols || [];
+    const judgeProtocols = deduplicateAndFilterProtocols(rawProtocols, config.judges);
+    const programKey = resolveDressageProgramKey(
+        equipage,
+        judgeProtocols.length ? judgeProtocols : rawProtocols,
+        allPrograms,
+        config.dressageProgramMapping
+    );
+    const program = programKey ? allPrograms[programKey] : null;
+    const eliminated = !!equipage.eliminated || judgeProtocols.some(p => p.eliminated);
+
+    // TR Mom 518.9 & FEI Art 958.1.4: error points from C are added directly 1:1
+    const errorPoints = resolveDressageErrorPoints(equipage, rawProtocols);
+
+    if (!program || judgeProtocols.length === 0) {
+        return {
+            penalty: null,
+            judgePenalty: null,
+            percent: eliminated ? 0 : null,
+            points: eliminated ? 0 : null,
+            eliminated,
+            programKey: programKey || null,
+            programName: program ? program.name : null,
+            errorPoints,
+            errorPenalty: errorPoints
+        };
+    }
+
+    const result = computeFinalFromSaved(judgeProtocols, program, allPrograms);
+    const coeff = getDressagePenaltyCoeff(program, allPrograms);
+    const totalMaxPoints = getProgramMaxScore(program);
+    const { pointsNow, maxPointsNow } = computePrognosis(judgeProtocols, program);
+
+    const isLive = maxPointsNow > 0 && maxPointsNow < totalMaxPoints;
+    const projPercent = maxPointsNow > 0 ? (pointsNow / maxPointsNow) * 100 : null;
+    const projPoints = projPercent != null ? (projPercent / 100) * totalMaxPoints : null;
+    const projPenalty = projPoints != null ? round2(((totalMaxPoints - projPoints) * coeff) + errorPoints) : null;
+
+    return {
+        penalty: eliminated || !result ? null : round2(result.penalty + errorPoints),
+        judgePenalty: eliminated || !result ? null : round2(result.penalty),
+        percent: eliminated ? 0 : (result ? round2(result.percent) : null),
+        points: eliminated ? 0 : (result ? round2(result.points) : null),
+
+        projectedPercent: eliminated ? 0 : (projPercent != null ? round2(projPercent) : null),
+        projectedPoints: eliminated ? 0 : (projPoints != null ? round2(projPoints) : null),
+        projectedPenalty: eliminated ? 0 : projPenalty,
+
+        isLive,
+        eliminated,
+        programKey,
+        programName: program.name,
+        coeff,
+        errorPoints,
+        errorPenalty: errorPoints,
+        judgeCount: judgeProtocols.length,
+        pointsNow,
+        // TR tie-break
+        generalImpressionsSum: result ? result.generalImpressionsSum : null
     };
 }

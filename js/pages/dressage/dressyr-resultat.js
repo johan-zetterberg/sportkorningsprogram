@@ -37,6 +37,7 @@ import {
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { mergeDressageProtocols } from './dressageResultBuilder.js';
+import { rankDressageRows } from './dressageResultRanking.js';
 import { setupDressageResultExportButtons } from './dressageResultExports.js';
 import {
     clearGlobalScrollLocks,
@@ -878,14 +879,10 @@ function processAndAggregateResults(equipages, allRawResults) {
         const isCR = !!cfg?.clearRound;
         const limit = Number(cfg?.limit) || 0;
 
-        const finalRankables = eqs.filter(eq => !eq.eliminated && eq.finalPenalty != null)
-            .sort((a, b) => {
-                const diff = (a.finalPenalty || 0) - (b.finalPenalty || 0);
-                if (Math.abs(diff) > 0.0001) return diff;
-                
-                // Tie-breaker: Highest General Impressions sum (TR)
-                return (b.generalImpressionsSum || 0) - (a.generalImpressionsSum || 0);
-            });
+        const finalRankables = rankDressageRows(eqs, {
+            penaltyPicker: eq => eq.finalPenalty,
+            eliminatedPicker: eq => !!eq.eliminated
+        });
 
         if (isCR) {
             // Clear Round Logic: Ingen placering, bara Godkänd/Ej Godkänd
@@ -897,23 +894,6 @@ function processAndAggregateResults(equipages, allRawResults) {
                 const pct = Number(eq.avgPercent) || 0;
                 eq.crApproved = (pct >= limit);
                 eq.crLimit = limit;
-            });
-        } else {
-            // Normal Placering
-            let plc = 0, lastPenalty = -Infinity, lastGISum = -Infinity;
-            finalRankables.forEach((eq, i) => {
-                // Vid lika straff, samma placering (standard hopp/dressyr vid lika resultat?)
-                // Här kör vi strikt placering baserat på ordning men delad vid exakt lika
-                const p = Number(eq.finalPenalty) || 0;
-                const gi = Number(eq.generalImpressionsSum) || 0;
-                
-                // Tie check: Same penalty AND same general impressions sum
-                if (Math.abs(p - lastPenalty) > 0.0001 || Math.abs(gi - lastGISum) > 0.0001) { 
-                    plc = i + 1; 
-                }
-                eq.plac = plc;
-                lastPenalty = p;
-                lastGISum = gi;
             });
         }
     });

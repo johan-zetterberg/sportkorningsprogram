@@ -1180,7 +1180,7 @@ function buildMarathonValidationFromForm(container) {
     if (!cls || !field) return;
     if (!newClassData[cls]) newClassData[cls] = {};
 
-    if (field === 'includeTransport') {
+    if (field === 'includeTransport' || field === 'clearRound') {
       newClassData[cls][field] = input.checked === true;
     } else if (field === 'trTemplate') {
       newClassData[cls][field] = input.value || null;
@@ -1210,7 +1210,8 @@ function buildMarathonValidationFromForm(container) {
       hasTempoA: (Number.isFinite(manualTempoA) && manualTempoA > 0)
         || !!trTempoMminForWithCat(row.trTemplate || className, 'A', catKey),
       hasTempoB: (Number.isFinite(manualTempoB) && manualTempoB > 0)
-        || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey)
+        || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey),
+      isLightB: normalizeClassKey(row.trTemplate || className) === 'Lätt B'
     };
   });
 
@@ -1394,6 +1395,13 @@ async function setupMarathonSettings() {
         <!-- TR Template Selector -->
         <div class="mt-4 pt-4 border-t dark:border-gray-600">
             <div class="flex flex-col gap-4">
+                <label class="flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-800 dark:bg-emerald-950/20">
+                    <input type="checkbox" data-class-name="${cn}" data-field="clearRound" class="marathon-class-input mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" ${data.clearRound === true ? 'checked' : ''}>
+                    <span>
+                        <span class="block text-sm font-semibold text-gray-800 dark:text-gray-100">Lätt B Clear Round</span>
+                        <span class="block text-xs text-gray-600 dark:text-gray-400">Ingen rangordning. Godkänd kräver 0 maratonstraff; hindertid ger inget straff upp till 5 minuter per hinder.</span>
+                    </span>
+                </label>
                 <div class="min-w-0">
                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tempo-mall (TR-nivå)</label>
                      <select data-class-name="${cn}" data-field="trTemplate" class="marathon-class-input p-2 border rounded-md text-sm w-full sm:max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -1435,7 +1443,7 @@ async function setupMarathonSettings() {
       if (!newClassData[cls]) newClassData[cls] = {};
 
       // Specialhantering för sträng-fält (som trTemplate och drivenObstacles)
-      if (field === 'includeTransport') {
+      if (field === 'includeTransport' || field === 'clearRound') {
         newClassData[cls][field] = input.checked === true;
       } else if (field === 'trTemplate') {
         newClassData[cls][field] = input.value || null;
@@ -1464,7 +1472,8 @@ async function setupMarathonSettings() {
         hasTempoA: (Number.isFinite(manualTempoA) && manualTempoA > 0)
           || !!trTempoMminForWithCat(row.trTemplate || className, 'A', catKey),
         hasTempoB: (Number.isFinite(manualTempoB) && manualTempoB > 0)
-          || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey)
+          || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey),
+        isLightB: normalizeClassKey(row.trTemplate || className) === 'Lätt B'
       };
     });
 

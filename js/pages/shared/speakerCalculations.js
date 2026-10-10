@@ -6,6 +6,8 @@ import { getSpeakerDisciplineResult } from './speakerResults.js';
 import { matchesDisplayClass } from './speakerHelpers.js';
 import { getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
 import { isLiveInjectionEliminated, toFiniteNumberOrNull, toFiniteNumberOrZero } from './speakerCalculationUtils.js';
+import { rankDressageRows } from '../dressage/dressageResultRanking.js';
+import { compareTotalTiebreak } from './totalResultRanking.js';
 
 export function getLeaderToBeat(className, discipline, context) {
     const { allEquipages, precisionStatusMap, precisionConfig, startTimes } = context;
@@ -142,6 +144,49 @@ export function calculateLiveInjection(eq, context) {
     return null;
 }
 
+export function rankSpeakerResultRows(results = []) {
+    results.sort((a, b) => {
+        if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
+
+        const totalA = Number.isFinite(a.totalPenalty) ? a.totalPenalty : Infinity;
+        const totalB = Number.isFinite(b.totalPenalty) ? b.totalPenalty : Infinity;
+        if (Math.abs(totalA - totalB) > 1e-6) return totalA - totalB;
+        return compareTotalTiebreak(a, b);
+    });
+
+    const leader = results.find(row => !row.isEliminated && Number.isFinite(row.totalPenalty));
+    let previousRankedRow = null;
+    results.forEach((row, index) => {
+        if (row.isEliminated) {
+            row.plac = 'ELIM';
+            row.diffFromLeader = null;
+            return;
+        }
+        if (!Number.isFinite(row.totalPenalty)) {
+            row.plac = null;
+            row.diffFromLeader = null;
+            return;
+        }
+
+        const isTied = previousRankedRow
+            && Math.abs(row.totalPenalty - previousRankedRow.totalPenalty) <= 1e-6
+            && compareTotalTiebreak(row, previousRankedRow) === 0;
+        row.plac = isTied ? previousRankedRow.plac : index + 1;
+        row.diffFromLeader = leader ? row.totalPenalty - leader.totalPenalty : null;
+        previousRankedRow = row;
+    });
+
+    results.forEach(row => { row.posDress = null; });
+    rankDressageRows(results, {
+        penaltyPicker: row => row.dressage?.penalty,
+        eliminatedPicker: row => !!row.dressage?.eliminated,
+        groupPicker: () => 'speaker',
+        outputField: 'posDress'
+    });
+
+    return results;
+}
+
 export function getTotalRanking(className, currentRiderInfo, context) {
     const { allEquipages } = context;
     if (!className) return [];
@@ -204,59 +249,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         });
     });
 
-    // 1. Overall Ranking (for plac and total)
-    results.sort((a, b) => {
-        if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
-        
-        const aTot = (a.total === null || a.total === undefined) ? Infinity : a.total;
-        const bTot = (b.total === null || b.total === undefined) ? Infinity : b.total;
-
-        // Main sort: total penalty
-        if (Math.abs(aTot - bTot) > 0.001) return aTot - bTot;
-
-        // Tie-breaker 1: Marathon (lowest score better)
-        const ma = a.marathon?.totalPenalty ?? Infinity;
-        const mb = b.marathon?.totalPenalty ?? Infinity;
-        if (ma !== mb) return ma - mb;
-
-        // Tie-breaker 2: Dressage (lowest score better)
-        const da = a.dressage?.penalty ?? Infinity;
-        const db = b.dressage?.penalty ?? Infinity;
-        if (da !== db) return da - db;
-
-        // Tie-breaker 3: Precision (lowest score better)
-        const pa = a.precision?.pen ?? Infinity;
-        const pb = b.precision?.pen ?? Infinity;
-        if (pa !== pb) return pa - pb;
-
-        // Fallback: Start number
-        return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
-    });
-
-    const leadTotal = (results.length > 0 && results[0].total !== Infinity) ? results[0].total : 0;
-    results.forEach((r, idx) => {
-        if (r.isEliminated) {
-            r.plac = 'ELIM';
-            r.diffFromLeader = null;
-        } else if (r.total !== Infinity) {
-            r.plac = idx + 1;
-            r.diffFromLeader = r.total - leadTotal;
-        } else {
-            r.plac = null;
-            r.diffFromLeader = null;
-        }
-    });
-
-    // Dressyr Rank
-    const dressageSorted = [...results].sort((a, b) => {
-        if (a.dressage.eliminated !== b.dressage.eliminated) return a.dressage.eliminated ? 1 : -1;
-        return (a.dressage.penalty ?? Infinity) - (b.dressage.penalty ?? Infinity);
-    });
-    results.forEach(r => {
-        if (r.dressage.penalty !== null && !r.dressage.eliminated) {
-            r.posDress = dressageSorted.findIndex(x => x.startNumber === r.startNumber) + 1;
-        } else r.posDress = null;
-    });
+    rankSpeakerResultRows(results);
 
     // Maraton Rank
     const marathonSorted = [...results].sort((a, b) => {

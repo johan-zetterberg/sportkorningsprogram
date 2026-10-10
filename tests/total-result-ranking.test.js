@@ -60,12 +60,44 @@ test('compareTotalTiebreak prefers lower marathon penalty on tied totals', () =>
   assert.ok(compareTotalTiebreak(rows[0], rows[1]) > 0);
 });
 
+test('compareTotalTiebreak uses dressage after equal marathon and then keeps equal placing', () => {
+  const base = {
+    totalPenalty: 30,
+    marathon: { totalPenalty: 10 },
+    precision: { pen: 5, timeMs: 90000 }
+  };
+  const betterDressage = { ...base, startNumber: 10, dressage: { penalty: 7 } };
+  const worseDressage = { ...base, startNumber: 11, dressage: { penalty: 8 } };
+  const fullyEqual = {
+    ...base,
+    startNumber: 99,
+    dressage: { penalty: 7, generalImpressionsSum: 1 },
+    marathon: { totalPenalty: 10, obstaclePenaltySum: 999 },
+    precision: { pen: 15, timeMs: 999999 }
+  };
+
+  assert.ok(compareTotalTiebreak(betterDressage, worseDressage) < 0);
+  assert.equal(compareTotalTiebreak(betterDressage, fullyEqual), 0);
+});
+
 test('placeTotalRowsWithinClass ranks per display group', () => {
   const placed = placeTotalRowsWithinClass(rows.map((row) => ({ ...row })));
 
   assert.equal(placed.find((row) => row.startNumber === 2).plac, 1);
   assert.equal(placed.find((row) => row.startNumber === 1).plac, 2);
   assert.equal(placed.find((row) => row.startNumber === 3).plac, null);
+});
+
+test('placeTotalRowsWithinClass gives equal place when total, marathon and dressage are equal', () => {
+  const tiedRows = [
+    { startNumber: 1, className: 'A', totalPenalty: 20, marathon: { totalPenalty: 8 }, dressage: { penalty: 7 }, isEliminated: false },
+    { startNumber: 2, className: 'A', totalPenalty: 20, marathon: { totalPenalty: 8 }, dressage: { penalty: 7 }, isEliminated: false },
+    { startNumber: 3, className: 'A', totalPenalty: 21, marathon: { totalPenalty: 7 }, dressage: { penalty: 8 }, isEliminated: false }
+  ];
+
+  const placed = placeTotalRowsWithinClass(tiedRows);
+
+  assert.deepEqual(placed.map((row) => row.plac), [1, 1, 3]);
 });
 
 test('rankTotalRowsWithinClass ranks valid rows within original class', () => {
@@ -93,6 +125,18 @@ test('applyTotalDisciplinePlacements sets dressage, marathon and precision posit
   assert.equal(ranked.find((row) => row.startNumber === 2).posMar, 1);
   assert.equal(ranked.find((row) => row.startNumber === 1).posPrec, 1);
   assert.equal(ranked.find((row) => row.startNumber === 3).posDress, undefined);
+});
+
+test('applyTotalDisciplinePlacements keeps equal dressage penalties on equal place', () => {
+  const ranked = [
+    { startNumber: 1, className: 'A', dressage: { penalty: 40 }, marathon: {}, precision: {}, isEliminated: false },
+    { startNumber: 2, className: 'A', dressage: { penalty: 40 }, marathon: {}, precision: {}, isEliminated: false },
+    { startNumber: 3, className: 'A', dressage: { penalty: 41 }, marathon: {}, precision: {}, isEliminated: false }
+  ];
+
+  applyTotalDisciplinePlacements(ranked);
+
+  assert.deepEqual(ranked.map(row => row.posDress), [1, 1, 3]);
 });
 
 test('applyTotalResultDiffs sets leader and previous finished differences per display group', () => {

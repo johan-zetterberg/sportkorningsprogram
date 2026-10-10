@@ -31,6 +31,7 @@ import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeD
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { calculateDressageResult } from '../../services/calculationService.js'; // [NEW] // [NEW]
+import { rankDressageRows } from '../dressage/dressageResultRanking.js';
 import {
     buildDressageCsvExport,
     buildMarathonCsvExport,
@@ -490,44 +491,13 @@ function sortRowsForDressageReportPdf(rows = []) {
 }
 
 function applyDressagePlacementsForReportPdf(rows = []) {
-    const grouped = new Map();
-    rows.forEach((row) => {
-        const key = getReportDisplayClass(row) || row.className || '';
-        if (!grouped.has(key)) grouped.set(key, []);
-        grouped.get(key).push(row);
+    const rankedRows = rows.map(row => ({ ...row }));
+    rankDressageRows(rankedRows, {
+        penaltyPicker: row => row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty,
+        eliminatedPicker: row => !!(row.eliminated || row.dressage?.eliminated || row.results?.dressage?.eliminated),
+        groupPicker: row => getReportDisplayClass(row) || row.className || ''
     });
-
-    const placementByStart = new Map();
-    grouped.forEach((classRows) => {
-        const rankedRows = classRows
-            .filter(row => {
-                const penalty = Number(row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty);
-                const eliminated = !!(row.eliminated || row.dressage?.eliminated || row.results?.dressage?.eliminated);
-                return Number.isFinite(penalty) && !eliminated;
-            })
-            .sort((a, b) => {
-                const pa = Number(a.finalPenalty ?? a.dressage?.penalty ?? a.dressage?.totalPenalty);
-                const pb = Number(b.finalPenalty ?? b.dressage?.penalty ?? b.dressage?.totalPenalty);
-                if (pa !== pb) return pa - pb;
-                return (Number(a.startNumber) || 0) - (Number(b.startNumber) || 0);
-            });
-
-        let place = 0;
-        let previousPenalty = null;
-        rankedRows.forEach((row, index) => {
-            const penalty = Number(row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty);
-            if (previousPenalty == null || Math.abs(penalty - previousPenalty) > 0.0001) {
-                place = index + 1;
-            }
-            placementByStart.set(String(row.startNumber), place);
-            previousPenalty = penalty;
-        });
-    });
-
-    return rows.map(row => ({
-        ...row,
-        plac: placementByStart.get(String(row.startNumber)) ?? row.plac ?? ''
-    }));
+    return rankedRows;
 }
 
 window.reports_generateStartListPdf = function (type) {
@@ -841,4 +811,3 @@ window.reports_generateVetCheckPdf = function () {
     }
     generateVetCheckPdf(equipages, getGlobalState('currentCompetition'));
 };
-

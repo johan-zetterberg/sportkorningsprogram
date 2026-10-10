@@ -32,6 +32,9 @@ let liveUpdateTimer = null; // Timer för att undvika för många anrop
 let manualTestOverride = false;   // användaren har valt program manuellt
 let programmaticChange = false;   // vi byter värde i koden (ska inte sätta override)
 let lastStartNumber = null;
+// Error points live in the shared 'general' doc. Only write it when this judge
+// changed the fields, so a save from another judge cannot reset C's points.
+let generalDataDirty = false;
 
 const DRESSAGE_DEFAULT_ERROR_1 = 5;
 const DRESSAGE_DEFAULT_ERROR_2 = 10;
@@ -470,6 +473,7 @@ function clearForm() {
   document.getElementById('dressageEliminated').checked = false;
   document.getElementById('errorPointsInput').value = 0;
   document.getElementById('errorCommentInput').value = '';
+  generalDataDirty = false;
   calculateTotals();
 }
 
@@ -736,31 +740,33 @@ async function saveProtocol() {
     };
     await saveDressageJudgeProtocol(competitionId, startNumber, activeDressageJudge.id, protocolData);
 
-    const generalData = {
-      errorPoints: parseFloat(document.getElementById('errorPointsInput').value) || 0,
-      errorComment: document.getElementById('errorCommentInput').value || ''
-    };
-    await saveDressageGeneralData(competitionId, startNumber, generalData);
-    mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
+    if (generalDataDirty) {
+      const generalData = {
+        errorPoints: parseFloat(document.getElementById('errorPointsInput').value) || 0,
+        errorComment: document.getElementById('errorCommentInput').value || ''
+      };
+      await saveDressageGeneralData(competitionId, startNumber, generalData);
+      mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
+    } else {
+      mirrorToLocal(startNumber, { protocol: protocolData });
+    }
 
-    const program = getPrograms()[testKey];
-    const maxScore = program.movements.reduce((s, m) => s + 10 * m.coeff, 0);
-    const totalScore = movementsData.reduce((s, m) => {
-      const pm = program.movements.find(x => x.no === m.momentNo);
-      return s + (m.score * (pm?.coeff || 1));
-    }, 0);
-    const penaltyCoeff = getDressagePenaltyCoeff(program);
-    const finalPenalty = eliminated ? null : ((maxScore - totalScore) * penaltyCoeff);
-    const finalPercent = eliminated ? 0 : (maxScore > 0 ? (totalScore / maxScore) * 100 : 0);
+    // This judge's own score (no error points), from the result engine.
+    // Calculated as not eliminated so points stay visible on an eliminated protocol.
+    const judgeCalc = calculateSingleJudgeDressageResult(
+      { ...protocolData, eliminated: false },
+      getPrograms()[testKey],
+      { errorPoints: 0 }
+    ) || {};
 
     const finalJudgeScorePayload = {
       judgeId: activeDressageJudge.id,
       judgeName: activeDressageJudge.name,
       judgePosition: activeDressageJudge._pos || '',
-      points: totalScore,
-      totalPoints: totalScore,
-      penalty: finalPenalty,
-      percent: finalPercent,
+      points: judgeCalc.points ?? 0,
+      totalPoints: judgeCalc.points ?? 0,
+      penalty: eliminated ? null : (judgeCalc.judgePenalty ?? null),
+      percent: eliminated ? 0 : (judgeCalc.percent ?? 0),
       eliminated: eliminated,
     };
 
@@ -958,18 +964,28 @@ function setupEventListeners() {
     }
   });
 
-  if (errorPointsInput) errorPointsInput.addEventListener('input', handleGenericInput);
+  if (errorPointsInput) {
+    errorPointsInput.addEventListener('input', () => {
+      generalDataDirty = true;
+      handleGenericInput();
+    });
+  }
+  document.getElementById('errorCommentInput')?.addEventListener('input', () => {
+    generalDataDirty = true;
+  });
   if (eliminatedCheckbox) eliminatedCheckbox.addEventListener('change', handleGenericInput);
 
   // Snabbknappar för felkörning/vägfel enligt sparade regler eller TR/FEI-standard.
   document.getElementById('btnErr1')?.addEventListener('click', () => {
     const rule = getDressageRuleNumber('error1', DRESSAGE_DEFAULT_ERROR_1);
     errorPointsInput.value = rule;
+    generalDataDirty = true;
     handleGenericInput();
   });
   document.getElementById('btnErr2')?.addEventListener('click', () => {
     const rule2 = getDressageRuleNumber('error2', DRESSAGE_DEFAULT_ERROR_2);
     errorPointsInput.value = rule2;
+    generalDataDirty = true;
     handleGenericInput();
   });
 

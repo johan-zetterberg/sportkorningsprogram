@@ -9,13 +9,13 @@ function getClassName(value) {
     return typeof value === 'string' ? value : (value?.className || '');
 }
 
-function getMergedClassName(value) {
-    return typeof value === 'string'
-        ? ''
-        : (value?.useMergedTestForDisplay && value?.mergedTestLabel ? String(value.mergedTestLabel) : '');
+export function getMergedClassName(value) {
+    if (typeof value === 'string') return '';
+    if (value?._mergedLabel) return String(value._mergedLabel);
+    return value?.useMergedTestForDisplay && value?.mergedTestLabel ? String(value.mergedTestLabel) : '';
 }
 
-function getCourseCandidates(value) {
+export function getCourseCandidates(value) {
     const className = getClassName(value);
     const mergedClassName = getMergedClassName(value);
     return [className, mergedClassName].filter(Boolean);

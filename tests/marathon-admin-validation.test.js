@@ -55,6 +55,31 @@ test('validateMarathonClassSettings accepts classes without transport by default
   assert.equal(errors.length, 0);
 });
 
+test('validateMarathonClassSettings only permits clear round for Lätt B', () => {
+  const row = {
+    distanceA: 1000,
+    windowA: 2,
+    distanceB: 2000,
+    windowB: 3,
+    gateCount: 6,
+    clearRound: true
+  };
+
+  const invalid = validateMarathonClassSettings(row, {
+    hasTempoA: true,
+    hasTempoB: true,
+    isLightB: false
+  });
+  const valid = validateMarathonClassSettings(row, {
+    hasTempoA: true,
+    hasTempoB: true,
+    isLightB: true
+  });
+
+  assert.deepEqual(invalid.map(error => error.field), ['clearRound']);
+  assert.equal(valid.length, 0);
+});
+
 test('validateDrivenObstacles accepts comma numbers and rejects free text', () => {
   assert.equal(validateDrivenObstacles('1,2,4,6'), true);
   assert.equal(validateDrivenObstacles(''), true);

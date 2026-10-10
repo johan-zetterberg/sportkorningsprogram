@@ -92,11 +92,13 @@ export function setupMarathonResultExportButtons({
       const etaLabel = res.eta.B ? fmtClock(res.eta.B) : (res.eta.A ? fmtClock(res.eta.A) : '-');
 
       const place = placeMap.get(sn);
-      const totalLabel = formatMarathonPenaltyExportValue(res.totalPenalty, {
-        equipage: eq,
-        marathonResult: res,
-        empty: '-'
-      });
+      const totalLabel = res.isClearRound && !res.eliminated && res.totalPenalty != null
+        ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+        : formatMarathonPenaltyExportValue(res.totalPenalty, {
+            equipage: eq,
+            marathonResult: res,
+            empty: '-'
+          });
 
       const row = [
         isNum(place) ? place : '-',
@@ -122,8 +124,10 @@ export function setupMarathonResultExportButtons({
       for (let i = 1; i <= maxObs; i++) {
         const o = obsArr.find(x => Number(x.number ?? x.no ?? x.nr ?? x.hinderNr) === i) || null;
         if (o) {
+          const calculated = res.obstacles?.items?.find(item => Number(item.number ?? item.no ?? item.nr ?? item.hinderNr) === i);
           const { penalty } = obstacleValues(o);
-          const p = isNum(penalty) ? penalty : 0;
+          const effectivePenalty = res.isClearRound ? calculated?.penalty : penalty;
+          const p = isNum(effectivePenalty) ? effectivePenalty : 0;
           row.push(p.toFixed(2));
         } else {
           row.push('0.00');
@@ -134,7 +138,9 @@ export function setupMarathonResultExportButtons({
         formatMarathonPenaltyExportValue(res.obstacles.sum, { equipage: eq, marathonResult: res, empty: '0.00' }),
         formatMarathonExternalOtherPenalty(res, { equipage: eq, empty: '0.00' }),
         totalLabel,
-        res.status || '-'
+        res.isClearRound && !res.eliminated && res.totalPenalty != null
+          ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+          : (res.status || '-')
       );
 
       return row;

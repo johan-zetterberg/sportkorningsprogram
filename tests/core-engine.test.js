@@ -115,11 +115,19 @@ test('buildEquipageState normalizes common equipage fields', () => {
     startNumber: 5,
     className: 'MSV 3',
     category: 'ponny b',
+    categoryName: null,
+    division: null,
+    type: null,
     isPara: false,
     status: undefined,
+    eliminated: false,
     errorPoints: 3,
     heightCm: 138,
-    testKey: 'LA'
+    horses: [],
+    testKey: 'LA',
+    _mergedLabel: null,
+    useMergedTestForDisplay: false,
+    mergedTestLabel: null
   });
 });
 
@@ -264,6 +272,47 @@ test('calculateMarathonResult deducts obstacle hold time from B section', () => 
   assert.equal(result.stages.B.holdTimeMs, 30000);
   assert.equal(result.stages.B.timePenalty, 0);
   assert.equal(result.totalPenalty, 5);
+});
+
+test('calculateMarathonResult ignores obstacle time for Lätt B clear round', () => {
+  const state = createBaseState();
+  state.config.marathonConfig = structuredClone(state.config.marathonConfig);
+  state.config.marathonConfig.marathonClassData.Testklass.clearRound = true;
+
+  const result = calculateMarathonResult(state);
+
+  assert.equal(result.isClearRound, true);
+  assert.equal(result.eliminated, false);
+  assert.equal(result.obstacles.sum, 0);
+  assert.equal(result.totalPenalty, 0);
+  assert.equal(result.clearRoundApproved, true);
+});
+
+test('calculateMarathonResult keeps non-time penalties in clear round', () => {
+  const state = createBaseState();
+  state.config.marathonConfig = structuredClone(state.config.marathonConfig);
+  state.config.marathonConfig.marathonClassData.Testklass.clearRound = true;
+  state.marathon.resultDoc.obstacles[0].knockdownPenalty = 2;
+
+  const result = calculateMarathonResult(state);
+
+  assert.equal(result.eliminated, false);
+  assert.equal(result.obstacles.sum, 2);
+  assert.equal(result.totalPenalty, 2);
+  assert.equal(result.clearRoundApproved, false);
+});
+
+test('calculateMarathonResult eliminates obstacle times over five minutes', () => {
+  const state = createBaseState();
+  state.config.marathonConfig = structuredClone(state.config.marathonConfig);
+  state.config.marathonConfig.marathonClassData.Testklass.clearRound = true;
+  state.marathon.resultDoc.obstacles[0].timeSeconds = 301;
+
+  const result = calculateMarathonResult(state);
+
+  assert.equal(result.eliminated, true);
+  assert.equal(result.totalPenalty, Infinity);
+  assert.equal(result.clearRoundApproved, false);
 });
 
 test('computeMaxSecondsForClass and calculatePrecisionResult compute penalties', () => {

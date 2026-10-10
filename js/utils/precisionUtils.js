@@ -17,7 +17,11 @@ import {
 import {
     calculatePrecisionResult as _calculatePrecisionResult,
     calculatePrecisionTimePenalty as _calculatePrecisionTimePenalty,
-    computeMaxSecondsForClass as _pureComputeMaxSecondsForClass
+    computeMaxSecondsForClass,
+    getTrackLengthMeters,
+    getClassTempoMpm,
+    getMergedClassName,
+    getCourseCandidates
 } from './precisionCalculation.js';
 
 function getBrowserGlobalState(key) {
@@ -31,20 +35,12 @@ function getClassName(value) {
     return typeof value === 'string' ? value : (value?.className || '');
 }
 
-function getMergedClassName(value) {
-    return typeof value === 'string'
-        ? ''
-        : (value?._mergedLabel || (value?.useMergedTestForDisplay && value?.mergedTestLabel) ? String(value._mergedLabel || value.mergedTestLabel) : '');
-}
-
 export function getPrecisionDisplayClassName(value) {
     return getMergedClassName(value) || getClassName(value);
 }
 
 export function getPrecisionCourseCandidates(value) {
-    const className = getClassName(value);
-    const mergedClassName = getMergedClassName(value);
-    return [className, mergedClassName].filter(Boolean);
+    return getCourseCandidates(value);
 }
 
 export function getPrecisionCourseData(value, config = {}) {
@@ -264,70 +260,8 @@ export function computePortWidth(eqOrDoc, precisionConfig = {}) {
 // -------------------------------------------------------------
 // Bana, tempo & maxtid
 // -------------------------------------------------------------
-export function getTrackLengthMeters(cls, config) {
-    const c = getPrecisionCourseData(cls, config).course;
-    const n = Number(c.trackLengthMeters ?? c.length ?? c.trackLength);
-    return Number.isFinite(n) && n > 0 ? n : null;
-}
-
-export function getClassTempoMpm(cls, config) {
-    const c = config || {};
-    const byClass = c.tempoByClass || c.classTempo || {};
-    const className = getClassName(cls);
-    const mergedClassName = getMergedClassName(cls);
-    const allCourses = c.courses || {};
-    const courses = allCourses[className] || {};
-    const mergedCourses = mergedClassName ? (allCourses[mergedClassName] || {}) : {};
-    const tryNum = (v) => {
-        const n = Number(v);
-        return Number.isFinite(n) && n > 0 ? n : null;
-    };
-
-    // 1) i precisionConfig
-    const confCand = tryNum(
-        byClass[className]
-        ?? byClass[_norm(className)]
-        ?? courses.tempo
-        ?? courses.tempoMpm
-        ?? courses.mPerMin
-    );
-    if (confCand) return confCand;
-
-    // 2) i klassTempoData (som i admin: .precision + bästa match)
-    const keys = Object.keys(klassTempoData || {});
-    const normCls = _norm(className);
-    // exakt
-    let key = keys.find((k) => _norm(k) === normCls);
-    // prefix-match, längsta först
-    if (!key) {
-        key = keys
-            .filter((k) => normCls.startsWith(_norm(k)))
-            .sort((a, b) => _norm(b).length - _norm(a).length)[0];
-    }
-    // innehåller
-    if (!key) {
-        key = keys
-            .filter((k) => normCls.includes(_norm(k)))
-            .sort((a, b) => _norm(b).length - _norm(a).length)[0];
-    }
-    if (key && klassTempoData[key]?.precision) {
-        return klassTempoData[key].precision;
-    }
-    return tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
-}
-
-export function computeMaxSecondsForClass(cls, config) {
-    const coreVal = _pureComputeMaxSecondsForClass(cls, config);
-    if (coreVal !== null) return coreVal;
-    
-    // Fallback: Use track length and TR tempo from klassTempoData
-    const len = getTrackLengthMeters(cls, config);
-    const tempo = getClassTempoMpm(cls, config);
-    if (len > 0 && tempo > 0) {
-        return Math.round((len / tempo) * 60);
-    }
-    return null;
-}
+// Course length, tempo and max time come from the shared precision calculation
+export { getTrackLengthMeters, getClassTempoMpm, computeMaxSecondsForClass };
 
 export function startTimeFor(startNumber, startTimes) {
     if (!startTimes) return '–';

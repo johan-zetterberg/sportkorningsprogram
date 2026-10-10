@@ -38,7 +38,7 @@ export function buildMarathonPlacementsByClass({
     const finished = res.status === 'Klar' || finalized;
     const tot = res.totalPenalty;
 
-    if (!finished || !Number.isFinite(tot) || tot === Infinity) continue;
+    if (res.isClearRound || !finished || !Number.isFinite(tot) || tot === Infinity) continue;
 
     const grpKey = eq._mergedKey || `CLS:${eq.className || 'Ok\u00e4nd klass'}`;
     (byGroup[grpKey] ||= []).push({ sn, tot, res });
