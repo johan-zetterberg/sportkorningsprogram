@@ -26,7 +26,8 @@ const IGNORE_PATTERNS = [
     /node_modules/,
     /\.DS_Store/,
     /test/,
-    /scripts/
+    /scripts/,
+    /^assets\/rules\//  // Regeltexterna publiceras inte (se hosting.ignore i firebase.json)
 ];
 
 function scanDir(dir, fileList = []) {
