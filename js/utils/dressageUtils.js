@@ -10,7 +10,7 @@ import {
   deduplicateAndFilterProtocols as _dedupe
 } from '../core-engine/dressage.js';
 
-export { normJudgeId, getProtocolProgramKey, resolveDressageProgramKey } from '../core-engine/dressage.js';
+export { normJudgeId, getProtocolProgramKey, resolveDressageProgramKey, findProgramKey } from '../core-engine/dressage.js';
 
 /**
  * Hämtar den globala listan över dressyrprogram, med stöd för overrides via window-objektet.

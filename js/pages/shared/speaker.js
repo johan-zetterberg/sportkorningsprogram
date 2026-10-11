@@ -13,7 +13,8 @@ import {
     getPrograms,
     normalizeMovements,
     deduplicateAndFilterProtocols,
-    guessProgramKeyFromClass
+    guessProgramKeyFromClass,
+    findProgramKey
 } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { openEquipageModal } from '../../ui/equipage-modal.js';
@@ -764,7 +765,7 @@ function renderSpeakerJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumbe
         const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber)) || {};
         const programs = getPrograms();
         const testKey = d.testKey || d.programKey || eq?.testKey;
-        const pObj = programs[testKey] || (eq?.className ? programs[guessProgramKeyFromClass(eq.className, programs)] : null);
+        const pObj = programs[findProgramKey(testKey, programs)] || (eq?.className ? programs[guessProgramKeyFromClass(eq.className, programs)] : null);
 
         // Calculate projection
         const jr = calculateSingleJudgeDressageResult(d, pObj, eq);
@@ -786,7 +787,7 @@ function renderSpeakerJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumbe
             let pText = '';
             const testKey = d.testKey || d.programKey || eq?.testKey;
             const allProgs = mergedPrograms || {};
-            const pObj = allProgs[testKey] || (eq?.className ? allProgs[guessProgramKeyFromClass(eq.className, allProgs)] : null);
+            const pObj = allProgs[findProgramKey(testKey, allProgs)] || (eq?.className ? allProgs[guessProgramKeyFromClass(eq.className, allProgs)] : null);
             if (pObj && pObj.movements) {
                 const pm = pObj.movements.find(mov => mov.no === momentNo);
                 if (pm) pText = pm.text || pm.description || pm.movement || '';

@@ -1,4 +1,4 @@
-import { resolveDressageProgramKey } from './core-engine/dressage.js';
+import { findProgramKey, resolveDressageProgramKey } from './core-engine/dressage.js';
 import { buildCompetitionState } from './core-engine/stateSelector.js';
 
 /**
@@ -69,7 +69,7 @@ export function buildRecalculationValidation(records = [], context = {}) {
         }
 
         const explicitProgramKey = equipage.testKey || equipage.programKey;
-        if (explicitProgramKey && !context.allPrograms?.[explicitProgramKey]) {
+        if (explicitProgramKey && !findProgramKey(explicitProgramKey, context.allPrograms)) {
             warnings.push({ startNumber, message: `Ekipagets programnyckel "${explicitProgramKey}" finns inte; klassmappning eller reservval används.` });
         }
     }

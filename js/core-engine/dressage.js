@@ -158,13 +158,28 @@ export function resolveDressageErrorPoints(equipage, protocols = []) {
     return Math.max(...values);
 }
 
+/**
+ * The program dictionary's own key for `key`, or null. Older data can hold a
+ * key with other capitalisation (e.g. "SvMSVB" for "SvMsvB"); an exact match
+ * wins, otherwise the match ignores case.
+ */
+export function findProgramKey(key, allPrograms = {}) {
+    if (!key || !allPrograms) return null;
+    if (allPrograms[key]) return key;
+    const wanted = String(key).toLowerCase();
+    return Object.keys(allPrograms).find((k) => k.toLowerCase() === wanted) || null;
+}
+
 // Most common valid program key among the saved protocols
 export function getProtocolProgramKey(protocols = [], allPrograms = {}) {
     const counts = new Map();
     (protocols || []).forEach(protocol => {
         if (!protocol || protocol.id === 'general') return;
-        const key = protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey;
-        if (key && allPrograms[key]) counts.set(key, (counts.get(key) || 0) + 1);
+        const key = findProgramKey(
+            protocol.testKey || protocol.programKey || protocol.protocol?.testKey || protocol.protocol?.programKey,
+            allPrograms
+        );
+        if (key) counts.set(key, (counts.get(key) || 0) + 1);
     });
 
     let bestKey = null;
@@ -226,16 +241,19 @@ export function resolveDressageProgramKey(equipage, protocols = [], allPrograms 
     const fromProtocols = getProtocolProgramKey(protocols, allPrograms);
     if (fromProtocols) return fromProtocols;
 
-    const explicitKey = equipage?.testKey || equipage?.programKey;
-    if (explicitKey && allPrograms[explicitKey]) return explicitKey;
+    const explicitKey = findProgramKey(equipage?.testKey || equipage?.programKey, allPrograms);
+    if (explicitKey) return explicitKey;
 
     const className = String(equipage?.className || equipage?.class || equipage?.klass || '').trim();
     // The dressyrProgramMapping doc is stored either flat or under .mapping
     const mapping = (programMapping?.mapping && typeof programMapping.mapping === 'object')
         ? programMapping.mapping
         : (programMapping || {});
-    const mappedKey = mapping[className] || (equipage?._mergedLabel ? mapping[equipage._mergedLabel] : null);
-    if (mappedKey && allPrograms[mappedKey]) return mappedKey;
+    const mappedKey = findProgramKey(
+        mapping[className] || (equipage?._mergedLabel ? mapping[equipage._mergedLabel] : null),
+        allPrograms
+    );
+    if (mappedKey) return mappedKey;
 
     return guessProgramKeyFromClass(className, allPrograms);
 }

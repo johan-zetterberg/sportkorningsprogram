@@ -12,7 +12,7 @@ import {
   fmtNum,
   normalizeMovementNo,
   normalizeMovements,
-  guessProgramKeyFromClass
+  resolveDressageProgramKey
 } from '../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
 import { injectProviders, generateDressagePdf } from '../pdf/dressagePdf.js';
@@ -296,26 +296,19 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
     if (!data) throw new Error(t('no_data'));
 
     const programs = getPrograms();
-    const protocolProgramKey = (data.__savedProtocols || [])
-      .find(p => p && p.id !== 'general' && (p.testKey || p.programKey));
-    let programKey = protocolProgramKey?.testKey || protocolProgramKey?.programKey || data.testKey || data.programKey;
-    if (!programKey && window.klassProgramMapping) {
-      // Prioritate original class name which usually holds the mapping
-      const mapped = window.klassProgramMapping[data.originalClassName] || window.klassProgramMapping[data.className] || window.klassProgramMapping[data._mergedLabel];
-      if (mapped) programKey = mapped;
-    }
-
-    // Fallback: Guess from class name if still missing
-    if (!programKey && !programs[programKey]) {
+    // Same program choice as the result engine; the original class name
+    // (before merging) usually holds the class mapping.
+    let programKey = resolveDressageProgramKey(
+      { ...data, className: data.originalClassName || data.className },
+      data.__savedProtocols || [],
+      programs,
+      window.klassProgramMapping || {}
+    );
+    if (!programKey) {
+      // Backup: exact name match
       const clsName = data.className || data.originalClassName || '';
-      // Use shared utility for robust guessing
-      const scannedKey = guessProgramKeyFromClass(clsName, programs);
-      if (scannedKey) programKey = scannedKey;
-      else {
-        // Backup: exact name match
-        const found = Object.values(programs).find(p => p.name === clsName);
-        if (found) programKey = Object.keys(programs).find(k => programs[k] === found);
-      }
+      const found = Object.values(programs).find(p => p.name === clsName);
+      if (found) programKey = Object.keys(programs).find(k => programs[k] === found);
     }
 
     const program = programKey ? programs[programKey] : null;
