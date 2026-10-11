@@ -268,8 +268,9 @@ function setupListeners() {
         // Marathon
         const mObs = marathonResults.get(sn) || {};
         const mTimeRaw = marathonTiming.get(sn) || {};
-        // [FIX] Merge to ensure manual times in mObs are used if mTimeRaw is empty
-        const mTime = { ...mObs, ...mTimeRaw };
+        // Stage times live on the maraton doc; it wins over maraton-timing,
+        // as on the results pages and in the Cloud Function
+        const mTime = { ...mTimeRaw, ...mObs };
 
         const mRes = calculateMarathonResult(eq, mObs, mTime); // Uses central logic
         const mPen = mRes.totalPenalty; // Can be null

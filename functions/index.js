@@ -11,10 +11,9 @@ import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
-import { buildCompetitionState } from "./src/core-engine/stateSelector.js";
 import { RESULT_ENGINE_VERSION } from "./src/core-engine/version.js";
 import { dressagePrograms } from "./src/data/dressagePrograms.js";
-import { buildRecalculationValidation } from "./src/resultRecalculationUtils.js";
+import { buildRecalculationValidation, buildServerCompetitionState } from "./src/resultRecalculationUtils.js";
 import {
     buildCompetitionAdminJoinPayload,
     resolveJoinRoleForPin,
@@ -150,24 +149,13 @@ async function calculateEquipageRecord(compRef, startNumber, context, equipageSn
     // The 'general' doc (error points) stays in the list; the engine reads it.
     const dressProtocols = dressSnap.docs.map(d => ({ id: d.id, ...d.data() }));
 
-    const timingData = timingSnap.exists ? timingSnap.data() : {};
-    let marData = marSnap.exists ? marSnap.data() : {};
-    
-    // Use the obstacles array directly from the maraton document
-    if (!Array.isArray(marData.obstacles)) {
-        marData.obstacles = [];
-    }
-
-    const precData = precSnap.exists ? precSnap.data() : {};
-
-    const state = buildCompetitionState(
+    const state = buildServerCompetitionState({
         equipage,
-        dressProtocols,
-        marData,
-        timingData,
-        precData,
-        context
-    );
+        dressageProtocols: dressProtocols,
+        marathonDoc: marSnap.exists ? marSnap.data() : {},
+        timingDoc: timingSnap.exists ? timingSnap.data() : {},
+        precisionDoc: precSnap.exists ? precSnap.data() : {}
+    }, context);
     const result = calculateTotalResult(state);
 
     return {

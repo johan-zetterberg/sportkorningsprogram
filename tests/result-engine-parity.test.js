@@ -12,6 +12,7 @@ import {
 import { setMarathonConfig, setPauseWindows, tlSecondsFor } from '../js/utils/marathonUtils.js';
 import { deduplicateAndFilterProtocols } from '../js/utils/dressageUtils.js';
 import { buildCompetitionState } from '../functions/src/core-engine/stateSelector.js';
+import { buildServerCompetitionState } from '../functions/src/resultRecalculationUtils.js';
 import { calculateTotalResult as serverTotal } from '../functions/src/core-engine/calculation.js';
 import { calculateDressageResult as serverDressage } from '../functions/src/core-engine/dressage.js';
 import { calculateMarathonResult as serverMarathon } from '../functions/src/core-engine/marathon.js';
@@ -43,8 +44,9 @@ const serverContext = { allPrograms, dressageProgramMapping: {}, judges: [], mar
 const T0 = Date.UTC(2026, 9, 10, 9, 0, 0);
 const min = (m) => m * 60000;
 
+// The Cloud Function's own document-to-state assembly (functions/index.js)
 function serverState(equipage, protocols, marathonDoc, timingDoc, precisionDoc = {}) {
-  return buildCompetitionState(equipage, protocols, marathonDoc, timingDoc, precisionDoc, serverContext);
+  return buildServerCompetitionState({ equipage, dressageProtocols: protocols, marathonDoc, timingDoc, precisionDoc }, serverContext);
 }
 
 function both(equipage, marathonDoc, timingDoc) {
@@ -121,6 +123,24 @@ test('marathon: obstacles the class does not drive are ignored on both sides', (
   assert.equal(browser.eliminated, false);
   assert.equal(server.eliminated, false);
   assert.equal(server.obstacles.sum, 10);
+});
+
+test('marathon: stage times saved on the maraton doc (stage input) count on the server', () => {
+  setMarathonConfig(marathonConfig);
+  setPauseWindows([]);
+  const eq = { startNumber: 13, className: 'KlassA', category: 'horse' };
+  // maraton-stages-input writes the stage times onto the maraton document
+  const maratonDoc = {
+    obstacles: [{ number: 1, timeSeconds: 20 }],
+    start_A: T0, finish_A: T0 + min(20) + 20000, duration_A_ms: min(20) + 20000
+  };
+
+  const browser = calculateMarathonResult(eq, maratonDoc, maratonDoc);
+  const server = serverMarathon(serverState(eq, [], maratonDoc, {}));
+
+  assert.equal(browser.stages.A.timePenalty, 5);
+  assert.equal(server.stages.A.timePenalty, 5);
+  assert.equal(server.totalPenalty, browser.totalPenalty);
 });
 
 test('dressage: error points from the general doc and the equipage agree (highest wins)', () => {

@@ -9,7 +9,7 @@ import { dressagePrograms } from '../js/data/dressagePrograms.js';
 import { calculateTotalResult } from '../js/services/calculationService.js';
 import { setMarathonConfig, setPauseWindows, calculateMarathonPlacements } from '../js/utils/marathonUtils.js';
 import { buildPlaceMap } from '../js/utils/precisionUtils.js';
-import { buildCompetitionState } from '../functions/src/core-engine/stateSelector.js';
+import { buildServerCompetitionState } from '../functions/src/resultRecalculationUtils.js';
 import { calculateTotalResult as serverTotal } from '../functions/src/core-engine/calculation.js';
 import { buildTotalResultRow } from '../js/pages/shared/totalResultRows.js';
 import { placeTotalRowsWithinClass } from '../js/pages/shared/totalResultRanking.js';
@@ -57,9 +57,17 @@ function setup() {
       precisionConfig: data.configs.precisionConfig
     });
   };
+  // As functions/index.js reads Firestore: stage times are on the maraton doc,
+  // the separate maraton-timing doc is empty for the demo
   const server = (eq, extra = {}) => {
     const { protocols, marathon, precision } = inputs(eq);
-    return serverTotal(buildCompetitionState(eq, protocols, marathon, marathon, precision, { ...serverContext, ...extra }));
+    return serverTotal(buildServerCompetitionState({
+      equipage: eq,
+      dressageProtocols: protocols,
+      marathonDoc: marathon,
+      timingDoc: {},
+      precisionDoc: precision
+    }, { ...serverContext, ...extra }));
   };
 
   return { data, inputs, browser, server };
