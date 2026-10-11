@@ -32,7 +32,8 @@ import {
   pausedMsBetween,
   formatMsLive,
   toTimeLabel,
-  calculateMarathonResult
+  calculateMarathonResult,
+  calculateObstacleResult
 } from '../../utils/marathonUtils.js';
 
 function injectMonitorStylesOnce() {
@@ -242,23 +243,33 @@ function calculateClassSplitStats(className, obstacleNumber) {
   return final;
 }
 
-// Beräknar statistik (Best & Avg) för totalstraff på ett specifikt hinder i en klass
+// Statistik (bästa och snitt) för ett hinder i en klass. Straffen kommer från
+// resultatmotorn (klassens koefficient, rivningar och övriga tillägg), och
+// snittiden är snittet av de registrerade tiderna.
 function calculateClassObstacleStats(className, obstacleNumber) {
   let min = Infinity;
   let sum = 0;
   let count = 0;
+  let timeSum = 0;
+  let timeCount = 0;
 
   for (const [sn, data] of allMarathonData.entries()) {
     const eq = allEquipages.find(e => String(e.startNumber) === sn);
     if (!eq || eq.className !== className) continue;
 
-    const obsResults = data.obstacles || [];
-    const res = obsResults.find(o => Number(o.number) === Number(obstacleNumber));
+    const res = getObstacleArray(data)
+      .find(o => Number(o.number ?? o.obstacleNumber ?? o.id) === Number(obstacleNumber));
+    if (!res) continue;
 
-    if (res && Number.isFinite(res.penalty) && !res.eliminated) {
-      if (res.penalty < min) min = res.penalty;
-      sum += res.penalty;
-      count++;
+    const item = calculateObstacleResult(res, eq);
+    if (item.eliminated || !Number.isFinite(item.penalty)) continue;
+
+    if (item.penalty < min) min = item.penalty;
+    sum += item.penalty;
+    count++;
+    if (Number.isFinite(item.timeSec)) {
+      timeSum += item.timeSec;
+      timeCount++;
     }
   }
 
@@ -267,6 +278,7 @@ function calculateClassObstacleStats(className, obstacleNumber) {
   return {
     best: min,
     avg: sum / count,
+    avgTimeSec: timeCount > 0 ? timeSum / timeCount : null,
     count
   };
 }
@@ -614,7 +626,8 @@ function renderMonitor() {
     // Handle Flash Results (different template)
     if (active.task.type === 'result_flash') {
       const flashData = active.task.data;
-      const { timeSec, penalty } = obstacleValues(flashData);
+      const { timeSec } = obstacleValues(flashData);
+      const { penalty } = calculateObstacleResult(flashData, eq);
       const timeStr = Number.isFinite(timeSec) ? timeSec.toFixed(2) + 's' : '—';
       const obstacleNumber = Number(flashData.number || flashData.obstacleNumber);
       const stats = calculateClassObstacleStats(eq.className, obstacleNumber);
@@ -638,7 +651,8 @@ function renderMonitor() {
         } else {
           comparisonHtml = `<div class="text-md font-semibold text-gray-500 dark:text-gray-400">${t('time_registered')}</div>`;
         }
-        comparisonHtml += `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">${t('avg_short')}: ${(stats.avg / 0.25).toFixed(2)}s (${stats.avg.toFixed(2)}p)</div>`;
+        const avgTime = Number.isFinite(stats.avgTimeSec) ? `${stats.avgTimeSec.toFixed(2)}s ` : '';
+        comparisonHtml += `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">${t('avg_short')}: ${avgTime}(${stats.avg.toFixed(2)}p)</div>`;
       }
 
       card.className = `relative rounded-lg shadow-xl p-6 flex flex-col justify-center items-center border-l-8 ${cardColor} h-full transform scale-105 transition-transform`;
