@@ -1,5 +1,5 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v50'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v51'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
@@ -272,12 +272,15 @@ self.addEventListener('install', (event) => {
         abs('/css/tailwind.css'),
         abs('/css/style.css')
       ];
-      await cache.addAll(criticalInternalUrls);
+      // Revalidate with the server: the browser's HTTP cache may hold files
+      // from the previous deploy, and old and new modules must never be mixed
+      const fresh = (u) => new Request(u, { cache: 'no-cache' });
+      await cache.addAll(criticalInternalUrls.map(fresh));
 
       const optionalInternalUrls = Array.from(new Set(
         discoveredModuleUrls.filter(url => !criticalInternalUrls.includes(url))
       ));
-      const results = await Promise.allSettled(optionalInternalUrls.map(u => cache.add(u)));
+      const results = await Promise.allSettled(optionalInternalUrls.map(u => cache.add(fresh(u))));
       const failed = results
         .map((r, i) => ({ result: r, url: optionalInternalUrls[i] }))
         .filter(item => item.result.status === 'rejected');
@@ -368,24 +371,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 2) JS & moduler: network-first (cache som fallback) + skydd mot HTML-svar
+  // 2) JS & moduler: network-first (cache only when offline) + skydd mot HTML-svar.
+  // Never serve a cached module while online: after a deploy an old module from
+  // the cache next to a new one from the network breaks the import (e.g. a new
+  // page importing a function an old service file does not export yet).
+  // Unchanged files cost a 304 revalidation.
   if (isJs(req, url)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(req) || await cache.match(req, { ignoreVary: true });
-      if (cached) {
-        const refresh = fetch(req, { cache: 'no-cache' })
-          .then((net) => {
-            const contentType = net.headers.get('content-type') || '';
-            if (!contentType.includes('text/html')) {
-              return cache.put(req, net.clone());
-            }
-            return undefined;
-          });
-        event.waitUntil(refresh.catch(() => {}));
-        return cached;
-      }
-
       try {
         const net = await fetch(req, { cache: 'no-cache' });
         const ct = net.headers.get('content-type') || '';
@@ -426,25 +419,21 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 3) CSS: stale-while-revalidate
+  // 3) CSS: network-first like JS (styles match the code they were built for),
+  // the cached copy when offline
   if (isCss(req, url)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
-      const cached = await cache.match(req);
-
-      const fetchPromise = fetch(req)
-        .then(r => { cache.put(req, r.clone()).catch(() => { }); return r; })
-        .catch(e => {
-          console.warn('[SW][CSS] fetch misslyckades', e);
-          return new Response('', { status: 503, statusText: 'Offline' });
-        });
-
-      if (cached) {
-        // stale-while-revalidate i bakgrunden (låt den misslyckas tyst)
-        fetchPromise.catch(() => { });
-        return cached;
+      try {
+        const net = await fetch(req, { cache: 'no-cache' });
+        if (net.ok) cache.put(req, net.clone()).catch(() => { });
+        return net;
+      } catch (e) {
+        const cached = await cache.match(req);
+        if (cached) return cached;
+        console.warn('[SW][CSS] fetch misslyckades', e);
+        return new Response('', { status: 503, statusText: 'Offline' });
       }
-      return fetchPromise;
     })());
     return;
   }

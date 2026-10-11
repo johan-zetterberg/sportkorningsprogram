@@ -49,6 +49,14 @@
             "seed_test.html",
             "test_pdf.html",
             "test_pdf_error.html"
+        ],
+        "headers": [
+            {
+                "source": "**/*.@(js|mjs|css|html|json)",
+                "headers": [
+                    { "key": "Cache-Control", "value": "no-cache" }
+                ]
+            }
         ]
     },
     "storage": {
