@@ -20,8 +20,9 @@ export function calculateTotalResult(state) {
     else if (elimP) elimReason = 'ELIM (PR)';
 
     // A total (and so a placing) requires all three disciplines to be finished:
-    // dressage fully judged, marathon finished, precision not running
-    const dressageComplete = isNum(dr.penalty) && !dr.isLive;
+    // dressage fully judged by every judge assigned to the class, marathon
+    // finished, precision not running
+    const dressageComplete = isNum(dr.penalty) && !dr.isLive && dr.judgesComplete !== false;
     const marathonComplete = isNum(ma.totalPenalty) && ma.status === 'Klar';
     const precisionComplete = isNum(pr.totalPenalty) && !pr.running && (pr.finalized || pr.status === 'Klar');
 

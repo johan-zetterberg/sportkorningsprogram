@@ -30,7 +30,8 @@ async function buildArchiveRows(competitionId) {
         precisionRows,
         marathonConfig,
         precisionConfig,
-        competitionMeta
+        competitionMeta,
+        dressageJudgeMapping
     ] = await Promise.all([
         getAllDressageProtocols(competitionId, equipages),
         getMarathonTimingData(competitionId),
@@ -39,7 +40,8 @@ async function buildArchiveRows(competitionId) {
         getPrecisionResults(competitionId),
         getConfig(competitionId, 'maratonConfig').catch(() => ({})),
         getConfig(competitionId, 'precisionConfig').catch(() => ({})),
-        getConfig(competitionId, 'competitionMeta').catch(() => ({}))
+        getConfig(competitionId, 'competitionMeta').catch(() => ({})),
+        getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
 
     const rows = buildArchiveRowsFromData({
@@ -50,7 +52,8 @@ async function buildArchiveRows(competitionId) {
         marathonObstacleRows,
         precisionRows,
         marathonConfig,
-        precisionConfig
+        precisionConfig,
+        dressageJudgeMapping
     });
 
     return {

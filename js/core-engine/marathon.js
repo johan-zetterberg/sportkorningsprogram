@@ -661,26 +661,42 @@ export function calculateMarathonResult(state) {
     const wgPenalty = round2(wgSec * getWrongGaitPenaltyRate(marathonConfig));
     const other = Number(d.otherPenalty ?? d.miscPenalty ?? d.others ?? d.other ?? d.penalty_other) || 0;
 
-    // 4. Total
+    // 4. Settings check: a driven stage without ideal time / limits (no class
+    // data in the marathon config) cannot be penalised, so the result would
+    // look valid while missing its time penalties
+    const hasData = started || hasStageTime || obsArr.length > 0;
+    const missingConfig = [];
+    if (hasData && !getClassSettings(equipageClassName(eq), marathonConfig)) {
+        missingConfig.push('class');
+    } else {
+        for (const s of STAGE_KEYS) {
+            const st = stages[s];
+            if (Number.isFinite(st.rawDurationMs) && st.rawDurationMs > 0 && !st.limits) missingConfig.push(s);
+        }
+    }
+    const configMissing = missingConfig.length > 0;
+
+    // 5. Total
     const eliminated = !!d.eliminated || stagesElim || obsElim;
     let totalPenalty = null;
     if (eliminated) {
         totalPenalty = Infinity;
-    } else if (started || hasStageTime || obsArr.length > 0) {
+    } else if (hasData && !configMissing) {
         totalPenalty = round2(stagesPenalty + obsPenalty + other + wgPenalty);
     }
 
-    // 5. Status. B is finished when stopped, or when it has a saved duration
-    // and is not running (durations entered by the secretariat / field mode)
+    // 6. Status. B is finished when stopped, or when it has a saved duration
+    // and is not running (durations entered by the secretariat / field mode).
+    // Never 'Klar' while the class settings needed for the penalty are missing.
     const bFinished = !!stages.B.stop
         || (Number.isFinite(stages.B.rawDurationMs) && stages.B.rawDurationMs > 0 && !stages.B.inProgress);
     let status = 'Ej startat';
     if (eliminated) status = 'Eliminerad';
-    else if (bFinished && obstaclesComplete) status = 'Klar';
+    else if (bFinished && obstaclesComplete && !configMissing) status = 'Klar';
     else if (running || started) status = 'Pågår';
-    if (isFinalizedMarathonDoc(d) && status !== 'Eliminerad') status = 'Klar';
+    if (isFinalizedMarathonDoc(d) && status !== 'Eliminerad' && !configMissing) status = 'Klar';
 
-    // 6. ETA
+    // 7. ETA
     const etaA = (stages.A.start && !stages.A.stop && stages.A.limits?.ideal > 0)
         ? stages.A.start + stages.A.limits.ideal * 1000 : null;
     let etaB = (stages.B.start && !stages.B.stop && stages.B.limits?.ideal > 0)
@@ -696,8 +712,10 @@ export function calculateMarathonResult(state) {
     return {
         startNumber: sn,
         status,
-        totalPenalty, // Infinity when eliminated
+        totalPenalty, // Infinity when eliminated; null while class settings are missing
         eliminated,
+        configMissing,
+        missingConfig, // 'class', or the stages (A, transport, B) without limits
         isClearRound,
         clearRoundApproved: isClearRound && !eliminated && totalPenalty === 0,
         stages,

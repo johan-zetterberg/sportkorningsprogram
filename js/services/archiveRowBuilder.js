@@ -60,7 +60,8 @@ export function buildArchiveRowsFromData({
     marathonConfig = {},
     precisionConfig = {},
     allPrograms = dressagePrograms,
-    judges = []
+    judges = [],
+    dressageJudgeMapping = {}
 } = {}) {
     const normalizedMarathonConfig = marathonConfig?.value || marathonConfig || {};
     const normalizedPrecisionConfig = precisionConfig?.value || precisionConfig || {};
@@ -102,6 +103,7 @@ export function buildArchiveRowsFromData({
             precisionDoc,
             {
                 judges,
+                dressageJudgeMapping: dressageJudgeMapping?.value || dressageJudgeMapping || {},
                 allPrograms: normalizedPrograms,
                 marathonConfig: normalizedMarathonConfig,
                 precisionConfig: normalizedPrecisionConfig

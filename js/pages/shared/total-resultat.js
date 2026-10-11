@@ -1462,7 +1462,7 @@ export async function load(el) {
   // 1. Ladda nödvändig grunddata
   // 1. Ladda nödvändig grunddata
   try {
-    const [eqList, marCfg, maratonCfgLegacy, preCfg, dispCfg, dressMapCfg, compMeta] = await Promise.all([
+    const [eqList, marCfg, maratonCfgLegacy, preCfg, dispCfg, dressMapCfg, compMeta, judgeMapCfg] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'marathon'),
       getConfig(competitionId, 'maratonConfig'), // [FIX] Fetch config used by maraton-resultat.js
@@ -1470,6 +1470,7 @@ export async function load(el) {
       getConfig(competitionId, 'display'),
       getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
       getConfig(competitionId, 'competitionMeta').catch(() => ({})),
+      getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
       ensureClubLogosLoaded(competitionId)
     ]);
 
@@ -1496,6 +1497,8 @@ export async function load(el) {
 
     // Configure dressage mapping globally (like dressyr-monitor.js)
     window.klassProgramMapping = (dressMapCfg && typeof dressMapCfg === 'object') ? dressMapCfg : {};
+    // Judges each class expects: a total needs all of their protocols
+    window.dressageJudgeMapping = (judgeMapCfg && typeof judgeMapCfg === 'object') ? judgeMapCfg : {};
 
     // Configure competition config globally
     window.competitionConfig = { ...(window.competitionConfig || {}), ...(cfg.meta || {}) };

@@ -11,6 +11,7 @@ import {
   calculateDressageResult,
   calculateMarathonResult
 } from '../../services/calculationService.js';
+import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { collection, onSnapshot, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader } from '../../ui/components.js';
@@ -1006,7 +1007,8 @@ export async function load() {
     displayCfg,
     mergeCfgA,
     mergeCfgB,
-    mergeCfgC
+    mergeCfgC,
+    marathonCfg
   ] = await Promise.all([
     getPrecisionResults(competitionId).catch(() => []),
     getAllDressageProtocols(competitionId, equipagesData || []).catch(() => new Map()),
@@ -1017,9 +1019,12 @@ export async function load() {
     getConfig(competitionId, 'display').catch(() => ({})),
     getConfig(competitionId, 'tdbMergeGroups').catch(() => null),
     getConfig(competitionId, 'classMergeMap').catch(() => null),
-    getConfig(competitionId, 'tdbMergeMap').catch(() => null)
+    getConfig(competitionId, 'tdbMergeMap').catch(() => null),
+    // Marathon stage times are penalised from the class settings (overall standings)
+    getConfig(competitionId, 'maratonConfig').catch(() => ({}))
   ]);
 
+  setMarathonConfig(marathonCfg?.value || marathonCfg || {});
   precision_equipages = equipagesData || [];
   precision_precisionConfig = configData || {};
   precision_startTimes = startTimesData || {};

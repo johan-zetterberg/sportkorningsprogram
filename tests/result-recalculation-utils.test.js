@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 
 import {
   buildRecalculationValidation,
-  resolveRecalculationProgramKey
+  configChangeAffectsResults,
+  resolveRecalculationProgramKey,
+  ruleSettingsChanged
 } from '../functions/src/resultRecalculationUtils.js';
 import { findProgramKey } from '../functions/src/core-engine/dressage.js';
 
@@ -27,6 +29,24 @@ test('recalculation program resolution prefers protocol and supports class mappi
     equipage: { className: 'Specialklass' },
     dressageProtocols: []
   }, context), 'CUSTOM');
+});
+
+test('config writes that change results trigger a recalculation, others do not', () => {
+  const cfg = { marathonClassData: { A: { distanceB: 6000, tempoB: 250 } } };
+  assert.equal(configChangeAffectsResults('maratonConfig', cfg, { marathonClassData: { A: { distanceB: 6000, tempoB: 240 } } }), true);
+  assert.equal(configChangeAffectsResults('maratonConfig', cfg, JSON.parse(JSON.stringify(cfg))), false, 'a save without changes');
+  assert.equal(configChangeAffectsResults('dressageJudgeMapping', null, { 'Klass': { C: 'j1' } }), true, 'created');
+  assert.equal(configChangeAffectsResults('dressagePrograms', { X: {} }, null), true, 'deleted');
+  assert.equal(configChangeAffectsResults('display', { a: 1 }, { a: 2 }), false, 'not a result setting');
+
+  // globalStatus is written for live status; only the pause log matters
+  const pause = [{ start: 1, end: 2 }];
+  assert.equal(configChangeAffectsResults('globalStatus', { pauseLog: pause, live: 'A' }, { pauseLog: pause, live: 'B' }), false);
+  assert.equal(configChangeAffectsResults('globalStatus', { pauseLog: pause }, { pauseLog: [...pause, { start: 5 }] }), true);
+
+  // Key order alone is not a change
+  assert.equal(ruleSettingsChanged({ ruleSettings: { a: 1, b: 2 }, name: 'x' }, { ruleSettings: { b: 2, a: 1 }, name: 'y' }), false);
+  assert.equal(ruleSettingsChanged({ ruleSettings: { a: 1 } }, { ruleSettings: { a: 2 } }), true);
 });
 
 test('program keys with other capitalisation resolve to the program list key', () => {

@@ -57,6 +57,8 @@ export function buildCompetitionState(equipageDoc, dressageProtocols, marathonDo
         config: {
             allPrograms: config.allPrograms || {},
             dressageProgramMapping: config.dressageProgramMapping || {},
+            // { [className]: { C: judgeId, E: judgeId, ... } }: judges each class expects
+            dressageJudgeMapping: config.dressageJudgeMapping || {},
             judges: config.judges || [],
             marathonConfig: config.marathonConfig || {},
             precisionConfig: config.precisionConfig || {},

@@ -50,6 +50,12 @@ function getProgramMapping() {
     return (m && typeof m === 'object') ? m : {};
 }
 
+// Judges each class expects (config/dressageJudgeMapping); an explicitly passed mapping wins
+function getJudgeMapping(explicit) {
+    const m = explicit || getBrowserGlobal('dressageJudgeMapping');
+    return (m && typeof m === 'object') ? m : {};
+}
+
 // --- DRESSAGE ---
 
 /**
@@ -64,6 +70,7 @@ export function calculateDressageResult(equipage, protocols, validJudges = [], p
     const state = buildCompetitionState(equipage, protocols, null, null, null, {
         allPrograms: programsOverride || getPrograms(),
         dressageProgramMapping: getProgramMapping(),
+        dressageJudgeMapping: getJudgeMapping(),
         judges: validJudges
     });
     return _coreDressage(state);
@@ -129,7 +136,7 @@ export function calculatePrecisionResult(data, equipage, config) {
  * @param {Array} dressageProtocols - Raw dressage protocols.
  * @param {Object} marathonData - { obstacleData: Object, timeData: Object }
  * @param {Object} precisionData - Raw precision data.
- * @param {Object} context - { allPrograms, judges, marathonConfig, precisionConfig }
+ * @param {Object} context - { allPrograms, judges, dressageJudgeMapping, marathonConfig, precisionConfig }
  * @returns {Object} Comprehensive result including sub-results and total.
  */
 export function calculateTotalResult(equipage, dressageProtocols, marathonData, precisionData, context = {}) {
@@ -144,6 +151,7 @@ export function calculateTotalResult(equipage, dressageProtocols, marathonData, 
             ...marathonInputs,
             allPrograms: context.allPrograms || getPrograms(),
             dressageProgramMapping: getProgramMapping(),
+            dressageJudgeMapping: getJudgeMapping(context.dressageJudgeMapping),
             judges: context.judges,
             precisionConfig: context.precisionConfig,
             ruleSettings: marathonInputs.ruleSettings || getRuleSettings()

@@ -21,6 +21,39 @@ export function buildServerCompetitionState({
     return buildCompetitionState(equipage, dressageProtocols, marathon, timing, precisionDoc || {}, context);
 }
 
+// Config documents (competitions/{id}/config/{doc}) the result engine reads
+export const RESULT_CONFIG_DOCS = [
+    'maratonConfig',
+    'precisionConfig',
+    'dressagePrograms',
+    'dressyrProgramMapping',
+    'dressageJudgeMapping'
+];
+
+// JSON with sorted keys, so field order cannot make equal data look changed
+function stableJson(value) {
+    if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
+    if (value && typeof value === 'object') {
+        return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`;
+    }
+    return JSON.stringify(value ?? null);
+}
+
+/**
+ * Whether a write to a competition config document changes stored results.
+ * globalStatus is written for live status too; only its pause log counts.
+ */
+export function configChangeAffectsResults(configId, before = null, after = null) {
+    if (configId === 'globalStatus') return stableJson(before?.pauseLog) !== stableJson(after?.pauseLog);
+    if (!RESULT_CONFIG_DOCS.includes(configId)) return false;
+    return stableJson(before) !== stableJson(after);
+}
+
+// The competition document carries the rule settings (coefficients, rates)
+export function ruleSettingsChanged(before = null, after = null) {
+    return stableJson(before?.ruleSettings) !== stableJson(after?.ruleSettings);
+}
+
 function normalizeStartNumber(value) {
     return String(value ?? '').trim();
 }
@@ -71,6 +104,20 @@ export function buildRecalculationValidation(records = [], context = {}) {
         const explicitProgramKey = equipage.testKey || equipage.programKey;
         if (explicitProgramKey && !findProgramKey(explicitProgramKey, context.allPrograms)) {
             warnings.push({ startNumber, message: `Ekipagets programnyckel "${explicitProgramKey}" finns inte; klassmappning eller reservval används.` });
+        }
+
+        // Settings the result depends on. The result engine withholds a marathon
+        // result it cannot penalise correctly; these warnings say why.
+        const marathon = record?.result?.marathon;
+        if (marathon?.configMissing) {
+            const what = marathon.missingConfig.includes('class')
+                ? `klassen "${className}" saknar maratoninställningar`
+                : `idealtid saknas för sträcka ${marathon.missingConfig.join(', ')} i klassen "${className}"`;
+            warnings.push({ startNumber, message: `Maratonresultatet kan inte räknas: ${what}.` });
+        }
+        const precision = record?.result?.precision;
+        if (precision && precision.timeMs > 0 && precision.maxTimeSec == null && !precision.timePenaltyOverride) {
+            warnings.push({ startNumber, message: `Precisionsbana saknas för klassen "${className}"; sparat tidsstraff används.` });
         }
     }
 

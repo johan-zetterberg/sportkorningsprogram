@@ -6,6 +6,7 @@
 import { onDocumentWritten } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { getFirestore } from "firebase-admin/firestore";
 import { getAuth } from "firebase-admin/auth";
@@ -13,7 +14,12 @@ import { getAuth } from "firebase-admin/auth";
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { RESULT_ENGINE_VERSION } from "./src/core-engine/version.js";
 import { dressagePrograms } from "./src/data/dressagePrograms.js";
-import { buildRecalculationValidation, buildServerCompetitionState } from "./src/resultRecalculationUtils.js";
+import {
+    buildRecalculationValidation,
+    buildServerCompetitionState,
+    configChangeAffectsResults,
+    ruleSettingsChanged
+} from "./src/resultRecalculationUtils.js";
 import {
     buildCompetitionAdminJoinPayload,
     resolveJoinRoleForPin,
@@ -85,12 +91,13 @@ function buildVolunteerSignupPayload(raw = {}) {
 // Load every configurable dependency used by the shared result engine.
 // These are the same inputs the browser feeds to buildCompetitionState.
 async function getContext(compRef) {
-    const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, statusSnap] = await Promise.all([
+    const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, judgeMappingSnap, statusSnap] = await Promise.all([
         compRef.get(),
         compRef.collection('config').doc('maratonConfig').get(),
         compRef.collection('config').doc('precisionConfig').get(),
         compRef.collection('config').doc('dressagePrograms').get(),
         compRef.collection('config').doc('dressyrProgramMapping').get(),
+        compRef.collection('config').doc('dressageJudgeMapping').get(),
         compRef.collection('config').doc('globalStatus').get()
     ]);
     const pauseLog = statusSnap.exists ? statusSnap.data()?.pauseLog : null;
@@ -101,6 +108,7 @@ async function getContext(compRef) {
             ...(programsSnap.exists ? programsSnap.data() : {})
         },
         dressageProgramMapping: mappingSnap.exists ? mappingSnap.data() : {},
+        dressageJudgeMapping: judgeMappingSnap.exists ? judgeMappingSnap.data() : {},
         judges: [],
         marathonConfig: marCfgSn.exists ? marCfgSn.data() : {},
         precisionConfig: precCfgSn.exists ? precCfgSn.data() : {},
@@ -185,7 +193,69 @@ async function recalculateEquipage(appId, competitionId, startNumber) {
     }, { merge: true });
 }
 
+async function writeRecalculatedResults(compRef, records, audit) {
+    for (let offset = 0; offset < records.length; offset += 400) {
+        const batch = db.batch();
+        records.slice(offset, offset + 400).forEach((record) => {
+            const targetRef = compRef.collection('computed_equipages').doc(record.startNumber);
+            batch.set(targetRef, {
+                ...toStoredResult(record.result),
+                updatedAt: audit.recalculatedAt,
+                calculatedBy: 'server-function',
+                calculationAudit: audit
+            }, { merge: true });
+        });
+        await batch.commit();
+    }
+}
+
+// Every equipage of the competition, after a change to settings all results depend on
+async function recalculateWholeCompetition(appId, competitionId, triggerType) {
+    const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
+    const context = await getContext(compRef);
+    const equipagesSnapshot = await compRef.collection('equipages').get();
+    const records = [];
+    for (const equipageSnapshot of equipagesSnapshot.docs) {
+        try {
+            const record = await calculateEquipageRecord(compRef, equipageSnapshot.id, context, equipageSnapshot);
+            if (record) records.push(record);
+        } catch (error) {
+            // One broken equipage must not keep the others stale
+            logger.error(`Omräkning av #${equipageSnapshot.id} misslyckades`, { competitionId, error: String(error?.message || error) });
+        }
+    }
+    await writeRecalculatedResults(compRef, records, {
+        engineVersion: RESULT_ENGINE_VERSION,
+        recalculatedAt: new Date().toISOString(),
+        triggerType
+    });
+}
+
 // --- TRIGGERS ---
+
+// 0. Settings that every result depends on (marathon/precision config, dressage
+// programs and mappings, the pause log, rule settings)
+export const onResultConfigWrite = onDocumentWritten(
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/config/{configId}", timeoutSeconds: 540, memory: '512MiB' },
+    async (event) => {
+        const { appId, compId, configId } = event.params;
+        const before = event.data?.before?.exists ? event.data.before.data() : null;
+        const after = event.data?.after?.exists ? event.data.after.data() : null;
+        if (!configChangeAffectsResults(configId, before, after)) return;
+        await recalculateWholeCompetition(appId, compId, `config-change:${configId}`);
+    }
+);
+
+export const onCompetitionRuleSettingsWrite = onDocumentWritten(
+    { document: "artifacts/{appId}/public/data/competitions/{compId}", timeoutSeconds: 540, memory: '512MiB' },
+    async (event) => {
+        const { appId, compId } = event.params;
+        const before = event.data?.before?.exists ? event.data.before.data() : null;
+        const after = event.data?.after?.exists ? event.data.after.data() : null;
+        if (!after || !ruleSettingsChanged(before, after)) return;
+        await recalculateWholeCompetition(appId, compId, 'config-change:ruleSettings');
+    }
+);
 
 // 1. Dressage Changes
 export const onDressageProtocolWrite = onDocumentWritten(
@@ -352,19 +422,7 @@ export const recalculateCompetitionResults = onCall(
             triggerType: 'manual-full-competition'
         };
 
-        for (let offset = 0; offset < records.length; offset += 400) {
-            const batch = db.batch();
-            records.slice(offset, offset + 400).forEach((record) => {
-                const targetRef = competition.ref.collection('computed_equipages').doc(record.startNumber);
-                batch.set(targetRef, {
-                    ...toStoredResult(record.result),
-                    updatedAt: recalculatedAt,
-                    calculatedBy: 'server-function',
-                    calculationAudit: audit
-                }, { merge: true });
-            });
-            await batch.commit();
-        }
+        await writeRecalculatedResults(competition.ref, records, audit);
 
         await competition.ref.collection('maintenanceRuns').add({
             type: 'result-recalculation',

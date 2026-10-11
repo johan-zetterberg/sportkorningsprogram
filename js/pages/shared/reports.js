@@ -59,6 +59,7 @@ let processedTeams = []; // [NEW]
 let competitionId = null;
 let marathonConfig = null;
 let precisionConfig = null;
+let dressageJudgeMapping = {};
 let startTimes = null;
 let precisionMap = new Map();
 let marathonTimingMap = new Map();
@@ -98,7 +99,8 @@ export async function load() {
         sTimes,
         compMeta, // Fetch fresh meta
         tms, // [NEW] Teams
-        dProtocols // [NEW] Dressage Protocols
+        dProtocols, // [NEW] Dressage Protocols
+        judgeMapCfg // judges each class expects
     ] = await Promise.all([
         safeReportFetch('dressyrstatus', () => getDressageStatusCollection(competitionId), []),
         safeReportFetch('maratontider', () => getMarathonTimingData(competitionId), () => new Map()),
@@ -110,10 +112,12 @@ export async function load() {
         safeReportFetch('starttider', () => getConfig(competitionId, 'startTimes'), {}),
         safeReportFetch('tävlingsmetadata', () => getConfig(competitionId, 'competitionMeta'), {}),
         safeReportFetch('lag', () => getTeams(competitionId), []),
-        safeReportFetch('dressyrprotokoll', () => getAllDressageProtocols(competitionId, eqs), () => new Map())
+        safeReportFetch('dressyrprotokoll', () => getAllDressageProtocols(competitionId, eqs), () => new Map()),
+        safeReportFetch('domarfördelning', () => getConfig(competitionId, 'dressageJudgeMapping'), {})
     ]);
 
     equipages = eqs;
+    dressageJudgeMapping = judgeMapCfg || {};
     marathonConfig = mCfg?.value || mCfg || {};
     precisionConfig = pCfg?.value || pCfg || {};
     startTimes = sTimes?.times || {};
@@ -218,7 +222,7 @@ export async function load() {
             protos,
             { obstacleData: mDoc, timeData: t },
             precisionMap.get(sn) || {},
-            { precisionConfig, marathonConfig }
+            { precisionConfig, marathonConfig, dressageJudgeMapping }
         );
         const isEliminated = totalRes.isEliminated;
         const totalPenalty = isEliminated ? Infinity : totalRes.totalPenalty;

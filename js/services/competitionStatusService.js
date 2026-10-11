@@ -1,3 +1,5 @@
+import { getClassJudgeAssignments } from '../core-engine/dressage.js';
+
 function parseTS(v) {
   if (!v) return null;
   try {
@@ -37,26 +39,11 @@ function stageStopTS(t, s) {
 }
 
 export function getExpectedDressageJudgePositions(className, judgeMapping = {}, judges = []) {
-  const mapping = judgeMapping?.mapping || judgeMapping || {};
+  // The class's own judges, as the result engine reads them
+  const positions = Object.keys(getClassJudgeAssignments(className, judgeMapping));
+  if (positions.length > 0) return positions;
 
-  const direct = mapping?.[className];
-  if (direct && typeof direct === 'object') {
-    const positions = Object.keys(direct)
-      .filter(pos => direct[pos] && String(direct[pos]).trim() !== '')
-      .map(pos => String(pos).toUpperCase());
-    if (positions.length > 0) return positions;
-  }
-
-  const classKey = Object.keys(mapping || {}).find(
-    key => String(key).trim().toLowerCase() === String(className || '').trim().toLowerCase()
-  );
-  if (classKey) {
-    const positions = Object.keys(mapping[classKey] || {})
-      .filter(pos => mapping[classKey][pos] && String(mapping[classKey][pos]).trim() !== '')
-      .map(pos => String(pos).toUpperCase());
-    if (positions.length > 0) return positions;
-  }
-
+  // Without a class mapping: every dressage judge position in the competition
   const fallbackPositions = new Set();
   (judges || []).forEach(judge => {
     if (Array.isArray(judge?.roles)) {

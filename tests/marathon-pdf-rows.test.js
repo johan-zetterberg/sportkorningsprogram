@@ -78,7 +78,7 @@ test('prepareMarathonResults calculates non-zero obstacle penalties and totals f
     obstaclesMap.set(sn, obs);
   });
 
-  const list = prepareMarathonResults(data.equipages, data.configs.marathon, {
+  const list = prepareMarathonResults(data.equipages, data.configs.maratonConfig, {
     timingMap,
     stateMap,
     obstaclesMap

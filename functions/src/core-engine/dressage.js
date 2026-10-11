@@ -144,6 +144,55 @@ export function deduplicateAndFilterProtocols(protocols, validJudgesList = []) {
         .filter(p => Array.isArray(p.movements) && p.movements.length > 0);
 }
 
+// Class names in the judge mapping may differ in case and spacing ("1. Lätt B" / "1.Lätt B")
+const classKeyOf = (name) => String(name || '').toLowerCase().replace(/\s+/g, '');
+
+/**
+ * Judge positions assigned to a class in the dressageJudgeMapping config
+ * ({ [className]: { C: judgeId, E: judgeId, ... } }, stored flat or under
+ * .mapping). Empty when the class has no mapping.
+ */
+export function getClassJudgeAssignments(className, judgeMapping = {}) {
+    const mapping = (judgeMapping?.mapping && typeof judgeMapping.mapping === 'object')
+        ? judgeMapping.mapping
+        : (judgeMapping || {});
+    let assigned = mapping[className];
+    if (!assigned || typeof assigned !== 'object') {
+        const wanted = classKeyOf(className);
+        const key = wanted ? Object.keys(mapping).find(k => classKeyOf(k) === wanted) : null;
+        assigned = key ? mapping[key] : null;
+    }
+    if (!assigned || typeof assigned !== 'object') return {};
+    const out = {};
+    Object.entries(assigned).forEach(([pos, judgeId]) => {
+        if (judgeId && String(judgeId).trim() !== '') out[String(pos).toUpperCase()] = String(judgeId);
+    });
+    return out;
+}
+
+// A judge's protocol is complete when every movement of the program is scored
+function isProtocolComplete(protocol, program) {
+    const movs = Array.isArray(program?.movements) ? program.movements : [];
+    if (movs.length === 0) return false;
+    const scored = new Set((protocol?.movements || [])
+        .filter(m => scoreOf(m) != null)
+        .map(movementNo));
+    return movs.every(pm => scored.has(Number(pm.no)));
+}
+
+/**
+ * Expected judge positions for the class with no complete protocol yet.
+ * A protocol counts for a position by its position or by the assigned judge's id.
+ */
+export function getMissingJudgePositions(assignments, judgeProtocols, program) {
+    const complete = (judgeProtocols || []).filter(p => isProtocolComplete(p, program));
+    return Object.entries(assignments || {})
+        .filter(([pos, judgeId]) => !complete.some(p =>
+            String(p.position || p.judgePosition || '').toUpperCase() === pos
+            || (normJudgeId(p.judgeId) && normJudgeId(p.judgeId) === normJudgeId(judgeId))))
+        .map(([pos]) => pos);
+}
+
 /**
  * Error points (felkörning) from C. Stored on the 'general' protocol doc;
  * an equipage-level value is also honoured. The highest value wins.
@@ -298,6 +347,13 @@ export function calculateDressageResult(state) {
     // TR Mom 518.9 & FEI Art 958.1.4: error points from C are added directly 1:1
     const errorPoints = resolveDressageErrorPoints(equipage, rawProtocols);
 
+    // Judges the class is assigned (dressageJudgeMapping); without a mapping
+    // the received protocols are all there is to go on
+    const assignments = getClassJudgeAssignments(equipage.className, config.dressageJudgeMapping);
+    const expectedJudgePositions = Object.keys(assignments);
+    const missingJudgePositions = getMissingJudgePositions(assignments, judgeProtocols, program);
+    const judgesComplete = missingJudgePositions.length === 0;
+
     if (!program || judgeProtocols.length === 0) {
         return {
             penalty: null,
@@ -308,7 +364,10 @@ export function calculateDressageResult(state) {
             programKey: programKey || null,
             programName: program ? program.name : null,
             errorPoints,
-            errorPenalty: errorPoints
+            errorPenalty: errorPoints,
+            expectedJudgePositions,
+            missingJudgePositions,
+            judgesComplete
         };
     }
 
@@ -340,6 +399,9 @@ export function calculateDressageResult(state) {
         errorPoints,
         errorPenalty: errorPoints,
         judgeCount: judgeProtocols.length,
+        expectedJudgePositions,
+        missingJudgePositions,
+        judgesComplete,
         pointsNow,
         // TR tie-break
         generalImpressionsSum: result ? result.generalImpressionsSum : null
