@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { firebaseCommand, getEmulatorEnv, run } from './emulator-env.mjs';
 
 // Kör webbläsartesterna (Playwright) mot lokala Firebase-emulatorer i stället för produktion.
@@ -5,15 +6,26 @@ import { firebaseCommand, getEmulatorEnv, run } from './emulator-env.mjs';
 //   node scripts/run-smoke-tests.mjs [playwright-argument...]
 //
 // Steg 1 (utan --in-emulators): startar emulatorerna och kör sig själv igen inuti dem,
-//   eller använder emulatorer som redan körs.
-// Steg 2 (--in-emulators): skapar (eller återanvänder) testanvändaren och kör Playwright.
+//   eller använder emulatorer som redan körs (alla fyra måste köra).
+// Steg 2 (--in-emulators): skapar (eller återanvänder) testanvändaren, kontrollerar att
+//   den kan logga in som webbläsaren gör, och kör Playwright.
 // Allt som skrivs under testerna försvinner när emulatorerna stängs.
 
 const PROJECT_ID = 'demo-combined-driving';
-const AUTH_URL = 'http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1';
-const FIRESTORE_URL = 'http://127.0.0.1:8080/v1';
 const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@demo.se';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
+const START_HINT = `firebase emulators:start --only auth,firestore,functions,storage --project ${PROJECT_ID}`;
+
+// Portarna appen ansluter till (js/config/firebase-config.js) är de i firebase.json
+const configuredPorts = JSON.parse(readFileSync(new URL('../firebase.json', import.meta.url), 'utf8')).emulators || {};
+const EMULATORS = ['auth', 'firestore', 'functions', 'storage']
+  .map(name => ({ name, port: configuredPorts[name]?.port }));
+
+// emulators:exec sätter de här variablerna till de portar som faktiskt används
+const authHost = process.env.FIREBASE_AUTH_EMULATOR_HOST || `127.0.0.1:${configuredPorts.auth?.port}`;
+const firestoreHost = process.env.FIRESTORE_EMULATOR_HOST || `127.0.0.1:${configuredPorts.firestore?.port}`;
+const AUTH_URL = `http://${authHost}/identitytoolkit.googleapis.com/v1`;
+const FIRESTORE_URL = `http://${firestoreHost}/v1`;
 
 // "Bearer owner" ger administratörsåtkomst i emulatorerna (förbi säkerhetsreglerna).
 async function emulatorRequest(url, method, body) {
@@ -59,13 +71,30 @@ async function createSmokeUser() {
     'PATCH',
     { fields: { email: { stringValue: TEST_EMAIL }, role: { stringValue: 'superadmin' } } }
   );
-  console.log(`Testanvändare ${TEST_EMAIL} klar i emulatorerna.`);
+}
+
+/**
+ * Logs in the way the browser does (no project in the request: the Auth
+ * emulator answers for the project it was started with) and checks that it is
+ * the account set up above. Emulators started without --project run as the
+ * default project in .firebaserc, where the account is missing or different.
+ */
+async function verifyBrowserLogin() {
+  const res = await fetch(`${AUTH_URL}/accounts:signInWithPassword?key=emulator`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email: TEST_EMAIL, password: TEST_PASSWORD, returnSecureToken: true })
+  });
+  if (!res.ok) return false;
+  const { idToken } = await res.json();
+  const claims = JSON.parse(Buffer.from(String(idToken).split('.')[1] || '', 'base64url').toString() || '{}');
+  return claims.superadmin === true && claims.aud === PROJECT_ID;
 }
 
 // Svarar emulatorn på sin port?
-async function isListening(url) {
+async function isListening(port) {
   try {
-    await fetch(url, { signal: AbortSignal.timeout(2000) });
+    await fetch(`http://127.0.0.1:${port}/`, { signal: AbortSignal.timeout(2000) });
     return true;
   } catch {
     return false;
@@ -73,7 +102,22 @@ async function isListening(url) {
 }
 
 if (process.argv[2] === '--in-emulators') {
-  await createSmokeUser();
+  try {
+    await createSmokeUser();
+  } catch (error) {
+    console.error(`Kunde inte förbereda testanvändaren i emulatorerna: ${error.message}`);
+    console.error(`Körs emulatorerna för projektet ${PROJECT_ID}? Starta dem med: ${START_HINT}`);
+    process.exit(1);
+  }
+  if (!await verifyBrowserLogin()) {
+    console.error(`Testanvändaren ${TEST_EMAIL} kan inte logga in som webbläsaren gör.`);
+    console.error(`Emulatorerna körs troligen för ett annat projekt än ${PROJECT_ID} (t.ex. startade utan --project).`);
+    console.error(`Starta om dem med: ${START_HINT}`);
+    process.exit(1);
+  }
+  console.log(`Testanvändare ${TEST_EMAIL} klar och kan logga in.`);
+  if (process.env.SMOKE_SETUP_ONLY === '1') process.exit(0);
+
   const playwrightArgs = JSON.parse(process.env.SMOKE_PLAYWRIGHT_ARGS || '[]');
   const exitCode = await run(
     process.execPath,
@@ -85,12 +129,10 @@ if (process.argv[2] === '--in-emulators') {
 
 const playwrightArgs = JSON.stringify(process.argv.slice(2));
 
-// Emulatorer som redan körs (t.ex. firebase emulators:start) används som de är
-const [authUp, firestoreUp] = await Promise.all([
-  isListening('http://127.0.0.1:9099/'),
-  isListening('http://127.0.0.1:8080/')
-]);
-if (authUp && firestoreUp) {
+// Emulatorer som redan körs (t.ex. firebase emulators:start) används, men bara
+// om alla fyra gör det: testerna behöver även Functions (resultat) och Storage
+const running = await Promise.all(EMULATORS.map(async e => ({ ...e, up: await isListening(e.port) })));
+if (running.every(e => e.up)) {
   console.log('Emulatorerna körs redan; testerna använder dem.');
   const exitCode = await run(process.execPath, ['scripts/run-smoke-tests.mjs', '--in-emulators'], {
     ...process.env,
@@ -98,9 +140,10 @@ if (authUp && firestoreUp) {
   });
   process.exit(exitCode);
 }
-if (authUp || firestoreUp) {
-  console.error('Bara en del av emulatorerna körs (auth på 9099, firestore på 8080).');
-  console.error('Starta alla med: firebase emulators:start --only auth,firestore,functions,storage --project demo-combined-driving');
+if (running.some(e => e.up)) {
+  const describe = (list) => list.map(e => `${e.name} (${e.port})`).join(', ');
+  console.error(`Bara en del av emulatorerna körs. Igång: ${describe(running.filter(e => e.up))}. Saknas: ${describe(running.filter(e => !e.up))}.`);
+  console.error(`Starta alla med: ${START_HINT}`);
   console.error('eller stäng de som körs, så startar testerna egna.');
   process.exit(1);
 }
