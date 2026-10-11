@@ -15,5 +15,11 @@ export default defineConfig({
     trace: 'retain-on-failure',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure'
+  },
+  // Startar den lokala webbservern om ingen redan kör på porten.
+  webServer: process.env.PLAYWRIGHT_BASE_URL ? undefined : {
+    command: 'node scripts/static-server.mjs 5500',
+    url: baseURL,
+    reuseExistingServer: true
   }
 });

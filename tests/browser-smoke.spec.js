@@ -51,6 +51,7 @@ const ROUTE_PERMISSIONS = {
 };
 
 test.beforeEach(async ({ page }) => {
+  await useFirebaseEmulators(page);
   await loginIfNeeded(page);
 });
 
@@ -372,6 +373,21 @@ test('critical ui interactions open and close without browser errors', async ({ 
 
   expect(browserErrors).toEqual([]);
 });
+
+// Testerna skriver data (seedade tävlingar m.m.) och får aldrig köras mot produktion.
+// Kör dem med `npm run test:smoke`, som startar Firebase-emulatorerna.
+async function useFirebaseEmulators(page) {
+  await page.addInitScript(() => {
+    window.__USE_FIREBASE_EMULATORS__ = true;
+  });
+  await page.goto('/index.html#hub');
+  const active = await page.waitForFunction(() => window.__FIREBASE_EMULATORS_ACTIVE__ === true, null, { timeout: 15000 })
+    .then(() => true)
+    .catch(() => false);
+  if (!active) {
+    throw new Error('Appen är inte kopplad till Firebase-emulatorerna. Kör testerna med `npm run test:smoke`.');
+  }
+}
 
 async function loginIfNeeded(page) {
   await page.goto('/index.html#hub');

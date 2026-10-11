@@ -1,8 +1,9 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-import { getAuth } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { getFunctions } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
+import { getAuth, connectAuthEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { getFunctions, connectFunctionsEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import {
   initializeFirestore,
+  connectFirestoreEmulator,
   enableIndexedDbPersistence,
   enableMultiTabIndexedDbPersistence,
   setLogLevel
@@ -10,7 +11,7 @@ import {
 
 // Tysta ner Firestore-varningar (t.ex. "future update time" pga klockdiff)
 setLogLevel('error');
-import { getStorage } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+import { getStorage, connectStorageEmulator } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
 
 const firebaseConfig = {
@@ -23,11 +24,28 @@ const firebaseConfig = {
   measurementId: "G-TKTRECX5D9"
 };
 
-export const app = initializeApp(firebaseConfig);
+// Lokala Firebase-emulatorer (används av webbläsartesterna, se scripts/run-smoke-tests.mjs).
+// Slås bara på när testet satt flaggan och sidan körs från den egna datorn,
+// så att tester aldrig skriver till produktionsdatabasen.
+const EMULATOR_PROJECT_ID = 'demo-combined-driving';
+export const usingEmulators = globalThis.__USE_FIREBASE_EMULATORS__ === true
+  && ['127.0.0.1', 'localhost'].includes(globalThis.location?.hostname);
+
+export const app = initializeApp(usingEmulators
+  ? { ...firebaseConfig, projectId: EMULATOR_PROJECT_ID, storageBucket: `${EMULATOR_PROJECT_ID}.appspot.com` }
+  : firebaseConfig);
 export const auth = getAuth(app);
 export const db = initializeFirestore(app, { /* cacheSizeBytes etc om du vill */ });
 export const storage = getStorage(app);
 export const functions = getFunctions(app, 'europe-west1');
+
+if (usingEmulators) {
+  connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
+  connectFirestoreEmulator(db, '127.0.0.1', 8080);
+  connectStorageEmulator(storage, '127.0.0.1', 9199);
+  connectFunctionsEmulator(functions, '127.0.0.1', 5001);
+  globalThis.__FIREBASE_EMULATORS_ACTIVE__ = true;
+}
 
 // Slå på offline-persistens (multi-tab om möjligt, annars single-tab)
 try {
