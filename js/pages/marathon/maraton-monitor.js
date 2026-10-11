@@ -764,8 +764,12 @@ function renderMonitor() {
         let tot = res.totalPenalty;
 
         if (active.task.type === 'stage' && !res.stages[active.task.key]?.start && Number.isFinite(tot)) {
-          const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, active.task.key);
-          tot = elim ? Infinity : tot + (Number.isFinite(points) ? points : 0);
+          // Running stage: only time over the maximum counts until it is stopped
+          const lim = limitsFor(eq, active.task.key);
+          if (lim && elapsedMs / 1000 > lim.max) {
+            const { points, elim } = stagePenaltyFromMs(elapsedMs, eq, active.task.key);
+            tot = elim ? Infinity : tot + (Number.isFinite(points) ? points : 0);
+          }
         }
 
         const totLbl = (tot === Infinity) ? 'ELIM' : (Number.isFinite(tot) ? tot.toFixed(2) + ' p' : '—');

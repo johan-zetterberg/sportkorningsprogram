@@ -515,7 +515,7 @@ export function buildPlaceMap(rows, precisionMap, config = {}) {
         calculatePrecisionResult(precisionMap.get(String(r.startNumber)) || {}, r, config || {})
     ]));
     const { placeOf } = assignPlaces(rows, {
-        key: (r) => precisionRankKey(results.get(r)),
+        key: (r) => precisionRankKey(results.get(r), { requireFinished: true }),
         compare: comparePrecisionRank,
         group: (r) => r._mergedKey || `CLASS:${r.className || '—'}`,
         outField: null

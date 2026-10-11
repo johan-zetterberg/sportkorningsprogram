@@ -19,9 +19,14 @@ export function calculateTotalResult(state) {
     else if (elimM) elimReason = 'ELIM (MA)';
     else if (elimP) elimReason = 'ELIM (PR)';
 
-    // A final total requires all three disciplines
+    // A total (and so a placing) requires all three disciplines to be finished:
+    // dressage fully judged, marathon finished, precision not running
+    const dressageComplete = isNum(dr.penalty) && !dr.isLive;
+    const marathonComplete = isNum(ma.totalPenalty) && ma.status === 'Klar';
+    const precisionComplete = isNum(pr.totalPenalty) && !pr.running && (pr.finalized || pr.status === 'Klar');
+
     let total = null;
-    if (!isEliminated && isNum(dr.penalty) && isNum(ma.totalPenalty) && isNum(pr.totalPenalty)) {
+    if (!isEliminated && dressageComplete && marathonComplete && precisionComplete) {
         total = round2(dr.penalty + ma.totalPenalty + pr.totalPenalty);
     }
 
@@ -33,6 +38,9 @@ export function calculateTotalResult(state) {
         isEliminated,
         elimReason,
         isOngoing,
+        dressageComplete,
+        marathonComplete,
+        precisionComplete,
         dressagePenalty: dr.penalty,
         marathonPenalty: ma.totalPenalty,
         precisionPenalty: pr.totalPenalty,

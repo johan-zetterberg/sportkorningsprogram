@@ -63,36 +63,60 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     }
   };
 
+  // Marathon tempo per class (m/min). Distances give every class the same
+  // ideal times: A 40 min, transport 12 min, B 70 min.
+  const marathonTemposMpm = {
+    'Svår Häst Enbet': { A: 250, B: 233 },
+    'Medelsvår Häst Fyrspann': { A: 250, B: 233 },
+    'Svår Ponny Enbet': { A: 233, B: 217 },
+    'Medelsvår Ponny Par': { A: 233, B: 217 },
+    'Lätt Häst Enbet': { A: 233, B: 217 },
+    'Para Körning Grade I': { A: 217, B: 200 },
+    'Medelsvår Ponny Enbet': { A: 233, B: 217 }
+  };
+  const marathonClassData = Object.fromEntries(Object.entries(marathonTemposMpm).map(([className, tempo]) => [className, {
+    distanceA: tempo.A * 40,
+    tempoA: tempo.A,
+    windowA: 2,
+    includeTransport: true,
+    distanceT: 1200,
+    tempoT: 100,
+    distanceB: tempo.B * 70,
+    tempoB: tempo.B,
+    windowB: 3
+  }]));
+
+  // Precision courses per class (as precision-admin saves them)
+  const precisionCourses = {
+    'Svår Häst Enbet': { trackLengthMeters: 600, tempo: 250, allowanceCm: 20 },
+    'Medelsvår Häst Fyrspann': { trackLengthMeters: 650, tempo: 240, allowanceCm: 30 },
+    'Svår Ponny Enbet': { trackLengthMeters: 580, tempo: 250, allowanceCm: 20 },
+    'Medelsvår Ponny Par': { trackLengthMeters: 600, tempo: 240, allowanceCm: 25 },
+    'Lätt Häst Enbet': { trackLengthMeters: 550, tempo: 230, allowanceCm: 30 },
+    'Para Körning Grade I': { trackLengthMeters: 500, tempo: 220, allowanceCm: 30 },
+    'Medelsvår Ponny Enbet': { trackLengthMeters: 560, tempo: 240, allowanceCm: 20 }
+  };
+
+  // Configs in the same shape as the admin pages write them
   const configs = {
     maratonConfig: {
-      stages: {
-        A: { minSec: 2100, idealSec: 2400, maxSec: 2700, distanceM: 6000, speedKmh: 15 },
-        T: { minSec: 600, idealSec: 720, maxSec: 900, distanceM: 1000, speedKmh: 5 },
-        B: { minSec: 3600, idealSec: 4200, maxSec: 4800, distanceM: 7000, speedKmh: 14 }
-      },
-      restAreaDurationSec: 600, // 10 minuter obligatorisk vila (TR Mom 526.4)
-      obstaclesCount: 6,
-      classes: {
-        'Svår Häst Enbet': { speedA: 15, speedB: 14 },
-        'Medelsvår Häst Fyrspann': { speedA: 15, speedB: 14 },
-        'Svår Ponny Enbet': { speedA: 14, speedB: 13 },
-        'Medelsvår Ponny Par': { speedA: 14, speedB: 13 },
-        'Lätt Häst Enbet': { speedA: 14, speedB: 13 },
-        'Para Körning Grade I': { speedA: 13, speedB: 12 },
-        'Medelsvår Ponny Enbet': { speedA: 14, speedB: 13 }
-      }
+      marathonClassData,
+      timePenaltyRate: 0.25,
+      obstaclePenaltyRate: 0.25,
+      knockdownPenaltyDefault: 2,
+      obstacleMaxTime: 300,
+      pauseTime: 10, // 10 minuter obligatorisk vila (TR Mom 526.4)
+      maxObstacles: 6
     },
     precisionConfig: {
-      defaultAllowanceCm: 20,
-      classes: {
-        'Svår Häst Enbet': { allowanceCm: 20, speedMpm: 250, distanceM: 600, timeAllowedSec: 144, timeLimitSec: 288 },
-        'Medelsvår Häst Fyrspann': { allowanceCm: 30, speedMpm: 240, distanceM: 650, timeAllowedSec: 163, timeLimitSec: 326 },
-        'Svår Ponny Enbet': { allowanceCm: 20, speedMpm: 250, distanceM: 580, timeAllowedSec: 140, timeLimitSec: 280 },
-        'Medelsvår Ponny Par': { allowanceCm: 25, speedMpm: 240, distanceM: 600, timeAllowedSec: 150, timeLimitSec: 300 },
-        'Lätt Häst Enbet': { allowanceCm: 30, speedMpm: 230, distanceM: 550, timeAllowedSec: 144, timeLimitSec: 288 },
-        'Para Körning Grade I': { allowanceCm: 30, speedMpm: 220, distanceM: 500, timeAllowedSec: 137, timeLimitSec: 274 },
-        'Medelsvår Ponny Enbet': { allowanceCm: 20, speedMpm: 240, distanceM: 560, timeAllowedSec: 140, timeLimitSec: 280 }
-      }
+      courses: Object.fromEntries(Object.entries(precisionCourses).map(([className, c]) => [className, {
+        trackLengthMeters: c.trackLengthMeters,
+        tempo: c.tempo,
+        obstacleLabels: []
+      }])),
+      portAllowanceByClass: Object.fromEntries(Object.entries(precisionCourses).map(([className, c]) => [className, c.allowanceCm])),
+      knockdownPenalty: 3,
+      timePenaltyRate: 0.5
     },
     teamRules: {
       profileId: TEAM_SCORING_PROFILE_IDS.LAG_SM_2026,
@@ -448,7 +472,7 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       finalized: true,
       status: 'Slutförd',
       duration_A_ms: 2380000,
-      duration_T_ms: 720000,
+      duration_transfer_ms: 720000,
       duration_B_ms: 4150000,
       times: {
         A: { start: '10:00:00', finish: '10:39:40', timeSec: 2380, penalty: 0 },
@@ -470,13 +494,13 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       running: false,
       finalized: true,
       status: 'Slutförd',
-      duration_A_ms: 2420000,
-      duration_T_ms: 720000,
-      duration_B_ms: 4210000,
+      duration_A_ms: 2390000,
+      duration_transfer_ms: 720000,
+      duration_B_ms: 4190000,
       times: {
-        A: { start: '10:20:00', finish: '11:00:20', timeSec: 2420, penalty: 0 },
+        A: { start: '10:20:00', finish: '10:59:50', timeSec: 2390, penalty: 0 },
         T: { start: '11:00:20', finish: '11:12:20', timeSec: 720, penalty: 0 },
-        B: { start: '11:22:20', finish: '12:32:30', timeSec: 4210, penalty: 0 }
+        B: { start: '11:22:20', finish: '12:32:10', timeSec: 4190, penalty: 0 }
       },
       obstacles: [
         { number: 1, timeSec: 48.2, penalty: 12.05 },
@@ -500,9 +524,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       start_A: aStart3,
       finish_A: aFinish3,
       duration_A_ms: 2390000,
-      start_T: tStart3,
-      finish_T: tFinish3,
-      duration_T_ms: 720000,
+      start_transfer: tStart3,
+      finish_transfer: tFinish3,
+      duration_transfer_ms: 720000,
       start_B: bStart3,
       finish_B: null,
       timing: {
@@ -534,9 +558,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       start_A: now - 3600000,
       finish_A: now - 1200000,
       duration_A_ms: 2400000,
-      start_T: now - 1200000,
-      finish_T: now - 480000,
-      duration_T_ms: 720000,
+      start_transfer: now - 1200000,
+      finish_transfer: now - 480000,
+      duration_transfer_ms: 720000,
       start_B: null,
       finish_B: null,
       timing: {
@@ -556,11 +580,11 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       running: false,
       finalized: true,
       status: 'Slutförd',
-      duration_A_ms: 2730000,
-      duration_T_ms: 720000,
+      duration_A_ms: 2424000,
+      duration_transfer_ms: 720000,
       duration_B_ms: 4230000,
       times: {
-        A: { start: '11:30:00', finish: '12:15:30', timeSec: 2730, penalty: 6.0 },
+        A: { start: '11:30:00', finish: '12:10:24', timeSec: 2424, penalty: 6.0 },
         T: { start: '12:15:30', finish: '12:27:30', timeSec: 720, penalty: 0 },
         B: { start: '12:37:30', finish: '13:48:00', timeSec: 4230, penalty: 0 }
       },
@@ -599,7 +623,7 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       finalized: true,
       status: 'Slutförd',
       duration_A_ms: 2370000,
-      duration_T_ms: 720000,
+      duration_transfer_ms: 720000,
       duration_B_ms: 4150000,
       times: {
         A: { start: '12:00:00', finish: '12:39:30', timeSec: 2370, penalty: 0 },
@@ -622,7 +646,7 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       finalized: true,
       status: 'Slutförd',
       duration_A_ms: 2385000,
-      duration_T_ms: 720000,
+      duration_transfer_ms: 720000,
       duration_B_ms: 4155000,
       times: {
         A: { start: '12:30:00', finish: '13:09:45', timeSec: 2385, penalty: 0 },
@@ -642,8 +666,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
   ];
 
   const precisionResults = [
-    { startNumber: 1, timeSec: 138.2, timePenalty: 0.0, knocks: [], obstaclePenalty: 0, totalPenalty: 0.0, finalized: true },
-    { startNumber: 2, timeSec: 168.0, timePenalty: 2.5, knocks: ['4', '12'], obstaclePenalty: 6, totalPenalty: 8.5, finalized: true },
+    { startNumber: 1, timeMs: 138200, liveTimeMs: 138200, timePenalty: 0.0, knocks: [], obstaclePenalty: 0, totalPenalty: 0.0, finalized: true },
+    { startNumber: 2, timeMs: 168000, liveTimeMs: 168000, timePenalty: 2.5, knocks: ['4', '12'], obstaclePenalty: 6, totalPenalty: 8.5, finalized: true },
     {
       startNumber: 4,
       className: 'Medelsvår Ponny Par',
@@ -665,9 +689,9 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       liveTotalPenalty: 3.0,
       updatedAt: now
     },
-    { startNumber: 5, timeSec: 142.5, timePenalty: 0.0, knocks: ['8'], obstaclePenalty: 3, totalPenalty: 3.0, finalized: true },
-    { startNumber: 7, timeSec: 136.4, timePenalty: 0.0, knocks: ['2'], obstaclePenalty: 3, totalPenalty: 3.0, finalized: true },
-    { startNumber: 8, timeSec: 139.1, timePenalty: 0.0, knocks: [], obstaclePenalty: 0, totalPenalty: 0.0, finalized: true }
+    { startNumber: 5, timeMs: 142500, liveTimeMs: 142500, timePenalty: 0.0, knocks: ['8'], obstaclePenalty: 3, totalPenalty: 3.0, finalized: true },
+    { startNumber: 7, timeMs: 136400, liveTimeMs: 136400, timePenalty: 0.0, knocks: ['2'], obstaclePenalty: 3, totalPenalty: 3.0, finalized: true },
+    { startNumber: 8, timeMs: 139100, liveTimeMs: 139100, timePenalty: 0.0, knocks: [], obstaclePenalty: 0, totalPenalty: 0.0, finalized: true }
   ];
 
   const teams = [

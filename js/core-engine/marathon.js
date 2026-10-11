@@ -582,7 +582,14 @@ export function calculateMarathonResult(state) {
         const rawMs = ms;
         if (s === 'B' && Number.isFinite(ms)) ms = Math.max(0, ms - totalHoldTimeMs);
 
-        const { points, elim } = stagePenaltyFromMs(ms, eq, s, marathonConfig);
+        let { points, elim } = stagePenaltyFromMs(ms, eq, s, marathonConfig);
+        // A stage still in progress cannot be "too fast" yet: only time over
+        // the maximum (or the time limit) counts until it is stopped
+        const inProgress = !!start && !stop;
+        const stageLimits = limitsFor(eq, s, marathonConfig);
+        if (inProgress && !elim && stageLimits && Number.isFinite(ms) && ms / 1000 <= stageLimits.max) {
+            points = 0;
+        }
         if (elim) stagesElim = true;
         if (Number.isFinite(points)) stagesPenalty += points;
 
@@ -594,7 +601,8 @@ export function calculateMarathonResult(state) {
             timePenalty: points,
             eliminated: elim,
             holdTimeMs: s === 'B' ? totalHoldTimeMs : 0,
-            limits: limitsFor(eq, s, marathonConfig)
+            inProgress,
+            limits: stageLimits
         };
     }
 
@@ -603,8 +611,11 @@ export function calculateMarathonResult(state) {
     const drivenObs = getClassDrivenObstacles(eq.className, marathonConfig);
     const isClearRound = isMarathonClearRound(eq, marathonConfig);
 
+    // Obstacle results carry `number` (input page) or `obstacleNumber` (subcollection)
+    const obstacleNo = (o) => Number(o?.number ?? o?.obstacleNumber ?? o?.id);
+
     let obsArr = getObstacleArray(d);
-    if (drivenObs) obsArr = obsArr.filter(o => drivenObs.includes(Number(o.number || o.id)));
+    if (drivenObs) obsArr = obsArr.filter(o => drivenObs.includes(obstacleNo(o)));
 
     let totalObstacleSeconds = 0;
     let totalOtherObstaclePenalty = 0;
@@ -624,20 +635,23 @@ export function calculateMarathonResult(state) {
             totalOtherObstaclePenalty += item.penalty;
         }
 
-        if (Number.isFinite(Number(o.number))) maxObsNumber = Math.max(maxObsNumber, Number(o.number));
+        if (Number.isFinite(obstacleNo(o))) maxObsNumber = Math.max(maxObsNumber, obstacleNo(o));
         obsItems.push({ ...o, timeSec: item.timeSec, timePenalty: item.timePenalty, penalty: item.penalty ?? 0 });
     }
 
+    // Obstacle times are in hundredths: round the sum first so floating-point
+    // noise (273.09999…) cannot flip the final rounding of the penalty
+    totalObstacleSeconds = round2(totalObstacleSeconds);
     const obsPenalty = round2((isClearRound ? 0 : totalObstacleSeconds * obsCoeff) + totalOtherObstaclePenalty);
 
     const isObstacleDone = (hit) => hit && (hit.eliminated
         || Number.isFinite(obstacleValues(hit).penalty)
         || Number.isFinite(obstacleValues(hit).timeSec));
     const obstaclesComplete = (() => {
-        if (drivenObs) return drivenObs.every(n => isObstacleDone(obsArr.find(x => Number(x.number) === n)));
+        if (drivenObs) return drivenObs.every(n => isObstacleDone(obsArr.find(x => obstacleNo(x) === n)));
         if (obsArr.length === 0 || maxObsNumber === 0) return false;
         for (let i = 1; i <= maxObsNumber; i++) {
-            if (!isObstacleDone(obsArr.find(x => Number(x.number) === i))) return false;
+            if (!isObstacleDone(obsArr.find(x => obstacleNo(x) === i))) return false;
         }
         return true;
     })();
@@ -656,10 +670,13 @@ export function calculateMarathonResult(state) {
         totalPenalty = round2(stagesPenalty + obsPenalty + other + wgPenalty);
     }
 
-    // 5. Status
+    // 5. Status. B is finished when stopped, or when it has a saved duration
+    // and is not running (durations entered by the secretariat / field mode)
+    const bFinished = !!stages.B.stop
+        || (Number.isFinite(stages.B.rawDurationMs) && stages.B.rawDurationMs > 0 && !stages.B.inProgress);
     let status = 'Ej startat';
     if (eliminated) status = 'Eliminerad';
-    else if (stages.B.stop && obstaclesComplete) status = 'Klar';
+    else if (bFinished && obstaclesComplete) status = 'Klar';
     else if (running || started) status = 'Pågår';
     if (isFinalizedMarathonDoc(d) && status !== 'Eliminerad') status = 'Klar';
 
@@ -674,7 +691,7 @@ export function calculateMarathonResult(state) {
             + pausedMsSince(stages.A.start, pauseWindows, nowMs);
     }
 
-    obsItems.sort((a, b) => Number(a.number) - Number(b.number));
+    obsItems.sort((a, b) => obstacleNo(a) - obstacleNo(b));
 
     return {
         startNumber: sn,

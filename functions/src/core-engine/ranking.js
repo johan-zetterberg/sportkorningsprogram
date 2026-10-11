@@ -68,8 +68,15 @@ export function marathonRankKey(result, { requireFinished = true } = {}) {
     };
 }
 
-export function precisionRankKey(result) {
+/**
+ * @param {object} result - calculatePrecisionResult output
+ * @param {object} [opts]
+ * @param {boolean} [opts.requireFinished=false] - true for result lists: a run
+ *        still on the course gets no place
+ */
+export function precisionRankKey(result, { requireFinished = false } = {}) {
     if (!result || result.eliminated || !isNum(result.totalPenalty)) return null;
+    if (requireFinished && (result.running || !(result.finalized || result.status === 'Klar'))) return null;
     return {
         penalty: result.totalPenalty,
         timeMs: isNum(result.timeMs) && result.timeMs > 0 ? result.timeMs : null

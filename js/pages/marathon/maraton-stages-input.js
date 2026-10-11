@@ -1,5 +1,5 @@
 // js/pages/maraton-stages-input.js
-import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious, getStageTimePenaltyRate } from '../../utils/marathonUtils.js';
+import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious, getStageTimePenaltyRate, getTotalHoldTimeMs } from '../../utils/marathonUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
@@ -765,7 +765,7 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
   const penEl = document.getElementById(`info-${stage}-pen`);
   const timerEl = document.getElementById(`timer-${stage}`);
   const obsList = Array.isArray(currentDocData?.obstacles) ? currentDocData.obstacles : [];
-  const holdTimeMs = (stage === 'B') ? obsList.reduce((acc, o) => acc + (Number(o?.holdTimeSec) || 0) * 1000, 0) : 0;
+  const holdTimeMs = (stage === 'B') ? getTotalHoldTimeMs(obsList) : 0;
   const res = computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs);
 
   // --- NYTT: DISKREPANS-KOLL (Tid vs Klockslag) ---
