@@ -143,7 +143,8 @@ test('archive placings use the total tie-break, shared places and the passed mar
 
   const rows = buildArchiveRowsFromData({
     equipages, dressageProtocols, marathonTimingMap, marathonObstacleRows, precisionRows,
-    marathonConfig, precisionConfig: { maxTimeByClass: { KlassA: 100 } }, allPrograms
+    marathonConfig, precisionConfig: { maxTimeByClass: { KlassA: 100 } }, allPrograms,
+    dressageJudgeMapping: { KlassA: { C: 'c' } }
   });
   const bySn = Object.fromEntries(rows.map(r => [r.startNumber, r]));
 

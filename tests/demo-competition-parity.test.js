@@ -24,6 +24,7 @@ function setup() {
   const data = buildDemoCompetitionDataset({ now: NOW });
   globalThis.window = {
     klassProgramMapping: data.configs.dressyrProgramMapping,
+    dressageJudgeMapping: data.configs.dressageJudgeMapping,
     getGlobalState: (key) => (key === 'currentCompetition' ? data.compMeta : null)
   };
   setMarathonConfig(data.configs.maratonConfig);
@@ -42,6 +43,7 @@ function setup() {
   const serverContext = {
     allPrograms: dressagePrograms,
     dressageProgramMapping: data.configs.dressyrProgramMapping,
+    dressageJudgeMapping: data.configs.dressageJudgeMapping,
     judges: [],
     marathonConfig: data.configs.maratonConfig,
     precisionConfig: data.configs.precisionConfig,
@@ -165,6 +167,7 @@ test('demo competition: every list places equipages the same way', () => withFix
     precisionRows: data.precisionResults,
     marathonConfig: data.configs.maratonConfig,
     precisionConfig: data.configs.precisionConfig,
+    dressageJudgeMapping: data.configs.dressageJudgeMapping,
     allPrograms: dressagePrograms,
     judges: data.judges
   });

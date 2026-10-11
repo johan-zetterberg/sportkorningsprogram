@@ -120,8 +120,12 @@ export function buildRecalculationValidation(records = [], context = {}) {
             warnings.push({ startNumber, message: `Ekipagets programnyckel "${explicitProgramKey}" finns inte; klassmappning eller reservval används.` });
         }
 
-        // Settings the result depends on. The result engine withholds a marathon
-        // result it cannot penalise correctly; these warnings say why.
+        // Settings the result depends on. The result engine withholds results
+        // it cannot complete or penalise correctly; these warnings say why.
+        const dressage = record?.result?.dressage;
+        if (dressage?.judgeMappingMissing && judgeProtocols.length > 0) {
+            warnings.push({ startNumber, message: `Dressyren kan inte bli klar: klassen "${className}" saknar domarfördelning. Ange klassens domare i dressyradministrationen.` });
+        }
         const marathon = record?.result?.marathon;
         if (marathon?.configMissing) {
             const what = marathon.missingConfig.includes('class')

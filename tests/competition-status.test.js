@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   getExpectedDressageJudgePositions,
+  getDisplayedDressageJudgePositions,
   getCompletedDressageJudgePositions,
   isDressageReadyToFinalize,
   getMarathonActiveState
@@ -17,21 +18,30 @@ test('getExpectedDressageJudgePositions prefers class mapping and normalizes pos
     }
   };
 
-  const positions = getExpectedDressageJudgePositions('LA Klass', mapping, [
-    { position: 'B' }
-  ]);
+  const positions = getExpectedDressageJudgePositions('LA Klass', mapping);
 
   assert.deepEqual(positions, ['C', 'E']);
 });
 
-test('getExpectedDressageJudgePositions falls back to judge roles when class mapping is missing', () => {
-  const positions = getExpectedDressageJudgePositions('Unknown', {}, [
+test('a class without a judge mapping has no expected judges, so protocols alone never make it done', () => {
+  // Same rule as the result engine: no mapping, no complete dressage
+  assert.deepEqual(getExpectedDressageJudgePositions('Unknown', {}), []);
+  assert.equal(isDressageReadyToFinalize({
+    status: {},
+    countedJudgePositions: new Set(['C', 'E']),
+    expectedJudgePositions: getExpectedDressageJudgePositions('Unknown', {}),
+    finalized: false
+  }), false);
+});
+
+test('getDisplayedDressageJudgePositions shows every dressage judge when the class has no mapping', () => {
+  const judges = [
     { roles: [{ discipline: 'dressage', position: 'C' }] },
     { roles: [{ discipline: 'dressage', position: 'E' }] },
     { position: 'B' }
-  ]);
-
-  assert.deepEqual(positions.sort(), ['B', 'C', 'E']);
+  ];
+  assert.deepEqual(getDisplayedDressageJudgePositions('Unknown', {}, judges).sort(), ['B', 'C', 'E']);
+  assert.deepEqual(getDisplayedDressageJudgePositions('LA Klass', { 'LA Klass': { C: 'judge-c' } }, judges), ['C']);
 });
 
 test('getCompletedDressageJudgePositions ignores live and eliminated judges', () => {

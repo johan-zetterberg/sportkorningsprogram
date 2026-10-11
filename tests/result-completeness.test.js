@@ -76,11 +76,21 @@ test('dressage is not complete, and there is no total, until every assigned judg
   assert.ok(Number.isFinite(both.totalPenalty));
 });
 
-test('without a judge mapping for the class the received protocols decide, as before', () => {
-  const r = calculateTotalResult(state({ protocols: [protocol('judge-c', 'C', [7, 8])], judges: {} }));
-  assert.deepEqual(r.dressage.expectedJudgePositions, []);
-  assert.equal(r.dressageComplete, true);
-  assert.ok(Number.isFinite(r.totalPenalty));
+test('without a judge mapping for the class the dressage is never complete', () => {
+  // Even with full protocols from two judges: which judges the class needs is unknown
+  const r = calculateTotalResult(state({
+    protocols: [protocol('judge-c', 'C', [7, 8]), protocol('judge-e', 'E', [6, 7])],
+    judges: {}
+  }));
+  assert.equal(r.dressage.judgeMappingMissing, true);
+  assert.ok(Number.isFinite(r.dressagePenalty), 'the provisional dressage penalty is still shown');
+  assert.equal(r.dressageComplete, false);
+  assert.equal(r.totalPenalty, null);
+
+  const validation = buildRecalculationValidation([
+    { startNumber: '7', equipage: { className: '2.Lätt A Enbet Ponny' }, dressageProtocols: [protocol('judge-c', 'C', [7, 8])], result: r }
+  ], { allPrograms });
+  assert.ok(validation.warnings.some(w => w.message.includes('saknar domarfördelning')), JSON.stringify(validation.warnings));
 });
 
 test('a marathon without class settings gets no result and never becomes Klar', () => {

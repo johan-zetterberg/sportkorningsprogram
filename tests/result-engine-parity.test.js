@@ -40,8 +40,11 @@ const precisionConfig = {
   timePenaltyRate: 0.5
 };
 
+// Judge C judges KlassA (as dressyr-admin saves the judge mapping)
+const dressageJudgeMapping = { KlassA: { C: 'c' } };
+
 // Same context shape that functions/index.js getContext() builds
-const serverContext = { allPrograms, dressageProgramMapping: {}, judges: [], marathonConfig, precisionConfig, ruleSettings: null, pauseWindows: [] };
+const serverContext = { allPrograms, dressageProgramMapping: {}, dressageJudgeMapping, judges: [], marathonConfig, precisionConfig, ruleSettings: null, pauseWindows: [] };
 
 const T0 = Date.UTC(2026, 9, 10, 9, 0, 0);
 const min = (m) => m * 60000;
@@ -230,7 +233,7 @@ test('total: browser calculateTotalResult equals the stored server total', () =>
   const precisionDoc = { finalized: true, timeMs: 105000, knocks: [3] };
 
   const browser = calculateTotalResult(eq, protocols, { obstacleData: marathonDoc, timeData: timing }, precisionDoc, {
-    allPrograms, precisionConfig
+    allPrograms, precisionConfig, dressageJudgeMapping
   });
   const server = serverTotal(serverState(eq, protocols, marathonDoc, timing, precisionDoc));
 

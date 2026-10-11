@@ -49,6 +49,7 @@ import {
 } from './dressageResultBridge.js';
 import {
     getExpectedDressageJudgePositions,
+    getDisplayedDressageJudgePositions,
     getCompletedDressageJudgePositions,
     isDressageReadyToFinalize
 } from '../../services/competitionStatusService.js';
@@ -1317,7 +1318,7 @@ function renderLiveHeader() {
         : '—';
 
     // Judge Cards 
-    const expectedPositions = getExpectedJudgesForClass(activeRes.className);
+    const expectedPositions = getDisplayedJudgesForClass(activeRes.className);
 
     const judges = Object.values(activeRes.judges || {})
         .filter(j => {
@@ -1462,9 +1463,14 @@ function renderLiveHeader() {
   `;
 }
 
-// === NEW: Helper to find expected judge positions for a specific class
+// Judges whose protocols the class needs before it is done (mapping only, as the result engine)
 function getExpectedJudgesForClass(className) {
-    return getExpectedDressageJudgePositions(className, window.dressageJudgeMapping, currentJudgesPresent);
+    return getExpectedDressageJudgePositions(className, window.dressageJudgeMapping);
+}
+
+// Judge columns to show for the class (all judges when the class has no mapping)
+function getDisplayedJudgesForClass(className) {
+    return getDisplayedDressageJudgePositions(className, window.dressageJudgeMapping, currentJudgesPresent);
 }
 
 function renderTableHead(thead, judgesPresent) {
@@ -1694,7 +1700,7 @@ function renderDesktop(judgesPresent) {
             </td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-[11px] lg:text-sm text-gray-900 dark:text-gray-300">${formatStartTimeLabel(res.startTime) || '–'}</td>
             ${uniquePositions.map(pos => {
-            const classExpectedPos = getExpectedJudgesForClass(res.className);
+            const classExpectedPos = getDisplayedJudgesForClass(res.className);
             if (classExpectedPos && !classExpectedPos.includes(pos)) {
                 return `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs text-gray-300 dark:text-gray-600">—</td>`;
             }

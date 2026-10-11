@@ -38,12 +38,25 @@ function stageStopTS(t, s) {
   return parseTS(val);
 }
 
-export function getExpectedDressageJudgePositions(className, judgeMapping = {}, judges = []) {
-  // The class's own judges, as the result engine reads them
-  const positions = Object.keys(getClassJudgeAssignments(className, judgeMapping));
+/**
+ * Judge positions whose protocols a class needs before its dressage is done:
+ * the class's judges in the dressage judge mapping, the same rule as the result
+ * engine. A class without a mapping has no known judges, so it is never done
+ * from protocols alone.
+ */
+export function getExpectedDressageJudgePositions(className, judgeMapping = {}) {
+  return Object.keys(getClassJudgeAssignments(className, judgeMapping));
+}
+
+/**
+ * Judge positions to show for a class: its mapped judges, or (without a
+ * mapping) every dressage judge position in the competition. For display only;
+ * completeness uses getExpectedDressageJudgePositions.
+ */
+export function getDisplayedDressageJudgePositions(className, judgeMapping = {}, judges = []) {
+  const positions = getExpectedDressageJudgePositions(className, judgeMapping);
   if (positions.length > 0) return positions;
 
-  // Without a class mapping: every dressage judge position in the competition
   const fallbackPositions = new Set();
   (judges || []).forEach(judge => {
     if (Array.isArray(judge?.roles)) {

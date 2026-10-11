@@ -347,12 +347,14 @@ export function calculateDressageResult(state) {
     // TR Mom 518.9 & FEI Art 958.1.4: error points from C are added directly 1:1
     const errorPoints = resolveDressageErrorPoints(equipage, rawProtocols);
 
-    // Judges the class is assigned (dressageJudgeMapping); without a mapping
-    // the received protocols are all there is to go on
+    // Judges the class is assigned (dressageJudgeMapping). Without a mapping it
+    // is unknown which judges must judge, so the dressage is never complete
+    // (the provisional penalty is still given).
     const assignments = getClassJudgeAssignments(equipage.className, config.dressageJudgeMapping);
     const expectedJudgePositions = Object.keys(assignments);
+    const judgeMappingMissing = expectedJudgePositions.length === 0;
     const missingJudgePositions = getMissingJudgePositions(assignments, judgeProtocols, program);
-    const judgesComplete = missingJudgePositions.length === 0;
+    const judgesComplete = !judgeMappingMissing && missingJudgePositions.length === 0;
 
     if (!program || judgeProtocols.length === 0) {
         return {
@@ -367,6 +369,7 @@ export function calculateDressageResult(state) {
             errorPenalty: errorPoints,
             expectedJudgePositions,
             missingJudgePositions,
+            judgeMappingMissing,
             judgesComplete
         };
     }
@@ -401,6 +404,7 @@ export function calculateDressageResult(state) {
         judgeCount: judgeProtocols.length,
         expectedJudgePositions,
         missingJudgePositions,
+        judgeMappingMissing,
         judgesComplete,
         pointsNow,
         // TR tie-break

@@ -98,7 +98,8 @@ function createBaseState() {
     {
       allPrograms,
       marathonConfig,
-      precisionConfig
+      precisionConfig,
+      dressageJudgeMapping: { Testklass: { C: 'c' } }
     }
   );
 }

@@ -276,19 +276,16 @@ export async function getCompetitionStatistics(competitionId) {
   try {
     const statusCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus`);
     const equipagesCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/equipages`);
-    const judgesCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/judges`);
     const judgeMapRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/config`, 'dressageJudgeMapping');
 
-    const [statusSnap, equipagesSnap, judgesSnap, judgeMapSnap] = await Promise.all([
+    const [statusSnap, equipagesSnap, judgeMapSnap] = await Promise.all([
       getDocs(statusCol),
       getDocs(equipagesCol),
-      getDocs(judgesCol),
       getDoc(judgeMapRef)
     ]);
 
     const statusBySn = new Map(statusSnap.docs.map(d => [String(d.id), d.data() || {}]));
     const judgeMappingRaw = judgeMapSnap.exists() ? (judgeMapSnap.data()?.mapping || judgeMapSnap.data() || {}) : {};
-    const judges = judgesSnap.docs.map(d => d.data() || {});
 
     const protocolCounts = new Map();
     await Promise.all(equipagesSnap.docs.map(async (eqDoc) => {
@@ -316,7 +313,7 @@ export async function getCompetitionStatistics(competitionId) {
       const sn = String(eqDoc.id);
       const equipage = eqDoc.data() || {};
       const status = statusBySn.get(sn) || {};
-      const expectedPositions = getExpectedDressageJudgePositions(equipage.className, judgeMappingRaw, judges);
+      const expectedPositions = getExpectedDressageJudgePositions(equipage.className, judgeMappingRaw);
       const countedJudges = protocolCounts.get(sn) || new Set();
 
       const finRef = doc(db, `competitions/${competitionId}/dressageFinalization/${sn}`);

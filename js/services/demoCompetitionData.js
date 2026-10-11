@@ -427,6 +427,14 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     8: 7.0  // Greta: ~70% -> penalty ~48.0
   };
 
+  // Every class is judged by all three judges (as dressyr-admin saves the judge mapping)
+  configs.dressageJudgeMapping = Object.fromEntries(
+    [...new Set(equipages.map(eq => eq.className))].map(className => [
+      className,
+      Object.fromEntries(judges.map(j => [j.position, j.id]))
+    ])
+  );
+
   // Generate full judge protocols for all 3 judges (C, E, B) for all equipages
   const judgeProtocols = [];
   const dressageScores = [];

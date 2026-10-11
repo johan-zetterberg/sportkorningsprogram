@@ -39,6 +39,9 @@ const marathonConfig = {
   obstacleNumbers: [1]
 };
 
+// Judge C judges both classes (as dressyr-admin saves the judge mapping)
+const dressageJudgeMapping = { KlassA: { C: 'c' }, KlassB: { C: 'c' } };
+
 const precisionConfig = {
   maxTimeByClass: {
     KlassA: 100,
@@ -87,6 +90,7 @@ test('buildArchiveRowsFromData builds ranked rows from shared discipline data', 
     precisionRows,
     marathonConfig,
     precisionConfig,
+    dressageJudgeMapping,
     allPrograms
   });
 
@@ -161,6 +165,7 @@ test('buildArchiveRowsFromData keeps incomplete rows after ranked rows and outsi
     precisionRows,
     marathonConfig,
     precisionConfig,
+    dressageJudgeMapping,
     allPrograms
   });
 
@@ -217,6 +222,7 @@ test('buildArchiveRowsFromData preserves precision elimination on discipline row
     precisionRows,
     marathonConfig,
     precisionConfig,
+    dressageJudgeMapping,
     allPrograms
   });
 
@@ -263,6 +269,7 @@ test('buildArchiveRowsFromData applies dressage general error points via shared 
     precisionRows,
     marathonConfig,
     precisionConfig,
+    dressageJudgeMapping,
     allPrograms
   });
 
@@ -305,6 +312,7 @@ test('buildArchiveRowsFromData respects equipage-level elimination in shared dre
     precisionRows,
     marathonConfig,
     precisionConfig,
+    dressageJudgeMapping,
     allPrograms
   });
 
