@@ -5,7 +5,7 @@ import { getGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { getEquipages } from '../../services/equipageService.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp
+  doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, runTransaction
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 import { getCompetitionHeader } from '../../ui/components.js';
@@ -48,37 +48,51 @@ function globalStatusDocRef() {
   return doc(db, 'artifacts', appId, 'public', 'data', 'competitions', cid, 'config', 'globalStatus');
 }
 
-// Funktioner för att pausa och återuppta
+// Funktioner för att pausa och återuppta.
+// Pausloggen dras av från etapptiderna, så den uppdateras i en transaktion:
+// två observatörer som trycker samtidigt kan inte skriva över varandra, och
+// "pausa" under en öppen paus (eller "återuppta" utan paus) ändrar ingenting.
 async function setGlobalPause(isPaused) {
   try {
     const statusRef = globalStatusDocRef();
-    const docSnap = await getDoc(statusRef);
-    const data = docSnap.exists() ? docSnap.data() : {};
-
-    let pauseLog = Array.isArray(data.pauseLog) ? data.pauseLog : [];
     const now = new Date();
-
-    if (isPaused) {
-      // Startar en ny paus: lägg till en ny post i loggen
-      pauseLog.push({ start: now.toISOString(), end: null, durationSec: null });
-    } else {
-      // Avslutar den senaste pausen
-      const lastPause = pauseLog.find(p => p.end === null);
-      if (lastPause) {
-        const startTime = new Date(lastPause.start).getTime();
-        lastPause.end = now.toISOString();
-        lastPause.durationSec = Math.round((now.getTime() - startTime) / 1000);
-      }
-    }
-
     const statusText = isPaused ? t('observer_pause_time').replace('{time}', now.toLocaleTimeString('sv-SE')) : t('observer_resume');
 
-    await setDoc(statusRef, {
+    // Den nya pausloggen, eller null om inget ska ändras
+    const nextPauseLog = (data) => {
+      const pauseLog = (Array.isArray(data?.pauseLog) ? data.pauseLog : []).map(p => ({ ...p }));
+      const openPause = pauseLog.find(p => p && p.end == null);
+      if (isPaused) {
+        if (openPause) return null; // redan pausat
+        pauseLog.push({ start: now.toISOString(), end: null, durationSec: null });
+      } else {
+        if (!openPause) return null; // ingen pågående paus
+        openPause.end = now.toISOString();
+        openPause.durationSec = Math.round((now.getTime() - new Date(openPause.start).getTime()) / 1000);
+      }
+      return pauseLog;
+    };
+    const statusDoc = (pauseLog) => ({
       isPaused: !!isPaused,
       statusText: statusText,
       pauseLog: pauseLog, // Spara den uppdaterade loggen
       updatedAt: serverTimestamp()
-    }, { merge: true });
+    });
+
+    try {
+      await runTransaction(db, async (tx) => {
+        const docSnap = await tx.get(statusRef);
+        const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
+        if (pauseLog) tx.set(statusRef, statusDoc(pauseLog), { merge: true });
+      });
+    } catch (e) {
+      // Transaktioner kräver nät. Offline: köa skrivningen som tidigare
+      // (läser senast kända status), så att pausen inte går förlorad.
+      if (e?.code !== 'unavailable' && navigator.onLine !== false) throw e;
+      const docSnap = await getDoc(statusRef);
+      const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
+      if (pauseLog) await setDoc(statusRef, statusDoc(pauseLog), { merge: true });
+    }
 
     showAlert(statusText);
   } catch (e) {
