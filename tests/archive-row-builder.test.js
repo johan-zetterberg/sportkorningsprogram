@@ -34,7 +34,9 @@ const marathonConfig = {
       tempoB: 300,
       obstaclePenaltyRate: 0.25
     }
-  }
+  },
+  // The course: one obstacle (as maraton-admin mirrors the obstacle list)
+  obstacleNumbers: [1]
 };
 
 const precisionConfig = {

@@ -28,7 +28,9 @@ const marathonConfig = {
     FastA: { fixedTimeA: 20, distanceB: 6000, tempoB: 300 },
     PonnyKlass: { distanceA: 6000, distanceB: 6000, trTemplate: 'Lätt B' },
     Utvalda: { distanceB: 6000, tempoB: 300, drivenObstacles: '1, 3' }
-  }
+  },
+  // The course for classes without their own "körda hinder"
+  obstacleNumbers: [1]
 };
 
 const precisionConfig = {

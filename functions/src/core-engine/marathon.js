@@ -305,6 +305,20 @@ export function getClassDrivenObstacles(className, marathonConfig) {
     return null;
 }
 
+/**
+ * The obstacles an equipage of the class must drive: the class's "körda hinder",
+ * else every obstacle of the competition (maratonConfig.obstacleNumbers, kept in
+ * step with the obstacle list by the marathon admin). null when neither is known.
+ */
+export function getClassCourse(className, marathonConfig) {
+    const driven = getClassDrivenObstacles(className, marathonConfig);
+    if (driven) return driven;
+    const all = (Array.isArray(marathonConfig?.obstacleNumbers) ? marathonConfig.obstacleNumbers : [])
+        .map(Number)
+        .filter(n => Number.isInteger(n) && n > 0);
+    return all.length > 0 ? all : null;
+}
+
 export function isMarathonClearRound(equipage, marathonConfig) {
     return getClassSettings(equipage?.className, marathonConfig)?.clearRound === true;
 }
@@ -647,14 +661,13 @@ export function calculateMarathonResult(state) {
     const isObstacleDone = (hit) => hit && (hit.eliminated
         || Number.isFinite(obstacleValues(hit).penalty)
         || Number.isFinite(obstacleValues(hit).timeSec));
-    const obstaclesComplete = (() => {
-        if (drivenObs) return drivenObs.every(n => isObstacleDone(obsArr.find(x => obstacleNo(x) === n)));
-        if (obsArr.length === 0 || maxObsNumber === 0) return false;
-        for (let i = 1; i <= maxObsNumber; i++) {
-            if (!isObstacleDone(obsArr.find(x => obstacleNo(x) === i))) return false;
-        }
-        return true;
-    })();
+    // Complete when every obstacle of the course is done. Without a known
+    // course (no "körda hinder" and no obstacle list) the highest registered
+    // obstacle says nothing about the rest, so the course is never complete.
+    const course = getClassCourse(eq.className, marathonConfig);
+    const obstacleListMissing = !course;
+    const obstaclesComplete = !!course
+        && course.every(n => isObstacleDone(obsArr.find(x => obstacleNo(x) === n)));
 
     // 3. Wrong gait (observer) and other penalties
     const wgSec = Number(d.observerLog?.wrongGaitSeconds) || 0;
@@ -716,6 +729,8 @@ export function calculateMarathonResult(state) {
         eliminated,
         configMissing,
         missingConfig, // 'class', or the stages (A, transport, B) without limits
+        obstacleListMissing, // the course is unknown: never 'Klar'
+        obstaclesComplete,
         isClearRound,
         clearRoundApproved: isClearRound && !eliminated && totalPenalty === 0,
         stages,

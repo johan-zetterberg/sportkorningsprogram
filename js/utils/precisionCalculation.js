@@ -174,8 +174,15 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
         : null;
 
-    let totalPenalty = sumParts;
-    if (totalPenalty === null) {
+    // A driven time cannot be penalised without the course's max time (track
+    // length and tempo) unless the secretariat set the time penalty by hand;
+    // like marathon, such a result gets no total and is never 'Klar'
+    const configMissing = isNum(timeMs) && timeMs > 0
+        && !(isNum(maxSec) && maxSec > 0)
+        && !(d.timePenaltyOverride === true && isNum(d.timePenalty));
+
+    let totalPenalty = configMissing ? null : sumParts;
+    if (totalPenalty === null && !configMissing) {
         if (finalized) {
             totalPenalty = isNum(d.totalPenalty) ? d.totalPenalty : null;
         } else if (running) {
@@ -193,7 +200,8 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     if (equipage?.status === 'struken') status = 'Struken';
     else if (running) status = 'Pågår';
     else if (finalized || (isNum(timeMs) && timeMs > 0)) {
-        status = isInitiallyEliminated ? 'Utesluten' : 'Klar';
+        if (isInitiallyEliminated) status = 'Utesluten';
+        else status = configMissing ? 'Pågår' : 'Klar';
     }
 
     const timeDiffFromAllowed = (isNum(timeMs) && isNum(maxSec))
@@ -213,6 +221,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         maxTimeSec: isNum(maxSec) ? maxSec : null,
         timePenaltyRate: rate,
         timePenaltyOverride: d.timePenaltyOverride === true,
+        configMissing, // no max time for the class: totalPenalty withheld
         knocks: knocksArr,
         knockDownTimes: d.knockDownTimes || {},
         knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / knockdownPenalty) : 0),

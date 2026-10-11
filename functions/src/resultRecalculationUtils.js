@@ -31,7 +31,7 @@ export const RESULT_CONFIG_DOCS = [
 ];
 
 // JSON with sorted keys, so field order cannot make equal data look changed
-function stableJson(value) {
+export function stableJson(value) {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
     if (value && typeof value === 'object') {
         return `{${Object.keys(value).sort().map((k) => `${JSON.stringify(k)}:${stableJson(value[k])}`).join(',')}}`;
@@ -52,6 +52,20 @@ export function configChangeAffectsResults(configId, before = null, after = null
 // The competition document carries the rule settings (coefficients, rates)
 export function ruleSettingsChanged(before = null, after = null) {
     return stableJson(before?.ruleSettings) !== stableJson(after?.ruleSettings);
+}
+
+/**
+ * Fingerprint of everything a change of which triggers a full recalculation:
+ * the result config documents, the rule settings and the pause log. A run whose
+ * fingerprint is outdated when it is about to write can skip the write, since a
+ * full recalculation with the newer settings follows.
+ */
+export function resultSettingsFingerprint({ competition = null, configs = {}, globalStatus = null } = {}) {
+    return stableJson({
+        ruleSettings: competition?.ruleSettings ?? null,
+        pauseLog: globalStatus?.pauseLog ?? null,
+        configs: Object.fromEntries(RESULT_CONFIG_DOCS.map((id) => [id, configs[id] ?? null]))
+    });
 }
 
 function normalizeStartNumber(value) {
@@ -115,9 +129,12 @@ export function buildRecalculationValidation(records = [], context = {}) {
                 : `idealtid saknas för sträcka ${marathon.missingConfig.join(', ')} i klassen "${className}"`;
             warnings.push({ startNumber, message: `Maratonresultatet kan inte räknas: ${what}.` });
         }
+        if (marathon?.obstacleListMissing && marathon.obstacles?.items?.length > 0) {
+            warnings.push({ startNumber, message: `Maratonresultatet kan inte bli klart: banan är okänd för klassen "${className}". Ange körda hinder för klassen eller öppna maratonadministrationen så att hinderlistan sparas.` });
+        }
         const precision = record?.result?.precision;
-        if (precision && precision.timeMs > 0 && precision.maxTimeSec == null && !precision.timePenaltyOverride) {
-            warnings.push({ startNumber, message: `Precisionsbana saknas för klassen "${className}"; sparat tidsstraff används.` });
+        if (precision?.configMissing) {
+            warnings.push({ startNumber, message: `Precisionsresultatet kan inte räknas: maxtid (banlängd och tempo) saknas för klassen "${className}".` });
         }
     }
 

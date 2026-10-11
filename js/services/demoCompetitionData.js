@@ -153,6 +153,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     { number: 5, name: 'Labyrinten', gates: ['A', 'B', 'C', 'D'] },
     { number: 6, name: 'Slutspurten', gates: ['A', 'B', 'C', 'D', 'E'] }
   ];
+  // The course, as the marathon admin mirrors the obstacle list into maratonConfig
+  configs.maratonConfig.obstacleNumbers = obstacles.map(o => o.number);
 
   const equipages = [
     {

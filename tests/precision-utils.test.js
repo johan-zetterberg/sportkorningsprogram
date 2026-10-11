@@ -182,7 +182,8 @@ test('buildPlaceMap breaks ties by fastest time under TR Mom 530.1.2 and FEI Art
     ['4', { finalized: true, timeMs: 110000, knocks: [5], eliminated: false }]
   ]);
 
-  const placeMap = buildPlaceMap(rows, precisionMap);
+  // Max time 130 s: all rounds are inside it, so only knocks and time decide
+  const placeMap = buildPlaceMap(rows, precisionMap, { maxTimeByClass: { 'Lätt B': 130 } });
 
   assert.equal(placeMap.get('2'), 1, 'Eq 2 is fastest clean round -> 1st');
   assert.equal(placeMap.get('3'), 1, 'Eq 3 shares 1st place due to identical time and penalties');

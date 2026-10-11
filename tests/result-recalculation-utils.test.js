@@ -5,6 +5,7 @@ import {
   buildRecalculationValidation,
   configChangeAffectsResults,
   resolveRecalculationProgramKey,
+  resultSettingsFingerprint,
   ruleSettingsChanged
 } from '../functions/src/resultRecalculationUtils.js';
 import { findProgramKey } from '../functions/src/core-engine/dressage.js';
@@ -47,6 +48,25 @@ test('config writes that change results trigger a recalculation, others do not',
   // Key order alone is not a change
   assert.equal(ruleSettingsChanged({ ruleSettings: { a: 1, b: 2 }, name: 'x' }, { ruleSettings: { b: 2, a: 1 }, name: 'y' }), false);
   assert.equal(ruleSettingsChanged({ ruleSettings: { a: 1 } }, { ruleSettings: { a: 2 } }), true);
+});
+
+test('the settings fingerprint changes with result settings only', () => {
+  const base = {
+    competition: { name: 'Tävling', ruleSettings: { marathonObstaclePenaltyRate: 0.25 } },
+    globalStatus: { pauseLog: [], live: 'A' },
+    configs: { maratonConfig: { marathonClassData: { A: { tempoB: 250 } } }, display: { x: 1 } }
+  };
+  const fp = resultSettingsFingerprint(base);
+  const changed = (patch) => resultSettingsFingerprint({ ...base, ...patch });
+
+  assert.equal(changed({ competition: { ...base.competition, name: 'Nytt namn' } }), fp, 'competition name');
+  assert.equal(changed({ globalStatus: { ...base.globalStatus, live: 'B' } }), fp, 'live status');
+  assert.equal(changed({ configs: { ...base.configs, display: { x: 2 } } }), fp, 'display config');
+
+  assert.notEqual(changed({ competition: { ruleSettings: { marathonObstaclePenaltyRate: 0.2 } } }), fp, 'rule settings');
+  assert.notEqual(changed({ globalStatus: { pauseLog: [{ start: 1 }] } }), fp, 'pause log');
+  assert.notEqual(changed({ configs: { maratonConfig: { marathonClassData: { A: { tempoB: 240 } } } } }), fp, 'marathon tempo');
+  assert.notEqual(changed({ configs: { ...base.configs, dressageJudgeMapping: { A: { C: 'j' } } } }), fp, 'judge mapping');
 });
 
 test('program keys with other capitalisation resolve to the program list key', () => {

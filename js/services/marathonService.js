@@ -1,7 +1,7 @@
 import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, query, serverTimestamp, runTransaction, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
-import { getConfig, listenForConfig } from './competitionService.js';
+import { getConfig, listenForConfig, saveConfig } from './competitionService.js';
 import { auth } from '../config/firebase-config.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
@@ -12,10 +12,30 @@ export function listenForMarathonObstacles(competitionId, callback) {
   }, buildSnapshotErrorHandler('listenForMarathonObstacles', callback, []));
 }
 
+/**
+ * Keeps maratonConfig.obstacleNumbers equal to the competition's obstacles.
+ * The result engine reads the course from it (a class without "körda hinder"
+ * drives all of them), and maratonConfig is what every result page and the
+ * Cloud Function already load. Writes only when the list differs.
+ */
+export async function syncMarathonObstacleNumbers(competitionId, obstacles = null) {
+  if (!competitionId) return;
+  const list = Array.isArray(obstacles)
+    ? obstacles
+    : (await getDocs(getCompCollectionRef(competitionId, 'maratonObstacles'))).docs.map(d => d.data());
+  const numbers = [...new Set(list.map(o => Number(o?.number ?? o?.obstacleNumber))
+    .filter(n => Number.isInteger(n) && n > 0))].sort((a, b) => a - b);
+  const cfg = await getConfig(competitionId, 'maratonConfig', true) || {};
+  const current = Array.isArray(cfg.obstacleNumbers) ? cfg.obstacleNumbers.map(Number) : null;
+  if (current && current.length === numbers.length && current.every((n, i) => n === numbers[i])) return;
+  await saveConfig(competitionId, 'maratonConfig', { obstacleNumbers: numbers });
+}
+
 export async function saveMarathonObstacle(competitionId, number, data) {
   return trackWrite(`Sparar maratonhinder ${number}`, (async () => {
     const obstacleRef = getCompDocRef(competitionId, 'maratonObstacles', number.toString());
     await setDoc(obstacleRef, data);
+    await syncMarathonObstacleNumbers(competitionId);
   })());
 }
 
@@ -26,6 +46,7 @@ export async function deleteMarathonObstacle(competitionId, obstacleNumber) {
   return trackWrite(`Tar bort maratonhinder ${obstacleNumber}`, (async () => {
     const obstacleRef = getCompDocRef(competitionId, 'maratonObstacles', String(obstacleNumber));
     await deleteDoc(obstacleRef);
+    await syncMarathonObstacleNumbers(competitionId);
   })());
 }
 

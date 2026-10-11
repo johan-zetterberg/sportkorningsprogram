@@ -5,6 +5,7 @@ import { buildCompetitionState } from '../js/core-engine/stateSelector.js';
 import { calculateDressageResult, getClassJudgeAssignments } from '../js/core-engine/dressage.js';
 import { calculateMarathonResult } from '../js/core-engine/marathon.js';
 import { calculateTotalResult } from '../js/core-engine/calculation.js';
+import { calculatePrecisionResult } from '../js/utils/precisionCalculation.js';
 import { buildRecalculationValidation } from '../functions/src/resultRecalculationUtils.js';
 
 // A result is only complete (and gets a total) when nothing it depends on is missing:
@@ -18,8 +19,10 @@ const judgeMapping = { '2. Lätt A Enbet Ponny': { C: 'judge-c', E: 'judge-e', M
 const marathonConfig = {
   marathonClassData: {
     '2. Lätt A Enbet Ponny': { distanceA: 5000, tempoA: 250, distanceB: 6000, tempoB: 250 }
-  }
+  },
+  obstacleNumbers: [1]
 };
+const precisionConfig = { courses: { '2.Lätt A Enbet Ponny': { trackLengthMeters: 500, tempo: 230 } } };
 
 const protocol = (judgeId, position, scores) => ({
   id: `judge_${judgeId}`, judgeId, position, testKey: 'LA',
@@ -34,11 +37,11 @@ const finishedMarathon = {
 };
 const finishedPrecision = { finalized: true, timeMs: 90_000, obstaclePenalty: 0 };
 
-function state({ protocols = [], marathon = finishedMarathon, marCfg = marathonConfig, judges = judgeMapping } = {}) {
+function state({ protocols = [], marathon = finishedMarathon, marCfg = marathonConfig, judges = judgeMapping, precCfg = precisionConfig } = {}) {
   return buildCompetitionState(
     { startNumber: 7, className: '2.Lätt A Enbet Ponny', testKey: 'LA' },
     protocols, marathon, marathon, finishedPrecision,
-    { allPrograms, marathonConfig: marCfg, dressageJudgeMapping: judges, precisionConfig: {} }
+    { allPrograms, marathonConfig: marCfg, dressageJudgeMapping: judges, precisionConfig: precCfg }
   );
 }
 
@@ -115,7 +118,7 @@ test('an equipage without any marathon data is not reported as missing settings'
 
 test('recalculation validation warns about results the settings cannot support', () => {
   const noMarathonSettings = calculateTotalResult(state({ marCfg: {} }));
-  const noCourse = calculateTotalResult(state());
+  const noCourse = calculateTotalResult(state({ precCfg: {} }));
   const validation = buildRecalculationValidation([
     { startNumber: '7', equipage: { className: '2.Lätt A Enbet Ponny' }, result: noMarathonSettings },
     { startNumber: '8', equipage: { className: '2.Lätt A Enbet Ponny' }, result: noCourse }
@@ -124,5 +127,45 @@ test('recalculation validation warns about results the settings cannot support',
   assert.equal(validation.criticalErrors.length, 0);
   const messages = validation.warnings.map(w => `${w.startNumber}: ${w.message}`);
   assert.ok(messages.some(m => m.startsWith('7: Maratonresultatet kan inte räknas')), messages.join('\n'));
-  assert.ok(messages.some(m => m.startsWith('8: Precisionsbana saknas')), messages.join('\n'));
+  assert.ok(messages.some(m => m.startsWith('8: Precisionsresultatet kan inte räknas')), messages.join('\n'));
+});
+
+test('precision without a max time gets no result and never becomes Klar, unless the time penalty was set by hand', () => {
+  const ok = calculateTotalResult(state({ protocols: [protocol('judge-c', 'C', [7, 8]), protocol('judge-e', 'E', [6, 7])] }));
+  assert.equal(ok.precision.configMissing, false);
+  assert.equal(ok.precision.status, 'Klar');
+  assert.ok(Number.isFinite(ok.totalPenalty));
+
+  // 180 s driven, finalized, empty precision config (the reviewed case)
+  const noCourse = calculateTotalResult(state({ precCfg: {}, protocols: [protocol('judge-c', 'C', [7, 8]), protocol('judge-e', 'E', [6, 7])] }));
+  assert.equal(noCourse.precision.configMissing, true);
+  assert.notEqual(noCourse.precision.status, 'Klar');
+  assert.equal(noCourse.precision.totalPenalty, null);
+  assert.equal(noCourse.precisionComplete, false);
+  assert.equal(noCourse.totalPenalty, null);
+
+  const manual = calculatePrecisionResult({ ...finishedPrecision, timePenalty: 4, timePenaltyOverride: true }, { className: 'X' }, {});
+  assert.equal(manual.configMissing, false);
+  assert.equal(manual.totalPenalty, 4);
+});
+
+test('the marathon course is the class\'s driven obstacles, else the competition\'s obstacle list', () => {
+  const sixObstacles = { ...marathonConfig, obstacleNumbers: [1, 2, 3, 4, 5, 6] };
+  // Only obstacle 1 driven of six: not finished (the reviewed case)
+  const early = calculateMarathonResult(state({ marCfg: sixObstacles }));
+  assert.equal(early.obstaclesComplete, false);
+  assert.notEqual(early.status, 'Klar');
+
+  // The class drives only obstacle 1
+  const classCourse = calculateMarathonResult(state({ marCfg: {
+    ...sixObstacles,
+    marathonClassData: { '2. Lätt A Enbet Ponny': { ...marathonConfig.marathonClassData['2. Lätt A Enbet Ponny'], drivenObstacles: '1' } }
+  } }));
+  assert.equal(classCourse.status, 'Klar');
+
+  // No course known at all: never complete, provisional penalty still shown
+  const unknown = calculateMarathonResult(state({ marCfg: { marathonClassData: marathonConfig.marathonClassData } }));
+  assert.equal(unknown.obstacleListMissing, true);
+  assert.notEqual(unknown.status, 'Klar');
+  assert.ok(Number.isFinite(unknown.totalPenalty));
 });

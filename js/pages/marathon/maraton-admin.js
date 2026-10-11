@@ -3,7 +3,7 @@ import { getGlobalState } from '../../main.js';
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
-import { listenForMarathonObstacles, saveMarathonObstacle, deleteMarathonObstacle } from '../../services/marathonService.js';
+import { listenForMarathonObstacles, saveMarathonObstacle, deleteMarathonObstacle, syncMarathonObstacleNumbers } from '../../services/marathonService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { generateTimecardsPdf } from '../../pdf/timecardsPdf.js';
@@ -1259,7 +1259,7 @@ async function setupMarathonSettings() {
              </div>
              <div class="mt-4">
                 <p class="font-medium text-gray-700 dark:text-gray-300 mb-1">Körda Hinder <span class="text-xs font-normal text-gray-500">(1,2,3..)</span></p>
-                <input type="text" data-class-name="${cn}" data-field="drivenObstacles" class="marathon-class-input w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.drivenObstacles ?? ''}" placeholder="t.ex. 1, 2, 4, 5 (lämna tomt för alla)">
+                <input type="text" data-class-name="${cn}" data-field="drivenObstacles" class="marathon-class-input w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.drivenObstacles ?? ''}" placeholder="t.ex. 1, 2, 4, 5 (lämna tomt för alla upplagda hinder)">
              </div>
           </div>
         </div>
@@ -1648,6 +1648,9 @@ export async function load() {
   unsubscribeObstacles = listenForMarathonObstacles(competitionId, (obs) => {
     renderObstacleList(obs);
     renderMarathonAdminReadiness();
+    // Competitions created before the course list existed get it here
+    syncMarathonObstacleNumbers(competitionId, obs)
+      .catch(err => console.warn('Kunde inte synka hinderlistan till maratonConfig:', err));
   });
 
   injectPickerStyles();

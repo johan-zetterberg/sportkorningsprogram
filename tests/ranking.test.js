@@ -119,7 +119,10 @@ test('total: total, then marathon, then dressage, then shared (TR 533.3)', () =>
 
 test('archive placings use the total tie-break, shared places and the passed marathon config', () => {
   const allPrograms = { LA: { id: 'LA', name: 'Svenskt Latt A', movements: [{ no: 1, coeff: 1 }, { no: 2, coeff: 1 }] } };
-  const marathonConfig = { marathonClassData: { KlassA: { distanceA: 5000, tempoA: 250, distanceB: 6000, tempoB: 300 } } };
+  const marathonConfig = {
+    marathonClassData: { KlassA: { distanceA: 5000, tempoA: 250, distanceB: 6000, tempoB: 300 } },
+    obstacleNumbers: [1] // the course: one obstacle
+  };
   const equipages = [60, 61, 62].map(sn => ({ startNumber: sn, className: 'KlassA', category: 'horse', testKey: 'LA' }));
   const scores = { 60: [8, 8], 61: [7, 7], 62: [7, 7] };
   const dressageProtocols = new Map(equipages.map(eq => [String(eq.startNumber), [

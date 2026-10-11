@@ -136,17 +136,20 @@ test('precision live tick updates rank dynamically as penalty ticks up', () => {
     ['3', { finalized: true, timeMs: 90000, obstaclePenalty: 8.0 }]
   ]);
 
+  // Klassens maxtid 120 s: de färdiga ekipagen har inget tidsstraff
+  const options = { config: { maxTimeByClass: { 'Svår': 120 } } };
+
   // Ekipage 2 tickar live:
   // Vid 2.0 straff: leder klassen (rank 1)
-  const rankLeader = calculatePrecisionLiveRank(2.0, '2', equipages[1], equipages, precisionMap);
+  const rankLeader = calculatePrecisionLiveRank(2.0, '2', equipages[1], equipages, precisionMap, null, options);
   assert.equal(rankLeader, 1);
 
   // Vid 5.0 straff: passerat ekipage 1 (rank 2)
-  const rankSecond = calculatePrecisionLiveRank(5.0, '2', equipages[1], equipages, precisionMap);
+  const rankSecond = calculatePrecisionLiveRank(5.0, '2', equipages[1], equipages, precisionMap, null, options);
   assert.equal(rankSecond, 2);
 
   // Vid 9.0 straff: sist (rank 3)
-  const rankLast = calculatePrecisionLiveRank(9.0, '2', equipages[1], equipages, precisionMap);
+  const rankLast = calculatePrecisionLiveRank(9.0, '2', equipages[1], equipages, precisionMap, null, options);
   assert.equal(rankLast, 3);
 });
 
@@ -508,7 +511,8 @@ test('speaker updateLiveClocks updates precision live time, penalty and total in
     pauseStartTime: 0,
     currentDiscipline: 'precision',
     precisionConfig: {
-      classes: { Medelsvår: { timeAllowedSec: 150 } }
+      // As precision-admin saves it: 625 m at 250 m/min = 150 s max time
+      courses: { Medelsvår: { trackLengthMeters: 625, tempo: 250 } }
     },
     activeEquipages: new Map(),
     formatMsLive: () => '01:35',
@@ -520,7 +524,14 @@ test('speaker updateLiveClocks updates precision live time, penalty and total in
     startTimes: {}
   };
 
-  updateLiveClocks(context);
+  // The live clock reads Date.now(): pin it to the fixture's time (95 s driven)
+  const originalDateNow = Date.now;
+  Date.now = () => fixedNow;
+  try {
+    updateLiveClocks(context);
+  } finally {
+    Date.now = originalDateNow;
+  }
 
   assert.equal(pTimeEl.textContent, '01:35');
   assert.equal(pPenEl.textContent, '0.00', 'No time penalty before 150s');

@@ -24,7 +24,8 @@ export function calculateTotalResult(state) {
     // finished, precision not running
     const dressageComplete = isNum(dr.penalty) && !dr.isLive && dr.judgesComplete !== false;
     const marathonComplete = isNum(ma.totalPenalty) && ma.status === 'Klar';
-    const precisionComplete = isNum(pr.totalPenalty) && !pr.running && (pr.finalized || pr.status === 'Klar');
+    const precisionComplete = isNum(pr.totalPenalty) && !pr.running && !pr.configMissing
+        && (pr.finalized || pr.status === 'Klar');
 
     let total = null;
     if (!isEliminated && dressageComplete && marathonComplete && precisionComplete) {

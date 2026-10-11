@@ -72,10 +72,12 @@ test('calculatePrecisionLiveRank skips eliminated equipages and breaks ties on t
     ['3', { finalized: true, timeMs: 95000, obstaclePenalty: 3 }]
   ]);
 
+  // Class A max time 120 s: nobody has a time penalty
+  const config = { maxTimeByClass: { A: 120 } };
   // Same 3 penalties as #3 but faster -> 1st; eliminated #1 is not ahead
-  assert.equal(calculatePrecisionLiveRank(3, '2', equipages[1], equipages, precisionMap, null, { currentTimeMs: 90000 }), 1);
+  assert.equal(calculatePrecisionLiveRank(3, '2', equipages[1], equipages, precisionMap, null, { config, currentTimeMs: 90000 }), 1);
   // Same penalties, slower -> 2nd
-  assert.equal(calculatePrecisionLiveRank(3, '2', equipages[1], equipages, precisionMap, null, { currentTimeMs: 99000 }), 2);
+  assert.equal(calculatePrecisionLiveRank(3, '2', equipages[1], equipages, precisionMap, null, { config, currentTimeMs: 99000 }), 2);
 });
 
 test('buildPrecisionLiveTick returns elapsed, over-time, penalty and rank', () => {
