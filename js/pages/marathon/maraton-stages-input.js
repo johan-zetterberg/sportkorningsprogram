@@ -1520,7 +1520,8 @@ function refreshCommentToggleState(stage) {
   const hasComment = !!(startComment || stopComment || bitComment);
 
   if (wrap) {
-    wrap.classList.toggle('comment-visible', hasComment);
+    // A section the user opened stays open until they close it
+    wrap.classList.toggle('comment-visible', hasComment || wrap.dataset.userOpen === '1');
   }
   if (toggle) {
     toggle.classList.toggle('has-comment', hasComment);
@@ -1548,6 +1549,29 @@ function mergeStagePayloadIntoCurrentDoc(stage, payload = {}) {
   }
 }
 
+// Form fields the user edits and saves with "Spara". A Firestore snapshot (also
+// the server's acknowledgement of a stop or start) must not overwrite what the
+// user is typing: an edited ("dirty") or focused field keeps its value until it
+// is saved, after which it follows the document again.
+function stageFormFields(stage) {
+  return [
+    document.getElementById(`commentStart-${stage}`),
+    document.getElementById(`commentStop-${stage}`),
+    document.getElementById('manualEliminated'),
+    document.getElementById('otherMarathonPenalty'),
+    document.getElementById('bitOk'),
+    document.getElementById('bitComment')
+  ].filter(Boolean);
+}
+
+function isUserEditing(el) {
+  return !!el && (el.dataset.dirty === '1' || document.activeElement === el);
+}
+
+function clearStageFormDirty(stage) {
+  stageFormFields(stage).forEach(el => { delete el.dataset.dirty; });
+}
+
 function populateStageUI(stage, docData = {}) {
   const stageData = docData?.timing?.[stage] || {};
   const startClockEl = document.getElementById(`startClock-${stage}`);
@@ -1565,15 +1589,15 @@ function populateStageUI(stage, docData = {}) {
 
   if (startClockEl) startClockEl.textContent = formatClockDisplay(stageData.startClock);
   if (stopClockEl) stopClockEl.textContent = formatClockDisplay(stageData.stopClock);
-  if (commentStartEl) commentStartEl.value = stageData.commentStart || '';
-  if (commentStopEl) commentStopEl.value = stageData.commentStop || '';
-  if (eliminatedEl) eliminatedEl.checked = !!docData.eliminated;
-  if (otherPenaltyEl) otherPenaltyEl.value = Number(docData.otherPenalty || 0);
+  if (commentStartEl && !isUserEditing(commentStartEl)) commentStartEl.value = stageData.commentStart || '';
+  if (commentStopEl && !isUserEditing(commentStopEl)) commentStopEl.value = stageData.commentStop || '';
+  if (eliminatedEl && !isUserEditing(eliminatedEl)) eliminatedEl.checked = !!docData.eliminated;
+  if (otherPenaltyEl && !isUserEditing(otherPenaltyEl)) otherPenaltyEl.value = Number(docData.otherPenalty || 0);
 
-  if (bitOkEl) {
+  if (bitOkEl && !isUserEditing(bitOkEl)) {
     bitOkEl.checked = !!(docData.bitCheckOk ?? docData.bettOk);
   }
-  if (bitCommentEl) {
+  if (bitCommentEl && !isUserEditing(bitCommentEl)) {
     bitCommentEl.value = docData.bitCheckComment ?? docData.bettComment ?? '';
   }
 
@@ -1793,12 +1817,23 @@ async function saveStageDetails(stage) {
   await setDoc(maratonDocRef(currentEquipage.startNumber), rootPayload, { merge: true });
   currentDocData = { ...(currentDocData || {}), ...rootPayload };
 
+  clearStageFormDirty(stage); // saved: the fields follow the document again
   populateStageUI(stage, currentDocData);
   updateTabStatuses(currentDocData);
   showAlert('Ändringarna sparades.', true);
 }
 
 function bindStagePanel(stage) {
+  // Bind each rendered panel once: on page load the first equipage is selected
+  // (render + bind) and the page wiring used to bind the same panel again, so
+  // Start/Stop/Save ran twice and the comment toggle opened and closed at once.
+  // A re-rendered panel (new equipage or tab) is a new element and is bound.
+  const panel = document.getElementById('stagePanel')?.firstElementChild;
+  if (panel) {
+    if (panel.dataset.boundStage === stage) return;
+    panel.dataset.boundStage = stage;
+  }
+
   document.getElementById(`btnStart-${stage}`)?.addEventListener('click', async () => {
     try {
       await startStage(stage);
@@ -1854,12 +1889,23 @@ function bindStagePanel(stage) {
   });
 
   document.querySelector('#stagePanel .comment-toggle-btn')?.addEventListener('click', () => {
-    document.querySelector('#stagePanel .comment-wrapper')?.classList.toggle('comment-visible');
+    const wrap = document.querySelector('#stagePanel .comment-wrapper');
+    if (!wrap) return;
+    const open = !wrap.classList.contains('comment-visible');
+    wrap.classList.toggle('comment-visible', open);
+    wrap.dataset.userOpen = open ? '1' : '';
   });
 
   document.getElementById(`commentStart-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
   document.getElementById(`commentStop-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
   document.getElementById('bitComment')?.addEventListener('input', () => refreshCommentToggleState(stage));
+
+  // Edited fields keep their value against incoming snapshots until saved
+  stageFormFields(stage).forEach(el => {
+    const markDirty = () => { el.dataset.dirty = '1'; };
+    el.addEventListener('input', markDirty);
+    el.addEventListener('change', markDirty);
+  });
 }
 
 async function focusEquipageStage(sn, stage) {
@@ -2172,6 +2218,11 @@ export async function load() {
     console.error("Kunde inte hitta #equipageDropdown i DOM.");
   }
 
+  // 5. Koppla alla event-lyssnare innan något väntas in (wake lock), så att
+  // föregående/nästa fungerar direkt
+  wireEventListeners();
+  wireKeyboardShortcuts();
+
   // Request Wake Lock bara i full live-drift
   if (!isFieldMode) {
     if (!currentEquipage && !dropdown && orderByMarathonStart.length > 0) {
@@ -2179,10 +2230,6 @@ export async function load() {
     }
     await requestWakeLock();
   }
-
-  // 5. Koppla alla event-lyssnare
-  wireEventListeners();
-  wireKeyboardShortcuts();
 
   // 6. Starta de globala Firestore-lyssnarna
   subscribeAllActiveTimers();
