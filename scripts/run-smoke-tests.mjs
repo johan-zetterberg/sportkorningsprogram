@@ -4,8 +4,9 @@ import { firebaseCommand, getEmulatorEnv, run } from './emulator-env.mjs';
 //
 //   node scripts/run-smoke-tests.mjs [playwright-argument...]
 //
-// Steg 1 (utan --in-emulators): startar emulatorerna och kör sig själv igen inuti dem.
-// Steg 2 (--in-emulators): skapar testanvändaren och kör Playwright.
+// Steg 1 (utan --in-emulators): startar emulatorerna och kör sig själv igen inuti dem,
+//   eller använder emulatorer som redan körs.
+// Steg 2 (--in-emulators): skapar (eller återanvänder) testanvändaren och kör Playwright.
 // Allt som skrivs under testerna försvinner när emulatorerna stängs.
 
 const PROJECT_ID = 'demo-combined-driving';
@@ -25,13 +26,30 @@ async function emulatorRequest(url, method, body) {
   return res.json();
 }
 
-// Samma behörighet som testkontot har i produktion: superadmin.
-async function createSmokeUser() {
+// Testkontot finns redan om emulatorerna kördes sedan tidigare: hämta det
+async function findOrCreateSmokeUser() {
+  const lookup = await emulatorRequest(`${AUTH_URL}/projects/${PROJECT_ID}/accounts:lookup`, 'POST', {
+    email: [TEST_EMAIL]
+  });
+  const existing = lookup.users?.[0];
+  if (existing) {
+    await emulatorRequest(`${AUTH_URL}/projects/${PROJECT_ID}/accounts:update`, 'POST', {
+      localId: existing.localId,
+      password: TEST_PASSWORD
+    });
+    return existing.localId;
+  }
   const { localId } = await emulatorRequest(`${AUTH_URL}/projects/${PROJECT_ID}/accounts`, 'POST', {
     email: TEST_EMAIL,
     password: TEST_PASSWORD,
     displayName: 'Smoke Admin'
   });
+  return localId;
+}
+
+// Samma behörighet som testkontot har i produktion: superadmin.
+async function createSmokeUser() {
+  const localId = await findOrCreateSmokeUser();
   await emulatorRequest(`${AUTH_URL}/projects/${PROJECT_ID}/accounts:update`, 'POST', {
     localId,
     customAttributes: JSON.stringify({ superadmin: true })
@@ -41,7 +59,17 @@ async function createSmokeUser() {
     'PATCH',
     { fields: { email: { stringValue: TEST_EMAIL }, role: { stringValue: 'superadmin' } } }
   );
-  console.log(`Testanvändare ${TEST_EMAIL} skapad i emulatorerna.`);
+  console.log(`Testanvändare ${TEST_EMAIL} klar i emulatorerna.`);
+}
+
+// Svarar emulatorn på sin port?
+async function isListening(url) {
+  try {
+    await fetch(url, { signal: AbortSignal.timeout(2000) });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 if (process.argv[2] === '--in-emulators') {
@@ -55,8 +83,30 @@ if (process.argv[2] === '--in-emulators') {
   process.exit(exitCode);
 }
 
+const playwrightArgs = JSON.stringify(process.argv.slice(2));
+
+// Emulatorer som redan körs (t.ex. firebase emulators:start) används som de är
+const [authUp, firestoreUp] = await Promise.all([
+  isListening('http://127.0.0.1:9099/'),
+  isListening('http://127.0.0.1:8080/')
+]);
+if (authUp && firestoreUp) {
+  console.log('Emulatorerna körs redan; testerna använder dem.');
+  const exitCode = await run(process.execPath, ['scripts/run-smoke-tests.mjs', '--in-emulators'], {
+    ...process.env,
+    SMOKE_PLAYWRIGHT_ARGS: playwrightArgs
+  });
+  process.exit(exitCode);
+}
+if (authUp || firestoreUp) {
+  console.error('Bara en del av emulatorerna körs (auth på 9099, firestore på 8080).');
+  console.error('Starta alla med: firebase emulators:start --only auth,firestore,functions,storage --project demo-combined-driving');
+  console.error('eller stäng de som körs, så startar testerna egna.');
+  process.exit(1);
+}
+
 const env = await getEmulatorEnv('test:smoke');
-env.SMOKE_PLAYWRIGHT_ARGS = JSON.stringify(process.argv.slice(2));
+env.SMOKE_PLAYWRIGHT_ARGS = playwrightArgs;
 
 const exitCode = await run(firebaseCommand, [
   'emulators:exec',
