@@ -409,8 +409,11 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     precisionConfig,
     { currentCompetition: getGlobalState('currentCompetition') }
   );
-  payload.timePenalty = calc.timePenalty ?? 0;
-  payload.totalPenalty = calc.totalPenalty ?? 0;
+  // Without a max time for the class the engine gives no total: save it empty
+  // and not as 'Klar' (a hand-set time penalty, timePenaltyOverride, counts)
+  payload.timePenalty = calc.configMissing ? null : (calc.timePenalty ?? 0);
+  payload.totalPenalty = calc.configMissing ? null : (calc.totalPenalty ?? 0);
+  if (calc.configMissing) payload.status = 'Pågår';
 
   await savePrecisionResult(competitionId, startNumber, payload);
 

@@ -11,7 +11,7 @@ import { listenForDressageProtocolsCollectionGroup } from '../../services/dressa
 import { getMarathonTimingData } from '../../services/marathonService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
 import { listenForOfficials, listenForJudges } from '../../services/adminService.js';
-import { listenForMaratonCollection, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
+import { listenForMaratonCollection, listenForMarathonTimingUpdates, loadPauseWindows } from '../../services/marathonService.js';
 import { listenForTeams } from '../../services/teamService.js';
 import { t } from '../../utils/i18n.js';
 
@@ -1491,6 +1491,7 @@ export async function load(el) {
     }
 
     setMarathonConfig(marathonConfig);
+    await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
     precisionConfig = cfg.precision || {};
     // Försök läsa in displayConfig om det finns sparat i config
     displayConfig = cfg.display || null;

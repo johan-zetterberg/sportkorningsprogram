@@ -9,7 +9,7 @@ import {
 import { getEquipages } from './equipageService.js';
 import { getConfig } from './competitionService.js';
 import { getAllDressageProtocols } from './dressageService.js';
-import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults } from './marathonService.js';
+import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults, loadPauseWindows } from './marathonService.js';
 import { getPrecisionResults } from './precisionService.js';
 import { generateTotalResultsPdf } from '../pdf/totalResultsPdf.js';
 import { buildArchiveRowsFromData } from './archiveRowBuilder.js';
@@ -43,6 +43,9 @@ async function buildArchiveRows(competitionId) {
         getConfig(competitionId, 'competitionMeta').catch(() => ({})),
         getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
+
+    // The official archive: pauses subtracted from stage times, as on the server
+    await loadPauseWindows(competitionId);
 
     const rows = buildArchiveRowsFromData({
         equipages,

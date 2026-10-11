@@ -60,19 +60,37 @@ test('portal timestamp sorting accepts mixed timestamp values', () => {
   assert.deepEqual(sorted.map(item => item.id), ['new', 'old', 'missing']);
 });
 
-test('portal discipline penalties prefer freshest discipline docs with computed fallback', () => {
-  const penalties = resolvePortalDisciplinePenalties({
-    computedResult: {
-      dressage: { totalPenalty: 45 },
-      marathon: { totalPenalty: 70 },
-      precision: { totalPenalty: 9 }
-    },
+test('portal discipline penalties prefer the live precision doc only during a run', () => {
+  const computedResult = {
+    dressage: { totalPenalty: 45 },
+    marathon: { totalPenalty: 70 },
+    precision: { totalPenalty: 9 }
+  };
+  const running = resolvePortalDisciplinePenalties({
+    computedResult,
     dressagePenalty: 44,
     marathonTiming: { totalPenalty: 68 },
-    precisionResult: { totalPenalty: 3 }
+    precisionResult: { running: true, liveTotalPenalty: 3, totalPenalty: 0 }
   });
+  assert.deepEqual(running, { dRes: 45, mRes: 70, pRes: 3 });
 
-  assert.deepEqual(penalties, { dRes: 45, mRes: 70, pRes: 3 });
+  // A saved (not running) doc: the server's result wins over its stored total
+  const saved = resolvePortalDisciplinePenalties({
+    computedResult,
+    precisionResult: { totalPenalty: 0 }
+  });
+  assert.equal(saved.pRes, 9);
+});
+
+test('portal discipline penalties do not fill in a value the server withheld', () => {
+  // Server-calculated, marathon withheld (e.g. class settings missing)
+  const penalties = resolvePortalDisciplinePenalties({
+    computedResult: { calculatedBy: 'server-function', dressagePenalty: 45, marathonPenalty: null, precisionPenalty: null, totalPenalty: null },
+    dressagePenalty: 44,
+    marathonTiming: { totalPenalty: 68 },
+    precisionResult: { totalPenalty: 0 }
+  });
+  assert.deepEqual(penalties, { dRes: 45, mRes: null, pRes: null });
 });
 
 test('portal discipline penalties read the flat fields stored by the Cloud Function', () => {
@@ -91,12 +109,12 @@ test('portal discipline penalties read the flat fields stored by the Cloud Funct
   assert.equal(elim.mRes, Infinity);
 });
 
-test('portal discipline penalties fallback to calculated and timing values', () => {
+test('portal discipline penalties fallback to calculated and timing values before the server has calculated', () => {
   const penalties = resolvePortalDisciplinePenalties({
     computedResult: {},
     dressagePenalty: 44,
     marathonTiming: { totalPenalty: 68 },
-    precisionResult: { liveTotalPenalty: 4 }
+    precisionResult: { totalPenalty: 4 }
   });
 
   assert.deepEqual(penalties, { dRes: 44, mRes: 68, pRes: 4 });

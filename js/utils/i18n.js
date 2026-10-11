@@ -698,6 +698,9 @@ export const DICTIONARY = {
     'precision_final_saved_offline': { sv: 'Slutgiltigt resultat för #{startNumber} har lagts i kön (Offline).', en: 'Final result for #{startNumber} has been queued (Offline).' },
     'precision_final_saved': { sv: 'Slutgiltigt resultat för #{startNumber} har sparats.', en: 'Final result for #{startNumber} has been saved.' },
     'precision_save_error': { sv: 'Kunde inte spara resultat.', en: 'Could not save result.' },
+    'precision_save_success': { sv: 'Resultatet sparades.', en: 'The result was saved.' },
+    'precision_select_equipage_first': { sv: 'Välj ekipage först.', en: 'Select an equipage first.' },
+    'precision_saved_course_missing': { sv: 'Resultatet sparades, men klassen saknar maxtid (banlängd och tempo). Tidsstraff och totalt straff räknas när banan är inlagd i precisionsadministrationen.', en: 'The result was saved, but the class has no max time (track length and tempo). Time penalty and total are calculated once the course is set in the precision admin.' },
     'precision_load_error_html': { sv: 'Kunde inte ladda ekipage.<br><span class="text-xs font-normal text-gray-700">{error}</span>', en: 'Could not load equipages.<br><span class="text-xs font-normal text-gray-700">{error}</span>' },
     
     // HTML Strings for Precision

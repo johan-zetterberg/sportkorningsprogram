@@ -270,6 +270,15 @@ async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, a
 // Every equipage of the competition, after a change to settings all results depend on
 async function recalculateWholeCompetition(appId, competitionId, triggerType) {
     const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
+    // An archived competition keeps the results it was archived with; a settings
+    // write (or a newer engine) must not change them. A manual recalculation by
+    // an admin still can.
+    const compSnap = await compRef.get();
+    const comp = compSnap.exists ? compSnap.data() : null;
+    if (comp?.locked === true || comp?.status === 'completed') {
+        logger.info('Arkiverad tävling: automatisk omräkning hoppas över.', { competition: competitionId, triggerType });
+        return;
+    }
     const context = await getContext(compRef);
     const equipagesSnapshot = await compRef.collection('equipages').get();
     const records = [];

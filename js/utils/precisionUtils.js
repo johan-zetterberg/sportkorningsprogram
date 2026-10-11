@@ -328,15 +328,12 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
     const timePenalty = isNum(calc.timePenalty) ? calc.timePenalty : null;
     const extraPenalty = isNum(calc.extraPenalty) ? calc.extraPenalty : null;
 
-    // Om eliminerad, sätt totalt till Infinity
+    // Om eliminerad, sätt totalt till Infinity. Annars resultatmotorns total:
+    // saknas den (t.ex. ingen maxtid för klassen) visas inget totalt straff,
+    // i stället för en egen summa av delarna utan tidsstraff.
     const totalPenalty = (isElim || calc.autoEliminated)
         ? Infinity
-        : (isNum(calc.totalPenalty) 
-            ? calc.totalPenalty 
-            : (obstaclePenalty !== null || timePenalty !== null || extraPenalty !== null 
-                ? (obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0) 
-                : null)
-          );
+        : (isNum(calc.totalPenalty) ? calc.totalPenalty : null);
 
     const knocks = Array.isArray(calc.knocks) ? calc.knocks : [];
     const knockDownTimes = calc.knockDownTimes || {};
@@ -436,17 +433,18 @@ export function buildOverallStanding(entries, precisionMap, config) {
     const list = entries.map(entry => {
         const { eq, dressagePenalty, marathonPenalty, isElim: phaseElim } = entry;
         const sn = String(eq.startNumber);
-        
-        const dScore = isNum(dressagePenalty) ? dressagePenalty : 0;
-        const mScore = isNum(marathonPenalty) ? marathonPenalty : 0;
-        
+
         const pRes = precisionMap.get(sn);
         const pData = calculatePrecisionResult(pRes || {}, eq, config); // Corrected order of args
+        // Precision so far (the round may be running); not driven yet = 0
         const pScore = isNum(pData.totalPenalty) ? pData.totalPenalty : 0;
-        
+
         const isElim = phaseElim || !!pData.eliminated;
-        const total = isElim ? Infinity : (dScore + mScore + pScore);
-        
+        // Only an equipage with finished dressage and marathon has a standing:
+        // a missing discipline is unknown, not 0
+        const hasBase = isNum(dressagePenalty) && isNum(marathonPenalty);
+        const total = isElim ? Infinity : (hasBase ? round2(dressagePenalty + marathonPenalty + pScore) : null);
+
         return {
             sn,
             name: eq.driverName,
@@ -459,13 +457,18 @@ export function buildOverallStanding(entries, precisionMap, config) {
 
     const results = [...list].sort((a, b) => {
         if (a.isElim !== b.isElim) return a.isElim ? 1 : -1;
+        if ((a.total === null) !== (b.total === null)) return a.total === null ? 1 : -1;
         if (a.sortTotal !== b.sortTotal) return a.sortTotal - b.sortTotal;
         return a.sn.localeCompare(b.sn, undefined, { numeric: true });
     });
 
+    // Shared places on equal totals (1, 2, 2, 4); no place without a standing
     const map = new Map();
+    let rank = 0;
     results.forEach((r, idx) => {
-        map.set(r.sn, { ...r, rank: r.isElim ? null : (idx + 1) });
+        const ranked = !r.isElim && r.total !== null;
+        if (ranked && (idx === 0 || r.total !== results[idx - 1].total)) rank = idx + 1;
+        map.set(r.sn, { ...r, rank: ranked ? rank : null });
     });
     return { results, map };
 }

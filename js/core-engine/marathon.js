@@ -486,8 +486,19 @@ export function stageDurationMsSaved(t, s) {
     if (v == null && Number.isFinite(t?.times?.[upper]?.timeSec)) v = t.times[upper].timeSec * 1000;
     if (v == null && Number.isFinite(t?.times?.[s]?.durationMs)) v = t.times[s].durationMs;
     if (v == null && Number.isFinite(t?.times?.[upper]?.durationMs)) v = t.times[upper].durationMs;
-    if (v == null && Number.isFinite(t?.[`duration_${s}`])) v = t[`duration_${s}`] * 1000;
+    if (v == null && Number.isFinite(t?.[`duration_${s}`])) v = legacyDurationToMs(t[`duration_${s}`]);
     return Number.isFinite(v) ? Number(v) : null;
+}
+
+// maraton-timing.duration_A/B: the secretariat writes milliseconds, older data
+// (and the seed script) seconds. A driven stage lasts minutes, so a value of at
+// least 36 000 is milliseconds (36 s as ms; 10 h as seconds) and below is seconds.
+const LEGACY_DURATION_MS_THRESHOLD = 36000;
+export function legacyDurationToMs(value) {
+    if (value == null || value === '') return null;
+    const n = Number(value);
+    if (!Number.isFinite(n)) return null;
+    return n >= LEGACY_DURATION_MS_THRESHOLD ? n : n * 1000;
 }
 
 // Pause windows come from config/globalStatus.pauseLog. An open window

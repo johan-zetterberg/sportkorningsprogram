@@ -2,15 +2,12 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
-import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments } from '../../services/marathonService.js';
+import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments, loadPauseWindows } from '../../services/marathonService.js';
 import { finalizePrecision, unfinalizePrecision } from '../../services/finalizationService.js';
 
 import { getGlobalState } from '../../main.js';
 
-import {
-  calculateDressageResult,
-  calculateMarathonResult
-} from '../../services/calculationService.js';
+import { calculateTotalResult } from '../../services/calculationService.js';
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { collection, onSnapshot, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
@@ -215,24 +212,30 @@ const precision_finalizeCache = new Map();
 
 // NYTT för overall standings
 let precision_dressageMap = new Map();
+let precision_dressageJudgeMapping = {};
 let precision_marathonObstacleMap = new Map();
 let precision_marathonTimingMap = new Map();
 
+// Dressage and marathon going into the precision "to beat" standing. Only a
+// finished dressage (all judges) and a finished marathon count, as for the
+// total: an unfinished one has no penalty here rather than a partial one.
 function getOverallEntries(equipages) {
   return equipages.map(eq => {
     const sn = String(eq.startNumber);
     const dProtos = precision_dressageMap.get(sn) || [];
-    const dRes = calculateDressageResult(eq, dProtos);
-    
     const mDoc = precision_marathonObstacleMap.get(sn) || {};
-    const mTiming = precision_marathonTimingMap.get(sn) || {};
-    const mRes = calculateMarathonResult(eq, mDoc, mTiming);
-    
+    // Stage times: the maraton doc wins over maraton-timing, as on the server
+    const mTiming = { ...(precision_marathonTimingMap.get(sn) || {}), ...mDoc };
+    const res = calculateTotalResult(eq, dProtos, { obstacleData: mDoc, timeData: mTiming }, {}, {
+      precisionConfig: precision_precisionConfig,
+      dressageJudgeMapping: precision_dressageJudgeMapping
+    });
+
     return {
       eq,
-      dressagePenalty: dRes.penalty,
-      marathonPenalty: mRes.totalPenalty,
-      isElim: dRes.eliminated || mRes.eliminated
+      dressagePenalty: res.dressageComplete ? res.dressagePenalty : null,
+      marathonPenalty: res.marathonComplete ? res.marathonPenalty : null,
+      isElim: !!(res.dressage?.eliminated || res.marathon?.eliminated)
     };
   });
 }
@@ -1008,7 +1011,9 @@ export async function load() {
     mergeCfgA,
     mergeCfgB,
     mergeCfgC,
-    marathonCfg
+    marathonCfg,
+    programMappingCfg,
+    judgeMappingCfg
   ] = await Promise.all([
     getPrecisionResults(competitionId).catch(() => []),
     getAllDressageProtocols(competitionId, equipagesData || []).catch(() => new Map()),
@@ -1021,10 +1026,17 @@ export async function load() {
     getConfig(competitionId, 'classMergeMap').catch(() => null),
     getConfig(competitionId, 'tdbMergeMap').catch(() => null),
     // Marathon stage times are penalised from the class settings (overall standings)
-    getConfig(competitionId, 'maratonConfig').catch(() => ({}))
+    getConfig(competitionId, 'maratonConfig').catch(() => ({})),
+    // Dressage program per class and the judges each class needs (overall standings)
+    getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+    getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
   ]);
 
+  window.klassProgramMapping = (programMappingCfg && typeof programMappingCfg === 'object') ? programMappingCfg : {};
+  precision_dressageJudgeMapping = (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? judgeMappingCfg : {};
+
   setMarathonConfig(marathonCfg?.value || marathonCfg || {});
+  await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
   precision_equipages = equipagesData || [];
   precision_precisionConfig = configData || {};
   precision_startTimes = startTimesData || {};

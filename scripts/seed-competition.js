@@ -640,8 +640,9 @@ async function seedDressageForEquipage(competitionId, eq, user) {
 
 async function seedMarathonForEquipage(competitionId, eq, user) {
   if (['all_complete', 'marathon_finalized'].includes(eq.profile)) {
-    const durationA = eq.tieVariant === 'a' ? 11 * 60 : 12 * 60;
-    const durationB = eq.tieVariant === 'a' ? 19 * 60 : 20 * 60;
+    // Milliseconds, as the secretariat saves maraton-timing durations
+    const durationA = (eq.tieVariant === 'a' ? 11 * 60 : 12 * 60) * 1000;
+    const durationB = (eq.tieVariant === 'a' ? 19 * 60 : 20 * 60) * 1000;
     await saveMarathonTimingData(competitionId, eq.sn, {
       className: eq.className,
       duration_A: durationA,
@@ -688,7 +689,7 @@ async function seedMarathonForEquipage(competitionId, eq, user) {
   if (eq.profile === 'marathon_eliminated_obstacle') {
     await saveMarathonTimingData(competitionId, eq.sn, {
       className: eq.className,
-      duration_A: 13 * 60,
+      duration_A: 13 * 60 * 1000,
       duration_B: 0
     });
     await saveMarathonObstacleResult(competitionId, eq.sn, 2, {

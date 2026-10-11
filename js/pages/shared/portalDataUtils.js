@@ -91,13 +91,19 @@ export function resolvePortalDisciplinePenalties({
     marathonTiming = {},
     precisionResult = {}
 } = {}) {
+    // Once the server has calculated the equipage, its values are the result:
+    // an empty value there means the engine withheld it (e.g. settings missing),
+    // not that an older stored field should be shown instead
+    const serverCalculated = computedResult?.calculatedBy === 'server-function';
     const dRes = computedPenalty(computedResult, 'dressagePenalty', 'dressage', 'ELIM (DR)')
-        ?? finiteOrInfinity(dressagePenalty);
+        ?? (serverCalculated ? null : finiteOrInfinity(dressagePenalty));
     const mRes = computedPenalty(computedResult, 'marathonPenalty', 'marathon', 'ELIM (MA)')
-        ?? penaltyFromSource(marathonTiming, 'totalPenalty');
+        ?? (serverCalculated ? null : penaltyFromSource(marathonTiming, 'totalPenalty'));
     // The live precision doc is fresher than the server snapshot during a run
-    const pRes = penaltyFromSource(precisionResult, 'totalPenalty', 'liveTotalPenalty')
-        ?? computedPenalty(computedResult, 'precisionPenalty', 'precision', 'ELIM (PR)');
+    const precisionLive = precisionResult?.running === true || precisionResult?.inProgress === true;
+    const pRes = (precisionLive ? penaltyFromSource(precisionResult, 'liveTotalPenalty', 'totalPenalty') : null)
+        ?? computedPenalty(computedResult, 'precisionPenalty', 'precision', 'ELIM (PR)')
+        ?? (serverCalculated ? null : penaltyFromSource(precisionResult, 'totalPenalty'));
 
     return { dRes, mRes, pRes };
 }

@@ -2,7 +2,7 @@
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getDressageStatusCollection, getAllDressageProtocols } from '../../services/dressageService.js';
-import { getMarathonTimingData, getMarathonResults, getMarathonStateDocuments } from '../../services/marathonService.js';
+import { getMarathonTimingData, getMarathonResults, getMarathonStateDocuments, loadPauseWindows } from '../../services/marathonService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { getTeams } from '../../services/teamService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
@@ -133,6 +133,7 @@ export async function load() {
 
     // Set global config for utils
     setMarathonConfig(marathonConfig);
+    await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
     buildMergeMap(marathonConfig); // [NEW] Init merge logic
 
     // --- PREPARE DATA ---
@@ -199,8 +200,11 @@ export async function load() {
 
         // --- MARATHON ---
         // --- MARATHON ---
-        const t = marathonTimingMap.get(sn) || {};
         const state = marathonStateMap.get(sn) || {};
+        // Stage times are saved on the maraton doc (stage input) and in
+        // maraton-timing (secretariat, older data); the maraton doc wins, as on
+        // the server and in the archive
+        const t = { ...(marathonTimingMap.get(sn) || {}), ...state };
         const obs = marathonObsMap.get(sn) || [];
 
         // Merge state (manual times/phases) with obstacles
@@ -245,7 +249,11 @@ export async function load() {
             marathon: mCalc,
             precision: pCalc,
             totalPenalty: isEliminated ? Infinity : totalPenalty,
-            isEliminated
+            isEliminated,
+            // Whether each phase is finished (result engine): team scoring counts only those
+            dressageComplete: totalRes.dressageComplete,
+            marathonComplete: totalRes.marathonComplete,
+            precisionComplete: totalRes.precisionComplete
         };
     });
 

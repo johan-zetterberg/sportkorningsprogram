@@ -1645,13 +1645,20 @@ export async function load() {
   setupObstacleForm();
   setupGlobalSettingsForm();
   if (unsubscribeObstacles) unsubscribeObstacles();
-  unsubscribeObstacles = listenForMarathonObstacles(competitionId, (obs) => {
+  unsubscribeObstacles = listenForMarathonObstacles(competitionId, (obs, source = {}) => {
+    if (source.error) return; // keep what is shown; an empty fallback list is not the course
     renderObstacleList(obs);
     renderMarathonAdminReadiness();
-    // Competitions created before the course list existed get it here
+    // Competitions created before the course list existed get it here. Only from
+    // a list the server confirmed (not the offline cache or unsaved local
+    // changes), and never for an archived competition: the course is a result
+    // setting, and changing it recalculates every stored result.
+    const competition = getGlobalState('currentCompetition');
+    const archived = competition?.locked === true || competition?.status === 'completed';
+    if (source.fromCache || source.hasPendingWrites || archived) return;
     syncMarathonObstacleNumbers(competitionId, obs)
       .catch(err => console.warn('Kunde inte synka hinderlistan till maratonConfig:', err));
-  });
+  }, { withSource: true });
 
   injectPickerStyles();
 }

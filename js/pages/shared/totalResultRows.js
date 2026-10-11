@@ -92,24 +92,39 @@ export function buildTotalResultRow({
     isEliminated: res.isEliminated,
     elimReason: res.elimReason,
     isOngoing: res.isOngoing,
+    // Whether each phase is finished, from the result engine (statuses, teams)
+    dressageComplete: res.dressageComplete,
+    marathonComplete: res.marathonComplete,
+    precisionComplete: res.precisionComplete,
     plac: null
   };
+}
+
+// 'ok' (green check) only for a phase the result engine calls finished; a phase
+// with a value that is not finished yet is 'partial'. Rows without the
+// engine's flags keep the value-based status.
+function phaseStatus(complete, hasValue, hasPartial = false) {
+  if (complete === true) return 'ok';
+  if (complete === false) return (hasValue || hasPartial) ? 'partial' : 'missing';
+  return hasValue ? 'ok' : (hasPartial ? 'partial' : 'missing');
 }
 
 export function resolveTotalDisciplineStatuses(row = {}) {
   const dressageStatus = row.isEliminated
     ? 'elim'
-    : ((row?.dressage?.penalty != null || row?.dressage?.percentAvg != null) ? 'ok' : 'missing');
+    : phaseStatus(row.dressageComplete, row?.dressage?.penalty != null || row?.dressage?.percentAvg != null);
 
   const marathonStatus = row.isEliminated
     ? 'elim'
-    : (row?.marathon?.totalPenalty != null
-      ? 'ok'
-      : ((row?.marathon?.timePenalty != null || row?.marathon?.obstaclePenalty != null) ? 'partial' : 'missing'));
+    : phaseStatus(
+      row.marathonComplete,
+      row?.marathon?.totalPenalty != null,
+      row?.marathon?.timePenalty != null || row?.marathon?.obstaclePenalty != null
+    );
 
   const precisionStatus = row?.precision?.eliminated
     ? 'elim'
-    : (row?.precision?.pen != null ? 'ok' : 'missing');
+    : phaseStatus(row.precisionComplete, row?.precision?.pen != null);
 
   return {
     dressageStatus,

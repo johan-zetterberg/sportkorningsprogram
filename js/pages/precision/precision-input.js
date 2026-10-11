@@ -1041,8 +1041,10 @@ async function saveFinal() {
         extraPenalty: extraPenaltyValue,
         eliminated
     }, currentEquipage, precisionConfig);
-    const timePenalty = calc.timePenalty ?? 0;
-    const totalPenalty = calc.totalPenalty ?? 0;
+    // Without a max time for the class (configMissing) the engine gives no time
+    // penalty and no total: save them empty, not as 0, and never as 'Klar'
+    const timePenalty = calc.configMissing ? null : (calc.timePenalty ?? 0);
+    const totalPenalty = calc.configMissing ? null : (calc.totalPenalty ?? 0);
     const hasAnyData = eliminated || timeMs > 0 || knocksArray.length > 0 || extraPenaltyValue > 0 || commentValue.length > 0;
 
     const payload = {
@@ -1065,7 +1067,7 @@ async function saveFinal() {
         knockDownTimes: { ...knockDownTimes },
         eliminated,
         comment: commentValue,
-        status: eliminated ? 'Utesluten' : (hasAnyData ? 'Klar' : t('precision_not_started')),
+        status: eliminated ? 'Utesluten' : (calc.configMissing ? 'Pågår' : (hasAnyData ? 'Klar' : t('precision_not_started'))),
         updatedAt: Date.now()
     };
 
@@ -1073,7 +1075,7 @@ async function saveFinal() {
         await setDoc(precisionDocRef(currentEquipage.startNumber), payload, { merge: true });
         mirrorToLocal(currentEquipage.startNumber, payload);
         applyLiveDocToState(payload);
-        showAlert(t('precision_save_success') || 'Resultatet sparades.');
+        showAlert(calc.configMissing ? t('precision_saved_course_missing') : t('precision_save_success'), !calc.configMissing);
     } catch (error) {
         console.error('Kunde inte spara precisionresultatet:', error);
         showAlert(t('precision_save_error'), false);

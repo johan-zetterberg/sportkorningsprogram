@@ -13,8 +13,10 @@ test('formatPortalPenalty handles finite, empty and eliminated values', () => {
   assert.equal(formatPortalPenalty(Infinity), 'ELIM');
 });
 
-test('calculatePortalTotalPenaltyLabel prefers explicit total and avoids Infinity text', () => {
-  assert.equal(calculatePortalTotalPenaltyLabel([10, 2.5, null]), '12.50');
+test('calculatePortalTotalPenaltyLabel shows the engine total only and avoids Infinity text', () => {
+  assert.equal(calculatePortalTotalPenaltyLabel([10, 2.5, 3], 15.5), '15.50');
+  // No engine total (a discipline unfinished): no total from the parts
+  assert.equal(calculatePortalTotalPenaltyLabel([10, 2.5, null]), '—');
   assert.equal(calculatePortalTotalPenaltyLabel([10, Infinity, 3]), 'ELIM');
   assert.equal(calculatePortalTotalPenaltyLabel([], Infinity), 'ELIM');
   assert.equal(calculatePortalTotalPenaltyLabel([]), '—');

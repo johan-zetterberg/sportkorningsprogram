@@ -756,13 +756,39 @@ function calculateFeiResults(teams, equipageResults, profile) {
 export function calculateTeamResults(teams, equipageResults, profileId) {
     if (!Array.isArray(teams) || !Array.isArray(equipageResults)) return [];
 
+    const results = equipageResults.map(onlyFinishedPhases);
     const profile = getTeamScoringProfile(profileId);
     if (profile.id === TEAM_SCORING_PROFILE_IDS.LAG_SM_2026) {
-        return calculateLagSmResults(teams, equipageResults, profile);
+        return calculateLagSmResults(teams, results, profile);
     }
     if (profile.ruleFamily === 'fei') {
-        return calculateFeiResults(teams, equipageResults, profile);
+        return calculateFeiResults(teams, results, profile);
     }
 
-    return calculateLegacyTeamResults(teams, equipageResults);
+    return calculateLegacyTeamResults(teams, results);
+}
+
+/**
+ * The team profiles count a phase as done when it has a penalty. The result
+ * engine says when a phase is really finished (dressageComplete etc.: every
+ * judge, marathon 'Klar' with its settings, precision with a max time); a phase
+ * it calls unfinished has its penalty removed here, so no profile ranks a team
+ * on a partial result. Eliminations stay; rows without the flags are unchanged.
+ */
+export function onlyFinishedPhases(result) {
+    if (!result || typeof result !== 'object') return result;
+    const next = { ...result };
+    const clear = (key, fields) => {
+        const phase = next[key];
+        if (!phase || phase.eliminated === true) return;
+        const cleared = { ...phase };
+        fields.forEach((field) => {
+            if (cleared[field] !== Infinity) cleared[field] = null;
+        });
+        next[key] = cleared;
+    };
+    if (result.dressageComplete === false) clear('dressage', ['penalty', 'judgePenalty']);
+    if (result.marathonComplete === false) clear('marathon', ['totalPenalty']);
+    if (result.precisionComplete === false) clear('precision', ['totalPenalty', 'pen']);
+    return next;
 }

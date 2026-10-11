@@ -4,12 +4,45 @@ import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreServ
 import { getConfig, listenForConfig, saveConfig } from './competitionService.js';
 import { auth } from '../config/firebase-config.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { setPauseWindows } from '../utils/marathonUtils.js';
 
-export function listenForMarathonObstacles(competitionId, callback) {
+/**
+ * Loads the competition's global pause log (config/globalStatus) into the
+ * marathon result engine, so stage times have the pauses subtracted as on the
+ * server. Pages that calculate marathon results call it once on load; pages
+ * that follow the pause live listen to globalStatus instead. Read directly, not
+ * through the cached getConfig, since pauses change during the competition.
+ */
+export async function loadPauseWindows(competitionId) {
+  if (!competitionId) return [];
+  try {
+    const snap = await getDoc(getCompDocRef(competitionId, 'config', 'globalStatus'));
+    const pauseLog = snap.exists() && Array.isArray(snap.data()?.pauseLog) ? snap.data().pauseLog : [];
+    setPauseWindows(pauseLog);
+    return pauseLog;
+  } catch (error) {
+    console.warn('Kunde inte läsa pausloggen:', error);
+    setPauseWindows([]);
+    return [];
+  }
+}
+
+// With { withSource: true } the callback also gets where the list comes from:
+// only a list confirmed by the server ({ fromCache: false, hasPendingWrites:
+// false }) is the real obstacle list; on a listener error the list is empty and
+// `error` is set. Without it the callback gets the list only, as before.
+export function listenForMarathonObstacles(competitionId, callback, { withSource = false } = {}) {
   const obstaclesRef = getCompCollectionRef(competitionId, 'maratonObstacles');
-  return onSnapshot(query(obstaclesRef), (snapshot) => {
-    callback(snapshot.docs.map(d => d.data()).sort((a, b) => a.number - b.number));
-  }, buildSnapshotErrorHandler('listenForMarathonObstacles', callback, []));
+  const toList = (snapshot) => snapshot.docs.map(d => d.data()).sort((a, b) => a.number - b.number);
+  if (!withSource) {
+    return onSnapshot(query(obstaclesRef), (snapshot) => {
+      callback(toList(snapshot));
+    }, buildSnapshotErrorHandler('listenForMarathonObstacles', callback, []));
+  }
+  const onError = buildSnapshotErrorHandler('listenForMarathonObstacles', (list) => callback(list, { error: true }), []);
+  return onSnapshot(query(obstaclesRef), { includeMetadataChanges: true }, (snapshot) => {
+    callback(toList(snapshot), { fromCache: snapshot.metadata.fromCache, hasPendingWrites: snapshot.metadata.hasPendingWrites });
+  }, onError);
 }
 
 /**

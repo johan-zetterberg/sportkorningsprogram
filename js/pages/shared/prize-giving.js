@@ -2,14 +2,14 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { getEquipages } from '../../services/equipageService.js';
-import { listenForMaratonCollection, getMarathonTimingData, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
+import { listenForMaratonCollection, getMarathonTimingData, listenForMarathonTimingUpdates, loadPauseWindows } from '../../services/marathonService.js';
 import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
 import { updateEquipage } from '../../services/equipageService.js';
 import { listenForMarathonConfig } from '../../services/marathonService.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { horseLabel, escapeHtml, round2 } from '../../utils/sharedUtils.js';
+import { horseLabel, escapeHtml } from '../../utils/sharedUtils.js';
 import {
     assignPlaces,
     compareDressageRank,
@@ -21,10 +21,9 @@ import {
     precisionRankKey,
     totalRankKey
 } from '../../core-engine/ranking.js';
-import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
-import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';
-import { calculateDressageResult } from '../../services/calculationService.js';
-import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeDecorations } from '../../utils/marathonUtils.js';
+import { getPrograms } from '../../utils/dressageUtils.js';
+import { calculateTotalResult } from '../../services/calculationService.js';
+import { setMarathonConfig, buildMergeMap, ensureMergeDecorations } from '../../utils/marathonUtils.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded } from '../../services/logosService.js';
 import {
@@ -48,6 +47,7 @@ let loadToken = 0;
 // Configs
 let marathonConfig = {};
 let precisionConfig = {};
+let dressageJudgeMapping = {};
 
 export async function load(container) {
     __unload();
@@ -81,11 +81,13 @@ export async function load(container) {
     if (currentLoadToken !== loadToken) return;
 
     try {
-        const [eqData, mConfig, pConfig, cSettings] = await Promise.all([
+        const [eqData, mConfig, pConfig, cSettings, programMapping, judgeMapping] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'maratonConfig'),
-            getConfig(competitionId, 'precision'),
-            getConfig(competitionId, 'classSettings').catch(() => ({}))
+            getConfig(competitionId, 'precisionConfig'),
+            getConfig(competitionId, 'classSettings').catch(() => ({})),
+            getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+            getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
         ]);
         if (currentLoadToken !== loadToken) return;
 
@@ -93,6 +95,9 @@ export async function load(container) {
         marathonConfig = mConfig || {};
         precisionConfig = pConfig || {};
         classSettings = cSettings || {};
+        // Dressage program per class and the judges each class needs (result engine)
+        window.klassProgramMapping = (programMapping && typeof programMapping === 'object') ? programMapping : {};
+        dressageJudgeMapping = (judgeMapping && typeof judgeMapping === 'object') ? judgeMapping : {};
 
         // Merge logic
         buildMergeMap(marathonConfig);
@@ -100,6 +105,7 @@ export async function load(container) {
 
         // Push config to marathonUtils (for calculations)
         setMarathonConfig(marathonConfig);
+        await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
 
         renderTabs(); // Render tabs immediately with available classes
 
@@ -258,33 +264,28 @@ function setupListeners() {
     const rows = classEquipages.map(eq => {
         const sn = String(eq.startNumber);
 
-        // Dressage
+        // All three disciplines and the total from the result engine: a prize
+        // only for a finished result (all judges, marathon 'Klar' with its
+        // settings, precision with a max time), the same rules as everywhere else
         const protocols = dressageResults.get(sn) || [];
-        const programs = getPrograms();
-        const validProtos = deduplicateAndFilterProtocols(protocols, window.currentJudgesPresent || []);
-        const dRes = calculateDressageResult(eq, validProtos, window.currentJudgesPresent || [], programs);
-        const dPen = (dRes && dRes.penalty != null) ? dRes.penalty : null;
-
-        // Marathon
         const mObs = marathonResults.get(sn) || {};
-        const mTimeRaw = marathonTiming.get(sn) || {};
         // Stage times live on the maraton doc; it wins over maraton-timing,
         // as on the results pages and in the Cloud Function
-        const mTime = { ...mTimeRaw, ...mObs };
-
-        const mRes = calculateMarathonResult(eq, mObs, mTime); // Uses central logic
-        const mPen = mRes.totalPenalty; // Can be null
-
-        // Precision
-        const pData = precisionResults.get(sn);
-        let pPen = null;
-        let pElim = false;
-        let pCalc = null;
-        if (pData) {
-            pCalc = calculatePrecisionResult(pData, eq, precisionConfig);
-            pPen = pCalc.totalPenalty;
-            pElim = pCalc.eliminated;
-        }
+        const mTime = { ...(marathonTiming.get(sn) || {}), ...mObs };
+        const pData = precisionResults.get(sn) || {};
+        const res = calculateTotalResult(eq, protocols, { obstacleData: mObs, timeData: mTime }, pData, {
+            allPrograms: getPrograms(),
+            judges: window.currentJudgesPresent || [],
+            marathonConfig,
+            precisionConfig,
+            dressageJudgeMapping
+        });
+        const dRes = res.dressage;
+        const mRes = res.marathon;
+        const pCalc = precisionResults.has(sn) ? res.precision : null;
+        const dPen = res.dressageComplete ? dRes.penalty : null;
+        const mPen = res.marathonComplete ? mRes.totalPenalty : null;
+        const pPen = res.precisionComplete ? pCalc.totalPenalty : null;
 
         let displayScore = null;
         let isEliminated = false;
@@ -292,12 +293,11 @@ function setupListeners() {
         // Check eliminations
         if (activeDiscipline === 'total' || activeDiscipline === 'dressage') if (dRes && dRes.eliminated) isEliminated = true;
         if (activeDiscipline === 'total' || activeDiscipline === 'marathon') if (mRes && mRes.eliminated) isEliminated = true;
-        if (activeDiscipline === 'total' || activeDiscipline === 'precision') if (pElim) isEliminated = true;
+        if (activeDiscipline === 'total' || activeDiscipline === 'precision') if (pCalc && pCalc.eliminated) isEliminated = true;
 
         if (!isEliminated) {
             if (activeDiscipline === 'total') {
-                const allCompleted = dPen !== null && mPen !== null && pPen !== null;
-                if (allCompleted) displayScore = round2(dPen + mPen + pPen);
+                displayScore = res.totalPenalty;
             } else if (activeDiscipline === 'dressage') {
                 displayScore = dPen;
             } else if (activeDiscipline === 'marathon') {
