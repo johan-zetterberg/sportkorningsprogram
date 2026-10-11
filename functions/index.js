@@ -18,6 +18,7 @@ import {
     buildRecalculationValidation,
     buildServerCompetitionState,
     configChangeAffectsResults,
+    resultSettingsFingerprint,
     ruleSettingsChanged
 } from "./src/resultRecalculationUtils.js";
 import {
@@ -90,19 +91,33 @@ function buildVolunteerSignupPayload(raw = {}) {
 
 // Load every configurable dependency used by the shared result engine.
 // These are the same inputs the browser feeds to buildCompetitionState.
-async function getContext(compRef) {
+// `read` lets a transaction do the reads (see writeIfSettingsUnchanged).
+async function getContext(compRef, read = (ref) => ref.get()) {
+    const configRef = (id) => compRef.collection('config').doc(id);
     const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, judgeMappingSnap, statusSnap] = await Promise.all([
-        compRef.get(),
-        compRef.collection('config').doc('maratonConfig').get(),
-        compRef.collection('config').doc('precisionConfig').get(),
-        compRef.collection('config').doc('dressagePrograms').get(),
-        compRef.collection('config').doc('dressyrProgramMapping').get(),
-        compRef.collection('config').doc('dressageJudgeMapping').get(),
-        compRef.collection('config').doc('globalStatus').get()
+        read(compRef),
+        read(configRef('maratonConfig')),
+        read(configRef('precisionConfig')),
+        read(configRef('dressagePrograms')),
+        read(configRef('dressyrProgramMapping')),
+        read(configRef('dressageJudgeMapping')),
+        read(configRef('globalStatus'))
     ]);
+    const data = (snap) => (snap.exists ? snap.data() : null);
     const pauseLog = statusSnap.exists ? statusSnap.data()?.pauseLog : null;
 
     return {
+        settingsFingerprint: resultSettingsFingerprint({
+            competition: data(compSnap),
+            globalStatus: data(statusSnap),
+            configs: {
+                maratonConfig: data(marCfgSn),
+                precisionConfig: data(precCfgSn),
+                dressagePrograms: data(programsSnap),
+                dressyrProgramMapping: data(mappingSnap),
+                dressageJudgeMapping: data(judgeMappingSnap)
+            }
+        }),
         allPrograms: {
             ...dressagePrograms,
             ...(programsSnap.exists ? programsSnap.data() : {})
@@ -180,33 +195,60 @@ async function recalculateEquipage(appId, competitionId, startNumber) {
     const record = await calculateEquipageRecord(compRef, startNumber, context);
     if (!record) return;
 
-    const targetRef = compRef.collection('computed_equipages').doc(record.startNumber);
-    await targetRef.set({
-        ...toStoredResult(record.result),
-        updatedAt: new Date().toISOString(),
-        calculatedBy: 'server-function',
-        calculationAudit: {
-            engineVersion: RESULT_ENGINE_VERSION,
-            recalculatedAt: new Date().toISOString(),
-            triggerType: 'automatic'
-        }
-    }, { merge: true });
+    const recalculatedAt = new Date().toISOString();
+    await writeIfSettingsUnchanged(compRef, context.settingsFingerprint, [record], {
+        engineVersion: RESULT_ENGINE_VERSION,
+        recalculatedAt,
+        triggerType: 'automatic'
+    });
 }
 
-async function writeRecalculatedResults(compRef, records, audit) {
+function storedResultDoc(record, audit) {
+    return {
+        ...toStoredResult(record.result),
+        updatedAt: audit.recalculatedAt,
+        calculatedBy: 'server-function',
+        calculationAudit: audit
+    };
+}
+
+// Most writes a transaction may hold, leaving room for the settings reads
+const MAX_TRANSACTION_WRITES = 450;
+
+/**
+ * Writes the results only if the settings they were calculated with are still
+ * current. The settings are re-read in the same transaction as the writes, so
+ * a settings change cannot slip in between. When they changed, nothing is
+ * written: the change triggered a full recalculation with the newer settings,
+ * and an older run finishing last must not overwrite it. Returns whether the
+ * results were written.
+ */
+async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, audit) {
+    const target = (record) => compRef.collection('computed_equipages').doc(record.startNumber);
+
+    if (records.length <= MAX_TRANSACTION_WRITES) {
+        const written = await db.runTransaction(async (tx) => {
+            const current = await getContext(compRef, (ref) => tx.get(ref));
+            if (current.settingsFingerprint !== settingsFingerprint) return false;
+            records.forEach((record) => tx.set(target(record), storedResultDoc(record, audit), { merge: true }));
+            return true;
+        });
+        if (!written) logger.info('Inställningarna ändrades under beräkningen; en nyare omräkning skriver resultaten.', { competition: compRef.id, triggerType: audit.triggerType });
+        return written;
+    }
+
+    // Larger competitions: check, then write in batches (a small window remains)
+    const current = await getContext(compRef);
+    if (current.settingsFingerprint !== settingsFingerprint) {
+        logger.info('Inställningarna ändrades under beräkningen; en nyare omräkning skriver resultaten.', { competition: compRef.id, triggerType: audit.triggerType });
+        return false;
+    }
     for (let offset = 0; offset < records.length; offset += 400) {
         const batch = db.batch();
-        records.slice(offset, offset + 400).forEach((record) => {
-            const targetRef = compRef.collection('computed_equipages').doc(record.startNumber);
-            batch.set(targetRef, {
-                ...toStoredResult(record.result),
-                updatedAt: audit.recalculatedAt,
-                calculatedBy: 'server-function',
-                calculationAudit: audit
-            }, { merge: true });
-        });
+        records.slice(offset, offset + 400).forEach((record) => batch.set(target(record), storedResultDoc(record, audit), { merge: true }));
         await batch.commit();
     }
+    return true;
 }
 
 // Every equipage of the competition, after a change to settings all results depend on
@@ -224,7 +266,7 @@ async function recalculateWholeCompetition(appId, competitionId, triggerType) {
             logger.error(`Omräkning av #${equipageSnapshot.id} misslyckades`, { competitionId, error: String(error?.message || error) });
         }
     }
-    await writeRecalculatedResults(compRef, records, {
+    await writeIfSettingsUnchanged(compRef, context.settingsFingerprint, records, {
         engineVersion: RESULT_ENGINE_VERSION,
         recalculatedAt: new Date().toISOString(),
         triggerType
@@ -402,7 +444,7 @@ export const recalculateCompetitionResults = onCall(
         }
 
         await assertCanMaintainResults(request, competition);
-        const { records, validation } = await buildCompetitionRecalculationPreview(competition);
+        const { context, records, validation } = await buildCompetitionRecalculationPreview(competition);
         if (validation.criticalErrors.length > 0) {
             throw new HttpsError('failed-precondition', 'Omräkningen blockeras av kritiska valideringsfel.', validation);
         }
@@ -422,7 +464,10 @@ export const recalculateCompetitionResults = onCall(
             triggerType: 'manual-full-competition'
         };
 
-        await writeRecalculatedResults(competition.ref, records, audit);
+        const written = await writeIfSettingsUnchanged(competition.ref, context.settingsFingerprint, records, audit);
+        if (!written) {
+            throw new HttpsError('aborted', 'Inställningarna ändrades under omräkningen. Resultaten räknas om automatiskt med de nya inställningarna; kör kontrollen igen om en stund.');
+        }
 
         await competition.ref.collection('maintenanceRuns').add({
             type: 'result-recalculation',
