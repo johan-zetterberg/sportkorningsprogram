@@ -1,4 +1,4 @@
-import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
+import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { auth, db, appId, functions } from '../config/firebase-config.js';
@@ -38,6 +38,76 @@ async function ensureRecoveryAccess(user) {
     }
 
     return false;
+}
+
+/**
+ * Banner för inloggade med obekräftad e-postadress. Regler och server ger
+ * e-postbaserad behörighet (roleEmails, egen anmälan) först när adressen är
+ * bekräftad; ID-token får email_verified först när den förnyas.
+ */
+function renderEmailVerificationBanner(user) {
+    const existing = document.getElementById('emailVerifyBanner');
+    if (!user || user.emailVerified || !user.email) {
+        existing?.remove();
+        return;
+    }
+    if (existing) return;
+
+    const banner = document.createElement('div');
+    banner.id = 'emailVerifyBanner';
+    banner.setAttribute('role', 'status');
+    banner.className = 'w-full bg-yellow-100 text-yellow-900 border-b border-yellow-300 px-4 py-2 text-sm flex flex-wrap items-center gap-2 justify-center';
+
+    const text = document.createElement('span');
+    text.textContent = t('email_verify_banner').replace('{email}', user.email);
+
+    const button = (label) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'px-2 py-1 rounded bg-yellow-200 hover:bg-yellow-300 font-semibold';
+        b.textContent = label;
+        return b;
+    };
+    const resend = button(t('email_verify_resend'));
+    const done = button(t('email_verify_done'));
+    const note = document.createElement('span');
+    note.className = 'font-semibold';
+
+    resend.addEventListener('click', async () => {
+        resend.disabled = true;
+        try {
+            await sendEmailVerification(user);
+            note.textContent = t('email_verify_sent');
+        } catch (e) {
+            console.warn('Kunde inte skicka bekräftelsemejl:', e);
+            note.textContent = t('email_verify_send_failed');
+        } finally {
+            resend.disabled = false;
+        }
+    });
+
+    done.addEventListener('click', async () => {
+        done.disabled = true;
+        try {
+            await user.reload();
+            if (auth.currentUser?.emailVerified) {
+                // Ny token med email_verified, sedan om-claima och ladda om sidan
+                await auth.currentUser.getIdToken(true);
+                try { await autoClaimEquipages(auth.currentUser); } catch (e) { console.warn('Auto-claim efter bekräftelse misslyckades:', e); }
+                window.location.reload();
+                return;
+            }
+            note.textContent = t('email_verify_not_yet');
+        } catch (e) {
+            console.warn('Kunde inte kontrollera e-postbekräftelsen:', e);
+            note.textContent = t('email_verify_not_yet');
+        } finally {
+            done.disabled = false;
+        }
+    });
+
+    banner.append(text, resend, done, note);
+    document.body.prepend(banner);
 }
 
 /**
@@ -157,6 +227,14 @@ export async function registerUser(email, password) {
             createdAt: new Date().toISOString(),
             claimedEquipages: []
         });
+
+        // Roller och anmälningar kopplade till e-postadressen gäller först när
+        // adressen är bekräftad (se hasVerifiedEmail i firestore.rules)
+        try {
+            await sendEmailVerification(user);
+        } catch (e) {
+            console.warn('Kunde inte skicka bekräftelsemejl vid registrering:', e);
+        }
 
         // Försök auto-claima direkt
         try {
@@ -298,6 +376,7 @@ export function initAuth(callback) {
             });
             document.getElementById('loginModal').style.display = 'none';
             updateUIVisibility();
+            renderEmailVerificationBanner(user);
 
             // 2. Hämta riktig roll asynkront med retry-logik
             let userRole = 'publik';
@@ -358,6 +437,7 @@ export function initAuth(callback) {
         } else {
             // --- NYTT: Nollställ det globala state-objektet vid utloggning ---
             recoveryAccessAttemptedForUid = null;
+            renderEmailVerificationBanner(null);
             setGlobalState({ key: 'currentUser', value: null });
             // -------------------------------------------------------------
             updateUIVisibility();

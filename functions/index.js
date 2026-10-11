@@ -23,6 +23,10 @@ import {
 } from "./src/resultRecalculationUtils.js";
 import {
     buildCompetitionAdminJoinPayload,
+    checkPinAttempts,
+    isValidCompetitionId,
+    PIN_ATTEMPT_LIMITS,
+    recordPinFailure,
     resolveJoinRoleForPin,
 } from "./src/adminJoin.js";
 
@@ -212,6 +216,12 @@ function storedResultDoc(record, audit) {
     };
 }
 
+// Each written field is replaced as a whole (a nested merge would keep old
+// keys inside calculationAudit); fields not written are left alone
+function storedResultWriteOptions(doc) {
+    return { mergeFields: Object.keys(doc) };
+}
+
 // Most writes a transaction may hold, leaving room for the settings reads
 const MAX_TRANSACTION_WRITES = 450;
 
@@ -230,7 +240,10 @@ async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, a
         const written = await db.runTransaction(async (tx) => {
             const current = await getContext(compRef, (ref) => tx.get(ref));
             if (current.settingsFingerprint !== settingsFingerprint) return false;
-            records.forEach((record) => tx.set(target(record), storedResultDoc(record, audit), { merge: true }));
+            records.forEach((record) => {
+                const doc = storedResultDoc(record, audit);
+                tx.set(target(record), doc, storedResultWriteOptions(doc));
+            });
             return true;
         });
         if (!written) logger.info('Inställningarna ändrades under beräkningen; en nyare omräkning skriver resultaten.', { competition: compRef.id, triggerType: audit.triggerType });
@@ -245,7 +258,10 @@ async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, a
     }
     for (let offset = 0; offset < records.length; offset += 400) {
         const batch = db.batch();
-        records.slice(offset, offset + 400).forEach((record) => batch.set(target(record), storedResultDoc(record, audit), { merge: true }));
+        records.slice(offset, offset + 400).forEach((record) => {
+            const doc = storedResultDoc(record, audit);
+            batch.set(target(record), doc, storedResultWriteOptions(doc));
+        });
         await batch.commit();
     }
     return true;
@@ -413,6 +429,9 @@ function getRecalculationRequestData(request) {
     if (!competitionId) {
         throw new HttpsError('invalid-argument', 'Competition ID saknas.');
     }
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
+    }
     return { competitionId };
 }
 
@@ -453,14 +472,12 @@ export const recalculateCompetitionResults = onCall(
         }
 
         const recalculatedAt = new Date().toISOString();
-        const initiatedBy = {
-            uid: request.auth.uid,
-            email: String(request.auth.token?.email || '').trim().toLowerCase() || null
-        };
+        // Stored results are public: they carry only the uid. The email goes to
+        // the run log, which is not publicly readable.
         const audit = {
             engineVersion: RESULT_ENGINE_VERSION,
             recalculatedAt,
-            initiatedBy,
+            initiatedBy: { uid: request.auth.uid },
             triggerType: 'manual-full-competition'
         };
 
@@ -474,7 +491,11 @@ export const recalculateCompetitionResults = onCall(
             competitionId,
             equipageCount: records.length,
             warningCount: validation.warnings.length,
-            ...audit
+            ...audit,
+            initiatedBy: {
+                uid: request.auth.uid,
+                email: String(request.auth.token?.email || '').trim().toLowerCase() || null
+            }
         });
 
         return {
@@ -505,6 +526,10 @@ export const joinCompetitionAsOfficial = onCall(async (request) => {
         throw new HttpsError('failed-precondition', 'Anvandaren maste ha en e-postadress.');
     }
 
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
+    }
+
     const competition = await getCompetitionArtifactsDoc(competitionId);
     if (!competition) {
         throw new HttpsError('not-found', 'Tavlingen kunde inte hittas.');
@@ -512,7 +537,32 @@ export const joinCompetitionAsOfficial = onCall(async (request) => {
 
     const secretsSnap = await competition.ref.collection('config').doc('secrets').get();
     const secrets = secretsSnap.exists ? secretsSnap.data() : {};
-    const matchedRole = resolveJoinRoleForPin(pinCode, secrets);
+
+    // Limit wrong PINs per user and per competition. The counters live outside
+    // the public tree and have no client rules, so only this function sees them.
+    // Check and count in one transaction so parallel guesses cannot slip past.
+    const userAttemptsRef = db.doc(`pinJoinAttempts/${competitionId}__${request.auth.uid}`);
+    const competitionAttemptsRef = db.doc(`pinJoinAttempts/${competitionId}`);
+    const now = Date.now();
+    const attempt = await db.runTransaction(async (tx) => {
+        const [userSnap, competitionSnap] = await Promise.all([tx.get(userAttemptsRef), tx.get(competitionAttemptsRef)]);
+        const userState = userSnap.exists ? userSnap.data() : null;
+        const competitionState = competitionSnap.exists ? competitionSnap.data() : null;
+        const check = checkPinAttempts(userState, competitionState, now);
+        if (!check.allowed) return { locked: true, retryAfterMs: check.retryAfterMs };
+
+        const role = resolveJoinRoleForPin(pinCode, secrets);
+        if (!role) {
+            tx.set(userAttemptsRef, recordPinFailure(userState, PIN_ATTEMPT_LIMITS.perUser.windowMs, now));
+            tx.set(competitionAttemptsRef, recordPinFailure(competitionState, PIN_ATTEMPT_LIMITS.perCompetition.windowMs, now));
+        }
+        return { role };
+    });
+    if (attempt.locked) {
+        const minutes = Math.max(1, Math.ceil(attempt.retryAfterMs / 60000));
+        throw new HttpsError('resource-exhausted', `For manga felaktiga PIN-forsok. Forsok igen om ${minutes} min.`);
+    }
+    const matchedRole = attempt.role;
     if (!matchedRole) {
         throw new HttpsError('permission-denied', 'Fel PIN-kod.');
     }
@@ -547,7 +597,15 @@ export const ensureOwnerSuperadminAccess = onCall(async (request) => {
         };
     }
 
+    // Superadmin only for the verified owner address: an account registered
+    // with the address by someone else is not verified
     const userRecord = await adminAuth.getUser(request.auth.uid);
+    if (userRecord.emailVerified !== true) {
+        return {
+            elevated: false,
+            reason: 'email-not-verified'
+        };
+    }
     const currentClaims = userRecord.customClaims || {};
     const nextClaims = {
         ...currentClaims,
@@ -584,6 +642,9 @@ export const submitVolunteerSignup = onCall(async (request) => {
 
     if (!competitionId) {
         throw new HttpsError('invalid-argument', 'Competition ID saknas.');
+    }
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
     }
 
     const competition = await getCompetitionArtifactsDoc(competitionId);

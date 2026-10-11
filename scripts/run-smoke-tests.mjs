@@ -64,7 +64,8 @@ async function createSmokeUser() {
   const localId = await findOrCreateSmokeUser();
   await emulatorRequest(`${AUTH_URL}/projects/${PROJECT_ID}/accounts:update`, 'POST', {
     localId,
-    customAttributes: JSON.stringify({ superadmin: true })
+    customAttributes: JSON.stringify({ superadmin: true }),
+    emailVerified: true
   });
   await emulatorRequest(
     `${FIRESTORE_URL}/projects/${PROJECT_ID}/databases/(default)/documents/users/${localId}`,

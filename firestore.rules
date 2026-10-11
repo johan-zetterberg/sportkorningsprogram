@@ -33,9 +33,17 @@ service cloud.firestore {
       );
     }
 
-    function getRoleEmailRoles(appId, compId) {
+    // Email-based access (roleEmails, a driver's own entry) only for an address
+    // the account holder has verified: anyone can register an account with an
+    // address that is not theirs, e.g. an official's before the official does.
+    function hasVerifiedEmail() {
       return request.auth != null
         && request.auth.token.email != null
+        && request.auth.token.get('email_verified', false) == true;
+    }
+
+    function getRoleEmailRoles(appId, compId) {
+      return hasVerifiedEmail()
         && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower()))
         ? (
           get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('roles', []) != null
@@ -47,8 +55,7 @@ service cloud.firestore {
 
     function hasRoleEmailAccess(appId, compId, roleName) {
       let roles = getRoleEmailRoles(appId, compId);
-      return request.auth != null
-        && request.auth.token.email != null
+      return hasVerifiedEmail()
         && roles != null
         && roleName in roles;
     }
@@ -179,24 +186,33 @@ service cloud.firestore {
     }
 
     function canSelfServiceEquipage(appId, compId, equipageId) {
-      return request.auth != null
-        && request.auth.token.email != null
+      return hasVerifiedEmail()
         && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/equipagePrivate/$(equipageId))
         && request.auth.token.email.lower() == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/equipagePrivate/$(equipageId)).data.get('email', '').lower();
     }
 
+    // Collections under a competition that the public read below must not
+    // expose. Each pattern ends in ($|/.*) so it also matches the collection
+    // path itself: a list query is checked against that path, so a pattern
+    // that requires a document id after the name let anyone list the whole
+    // collection while single reads were denied.
     function isSensitiveArtifactsPublicPath(documentPath) {
       let pathStr = string(documentPath);
-      return pathStr.matches('.*data/competitions/[^/]+/config/secrets.*')
-        || pathStr.matches('.*data/competitions/[^/]+/auditLog/[^/]+.*')
-        || pathStr.matches('.*data/competitions/[^/]+/equipagePrivate/[^/]+.*')
-        || pathStr.matches('.*data/competitions/[^/]+/roleEmails/[^/]+.*')
-        || pathStr.matches('.*data/competitions/[^/]+/judges/[^/]+.*')
-        || pathStr.matches('.*data/competitions/[^/]+/officials/[^/]+.*')
-        || pathStr.matches('.*data/competitions/[^/]+/assignments/[^/]+.*')
-        || pathStr.matches('.*data/competitions/[^/]+/messages.*')
-        || pathStr.matches('.*data/competitions/[^/]+/documents.*')
-        || pathStr.matches('.*data/competitions/[^/]+/admins/[^/]+.*');
+      let comp = '.*data/competitions/[^/]+/';
+      return pathStr.matches(comp + 'config/secrets($|/.*)')
+        || pathStr.matches(comp + 'auditLog($|/.*)')
+        || pathStr.matches(comp + 'equipagePrivate($|/.*)')
+        || pathStr.matches(comp + 'roleEmails($|/.*)')
+        || pathStr.matches(comp + 'judges($|/.*)')
+        || pathStr.matches(comp + 'officials($|/.*)')
+        || pathStr.matches(comp + 'assignments($|/.*)')
+        || pathStr.matches(comp + 'messages($|/.*)')
+        || pathStr.matches(comp + 'documents($|/.*)')
+        || pathStr.matches(comp + 'admins($|/.*)')
+        // Volunteers' contact details (phone, email, emergency contact)
+        || pathStr.matches(comp + 'volunteerSignups($|/.*)')
+        // Recalculation log (who ran it)
+        || pathStr.matches(comp + 'maintenanceRuns($|/.*)');
     }
 
     function hasPublicAudience(data) {
@@ -419,7 +435,7 @@ service cloud.firestore {
           getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId) ||
           (
-            request.auth.token.email != null &&
+            hasVerifiedEmail() &&
             request.auth.token.email.lower() == resource.data.get('email', '').lower()
           )
         );
@@ -434,7 +450,7 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/roleEmails/{emailId} {
       allow read: if request.auth != null
         && (
-          (request.auth.token.email != null && request.auth.token.email.lower() == emailId) ||
+          (hasVerifiedEmail() && request.auth.token.email.lower() == emailId) ||
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
           canAdminThisArtifactsCompBase(appId, compId) ||
@@ -508,6 +524,13 @@ service cloud.firestore {
         && (
           canAdminThisArtifactsComp(appId, compId)
         );
+    }
+
+    // Global pause and marathon status: marathon officials (observer, stage
+    // input) record pauses here, and the pause log is subtracted from stage times
+    match /artifacts/{appId}/public/data/competitions/{compId}/config/globalStatus {
+      allow write: if request.auth != null
+        && hasRoleInComp(appId, compId, 'marathon');
     }
 
     // Hemliga konfigurationer (t.ex. PIN-kod)

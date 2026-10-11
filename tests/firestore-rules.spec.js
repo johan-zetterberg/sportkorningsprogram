@@ -110,7 +110,7 @@ test('firestore rules tests require the Firestore emulator', { skip: HAS_EMULATO
 });
 
 test('direct client writes may not create a speaker-scoped admin document even with correct PIN', { skip: !HAS_EMULATOR }, async () => {
-  const ctx = testEnv.authenticatedContext('speaker-1', { email: 'speaker@example.com' });
+  const ctx = testEnv.authenticatedContext('speaker-1', { email_verified: true, email: 'speaker@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath('admins/speaker-1')), {
@@ -123,7 +123,7 @@ test('direct client writes may not create a speaker-scoped admin document even w
 });
 
 test('direct client writes may not create an admin-scoped admin document even with correct PIN', { skip: !HAS_EMULATOR }, async () => {
-  const ctx = testEnv.authenticatedContext('admin-1', { email: 'admin@example.com' });
+  const ctx = testEnv.authenticatedContext('admin-1', { email_verified: true, email: 'admin@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath('admins/admin-1')), {
@@ -136,7 +136,7 @@ test('direct client writes may not create an admin-scoped admin document even wi
 });
 
 test('users may create only a public self profile', { skip: !HAS_EMULATOR }, async () => {
-  const ctx = testEnv.authenticatedContext('profile-1', { email: 'profile@example.com' });
+  const ctx = testEnv.authenticatedContext('profile-1', { email_verified: true, email: 'profile@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(setDoc(doc(db, 'users/profile-1'), {
@@ -163,7 +163,7 @@ test('users may update claims but may not escalate their own role', { skip: !HAS
     });
   });
 
-  const ctx = testEnv.authenticatedContext('profile-2', { email: 'profile2@example.com' });
+  const ctx = testEnv.authenticatedContext('profile-2', { email_verified: true, email: 'profile2@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(updateDoc(doc(db, 'users/profile-2'), {
@@ -200,15 +200,15 @@ test('competition admins may read admin join documents while non-admin competiti
   await seedCompetitionRole('admin-reader-1', 'admin', 'admin-reader@example.com');
   await seedCompetitionRole('speaker-reader-1', 'speaker', 'speaker-reader@example.com');
 
-  const adminDb = testEnv.authenticatedContext('admin-reader-1', { email: 'admin-reader@example.com' }).firestore();
-  const speakerDb = testEnv.authenticatedContext('speaker-reader-1', { email: 'speaker-reader@example.com' }).firestore();
+  const adminDb = testEnv.authenticatedContext('admin-reader-1', { email_verified: true, email: 'admin-reader@example.com' }).firestore();
+  const speakerDb = testEnv.authenticatedContext('speaker-reader-1', { email_verified: true, email: 'speaker-reader@example.com' }).firestore();
 
   await assertSucceeds(getDoc(doc(adminDb, compPath('admins/admin-read-1'))));
   await assertFails(getDoc(doc(speakerDb, compPath('admins/admin-read-1'))));
 });
 
 test('speaker PIN join may not escalate to admin through roles array', { skip: !HAS_EMULATOR }, async () => {
-  const ctx = testEnv.authenticatedContext('speaker-2', { email: 'speaker2@example.com' });
+  const ctx = testEnv.authenticatedContext('speaker-2', { email_verified: true, email: 'speaker2@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath('admins/speaker-2')), {
@@ -222,7 +222,7 @@ test('speaker PIN join may not escalate to admin through roles array', { skip: !
 
 test('existing speaker may not add a second role through direct client writes', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('multi-role-1', 'speaker', 'multi@example.com');
-  const ctx = testEnv.authenticatedContext('multi-role-1', { email: 'multi@example.com' });
+  const ctx = testEnv.authenticatedContext('multi-role-1', { email_verified: true, email: 'multi@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath('admins/multi-role-1')), {
@@ -245,7 +245,7 @@ test('competition admins may delete joined admin documents', { skip: !HAS_EMULAT
   });
 
   await seedCompetitionRole('admin-delete-1', 'admin', 'admin-delete@example.com');
-  const db = testEnv.authenticatedContext('admin-delete-1', { email: 'admin-delete@example.com' }).firestore();
+  const db = testEnv.authenticatedContext('admin-delete-1', { email_verified: true, email: 'admin-delete@example.com' }).firestore();
   await assertSucceeds(deleteDoc(doc(db, compPath('admins/delete-target-1'))));
 });
 
@@ -263,7 +263,7 @@ test('self-service equipage update is allowed for matching email and allowed fie
     });
   });
 
-  const ctx = testEnv.authenticatedContext('driver-1', { email: 'driver@example.com' });
+  const ctx = testEnv.authenticatedContext('driver-1', { email_verified: true, email: 'driver@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-1')), {
@@ -287,7 +287,7 @@ test('self-service equipage update is denied for disallowed fields even with mat
     });
   });
 
-  const ctx = testEnv.authenticatedContext('driver-1b', { email: 'driver@example.com' });
+  const ctx = testEnv.authenticatedContext('driver-1b', { email_verified: true, email: 'driver@example.com' });
   const db = ctx.firestore();
 
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-1b')), {
@@ -308,7 +308,7 @@ test('self-service equipage update is denied for mismatched email', { skip: !HAS
     });
   });
 
-  const ctx = testEnv.authenticatedContext('driver-2', { email: 'other@example.com' });
+  const ctx = testEnv.authenticatedContext('driver-2', { email_verified: true, email: 'other@example.com' });
   const db = ctx.firestore();
 
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-2')), {
@@ -330,7 +330,7 @@ test('speaker role may update equipage outside self-service restrictions', { ski
     });
   });
 
-  const ctx = testEnv.authenticatedContext('speaker-eq-1', { email: 'speaker-eq@example.com' });
+  const ctx = testEnv.authenticatedContext('speaker-eq-1', { email_verified: true, email: 'speaker-eq@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-speaker-1')), {
@@ -350,12 +350,12 @@ test('private equipage data is not public but readable by owner and admin', { sk
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(anonymousDb, compPath('equipagePrivate/eq-private-1'))));
 
-  const ownerDb = testEnv.authenticatedContext('private-owner-1', { email: 'private-owner@example.com' }).firestore();
+  const ownerDb = testEnv.authenticatedContext('private-owner-1', { email_verified: true, email: 'private-owner@example.com' }).firestore();
   await assertSucceeds(getDoc(doc(ownerDb, compPath('equipagePrivate/eq-private-1'))));
   await assertSucceeds(getDocs(query(collection(ownerDb, compPath('equipagePrivate')), where('email', '==', 'private-owner@example.com'))));
 
   await seedCompetitionRole('admin-private-1', 'admin', 'admin-private@example.com');
-  const adminDb = testEnv.authenticatedContext('admin-private-1', { email: 'admin-private@example.com' }).firestore();
+  const adminDb = testEnv.authenticatedContext('admin-private-1', { email_verified: true, email: 'admin-private@example.com' }).firestore();
   await assertSucceeds(getDoc(doc(adminDb, compPath('equipagePrivate/eq-private-1'))));
 });
 
@@ -365,18 +365,18 @@ test('private role email docs are not public but readable by owner and admin', {
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(getDoc(doc(anonymousDb, compPath('roleEmails/role-owner@example.com'))));
 
-  const ownerDb = testEnv.authenticatedContext('role-owner-1', { email: 'role-owner@example.com' }).firestore();
+  const ownerDb = testEnv.authenticatedContext('role-owner-1', { email_verified: true, email: 'role-owner@example.com' }).firestore();
   await assertSucceeds(getDoc(doc(ownerDb, compPath('roleEmails/role-owner@example.com'))));
 
   await seedCompetitionRole('admin-role-email-1', 'admin', 'admin-role-email@example.com');
-  const adminDb = testEnv.authenticatedContext('admin-role-email-1', { email: 'admin-role-email@example.com' }).firestore();
+  const adminDb = testEnv.authenticatedContext('admin-role-email-1', { email_verified: true, email: 'admin-role-email@example.com' }).firestore();
   await assertSucceeds(getDoc(doc(adminDb, compPath('roleEmails/role-owner@example.com'))));
 });
 
 test('private role email docs grant discipline access without public competition email arrays', { skip: !HAS_EMULATOR }, async () => {
   await seedRoleEmail('dressage-role@example.com', ['dressage']);
 
-  const db = testEnv.authenticatedContext('dressage-role-1', { email: 'dressage-role@example.com' }).firestore();
+  const db = testEnv.authenticatedContext('dressage-role-1', { email_verified: true, email: 'dressage-role@example.com' }).firestore();
   await assertSucceeds(setDoc(doc(db, compPath(`dressage/${START_NO}/protocols/c`)), {
     judgeId: 'c',
     movements: [{ momentNo: 1, score: 8 }]
@@ -392,7 +392,7 @@ test('precision result writes are denied when the equipage is finalized', { skip
     });
   });
 
-  const ctx = testEnv.authenticatedContext('precision-1', { email: 'precision@example.com' });
+  const ctx = testEnv.authenticatedContext('precision-1', { email_verified: true, email: 'precision@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath(`precision/${START_NO}`)), {
@@ -403,7 +403,7 @@ test('precision result writes are denied when the equipage is finalized', { skip
 
 test('precision result writes are allowed when the equipage is not finalized', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-2', 'precision', 'precision2@example.com');
-  const ctx = testEnv.authenticatedContext('precision-2', { email: 'precision2@example.com' });
+  const ctx = testEnv.authenticatedContext('precision-2', { email_verified: true, email: 'precision2@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(setDoc(doc(db, compPath(`precision/${START_NO}`)), {
@@ -414,7 +414,7 @@ test('precision result writes are allowed when the equipage is not finalized', {
 
 test('competition discipline roles may finalize only their matching discipline', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-finalizer-1', 'precision', 'precision-finalizer@example.com');
-  const ctx = testEnv.authenticatedContext('precision-finalizer-1', { email: 'precision-finalizer@example.com' });
+  const ctx = testEnv.authenticatedContext('precision-finalizer-1', { email_verified: true, email: 'precision-finalizer@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(setDoc(doc(db, rootCompPath(`precisionFinalization/${START_NO}`)), {
@@ -427,7 +427,7 @@ test('competition discipline roles may finalize only their matching discipline',
 
 test('email-scoped discipline roles may finalize via private roleEmails docs', { skip: !HAS_EMULATOR }, async () => {
   await seedRoleEmail('dressage-role@example.com', ['dressage']);
-  const ctx = testEnv.authenticatedContext('dressage-role-1', { email: 'dressage-role@example.com' });
+  const ctx = testEnv.authenticatedContext('dressage-role-1', { email_verified: true, email: 'dressage-role@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
@@ -447,7 +447,7 @@ test('global non-admin roles may not finalize competitions without a scoped role
     });
   });
 
-  const ctx = testEnv.authenticatedContext('global-judge-1', { email: 'global-judge@example.com' });
+  const ctx = testEnv.authenticatedContext('global-judge-1', { email_verified: true, email: 'global-judge@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
@@ -464,7 +464,7 @@ test('dressage protocol writes are denied when the equipage is finalized', { ski
     });
   });
 
-  const ctx = testEnv.authenticatedContext('dressage-1', { email: 'dressage@example.com' });
+  const ctx = testEnv.authenticatedContext('dressage-1', { email_verified: true, email: 'dressage@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath(`dressage/${START_NO}/protocols/c`)), {
@@ -482,7 +482,7 @@ test('marathon writes are denied when the equipage is finalized', { skip: !HAS_E
     });
   });
 
-  const ctx = testEnv.authenticatedContext('marathon-1', { email: 'marathon@example.com' });
+  const ctx = testEnv.authenticatedContext('marathon-1', { email_verified: true, email: 'marathon@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath(`maraton/${START_NO}`)), {
@@ -493,7 +493,7 @@ test('marathon writes are denied when the equipage is finalized', { skip: !HAS_E
 
 test('computed_equipages stays server-write-only even for admin role', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('admin-computed-1', 'admin', 'admin-computed@example.com');
-  const ctx = testEnv.authenticatedContext('admin-computed-1', { email: 'admin-computed@example.com' });
+  const ctx = testEnv.authenticatedContext('admin-computed-1', { email_verified: true, email: 'admin-computed@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath('computed_equipages/eq-1')), {
@@ -528,8 +528,8 @@ test('competition admins may read secrets config while non-admin competition rol
   await seedCompetitionRole('admin-secret-1', 'admin', 'admin-secret@example.com');
   await seedCompetitionRole('speaker-secret-1', 'speaker', 'speaker-secret@example.com');
 
-  const adminDb = testEnv.authenticatedContext('admin-secret-1', { email: 'admin-secret@example.com' }).firestore();
-  const speakerDb = testEnv.authenticatedContext('speaker-secret-1', { email: 'speaker-secret@example.com' }).firestore();
+  const adminDb = testEnv.authenticatedContext('admin-secret-1', { email_verified: true, email: 'admin-secret@example.com' }).firestore();
+  const speakerDb = testEnv.authenticatedContext('speaker-secret-1', { email_verified: true, email: 'speaker-secret@example.com' }).firestore();
 
   await assertSucceeds(getDoc(doc(adminDb, compPath('config/secrets'))));
   await assertFails(getDoc(doc(speakerDb, compPath('config/secrets'))));
@@ -537,7 +537,7 @@ test('competition admins may read secrets config while non-admin competition rol
 
 test('admin may write public config and secrets config', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('admin-config-1', 'admin', 'admin-config@example.com');
-  const ctx = testEnv.authenticatedContext('admin-config-1', { email: 'admin-config@example.com' });
+  const ctx = testEnv.authenticatedContext('admin-config-1', { email_verified: true, email: 'admin-config@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(setDoc(doc(db, compPath('config/display')), {
@@ -551,7 +551,7 @@ test('admin may write public config and secrets config', { skip: !HAS_EMULATOR }
 
 test('non-admin competition role may not write config documents', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('speaker-config-1', 'speaker', 'speaker-config@example.com');
-  const ctx = testEnv.authenticatedContext('speaker-config-1', { email: 'speaker-config@example.com' });
+  const ctx = testEnv.authenticatedContext('speaker-config-1', { email_verified: true, email: 'speaker-config@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, compPath('config/display')), {
@@ -561,7 +561,7 @@ test('non-admin competition role may not write config documents', { skip: !HAS_E
 
 test('auditLog writes are allowed for admin-scoped competition access', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('admin-audit-1', 'admin', 'admin-audit@example.com');
-  const ctx = testEnv.authenticatedContext('admin-audit-1', { email: 'admin-audit@example.com' });
+  const ctx = testEnv.authenticatedContext('admin-audit-1', { email_verified: true, email: 'admin-audit@example.com' });
   const db = ctx.firestore();
 
   await assertSucceeds(setDoc(doc(db, privateCompPath('auditLog/log-1')), {
@@ -583,7 +583,7 @@ test('auditLog reads are denied for non-admin competition roles', { skip: !HAS_E
     });
   });
 
-  const ctx = testEnv.authenticatedContext('precision-audit-read-1', { email: 'precision-audit-read@example.com' });
+  const ctx = testEnv.authenticatedContext('precision-audit-read-1', { email_verified: true, email: 'precision-audit-read@example.com' });
   const db = ctx.firestore();
 
   await seedCompetitionRole('precision-audit-read-1', 'precision', 'precision-audit-read@example.com');
@@ -592,7 +592,7 @@ test('auditLog reads are denied for non-admin competition roles', { skip: !HAS_E
 
 test('auditLog writes are denied for non-admin competition roles', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-audit-1', 'precision', 'precision-audit@example.com');
-  const ctx = testEnv.authenticatedContext('precision-audit-1', { email: 'precision-audit@example.com' });
+  const ctx = testEnv.authenticatedContext('precision-audit-1', { email_verified: true, email: 'precision-audit@example.com' });
   const db = ctx.firestore();
 
   await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-2')), {
@@ -606,7 +606,7 @@ test('auditLog writes are denied for non-admin competition roles', { skip: !HAS_
 
 test('auditLog is append-only for admins', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('admin-audit-3', 'admin', 'admin-audit3@example.com');
-  const ctx = testEnv.authenticatedContext('admin-audit-3', { email: 'admin-audit3@example.com' });
+  const ctx = testEnv.authenticatedContext('admin-audit-3', { email_verified: true, email: 'admin-audit3@example.com' });
   const db = ctx.firestore();
   const ref = doc(db, privateCompPath('auditLog/log-append-1'));
 
@@ -658,7 +658,7 @@ test('messages and documents expose only public audience anonymously and remain 
   await assertFails(getDocs(query(collection(anonymousDb, compPath('messages')), orderBy('timestamp', 'desc'))));
   await assertFails(getDocs(query(collection(anonymousDb, compPath('documents')), orderBy('timestamp', 'desc'))));
 
-  const driverCtx = testEnv.authenticatedContext('driver-doc-1', { email: 'driver-doc@example.com' });
+  const driverCtx = testEnv.authenticatedContext('driver-doc-1', { email_verified: true, email: 'driver-doc@example.com' });
   const driverDb = driverCtx.firestore();
   await assertSucceeds(getDoc(doc(driverDb, compPath('messages/msg-driver-1'))));
   await assertSucceeds(getDoc(doc(driverDb, compPath('documents/doc-driver-1'))));
@@ -666,13 +666,13 @@ test('messages and documents expose only public audience anonymously and remain 
   await assertSucceeds(getDocs(query(collection(driverDb, compPath('documents')), orderBy('timestamp', 'desc'))));
 
   await seedCompetitionRole('speaker-doc-1', 'speaker', 'speaker-doc@example.com');
-  const speakerCtx = testEnv.authenticatedContext('speaker-doc-1', { email: 'speaker-doc@example.com' });
+  const speakerCtx = testEnv.authenticatedContext('speaker-doc-1', { email_verified: true, email: 'speaker-doc@example.com' });
   const speakerDb = speakerCtx.firestore();
   await assertFails(setDoc(doc(speakerDb, compPath('messages/msg-2')), { title: 'Nope' }));
   await assertFails(setDoc(doc(speakerDb, compPath('documents/doc-2')), { title: 'Nope' }));
 
   await seedCompetitionRole('admin-doc-1', 'admin', 'admin-doc@example.com');
-  const adminCtx = testEnv.authenticatedContext('admin-doc-1', { email: 'admin-doc@example.com' });
+  const adminCtx = testEnv.authenticatedContext('admin-doc-1', { email_verified: true, email: 'admin-doc@example.com' });
   const adminDb = adminCtx.firestore();
   await assertSucceeds(setDoc(doc(adminDb, compPath('messages/msg-3')), { title: 'Admin OK' }));
   await assertSucceeds(setDoc(doc(adminDb, compPath('documents/doc-3')), { title: 'Admin OK' }));
@@ -702,10 +702,10 @@ test('official staffing documents are not public but remain readable to authenti
   });
 
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
-  const publicUserDb = testEnv.authenticatedContext('public-user-1', { email: 'public@example.com' }).firestore();
+  const publicUserDb = testEnv.authenticatedContext('public-user-1', { email_verified: true, email: 'public@example.com' }).firestore();
 
   await seedCompetitionRole('dressage-role-1', 'dressage', 'dressage-role@example.com');
-  const dressageDb = testEnv.authenticatedContext('dressage-role-1', { email: 'dressage-role@example.com' }).firestore();
+  const dressageDb = testEnv.authenticatedContext('dressage-role-1', { email_verified: true, email: 'dressage-role@example.com' }).firestore();
 
   await assertFails(getDoc(doc(anonymousDb, compPath('judges/judge-1'))));
   await assertFails(getDoc(doc(anonymousDb, compPath('officials/official-1'))));
@@ -727,6 +727,110 @@ test('volunteer signups may not be created directly from Firestore clients', { s
     name: 'Volunteer',
     email: 'volunteer@example.com'
   }));
+});
+
+test('volunteer signups and the recalculation log are readable only by competition admins', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('volunteerSignups/signup-1')), {
+      name: 'Volontär', phone: '0701234567', email: 'volunteer@example.com', icePhone: '0707654321'
+    });
+    await setDoc(doc(db, compPath('maintenanceRuns/run-1')), {
+      type: 'result-recalculation', initiatedBy: { uid: 'admin-x', email: 'admin-x@example.com' }
+    });
+  });
+  await seedCompetitionRole('speaker-signups-1', 'speaker');
+  await seedCompetitionRole('admin-signups-1', 'admin');
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(anonymousDb, compPath('volunteerSignups/signup-1'))));
+  await assertFails(getDocs(collection(anonymousDb, compPath('volunteerSignups'))));
+  await assertFails(getDoc(doc(anonymousDb, compPath('maintenanceRuns/run-1'))));
+
+  const publicUserDb = testEnv.authenticatedContext('public-signups-1', { email_verified: true, email: 'public-signups@example.com' }).firestore();
+  await assertFails(getDocs(collection(publicUserDb, compPath('volunteerSignups'))));
+
+  const speakerDb = testEnv.authenticatedContext('speaker-signups-1', { email_verified: true, email: 'speaker-signups-1@example.com' }).firestore();
+  await assertFails(getDocs(collection(speakerDb, compPath('volunteerSignups'))));
+
+  const adminDb = testEnv.authenticatedContext('admin-signups-1', { email_verified: true, email: 'admin-signups-1@example.com' }).firestore();
+  await assertSucceeds(getDocs(collection(adminDb, compPath('volunteerSignups'))));
+});
+
+test('protected competition collections cannot be listed anonymously', { skip: !HAS_EMULATOR }, async () => {
+  const protectedCollections = ['equipagePrivate', 'roleEmails', 'judges', 'officials', 'assignments', 'admins', 'auditLog', 'volunteerSignups', 'maintenanceRuns'];
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    for (const name of protectedCollections) {
+      await setDoc(doc(db, compPath(`${name}/doc-1`)), { email: 'someone@example.com', phone: '070' });
+    }
+  });
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  const readable = [];
+  for (const name of protectedCollections) {
+    for (const [kind, read] of [['list', () => getDocs(collection(anonymousDb, compPath(name)))], ['get', () => getDoc(doc(anonymousDb, compPath(`${name}/doc-1`)))]]) {
+      try {
+        await read();
+        readable.push(`${kind} ${name}`);
+      } catch {
+        // denied, as it should be
+      }
+    }
+  }
+  assert.deepEqual(readable, []);
+});
+
+test('email-based access needs a verified email address', { skip: !HAS_EMULATOR }, async () => {
+  // An admin role granted to an address before its owner signed up
+  await seedRoleEmail('kansli@example.com', ['admin']);
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath(`equipages/${START_NO}`)), { startNumber: Number(START_NO), driverName: 'Kusk' });
+    await setDoc(doc(db, compPath(`equipagePrivate/${START_NO}`)), { email: 'driver-verify@example.com', phone: '070' });
+  });
+
+  // Someone else registered the address but never confirmed it
+  const impostorDb = testEnv.authenticatedContext('impostor-1', { email_verified: false, email: 'kansli@example.com' }).firestore();
+  await assertFails(getDoc(doc(impostorDb, compPath('config/secrets'))));
+  await assertFails(setDoc(doc(impostorDb, compPath('config/maratonConfig')), { x: 1 }));
+  await assertFails(getDoc(doc(impostorDb, compPath('roleEmails/kansli@example.com'))));
+
+  const verifiedDb = testEnv.authenticatedContext('kansli-1', { email_verified: true, email: 'kansli@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(verifiedDb, compPath('config/secrets'))));
+
+  // A driver's private data and self-service only with the confirmed address
+  const unverifiedDriverDb = testEnv.authenticatedContext('driver-unverified-1', { email_verified: false, email: 'driver-verify@example.com' }).firestore();
+  await assertFails(getDoc(doc(unverifiedDriverDb, compPath(`equipagePrivate/${START_NO}`))));
+  await assertFails(updateDoc(doc(unverifiedDriverDb, compPath(`equipages/${START_NO}`)), { speakerNotes: 'x' }));
+
+  const verifiedDriverDb = testEnv.authenticatedContext('driver-verified-1', { email_verified: true, email: 'driver-verify@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(verifiedDriverDb, compPath(`equipagePrivate/${START_NO}`))));
+  await assertSucceeds(updateDoc(doc(verifiedDriverDb, compPath(`equipages/${START_NO}`)), { speakerNotes: 'x' }));
+});
+
+test('marathon officials may record the global pause, other roles may not', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-pause-1', 'marathon');
+  await seedCompetitionRole('speaker-pause-1', 'speaker');
+  const pause = { isPaused: true, pauseLog: [{ start: '2026-10-11T10:00:00.000Z', end: null, durationSec: null }] };
+
+  const marathonDb = testEnv.authenticatedContext('marathon-pause-1', { email_verified: true, email: 'marathon-pause-1@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(marathonDb, compPath('config/globalStatus')), pause, { merge: true }));
+  // ...but no other config documents
+  await assertFails(setDoc(doc(marathonDb, compPath('config/maratonConfig')), { x: 1 }, { merge: true }));
+
+  const speakerDb = testEnv.authenticatedContext('speaker-pause-1', { email_verified: true, email: 'speaker-pause-1@example.com' }).firestore();
+  await assertFails(setDoc(doc(speakerDb, compPath('config/globalStatus')), pause, { merge: true }));
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(setDoc(doc(anonymousDb, compPath('config/globalStatus')), pause, { merge: true }));
+  await assertSucceeds(getDoc(doc(anonymousDb, compPath('config/globalStatus'))));
+});
+
+test('PIN join attempt counters are not readable or writable by clients', { skip: !HAS_EMULATOR }, async () => {
+  const db = testEnv.authenticatedContext('pin-guesser-1', { email_verified: true, email: 'pin-guesser@example.com' }).firestore();
+  await assertFails(getDoc(doc(db, `pinJoinAttempts/${COMP_ID}`)));
+  await assertFails(setDoc(doc(db, `pinJoinAttempts/${COMP_ID}__pin-guesser-1`), { failures: [] }));
 });
 
 test('rules test environment is using the intended project id', { skip: !HAS_EMULATOR }, () => {
