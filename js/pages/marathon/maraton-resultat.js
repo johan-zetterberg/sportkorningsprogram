@@ -177,11 +177,14 @@ function render() {
     try { window.__teardownXbarSync?.(); } catch { }
 
     const hostEl = document.getElementById('marathon-x-wrap');
-    if (hostEl && window.__setupXbarSync) {
+    // Behåll referensen: lämnas sidan under dessa frames rensas den globala
+    const setupXbarSync = window.__setupXbarSync;
+    if (hostEl && typeof setupXbarSync === 'function') {
       // Viktigt: vänta 1–2 frames så att tabellen hinner få korrekt scrollWidth
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          window.__setupXbarSync({
+          if (!document.body?.contains(hostEl)) return;
+          setupXbarSync({
             barClass: 'fixed-xbar',
             innerId: 'marathonXbarInner',
             hostEl

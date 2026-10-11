@@ -227,10 +227,13 @@ function renderTable(filtered, container) {
 
     // Activate Sticky X Scrollbar
     const hostEl = container.querySelector('#hastar-x-wrap');
-    if (hostEl && window.__setupXbarSync) {
+    // Keep the reference: a page left within these frames clears the global
+    const setupXbarSync = window.__setupXbarSync;
+    if (hostEl && typeof setupXbarSync === 'function') {
         requestAnimationFrame(() => {
             requestAnimationFrame(() => {
-                window.__setupXbarSync({
+                if (!document.body?.contains(hostEl)) return;
+                setupXbarSync({
                     barClass: 'fixed-xbar',
                     innerId: 'hastarXbarInner',
                     hostEl

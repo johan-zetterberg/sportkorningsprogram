@@ -819,11 +819,14 @@ function renderDesktop() {
   // Skapa & koppla fasta x-baren
   (function () {
     const host = document.getElementById('total-x-wrap');
-    if (host && window.__setupXbarSync) {
+    // Keep the reference: a page left within these frames clears the global
+    const setupXbarSync = window.__setupXbarSync;
+    if (host && typeof setupXbarSync === 'function') {
       // Delay to ensure table layout is ready
       requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-          window.__setupXbarSync({
+          if (!document.body?.contains(host)) return;
+          setupXbarSync({
             barClass: 'fixed-xbar',
             innerId: 'totalXbarInner',
             hostEl: host
