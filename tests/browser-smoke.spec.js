@@ -91,6 +91,28 @@ test('seeded stress monitor smoke flow', async ({ page }) => {
   await expect(page.locator('#page-maraton-monitor')).toContainText(/\d{2}:\d{2},\d{2}/);
 });
 
+test('marathon input loads a seeded equipage with obstacle data without errors', async ({ page }) => {
+  await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  // Errors in loading a result are caught and logged (console.error), errors
+  // in the live listener are uncaught (pageerror): collect both
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+
+  await page.goto('/index.html#maraton-input');
+  await expect(page.locator('#maratonObstacleSelect')).toBeVisible();
+  // The seed has an equipage running at obstacle 3: selecting the obstacle
+  // auto-selects that driver and applies its live state (applyLiveStateToUI,
+  // which also reads the waiting/hold-time list)
+  const select = page.locator('#maratonObstacleSelect');
+  await expect.poll(async () => select.locator('option[value="3"]').count()).toBe(1);
+  await select.selectOption('3');
+  await page.waitForTimeout(2000);
+  await page.locator('#nextEquipage').click();
+  await page.waitForTimeout(1500);
+
+  expect(browserErrors).toEqual([]);
+});
+
 test('public center and portal audience smoke flow', async ({ page }) => {
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
   await seedPublicAudienceFixtures(page);

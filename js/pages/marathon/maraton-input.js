@@ -1327,6 +1327,104 @@ function rebuildSortedEquipages(obstacleNo) {
 
 let equipagesRawCache = [];
 
+function addQuickObstaclePenalty(amount, reason) {
+  const penaltyInput = document.getElementById('maratonPenalty');
+  if (!penaltyInput) return;
+  const currentVal = parseFloat(penaltyInput.value) || 0;
+  penaltyInput.value = String(currentVal + amount);
+  updateTotalPenaltyDisplay();
+  pushFormField('live_otherPenalty', penaltyInput.value);
+
+  const commentInput = document.getElementById('maratonComment');
+  if (commentInput) {
+    const existing = commentInput.value.trim();
+    const note = `${reason} (+${amount})`;
+    if (!existing) {
+      commentInput.value = note;
+    } else if (!existing.includes(reason)) {
+      commentInput.value = `${existing}, ${note}`;
+    }
+    const btn = document.querySelector('.comment-toggle-btn');
+    if (btn) btn.classList.toggle('has-comment', commentInput.value.trim() !== '');
+    scheduleLiveCommentSave(commentInput.value);
+  }
+}
+
+let waitingTimerInterval = null;
+let waitingStartTime = 0;
+const pendingHoldTimes = new Map();
+
+function updateWaitingTimerDisplay() {
+  const disp = document.getElementById('waitingTimerDisplay');
+  if (!disp) return;
+  if (!waitingStartTime) {
+    disp.textContent = '00:00';
+    return;
+  }
+  const elapsedSec = Math.floor((Date.now() - waitingStartTime) / 1000);
+  const m = Math.floor(elapsedSec / 60);
+  const s = elapsedSec % 60;
+  disp.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+function renderWaitingList() {
+  const container = document.getElementById('waitingListContainer');
+  const countBadge = document.getElementById('waitingCountBadge');
+  if (!container) return;
+  if (pendingHoldTimes.size === 0) {
+    container.classList.add('hidden');
+    container.innerHTML = '';
+    if (countBadge) countBadge.classList.add('hidden');
+    return;
+  }
+  container.classList.remove('hidden');
+  if (countBadge) {
+    countBadge.textContent = String(pendingHoldTimes.size);
+    countBadge.classList.remove('hidden');
+  }
+  container.innerHTML = Array.from(pendingHoldTimes.entries()).map(([sn, item]) => `
+    <div class="flex items-center justify-between bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-900 text-xs">
+      <span class="font-bold text-blue-900 dark:text-blue-200">#${escapeHtml(sn)}: ${item.holdTimeSec}s (${escapeHtml(item.reason)})</span>
+      <div class="flex items-center gap-1">
+        <button type="button" data-apply-waiting="${escapeHtml(sn)}" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline">Använd</button>
+        <button type="button" data-delete-waiting="${escapeHtml(sn)}" class="text-[10px] text-red-500 font-bold hover:underline ml-1">Ta bort</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addQuickHoldTime(seconds, defaultReason = 'Föregående ekipage i hinder') {
+  const holdInput = document.getElementById('maratonHoldTime');
+  if (!holdInput) return;
+  const currentVal = parseHoldTimeInput(holdInput.value);
+  const nextVal = Math.max(0, currentVal + seconds);
+  holdInput.value = nextVal > 0 ? String(nextVal) : '';
+  pushFormField('live_holdTimeSec', holdInput.value);
+
+  const commentInput = document.getElementById('maratonComment');
+  if (commentInput && nextVal > 0 && !commentInput.value.trim()) {
+    commentInput.value = `Väntetid: ${defaultReason}`;
+    const btn = document.querySelector('.comment-toggle-btn');
+    if (btn) btn.classList.add('has-comment');
+    scheduleLiveCommentSave(commentInput.value);
+  }
+}
+
+function setHoldReason(reason) {
+  const commentInput = document.getElementById('maratonComment');
+  if (!commentInput) return;
+  const existing = commentInput.value.trim();
+  const note = `Väntetid: ${reason}`;
+  if (!existing) {
+    commentInput.value = note;
+  } else if (!existing.includes(reason)) {
+    commentInput.value = `${existing}, ${note}`;
+  }
+  const btn = document.querySelector('.comment-toggle-btn');
+  if (btn) btn.classList.add('has-comment');
+  scheduleLiveCommentSave(commentInput.value);
+}
+
 async function setupPage() {
   try {
     // Hämta all nödvändig data parallellt för snabbare laddning
@@ -1439,104 +1537,6 @@ async function setupPage() {
     form.addEventListener('click', boundHandlers.formClickHandler); // För kommentarsknappen
     form.addEventListener('focusout', boundHandlers.commentBlurHandler);
   }
-
-function addQuickObstaclePenalty(amount, reason) {
-  const penaltyInput = document.getElementById('maratonPenalty');
-  if (!penaltyInput) return;
-  const currentVal = parseFloat(penaltyInput.value) || 0;
-  penaltyInput.value = String(currentVal + amount);
-  updateTotalPenaltyDisplay();
-  pushFormField('live_otherPenalty', penaltyInput.value);
-
-  const commentInput = document.getElementById('maratonComment');
-  if (commentInput) {
-    const existing = commentInput.value.trim();
-    const note = `${reason} (+${amount})`;
-    if (!existing) {
-      commentInput.value = note;
-    } else if (!existing.includes(reason)) {
-      commentInput.value = `${existing}, ${note}`;
-    }
-    const btn = document.querySelector('.comment-toggle-btn');
-    if (btn) btn.classList.toggle('has-comment', commentInput.value.trim() !== '');
-    scheduleLiveCommentSave(commentInput.value);
-  }
-}
-
-let waitingTimerInterval = null;
-let waitingStartTime = 0;
-const pendingHoldTimes = new Map();
-
-function updateWaitingTimerDisplay() {
-  const disp = document.getElementById('waitingTimerDisplay');
-  if (!disp) return;
-  if (!waitingStartTime) {
-    disp.textContent = '00:00';
-    return;
-  }
-  const elapsedSec = Math.floor((Date.now() - waitingStartTime) / 1000);
-  const m = Math.floor(elapsedSec / 60);
-  const s = elapsedSec % 60;
-  disp.textContent = `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-function renderWaitingList() {
-  const container = document.getElementById('waitingListContainer');
-  const countBadge = document.getElementById('waitingCountBadge');
-  if (!container) return;
-  if (pendingHoldTimes.size === 0) {
-    container.classList.add('hidden');
-    container.innerHTML = '';
-    if (countBadge) countBadge.classList.add('hidden');
-    return;
-  }
-  container.classList.remove('hidden');
-  if (countBadge) {
-    countBadge.textContent = String(pendingHoldTimes.size);
-    countBadge.classList.remove('hidden');
-  }
-  container.innerHTML = Array.from(pendingHoldTimes.entries()).map(([sn, item]) => `
-    <div class="flex items-center justify-between bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-900 text-xs">
-      <span class="font-bold text-blue-900 dark:text-blue-200">#${escapeHtml(sn)}: ${item.holdTimeSec}s (${escapeHtml(item.reason)})</span>
-      <div class="flex items-center gap-1">
-        <button type="button" data-apply-waiting="${escapeHtml(sn)}" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline">Använd</button>
-        <button type="button" data-delete-waiting="${escapeHtml(sn)}" class="text-[10px] text-red-500 font-bold hover:underline ml-1">Ta bort</button>
-      </div>
-    </div>
-  `).join('');
-}
-
-function addQuickHoldTime(seconds, defaultReason = 'Föregående ekipage i hinder') {
-  const holdInput = document.getElementById('maratonHoldTime');
-  if (!holdInput) return;
-  const currentVal = parseHoldTimeInput(holdInput.value);
-  const nextVal = Math.max(0, currentVal + seconds);
-  holdInput.value = nextVal > 0 ? String(nextVal) : '';
-  pushFormField('live_holdTimeSec', holdInput.value);
-
-  const commentInput = document.getElementById('maratonComment');
-  if (commentInput && nextVal > 0 && !commentInput.value.trim()) {
-    commentInput.value = `Väntetid: ${defaultReason}`;
-    const btn = document.querySelector('.comment-toggle-btn');
-    if (btn) btn.classList.add('has-comment');
-    scheduleLiveCommentSave(commentInput.value);
-  }
-}
-
-function setHoldReason(reason) {
-  const commentInput = document.getElementById('maratonComment');
-  if (!commentInput) return;
-  const existing = commentInput.value.trim();
-  const note = `Väntetid: ${reason}`;
-  if (!existing) {
-    commentInput.value = note;
-  } else if (!existing.includes(reason)) {
-    commentInput.value = `${existing}, ${note}`;
-  }
-  const btn = document.querySelector('.comment-toggle-btn');
-  if (btn) btn.classList.add('has-comment');
-  scheduleLiveCommentSave(commentInput.value);
-}
 
   document.getElementById('maratonObstacleSelect')?.addEventListener('change', boundHandlers.obstacleChange);
   document.getElementById('btnQuickPenaltyGroom')?.addEventListener('click', () => addQuickObstaclePenalty(5, 'Groom avstigning'));
