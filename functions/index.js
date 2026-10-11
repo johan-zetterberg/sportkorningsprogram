@@ -457,10 +457,16 @@ export const validateCompetitionResultRecalculation = onCall(
         const { validation } = await buildCompetitionRecalculationPreview(competition);
         return {
             ...validation,
+            archived: isArchivedCompetition(competition.data),
             engineVersion: RESULT_ENGINE_VERSION
         };
     }
 );
+
+// Finalized (archived) competitions keep the results they were archived with
+function isArchivedCompetition(data) {
+    return data?.locked === true || data?.status === 'completed';
+}
 
 export const recalculateCompetitionResults = onCall(
     { timeoutSeconds: 540, memory: '512MiB' },
@@ -478,6 +484,11 @@ export const recalculateCompetitionResults = onCall(
         }
         if (validation.warnings.length > 0 && request.data?.confirmedWarnings !== true) {
             throw new HttpsError('failed-precondition', 'Varningarna måste bekräftas före omräkning.', validation);
+        }
+        // Recalculating an archived competition changes its published results
+        // (they no longer match the archived PDF): only when confirmed
+        if (isArchivedCompetition(competition.data) && request.data?.confirmedArchived !== true) {
+            throw new HttpsError('failed-precondition', 'Tävlingen är arkiverad. Bekräfta att de arkiverade resultaten ska räknas om.', { ...validation, archived: true });
         }
 
         const recalculatedAt = new Date().toISOString();

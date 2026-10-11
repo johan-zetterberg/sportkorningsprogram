@@ -6,6 +6,7 @@ import { getMarathonTimingData, getMarathonResults, getMarathonStateDocuments, l
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { getTeams } from '../../services/teamService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
+import { classesWithoutJudgeMapping, judgeMappingNoticeHtml } from '../../ui/judgeMappingNotice.js';
 import { getGlobalState } from '../../main.js';
 import {
     downloadCsv,
@@ -306,7 +307,9 @@ function render() {
     page.innerHTML = `
     <div class="container mx-auto p-3 sm:p-4 md:p-8">
         ${getCompetitionHeader(competition, 'Rapportcenter')}
-        
+
+        ${loading ? '' : judgeMappingNoticeHtml(classesWithoutJudgeMapping(equipages, dressageJudgeMapping))}
+
         ${loading ? '<p class="text-center mt-8 text-gray-500 animate-pulse">Laddar data...</p>' : ''}
 
         <div class="${loading ? 'opacity-50 pointer-events-none' : ''}">

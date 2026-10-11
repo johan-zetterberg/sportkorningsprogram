@@ -61,6 +61,7 @@ function setupResultMaintenance(competitionId) {
                     <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
                         ${isBlocked ? 'Omräkningen är blockerad tills de kritiska felen är lösta.' : 'Kontrollen är klar. Omräkningen kan genomföras.'}
                     </p>
+                    ${latestValidation.archived ? '<p class="mt-1 text-sm font-semibold text-amber-700 dark:text-amber-300">Tävlingen är arkiverad: en omräkning ändrar de publicerade resultaten, som då inte längre stämmer med arkivets PDF.</p>' : ''}
                 </div>
                 <div class="mt-4">
                     <h3 class="font-semibold text-red-700 dark:text-red-300">Kritiska fel (${criticalErrors.length})</h3>
@@ -84,16 +85,20 @@ function setupResultMaintenance(competitionId) {
     executeButton.onclick = async () => {
         if (!latestValidation || (latestValidation.criticalErrors || []).length > 0) return;
         const warningCount = (latestValidation.warnings || []).length;
-        const confirmationText = warningCount > 0
-            ? `Kontrollen innehåller ${warningCount} varning(ar). Vill du ändå räkna om hela tävlingen?`
-            : 'Vill du räkna om resultaten för hela tävlingen?';
+        const archived = latestValidation.archived === true;
+        const confirmationText = [
+            archived ? 'Tävlingen är ARKIVERAD. En omräkning ändrar de publicerade resultaten, som då inte längre stämmer med arkivets PDF.' : '',
+            warningCount > 0
+                ? `Kontrollen innehåller ${warningCount} varning(ar). Vill du ändå räkna om hela tävlingen?`
+                : 'Vill du räkna om resultaten för hela tävlingen?'
+        ].filter(Boolean).join('\n\n');
         if (!window.confirm(confirmationText)) return;
 
         executeButton.disabled = true;
         validateButton.disabled = true;
         executeButton.textContent = 'Räknar om...';
         try {
-            const result = await recalculateCompetitionResults(competitionId, warningCount > 0);
+            const result = await recalculateCompetitionResults(competitionId, warningCount > 0, archived);
             status.innerHTML = `
                 <div class="rounded-md border border-green-300 bg-green-50 p-4 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200">
                     <p class="font-semibold">${escapeHtml(String(result.recalculatedCount || 0))} ekipage räknades om.</p>

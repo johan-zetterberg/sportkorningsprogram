@@ -12,6 +12,7 @@ import {
 import { getConfig } from '../../services/competitionService.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
 import { getCompetitionHeader } from '../../ui/components.js';
+import { JUDGE_MAPPING_NOTICE_ID, renderJudgeMappingNotice } from '../../ui/judgeMappingNotice.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, normalizeCountryCode, fetchFlagDataUrl } from '../../services/flagsService.js';
 import { doc, onSnapshot, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -2179,6 +2180,7 @@ function listenMergeConfig(compId) {
                 window.dressyrClassConfig = data || {};
             } else if (key === 'dressageJudgeMapping') {
                 window.dressageJudgeMapping = data || {};
+                renderJudgeMappingNotice(masterEquipageList, window.dressageJudgeMapping);
             }
 
             // Märk om alla ekipage
@@ -2345,6 +2347,7 @@ export async function load() {
       <div class="competition-page-header-shell mb-2 md:mb-8">
                 ${getCompetitionHeader(competition, t('dressage') + ' – ' + t('start_list_and_results'))}
       </div>
+      <div id="${JUDGE_MAPPING_NOTICE_ID}"></div>
       <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
         
         <!-- Sök -->
@@ -2400,6 +2403,9 @@ export async function load() {
       <div id="liveUpdateTicker" aria-live="polite"></div>
       <div id="resultsContainer" class="rounded-lg shadow ring-1 ring-black/5 dark:ring-white/10 dark:bg-gray-800"></div>
       `;
+
+        // Classes without a judge mapping never finish dressage: say so
+        renderJudgeMappingNotice(masterEquipageList, window.dressageJudgeMapping);
 
         // === STEG 4: Koppla alla lyssnare ===
         setupDressageModalOnce();  //

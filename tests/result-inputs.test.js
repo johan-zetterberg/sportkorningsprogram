@@ -86,3 +86,17 @@ test('team scoring counts only phases the result engine calls finished', async (
   const [finished] = calculateTeamResults(teams, members.map(m => ({ ...m, marathonComplete: true })));
   assert.equal(finished.total, 294);
 });
+
+test('classes without a judge mapping are listed for the notice', async () => {
+  const { classesWithoutJudgeMapping, judgeMappingNoticeHtml } = await import('../js/ui/judgeMappingNotice.js');
+  const equipages = [
+    { className: '1. Lätt B' }, { className: '2.Lätt A' }, { className: '2.Lätt A' },
+    { className: 'Svår', status: 'struken' }
+  ];
+  const missing = classesWithoutJudgeMapping(equipages, { '1.Lätt B': { C: 'judge-c' } });
+  assert.deepEqual(missing, ['2.Lätt A'], 'mapped (spacing aside), duplicate and withdrawn classes left out');
+  assert.match(judgeMappingNoticeHtml(missing), /domarfördelning saknas/);
+  assert.equal(judgeMappingNoticeHtml([]), '');
+  // Class names are escaped
+  assert.ok(!judgeMappingNoticeHtml(['<img src=x>']).includes('<img'));
+});
