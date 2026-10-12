@@ -152,6 +152,20 @@ let dropdown = null;
 let isGloballyPaused = false;
 
 let currentEquipage = null;     // valt ekipage-objekt
+// Marathon documents seen on this page (they exist: no server read before writes)
+const knownMaratonDocs = new Set();
+// When a stage was stopped or reset here ("sn|stage" -> ms): an incoming
+// snapshot that still says the stage runs, from a start before that, is stale
+const lastLocalStop = new Map();
+// Latest start/stop/reset per stage key: a write acknowledged after a newer
+// action on the same stage must not paint its (older) state again
+const stageActionSeq = new Map();
+function nextStageAction(key) {
+  const seq = (stageActionSeq.get(key) || 0) + 1;
+  stageActionSeq.set(key, seq);
+  return seq;
+}
+const isLatestStageAction = (key, seq) => stageActionSeq.get(key) === seq;
 let currentStage = 'warmup';    // 'warmup' | 'A' | 'transport' | 'B'
 let currentDocData = null;      // firestore-dokument för valt ekipage
 
@@ -201,6 +215,9 @@ function upsertActiveTimerFromStage(sn, stage, st) {
 
   const startMs = Date.parse(st.runningSince || st.startClock);
   if (!isFinite(startMs)) return;
+  // A snapshot from before a local stop/reset must not restart the timer
+  const stoppedAt = lastLocalStop.get(key);
+  if (Number.isFinite(stoppedAt) && !(startMs > stoppedAt)) return;
 
   const durationMs = Number(st.durationMs);
   const paused = Number.isFinite(durationMs) ? durationMs : 0;
@@ -259,14 +276,19 @@ function marathonDocRef_EN(startNumber) {
 }
 
 // Skapa dokumentet på ett "säkert" sätt (första skrivningen)
-async function ensureMaratonDoc(sn) {
+async function ensureMaratonDoc(sn, equipage = currentEquipage) {
+  // A document this page has already seen exists: skip the server read, so the
+  // stage write that follows goes out at once (a delayed Stop let the server's
+  // acknowledgement of the Start restart the stopped timer)
+  if (knownMaratonDocs.has(String(sn))) return;
   const ref = maratonDocRef(sn);
   const snap = await getDoc(ref);
+  if (snap.exists()) knownMaratonDocs.add(String(sn));
   if (!snap.exists()) {
     try {
       await setDoc(ref, {
         startNumber: Number(sn),
-        className: currentEquipage?.className || '',
+        className: equipage?.className || '',
         running: false,
         currentObstacle: null,
         updatedAt: serverTimestamp()
@@ -280,7 +302,7 @@ async function ensureMaratonDoc(sn) {
       if (!snapEN.exists()) {
         await setDoc(refEN, {
           startNumber: Number(sn),
-          className: currentEquipage?.className || '',
+          className: equipage?.className || '',
           running: false,
           currentObstacle: null,
           updatedAt: serverTimestamp()
@@ -472,12 +494,14 @@ async function readStageDoc(sn) {
   return backupData ? hydrateTimingFromFlat(backupData) : null;
 }
 
-async function saveStageSnapshot(stage, payload) {
-  if (!currentEquipage) return;
+// `equipage`: the one the write is for, taken when the action started (the page
+// may be left, or another equipage picked, while ensureMaratonDoc awaits)
+async function saveStageSnapshot(stage, payload, equipage = currentEquipage) {
+  if (!equipage) return;
 
-  const sn = String(currentEquipage.startNumber);
-  const className = currentEquipage.className || '';
-  await ensureMaratonDoc(sn);
+  const sn = String(equipage.startNumber);
+  const className = equipage.className || '';
+  await ensureMaratonDoc(sn, equipage);
 
   // Mappning av etapp → nycklar
   const stageKey = stage.toUpperCase();                   // 'A' | 'B' | 'WARMUP' | 'TRANSPORT'
@@ -485,7 +509,7 @@ async function saveStageSnapshot(stage, payload) {
     : (stage === 'transport' ? 'transfer' : stage);
 
   // --- Bygg PLATT skrivning (inkl. legacy-fälten; 'in' gör att null skrivs) ---
-  const flat = { startNumber: currentEquipage.startNumber, className };
+  const flat = { startNumber: equipage.startNumber, className };
 
   if ('startClock' in payload) {
     flat[`start_${stageKey}`] = payload.startClock;
@@ -554,28 +578,31 @@ async function saveStageSnapshot(stage, payload) {
     { ...flat, updatedAt: serverTimestamp() },
     { merge: true }
   );
-
-  // --- Uppdatera lokal cache/UI (respektera null) ---
-  currentDocData = currentDocData || {};
-  currentDocData.timing = currentDocData.timing || {};
-  const prev = currentDocData.timing[stage] || {};
-
-  currentDocData.timing[stage] = {
-    ...prev,
-    ...('startClock' in payload ? { startClock: payload.startClock } : {}),
-    ...('stopClock' in payload ? { stopClock: payload.stopClock } : {}),
-    ...('durationMs' in payload ? { durationMs: payload.durationMs } : {}),
-    ...('runningSince' in payload ? { runningSince: payload.runningSince } : {}),
-    ...('commentStart' in payload ? { commentStart: payload.commentStart ?? '' } : {}),
-    ...('commentStop' in payload ? { commentStop: payload.commentStop ?? '' } : {}),
-    ...(stage === 'B' && 'bitCheckOk' in payload ? { bitCheckOk: !!payload.bitCheckOk } : {}),
-    ...(stage === 'B' && 'bitCheckComment' in payload ? { bitCheckComment: payload.bitCheckComment ?? '' } : {}),
-  };
+  // The local cache (currentDocData) is updated by the callers: the write is
+  // acknowledged later, when the screen may show a newer action or another equipage
 }
 
 function applyDocToLocalState(sn, rawDoc) {
+  if (rawDoc) knownMaratonDocs.add(String(sn));
+  const previous = currentDocData;
   // Gör om platta fält -> timing, precis som readStageDoc gör
   const data = rawDoc ? hydrateTimingFromFlat(rawDoc) : null;
+
+  // A stage stopped or reset here, which this snapshot still shows running from
+  // an earlier start (it predates the stop write): keep the local stopped
+  // values, so neither the timer nor the shown time runs on
+  if (data?.timing) {
+    const eqForStale = findEquipageBySn(sn);
+    ['warmup', 'A', 'transport', 'B'].forEach((stage) => {
+      const st = data.timing[stage];
+      if (!st?.startClock || st.stopClock) return;
+      const stoppedAt = lastLocalStop.get(`${sn}|${normalizeStageForEquipage(eqForStale, stage)}`);
+      const startTs = Date.parse(st.runningSince || st.startClock);
+      if (Number.isFinite(stoppedAt) && !(startTs > stoppedAt) && previous?.timing?.[stage]) {
+        data.timing[stage] = { ...previous.timing[stage] };
+      }
+    });
+  }
 
   // Uppdatera currentDocData om detta ekipage är valt
   currentDocData = data || {};
@@ -595,6 +622,9 @@ function applyDocToLocalState(sn, rawDoc) {
     // Om "pågående" (har startClock men saknar stopClock) -> säkerställ att vi har en tickande lokal timer
     if (st.startClock && !st.stopClock) {
       const startTs = Date.parse(st.runningSince || st.startClock);
+      // Stopped or reset here after this start: the snapshot predates that write
+      const stoppedAt = lastLocalStop.get(tKey);
+      if (Number.isFinite(stoppedAt) && !(startTs > stoppedAt)) continue;
       const durationMs = Number(st.durationMs);
       const pausedMs = Number.isFinite(durationMs) ? durationMs : 0;
       let t = activeTimers.get(tKey);
@@ -1414,7 +1444,9 @@ function attachActiveTimersManualEditDelegate() {
       runningSince: null,
     };
     try {
+      const equipage = currentEquipage;
       await saveStageSnapshot(stage, payload);
+      if (currentEquipage === equipage) mergeStagePayloadIntoCurrentDoc(stage, payload);
     } catch (err) {
       console.error(err);
       showAlert(t('marathon_stages_manual_time_error'));
@@ -1465,6 +1497,7 @@ function bindManualEditor(stage) {
     timerState.pausedMs = ms;
 
     paintTimer(key);
+    const seq = nextStageAction(key);
 
     const now = Date.now();
     const payload = {
@@ -1477,11 +1510,12 @@ function bindManualEditor(stage) {
 
     try {
       await saveStageSnapshot(stage, payload);
+      close();
+      if (!currentEquipage || !isLatestStageAction(key, seq)) return;
       mergeStagePayloadIntoCurrentDoc(stage, payload);
       updateTimerLabel(stage);
       updateTabStatuses(currentDocData);
       renderActiveCards();
-      close();
     } catch (err) {
       console.error(err);
       showAlert(t('marathon_stages_manual_time_error'), false);
@@ -1668,6 +1702,8 @@ async function startStage(stage) {
     startEpoch: now,
     pausedMs: existingDuration
   });
+  lastLocalStop.delete(key);
+  const seq = nextStageAction(key);
 
   ensureGlobalTicker();
 
@@ -1681,6 +1717,7 @@ async function startStage(stage) {
   };
 
   await saveStageSnapshot(stage, payload);
+  if (!currentEquipage || !isLatestStageAction(key, seq)) return;
   mergeStagePayloadIntoCurrentDoc(stage, payload);
   updateTimerLabel(stage);
   updateTabStatuses(currentDocData);
@@ -1700,6 +1737,8 @@ async function stopStage(stage) {
     : (Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0);
 
   activeTimers.delete(key);
+  lastLocalStop.set(key, now);
+  const seq = nextStageAction(key);
   stopGlobalTickerIfIdle();
 
   const payload = {
@@ -1711,7 +1750,13 @@ async function stopStage(stage) {
     runningStage: null
   };
 
+  // Show the stop at once (the shown time is calculated from currentDocData,
+  // which would still say "running" until the write completes)
+  mergeStagePayloadIntoCurrentDoc(stage, payload);
+  updateTimerLabel(stage);
+
   await saveStageSnapshot(stage, payload);
+  if (!currentEquipage || !isLatestStageAction(key, seq)) return;
   mergeStagePayloadIntoCurrentDoc(stage, payload);
   updateTimerLabel(stage);
   updateTabStatuses(currentDocData);
@@ -1724,6 +1769,8 @@ async function resetStage(stage) {
   const actualStage = normalizeStageForEquipage(currentEquipage, stage);
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   activeTimers.delete(key);
+  lastLocalStop.set(key, Date.now());
+  const seq = nextStageAction(key);
   stopGlobalTickerIfIdle();
 
   const payload = {
@@ -1741,7 +1788,12 @@ async function resetStage(stage) {
     payload.bitCheckComment = '';
   }
 
+  // Show the reset at once, as for stop
+  mergeStagePayloadIntoCurrentDoc(stage, payload);
+  updateTimerLabel(stage);
+
   await saveStageSnapshot(stage, payload);
+  if (!currentEquipage || !isLatestStageAction(key, seq)) return;
   mergeStagePayloadIntoCurrentDoc(stage, payload);
   populateStageUI(stage, currentDocData);
   updateTabStatuses(currentDocData);
@@ -1777,7 +1829,9 @@ async function editClock(stage, kind) {
     ? { startClock: iso }
     : { stopClock: iso };
 
+  const equipage = currentEquipage;
   await saveStageSnapshot(stage, payload);
+  if (currentEquipage !== equipage) return;
   mergeStagePayloadIntoCurrentDoc(stage, payload);
   populateStageUI(stage, currentDocData);
   updateTabStatuses(currentDocData);
@@ -1785,6 +1839,9 @@ async function editClock(stage, kind) {
 
 async function saveStageDetails(stage) {
   if (!currentEquipage) return;
+  // The equipage this save is for: the user may leave the page (unload clears
+  // currentEquipage) or pick another equipage while the writes are under way
+  const equipage = currentEquipage;
 
   const commentStart = document.getElementById(`commentStart-${stage}`)?.value?.trim() || '';
   const commentStop = document.getElementById(`commentStop-${stage}`)?.value?.trim() || '';
@@ -1799,9 +1856,6 @@ async function saveStageDetails(stage) {
     stagePayload.bitCheckComment = bitCheckComment;
   }
 
-  await saveStageSnapshot(stage, stagePayload);
-  mergeStagePayloadIntoCurrentDoc(stage, stagePayload);
-
   const rootPayload = {
     eliminated,
     otherPenalty,
@@ -1814,7 +1868,14 @@ async function saveStageDetails(stage) {
     rootPayload.bettComment = bitCheckComment;
   }
 
-  await setDoc(maratonDocRef(currentEquipage.startNumber), rootPayload, { merge: true });
+  // The values the user entered first, in one write, so they are saved even if
+  // the page is left right after "Spara"; then the stage fields
+  await setDoc(maratonDocRef(equipage.startNumber), rootPayload, { merge: true });
+  await saveStageSnapshot(stage, stagePayload, equipage);
+
+  // Update the screen only if it still shows this equipage
+  if (currentEquipage !== equipage) return;
+  mergeStagePayloadIntoCurrentDoc(stage, stagePayload);
   currentDocData = { ...(currentDocData || {}), ...rootPayload };
 
   clearStageFormDirty(stage); // saved: the fields follow the document again
@@ -2265,6 +2326,10 @@ let unsubMaratonList = null;
 export function __unload() {
   // Stoppa global ticker
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
+  // Start numbers repeat across competitions: forget what this visit saw
+  knownMaratonDocs.clear();
+  lastLocalStop.clear();
+  stageActionSeq.clear();
 
   // Stäng ALLA Firestore-lyssnare
   try { unsubscribeStageDoc && unsubscribeStageDoc(); } catch { }
