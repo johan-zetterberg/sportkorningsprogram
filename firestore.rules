@@ -200,6 +200,10 @@ service cloud.firestore {
       let pathStr = string(documentPath);
       let comp = '.*data/competitions/[^/]+/';
       return pathStr.matches(comp + 'config/secrets($|/.*)')
+        // All of config: through this catch-all a list of config would return
+        // config/secrets (all PINs) too. Single config docs except secrets are
+        // readable through the config/{configId} rule (get only)
+        || pathStr.matches(comp + 'config($|/.*)')
         || pathStr.matches(comp + 'auditLog($|/.*)')
         || pathStr.matches(comp + 'equipagePrivate($|/.*)')
         || pathStr.matches(comp + 'roleEmails($|/.*)')
@@ -519,7 +523,8 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
-      allow read: if configId != 'secrets';
+      // get only: a list query on config would include config/secrets
+      allow get: if configId != 'secrets';
       allow write, delete: if request.auth != null
         && (
           canAdminThisArtifactsComp(appId, compId)

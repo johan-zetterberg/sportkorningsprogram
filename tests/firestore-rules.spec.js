@@ -781,6 +781,19 @@ test('protected competition collections cannot be listed anonymously', { skip: !
   assert.deepEqual(readable, []);
 });
 
+test('the config collection cannot be listed, so the PINs in config/secrets stay hidden', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('config/display')), { a: 1 });
+  });
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  const signedInDb = testEnv.authenticatedContext('random-user', { email_verified: true, email: 'x@example.com' }).firestore();
+  for (const db of [anonymousDb, signedInDb]) {
+    await assertFails(getDocs(collection(db, compPath('config'))));
+    await assertFails(getDoc(doc(db, compPath('config/secrets'))));
+    await assertSucceeds(getDoc(doc(db, compPath('config/display'))));
+  }
+});
+
 test('email-based access needs a verified email address', { skip: !HAS_EMULATOR }, async () => {
   // An admin role granted to an address before its owner signed up
   await seedRoleEmail('kansli@example.com', ['admin']);
