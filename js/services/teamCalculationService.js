@@ -759,13 +759,65 @@ export function calculateTeamResults(teams, equipageResults, profileId) {
     const results = equipageResults.map(onlyFinishedPhases);
     const profile = getTeamScoringProfile(profileId);
     if (profile.id === TEAM_SCORING_PROFILE_IDS.LAG_SM_2026) {
-        return calculateLagSmResults(teams, results, profile);
+        return addPreliminaryTeamStanding(calculateLagSmResults(teams, results, profile));
     }
     if (profile.ruleFamily === 'fei') {
-        return calculateFeiResults(teams, results, profile);
+        return addPreliminaryTeamStanding(calculateFeiResults(teams, results, profile));
     }
 
-    return calculateLegacyTeamResults(teams, results);
+    return addPreliminaryTeamStanding(calculateLegacyTeamResults(teams, results));
+}
+
+const TEAM_PHASES = ['dressage', 'marathon', 'precision'];
+const PHASE_ELIM_FLAG = { dressage: 'isDressageElim', marathon: 'isMarathonElim', precision: 'isPrecisionElim' };
+
+// A member is done with a phase when it has a result, is eliminated in it, or
+// no longer counts for the team (withdrawn / out of the team)
+function memberPhaseDone(member, phase) {
+    const value = member?.[phase];
+    return Number.isFinite(value) || value === Infinity
+        || member?.[PHASE_ELIM_FLAG[phase]] === true
+        || member?.eliminated === true
+        || member?.isMemberEliminatedFromTeam === true;
+}
+
+function teamPhaseDone(team, phase) {
+    const members = Array.isArray(team?.members) ? team.members : [];
+    return members.length > 0 && members.every(m => memberPhaseDone(m, phase)) && Number.isFinite(team?.[phase]);
+}
+
+/**
+ * Preliminary team position while the competition is running: the standing
+ * after the phases every team has finished (all members done). After dressage
+ * the teams are ranked on dressage, after the marathon on dressage + marathon,
+ * so a team that has not driven a phase does not look better than one that
+ * has. Shared places on ties; eliminated, invalid and ineligible teams get
+ * none. Sets team.preliminary = { rank, score, after } on each ranked team, or
+ * null when every team is final (the normal ranks apply) or no phase is
+ * finished by all teams yet.
+ */
+export function addPreliminaryTeamStanding(teamResults = []) {
+    const teams = Array.isArray(teamResults) ? teamResults : [];
+    const eligible = teams.filter(t => !t.isEliminated && !t.isInvalid && !t.isIneligible);
+    teams.forEach(t => { t.preliminary = null; });
+    if (eligible.length === 0 || eligible.every(t => !t.isIncomplete)) return teams;
+
+    let phaseCount = 0;
+    while (phaseCount < TEAM_PHASES.length && eligible.every(t => teamPhaseDone(t, TEAM_PHASES[phaseCount]))) phaseCount++;
+    if (phaseCount === 0) return teams;
+
+    const phases = TEAM_PHASES.slice(0, phaseCount);
+    const after = phases[phases.length - 1];
+    const scored = eligible
+        .map(team => ({ team, score: Math.round(phases.reduce((sum, p) => sum + team[p], 0) * 100) / 100 }))
+        .sort((a, b) => a.score - b.score);
+    scored.forEach((entry, idx) => {
+        const rank = (idx > 0 && entry.score === scored[idx - 1].score) ? scored[idx - 1].team.preliminary.rank : idx + 1;
+        entry.team.preliminary = { rank, score: entry.score, after };
+    });
+    // List in preliminary order; teams without a standing keep their order after
+    const others = teams.filter(t => !t.preliminary);
+    return [...scored.map(entry => entry.team), ...others];
 }
 
 /**

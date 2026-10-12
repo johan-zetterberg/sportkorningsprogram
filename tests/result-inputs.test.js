@@ -100,3 +100,41 @@ test('classes without a judge mapping are listed for the notice', async () => {
   // Class names are escaped
   assert.ok(!judgeMappingNoticeHtml(['<img src=x>']).includes('<img'));
 });
+
+test('teams get a preliminary position after the phases every team has finished', async () => {
+  const { calculateTeamResults } = await import('../js/services/teamCalculationService.js');
+  const member = (id, d, m, p, done = {}) => ({
+    id, startNumber: id,
+    dressage: { penalty: d, judgePenalty: d }, marathon: { totalPenalty: m }, precision: { totalPenalty: p, pen: p },
+    dressageComplete: done.d ?? true, marathonComplete: done.m ?? true, precisionComplete: done.p ?? true
+  });
+  const teams = [
+    { id: 'A', name: 'Lag A', members: ['a1', 'a2', 'a3'] },
+    { id: 'B', name: 'Lag B', members: ['b1', 'b2', 'b3'] },
+    { id: 'C', name: 'Lag C', members: ['c1', 'c2', 'c3'] }
+  ];
+  // Everyone has finished dressage; team B is through the marathon, A and C are not
+  const rows = [
+    member('a1', 40, 50, 3, { m: false, p: false }), member('a2', 41, 50, 3, { p: false }), member('a3', 42, 50, 3, { p: false }),
+    member('b1', 45, 60, 0, { p: false }), member('b2', 45, 60, 0, { p: false }), member('b3', 45, 60, 0, { p: false }),
+    member('c1', 38, 70, 0, { m: false, p: false }), member('c2', 39, 70, 0, { m: false, p: false }), member('c3', 41, 70, 0, { m: false, p: false })
+  ];
+  const result = calculateTeamResults(teams, rows);
+  const byId = Object.fromEntries(result.map(t => [t.teamId, t]));
+
+  // Standing after dressage (the last phase all teams finished): C 118, A 123, B 135
+  assert.deepEqual(result.map(t => t.teamId), ['C', 'A', 'B'], 'listed in preliminary order');
+  assert.deepEqual(byId.C.preliminary, { rank: 1, score: 118, after: 'dressage' });
+  assert.equal(byId.A.preliminary.rank, 2);
+  assert.equal(byId.B.preliminary.rank, 3, 'B\'s finished marathon does not count until all teams have it');
+  assert.equal(byId.A.total, null);
+
+  // Nobody has finished dressage: no standing yet
+  const none = calculateTeamResults(teams, rows.map(r => ({ ...r, dressageComplete: false })));
+  assert.ok(none.every(t => t.preliminary === null));
+
+  // All final: normal ranks, no preliminary
+  const final = calculateTeamResults(teams, rows.map(r => ({ ...r, dressageComplete: true, marathonComplete: true, precisionComplete: true })));
+  assert.ok(final.every(t => t.preliminary === null));
+  assert.ok(final.every(t => Number.isFinite(t.total)));
+});

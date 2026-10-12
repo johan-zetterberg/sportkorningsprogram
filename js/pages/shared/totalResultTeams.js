@@ -48,6 +48,12 @@ export function renderTeamRankBadge(team, index = 0) {
   if (team?.isIneligible) {
     return '<span class="px-3 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 text-xs font-bold uppercase tracking-wider">Ej kvalificerat</span>';
   }
+  if (team?.preliminary) {
+    return `<div class="flex flex-col items-center leading-none" title="Preliminär placering efter ${preliminaryPhaseLabel(team.preliminary.after)}">
+      <div class="w-9 h-9 rounded-full border-2 border-dashed border-blue-400 dark:border-blue-500 text-blue-800 dark:text-blue-200 font-bold flex items-center justify-center text-sm">${team.preliminary.rank}</div>
+      <span class="mt-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">Prel.</span>
+    </div>`;
+  }
   if (team?.isIncomplete) {
     return '<span class="px-3 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-bold uppercase tracking-wider">Pågår</span>';
   }
@@ -65,13 +71,26 @@ export function renderTeamRankBadge(team, index = 0) {
   return `<div class="w-8 h-8 rounded-full bg-blue-100 dark:bg-gray-700 text-blue-800 dark:text-gray-200 font-bold flex items-center justify-center text-sm">${team?.rank || '-'}</div>`;
 }
 
+const PRELIMINARY_PHASE_LABELS = { dressage: 'dressyr', marathon: 'maraton', precision: 'precision' };
+
+export function preliminaryPhaseLabel(phase) {
+  return PRELIMINARY_PHASE_LABELS[phase] || phase || '';
+}
+
+// The team's score to show: while a preliminary standing applies (some team
+// not final) every team shows its preliminary score, the basis of the order;
+// otherwise the final total
+export function teamDisplayScore(team = {}) {
+  return team.preliminary ? team.preliminary.score : team.total;
+}
+
 export function formatTeamScore(value, { eliminated = false, eliminatedLabel = '-', emptyLabel = '-' } = {}) {
   if (eliminated) return eliminatedLabel;
   return Number.isFinite(value) ? value.toFixed(2) : emptyLabel;
 }
 
 export function getTeamCardBorderClass(team, index = 0) {
-  return index === 0 && !team?.isEliminated && !team?.isIncomplete && !team?.isIneligible
+  return index === 0 && !team?.preliminary && !team?.isEliminated && !team?.isIncomplete && !team?.isIneligible
     ? 'border-amber-400 dark:border-amber-600 ring-1 ring-amber-400/50'
     : 'dark:border-gray-700';
 }
@@ -184,7 +203,7 @@ export function renderTeamSummaryFooter(team = {}, {
             })}
             
             <div class="col-span-2 text-right font-black text-blue-900 dark:text-blue-300">
-                ${formatTeamScore(team.total, { eliminated: team.isEliminated })}
+                ${formatTeamScore(teamDisplayScore(team), { eliminated: team.isEliminated })}
             </div>
           </div>
           `;
@@ -218,13 +237,13 @@ export function renderTeamCard(team = {}, {
                 ${teamAssetHtml}
                 <div>
                     <h3 class="font-bold text-lg text-gray-900 dark:text-white leading-tight">${team.teamName}</h3>
-                    ${team.isEliminated ? '' : `<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide font-medium">Lagtotal</div>`}
+                    ${team.isEliminated ? '' : `<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide font-medium">${team.preliminary ? `Preliminär efter ${preliminaryPhaseLabel(team.preliminary.after)}` : 'Lagtotal'}</div>`}
                 </div>
             </div>
           </div>
           <div class="text-right">
-            <div class="font-black text-2xl text-blue-900 dark:text-blue-300 tracking-tight">
-                ${formatTeamScore(team.total, { eliminated: team.isEliminated, eliminatedLabel: 'ELIM' })}
+            <div class="font-black text-2xl ${team.preliminary ? 'text-blue-700/80 dark:text-blue-300/80' : 'text-blue-900 dark:text-blue-300'} tracking-tight">
+                ${formatTeamScore(teamDisplayScore(team), { eliminated: team.isEliminated, eliminatedLabel: 'ELIM' })}
             </div>
           </div>
         </div>
