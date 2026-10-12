@@ -10,7 +10,7 @@ service cloud.firestore {
     function getUserRole() {
       return request.auth != null
         && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role
+        ? get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', null)
         : null;
     }
 
@@ -23,7 +23,7 @@ service cloud.firestore {
           request.auth != null &&
           exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
           (
-            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'superadmin' ||
+            get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('role', '') == 'superadmin' ||
             (
               get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('roles', []) != null &&
               'superadmin' in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.get('roles', [])
@@ -42,22 +42,15 @@ service cloud.firestore {
         && request.auth.token.get('email_verified', false) == true;
     }
 
-    function getRoleEmailRoles(appId, compId) {
-      return hasVerifiedEmail()
-        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower()))
-        ? (
-          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('roles', []) != null
-            ? get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('roles', [])
-            : [get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(request.auth.token.email.lower())).data.get('role', '')]
-        )
-        : [];
-    }
-
     function hasRoleEmailAccess(appId, compId, roleName) {
-      let roles = getRoleEmailRoles(appId, compId);
-      return hasVerifiedEmail()
-        && roles != null
-        && roleName in roles;
+      let email = hasVerifiedEmail() ? request.auth.token.email.lower() : '__no_email__';
+      let roleDoc = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(email);
+      return email != '__no_email__' && exists(roleDoc)
+        ? (
+          (get(roleDoc).data.get('roles', []) != null && roleName in get(roleDoc).data.get('roles', [])) ||
+          get(roleDoc).data.get('role', '') == roleName
+        )
+        : false;
     }
 
     // Behörighet till viss tävling i artifacts-trädet:
@@ -66,16 +59,17 @@ service cloud.firestore {
     // 2. Finns i privata roleEmails/{email}
     // 3. Finns i /admins/{uid} underkollektionen (använt rätt PIN-kod)
     function canAdminThisArtifactsCompBase(appId, compId) {
+      let compPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
       return request.auth != null
-        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
+        && exists(compPath)
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
-          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('createdBy', '') == request.auth.uid ||
-          get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('ownerId', '') == request.auth.uid ||
+          get(compPath).data.get('createdBy', '') == request.auth.uid ||
+          get(compPath).data.get('ownerId', '') == request.auth.uid ||
           (
-            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('admins', []) != null &&
-            request.auth.uid in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)).data.get('admins', [])
+            get(compPath).data.get('admins', []) != null &&
+            request.auth.uid in get(compPath).data.get('admins', [])
           ) ||
           (
             exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
@@ -90,22 +84,26 @@ service cloud.firestore {
         );
     }
 
+    function hasExplicitRoleInComp(appId, compId, roleName) {
+      return hasRoleEmailAccess(appId, compId, roleName) ||
+        (
+          exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
+          (
+            get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('role', 'admin') == roleName ||
+            (
+              get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', []) != null &&
+              roleName in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', [])
+            )
+          )
+        );
+    }
+
     function hasRoleInComp(appId, compId, roleName) {
       return request.auth != null
         && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
         && (
           canAdminThisArtifactsComp(appId, compId) ||
-          hasRoleEmailAccess(appId, compId, roleName) ||
-          (
-            exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)) &&
-            (
-              get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('role', 'admin') == roleName ||
-              (
-                get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', []) != null &&
-                roleName in get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid)).data.get('roles', [])
-              )
-            )
-          )
+          hasExplicitRoleInComp(appId, compId, roleName)
         );
     }
 
@@ -126,10 +124,10 @@ service cloud.firestore {
       return request.auth != null
         && (
           canAdminThisArtifactsComp(appId, compId) ||
-          hasRoleInComp(appId, compId, 'dressage') ||
-          hasRoleInComp(appId, compId, 'marathon') ||
-          hasRoleInComp(appId, compId, 'precision') ||
-          hasRoleInComp(appId, compId, 'speaker')
+          hasExplicitRoleInComp(appId, compId, 'dressage') ||
+          hasExplicitRoleInComp(appId, compId, 'marathon') ||
+          hasExplicitRoleInComp(appId, compId, 'precision') ||
+          hasExplicitRoleInComp(appId, compId, 'speaker')
         );
     }
 
@@ -171,18 +169,18 @@ service cloud.firestore {
     }
 
     function isPrecisionResultUnlocked(compId, startNo) {
-      return !exists(/databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo))
-        || get(/databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo)).data.get('finalized', false) != true;
+      let finPath = /databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo);
+      return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
     }
 
     function isMarathonResultUnlocked(compId, startNo) {
-      return !exists(/databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo))
-        || get(/databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo)).data.get('finalized', false) != true;
+      let finPath = /databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo);
+      return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
     }
 
     function isDressageResultUnlocked(compId, startNo) {
-      return !exists(/databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo))
-        || get(/databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo)).data.get('finalized', false) != true;
+      let finPath = /databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo);
+      return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
     }
 
     function canSelfServiceEquipage(appId, compId, equipageId) {
@@ -418,10 +416,8 @@ service cloud.firestore {
         );
       allow update: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId) ||
-          hasRoleInComp(appId, compId, 'speaker') ||
+          hasExplicitRoleInComp(appId, compId, 'speaker') ||
           (
              // Allow drivers to update declaration fields for their own entry only.
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
@@ -435,8 +431,6 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/equipagePrivate/{equipageId} {
       allow read: if request.auth != null
         && (
-          isSuperAdmin() ||
-          getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId) ||
           (
             hasVerifiedEmail() &&
@@ -444,29 +438,17 @@ service cloud.firestore {
           )
         );
       allow create, update, delete: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() == 'admin' ||
-          canAdminThisArtifactsComp(appId, compId)
-        );
+        && canAdminThisArtifactsComp(appId, compId);
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/roleEmails/{emailId} {
       allow read: if request.auth != null
         && (
           (hasVerifiedEmail() && request.auth.token.email.lower() == emailId) ||
-          isSuperAdmin() ||
-          getUserRole() == 'admin' ||
-          canAdminThisArtifactsCompBase(appId, compId) ||
-          hasRoleEmailAccess(appId, compId, 'admin')
+          canAdminThisArtifactsComp(appId, compId)
         );
       allow create, update, delete: if request.auth != null
-        && (
-          isSuperAdmin() ||
-          getUserRole() == 'admin' ||
-          canAdminThisArtifactsCompBase(appId, compId) ||
-          hasRoleEmailAccess(appId, compId, 'admin')
-        );
+        && canAdminThisArtifactsComp(appId, compId);
     }
 
     // Teams Management
@@ -525,10 +507,9 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
       // get only: a list query on config would include config/secrets
       allow get: if configId != 'secrets';
-      allow write, delete: if request.auth != null
-        && (
-          canAdminThisArtifactsComp(appId, compId)
-        );
+      allow write, delete: if configId != 'globalStatus' && configId != 'secrets'
+        && request.auth != null
+        && canAdminThisArtifactsComp(appId, compId);
     }
 
     // Global pause and marathon status: marathon officials (observer, stage

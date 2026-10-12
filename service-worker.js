@@ -1,5 +1,5 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v59'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v60'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
@@ -130,6 +130,8 @@ const urlsToCache = [
   abs('/js/pages/shared/vet-check.js'),
   abs('/js/pages/shared/volunteer-signup.js'),
   abs('/js/pdf/pdfBase.js'),
+  abs('/lib/jspdf.umd.min.js'),
+  abs('/lib/jspdf.plugin.autotable.min.js'),
   abs('/js/pdf/dressagePdf.js'),
   abs('/js/pdf/marathonPdf.js'),
   abs('/js/pdf/officialsReports.js'),
