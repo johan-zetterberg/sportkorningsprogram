@@ -11,8 +11,7 @@
     "test:smoke:critical": "node scripts/run-smoke-tests.mjs -g \"critical ui\"",
     "test:smoke:stages": "node scripts/run-smoke-tests.mjs -g \"maraton stages can pause resume reset save and reload state\"",
     "test:smoke:headed": "node scripts/run-smoke-tests.mjs --headed",
-    "predeploy": "npm run build:css && node scripts/bump-service-worker-version.cjs",
-    "deploy": "git add . && git commit -m \"Automatisk uppdatering\" && git push && firebase deploy"
+    "deploy": "node scripts/deploy.mjs"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^4.0.1",
