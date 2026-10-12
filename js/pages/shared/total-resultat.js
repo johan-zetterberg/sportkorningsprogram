@@ -73,6 +73,7 @@ import {
   limitsFor,
   setMarathonConfig
 } from '../../utils/marathonUtils.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 function sanitizeUrl(value) {
   const raw = String(value || '').trim();
@@ -1500,12 +1501,12 @@ export async function load(el) {
     displayConfig = cfg.display || null;
 
     // Configure dressage mapping globally (like dressyr-monitor.js)
-    window.klassProgramMapping = (dressMapCfg && typeof dressMapCfg === 'object') ? dressMapCfg : {};
+    setCompetitionSetting(competitionId, 'klassProgramMapping', (dressMapCfg && typeof dressMapCfg === 'object') ? dressMapCfg : {});
     // Judges each class expects: a total needs all of their protocols
-    window.dressageJudgeMapping = (judgeMapCfg && typeof judgeMapCfg === 'object') ? judgeMapCfg : {};
+    setCompetitionSetting(competitionId, 'dressageJudgeMapping', (judgeMapCfg && typeof judgeMapCfg === 'object') ? judgeMapCfg : {});
 
     // Configure competition config globally
-    window.competitionConfig = { ...(window.competitionConfig || {}), ...(cfg.meta || {}) };
+    setCompetitionSetting(competitionId, 'competitionConfig', { ...(window.competitionConfig || {}), ...(cfg.meta || {}) });
 
     // Update global FEI/International flag if available
     if (cfg.meta && typeof cfg.meta.isInternational === 'boolean') {

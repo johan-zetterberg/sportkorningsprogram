@@ -13,6 +13,7 @@ import {
 } from '../core-engine/marathon.js';
 import { buildCompetitionState } from '../core-engine/stateSelector.js';
 import { assignPlaces, compareMarathonRank, marathonRankKey } from '../core-engine/ranking.js';
+import { onCompetitionSettingsReset } from '../services/competitionSettingsStore.js';
 
 import {
   PENALTY_RATE,
@@ -70,6 +71,15 @@ export function setPauseWindows(windows) {
 function getRuleSettings() {
   return getBrowserGlobalState('currentCompetition')?.ruleSettings || null;
 }
+
+// Another competition selected: its marathon config, pause log and class
+// merges must not be calculated with the previous competition's
+onCompetitionSettingsReset(() => {
+  maraton_marathonConfig = null;
+  _pauseWindows = [];
+  MERGE_GROUPS = [];
+  MERGE_MAP = new Map();
+});
 
 export function getActiveTempoRules() {
   return core.getActiveTempoRules(maraton_marathonConfig);

@@ -33,6 +33,7 @@ import {
 } from './dressageMonitorFormatUtils.js';
 
 import { setupDressageModalOnce, openDetails as openDetailsModal } from '../../ui/dressageModal.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 // ================= State =================
 let competitionId = null;
@@ -707,13 +708,13 @@ function setupAllListeners() {
   // 0) Judges Listener (Non-blocking)
   const unJudges = listenForJudges(competitionId, (judges) => {
     allJudges = Array.isArray(judges) ? judges : [];
-    window.currentJudgesPresent = allJudges.map(j => ({
+    setCompetitionSetting(competitionId, 'currentJudgesPresent', allJudges.map(j => ({
       id: j.id,
       name: j.name || j.id,
       position: (expandDressagePosition(j) || j.position || '').toUpperCase()
     }))
       .filter(j => /^[CEBHM]$/.test(j.position))
-      .sort((a, b) => ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[a.position] - ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[b.position])));
+      .sort((a, b) => ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[a.position] - ({ C: 0, E: 1, B: 2, H: 3, M: 4 }[b.position]))));
 
     // Refresh protocols / lists when judges update (to re-filter/deduplicate)
     triggerRender();
@@ -834,7 +835,7 @@ export async function load() {
     monitor_displayConfig = cfgData || {};
     monitor_buildMergeMap(monitor_displayConfig);
 
-    window.dressageJudgeMapping = (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? (judgeMappingCfg.value ?? judgeMappingCfg) : {};
+    setCompetitionSetting(competitionId, 'dressageJudgeMapping', (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? (judgeMappingCfg.value ?? judgeMappingCfg) : {});
 
     allEquipages = (equipagesRaw || []).filter(e => e && e.startNumber != null).map(e => {
       const g = monitor_resolveMergeGrouping(e);
@@ -869,8 +870,8 @@ export async function load() {
 
     setupAllListeners();
 
-    window.klassProgramMapping = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
-    window.dressagePrograms = mergedPrograms;
+    setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
+    setCompetitionSetting(competitionId, 'dressagePrograms', mergedPrograms);
 
     // Remove redundant call, ensure logos loaded then trigger render
     await ensureClubLogosLoaded().catch(() => { });

@@ -80,6 +80,7 @@ import {
   downloadCsv,
   sanitizeForFilename
 } from '../../utils/sharedUtils.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 const renderLiveDebounce = debounce(render, 60);
 
@@ -1032,7 +1033,7 @@ export async function load() {
     getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
   ]);
 
-  window.klassProgramMapping = (programMappingCfg && typeof programMappingCfg === 'object') ? programMappingCfg : {};
+  setCompetitionSetting(competitionId, 'klassProgramMapping', (programMappingCfg && typeof programMappingCfg === 'object') ? programMappingCfg : {});
   precision_dressageJudgeMapping = (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? judgeMappingCfg : {};
 
   setMarathonConfig(marathonCfg?.value || marathonCfg || {});

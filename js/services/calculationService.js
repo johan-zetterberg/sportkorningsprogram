@@ -9,6 +9,7 @@ import {
 } from '../utils/precisionUtils.js';
 
 import { buildCompetitionState } from '../core-engine/stateSelector.js';
+import { getCompetitionSetting } from './competitionSettingsStore.js';
 import { calculateDressageResult as _coreDressage } from '../core-engine/dressage.js';
 import { calculateMarathonResult as _coreMarathon } from '../core-engine/marathon.js';
 import { calculateTotalResult as _coreTotal } from '../core-engine/calculation.js';
@@ -21,10 +22,6 @@ import { calculateTotalResult as _coreTotal } from '../core-engine/calculation.j
 // (program list, class mapping, marathon config, pause log, rule settings)
 // and builds the engine state. No result math lives here.
 // =========================================================================
-
-function getBrowserGlobal(key) {
-    return (typeof window !== 'undefined') ? window[key] : undefined;
-}
 
 function getRuleSettings() {
     if (typeof window !== 'undefined' && typeof window.getGlobalState === 'function') {
@@ -45,14 +42,16 @@ function marathonInputsWith(marathonConfig) {
     return inputs;
 }
 
+// The active competition's settings (competitionSettingsStore): never another
+// competition's, also right after switching competitions
 function getProgramMapping() {
-    const m = getBrowserGlobal('klassProgramMapping');
+    const m = getCompetitionSetting('klassProgramMapping');
     return (m && typeof m === 'object') ? m : {};
 }
 
 // Judges each class expects (config/dressageJudgeMapping); an explicitly passed mapping wins
 function getJudgeMapping(explicit) {
-    const m = explicit || getBrowserGlobal('dressageJudgeMapping');
+    const m = explicit || getCompetitionSetting('dressageJudgeMapping');
     return (m && typeof m === 'object') ? m : {};
 }
 

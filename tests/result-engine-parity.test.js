@@ -1,6 +1,7 @@
 // The browser (calculationService / marathonUtils) and the Cloud Function
 // (functions/src/core-engine, fed the way functions/index.js feeds it) must
 // produce the same results. Each case below used to differ between them.
+import { activateCompetitionSettings, setCompetitionSetting } from '../js/services/competitionSettingsStore.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -198,7 +199,10 @@ test('dressage: eliminated equipage is eliminated on both sides', () => {
 test('dressage: class mapping is used by the browser as well as the server', () => {
   const eq = { startNumber: 10, className: 'Specialklass' };
   const protocols = [{ judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] }];
-  globalThis.window = { klassProgramMapping: { Specialklass: 'LA' }, dressagePrograms: allPrograms };
+  // The page stores the competition's mapping and programs (competitionSettingsStore)
+  activateCompetitionSettings('parity-comp');
+  setCompetitionSetting('parity-comp', 'klassProgramMapping', { Specialklass: 'LA' });
+  setCompetitionSetting('parity-comp', 'dressagePrograms', allPrograms);
   try {
     const browser = calculateDressageResult(eq, protocols, []);
     const server = serverDressage(buildCompetitionState(eq, protocols, {}, {}, {}, {
@@ -209,7 +213,7 @@ test('dressage: class mapping is used by the browser as well as the server', () 
     assert.equal(server.programKey, 'LA');
     assert.equal(server.penalty, browser.penalty);
   } finally {
-    delete globalThis.window;
+    activateCompetitionSettings(null);
   }
 });
 

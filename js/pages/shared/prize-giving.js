@@ -31,6 +31,7 @@ import {
     getPrizeGivingStatus,
     isPrizeGivingScore
 } from './prizeGivingUtils.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 let competitionId = null;
 let equipages = [];
@@ -96,7 +97,7 @@ export async function load(container) {
         precisionConfig = pConfig || {};
         classSettings = cSettings || {};
         // Dressage program per class and the judges each class needs (result engine)
-        window.klassProgramMapping = (programMapping && typeof programMapping === 'object') ? programMapping : {};
+        setCompetitionSetting(competitionId, 'klassProgramMapping', (programMapping && typeof programMapping === 'object') ? programMapping : {});
         dressageJudgeMapping = (judgeMapping && typeof judgeMapping === 'object') ? judgeMapping : {};
 
         // Merge logic

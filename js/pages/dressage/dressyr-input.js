@@ -21,6 +21,7 @@ import { t } from '../../utils/i18n.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 let competitionId = null;
 let currentDressageTest = null;
@@ -1562,13 +1563,13 @@ export function load() {
 
       // Gör mapping + ev. overrides tillgängliga globalt
       const rawMap = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
-      window.klassProgramMapping = (rawMap && typeof rawMap.mapping === 'object') ? rawMap.mapping : rawMap;
-      window.dressageJudgeMapping = judgeMapCfg || {};
+      setCompetitionSetting(competitionId, 'klassProgramMapping', (rawMap && typeof rawMap.mapping === 'object') ? rawMap.mapping : rawMap);
+      setCompetitionSetting(competitionId, 'dressageJudgeMapping', judgeMapCfg || {});
       window.dressageRules = rulesCfg || {};
 
       if (overrides && typeof overrides === 'object' && Object.keys(overrides).length) {
         const base = getPrograms();
-        window.dressagePrograms = { ...base, ...(window.dressagePrograms || {}), ...overrides };
+        setCompetitionSetting(competitionId, 'dressagePrograms', { ...base, ...(window.dressagePrograms || {}), ...overrides });
       }
 
       // Bygg selecterna när allt finns

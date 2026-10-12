@@ -17,16 +17,19 @@ import { buildMarathonPlacementsByClass } from '../js/pages/marathon/marathonRes
 import { rankDressageRows } from '../js/pages/dressage/dressageResultRanking.js';
 import { buildArchiveRowsFromData } from '../js/services/archiveRowBuilder.js';
 import { calculateMarathonResult } from '../js/utils/marathonUtils.js';
+import { activateCompetitionSettings, setCompetitionSetting } from '../js/services/competitionSettingsStore.js';
 
 const NOW = 1778930000000;
 
 function setup() {
   const data = buildDemoCompetitionDataset({ now: NOW });
   globalThis.window = {
-    klassProgramMapping: data.configs.dressyrProgramMapping,
-    dressageJudgeMapping: data.configs.dressageJudgeMapping,
     getGlobalState: (key) => (key === 'currentCompetition' ? data.compMeta : null)
   };
+  // As the pages store them for the active competition (competitionSettingsStore)
+  activateCompetitionSettings('demo-competition');
+  setCompetitionSetting('demo-competition', 'klassProgramMapping', data.configs.dressyrProgramMapping);
+  setCompetitionSetting('demo-competition', 'dressageJudgeMapping', data.configs.dressageJudgeMapping);
   setMarathonConfig(data.configs.maratonConfig);
   setPauseWindows([]);
 
@@ -83,6 +86,7 @@ function withFixedClock(fn) {
   } finally {
     Date.now = realNow;
     delete globalThis.window;
+    activateCompetitionSettings(null);
   }
 }
 

@@ -70,6 +70,7 @@ import {
 } from '../../utils/sharedUtils.js';
 
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 let processedResults = [];
 let allCompetitionJudges = [];
@@ -2177,9 +2178,9 @@ function listenMergeConfig(compId) {
             } else if (key === 'tdbMergeGroups' || key === 'classMergeMap' || key === 'tdbMergeMap') {
                 dress_buildMergeMap(data);
             } else if (key === 'dressyrClassConfig') {
-                window.dressyrClassConfig = data || {};
+                setCompetitionSetting(compId, 'dressyrClassConfig', data || {});
             } else if (key === 'dressageJudgeMapping') {
-                window.dressageJudgeMapping = data || {};
+                setCompetitionSetting(compId, 'dressageJudgeMapping', data || {});
                 renderJudgeMappingNotice(masterEquipageList, window.dressageJudgeMapping);
             }
 
@@ -2246,7 +2247,7 @@ export async function load() {
     try {
         // Reset global programs to prevent pollution from other pages (e.g. speaker view with partial config)
         // This allows us to load the clean static/config data fresh.
-        window.dressagePrograms = null;
+        setCompetitionSetting(competitionId, 'dressagePrograms', null);
 
         // === STEG 1: Hämta all grunddata ===
         const [
@@ -2294,15 +2295,15 @@ export async function load() {
         }
 
         // Explicitly set window property for dressageUtils to find it
-        window.dressagePrograms = mergedProgs;
+        setCompetitionSetting(competitionId, 'dressagePrograms', mergedProgs);
         // Also mutate the local import just in case, though window.dressagePrograms takes precedence in 'getPrograms()'
         Object.assign(dressagePrograms, mergedProgs);
         window.startTimes = (startCfg?.times) || (startCfg?.value?.times) || {};
 
         allCompetitionJudges = judges || []; //
         dressage_displayConfig = displayCfg || {};
-        window.dressyrClassConfig = dClassCfg || {};
-        window.klassProgramMapping = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
+        setCompetitionSetting(competitionId, 'dressyrClassConfig', dClassCfg || {});
+        setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
 
         // === NYTT: Bygg merge-map FÖRST ===
         dress_buildMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || displayCfg); //

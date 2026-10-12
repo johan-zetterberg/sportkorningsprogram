@@ -3,6 +3,7 @@
 
 // Importera den globala programlistan som en fallback
 import { dressagePrograms as _programs } from '../data/dressagePrograms.js';
+import { getCompetitionSetting } from '../services/competitionSettingsStore.js';
 import {
   getDressagePenaltyCoeff as _getCoeff,
   computeFinalFromSaved as _computeFinal,
@@ -13,10 +14,11 @@ import {
 export { normJudgeId, getProtocolProgramKey, resolveDressageProgramKey, findProgramKey } from '../core-engine/dressage.js';
 
 /**
- * Hämtar den globala listan över dressyrprogram, med stöd för overrides via window-objektet.
+ * Dressyrprogrammen: den aktiva tävlingens (inbyggda + egna, se
+ * competitionSettingsStore) eller de inbyggda.
  */
 export function getPrograms() {
-  const w = (typeof window !== 'undefined' ? window.dressagePrograms : null);
+  const w = getCompetitionSetting('dressagePrograms');
   if (w && Object.keys(w).length) return w;
   return (typeof _programs !== 'undefined' ? _programs : {});
 }

@@ -40,6 +40,7 @@ import {
     calculateClassSplitStats,
     maraton_marathonConfig
 } from '../../utils/marathonUtils.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 const escapeAttr = (value) => escapeHtml(value ?? '');
 
@@ -1990,8 +1991,8 @@ export async function load() {
         mergedPrograms = { ...base, ...(window.dressagePrograms || {}), ...(programsRaw || {}) };
 
         // Expose for helpers if needed
-        window.klassProgramMapping = mappingCfg || {};
-        window.dressagePrograms = mergedPrograms;
+        setCompetitionSetting(competitionId, 'klassProgramMapping', mappingCfg || {});
+        setCompetitionSetting(competitionId, 'dressagePrograms', mergedPrograms);
 
         allEquipages = (equipagesRaw || [])
             .filter(e => e && e.startNumber != null)

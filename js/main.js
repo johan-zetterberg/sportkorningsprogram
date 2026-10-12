@@ -6,6 +6,11 @@ import { getJudges, getOfficials } from './services/adminService.js';
 import { initLanguageToggle, t } from './utils/i18n.js';
 import { initTheme } from './services/themeService.js';
 import './ui/syncQueue.js'; // Registers <sync-queue>
+import { activateCompetitionSettings, installWindowSettingAccessors } from './services/competitionSettingsStore.js';
+
+// window.klassProgramMapping, window.dressageJudgeMapping, ... read and write the
+// active competition's settings (see competitionSettingsStore.js)
+installWindowSettingAccessors();
 
 // --- Global State Management ---
 // Ett enkelt state-objekt för att hålla reda på den valda tävlingen.
@@ -146,6 +151,9 @@ export function setGlobalState({ key, value }) {
 
     // Specifik logik för när en tävling väljs
     if (key === 'currentCompetition') {
+        // A different competition: its result settings start empty (an update
+        // of the same competition keeps them)
+        activateCompetitionSettings(value?.id || null);
         try {
             if (value?.id) {
                 localStorage.setItem('lastCompetitionId', value.id);
