@@ -18,6 +18,7 @@ import {
   csvCell,
   sanitizeForFilename,
   horseLabel,
+  escapeHtml,
   isMobile,
   MOBILE_BP
 } from '../../utils/sharedUtils.js';
@@ -118,12 +119,13 @@ function valOrDash(value) {
   return exists(value) ? value : '—';
 }
 
-function kv(label, value) {
+// value escapas här; skicka isHtml = true endast för HTML som byggts (och escapats) av koden.
+function kv(label, value, isHtml = false) {
   if (!exists(value)) return '';
   return `
     <div class="flex gap-2 py-1 text-sm">
       <dt class="font-medium text-gray-800 dark:text-gray-300 shrink-0">${label}</dt>
-      <dd class="text-gray-700 dark:text-gray-200 break-words font-normal">${value}</dd>
+      <dd class="text-gray-700 dark:text-gray-200 break-words font-normal">${isHtml ? value : escapeHtml(value)}</dd>
     </div>
   `;
 }
@@ -241,7 +243,7 @@ function renderMobile() {
     let classHeader = '';
     if (viewMode === 'class' && classLabel !== lastClass) {
       lastClass = classLabel;
-      classHeader = `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${classLabel}</div>`;
+      classHeader = `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${escapeHtml(classLabel)}</div>`;
     }
 
     const hoverClass = canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : '';
@@ -249,35 +251,35 @@ function renderMobile() {
 
     return `
       ${classHeader}
-      <div class="m-1 mb-1.5 rounded-lg border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden ${hoverClass}" data-equipage-id="${equipage.startNumber}" ${interactProps}>
+      <div class="m-1 mb-1.5 rounded-lg border dark:border-gray-700 shadow-sm bg-white dark:bg-gray-800 overflow-hidden ${hoverClass}" data-equipage-id="${escapeHtml(equipage.startNumber)}" ${interactProps}>
         <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 bg-gray-50 dark:bg-gray-800/50">
           <div class="flex flex-col min-w-0 pr-1">
             <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-              <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${equipage.startNumber}</span>
-              <span class="truncate">${equipage.driverName || t('namn_saknas') || 'Namn saknas'}</span>
+              <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${escapeHtml(equipage.startNumber)}</span>
+              <span class="truncate">${equipage.driverName ? escapeHtml(equipage.driverName) : (t('namn_saknas') || 'Namn saknas')}</span>
               ${getDriverStartsCount(equipage.driverName) > 1 ? `<span class="inline-flex items-center gap-0.5 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1 py-0.5 text-[9px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0" title="Kusken har flera starter (TR Mom 535.4)"><i class="fa fa-clone text-[8px]"></i> ${getDriverStartsCount(equipage.driverName)}</span>` : ''}
             </div>
             <div class="flex items-center gap-1 mt-0.5">
               ${getFlagHtml(equipage)}
               ${getClubLogoHtml(equipage)}
-              ${viewMode === 'start' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${classLabel}</span>` : ''}
+              ${viewMode === 'start' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(classLabel)}</span>` : ''}
             </div>
           </div>
           <div class="flex items-center gap-2 shrink-0 border-l dark:border-gray-600 pl-2 text-right">
             <div>
               <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Startnr</div>
-              <div class="text-base font-black text-gray-900 dark:text-white leading-none">${equipage.startNumber || '?'}</div>
+              <div class="text-base font-black text-gray-900 dark:text-white leading-none">${escapeHtml(equipage.startNumber || '?')}</div>
             </div>
           </div>
         </div>
         <div class="px-1.5 py-1.5 bg-white dark:bg-gray-800 text-[10px]">
           <div class="flex justify-between items-center text-gray-700 dark:text-gray-300">
             <span class="text-gray-500 dark:text-gray-400 mr-1">Klubb:</span>
-            <span class="font-medium truncate max-w-[250px]">${equipage.clubName || '—'}</span>
+            <span class="font-medium truncate max-w-[250px]">${escapeHtml(equipage.clubName || '—')}</span>
           </div>
           <div class="flex justify-between items-center text-gray-700 dark:text-gray-300 mt-0.5">
             <span class="text-gray-500 dark:text-gray-400 mr-1">Häst:</span>
-            <span class="font-medium truncate max-w-[250px]">${horseLabel(equipage)}</span>
+            <span class="font-medium truncate max-w-[250px]">${escapeHtml(horseLabel(equipage))}</span>
           </div>
         </div>
       </div>
@@ -624,12 +626,12 @@ function renderAndShowDetailsModal(equipage) {
   const headerHtml = `
   <div class="flex justify-between items-start gap-3">
     <div>
-      <h3 class="text-xl font-bold dark:text-white">#${startNo} ${driverName}</h3>
-      <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel(equipage)}</div>
+      <h3 class="text-xl font-bold dark:text-white">#${escapeHtml(startNo)} ${escapeHtml(driverName)}</h3>
+      <div class="text-sm text-gray-500 dark:text-gray-400 italic">${escapeHtml(horseLabel(equipage))}</div>
       <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
         ${getFlagHtml(equipage)}
         ${getClubLogoHtml(equipage)}
-        <span>${className} • ${clubName}</span>
+        <span>${escapeHtml(className)} • ${escapeHtml(clubName)}</span>
       </div>
     </div>
     <div class="flex items-center gap-2">
@@ -643,7 +645,7 @@ function renderAndShowDetailsModal(equipage) {
   const horsesHtml = (horses.length
     ? horses.map((h, idx) => `
           <div class="p-3 rounded border bg-white dark:bg-gray-800 dark:border-gray-700">
-            <div class="font-bold text-gray-900 dark:text-white mb-1 text-sm">${t('hast_ponny')} ${idx + 1}: ${h.name || h.horseName || '—'}</div>
+            <div class="font-bold text-gray-900 dark:text-white mb-1 text-sm">${t('hast_ponny')} ${idx + 1}: ${escapeHtml(h.name || h.horseName || '—')}</div>
           <div class="space-y-1 text-sm">
              <div class="grid grid-cols-2 gap-x-4 mb-2">
                 ${kv(t('ras'), h.breed || '')}
@@ -680,22 +682,22 @@ function renderAndShowDetailsModal(equipage) {
     const getHorseNames = (key) => {
       const ids = selections[key] || [];
       if (ids.length === 0) return `<span class="italic text-gray-500">${t('ej_valt')}</span>`;
-      return ids.map(id => horseMap.get(id) || id).join(', ');
+      return ids.map(id => escapeHtml(horseMap.get(id) || id)).join(', ');
     };
 
     momentHorsesHtml = `
             <div class="mt-3 pl-4 border-l-2 ml-1 border-blue-300 bg-blue-50 p-2 rounded-r-md">
                 <div class="font-bold text-blue-800 mb-2 text-sm">${t('valda_for_moment')}</div>
                 <div class="space-y-1 text-sm">
-                    ${kv(t('dressyr'), getHorseNames('dressage'))}
-                    ${kv(t('maraton'), getHorseNames('marathon'))}
-                    ${kv(t('precision'), getHorseNames('precision'))}
+                    ${kv(t('dressyr'), getHorseNames('dressage'), true)}
+                    ${kv(t('maraton'), getHorseNames('marathon'), true)}
+                    ${kv(t('precision'), getHorseNames('precision'), true)}
                 </div>
             </div>
         `;
   }
   const groomsHtml = (Array.isArray(grooms) && grooms.length)
-    ? `<dd class="mt-3 pl-6 border-l-2 ml-1"><ul class="list-disc pl-5 text-gray-700 text-sm">${grooms.map((g) => `<li>${(g?.name) || g}</li>`).join('')}</ul></dd>` : '';
+    ? `<dd class="mt-3 pl-6 border-l-2 ml-1"><ul class="list-disc pl-5 text-gray-700 text-sm">${grooms.map((g) => `<li>${escapeHtml((g?.name) || g)}</li>`).join('')}</ul></dd>` : '';
 
   contentWrap.innerHTML = `
     <div class="p-6 md:p-10">
@@ -738,7 +740,7 @@ function renderAndShowDetailsModal(equipage) {
             ${(() => {
               const other = getDriverOtherStarts(equipage);
               if (!other.length) return '';
-              const otherList = other.map(o => `#${o.startNumber} (${o.className || 'Okänd klass'})`).join(', ');
+              const otherList = other.map(o => `#${escapeHtml(o.startNumber)} (${escapeHtml(o.className || 'Okänd klass')})`).join(', ');
               return `<div class="p-2.5 bg-indigo-50 dark:bg-indigo-900/30 rounded-lg border border-indigo-200 dark:border-indigo-800 text-xs text-indigo-900 dark:text-indigo-200 my-1.5">
                 <div class="font-bold flex items-center gap-1.5"><i class="fa fa-clone"></i> Kusk med flera starter (${other.length + 1} st)</div>
                 <div class="mt-1">Övriga starter: <span class="font-medium">${otherList}</span></div>
@@ -847,12 +849,12 @@ function renderDesktop() {
     sortedEquipages.forEach(e => {
       // === ÄNDRING: Lade till cursor-pointer om canViewDetails ===
       tableHtml += `
-                <tr class="${canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : ''} border-b dark:border-gray-700 last:border-0" data-equipage-id="${e.startNumber}">
-                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="xl:max-w-none max-w-[80px] md:max-w-[140px] truncate" title="${e._mergedLabel || e.className || ''}">${e._mergedLabel || e.className || ''}</div></td>
-                    <td class="px-2 py-2 lg:px-4 lg:py-3 whitespace-nowrap font-bold text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle text-center">${e.startNumber || ''}</td>
+                <tr class="${canViewDetails ? 'cursor-pointer hover:bg-blue-50 dark:hover:bg-gray-700' : ''} border-b dark:border-gray-700 last:border-0" data-equipage-id="${escapeHtml(e.startNumber)}">
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="xl:max-w-none max-w-[80px] md:max-w-[140px] truncate" title="${escapeHtml(e._mergedLabel || e.className || '')}">${escapeHtml(e._mergedLabel || e.className || '')}</div></td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 whitespace-nowrap font-bold text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle text-center">${escapeHtml(e.startNumber || '')}</td>
                     <td class="px-2 py-2 lg:px-4 lg:py-3 font-medium text-[11px] lg:text-sm text-gray-900 dark:text-white align-middle whitespace-nowrap">
                         <span class="inline-flex items-center gap-1.5 flex-wrap">
-                            ${e.driverName || ''}
+                            ${escapeHtml(e.driverName || '')}
                             ${getDriverStartsCount(e.driverName) > 1 ? `<span class="inline-flex items-center gap-1 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[10px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${getDriverStartsCount(e.driverName)} starter (TR Mom 535.4 kräver minst 30 min kuskbuffert)"><i class="fa fa-clone text-[9px]"></i> ${getDriverStartsCount(e.driverName)} st</span>` : ''}
                         </span>
                     </td>
@@ -860,10 +862,10 @@ function renderDesktop() {
                         <span class="inline-flex items-center gap-1.5 whitespace-nowrap"> 
                             ${getFlagHtml(e)}
                             ${getClubLogoHtml(e)}
-                            <span class="inline-block truncate max-w-[100px] md:max-w-[160px] xl:max-w-none" title="${e.clubName || ''}">${e.clubName || ''}</span>
+                            <span class="inline-block truncate max-w-[100px] md:max-w-[160px] xl:max-w-none" title="${escapeHtml(e.clubName || '')}">${escapeHtml(e.clubName || '')}</span>
                         </span>
                     </td>
-                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="whitespace-nowrap" title="${horseLabel(e)}">${horseLabel(e)}</div></td>
+                    <td class="px-2 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle"><div class="whitespace-nowrap" title="${escapeHtml(horseLabel(e))}">${escapeHtml(horseLabel(e))}</div></td>
                 </tr>
             `;
     });
@@ -900,7 +902,7 @@ function renderDeltagareClassChips() {
 
   classSelect.innerHTML = [
     '<option value="">Alla klasser</option>',
-    ...labels.map((label) => `<option value="${String(label).replace(/"/g, '&quot;')}">${label}</option>`)
+    ...labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`)
   ].join('');
   classSelect.value = labels.includes(currentValue) ? currentValue : '';
 }

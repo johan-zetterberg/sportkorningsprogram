@@ -1,5 +1,6 @@
 import { getCompetitionHeader } from '../../ui/components.js';
 import { t as translate } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 const MOBILE_BP = 500;
 
@@ -105,7 +106,7 @@ export function renderActiveMerges({
     return `
       <span class="inline-flex items-center gap-2 px-2 py-1 rounded-full
                   bg-blue-50 border border-blue-200 text-blue-700">
-        ${lbl}
+        ${escapeHtml(lbl)}
         <span class="text-xs text-blue-600">(${count} ekipage)</span>
       </span>`;
   }).join('');
@@ -131,7 +132,7 @@ export function renderMaratonClassChips({
   const currentValue = activeClassFilters.size === 1 ? Array.from(activeClassFilters)[0] : '';
   select.innerHTML = [
     `<option value="">${translate('all_classes')}</option>`,
-    ...labels.map((label) => `<option value="${label.replace(/"/g, '&quot;')}">${label}</option>`)
+    ...labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`)
   ].join('');
   select.value = labels.includes(currentValue) ? currentValue : '';
   select.onchange = (e) => onChange(e.target.value || '');

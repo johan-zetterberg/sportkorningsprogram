@@ -18,7 +18,7 @@ import { formatDressageProgramOptionLabel, getDressageProgramTrNumber, sortDress
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 
-import { downloadJson } from '../../utils/sharedUtils.js';
+import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
@@ -484,11 +484,11 @@ function updateProgramMetaLegacy(key) {
   const meta = getProgramMeta(key);
   if (!meta) { host.innerHTML = ''; return; }
   const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${meta.verified ? t('input_verified') : t('input_not_verified')}</span>`;
-  const ver = meta.version ? ` • v${meta.version}` : '';
-  const src = meta.source ? ` • ${meta.source}` : '';
+  const ver = meta.version ? ` • v${escapeHtml(meta.version)}` : '';
+  const src = meta.source ? ` • ${escapeHtml(meta.source)}` : '';
   const coeff = getDressagePenaltyCoeff(key);
   const coeffLabel = /fei/i.test((getPrograms()[key]?.name || '') + ' ' + (getPrograms()[key]?.category || '')) ? 'Coefficient' : 'Koeff';
-  host.innerHTML = `${badge}${meta.name}${ver}${src} • <span class="ml-1">${coeffLabel}: <strong>${coeff.toFixed(3)}</strong></span>`;
+  host.innerHTML = `${badge}${escapeHtml(meta.name)}${ver}${src} • <span class="ml-1">${coeffLabel}: <strong>${coeff.toFixed(3)}</strong></span>`;
 }
 
 function updateProgramMeta(key) {
@@ -501,16 +501,16 @@ function updateProgramMeta(key) {
   const coeff = getDressagePenaltyCoeff(key);
   const coeffLabel = /fei/i.test((getPrograms()[key]?.name || '') + ' ' + (getPrograms()[key]?.category || '')) ? 'Coefficient' : 'Koeff';
   const parts = [
-    meta.trNumber ? `TR nr ${meta.trNumber}` : '',
-    meta.version ? `v${meta.version}` : '',
-    meta.arena || '',
-    meta.maxScore ? `Maxpoäng: ${meta.maxScore}` : '',
+    meta.trNumber ? `TR nr ${escapeHtml(meta.trNumber)}` : '',
+    meta.version ? `v${escapeHtml(meta.version)}` : '',
+    meta.arena ? escapeHtml(meta.arena) : '',
+    meta.maxScore ? `Maxpoäng: ${escapeHtml(meta.maxScore)}` : '',
     `${coeffLabel}: <strong>${coeff.toFixed(3)}</strong>`,
-    `Nyckel: <code>${meta.key}</code>`,
-    meta.source || ''
+    `Nyckel: <code>${escapeHtml(meta.key)}</code>`,
+    meta.source ? escapeHtml(meta.source) : ''
   ].filter(Boolean);
 
-  host.innerHTML = `${badge}${meta.name} <span class="ml-1">${parts.join(' • ')}</span>`;
+  host.innerHTML = `${badge}${escapeHtml(meta.name)} <span class="ml-1">${parts.join(' • ')}</span>`;
 }
 
 function renderProtocol(testKey) {
@@ -527,9 +527,9 @@ function renderProtocol(testKey) {
     card.className = 'movement-card border rounded-lg p-2 bg-gray-50 dark:bg-gray-800 dark:border-gray-700';
     card.innerHTML = `
             <div class="movement-meta-row flex justify-between items-start gap-2"><div class="movement-labels min-w-0 flex-1 font-medium">
-                    <span class="font-bold dark:text-gray-200">${moment.no}.</span>
-                    <span class="text-blue-800 text-sm ml-1 mr-2 dark:text-blue-300">${moment.letters || ''}</span>
-                    ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs dark:bg-blue-900/40 dark:text-blue-100">x${moment.coeff}</span>` : ''}
+                    <span class="font-bold dark:text-gray-200">${escapeHtml(moment.no)}.</span>
+                    <span class="text-blue-800 text-sm ml-1 mr-2 dark:text-blue-300">${escapeHtml(moment.letters || '')}</span>
+                    ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs dark:bg-blue-900/40 dark:text-blue-100">x${escapeHtml(moment.coeff)}</span>` : ''}
                 </div>
                 
                 <div class="movement-score-total flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700 dark:text-blue-400">0.0</span>
@@ -539,7 +539,7 @@ function renderProtocol(testKey) {
             <div class="movement-entry-row flex items-center gap-2 mt-2">
                 <div class="movement-score-input-wrap flex-grow" style="max-width: 90px;"> <input type="tel" min="0" max="10" step="0.5"
                            class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                           data-coeff="${moment.coeff}"
+                           data-coeff="${escapeHtml(moment.coeff)}"
                            data-moment-index="${index}"
                            pattern="[0-9.,]*"
                            inputmode="decimal"
@@ -557,8 +557,8 @@ function renderProtocol(testKey) {
                 <textarea rows="1" placeholder="${t('input_add_comment')}" class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
             </div>
             <div class="movement-details text-sm text-gray-600 mt-2 border-l-2 border-gray-200 pl-2 dark:text-gray-400 dark:border-gray-700">
-                <p class="font-medium dark:text-gray-300">${moment.text}</p>
-                <p class="text-sm text-gray-500 mt-1 dark:text-gray-500">${moment.judge || ''}</p>
+                <p class="font-medium dark:text-gray-300">${escapeHtml(moment.text)}</p>
+                <p class="text-sm text-gray-500 mt-1 dark:text-gray-500">${escapeHtml(moment.judge || '')}</p>
             </div>
         `;
     protocolBody.appendChild(card);
@@ -1190,7 +1190,7 @@ function showProgramAuditBanner(equipages) {
     <div class="p-3 rounded-md bg-red-50 border border-red-200 text-red-800 text-sm dark:bg-red-900/20 dark:text-red-200 dark:border-red-700">
       <div class="font-semibold mb-1">Kontroll av dressyrprogram: ${issues.length} sak(er) att åtgärda</div>
       <ul class="list-disc pl-5 space-y-1">
-        ${issues.map(i => `<li>${i}</li>`).join('')}
+        ${issues.map(i => `<li>${escapeHtml(i)}</li>`).join('')}
       </ul>
       <div class="mt-2 text-gray-700 dark:text-gray-300">Uppdatera <code>data/dressagePrograms.js</code> och/eller <code>data/competitionData.js</code> (klassProgramMapping).</div>
     </div>`;

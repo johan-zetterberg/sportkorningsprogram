@@ -14,6 +14,7 @@ import { showDetailsModal } from '../../ui/precisionModal.js'; // NYTT
 import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionResult, calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { renderMap, destroyMap } from './precision-monitor-map.js';
 import {
   formatPrecisionMonitorPartPenalty,
@@ -276,15 +277,15 @@ function renderCurrentDriver() {
     panel.innerHTML = `
             <div class="flex flex-col md:flex-row justify-between items-start mb-4 border-b dark:border-gray-700 pb-4 gap-4 md:gap-0">
                 <div>
-                    <h3 class="text-xl sm:text-2xl md:text-3xl font-bold dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+                    <h3 class="text-xl sm:text-2xl md:text-3xl font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
                     <div class="text-sm md:text-base text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
-                        ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span>${eq.className}</span>
+                        ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span>${escapeHtml(eq.className)}</span>
                     </div>
                 </div>
                 <div id="leader-in-class-slot" class="text-left md:text-right w-full md:w-auto bg-gray-50 dark:bg-gray-700 md:bg-transparent md:dark:bg-transparent p-3 md:p-0 rounded-lg md:rounded-none">
                     ${leaderInClass ? `
                     <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
-                    <div class="font-semibold dark:text-white">${leaderInClass.name}</div>
+                    <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
                     <div class="font-bold text-brand-lightblue">
                         ${leaderInClass.totalPenalty.toFixed(2)} p
                         <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
@@ -322,7 +323,7 @@ function renderCurrentDriver() {
                             ${data.knocks.map(gate => {
       const timeMs = data.knockDownTimes?.[gate];
       const timeLabel = isNum(timeMs) ? formatMsLive(timeMs) : '';
-      return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${gate}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
+      return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${escapeHtml(gate)}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
     }).join('')}
                         </div>
                         ` : ''}
@@ -369,7 +370,7 @@ function renderCurrentDriver() {
                                 <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Senaste passering</div>
                                 <div class="inline-flex ${compHtml.colorClass} font-semibold px-3 py-1.5 rounded-lg items-center gap-2 border">
                                     <i class="fas fa-map-marker-alt"></i>
-                                    <span>${label}</span>
+                                    <span>${escapeHtml(label)}</span>
                                     <span class="text-xs font-mono opacity-80 bg-white/50 dark:bg-black/20 px-1 rounded">${timeStr}</span>
                                     ${compHtml.diffStr}
                                 </div>
@@ -385,7 +386,7 @@ function renderCurrentDriver() {
     if (leaderSlot) {
       leaderSlot.innerHTML = leaderInClass ? `
                 <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
-                <div class="font-semibold dark:text-white">${leaderInClass.name}</div>
+                <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
                 <div class="font-bold text-brand-lightblue">
                     ${leaderInClass.totalPenalty.toFixed(2)} p
                     <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
@@ -414,7 +415,7 @@ function renderCurrentDriver() {
                     ${data.knocks.map(gate => {
           const timeMs = data.knockDownTimes?.[gate];
           const timeLabel = isNum(timeMs) ? formatMsLive(timeMs) : '';
-          return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${gate}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
+          return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${escapeHtml(gate)}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
         }).join('')}
                 </div>
             `;
@@ -465,7 +466,7 @@ function renderCurrentDriver() {
                 <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Senaste passering</div>
                 <div class="inline-flex ${compHtml.colorClass} font-semibold px-3 py-1.5 rounded-lg items-center gap-2 border">
                     <i class="fas fa-map-marker-alt"></i>
-                    <span>${label}</span>
+                    <span>${escapeHtml(label)}</span>
                     <span class="text-xs font-mono opacity-80 bg-white/50 dark:bg-black/20 px-1 rounded">${timeStr}</span>
                     ${compHtml.diffStr}
                 </div>
@@ -503,13 +504,13 @@ function renderUpcomingPanel() {
       const startTime = formatTime(startTimes[String(eq.startNumber)]?.precision);
       return `
         <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
-                data-sn="${eq.startNumber}">
+                data-sn="${escapeHtml(eq.startNumber)}">
           <div class="flex items-center gap-3 min-w-0">
-            <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${eq.startNumber}</span>
-            <span class="truncate dark:text-gray-300">${eq.driverName || ''}</span>
+            <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${escapeHtml(eq.startNumber)}</span>
+            <span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName || '')}</span>
           </div>
           <div class="flex items-center gap-3 shrink-0">
-            <div class="flex items-center gap-1 justify-start" title="${eq.clubName || ''}">
+            <div class="flex items-center gap-1 justify-start" title="${escapeHtml(eq.clubName || '')}">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
             </div>
@@ -559,13 +560,13 @@ function renderResultsPanel() {
 
       return `
         <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
-                data-sn="${sn}">
+                data-sn="${escapeHtml(sn)}">
           <div class="flex items-center gap-3 min-w-0">
-            <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${sn}</span>
-            <span class="truncate dark:text-gray-300">${name}</span>
+            <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${escapeHtml(sn)}</span>
+            <span class="truncate dark:text-gray-300">${escapeHtml(name)}</span>
           </div>
           <div class="flex items-center gap-3 shrink-0">
-            <div class="flex items-center gap-1 justify-start" title="${eq.clubName || ''}">
+            <div class="flex items-center gap-1 justify-start" title="${escapeHtml(eq.clubName || '')}">
               ${getFlagHtml(eq)}
               ${getClubLogoHtml(eq)}
             </div>

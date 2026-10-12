@@ -1,7 +1,7 @@
 import { getEquipages } from '../../services/equipageService.js';
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader } from '../../ui/components.js';
-import { downloadCsv, sanitizeForFilename } from '../../utils/sharedUtils.js';
+import { downloadCsv, sanitizeForFilename, escapeHtml } from '../../utils/sharedUtils.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
 import { t } from '../../utils/i18n.js';
@@ -82,7 +82,7 @@ function renderContent() {
     if (countEl) countEl.textContent = `${filtered.length} hästar`;
 
     if (filtered.length === 0) {
-        container.innerHTML = `<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-8">Inga hästar hittades som matchar "${searchTerm}".</p>`;
+        container.innerHTML = `<p class="col-span-full text-center text-gray-500 dark:text-gray-400 py-8">Inga hästar hittades som matchar "${escapeHtml(searchTerm)}".</p>`;
         return;
     }
 
@@ -102,12 +102,12 @@ function renderGrid(filtered, container) {
 
     container.innerHTML = filtered.map(h => {
         const details = [];
-        if (exists(h.age)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('alder')}:</span> <span class="font-medium dark:text-gray-200">${h.age} ${t('ar')}</span>`);
-        if (exists(h.gender) || exists(h.sex)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('kon')}:</span> <span class="font-medium dark:text-gray-200">${h.gender || h.sex}</span>`);
-        if (exists(h.breed)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('ras')}:</span> <span class="font-medium dark:text-gray-200">${h.breed}</span>`);
-        if (exists(h.color)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('farg')}:</span> <span class="font-medium dark:text-gray-200">${h.color}</span>`);
-        if (exists(h.studbook)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('stambok')}:</span> <span class="font-medium dark:text-gray-200">${h.studbook}</span>`);
-        if (exists(h.height)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('mkh')}:</span> <span class="font-medium dark:text-gray-200">${h.height} cm (${calculateCategory(h)})</span>`);
+        if (exists(h.age)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('alder')}:</span> <span class="font-medium dark:text-gray-200">${escapeHtml(h.age)} ${t('ar')}</span>`);
+        if (exists(h.gender) || exists(h.sex)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('kon')}:</span> <span class="font-medium dark:text-gray-200">${escapeHtml(h.gender || h.sex)}</span>`);
+        if (exists(h.breed)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('ras')}:</span> <span class="font-medium dark:text-gray-200">${escapeHtml(h.breed)}</span>`);
+        if (exists(h.color)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('farg')}:</span> <span class="font-medium dark:text-gray-200">${escapeHtml(h.color)}</span>`);
+        if (exists(h.studbook)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('stambok')}:</span> <span class="font-medium dark:text-gray-200">${escapeHtml(h.studbook)}</span>`);
+        if (exists(h.height)) details.push(`<span class="text-gray-600 dark:text-gray-400">${t('mkh')}:</span> <span class="font-medium dark:text-gray-200">${escapeHtml(h.height)} cm (${escapeHtml(calculateCategory(h))})</span>`);
 
         const lineage = [h.sire, h.dam, h.damsire].filter(exists).join(' x ');
         const lineageStr = h.lineage || lineage;
@@ -115,21 +115,21 @@ function renderGrid(filtered, container) {
         // ID-block (Endast inloggade funktionärer/admins)
         const idParts = [];
         if (isAuth) {
-            if (h.chip || h.chipNo) idParts.push(`Chip: ${h.chip || h.chipNo}`);
-            if (h.ueln) idParts.push(`UELN: ${h.ueln}`);
-            if (h.license) idParts.push(`Lic: ${h.license}`);
+            if (h.chip || h.chipNo) idParts.push(`Chip: ${escapeHtml(h.chip || h.chipNo)}`);
+            if (h.ueln) idParts.push(`UELN: ${escapeHtml(h.ueln)}`);
+            if (h.license) idParts.push(`Lic: ${escapeHtml(h.license)}`);
         }
 
         return `
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow flex flex-col h-full">
             <div class="p-4 bg-gray-50 dark:bg-gray-700/50 border-b border-gray-100 dark:border-gray-700 flex justify-between items-start">
                 <div>
-                    <h3 class="text-lg font-bold text-gray-900 dark:text-white leading-tight">${h.name || t('namn_saknas')}</h3>
-                    ${h.id ? `<span class="text-xs text-gray-400 font-mono">#${h.id}</span>` : ''}
+                    <h3 class="text-lg font-bold text-gray-900 dark:text-white leading-tight">${h.name ? escapeHtml(h.name) : t('namn_saknas')}</h3>
+                    ${h.id ? `<span class="text-xs text-gray-400 font-mono">#${escapeHtml(h.id)}</span>` : ''}
                 </div>
                 <div class="text-right">
-                    <div class="text-3xl opacity-60 dark:opacity-80 drop-shadow-sm" style="color: ${getHorseColorHex(h.color)};" title="${h.color || 'Okänd färg'}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor" class="w-8 h-8 opacity-80"><path d="M509.8 332.5l-69.9-164.3c-14.9-41.2-50.4-71-93-79.2 18-10.6 46.3-35.9 34.2-82.3-1.3-5-7.1-7.9-12-6.1L166.9 76.3C35.9 123.4 0 238.9 0 398.8V480c0 17.7 14.3 32 32 32h236.2c23.8 0 39.3-25 28.6-46.3L256 384v-.7c-45.6-3.5-84.6-30.7-104.3-69.6-1.6-3.1-.9-6.9 1.6-9.3l12.1-12.1c3.9-3.9 10.6-2.7 12.9 2.4 14.8 33.7 48.2 57.4 87.4 57.4 17.2 0 33-5.1 46.8-13.2l46 63.9c6 8.4 15.7 13.3 26 13.3h50.3c8.5 0 16.6-3.4 22.6-9.4l45.3-39.8c8.9-9.1 11.7-22.6 7.1-34.4zM328 224c-13.3 0-24-10.7-24-24s10.7-24 24-24 24 10.7 24 24-10.7 24-24 24z"/></svg></div>
-                    ${(isAuth && h.vaccinationDate) ? `<div class="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 px-1.5 py-0.5 rounded mt-1 whitespace-nowrap">💉 ${h.vaccinationDate}</div>` : ''}
+                    <div class="text-3xl opacity-60 dark:opacity-80 drop-shadow-sm" style="color: ${getHorseColorHex(h.color)};" title="${escapeHtml(h.color || 'Okänd färg')}"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="currentColor" class="w-8 h-8 opacity-80"><path d="M509.8 332.5l-69.9-164.3c-14.9-41.2-50.4-71-93-79.2 18-10.6 46.3-35.9 34.2-82.3-1.3-5-7.1-7.9-12-6.1L166.9 76.3C35.9 123.4 0 238.9 0 398.8V480c0 17.7 14.3 32 32 32h236.2c23.8 0 39.3-25 28.6-46.3L256 384v-.7c-45.6-3.5-84.6-30.7-104.3-69.6-1.6-3.1-.9-6.9 1.6-9.3l12.1-12.1c3.9-3.9 10.6-2.7 12.9 2.4 14.8 33.7 48.2 57.4 87.4 57.4 17.2 0 33-5.1 46.8-13.2l46 63.9c6 8.4 15.7 13.3 26 13.3h50.3c8.5 0 16.6-3.4 22.6-9.4l45.3-39.8c8.9-9.1 11.7-22.6 7.1-34.4zM328 224c-13.3 0-24-10.7-24-24s10.7-24 24-24 24 10.7 24 24-10.7 24-24 24z"/></svg></div>
+                    ${(isAuth && h.vaccinationDate) ? `<div class="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 px-1.5 py-0.5 rounded mt-1 whitespace-nowrap">💉 ${escapeHtml(h.vaccinationDate)}</div>` : ''}
                 </div>
             </div>
             
@@ -139,7 +139,7 @@ function renderGrid(filtered, container) {
                 ${lineageStr ? `
                 <div class="pt-2 border-t border-dashed dark:border-gray-700">
                     <p class="text-xs text-gray-500 dark:text-gray-400 uppercase tracking-wide">${t('harstamning')}</p>
-                    <p class="font-medium text-gray-800 dark:text-gray-200">${lineageStr}</p>
+                    <p class="font-medium text-gray-800 dark:text-gray-200">${escapeHtml(lineageStr)}</p>
                 </div>` : ''}
 
                 ${idParts.length ? `
@@ -154,20 +154,20 @@ function renderGrid(filtered, container) {
                     ${exists(h.breeder) ? `
                     <div class="flex flex-col mb-1">
                         <span class="text-xs text-gray-500 dark:text-gray-400">${t('uppfodare')}</span>
-                        <span class="text-gray-800 dark:text-gray-200 font-medium break-words" title="${h.breeder}">${h.breeder}</span>
+                        <span class="text-gray-800 dark:text-gray-200 font-medium break-words" title="${escapeHtml(h.breeder)}">${escapeHtml(h.breeder)}</span>
                     </div>` : ''}
                     
                     ${exists(h.owner) ? `
                     <div class="flex flex-col">
                         <span class="text-xs text-gray-500 dark:text-gray-400">${t('agare')}</span>
-                        <span class="text-gray-800 dark:text-gray-200 font-medium break-words" title="${h.owner}">${h.owner}</span>
+                        <span class="text-gray-800 dark:text-gray-200 font-medium break-words" title="${escapeHtml(h.owner)}">${escapeHtml(h.owner)}</span>
                     </div>` : ''}
                 </div>
             </div>
 
             <div class="px-4 py-3 bg-blue-50/50 dark:bg-blue-900/20 border-t border-blue-100 dark:border-blue-900/30 flex items-center gap-2">
                 <span class="text-xs text-blue-600 dark:text-blue-400 font-semibold uppercase">${t('kores_av')}</span>
-                <span class="text-sm font-bold text-gray-900 dark:text-white break-words flex-1">${h.driverName || '—'}</span>
+                <span class="text-sm font-bold text-gray-900 dark:text-white break-words flex-1">${escapeHtml(h.driverName || '—')}</span>
             </div>
         </div>
         `;
@@ -187,15 +187,15 @@ function renderTable(filtered, container) {
         const lineage = [h.sire, h.dam].filter(exists).join(' x ') || h.lineage || '-';
         return `
             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors">
-                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white bg-white dark:bg-gray-800 sticky left-0 z-10">${h.name}</td>
-                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.breed || '-'}</td>
-                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.color || '-'}</td>
-                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${h.gender || '-'}</td>
-                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">${h.age || '-'}</td>
-                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${lineage}">${lineage}</td>
-                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${h.owner || ''}">${h.owner || '-'}</td>
-                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">${h.driverName || '-'}</td>
-                ${isAuth ? `<td class="px-2 py-3 sm:px-4 text-sm text-green-700 dark:text-green-400 whitespace-nowrap text-right">${h.vaccinationDate || '-'}</td>` : ''}
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white bg-white dark:bg-gray-800 sticky left-0 z-10">${escapeHtml(h.name)}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${escapeHtml(h.breed || '-')}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${escapeHtml(h.color || '-')}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">${escapeHtml(h.gender || '-')}</td>
+                <td class="px-2 py-3 sm:px-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 text-center">${escapeHtml(h.age || '-')}</td>
+                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${escapeHtml(lineage)}">${escapeHtml(lineage)}</td>
+                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs" title="${escapeHtml(h.owner || '')}">${escapeHtml(h.owner || '-')}</td>
+                <td class="px-2 py-3 sm:px-4 text-sm text-gray-500 dark:text-gray-400 truncate max-w-xs">${escapeHtml(h.driverName || '-')}</td>
+                ${isAuth ? `<td class="px-2 py-3 sm:px-4 text-sm text-green-700 dark:text-green-400 whitespace-nowrap text-right">${escapeHtml(h.vaccinationDate || '-')}</td>` : ''}
             </tr>
         `;
     }).join('');

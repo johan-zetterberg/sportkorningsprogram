@@ -1,4 +1,5 @@
 import { getConfig, saveConfig } from './competitionService.js';
+import { escapeHtml, isSafeImageUrl } from '../utils/sharedUtils.js';
 
 let _clubLogoMap = null;
 let _loadPromise = null;
@@ -68,9 +69,11 @@ export function getClubLogoUrl(clubName) {
   return _clubLogoMap[key] || null;
 }
 
+// Logo URLs are typed in by organisers: isSafeImageUrl rejects e.g. javascript:
 export function getClubLogoHtml(eq, { className = 'inline-block h-5 w-auto', style = 'max-height:20px;' } = {}) {
   const url = getClubLogoUrl(eq?.clubName || eq?.club);
-  return url ? `<img src="${url}" alt="${eq?.clubName || ''}" class="${className}" style="${style}">` : '';
+  if (!url || !isSafeImageUrl(url)) return '';
+  return `<img src="${escapeHtml(url)}" alt="${escapeHtml(eq?.clubName || eq?.club || '')}" class="${escapeHtml(className)}" style="${escapeHtml(style)}">`;
 }
 
 /**

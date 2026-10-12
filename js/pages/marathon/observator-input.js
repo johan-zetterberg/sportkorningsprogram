@@ -10,6 +10,7 @@ import {
 
 import { getCompetitionHeader } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
 
 // ---------- State ----------
@@ -226,9 +227,9 @@ function rebuildComboList(container) {
   if (!list) return;
   if (!Array.isArray(filtered)) filtered = [];
   const items = filtered.slice(0, 30).map((e, i) => `
-    <div class="eq-option px-4 py-3 border-b dark:border-gray-700 last:border-0 ${i === comboActiveIndex ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'dark:text-gray-200'} cursor-pointer" role="option" data-sn="${e.startNumber}" data-i="${i}">
-      <div class="font-bold">#${e.startNumber} ${e.driverName}</div>
-      <div class="text-[10px] text-gray-500 uppercase tracking-tighter">${e.className || ''}</div>
+    <div class="eq-option px-4 py-3 border-b dark:border-gray-700 last:border-0 ${i === comboActiveIndex ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'dark:text-gray-200'} cursor-pointer" role="option" data-sn="${escapeHtml(e.startNumber)}" data-i="${i}">
+      <div class="font-bold">#${escapeHtml(e.startNumber)} ${escapeHtml(e.driverName)}</div>
+      <div class="text-[10px] text-gray-500 uppercase tracking-tighter">${escapeHtml(e.className || '')}</div>
     </div>
   `).join('');
   list.innerHTML = items || `<div class="px-4 py-3 text-gray-500 dark:text-gray-400">${t('observer_no_matches')}</div>`;

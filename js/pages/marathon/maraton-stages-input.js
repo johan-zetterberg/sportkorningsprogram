@@ -417,11 +417,11 @@ function renderActiveCards() {
 
     parts.push(`
 <div class="flex items-center justify-between px-3 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700"
-     data-active="${sn}|${stage}">
+     data-active="${escapeHtml(sn)}|${escapeHtml(stage)}">
   <button class="card-left text-left"
-          data-sn="${sn}" data-stage="${stage}">
+          data-sn="${escapeHtml(sn)}" data-stage="${escapeHtml(stage)}">
     <div class="text-sm font-medium text-blue-700 dark:text-blue-400 hover:underline">
-      ${name} <span class="text-gray-500 dark:text-gray-400">#${sn}</span>
+      ${escapeHtml(name)} <span class="text-gray-500 dark:text-gray-400">#${escapeHtml(sn)}</span>
     </div>
     <div class="text-xs text-gray-500 dark:text-gray-400">${decorateStageLabel(stage, eq)}</div>
   </button>
@@ -1391,7 +1391,7 @@ function addOrUpdateActiveCard(sn, stage) {
     card.setAttribute('data-active', key);
     card.className = 'rounded-lg border dark:border-gray-700 p-2 flex items-center justify-between bg-white dark:bg-gray-800';
     card.innerHTML = `
-      <div class="text-sm dark:text-gray-300">#${sn} • ${stage.toUpperCase()}</div>
+      <div class="text-sm dark:text-gray-300">#${escapeHtml(sn)} • ${escapeHtml(stage.toUpperCase())}</div>
       <div class="timer tabular-nums text-lg dark:text-white">00:00,00</div>
       <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
     `;

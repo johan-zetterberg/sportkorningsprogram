@@ -15,6 +15,61 @@ export function escapeHtml(s) {
     return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/**
+ * A value as a JS string literal inside an inline handler attribute
+ * (onclick="fn(${jsStringAttr(x)})"). Plain escapeHtml is not enough there:
+ * the browser decodes the entities before running the code.
+ */
+export function jsStringAttr(value) {
+    return escapeHtml(JSON.stringify(String(value ?? '')));
+}
+
+/** Image URLs from organisers: web, site-relative and inline images only (never javascript: etc.) */
+export function isSafeImageUrl(url) {
+    const u = String(url || '').trim();
+    if (!u) return false;
+    if (/^(https?:\/\/|\/(?!\/)|\.{1,2}\/|data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,])/i.test(u)) return true;
+    return /^[\w.\-%][\w.\-/ %]*$/.test(u); // relative path without a scheme
+}
+
+const RICH_TAGS =new Set(['P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'S', 'SMALL', 'SUB', 'SUP', 'MARK',
+    'UL', 'OL', 'LI', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6', 'BLOCKQUOTE', 'PRE', 'CODE', 'HR',
+    'SPAN', 'DIV', 'A', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'CAPTION']);
+const DROP_WITH_CONTENT = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'NOSCRIPT', 'TEMPLATE', 'SVG', 'MATH', 'TITLE', 'TEXTAREA', 'SELECT']);
+
+/**
+ * Rich text written by organisers (documents, notices): keeps basic formatting
+ * and http(s)/mailto links, drops everything that can run code (scripts,
+ * event handlers, javascript: URLs, styles, embedded content).
+ */
+export function sanitizeRichHtml(html) {
+    if (typeof document === 'undefined') return escapeHtml(html);
+    const tpl = document.createElement('template');
+    tpl.innerHTML = String(html ?? '');
+    const clean = (node) => {
+        [...node.childNodes].forEach((child) => {
+            if (child.nodeType === 3) return; // text
+            if (child.nodeType !== 1) { child.remove(); return; }
+            const tag = child.tagName.toUpperCase();
+            if (DROP_WITH_CONTENT.has(tag)) { child.remove(); return; }
+            clean(child);
+            if (!RICH_TAGS.has(tag)) { child.replaceWith(...child.childNodes); return; }
+            [...child.attributes].forEach((attr) => {
+                const name = attr.name.toLowerCase();
+                const keep = (tag === 'A' && name === 'href' && /^(https?:|mailto:)/i.test(attr.value.trim()))
+                    || ((tag === 'TD' || tag === 'TH') && (name === 'colspan' || name === 'rowspan') && /^\d{1,2}$/.test(attr.value));
+                if (!keep) child.removeAttribute(attr.name);
+            });
+            if (tag === 'A' && child.hasAttribute('href')) {
+                child.setAttribute('target', '_blank');
+                child.setAttribute('rel', 'noopener noreferrer');
+            }
+        });
+    };
+    clean(tpl.content);
+    return tpl.innerHTML;
+}
+
 export function getInitials(name) {
     if (!name || typeof name !== 'string') return '';
     return name.trim().split(/\s+/).map(part => part[0] || '').join('').toUpperCase();
@@ -23,10 +78,10 @@ export function getInitials(name) {
 export function stackName(name) {
     if (!name || typeof name !== 'string') return '';
     const parts = name.trim().split(/\s+/);
-    if (parts.length === 1) return `<span class="block">${parts[0]}</span>`;
+    if (parts.length === 1) return `<span class="block">${escapeHtml(parts[0])}</span>`;
     const first = parts.slice(0, -1).join(' ');
     const last = parts.slice(-1)[0];
-    return `<span class="block">${first}</span><span class="block">${last}</span>`;
+    return `<span class="block">${escapeHtml(first)}</span><span class="block">${escapeHtml(last)}</span>`;
 }
 
 export function sanitizeForFilename(name) {
@@ -109,7 +164,7 @@ export function horseLabelStacked(eq) {
     const lbl = horseLabel(eq);
     if (lbl === '—') return '—';
     const parts = lbl.split(/\s*&\s*/);
-    return parts.map(n => `<span class="block">${n}</span>`).join('');
+    return parts.map(n => `<span class="block">${escapeHtml(n)}</span>`).join('');
 }
 
 // --- Environment / Device Utils ---

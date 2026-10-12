@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 function defaultFormatPenalty(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
@@ -66,11 +68,11 @@ export function renderPrecisionResultCard({
            <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
                  <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${eq.startNumber}</span>
-                 <span class="truncate">${eq.driverName}</span>
+                 <span class="truncate">${escapeHtml(eq.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">
                  ${flagHtml} ${clubLogoHtml}
-                 ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${cls}</span>` : ''}
+                 ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(cls)}</span>` : ''}
               </div>
            </div>
 

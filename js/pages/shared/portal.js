@@ -46,7 +46,7 @@ import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosServ
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { t } from '../../utils/i18n.js';
-import { escapeHtml } from '../../utils/sharedUtils.js';
+import { escapeHtml, sanitizeRichHtml } from '../../utils/sharedUtils.js';
 
 let messageUnsub = null;
 let dashboardUnsub = null;
@@ -1042,7 +1042,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         ${eq.vetNotes ? `
                         <div class="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-100 dark:border-red-800">
                              <div class="text-xs font-bold text-red-800 dark:text-red-400 uppercase mb-1">${t('vet_note', compConfig?.isInternational)}:</div>
-                             <p class="text-red-900 dark:text-red-200 text-sm">${eq.vetNotes}</p>
+                             <p class="text-red-900 dark:text-red-200 text-sm">${escapeHtml(eq.vetNotes)}</p>
                         </div>` : ''}
                          ${eq.status === 'ombesiktning' ?
                     `<p class="text-sm text-yellow-800 dark:text-yellow-400 mt-2">${t('contact_secretariat', compConfig?.isInternational)}</p>` : ''}
@@ -1064,7 +1064,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                             ${selfServiceRestrictionMessage}
                         </div>` : ''}
                         <div class="flex flex-col gap-2">
-                            <textarea id="portalSpeakerNotes" rows="4" class="w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-60" placeholder="Skriv dina noteringar här..." ${canSelfEdit ? '' : 'disabled'}>${eq.speakerNotes || ''}</textarea>
+                            <textarea id="portalSpeakerNotes" rows="4" class="w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-60" placeholder="Skriv dina noteringar här..." ${canSelfEdit ? '' : 'disabled'}>${escapeHtml(eq.speakerNotes || '')}</textarea>
                             <div class="flex justify-end">
                                 <button id="btnSaveSpeakerNotes" class="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white font-medium py-2 px-6 rounded shadow-sm transition-colors text-sm" ${canSelfEdit ? '' : 'disabled'}>
                                     Spara Noteringar
@@ -1460,7 +1460,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                                 <button type="button" data-close-doc-modal class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
                             </div>
                             <div class="p-6 overflow-y-auto prose dark:prose-invert max-w-none text-gray-800 dark:text-gray-200">
-                                ${d.content || `<p class="text-gray-500 italic">${t('no_content')}</p>`}
+                                ${(d.content && sanitizeRichHtml(d.content)) || `<p class="text-gray-500 italic">${t('no_content')}</p>`}
                             </div>
                             <div class="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-b-xl text-right">
                                 <button type="button" data-close-doc-modal class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded font-medium text-sm text-gray-800 dark:text-gray-200 transition">${t('close_btn')}</button>

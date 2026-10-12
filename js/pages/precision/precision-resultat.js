@@ -389,7 +389,7 @@ function renderLiveStatusPanel() {
     totalPenalty: data.totalPenalty,
     overallRank: myOverall?.rank,
     toBeat,
-    horseLabelHtml: horseLabel(activeEq),
+    horseLabelHtml: escapeHtml(horseLabel(activeEq)),
     flagHtml: getFlagHtml(activeEq)
   });
 }
@@ -645,7 +645,7 @@ function renderMobile() {
     if (precision_viewMode === 'byclass') {
       const groups = prec_groupEquipagesForDisplay(visibleEquipages);
       for (const group of groups) {
-        html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${group.label}</div>`;
+        html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${escapeHtml(group.label)}</div>`;
         html += group.items.map(eq => renderCard(eq, placeMap, classStarters)).join('');
       }
     } else {
@@ -730,7 +730,7 @@ function renderDesktop() {
         : '';
       classSelect.innerHTML = [
         `<option value="">${t('all_classes')}</option>`,
-        ...labels.map((label) => `<option value="${label.replace(/"/g, '&quot;')}">${label}</option>`)
+        ...labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`)
       ].join('');
       classSelect.value = labels.includes(currentValue) ? currentValue : '';
     }

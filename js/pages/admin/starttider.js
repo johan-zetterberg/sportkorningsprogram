@@ -25,6 +25,7 @@ import {
     resolveCurrentCompId,
     normalizeEquipage,
     sanitizeForFilename,
+    escapeHtml,
     isMobile,
     MOBILE_BP
 } from '../../utils/sharedUtils.js';
@@ -449,7 +450,7 @@ function renderStarttiderReadiness() {
                     <span>⚠️</span> Reglementskontroll TR Mom 535.4: Kusk med flera ekipage har för kort mellanrum (&lt;30 min)
                 </div>
                 <ul class="list-disc pl-5 space-y-1">
-                    ${currentDriverConflicts.map(c => `<li>${c.message}</li>`).join('')}
+                    ${currentDriverConflicts.map(c => `<li>${escapeHtml(c.message)}</li>`).join('')}
                 </ul>
             </div>
         ` : ''}
@@ -772,7 +773,7 @@ function renderMobile() {
         let classHeader = '';
         if (viewMode === 'byclass' && (e._mergedLabel || e.className) !== lastClass) {
             lastClass = (e._mergedLabel || e.className);
-            classHeader = `<div class="px-2 py-1 mt-2 mb-1 bg-blue-100 text-blue-800 font-bold text-sm rounded-md">${e._mergedLabel || e.className}</div>`;
+            classHeader = `<div class="px-2 py-1 mt-2 mb-1 bg-blue-100 text-blue-800 font-bold text-sm rounded-md">${escapeHtml(e._mergedLabel || e.className)}</div>`;
         }
 
         const renderActions = (discipline) => {

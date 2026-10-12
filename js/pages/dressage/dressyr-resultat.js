@@ -1043,7 +1043,7 @@ function renderMobile(judgesPresent) {
         const currentClassLabel = eq._mergedLabel || eq.className || 'Okänd Klass';
         let classHeader = '';
         if (viewMode === 'byclass' && currentClassLabel !== lastClass) { //
-            classHeader = `<div class="px-3 py-1 mt-1.5 mx-1.5 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm border border-blue-200 dark:border-blue-800/50">${currentClassLabel}</div>`;
+            classHeader = `<div class="px-3 py-1 mt-1.5 mx-1.5 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm border border-blue-200 dark:border-blue-800/50">${escapeHtml(currentClassLabel)}</div>`;
             lastClass = currentClassLabel;
         }
         // === SLUT ÄNDRING ===
@@ -1094,11 +1094,11 @@ function renderMobile(judgesPresent) {
                   <div class="flex flex-col min-w-0 pr-1">
                       <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
                          <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${r.startNumber}</span> 
-                         <span class="truncate">${r.driverName}</span>
+                         <span class="truncate">${escapeHtml(r.driverName)}</span>
                       </div>
                       <div class="flex items-center gap-1 mt-0.5">
                          ${getFlagHtml(eq)} ${getClubLogoHtml(eq)}
-                         ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${currentClassLabel}</span>` : ''}
+                         ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(currentClassLabel)}</span>` : ''}
                       </div>
                   </div>
                   
@@ -1214,7 +1214,7 @@ function renderClassChips() {
     const currentValue = dressage_activeClassFilters.size === 1 ? Array.from(dressage_activeClassFilters)[0] : '';
     classSelect.innerHTML = [
         `<option value="">${t('all_classes')}</option>`,
-        ...labels.map((label) => `<option value="${label.replace(/"/g, '&quot;')}">${label}</option>`)
+        ...labels.map((label) => `<option value="${escapeHtml(label)}">${escapeHtml(label)}</option>`)
     ].join('');
     classSelect.value = labels.includes(currentValue) ? currentValue : '';
 }
@@ -1308,7 +1308,7 @@ function renderLiveHeader() {
 
         if (program?.movements?.[currentMomentIdx]) {
             const pm = program.movements[currentMomentIdx];
-            momentText = `<span class="opacity-80 font-bold mr-2 text-xl block md:inline">${t('dressage_monitor_moment_label')} ${pm.no}:</span> <span class="text-lg md:text-xl font-medium text-white">${pm.text}</span>`;
+            momentText = `<span class="opacity-80 font-bold mr-2 text-xl block md:inline">${t('dressage_monitor_moment_label')} ${escapeHtml(pm.no)}:</span> <span class="text-lg md:text-xl font-medium text-white">${escapeHtml(pm.text)}</span>`;
         } else {
             momentText = `<span class="text-lg">${t('dressage_monitor_moment_label')} ${currentMomentIdx + 1}</span>`;
         }
@@ -1382,7 +1382,7 @@ function renderLiveHeader() {
            <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-[8px] font-bold px-1 rounded-bl-sm opacity-90">${j.position || '?'}</div>
            
            <!-- Name -->
-           <div class="text-[8px] font-semibold text-indigo-300 truncate w-full mt-2.5 mb-0.5 leading-tight max-w-[55px]" title="${displayName}">
+           <div class="text-[8px] font-semibold text-indigo-300 truncate w-full mt-2.5 mb-0.5 leading-tight max-w-[55px]" title="${escapeHtml(displayName)}">
              ${stackName(displayName)}
            </div>
 
@@ -1423,11 +1423,11 @@ function renderLiveHeader() {
              <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-2 mb-0.5 opacity-80">
                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-red-600 text-white animate-pulse shadow-sm">Live</span>
-                     <span class="text-[10px] font-medium text-indigo-200 truncate">${activeRes.startNumber} ${activeRes.className}</span>
-                     <span class="hidden sm:inline italic text-indigo-300 text-[10px]">• ${getMomentHorseLabel(activeRes, 'dressage')}</span>
+                     <span class="text-[10px] font-medium text-indigo-200 truncate">${activeRes.startNumber} ${escapeHtml(activeRes.className)}</span>
+                     <span class="hidden sm:inline italic text-indigo-300 text-[10px]">• ${escapeHtml(getMomentHorseLabel(activeRes, 'dressage'))}</span>
                 </div>
                 <div class="text-lg font-black text-white leading-none tracking-tight truncate">
-                    ${activeRes.driverName}
+                    ${escapeHtml(activeRes.driverName)}
                 </div>
             </div>
 
@@ -1596,7 +1596,7 @@ function renderDesktop(judgesPresent) {
     rows.forEach((res, index) => {
         const currentClassLabel = res._mergedLabel || res.className || 'Okänd Klass';
         if (viewMode === 'byclass' && currentClassLabel !== lastClass) {
-            html += `<tr class="bg-gray-100 dark:bg-gray-700 border-t border-b border-gray-200 dark:border-gray-600"><td colspan="20" class="px-4 py-2 font-bold text-gray-700 dark:text-gray-200 text-sm">${t('class')}: ${currentClassLabel}</td></tr>`;
+            html += `<tr class="bg-gray-100 dark:bg-gray-700 border-t border-b border-gray-200 dark:border-gray-600"><td colspan="20" class="px-4 py-2 font-bold text-gray-700 dark:text-gray-200 text-sm">${t('class')}: ${escapeHtml(currentClassLabel)}</td></tr>`;
             lastClass = currentClassLabel;
         }
 
@@ -1689,15 +1689,15 @@ function renderDesktop(judgesPresent) {
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center font-semibold text-xs lg:text-sm text-gray-900 dark:text-white">${placHtml}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-xs lg:text-sm text-gray-900 dark:text-gray-300 sticky-col-start ${rowClass || ''}">${sn}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowClass || ''}" style="min-width: 120px;">
-                <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate" title="${res.driverName || ''}">${res.driverName || ''}</div>
+                <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate" title="${escapeHtml(res.driverName || '')}">${escapeHtml(res.driverName || '')}</div>
                 <div class="text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 leading-tight whitespace-normal hidden lg:block mb-0.5 mt-0.5">${getMomentHorseLabelStacked(res, 'dressage')}</div>
             </td>
-            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400">${currentClassLabel}</td>
+            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400">${escapeHtml(currentClassLabel)}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap">
-                <div class="flex items-center gap-1.5 lg:gap-2" title="${res.clubName || ''}">
+                <div class="flex items-center gap-1.5 lg:gap-2" title="${escapeHtml(res.clubName || '')}">
                     ${getFlagHtml(res)}
                     ${getClubLogoHtml(res)}
-                    <span class="hidden lg:inline-block text-[11px] lg:text-sm text-gray-700 dark:text-gray-300">${res.clubName || ''}</span>
+                    <span class="hidden lg:inline-block text-[11px] lg:text-sm text-gray-700 dark:text-gray-300">${escapeHtml(res.clubName || '')}</span>
                 </div>
             </td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-[11px] lg:text-sm text-gray-900 dark:text-gray-300">${formatStartTimeLabel(res.startTime) || '–'}</td>
@@ -1707,7 +1707,7 @@ function renderDesktop(judgesPresent) {
                 return `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs text-gray-300 dark:text-gray-600">—</td>`;
             }
             const match = Object.values(res.judges || {}).find(j => (j.position === pos || expandDressagePosition(j) === pos));
-            return `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm" title="${match ? (match.name || match.id) : ''}">${judgeChip(match, sn)}</td>`;
+            return `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm" title="${match ? escapeHtml(match.name || match.id) : ''}">${judgeChip(match, sn)}</td>`;
         }).join('')}
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right text-xs lg:text-sm ${percentClass}">${percentHtml}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm text-gray-500 dark:text-gray-400">${res.errorPoints > 0 ? res.errorPoints : '—'}</td>
@@ -1840,14 +1840,14 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
         latestScoreHtml = `
       <div class="latest-score-section">
         <div class="moment-details">
-          <div class="moment-no">M.${lastUpdate.momentNo}</div>
+          <div class="moment-no">M.${escapeHtml(lastUpdate.momentNo)}</div>
           <div>
-            <div class="moment-text">${moment?.text || lastUpdate.momentText || ''}</div>
-            <div class="moment-judge-text">${moment?.judge || ''}</div>
+            <div class="moment-text">${escapeHtml(moment?.text || lastUpdate.momentText || '')}</div>
+            <div class="moment-judge-text">${escapeHtml(moment?.judge || '')}</div>
           </div>
         </div>
         <div class="latest-score-display">
-          <span class="judge-pos">${lastUpdate.judgePosition || ''}</span>
+          <span class="judge-pos">${escapeHtml(lastUpdate.judgePosition || '')}</span>
           <span class="score">${scoreTxt}</span>
         </div>
       </div>
@@ -1866,7 +1866,7 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
     <div class="ticker-grid ${compact ? 'compact-judges' : ''} ${summaryOnly ? 'summary-only' : ''}">
       <div class="ticker-header">
         ${liveIndicatorHtml} PÅ BANAN:
-        <strong>#${activeEquipageInfo.startNumber} ${activeEquipageInfo.driverName || ''}</strong>
+        <strong>#${activeEquipageInfo.startNumber} ${escapeHtml(activeEquipageInfo.driverName || '')}</strong>
       </div>
       ${latestScoreHtml}
 

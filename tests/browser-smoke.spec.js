@@ -91,6 +91,41 @@ test('seeded stress monitor smoke flow', async ({ page }) => {
   await expect(page.locator('#page-maraton-monitor')).toContainText(/\d{2}:\d{2},\d{2}/);
 });
 
+test('names with HTML are shown as text on public pages, never run', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const payload = (tag) => `<img src=x onerror="window.__xss=(window.__xss||[]).concat('${tag}')">${tag}`;
+
+  await page.evaluate(async ({ competitionId, names }) => {
+    const { getEquipages, saveEquipage } = await import('../js/services/equipageService.js');
+    const { updateCompetition } = await import('../js/services/competitionService.js');
+    const equipages = await getEquipages(competitionId);
+    const eq = equipages.find(e => e.startNumber != null) || equipages[0];
+    await saveEquipage(competitionId, eq.startNumber, {
+      driverName: names.driver, clubName: names.club, horseName: names.horse, speakerNotes: names.notes
+    });
+    await updateCompetition(competitionId, { name: names.comp, location: names.loc });
+  }, {
+    competitionId,
+    names: {
+      driver: payload('DRIVER'), club: payload('CLUB'), horse: payload('HORSE'),
+      notes: `</textarea>${payload('NOTES')}`, comp: payload('COMP'), loc: payload('LOC')
+    }
+  });
+
+  const routes = ['deltagare', 'hastar', 'starttider', 'dressyr-results', 'maraton-results', 'precision-results',
+    'total-resultat', 'dressyr-monitor', 'maraton-monitor', 'precision-monitor', 'speaker', 'competition-center'];
+  for (const route of routes) {
+    await page.goto(`/index.html#${route}`);
+    await page.waitForTimeout(2500);
+    const fired = await page.evaluate(() => window.__xss || []);
+    expect(fired, `HTML in data ran as code on #${route}`).toEqual([]);
+  }
+  // The header shows the name as text
+  await page.goto('/index.html#deltagare');
+  await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
+});
+
 test('marathon input loads a seeded equipage with obstacle data without errors', async ({ page }) => {
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
   // Errors in loading a result are caught and logged (console.error), errors

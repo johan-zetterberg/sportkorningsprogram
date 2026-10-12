@@ -8,6 +8,7 @@ import { getTeamScoringProfile, getTeamScoringProfileOptions } from '../../servi
 import { getTeamCompositionIssues } from '../../services/teamCalculationService.js';
 import { getFeiDressageStartSlots, supportsFeiTeamBlocks } from '../../services/feiStartOrderService.js';
 import { setGlobalState } from '../../main.js';
+import { jsStringAttr } from '../../utils/sharedUtils.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -353,7 +354,7 @@ function renderTeamsList() {
                 <span class="text-xs ${memberCountIsValid ? 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'} px-2 py-0.5 rounded-full">${members.length} / ${profile.minimumMembers}-${profile.maximumMembers}</span>
             </h3>
           </div>
-          <button class="text-red-500 hover:text-red-700 text-sm px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20" onclick="window.deleteTeamHandler('${team.id}', '${team.name}')">
+          <button class="text-red-500 hover:text-red-700 text-sm px-2 py-1 rounded hover:bg-red-50 dark:hover:bg-red-900/20" onclick="window.deleteTeamHandler(${jsStringAttr(team.id)}, ${jsStringAttr(team.name)})">
             Ta bort lag
           </button>
         </div>
@@ -405,7 +406,7 @@ function createDraggableCard(eq, currentTeamId = null) {
       ${currentTeamId ? `
       <!-- Remove button if in team -->
       <button class="text-gray-400 hover:text-red-500 p-1 opacity-0 group-hover:opacity-100 transition-opacity" 
-              onclick="window.removeMemberHandler('${escapeAttr(currentTeamId)}', '${escapeAttr(eq.id)}')" title="Ta bort från lag">
+              onclick="window.removeMemberHandler(${jsStringAttr(currentTeamId)}, ${jsStringAttr(eq.id)})" title="Ta bort från lag">
         ✕
       </button>
       ` : ''}

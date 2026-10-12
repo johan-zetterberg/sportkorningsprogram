@@ -1,3 +1,5 @@
+import { escapeHtml } from '../utils/sharedUtils.js';
+
 export function normalizeCountryCode(raw) {
   if (!raw || typeof raw !== 'string') return null;
   const code = raw.trim().toUpperCase();
@@ -75,8 +77,10 @@ export function flagPngUrl(cc) {
 
 // HTML i modaler
 export function getFlagHtml(eq) {
-  const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
-  return `<img src="${flagPngUrl(cc)}" crossorigin="anonymous" alt="${cc.toUpperCase()}" class="inline-block" title="${cc.toUpperCase()}">`;
+  let cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
+  if (!/^[A-Za-z]{2,3}$/.test(cc)) cc = 'se';
+  const ccUpper = escapeHtml(cc.toUpperCase());
+  return `<img src="${escapeHtml(flagPngUrl(cc))}" crossorigin="anonymous" alt="${ccUpper}" class="inline-block" title="${ccUpper}">`;
 }
 
 // DataURL till PDF (försöker hämta, faller tillbaka till null)

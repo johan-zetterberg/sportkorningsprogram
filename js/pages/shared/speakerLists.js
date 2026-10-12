@@ -12,7 +12,7 @@ import {
     calculateClassObstacleStats,
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
-import { escapeHtml } from '../../utils/sharedUtils.js';
+import { escapeHtml, jsStringAttr } from '../../utils/sharedUtils.js';
 import {
     assignPlaces,
     compareDressageRank,
@@ -125,7 +125,7 @@ export function renderLeaderToBeat(className, ctx) {
         : formatSpeakerPenalty(leader.score, { eliminated: leader.score === Infinity });
 
     if (ctx.currentDiscipline === 'precision' && leader.time) {
-        val += ` <span class="text-xs font-normal">(${leader.time})</span>`;
+        val += ` <span class="text-xs font-normal">(${escapeHtml(leader.time)})</span>`;
     }
 
     let diffHtml = '';
@@ -262,7 +262,7 @@ export function renderUpcomingList(ctx) {
                 <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${escapeHtml(eq.clubName || '')}</div>
             </div>
             <div class="text-right shrink-0">
-                 <div class="tabular-nums tracking-wide font-bold text-brand-darkblue dark:text-blue-300">${t}</div>
+                 <div class="tabular-nums tracking-wide font-bold text-brand-darkblue dark:text-blue-300">${escapeHtml(t)}</div>
             </div>
         </div>
     `}).join('');
@@ -307,7 +307,7 @@ export function renderRecentResultsList(ctx) {
         }
 
         return `
-        <div onclick="showRiderDetails('${escapeAttr(String(r.sn ?? ''))}')" class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+        <div onclick="showRiderDetails(${jsStringAttr(r.sn)})" class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
             <div class="flex justify-between items-baseline mb-1">
                 <div class="flex items-center">
                      <span class="font-bold text-gray-900 dark:text-gray-200 mr-2">#${escapeHtml(String(r.sn ?? ''))} ${escapeHtml(r.name || '')}</span>
@@ -448,7 +448,7 @@ export function renderActiveListNew(ctx) {
                         }
                     }
 
-                    return `<span class="text-[10px] tabular-nums tracking-wide ml-1 ${colorClass}" title="${title}">(${s.char}: ${Number.isFinite(displayTime) ? displayTime.toFixed(1) : '-'})</span>`;
+                    return `<span class="text-[10px] tabular-nums tracking-wide ml-1 ${colorClass}" title="${title}">(${escapeHtml(s.char)}:${Number.isFinite(displayTime) ? displayTime.toFixed(1) : '-'})</span>`;
                 }).join('');
             }
 
@@ -460,13 +460,13 @@ export function renderActiveListNew(ctx) {
             }
 
             return `
-            <div onclick="selectSpeakerRider('${escapeAttr(String(c.sn ?? ''))}')" class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
+            <div onclick="selectSpeakerRider(${jsStringAttr(c.sn)})" class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
                 <div class="flex justify-between items-start">
                     <div>
                         <div class="font-black text-lg text-gray-900 dark:text-white leading-none">#${escapeHtml(String(c.sn ?? ''))} ${escapeHtml(c.eq?.driverName || '')}</div>
-                        <div class="text-xs text-amber-800 dark:text-amber-200 font-bold mt-1 uppercase tracking-wide">${c.task.type === 'result_flash' ? 'Resultat Hinder' : 'Hinder'} ${obsNum} ${splitText}</div>
+                        <div class="text-xs text-amber-800 dark:text-amber-200 font-bold mt-1 uppercase tracking-wide">${c.task.type === 'result_flash' ? 'Resultat Hinder' : 'Hinder'} ${escapeHtml(obsNum)} ${splitText}</div>
                     </div>
-                    <div class="text-3xl tabular-nums tracking-wide font-black text-gray-800 dark:text-gray-200 tracking-tight" id="maraton-timer-${c.sn}">${timeTxt}</div>
+                    <div class="text-3xl tabular-nums tracking-wide font-black text-gray-800 dark:text-gray-200 tracking-tight" id="maraton-timer-${escapeAttr(String(c.sn ?? ''))}">${timeTxt}</div>
                 </div>
                 ${statsHtml}
             </div>`;
@@ -508,15 +508,15 @@ export function renderActiveListNew(ctx) {
             }
 
             return `
-             <div onclick="selectSpeakerRider('${escapeAttr(String(c.sn ?? ''))}')" class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
+             <div onclick="selectSpeakerRider(${jsStringAttr(c.sn)})" class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
                 <div class="flex items-center gap-2 overflow-hidden">
                     <span class="font-bold text-gray-700 dark:text-gray-300 text-xs w-8">#${escapeHtml(String(c.sn ?? ''))}</span>
                     <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${escapeHtml(c.eq?.driverName || '')}</span>
                 </div>
                 <div class="flex items-center gap-3">
-                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${c.task.name}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${escapeHtml(c.task.name)}</span>
                     <div class="text-right">
-                         <span class="text-xs tabular-nums tracking-wide font-bold text-gray-800 dark:text-gray-200" id="maraton-timer-${c.sn}">${timeTxt}</span>
+                         <span class="text-xs tabular-nums tracking-wide font-bold text-gray-800 dark:text-gray-200" id="maraton-timer-${escapeAttr(String(c.sn ?? ''))}">${timeTxt}</span>
                          ${limitsHtml}
                     </div>
                 </div>

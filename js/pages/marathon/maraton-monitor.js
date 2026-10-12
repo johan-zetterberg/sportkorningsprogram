@@ -11,6 +11,7 @@ import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosServ
 import { getFlagHtml } from '../../services/flagsService.js';
 import { getMarathonActiveState } from '../../services/competitionStatusService.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 // Importera modalen direkt
 import { showDetailsModal } from '../../ui/marathonModal.js';
@@ -451,13 +452,13 @@ function renderUpcomingPanel() {
       const startTime = rawTime ? toTimeLabel(rawTime) : '—';
       return `
   <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
-data-sn="${eq.startNumber}" >
+data-sn="${escapeHtml(eq.startNumber ?? '')}" >
         <div class="flex items-center gap-3 min-w-0">
-          <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${eq.startNumber}</span>
-          <span class="truncate dark:text-gray-300">${eq.driverName || ''}</span>
+          <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${escapeHtml(eq.startNumber ?? '')}</span>
+          <span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName || '')}</span>
         </div>
         <div class="flex items-center gap-3 shrink-0">
-          <div class="flex items-center gap-1 justify-start" title="${eq.clubName || ''}">
+          <div class="flex items-center gap-1 justify-start" title="${escapeHtml(eq.clubName || '')}">
             ${getFlagHtml(eq)}
             ${getClubLogoHtml(eq)}
           </div>
@@ -514,13 +515,13 @@ function renderFinishedPanel() {
 
       return `
   <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
-data-sn="${fin.sn}" >
+data-sn="${escapeHtml(fin.sn ?? '')}" >
               <div class="flex items-center gap-3 min-w-0">
-                <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${fin.sn}</span>
-                <span class="truncate dark:text-gray-300">${fin.name || ''}</span>
+                <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${escapeHtml(fin.sn ?? '')}</span>
+                <span class="truncate dark:text-gray-300">${escapeHtml(fin.name || '')}</span>
               </div>
               <div class="flex items-center gap-3 shrink-0">
-                <div class="flex items-center gap-1 justify-start" title="${fin.clubName || ''}">
+                <div class="flex items-center gap-1 justify-start" title="${escapeHtml(fin.clubName || '')}">
                   ${getFlagHtml(fin.eqObj)}
                   ${getClubLogoHtml(fin.eqObj)}
                 </div>
@@ -577,17 +578,17 @@ function renderMonitor() {
        <div id="warning-${eq.startNumber}"></div>
            <div>
              <div class="flex justify-between items-start">
-               <h3 class="text-lg font-bold dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
+               <h3 class="text-lg font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
                <div class="flex flex-col items-end gap-1">
                    <span class="task-badge px-2 py-0.5 text-xs font-semibold rounded-full ${active.task.type === 'obstacle' ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200' : 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200'}">
-                   ${active.task.name}
+                   ${escapeHtml(active.task.name)}
                    </span>
                </div>
              </div>
               <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1 mb-2 flag-logo-row">
                 ${getFlagHtml(eq)}
                 ${getClubLogoHtml(eq)}
-                <span>${eq.className}</span>
+                <span>${escapeHtml(eq.className)}</span>
                 <span class="rank-badge inline-block" id="rank-${eq.startNumber}"></span>
               </div>
            </div>
@@ -658,8 +659,8 @@ function renderMonitor() {
       card.className = `relative rounded-lg shadow-xl p-6 flex flex-col justify-center items-center border-l-8 ${cardColor} h-full transform scale-105 transition-transform`;
       card.innerHTML = `
              <div class="absolute top-2 right-2 text-xs font-mono text-gray-400">RESULTAT</div>
-             <h3 class="text-2xl font-bold mb-2 text-center dark:text-white">#${eq.startNumber} ${eq.driverName}</h3>
-             <div class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-6">${active.task.name}</div>
+             <h3 class="text-2xl font-bold mb-2 text-center dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
+             <div class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-6">${escapeHtml(active.task.name)}</div>
              <div class="text-6xl font-extrabold mb-4 tracking-tight ${isFinite(penalty) ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}">${timeStr}</div>
              ${Number.isFinite(obstaclePlace) ? `<div class="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2">Plac i klassen: ${obstaclePlace}</div>` : ''}
              <div class="text-center mb-4 font-sans">${comparisonHtml}</div>
@@ -751,7 +752,7 @@ function renderMonitor() {
               else if (diff < stat.avg) cls = 'bg-blue-50 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-200';
               else cls = 'bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-200';
             }
-            return `<span class="${cls} px-1.5 py-0.5 rounded border text-[10px] font-mono">${s.char}: ${(diff / 1000).toFixed(1)}s</span>`;
+            return `<span class="${cls} px-1.5 py-0.5 rounded border text-[10px] font-mono">${escapeHtml(s.char)}: ${(diff / 1000).toFixed(1)}s</span>`;
           }).slice(-8);
           splitEl.innerHTML = `<div class="flex flex-wrap justify-center gap-1 mt-2 mb-1 cursor-help">${items.join('')}</div>`;
         }

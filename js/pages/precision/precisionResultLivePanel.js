@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 function formatPanelPenalty(value) {
   if (value === Infinity) return 'ELIM';
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '0.00';
@@ -33,12 +35,12 @@ export function renderPrecisionLiveStatusPanel({
                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                  På banan
                </span>
-               <span class="text-slate-400 text-sm truncate">${equipage.className}</span>
+               <span class="text-slate-400 text-sm truncate">${escapeHtml(equipage.className)}</span>
              </div>
-             <h2 class="text-2xl md:text-3xl font-bold truncate leading-tight">${equipage.driverName}</h2>
+             <h2 class="text-2xl md:text-3xl font-bold truncate leading-tight">${escapeHtml(equipage.driverName)}</h2>
              <p class="text-slate-400 text-sm md:text-base truncate">${horseLabelHtml}</p>
              <div class="flex items-center gap-2 mt-2 text-xs text-slate-500">
-               ${flagHtml} ${equipage.clubName || ''}
+               ${flagHtml} ${escapeHtml(equipage.clubName || '')}
              </div>
            </div>
         </div>
@@ -74,13 +76,13 @@ export function renderPrecisionLiveStatusPanel({
            <div class="flex items-center gap-3 min-w-0">
              <div class="bg-white/10 px-2 py-1 rounded border border-white/10 font-bold font-mono text-xl">#${equipage.startNumber}</div>
              <div class="min-w-0">
-               <h2 class="text-lg font-bold truncate leading-tight">${equipage.driverName}</h2>
+               <h2 class="text-lg font-bold truncate leading-tight">${escapeHtml(equipage.driverName)}</h2>
                <div class="flex items-center gap-2">
                  <span class="inline-flex items-center gap-1 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold uppercase tracking-wider border border-emerald-500/30 px-1">
                    <span class="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
                    Live
                  </span>
-                 <span class="text-slate-400 text-[10px] truncate">${equipage.className}</span>
+                 <span class="text-slate-400 text-[10px] truncate">${escapeHtml(equipage.className)}</span>
                </div>
              </div>
            </div>

@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 export function buildProcessedTotalTeams({
   rawTeams = [],
   processedResults = [],
@@ -135,10 +137,10 @@ export function renderTeamMemberRow(member = {}, {
              <span class="w-5 text-center flex-shrink-0">${statusIcon}</span>
              <div class="flex flex-col truncate">
                 <span class="${memberTextClass} truncate">
-                  ${flagHtml} ${member.name}
+                  ${flagHtml} ${escapeHtml(member.name)}
                 </span>
                 <span class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                  #${member.startNumber} ${clubName || ''} ${clubLogoHtml}
+                  #${member.startNumber} ${escapeHtml(clubName || '')} ${clubLogoHtml}
                 </span>
              </div>
            </div>
@@ -222,7 +224,7 @@ export function renderTeamCard(team = {}, {
   const isBestMarathon = isBestTeamDiscipline(team, 'marathon', teamBests);
   const isBestPrecision = isBestTeamDiscipline(team, 'precision', teamBests);
   const validationNotice = team.validationIssues?.length
-    ? `<div class="px-4 py-2 text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">${team.validationIssues.join(' ')}</div>`
+    ? `<div class="px-4 py-2 text-sm text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-900/20 border-b border-amber-200 dark:border-amber-800">${team.validationIssues.map(escapeHtml).join(' ')}</div>`
     : '';
   const eligibilityNotice = team.isIneligible
     ? '<div class="px-4 py-2 text-sm text-red-800 dark:text-red-200 bg-red-50 dark:bg-red-900/20 border-b border-red-200 dark:border-red-800">För få ekipage har fullföljt alla tre moment utan uteslutning för att laget ska få ett FEI-resultat.</div>'
@@ -236,7 +238,7 @@ export function renderTeamCard(team = {}, {
             <div class="flex items-center">
                 ${teamAssetHtml}
                 <div>
-                    <h3 class="font-bold text-lg text-gray-900 dark:text-white leading-tight">${team.teamName}</h3>
+                    <h3 class="font-bold text-lg text-gray-900 dark:text-white leading-tight">${escapeHtml(team.teamName)}</h3>
                     ${team.isEliminated ? '' : `<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide font-medium">${team.preliminary ? `Preliminär efter ${preliminaryPhaseLabel(team.preliminary.after)}` : 'Lagtotal'}</div>`}
                 </div>
             </div>

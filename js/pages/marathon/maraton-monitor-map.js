@@ -3,6 +3,10 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { getClubLogoHtml } from '../../services/logosService.js';
 import { showAlert } from '../../ui/components.js';
 import { getObstacleArray, formatMsLive, pausedMsSince } from '../../utils/marathonUtils.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
+// Safe JS string literal for use inside an HTML attribute (onclick="fn(...)")
+const jsAttrArg = (value) => escapeHtml(JSON.stringify(String(value ?? '')));
 
 let map = null;
 let resizeObserver = null;
@@ -183,7 +187,7 @@ function updateLegend(activeEquipages) {
         html += `
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span>
-                <span class="text-gray-600 font-medium">${className}</span>
+                <span class="text-gray-600 font-medium">${escapeHtml(className)}</span>
             </div>
         `;
     });
@@ -250,15 +254,15 @@ function updateMarkers(activeEquipages) {
                 <div class="relative group">
                     <div class="map-marker-ping" style="background-color: ${color}"></div>
                     <div class="map-marker-body" style="background-color: ${color}">
-                        <span class="map-marker-sn">#${sn}</span>
+                        <span class="map-marker-sn">#${escapeHtml(sn)}</span>
                     </div>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[5000]">
                         <div class="bg-gray-900/95 backdrop-blur text-white text-[11px] py-1.5 px-3 rounded-lg whitespace-nowrap shadow-2xl border border-white/20">
                             <div class="font-bold flex items-center gap-2">
-                                ${sn}. ${active.equipageInfo.driverName}
+                                ${escapeHtml(sn)}. ${escapeHtml(active.equipageInfo.driverName)}
                             </div>
                             <div class="text-white/70 text-[10px] uppercase tracking-wider mt-0.5">
-                                ${active.task.name} • ${active.equipageInfo.className}
+                                ${escapeHtml(active.task.name)} • ${escapeHtml(active.equipageInfo.className)}
                             </div>
                         </div>
                     </div>
@@ -277,12 +281,12 @@ function updateMarkers(activeEquipages) {
             const popupHtml = `
                 <div class="p-3 min-w-[200px] font-sans">
                     <div class="flex items-center gap-2 mb-3 border-b pb-2">
-                       <span class="bg-gray-800 text-white font-black px-2 py-1 rounded text-xs shadow-sm">#${sn}</span>
+                       <span class="bg-gray-800 text-white font-black px-2 py-1 rounded text-xs shadow-sm">#${escapeHtml(sn)}</span>
                        <div class="truncate">
-                           <div class="font-bold text-sm text-gray-900 leading-tight">${active.equipageInfo.driverName}</div>
+                           <div class="font-bold text-sm text-gray-900 leading-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
                            <div class="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
                                ${getFlagHtml(active.equipageInfo)}
-                               ${active.equipageInfo.clubName || ''}
+                               ${escapeHtml(active.equipageInfo.clubName || '')}
                            </div>
                        </div>
                     </div>
@@ -293,7 +297,7 @@ function updateMarkers(activeEquipages) {
                                 <div class="text-[9px] text-gray-400 uppercase font-black tracking-wider mb-0.5">${t('status') || 'Status'}</div>
                                 <div class="text-xs font-bold ${isObstacle ? 'text-amber-600' : 'text-blue-600'} flex items-center gap-1">
                                     ${isObstacle ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>' : ''}
-                                    ${active.task.name}
+                                    ${escapeHtml(active.task.name)}
                                 </div>
                             </div>
                             <div class="text-right">
@@ -305,12 +309,12 @@ function updateMarkers(activeEquipages) {
                         ${active.equipageInfo.horseNames ? `
                         <div class="bg-gray-50 p-2 rounded border border-gray-100">
                            <div class="text-[9px] text-gray-400 uppercase font-black tracking-wider mb-1">${t('horses') || 'Hästar'}</div>
-                           <div class="text-[10px] text-gray-700 leading-tight">${active.equipageInfo.horseNames}</div>
+                           <div class="text-[10px] text-gray-700 leading-tight">${escapeHtml(active.equipageInfo.horseNames)}</div>
                         </div>
                         ` : ''}
                     </div>
 
-                    <button onclick="window.openMarathonDetailsModal('${sn}')" class="w-full bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-black py-2 rounded-lg transition-all shadow-md active:scale-95">
+                    <button onclick="window.openMarathonDetailsModal(${jsAttrArg(sn)})" class="w-full bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-black py-2 rounded-lg transition-all shadow-md active:scale-95">
                         ${t('view_details') || 'VISA DETALJER'}
                     </button>
                     <div class="text-[9px] text-gray-400 text-center mt-2 italic text-gray-400 font-normal">${t('click_map_to_close') || 'Klicka på kartan för att stänga'}</div>
@@ -365,21 +369,21 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
                 : 'bg-blue-50 text-blue-700 border border-blue-100';
 
             html += `
-                <div onclick="window.focusDriverOnMap('${sn}')" class="group flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-100 shadow-sm hover:border-gray-200 transition-all cursor-pointer active:scale-[0.98]">
+                <div onclick="window.focusDriverOnMap(${jsAttrArg(sn)})" class="group flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-100 shadow-sm hover:border-gray-200 transition-all cursor-pointer active:scale-[0.98]">
                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0" style="background-color: ${classColor}">
-                        ${sn}
+                        ${escapeHtml(sn)}
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start mb-1">
-                            <div class="font-bold text-gray-900 text-[11px] truncate uppercase tracking-tight">${active.equipageInfo.driverName}</div>
-                            <div id="sidebar-timer-${sn}" class="text-[10px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm ${timerClasses}">00:00,00</div>
+                            <div class="font-bold text-gray-900 text-[11px] truncate uppercase tracking-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
+                            <div id="sidebar-timer-${escapeHtml(sn)}" class="text-[10px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm ${timerClasses}">00:00,00</div>
                         </div>
                         <div class="flex items-center gap-2">
                             <span class="text-[9px] font-bold uppercase tracking-tighter ${isObstacle ? 'text-amber-600' : 'text-gray-400'}">
-                                ${active.task.name}
+                                ${escapeHtml(active.task.name)}
                             </span>
                             <span class="text-[9px] text-gray-400 truncate opacity-50">•</span>
-                            <span class="text-[9px] text-gray-400 truncate">${active.equipageInfo.className}</span>
+                            <span class="text-[9px] text-gray-400 truncate">${escapeHtml(active.equipageInfo.className)}</span>
                         </div>
                     </div>
                 </div>
@@ -512,7 +516,7 @@ function updateStaticMarkers() {
         const iconHtml = `
             <div class="static-marker">
                 <div class="static-marker-bubble ${colorClass}">
-                    ${label}
+                    ${escapeHtml(label)}
                 </div>
             </div>
         `;
@@ -530,7 +534,7 @@ function updateStaticMarkers() {
             zIndexOffset: -100 // Behind active drivers
         }).addTo(map);
 
-        m.bindTooltip(getStaticFullName(key), { direction: 'top', offset: [0, -10] });
+        m.bindTooltip(escapeHtml(getStaticFullName(key)), { direction: 'top', offset: [0, -10] });
         staticMarkers.push(m);
     });
 }

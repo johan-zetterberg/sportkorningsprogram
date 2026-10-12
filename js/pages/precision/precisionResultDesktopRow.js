@@ -1,4 +1,5 @@
 import { incompleteResultReasonHtml } from '../../ui/resultSettingsNotice.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 function defaultFormatPenalty(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
@@ -50,13 +51,13 @@ export function renderPrecisionResultDesktopRow({
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 font-semibold text-[11px] lg:text-sm">${data.place || '–'}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm sticky-col-start ${rowBgClass || ''}">${data.eq.startNumber}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-left align-top sticky-col-driver ${rowBgClass || ''}">
-                    <button type="button" class="text-xs lg:text-base font-bold text-gray-900 dark:text-white hover:text-blue-700 dark:hover:text-blue-400 hover:underline text-left transition-colors truncate block w-full" title="${data.eq.driverName}">${data.eq.driverName}</button>
+                    <button type="button" class="text-xs lg:text-base font-bold text-gray-900 dark:text-white hover:text-blue-700 dark:hover:text-blue-400 hover:underline text-left transition-colors truncate block w-full" title="${escapeHtml(data.eq.driverName)}">${escapeHtml(data.eq.driverName)}</button>
                     <div class="hidden lg:block text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 leading-tight whitespace-nowrap">${horseLabelHtml}</div>
                 </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-none" title="${data.eq._mergedLabel || data.eq.className || ''}">${data.eq._mergedLabel || data.eq.className}</div></td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-none" title="${escapeHtml(data.eq._mergedLabel || data.eq.className || '')}">${escapeHtml(data.eq._mergedLabel || data.eq.className)}</div></td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5">
                     <div class="flex items-center gap-2">
-                        ${flagHtml} ${clubLogoHtml} <span class="truncate max-w-[80px] lg:max-w-[120px] text-[11px] lg:text-sm" title="${data.eq.clubName || ''}">${data.eq.clubName || ''}</span>
+                        ${flagHtml} ${clubLogoHtml} <span class="truncate max-w-[80px] lg:max-w-[120px] text-[11px] lg:text-sm" title="${escapeHtml(data.eq.clubName || '')}">${escapeHtml(data.eq.clubName || '')}</span>
                     </div>
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm whitespace-nowrap">${startTime}</td>

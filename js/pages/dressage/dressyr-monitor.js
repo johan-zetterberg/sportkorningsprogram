@@ -13,6 +13,7 @@ import { onSnapshot, doc } from 'https://www.gstatic.com/firebasejs/11.6.1/fireb
 import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
 
 import {
@@ -294,15 +295,15 @@ function renderCurrentRider() {
       <div class="flex items-start gap-6">
         <div class="flex-1">
           <div class="flex items-center gap-3 mb-1 dark:text-gray-100">
-            ${clubImg}<div class="text-2xl font-bold">#${eq.startNumber} ${eq.driverName || ''}</div>${flagImg}
+            ${clubImg}<div class="text-2xl font-bold">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName || '')}</div>${flagImg}
           </div>
           <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-            ${eq._mergedLabel || eq.className || ''}${eq.clubName ? ' • ' + eq.clubName : ''}
+            ${escapeHtml(eq._mergedLabel || eq.className || '')}${eq.clubName ? ' • ' + escapeHtml(eq.clubName) : ''}
           </div>
           <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
             <div class="p-3 rounded bg-gray-50 dark:bg-gray-700 md:col-span-4">
               <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${t('dressage_live_moment_label')}</div>
-              <div id="live-moment-text" class="font-semibold leading-snug text-lg dark:text-gray-200">${lastMomentTxt}</div>
+              <div id="live-moment-text" class="font-semibold leading-snug text-lg dark:text-gray-200">${escapeHtml(lastMomentTxt)}</div>
               <div class="mt-1 text-[12px] text-gray-700 dark:text-gray-300">${t('dressage_live_moment_desc')}</div>
             </div>
             <div class="p-3 rounded bg-gray-50 dark:bg-gray-700 md:col-span-2">
@@ -364,7 +365,7 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
     if (judgeObj) judgeName = judgeObj.name || judgeObj.fullname || '';
 
     // Display formatting
-    const nameHtml = judgeName ? `<div class="text-[10px] text-gray-400 truncate -mt-0.5 mb-1">${judgeName}</div>` : '';
+    const nameHtml = judgeName ? `<div class="text-[10px] text-gray-400 truncate -mt-0.5 mb-1">${escapeHtml(judgeName)}</div>` : '';
 
     // Calculate projection for this specific judge
     const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber)) || {};
@@ -396,7 +397,7 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
     return `
       <div class="p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border dark:border-gray-600">
         <div class="flex flex-col items-center">
-             <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-0.5">${t('judge')} ${pos}</div>
+             <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-0.5">${t('judge')} ${escapeHtml(pos)}</div>
              ${nameHtml}
         </div>
         <div class="grid grid-cols-3 gap-1.5 text-center mt-1 dark:text-gray-200">
@@ -404,7 +405,7 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
           <div><div class="text-[10px] text-gray-500 dark:text-gray-400">${t('dressage_points')}</div><div class="text-sm font-bold tabular-nums">${ptsTxt}</div></div>
           <div><div class="text-[10px] text-gray-500 dark:text-gray-400">${t('dressage_penalty_header')}</div><div class="text-sm font-semibold tabular-nums text-blue-700 dark:text-blue-400">${penTxt || '–'}</div></div>
         </div>
-        <div class="mt-1.5 text-[10.5px] text-gray-700 dark:text-gray-300 truncate" title="${lastTxt}${lastScoreTxt}"><span class="text-gray-500 dark:text-gray-400">${t('dressage_monitor_moment_label')}:</span> ${lastScoreTxt ? '<b>' + lastScoreTxt + '</b>' : ''}</div>
+        <div class="mt-1.5 text-[10.5px] text-gray-700 dark:text-gray-300 truncate" title="${escapeHtml(lastTxt)}${lastScoreTxt}"><span class="text-gray-500 dark:text-gray-400">${t('dressage_monitor_moment_label')}:</span> ${lastScoreTxt ? '<b>' + lastScoreTxt + '</b>' : ''}</div>
       </div>`;
   }).join('');
 
@@ -459,7 +460,7 @@ function renderUpcomingPanel() {
     if (!upcoming.length) { html += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('dressage_all_started')}</p>`; } else {
       html += upcoming.map(eq => `
       <div class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1">
-        <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${eq.startNumber}</span><span class="truncate dark:text-gray-300">${eq.driverName}</span></div>
+        <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${escapeHtml(eq.startNumber)}</span><span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName)}</span></div>
         <div class="flex items-center gap-2 shrink-0">${getFlagHtml(eq)}${getClubLogoHtml(eq)}<span class="font-semibold text-gray-800 dark:text-gray-200 w-12 text-right tabular-nums">${formatTime(startTimes[String(eq.startNumber)]?.dressage)}</span></div>
       </div>`).join('');
     }
@@ -495,10 +496,10 @@ function renderResultsPanel() {
 
     html += `<div class="flex items-center justify-end text-xs font-medium text-gray-500 dark:text-gray-400 uppercase pr-1" style="padding-right: 0.25rem;"><span class="w-16 text-right">${t('dressage_avg_percent')}</span><span class="w-16 text-right ml-3">${t('dressage_points')}</span><span class="w-18 text-right ml-3">${t('dressage_penalty_header')}</span></div>`;
     html += list.map(res => `
-    <div class="result-row-interactive hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1" data-sn="${res.sn}">
-      <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${res.sn}</span><span class="truncate max-w-[22ch] dark:text-gray-300">${res.name || ''}</span><span class="text-gray-400 shrink-0">•</span><span class="hidden sm:inline text-gray-600 dark:text-gray-400 truncate max-w-[20ch]">${res.className || ''}</span></div>
+    <div class="result-row-interactive hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1" data-sn="${escapeHtml(res.sn)}">
+      <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${escapeHtml(res.sn)}</span><span class="truncate max-w-[22ch] dark:text-gray-300">${escapeHtml(res.name || '')}</span><span class="text-gray-400 shrink-0">•</span><span class="hidden sm:inline text-gray-600 dark:text-gray-400 truncate max-w-[20ch]">${escapeHtml(res.className || '')}</span></div>
       <div class="flex items-center gap-3 shrink-0">
-        <div class="hidden md:flex items-center gap-1" title="${res.clubName || ''}">${getFlagHtml({ country: res.country })}${getClubLogoHtml({ clubName: res.clubName })}</div>
+        <div class="hidden md:flex items-center gap-1" title="${escapeHtml(res.clubName || '')}">${getFlagHtml({ country: res.country })}${getClubLogoHtml({ clubName: res.clubName })}</div>
         <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${formatDressageMonitorScore(res.finalPercent, { eliminated: isDressageMonitorEliminated(res), suffix: ' %' })}</span>
         <span class="w-16 text-right text-gray-600 dark:text-gray-300 tabular-nums">${formatDressageMonitorScore(res.finalPoints, { eliminated: isDressageMonitorEliminated(res), suffix: ' p' })}</span>
         <span class="font-bold text-blue-700 dark:text-blue-400 w-18 text-right tabular-nums">${formatDressageMonitorPenalty(res.finalPenalty, res)}</span>
@@ -887,7 +888,7 @@ export async function load() {
     triggerRender();
   } catch (err) {
     console.error('Kunde inte ladda data för dressyr-monitor:', err);
-    if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">Kunde inte ladda nödvändig data: ${err.message}</p>`;
+    if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">Kunde inte ladda nödvändig data: ${escapeHtml(err.message)}</p>`;
   }
 }
 

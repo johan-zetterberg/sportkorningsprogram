@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 const SORT_ICON_HTML = '<span class="ml-1 inline-block align-middle sort-icon"></span>';
 
 export function renderPrecisionTableHead(labels = {}) {
@@ -25,7 +27,7 @@ export function renderPrecisionTableHead(labels = {}) {
 }
 
 export function renderPrecisionGroupHeader(label, colspan = 16) {
-  return `<tr class="bg-gray-200 dark:bg-gray-700 border-t-2 border-b-2 border-gray-300 dark:border-gray-600 sticky top-0 z-10"><td class="px-3 py-2 font-bold text-gray-800 dark:text-gray-200" colspan="${colspan}">${label}</td></tr>`;
+  return `<tr class="bg-gray-200 dark:bg-gray-700 border-t-2 border-b-2 border-gray-300 dark:border-gray-600 sticky top-0 z-10"><td class="px-3 py-2 font-bold text-gray-800 dark:text-gray-200" colspan="${colspan}">${escapeHtml(label)}</td></tr>`;
 }
 
 export function renderPrecisionTable({ headHtml, bodyHtml }) {

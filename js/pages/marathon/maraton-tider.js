@@ -7,6 +7,7 @@ import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../..
 import { ensureClubLogosLoaded, getClubLogoUrl, getClubLogoHtml } from '../../services/logosService.js';
 import { fetchFlagDataUrl, getFlagHtml, normalizeCountryCode } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl } from '../../utils/competitionLogo.js';
 import { resolvePdfCompetition } from '../../pdf/pdfCompetitionUtils.js';
 import { loadPdfLibs } from '../../pdf/pdfBase.js';
@@ -538,7 +539,7 @@ function generateResultHtml(equipage, distances, args, type) {
 
   const comp = getGlobalState('currentCompetition') || {};
   const header = (type === 'screen')
-    ? `<div class="bg-blue-50 dark:bg-blue-900/20 dark:text-blue-100 p-4 rounded-lg"><h2 class="text-xl font-bold mb-2">${t('holdtimes_for').replace('{class}', className).replace('{cat}', categoryKey)}</h2>`
+    ? `<div class="bg-blue-50 dark:bg-blue-900/20 dark:text-blue-100 p-4 rounded-lg"><h2 class="text-xl font-bold mb-2">${t('holdtimes_for').replace('{class}', escapeHtml(className)).replace('{cat}', categoryKey)}</h2>`
     : (() => {
       const flagHtml = (typeof getFlagHtml === 'function')
         ? getFlagHtml({ country: normalizeCountryCode(equipage.country || 'SE') }) : '';
@@ -550,9 +551,9 @@ function generateResultHtml(equipage, distances, args, type) {
               <div>
                 <div class="title">${t('marathon_holdtimes_title')}</div>
                 <div class="meta">
-                  #${startNumber} ${driverName || ''}${horses && horses !== '—' ? ` • ${horses}` : ''}<br/>
-                  ${t('class')}: ${className || ''} (${categoryKey})<br/>
-                  ${comp.location || ''} • ${(comp.date || '')} • ${comp.organizerName || ''}
+                  #${escapeHtml(startNumber)} ${escapeHtml(driverName || '')}${horses && horses !== '—' ? ` • ${escapeHtml(horses)}` : ''}<br/>
+                  ${t('class')}: ${escapeHtml(className || '')} (${categoryKey})<br/>
+                  ${escapeHtml(comp.location || '')} • ${escapeHtml(comp.date || '')} • ${escapeHtml(comp.organizerName || '')}
                 </div>
               </div>
               <div class="badges">
@@ -592,9 +593,9 @@ function getMarathonTimingTableClasses(type) {
 
 function openHoldtimesPrintView({ equipage, className, categoryKey, distA, distT, distB, tablesHtml }) {
   const w = window.open('', '_blank');
-  const title = `Hålltider – ${equipage?.driverName || ''} (#${equipage?.startNumber || ''})`;
+  const title = escapeHtml(`Hålltider – ${equipage?.driverName || ''} (#${equipage?.startNumber || ''})`);
   const org = (getGlobalState('currentCompetition')?.organizerName) || '';
-  const compHeader = `${getGlobalState('currentCompetition')?.location || ''} | ${getGlobalState('currentCompetition')?.date || ''} | ${org}`;
+  const compHeader = escapeHtml(`${getGlobalState('currentCompetition')?.location || ''} | ${getGlobalState('currentCompetition')?.date || ''} | ${org}`);
 
   w.document.write(`
 <!doctype html><html><head>
@@ -617,7 +618,7 @@ function openHoldtimesPrintView({ equipage, className, categoryKey, distA, distT
     <div>
       <h1>${title}</h1>
       <div class="meta">${compHeader}</div>
-      <div class="muted">${className} (${categoryKey}) • Distanser: A ${distA || 0} m • T ${distT || 0} m • B ${distB || 0} m</div>
+      <div class="muted">${escapeHtml(className)} (${categoryKey}) • Distanser: A ${distA || 0} m • T ${distT || 0} m • B ${distB || 0} m</div>
     </div>
     <div class="pill">Maraton • Hålltider</div>
   </div>

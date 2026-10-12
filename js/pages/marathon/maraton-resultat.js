@@ -73,7 +73,9 @@ import {
 import {
   isMobile,
   debounce,
-  isNum
+  escapeHtml,
+  isNum,
+  jsStringAttr
 } from '../../utils/sharedUtils.js';
 
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
@@ -471,18 +473,18 @@ function renderTable() {
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center font-bold text-gray-700 dark:text-gray-300 text-[11px] lg:text-sm">${isNum(place) ? place : '—'}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm font-medium text-gray-900 dark:text-white">${sn}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowBgClass || ''}">
-            <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1.5" title="${eq.driverName || '-'}">
-              <span class="truncate">${eq.driverName || '-'}</span>
+            <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1.5" title="${escapeHtml(eq.driverName || '-')}">
+              <span class="truncate">${escapeHtml(eq.driverName || '-')}</span>
               ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0" title="Kusken har ${eq.driverStartCount || 2} starter i tävlingen">${eq.driverStartCount || 2} st</span>` : ''}
             </div>
             <div class="hidden lg:block text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-nowrap">${getMomentHorseLabelStacked(eq, 'marathon')}</div>
         </td>
-        ${isClass ? '' : `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400"><div class="truncate max-w-[100px] lg:max-w-none" title="${eq._mergedLabel || eq.className || ''}">${eq._mergedLabel || eq.className || '-'}</div></td>`}
+        ${isClass ? '' : `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400"><div class="truncate max-w-[100px] lg:max-w-none" title="${escapeHtml(eq._mergedLabel || eq.className || '')}">${escapeHtml(eq._mergedLabel || eq.className || '-')}</div></td>`}
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400">
              <div class="flex items-center gap-1.5">
                   ${getFlagHtml(eq)}
                   ${getClubLogoHtml(eq)}
-                  <span class="truncate max-w-[100px] lg:max-w-[120px]" title="${eq.clubName || ''}">${eq.clubName || ''}</span>
+                  <span class="truncate max-w-[100px] lg:max-w-[120px]" title="${escapeHtml(eq.clubName || '')}">${escapeHtml(eq.clubName || '')}</span>
              </div>
         </td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-900 dark:text-gray-200 whitespace-nowrap">${startLabel}</td>
@@ -523,8 +525,8 @@ function renderTable() {
         const finalized = isMarathonFinalized(sn);
         if (!can) return '';
         return finalized
-          ? `<button class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 text-[10px] lg:text-xs border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded whitespace-nowrap" onclick="event.stopPropagation(); __unfinalizeMaraton('${compId}','${sn}')">${t('undo')}</button>`
-          : `<button class="text-white bg-emerald-600 hover:bg-emerald-700 text-[10px] lg:text-xs px-2 py-1 rounded shadow-sm whitespace-nowrap" onclick="event.stopPropagation(); __finalizeMaraton('${compId}','${sn}')">${t('finalize')}</button>`;
+          ? `<button class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 text-[10px] lg:text-xs border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded whitespace-nowrap" onclick="event.stopPropagation(); __unfinalizeMaraton(${jsStringAttr(compId)},${jsStringAttr(sn)})">${t('undo')}</button>`
+          : `<button class="text-white bg-emerald-600 hover:bg-emerald-700 text-[10px] lg:text-xs px-2 py-1 rounded shadow-sm whitespace-nowrap" onclick="event.stopPropagation(); __finalizeMaraton(${jsStringAttr(compId)},${jsStringAttr(sn)})">${t('finalize')}</button>`;
       })()}
              </div>
         </td>
@@ -543,7 +545,7 @@ function renderTable() {
         groups.get(k).rows.push(e);
       });
       [...groups.entries()].sort((a, b) => a[1].label.localeCompare(b[1].label, 'sv')).forEach(([, grp]) => {
-        html += `<tr class="bg-gray-100 dark:bg-gray-700 border-t border-b border-gray-200 dark:border-gray-600"><td colspan="99" class="px-4 py-2 font-bold text-gray-700 dark:text-gray-200 text-sm">${grp.label}</td></tr>`;
+        html += `<tr class="bg-gray-100 dark:bg-gray-700 border-t border-b border-gray-200 dark:border-gray-600"><td colspan="99" class="px-4 py-2 font-bold text-gray-700 dark:text-gray-200 text-sm">${escapeHtml(grp.label)}</td></tr>`;
         grp.rows.forEach((eq, index) => html += renderRow(eq, index));
       });
       tableBody.innerHTML = html;

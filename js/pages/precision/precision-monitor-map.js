@@ -1,4 +1,5 @@
 import { getFlagHtml } from '../../services/flagsService.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let map = null;
 let resizeObserver = null;
@@ -364,7 +365,7 @@ function updateLegend(activeEquipages) {
         html += `
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span>
-                <span class="text-gray-600 font-medium">${className}</span>
+                <span class="text-gray-600 font-medium">${escapeHtml(className)}</span>
             </div>
         `;
     });
@@ -460,12 +461,12 @@ function updateMarkersInterpolated() {
                 <div class="relative group" style="transition: transform 0.1s linear;">
                     <div class="map-marker-ping" style="background-color: ${classColor}"></div>
                     <div class="flex items-center justify-center w-10 h-10 rounded-full shadow-lg" style="background-color: ${classColor}; border: 2px solid white; transform: scale(0.9); transition: transform 0.2s;">
-                        <span class="font-black text-white text-sm" style="text-shadow: 0 1px 2px rgba(0,0,0,0.5);">#${sn}</span>
+                        <span class="font-black text-white text-sm" style="text-shadow: 0 1px 2px rgba(0,0,0,0.5);">#${escapeHtml(sn)}</span>
                     </div>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[5000]">
                         <div class="bg-gray-900/95 backdrop-blur text-white text-[11px] py-1.5 px-3 rounded-lg whitespace-nowrap shadow-2xl border border-white/20">
                             <div class="font-bold flex items-center gap-2">
-                                ${sn}. ${active.equipageInfo.driverName}
+                                ${escapeHtml(sn)}. ${escapeHtml(active.equipageInfo.driverName)}
                             </div>
                         </div>
                     </div>
@@ -609,7 +610,7 @@ function updateStaticMarkers() {
         const iconHtml = `
             <div class="flex items-center justify-center w-full h-full">
                 <div class="flex items-center justify-center w-7 h-7 rounded-full border-2 shadow-md font-bold text-[11px] ${colorClass} transition-transform hover:scale-125">
-                    ${label}
+                    ${escapeHtml(label)}
                 </div>
             </div>
         `;

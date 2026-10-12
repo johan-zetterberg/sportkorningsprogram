@@ -1223,11 +1223,11 @@ function renderMobile() {
 
       // Klassrubrik om vyn är grupperad per klass
       if (viewMode === 'byclass' && r.className !== lastClass) {
-        html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${cls}</div>`;
+        html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${escapeHtml(cls)}</div>`;
         lastClass = r.className;
       }
 
-      const totalLabel = r.isEliminated ? `<span class="text-red-600 dark:text-red-400 font-bold">${r.elimReason || 'ELIM'}</span>` : formatTotalResultPenalty(r.totalPenalty);
+      const totalLabel = r.isEliminated ? `<span class="text-red-600 dark:text-red-400 font-bold">${escapeHtml(r.elimReason || 'ELIM')}</span>` : formatTotalResultPenalty(r.totalPenalty);
       const dressyrLabel = formatTotalResultPenalty(r.dressage?.penalty, { eliminated: isTotalDisciplineEliminated(r, 'dressage') });
       const maratonLabel = formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') });
       const precisionLabel = formatTotalResultPenalty(r.precision?.pen, { eliminated: isTotalDisciplineEliminated(r, 'precision') });
@@ -1263,11 +1263,11 @@ function renderMobile() {
             <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
                  <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${r.startNumber}</span> 
-                 <span class="truncate">${r.driverName}</span>
+                 <span class="truncate">${escapeHtml(r.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">
                  ${getFlagHtml(eq)} ${getClubLogoHtml(eq)}
-                 ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${cls}</span>` : ''}
+                 ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(cls)}</span>` : ''}
               </div>
             </div>
             

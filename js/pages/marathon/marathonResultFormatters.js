@@ -1,4 +1,6 @@
-export const safeLower = (x) => (x == null ? '' : String(x)).toLowerCase();
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
+export const safeLower =(x) => (x == null ? '' : String(x)).toLowerCase();
 
 export function formatMsMMSS(ms) {
   const sec = Math.max(0, Math.floor(ms / 1000));
@@ -84,7 +86,7 @@ export function getMomentHorseLabelStacked(equipage, moment) {
   const label = getMomentHorseLabel(equipage, moment);
   if (label === '\u2014') return '\u2014';
   const names = label.split(/\s*&\s*/);
-  return names.map(n => `<span class="block">${n}</span>`).join('');
+  return names.map(n => `<span class="block">${escapeHtml(n)}</span>`).join('');
 }
 
 export function shortClubOrCountry(eq) {
