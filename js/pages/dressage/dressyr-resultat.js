@@ -1,6 +1,6 @@
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
-import { listenForJudges } from '../../services/adminService.js';
+import { getJudges } from '../../services/adminService.js';
 import { 
   listenForDressageStatus, 
   listenForDressageStatusCollection, 
@@ -2226,7 +2226,12 @@ function isWithdrawnOrExcluded(state, eq) {
     return text.some(s => bad.has(s));
 }
 
+// Bumped by load and __unload: a load still awaiting data when the page is left
+// (or loaded again) must not start its listeners afterwards
+let loadSeq = 0;
+
 export async function load() {
+    const mySeq = ++loadSeq;
     lastStructuralHash = null;
     lastHeaderHash = null;
     initializeDressyrScrollHelpers();
@@ -2270,9 +2275,11 @@ export async function load() {
             getConfig(competitionId, 'classMergeMap').catch(() => null),  // <-- NY
             getConfig(competitionId, 'tdbMergeMap').catch(() => null),    // <-- NY
             getConfig(competitionId, 'dressyrClassConfig').catch(() => null), // Clear Round config
-            new Promise(resolve => listenForJudges(competitionId, resolve)),
+            // One read (a listener here was never stopped); not readable for the public
+            getJudges(competitionId).catch(() => []),
             getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({}))
         ]);
+        if (mySeq !== loadSeq) return; // left or reloaded while loading
 
         // === STEG 2: Bearbeta grunddata ===
         // === STEG 2: Bearbeta grunddata ===
@@ -2439,7 +2446,8 @@ export async function load() {
 
         // === STEG 5: Starta live-lyssnarna ===
         // setupLive() kommer nu att hämta initial data OCH starta lyssnare
-        setupLive(competitionId, masterEquipageList); // 
+        if (mySeq !== loadSeq) return; // left or reloaded while loading
+        setupLive(competitionId, masterEquipageList); //
 
         // === STEG 6: Kör FÖRSTA render() ===
         // (render() kommer att anropas automatiskt inuti setupLive() när första datan är hämtad)
@@ -2458,7 +2466,7 @@ export function mountDressyrResultat() { return load(); }
 export default { load };
 
 export function __unload() {
-
+    loadSeq++;
 
     // 1) Stäng av alla aktiva lyssnare
     try { liveUnsubs.forEach(u => u()); } catch { } //

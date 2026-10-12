@@ -843,6 +843,10 @@ function setupEventListeners() {
     // Kritiska element för event-lyssnare saknas i DOM. Avbryter setup.
     return;
   }
+  // Called on every judges snapshot: bind once per rendered page, or "Nästa"
+  // and the other buttons would act once per earlier snapshot
+  if (protocolBody.dataset.listenersBound === '1') return;
+  protocolBody.dataset.listenersBound = '1';
 
   judgeSelector.addEventListener('change', (e) => {
     activeDressageJudge = allJudges.find(j => j.id === e.target.value) || null;

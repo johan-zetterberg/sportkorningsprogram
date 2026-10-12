@@ -51,6 +51,7 @@ import { escapeHtml, sanitizeRichHtml } from '../../utils/sharedUtils.js';
 let messageUnsub = null;
 let dashboardUnsub = null;
 let portalLoadToken = 0;
+let dashboardSeq = 0;
 const escapeAttr = (value) => escapeHtml(value ?? '');
 
 function sanitizePortalUrl(value) {
@@ -437,6 +438,7 @@ export async function load() {
 }
 
 async function renderDashboard(container, compId, startNumber, user) {
+    const mySeq = ++dashboardSeq;
     cleanupPortalSubscriptions();
     const dashboardUnsubs = [];
 
@@ -504,6 +506,8 @@ async function renderDashboard(container, compId, startNumber, user) {
             getOfficials(compId).catch(() => []),
             getJudges(compId).catch(() => [])
         ]);
+        // Left the portal (or opened another dashboard) while loading: start no listeners
+        if (mySeq !== dashboardSeq) return;
 
         const allJudges = [...(judges || []), ...(officials || [])];
         const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
@@ -1634,6 +1638,7 @@ function renderCompetitionList(claims) {
 
 export function __unload() {
     portalLoadToken++;
+    dashboardSeq++;
     cleanupPortalSubscriptions();
     const modal = document.getElementById('doc-modal-overlay');
     if (modal) modal.remove();
