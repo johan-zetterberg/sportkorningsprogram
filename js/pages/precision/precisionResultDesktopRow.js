@@ -35,9 +35,13 @@ export function renderPrecisionResultDesktopRow({
   const overTime = data.d?.finalized && typeof data.timePenalty === 'number' && Number.isFinite(data.timePenalty) && data.timePenalty > 0;
   const timeAlertCls = overTime ? 'text-red-600 dark:text-red-400 font-semibold' : '';
   const rowStyle = isActive ? 'border-left: 4px solid #eab308;' : '';
-  const overallLabel = !overallResult
-    ? '—'
-    : (overallResult.total === Infinity ? 'ELIM' : `${formatPenalty(overallResult.total)} (${overallResult.rank})`);
+  // Total standing: only once dressage and marathon are finished; no place is
+  // shown without one (never "(null)")
+  const overallLabel = (!overallResult || overallResult.total == null)
+    ? '<span title="Totalställningen visas när dressyr och maraton är klara">—</span>'
+    : (overallResult.total === Infinity
+      ? 'ELIM'
+      : `${formatPenalty(overallResult.total)}${overallResult.rank != null ? ` (${overallResult.rank})` : ''}`);
 
   return `
            <tr class="${rowBgClass} hover:bg-blue-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-200" data-sn="${sn}" style="${rowStyle}">
