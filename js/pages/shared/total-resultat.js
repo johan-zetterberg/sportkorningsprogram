@@ -20,6 +20,7 @@ import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { getTeamScoringProfile } from '../../services/teamRuleProfiles.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { JUDGE_MAPPING_NOTICE_ID, renderJudgeMappingNotice } from '../../ui/judgeMappingNotice.js';
+import { RESULT_SETTINGS_NOTICE_ID, marathonSettingsIssues, precisionSettingsIssues, renderResultSettingsNotice } from '../../ui/resultSettingsNotice.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
@@ -952,6 +953,7 @@ function renderLayout() {
   </div>
 
   <div id="${JUDGE_MAPPING_NOTICE_ID}"></div>
+  <div id="${RESULT_SETTINGS_NOTICE_ID}"></div>
 
   <div class="w-full">
     <div id="controlsContainer" class="flex flex-wrap md:flex-nowrap items-center gap-2 mb-3 p-2 md:p-3 bg-white dark:bg-gray-800 rounded-lg shadow-sm border dark:border-gray-700 overflow-x-auto">
@@ -1521,8 +1523,13 @@ export async function load(el) {
   initializeScrollSync(window.location.pathname);
   injectTotalResultsStyles();
   renderLayout();
-  // Classes without a judge mapping never get a total: say so
+  // Classes without a judge mapping, marathon settings or precision max time
+  // never get a total: say so
   renderJudgeMappingNotice(equipages, window.dressageJudgeMapping);
+  renderResultSettingsNotice({
+    marathon: marathonSettingsIssues(equipages, marathonConfig),
+    precision: precisionSettingsIssues(equipages, precisionConfig)
+  });
 
   // 3. Starta lyssnare (dressyr, maratonhinder, precision)
   attachListeners();

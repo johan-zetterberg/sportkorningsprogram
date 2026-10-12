@@ -155,6 +155,7 @@ export function ensureMarathonResultShell({
              ${getCompetitionHeader(currentCompetition, t('marathon_results_title'))}
              <h3 id="maratonDateHeader" class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center"></h3>
           </div>
+          <div id="resultSettingsNotice"></div>
 
           <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
             <div class="relative w-full md:w-[240px] flex-shrink-0 min-w-0">

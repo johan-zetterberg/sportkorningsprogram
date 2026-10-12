@@ -9,6 +9,7 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { incompleteResultReasonHtml, marathonSettingsIssues, renderResultSettingsNotice } from '../../ui/resultSettingsNotice.js';
 import {
   maraton_marathonConfig,
   setMarathonConfig,
@@ -354,6 +355,8 @@ function ensureShell() {
 }
 function renderTable() {
   if (!ensureShell()) return;
+  // Classes whose results the engine holds back for missing settings
+  renderResultSettingsNotice({ marathon: marathonSettingsIssues(maraton_equipages, maraton_marathonConfig) });
 
   const marathonDateStr = calculateMarathonDateStr();
   const list = filteredSortedEquipages();
@@ -510,6 +513,7 @@ function renderTable() {
              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] lg:text-xs font-medium whitespace-nowrap ${statusClass(status)}">
                ${status}
              </span>
+             ${incompleteResultReasonHtml(res)}
         </td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">
              <div class="flex items-center gap-2" data-finalize-slot>

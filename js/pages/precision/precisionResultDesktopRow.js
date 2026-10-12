@@ -1,3 +1,5 @@
+import { incompleteResultReasonHtml } from '../../ui/resultSettingsNotice.js';
+
 function defaultFormatPenalty(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
@@ -72,6 +74,7 @@ export function renderPrecisionResultDesktopRow({
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center">
                     <span class="inline-block px-1.5 py-0.5 rounded-md text-[10px] lg:text-xs font-medium whitespace-nowrap ${statusBadgeClass}">${data.status}</span>
+                    ${incompleteResultReasonHtml({ configMissing: data.configMissing === true })}
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right whitespace-nowrap">
                   ${finalizeButtonsHtml}

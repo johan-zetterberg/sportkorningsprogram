@@ -396,6 +396,7 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
         d,
         status,
         eliminated: isElim,
+        configMissing: calc.configMissing === true, // no max time for the class: no total
         timeLabel, // NYTT: Skicka med timeLabel på toppnivå för modalen
 
         // Data för PDF/Tabell

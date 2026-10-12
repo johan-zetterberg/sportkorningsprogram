@@ -5,6 +5,7 @@
 
 import { getClassJudgeAssignments } from '../core-engine/dressage.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
+import { canSeeSettingsNotices } from './resultSettingsNotice.js';
 
 export const JUDGE_MAPPING_NOTICE_ID = 'judgeMappingNotice';
 
@@ -34,5 +35,8 @@ export function judgeMappingNoticeHtml(classes = []) {
 export function renderJudgeMappingNotice(equipages = [], judgeMapping = {}, hostId = JUDGE_MAPPING_NOTICE_ID) {
     const host = typeof document !== 'undefined' ? document.getElementById(hostId) : null;
     if (!host) return;
-    host.innerHTML = judgeMappingNoticeHtml(classesWithoutJudgeMapping(equipages, judgeMapping));
+    // For organisers (signed in with a role), not the audience
+    host.innerHTML = canSeeSettingsNotices()
+        ? judgeMappingNoticeHtml(classesWithoutJudgeMapping(equipages, judgeMapping))
+        : '';
 }

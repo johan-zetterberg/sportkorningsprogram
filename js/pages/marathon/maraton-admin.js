@@ -8,6 +8,7 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { generateTimecardsPdf } from '../../pdf/timecardsPdf.js';
 import { hasMarathonValidationErrors, validateMarathonAdminSettings } from './marathonAdminValidation.js';
+import { marathonSettingsIssues } from '../../ui/resultSettingsNotice.js';
 import {
   PENALTY_RATE,
   MARATHON_OBSTACLE_TIME_PENALTY,
@@ -1110,11 +1111,23 @@ function renderMarathonAdminReadiness() {
     return;
   }
 
-  const { validationErrors } = buildMarathonValidationFromForm(formContainer);
+  const { newClassData, validationErrors } = buildMarathonValidationFromForm(formContainer);
   const hasErrors = hasMarathonValidationErrors(validationErrors);
   const classesWithErrors = Object.keys(validationErrors || {}).length;
 
-  if (hasErrors || obstacleCount === 0) {
+  // What the result engine will see with these settings (the class-name
+  // matching it uses, ideal times per equipage, the course): a class it cannot
+  // calculate gets no marathon result
+  const engineIssues = marathonSettingsIssues(allEquipages, {
+    marathonClassData: newClassData,
+    obstacleNumbers: (allObstacles || []).map(o => Number(o?.number)).filter(n => Number.isInteger(n) && n > 0)
+  });
+  const engineIssuesHtml = engineIssues.size
+    ? `<ul class="mt-2 list-disc pl-5">${[...engineIssues.entries()].map(([cls, set]) => `<li><strong>${escapeHtml(cls)}</strong>: ${[...set].map(escapeHtml).join('; ')}</li>`).join('')}</ul>
+       <div class="mt-1 text-xs">Resultatmotorn kan inte räkna maraton för dessa klasser; resultaten blir inte klara.</div>`
+    : '';
+
+  if (hasErrors || obstacleCount === 0 || engineIssues.size) {
     container.className = 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
     container.innerHTML = `
       <div class="font-semibold">Maratonadmin behöver kompletteras</div>
@@ -1123,6 +1136,7 @@ function renderMarathonAdminReadiness() {
         ${classesWithErrors > 0 && obstacleCount === 0 ? ' ' : ''}
         ${obstacleCount === 0 ? 'Inga hinder är upplagda ännu.' : ''}
       </div>
+      ${engineIssuesHtml}
     `;
     return;
   }

@@ -7,6 +7,7 @@ import { competitionClasses, standardPortAllowance, klassTempoData } from '../..
 import { getClassTempoMpm } from '../../utils/precisionUtils.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../../core-engine/rules-ledger.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
+import { precisionSettingsIssues } from '../../ui/resultSettingsNotice.js';
 import {
     hasPrecisionValidationErrors,
     parsePrecisionObstacleLabels,
@@ -20,6 +21,7 @@ import {
 let competitionId = null;
 let activeClasses = [];
 let activeClassGroups = [];
+let precisionAdminEquipages = [];
 let precisionConfig = {};
 let precisionMergeMap = new Map();
 
@@ -172,22 +174,31 @@ function renderPrecisionAdminReadiness() {
     }
 
     try {
-        const { validation } = buildPrecisionConfigFromForm();
+        const { config, validation } = buildPrecisionConfigFromForm();
         const classIssues = Object.keys(validation.classes || {}).length;
         const globalIssues = (validation.global || []).length;
         const mapIssues = (validation.map || []).length;
         const totalIssues = classIssues + globalIssues + mapIssues;
 
-        if (hasPrecisionValidationErrors(validation)) {
+        // What the result engine will see with these settings: a class without
+        // a max time gets no time penalty and no total
+        const engineIssues = precisionSettingsIssues(precisionAdminEquipages, config);
+        const engineIssuesHtml = engineIssues.size
+            ? `<ul class="mt-2 list-disc pl-5">${[...engineIssues.entries()].map(([cls, set]) => `<li><strong>${escapeHtml(cls)}</strong>: ${[...set].map(escapeHtml).join('; ')}</li>`).join('')}</ul>
+               <div class="mt-1 text-xs">Resultatmotorn kan inte räkna tidsstraff och totalt straff för dessa klasser.</div>`
+            : '';
+
+        if (hasPrecisionValidationErrors(validation) || engineIssues.size) {
             container.className = 'rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
             container.innerHTML = `
                 <div class="font-semibold">Precisionadmin behöver kompletteras</div>
-                <div class="mt-1">
+                ${totalIssues > 0 ? `<div class="mt-1">
                     ${classIssues > 0 ? `${classIssues} klass${classIssues === 1 ? '' : 'er'} ` : ''}
                     ${globalIssues > 0 ? `${globalIssues} globala fält ` : ''}
                     ${mapIssues > 0 ? `${mapIssues} kartproblem ` : ''}
                     behöver åtgärdas innan inställningarna kan sparas.
-                </div>
+                </div>` : ''}
+                ${engineIssuesHtml}
             `;
             return;
         }
@@ -957,6 +968,12 @@ export async function load() {
 
         activeClassGroups = buildPrecisionClassGroups(equipagesData, precisionMergeMap);
         activeClasses = activeClassGroups.map(group => group.label);
+        // As the result engine sees them: a merged class's course is found via
+        // its group label (_mergedLabel)
+        precisionAdminEquipages = (equipagesData || []).map(eq => {
+            const group = activeClassGroups.find(g => (g.sourceClasses || []).includes(eq.className));
+            return group && group.label !== eq.className ? { ...eq, _mergedLabel: group.label } : eq;
+        });
 
         // Populate global inputs
         const kpInput = document.getElementById('globalKnockdownPenalty');

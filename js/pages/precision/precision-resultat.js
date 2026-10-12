@@ -8,6 +8,7 @@ import { finalizePrecision, unfinalizePrecision } from '../../services/finalizat
 import { getGlobalState } from '../../main.js';
 
 import { calculateTotalResult } from '../../services/calculationService.js';
+import { canSeeSettingsNotices, precisionSettingsIssues, resultSettingsNoticeHtml } from '../../ui/resultSettingsNotice.js';
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { collection, onSnapshot, query, doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
@@ -432,6 +433,8 @@ function renderLayout() {
           ${getCompetitionHeader(comp, t('precision_result_list_title'))}
           ${precisionDateStr ? `<h3 class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
         </div>
+
+        ${canSeeSettingsNotices() ? resultSettingsNoticeHtml({ precision: precisionSettingsIssues(precision_equipages, precision_precisionConfig) }) : ''}
 
         <div id="liveStatusPanelContainer" class="mb-3 hidden"></div>
 

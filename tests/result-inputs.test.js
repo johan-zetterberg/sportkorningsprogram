@@ -138,3 +138,46 @@ test('teams get a preliminary position after the phases every team has finished'
   assert.ok(final.every(t => t.preliminary === null));
   assert.ok(final.every(t => Number.isFinite(t.total)));
 });
+
+test('missing marathon and precision settings are listed per class, as the engine sees them', async () => {
+  const { marathonSettingsIssues, precisionSettingsIssues, incompleteResultReason } = await import('../js/ui/resultSettingsNotice.js');
+  const marathonConfig = {
+    marathonClassData: {
+      'Lätt B': { distanceB: 6000, tempoB: 250 },                    // no stage A: fine
+      'MSV': { distanceA: 5000, tempoA: 250, distanceB: 6000 },      // B has no tempo
+      'Svår': { distanceA: 5000, tempoA: 250, distanceB: 6000, tempoB: 250, includeTransport: true } // transport without distance
+    }
+  };
+  const eqs = [{ className: 'Lätt B' }, { className: 'MSV' }, { className: 'Svår' }, { className: 'Para' }, { className: 'X', status: 'struken' }];
+  const m = marathonSettingsIssues(eqs, marathonConfig);
+  assert.equal(m.has('Lätt B'), true, 'no course: neither driven obstacles nor an obstacle list');
+  assert.ok([...m.get('Lätt B')].some(i => i.startsWith('banan är okänd')));
+  assert.ok([...m.get('Para')].includes('maratoninställningar saknas för klassen'));
+  assert.ok([...m.get('Svår')].includes('idealtid saknas för sträcka transport'));
+  assert.equal(m.has('X'), false, 'withdrawn equipages are not checked');
+
+  const withCourse = marathonSettingsIssues([{ className: 'Lätt B' }], { ...marathonConfig, obstacleNumbers: [1, 2] });
+  assert.equal(withCourse.size, 0);
+
+  const p = precisionSettingsIssues(eqs, { courses: { 'Lätt B': { trackLengthMeters: 500, tempo: 220 } } });
+  assert.equal(p.has('Lätt B'), false);
+  assert.ok([...p.get('MSV')].includes('maxtid saknas (banlängd och tempo)'));
+
+  assert.equal(incompleteResultReason({ configMissing: true, missingConfig: ['class'] }).label, 'Inställningar saknas');
+  assert.equal(incompleteResultReason({ configMissing: true }).label, 'Maxtid saknas');
+  assert.equal(incompleteResultReason({ obstacleListMissing: true, obstacles: { items: [{}] } }).label, 'Banan okänd');
+  assert.equal(incompleteResultReason({ status: 'Klar' }), null);
+});
+
+test('settings notices are shown to organisers only, not the audience', async () => {
+  const { canSeeSettingsNotices } = await import('../js/ui/resultSettingsNotice.js');
+  const withUser = (user) => { globalThis.window = { getGlobalState: (k) => (k === 'currentUser' ? user : null) }; return canSeeSettingsNotices(); };
+  try {
+    assert.equal(withUser(null), false, 'anonymous');
+    assert.equal(withUser({ role: 'publik' }), false, 'signed-in public');
+    assert.equal(withUser({ role: 'admin' }), true);
+    assert.equal(withUser({ role: 'publik', compRoles: ['marathon'] }), true, 'official of this competition');
+  } finally {
+    delete globalThis.window;
+  }
+});
