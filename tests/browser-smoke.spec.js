@@ -127,6 +127,46 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
 });
 
+test('after an update the app starts without signal and opens pages not visited yet', async ({ page, context }) => {
+  test.setTimeout(300000);
+  await page.goto('/index.html#hub');
+  // The service worker installs (precache) and takes over this page
+  await page.waitForFunction(() => !!navigator.serviceWorker?.controller, null, { timeout: 120000 });
+  await page.evaluate(() => navigator.serviceWorker.ready);
+
+  // What an offline start needs is stored ahead of time by the update: the
+  // input pages (loaded with import()) and the Firebase SDK. Checked in the
+  // cache directly, since the browser's offline mode does not cover the
+  // service worker's own requests
+  const precached = await page.evaluate(async () => {
+    const name = (await caches.keys()).find(k => k.startsWith('driving-app-'));
+    const urls = name ? (await (await caches.open(name)).keys()).map(r => r.url) : [];
+    const has = (end) => urls.some(u => u.endsWith(end));
+    return {
+      precisionInput: has('/js/pages/precision/precision-input.js'),
+      stagesInput: has('/js/pages/marathon/maraton-stages-input.js'),
+      manual: has('/js/pages/shared/manual.js'),
+      firestoreSdk: has('/firebasejs/11.6.1/firebase-firestore.js'),
+      appSdk: has('/firebasejs/11.6.1/firebase-app.js')
+    };
+  });
+  expect(precached).toEqual({ precisionInput: true, stagesInput: true, manual: true, firestoreSdk: true, appSdk: true });
+
+  await context.setOffline(true);
+  await page.reload();
+  await expect(page.locator('#page-hub')).toHaveClass(/active/, { timeout: 30000 });
+  for (const route of ['manual', 'total-resultat', 'precision-results']) {
+    await page.goto(`/index.html#${route}`);
+    const pageEl = page.locator(`#page-${route}`);
+    await expect(pageEl).toHaveClass(/active/, { timeout: 30000 });
+    await page.waitForTimeout(1500);
+    await expect(pageEl, `#${route} offline`).not.toContainText(/kunde inte laddas|Ett fel uppstod vid laddning/);
+    // Rendered by the page module (e.g. "Ingen tävling vald." when none is chosen)
+    expect((await pageEl.innerText()).trim().length, `#${route} rendered offline`).toBeGreaterThan(10);
+  }
+  await context.setOffline(false);
+});
+
 test('precision knocks can be recorded without signal and reach the server afterwards', async ({ page, context }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

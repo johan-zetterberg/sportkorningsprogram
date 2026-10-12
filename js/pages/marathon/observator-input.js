@@ -12,7 +12,7 @@ import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
-import { requestWakeLock } from '../../utils/wakeLock.js';
+import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -898,6 +898,7 @@ export async function load() {
 }
 
 export function __unload() {
+  releaseWakeLock();
   loadToken++;
   stopTicker();
 

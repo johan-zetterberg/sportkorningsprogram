@@ -11,7 +11,7 @@ import { t } from '../../utils/i18n.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
-import { requestWakeLock } from '../../utils/wakeLock.js';
+import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
 
@@ -2324,6 +2324,7 @@ export async function load() {
 
 let unsubMaratonList = null;
 export function __unload() {
+  releaseWakeLock();
   // Stoppa global ticker
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
   // Start numbers repeat across competitions: forget what this visit saw

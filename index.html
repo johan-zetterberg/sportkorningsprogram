@@ -521,6 +521,21 @@
 
   <script>
     if ('serviceWorker' in navigator) {
+      // A new version took over this open page: the code already running is the
+      // old one, and pages opened from now on load the new one. Say so instead
+      // of reloading by itself (a judge may be entering a result)
+      const hadController = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!hadController || document.getElementById('appUpdateNotice')) return;
+        const bar = document.createElement('div');
+        bar.id = 'appUpdateNotice';
+        bar.setAttribute('role', 'status');
+        bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom, 0px));z-index:10000;max-width:calc(100% - 24px);display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;background:#1e3a5f;color:#fff;font:14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3)';
+        bar.innerHTML = '<span>En ny version av appen finns. Ladda om när det passar.</span>'
+          + '<button type="button" style="flex-shrink:0;padding:6px 12px;border-radius:8px;background:#f5c542;color:#1e3a5f;font-weight:700;border:0">Ladda om</button>';
+        bar.querySelector('button').addEventListener('click', () => location.reload());
+        document.body.appendChild(bar);
+      });
       window.addEventListener('load', () => {
         // Vi kör enbart service-worker.js (som är mer omfattande)
         navigator.serviceWorker.register('./service-worker.js', { scope: './' })

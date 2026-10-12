@@ -22,7 +22,7 @@ import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
-import { requestWakeLock } from '../../utils/wakeLock.js';
+import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { PRECISION_KNOCKDOWN_PENALTY } from '../../core-engine/rules-ledger.js';
 import {
     computeMaxSecondsForClass,
@@ -1272,6 +1272,7 @@ export async function load() {
 }
 
 export function __unload() {
+  releaseWakeLock();
     // Avsluta ev. pågående prenumeration
     if (currentUnsubscribe) {
         try { currentUnsubscribe(); } catch (e) { }

@@ -19,7 +19,7 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
-import { requestWakeLock } from '../../utils/wakeLock.js';
+import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { awaitWriteOrQueue, WRITE_ACK_TIMEOUT_MS } from '../../utils/offlineWrite.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
@@ -1697,6 +1697,7 @@ let unsubStatus = null;
 let inputLoadSeq = 0;
 
 export function __unload() {
+  releaseWakeLock();
   inputLoadSeq++;
   // Städar dressyr-input...
   if (window.__dressageInputUnsub) {

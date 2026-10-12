@@ -16,7 +16,7 @@ import {
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
-import { requestWakeLock } from '../../utils/wakeLock.js';
+import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 
 // Firestore för live (endast det vi använder på denna sida)
@@ -2251,6 +2251,7 @@ export function load() {
 // RAD FÖRE (ca 1370): /**
 
 export function __unload() {
+  releaseWakeLock();
   try {
     // Stoppa klockan/interval
     if (timerInterval) clearInterval(timerInterval);

@@ -220,8 +220,9 @@ export async function navigateTo(hash) {
 
   const loader = pageLoaders[pageKey];
   if (loader) {
+    let pageModule = null;
     try {
-      const pageModule = await loader();
+      pageModule = await loader();
       if (isStaleNavigation(navigationId, __navigationId)) return;
 
       if (pageModule && typeof pageModule.load === 'function') {
@@ -242,8 +243,13 @@ export async function navigateTo(hash) {
       }
     } catch (error) {
       console.error(`Kunde inte ladda modulen för sidan '${pageKey}':`, error);
+      // A load that failed halfway may already have started listeners and
+      // timers; nothing else would stop them (the module never became current)
+      try { getPageUnloadFunction(pageModule)?.(); } catch (unloadError) {
+        console.warn(`Kunde inte städa sidan '${pageKey}' efter laddningsfel:`, unloadError);
+      }
       const pageElement = document.getElementById(pageId);
-      if (pageElement) pageElement.innerHTML = `<p class="text-red-500 p-8 text-center">Ett fel uppstod vid laddning av sidan.</p>`;
+      if (pageElement) pageElement.innerHTML = `<p class="text-red-500 p-8 text-center">Sidan kunde inte laddas. Kontrollera nätet och ladda om sidan.</p>`;
       window.updateCompactPageContext?.();
     }
   } else {

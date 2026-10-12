@@ -5,7 +5,14 @@ const CACHE_NAME = 'driving-app-v62'; // Bump version to force cache clear
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
 const abs = (p) => (SCOPE_PATH === '/' ? p : (SCOPE_PATH + (p.startsWith('/') ? p : '/' + p)));
 const LOCAL_JS_SCOPE = SCOPE_PATH === '/' ? '/js/' : `${SCOPE_PATH}/js/`;
-const MODULE_IMPORT_PATTERN = /\bimport\s+(?:(?:[\w*\s{},]+)\s+from\s+)?['"]([^'"]+\.(?:js|mjs))['"]/g;
+// Static imports and plain import('...') calls: the pages are loaded with
+// import() from navigationService, and must be cached for an offline start
+const MODULE_IMPORT_PATTERN = /\bimport\s*(?:\(\s*|(?:[\w*\s{},]+)\s+from\s+)?['"]([^'"]+\.(?:js|mjs))['"]/g;
+
+// How long a request waits for the network before a cached copy is used. On a
+// weak but "connected" link a fetch can hang for a long time, and a reload in
+// the field would look frozen
+const NETWORK_TIMEOUT_MS = 3000;
 const MODULE_GRAPH_ENTRY_POINTS = [
   abs('/js/main.js')
 ];
@@ -248,7 +255,17 @@ const urlsToCache = [
 
 // Separera interna (kritiska) filer från externa (som kan misslyckas utan att döda appen)
 const internalUrls = urlsToCache.filter(u => !u.startsWith('http'));
-const externalUrls = [];
+// Libraries the app cannot start without (the Firebase SDK) or that the maps
+// need: precached, so the app also starts without signal after an update
+const externalUrls = [
+  'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js',
+  'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js',
+  'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js',
+  'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js',
+  'https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+];
 
 self.addEventListener('install', (event) => {
   event.waitUntil((async () => {
@@ -332,8 +349,25 @@ self.addEventListener('install', (event) => {
 
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
-    // Ta bort gamla cacher
+    // Before deleting the old caches, keep what this version did not fetch
+    // itself from other sites (libraries, fonts, flags, logos): a device that
+    // installed the update with poor signal would otherwise lose them. The
+    // app's own files are not carried over, old and new modules must not mix
     const keys = await caches.keys();
+    const current = await caches.open(CACHE_NAME);
+    for (const key of keys.filter(k => k !== CACHE_NAME)) {
+      try {
+        const old = await caches.open(key);
+        for (const request of await old.keys()) {
+          if (new URL(request.url).origin === self.location.origin) continue;
+          if (await current.match(request)) continue;
+          const response = await old.match(request);
+          if (response) await current.put(request, response);
+        }
+      } catch (error) {
+        console.warn('[SW] Kunde inte flytta över från gammal cache:', key, error);
+      }
+    }
     await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
 
     // Tvinga omedelbar kontroll över alla flikar
@@ -346,6 +380,30 @@ self.addEventListener('activate', (event) => {
 const isJs = (req, url) => req.destination === 'script' || url.pathname.endsWith('.js') || url.pathname.endsWith('.mjs');
 const isCss = (req, url) => req.destination === 'style' || url.pathname.endsWith('.css');
 
+/**
+ * The network's answer, but if it has not come within NETWORK_TIMEOUT_MS and
+ * `getCached` has a copy, that copy (the network answer still updates the
+ * cache through onNetwork). Without a cached copy it keeps waiting. A network
+ * failure resolves to null, so the caller falls back to the cache.
+ */
+async function networkFirstWithTimeout(fetchPromise, getCached, onNetwork = () => { }) {
+  const network = fetchPromise.then(
+    (res) => { try { onNetwork(res); } catch { /* cache update only */ } return res; },
+    () => null
+  );
+  let timer;
+  const timedOut = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), NETWORK_TIMEOUT_MS); });
+  const first = await Promise.race([network, timedOut]);
+  clearTimeout(timer);
+  if (first !== 'timeout') return first;
+  const cached = await getCached();
+  return cached || network;
+}
+
+// Responses worth keeping: OK ones, and opaque ones from other sites (a plain
+// <script src> from a CDN), never 404/500 pages served as a module
+const isCacheable = (res) => !!res && (res.ok || res.type === 'opaque');
+
 // Huvudstrategi
 // Huvudstrategi
 self.addEventListener('fetch', (event) => {
@@ -355,20 +413,17 @@ self.addEventListener('fetch', (event) => {
   // 1) Navigering: network-first med fallback till index.html
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
-      try {
-        const net = await fetch(req);
-        // console.log('[SW][NAV] network', url.pathname);
-        return net;
-      } catch {
-        const cache = await caches.open(CACHE_NAME);
-        const cached = await cache.match(abs('/index.html'));
-        if (cached) {
-          console.warn('[SW][NAV] offline → index.html från cache');
-          return cached;
-        }
-        console.error('[SW][NAV] CRITICAL: index.html saknas i cachen!');
-        return Response.error();
+      const cache = await caches.open(CACHE_NAME);
+      const getCached = () => cache.match(abs('/index.html'));
+      const net = await networkFirstWithTimeout(fetch(req), getCached);
+      if (net) return net;
+      const cached = await getCached();
+      if (cached) {
+        console.warn('[SW][NAV] offline → index.html från cache');
+        return cached;
       }
+      console.error('[SW][NAV] CRITICAL: index.html saknas i cachen!');
+      return Response.error();
     })());
     return;
   }
@@ -381,42 +436,23 @@ self.addEventListener('fetch', (event) => {
   if (isJs(req, url)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
-      try {
-        const net = await fetch(req, { cache: 'no-cache' });
-        const ct = net.headers.get('content-type') || '';
+      const getCached = async () => (await cache.match(req)) || cache.match(req, { ignoreVary: true });
+      const net = await networkFirstWithTimeout(fetch(req, { cache: 'no-cache' }), getCached, (res) => {
+        const ct = res.headers.get('content-type') || '';
         if (ct.includes('text/html')) {
           console.error('[SW][JS] VARNING: nätet returnerade HTML för', url.pathname, '— cachar EJ.');
-          return net;
+          return;
         }
-        // Uppdatera cache i bakgrunden
-        cache.put(req, net.clone()).catch(() => { });
-        // console.log('[SW][JS] network', url.pathname);
-        return net;
-      } catch (e) {
-        // 1. Strict match
-        let cached = await cache.match(req);
-        if (cached) {
-          console.log('[SW][JS] cache hit for:', url.pathname);
-          return cached;
-        }
-
-        // 2. Relaxed match (ignoreVary) - Ofta problemet med Live Server / olika headers
-        cached = await cache.match(req, { ignoreVary: true });
-        if (cached) {
-          console.warn('[SW][JS] Relaxed cache hit (Vary Ignored) for:', url.pathname);
-          return cached;
-        }
-
-        console.warn('[SW][JS] MISSING in cache:', url.pathname);
-        console.warn('      Full URL:', url.href);
-        // Felsökning: Logga vad som faktiskt finns i cachen om det är en viktig fil
-        if (url.pathname.endsWith('reports.js')) {
-          const keys = await cache.keys();
-          console.log('      Cache keys example:', keys.slice(0, 5).map(k => new URL(k.url).pathname));
-          console.log('      Total keys:', keys.length);
-        }
-        return new Response('/* offline */', { status: 503, headers: { 'content-type': 'application/javascript' } });
-      }
+        // Uppdatera cache i bakgrunden (aldrig 404/500-svar)
+        if (isCacheable(res)) cache.put(req, res.clone()).catch(() => { });
+      });
+      if (net) return net;
+      // Offline (or the network failed): the cached copy (ignoreVary as a
+      // fallback, for servers that send other headers)
+      const cached = await getCached();
+      if (cached) return cached;
+      console.warn('[SW][JS] MISSING in cache:', url.href);
+      return new Response('/* offline */', { status: 503, headers: { 'content-type': 'application/javascript' } });
     })());
     return;
   }
@@ -426,16 +462,15 @@ self.addEventListener('fetch', (event) => {
   if (isCss(req, url)) {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
-      try {
-        const net = await fetch(req, { cache: 'no-cache' });
-        if (net.ok) cache.put(req, net.clone()).catch(() => { });
-        return net;
-      } catch (e) {
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        console.warn('[SW][CSS] fetch misslyckades', e);
-        return new Response('', { status: 503, statusText: 'Offline' });
-      }
+      const getCached = () => cache.match(req);
+      const net = await networkFirstWithTimeout(fetch(req, { cache: 'no-cache' }), getCached, (res) => {
+        if (isCacheable(res)) cache.put(req, res.clone()).catch(() => { });
+      });
+      if (net) return net;
+      const cached = await getCached();
+      if (cached) return cached;
+      console.warn('[SW][CSS] fetch misslyckades', url.href);
+      return new Response('', { status: 503, statusText: 'Offline' });
     })());
     return;
   }
