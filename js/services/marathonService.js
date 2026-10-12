@@ -219,21 +219,28 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
       obstacles.push(resultData);
       obstacles.sort((a, b) => a.number - b.number);
 
+      // The live fields are shared by all obstacles: clear them only when they
+      // belong to this obstacle, not while the equipage is timed at another one
+      const liveBelongsHere = existingData.running !== true
+        || existingData.currentObstacle == null
+        || Number(existingData.currentObstacle) === on;
       transaction.set(summaryDocRef, {
         ...existingData,
         obstacles,
         updatedAt: serverTimestamp(),
-        currentObstacle: null,
-        running: false,
-        inProgress: false,
-        liveObstacleTimeMs: 0,
-        liveObstacleStartAt: null,
-        live_staticStartAt: null,
-        live_routeString: '',
-        live_knockdowns: '0',
-        live_otherPenalty: '0',
-        live_holdTimeSec: '',
-        live_gateSplits: []
+        ...(liveBelongsHere ? {
+          currentObstacle: null,
+          running: false,
+          inProgress: false,
+          liveObstacleTimeMs: 0,
+          liveObstacleStartAt: null,
+          live_staticStartAt: null,
+          live_routeString: '',
+          live_knockdowns: '0',
+          live_otherPenalty: '0',
+          live_holdTimeSec: '',
+          live_gateSplits: []
+        } : {})
       }, { merge: true });
     });
     const obstacleDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults/${eid}/obstacles/${on}`);

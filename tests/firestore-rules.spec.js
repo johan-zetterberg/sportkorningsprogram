@@ -17,7 +17,8 @@ import {
   query,
   setDoc,
   updateDoc,
-  where
+  where,
+  writeBatch
 } from 'firebase/firestore';
 
 const PROJECT_ID = process.env.GCLOUD_PROJECT || 'combined-driving';
@@ -410,6 +411,24 @@ test('precision result writes are allowed when the equipage is not finalized', {
     startNumber: Number(START_NO),
     timeMs: 100000
   }));
+});
+
+test('finalizing writes result and lock in one batch, after which the judge is locked out', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-fin-3', 'precision', 'precision3@example.com');
+  const db = testEnv.authenticatedContext('precision-fin-3', { email_verified: true, email: 'precision3@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(db, compPath(`precision/${START_NO}`)), { startNumber: Number(START_NO), timeMs: 100000 }));
+
+  for (const [result, lock] of [
+    [compPath(`precision/${START_NO}`), rootCompPath(`precisionFinalization/${START_NO}`)],
+    [compPath(`maraton/${START_NO}`), rootCompPath(`marathonFinalization/${START_NO}`)]
+  ]) {
+    const adminDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+    const batch = writeBatch(adminDb);
+    batch.set(doc(adminDb, result), { finalized: true }, { merge: true });
+    batch.set(doc(adminDb, lock), { finalized: true }, { merge: true });
+    await assertSucceeds(batch.commit());
+  }
+  await assertFails(setDoc(doc(db, compPath(`precision/${START_NO}`)), { timeMs: 1 }, { merge: true }));
 });
 
 test('competition discipline roles may finalize only their matching discipline', { skip: !HAS_EMULATOR }, async () => {

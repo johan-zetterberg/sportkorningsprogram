@@ -591,10 +591,23 @@ function markObstacleExit(equipageId, obstacleNumber) {
 }
 
 
+// All obstacle judges share one live document per equipage (maraton/{sn})
+function runsAtAnotherObstacle(state, obstacleNumber) {
+  return state?.running === true
+    && state.currentObstacle != null
+    && Number(state.currentObstacle) !== Number(obstacleNumber);
+}
+
 // Skyddad push (som i precision)
 async function pushLiveSafe(update) {
   // Skriv bara live när ett ekipage är valt
   if (!currentEquipage) return;
+  // Only an explicit Start takes over a clock running at another obstacle;
+  // any other live write would stop that judge's timing
+  if (update?.running !== true && runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) {
+    console.warn(`[maraton] #${currentEquipage.startNumber} körs i hinder ${currentLiveState.currentObstacle}; live-uppdatering från hinder ${currentObstacleNumber} hoppas över.`);
+    return;
+  }
 
   try {
     // Sätt updatedAt ENDAST när vi uppdaterar tidsrelaterade fält
@@ -696,6 +709,11 @@ function startTimerMar() {
   }
   if (!currentEquipage || !currentObstacleNumber) {
     showAlert(t('marathon_select_equipage_and_obstacle'), false);
+    return;
+  }
+  // Already running here (a double tap): a second Start would restart the
+  // clock from zero, since the running time is kept in the start timestamp
+  if (currentLiveState.running === true && Number(currentLiveState.currentObstacle) === Number(currentObstacleNumber)) {
     return;
   }
 
@@ -1050,6 +1068,16 @@ async function loadExistingResult(silent = false) {
       if (docSnap.exists()) mirrorToLocal(equipageId, sourceData);
       const savedObstacles = sourceData.obstacles || [];
       resultToLoad = savedObstacles.find(o => o.number === currentObstacleNumber);
+    }
+
+    // The equipage is being timed at another obstacle right now: the live
+    // fields on its document belong to that judge, and writing this
+    // obstacle's state would stop their clock. Deselect, as on an obstacle
+    // change while running (onObstacleChanged)
+    if (runsAtAnotherObstacle(sourceData, currentObstacleNumber)) {
+      showAlert(`#${equipageId} körs just nu i hinder ${sourceData.currentObstacle}. Välj ekipaget igen när det har lämnat det hindret.`, false);
+      if (equipageSearchDropdownMar) equipageSearchDropdownMar.setValue(null);
+      return;
     }
 
     let liveDataUpdate;

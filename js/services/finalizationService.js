@@ -1,7 +1,8 @@
 import { getCompDocRef, trackWrite } from './firestoreService.js';
-import { doc, setDoc, updateDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, getDoc, setDoc, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
+import { isStillRunning } from './secretariatPatchUtils.js';
 
 // =========================================================================
 // FINALIZATION SERVICE
@@ -36,25 +37,38 @@ export async function unfinalizeDressage(competitionId, startNumber) {
   })());
 }
 
+// A result still being timed must not be locked: the judge's next write would
+// be refused and the official result would be the half-finished one
+async function assertNotRunning(ref, startNumber) {
+  const snap = await getDoc(ref);
+  if (isStillRunning(snap.exists() ? snap.data() : {})) {
+    throw new Error(`#${startNumber} kör just nu. Vänta tills tiden är stoppad innan du finaliserar.`);
+  }
+}
+
 // --- MARATHON ---
 export async function finalizeMarathon(competitionId, startNumber) {
   return trackWrite(`Finaliserar maraton #${startNumber}`, (async () => {
     // Marathon sets status directly on the live document
     const ref = getCompDocRef(competitionId, 'maraton', String(startNumber));
-    await setDoc(ref, { 
-      finalized: true, 
-      status: 'Klar', 
+    await assertNotRunning(ref, startNumber);
+
+    // Result and lock document (which activates the security rules) in one
+    // batch: never finalized-but-unlocked or the other way round
+    const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
+    const batch = writeBatch(db);
+    batch.set(ref, {
+      finalized: true,
+      status: 'Klar',
       updatedAt: serverTimestamp(),
       finalizedBy: getUid()
     }, { merge: true });
-
-    // Also write to the lock document to activate Firestore security rules
-    const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
-    await setDoc(lockRef, {
+    batch.set(lockRef, {
       finalized: true,
       finalizedAt: Date.now(),
       finalizedBy: getUid()
     }, { merge: true });
+    await batch.commit();
   })());
 }
 
@@ -83,21 +97,24 @@ export async function finalizePrecision(competitionId, startNumber) {
   return trackWrite(`Finaliserar precision #${startNumber}`, (async () => {
     // Precision sets finalized on the precision document
     const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
-    // We include prioritized: true to force sorting if needed
-    await setDoc(ref, { 
-      prioritized: true, 
-      finalized: true,
-      finalizedAt: Date.now(),
-      finalizedBy: getUid()
-    }, { merge: true });
+    await assertNotRunning(ref, startNumber);
 
-    // Also write to the lock document to activate Firestore security rules
+    // Result and lock document in one batch (see finalizeMarathon).
+    // prioritized: true forces sorting if needed
     const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
-    await setDoc(lockRef, {
+    const batch = writeBatch(db);
+    batch.set(ref, {
+      prioritized: true,
       finalized: true,
       finalizedAt: Date.now(),
       finalizedBy: getUid()
     }, { merge: true });
+    batch.set(lockRef, {
+      finalized: true,
+      finalizedAt: Date.now(),
+      finalizedBy: getUid()
+    }, { merge: true });
+    await batch.commit();
   })());
 }
 

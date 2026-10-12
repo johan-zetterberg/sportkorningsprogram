@@ -612,7 +612,7 @@ async function saveAllTimingDrafts() {
 
   const entries = Array.from(timingDrafts.entries()).filter(([, patch]) => patch && !patch.__invalid);
   for (const [sn, patch] of entries) {
-    await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering etapptid');
+    await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering etapptid', { baseRow: getRowByStartNumber(sn) });
   }
 }
 
@@ -763,7 +763,7 @@ async function handleAction(event) {
 
       if (action === 'save-timing') {
         const patch = collectTimingPatch(timingRow, baseRow);
-        await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering etapptid');
+        await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering etapptid', { baseRow });
         showAlert(`Etapptider sparade för #${sn}.`);
         await refreshAll();
         return;
@@ -773,8 +773,11 @@ async function handleAction(event) {
         if (timingDrafts.has(sn) && timingDrafts.get(sn)?.__invalid) {
           throw new Error('Rätta ogiltiga tider innan du finaliserar.');
         }
-        const patch = collectTimingPatch(timingRow, baseRow);
-        await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering före återfinalisering');
+        // Only edited times are saved; without edits finalizing just locks
+        if (timingDrafts.has(sn)) {
+          const patch = collectTimingPatch(timingRow, baseRow);
+          await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering före återfinalisering', { baseRow });
+        }
         await refinalizeResult(competitionId, 'marathon', sn);
         showAlert(`Maraton #${sn} finaliserat.`);
         await refreshAll();

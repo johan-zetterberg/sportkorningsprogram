@@ -8,8 +8,7 @@ import {
   getMarathonObstacleResults,
   getMarathonStateDocuments,
   getMarathonTimingData,
-  saveMarathonObstacleResult,
-  saveMarathonTimingData
+  saveMarathonObstacleResult
 } from './marathonService.js';
 import {
   getAllDressageProtocols,
@@ -19,6 +18,7 @@ import {
   saveDressageJudgeProtocol
 } from './dressageService.js';
 import { getCompDocRef } from './firestoreService.js';
+import { findEditConflicts, isStillRunning, pickEditedFields } from './secretariatPatchUtils.js';
 import { getConfig } from './competitionService.js';
 import { calculatePrecisionResult } from '../utils/precisionCalculation.js';
 import { calculateObstacleResult } from '../core-engine/marathon.js';
@@ -374,7 +374,16 @@ export async function loadSecretariatMarathonObstacleDetail(competitionId, start
   };
 }
 
-export async function saveSecretariatPrecisionRow(competitionId, startNumber, patch = {}, reason = '') {
+const PRECISION_EDIT_FIELDS = ['timeMs', 'obstaclePenalty', 'timePenalty', 'extraPenalty', 'eliminated', 'comment'];
+const PRECISION_EDIT_DEFAULTS = { timeMs: 0, obstaclePenalty: 0, timePenalty: 0, extraPenalty: 0, eliminated: false, comment: '' };
+
+/**
+ * Saves the fields the secretariat edited in a row. `baseRow` is the row as
+ * loaded on the page: only fields that differ from it are written, the rest
+ * keep the current server values (a judge may have saved since the page was
+ * loaded), and an edit of a field the judge changed meanwhile is refused.
+ */
+export async function saveSecretariatPrecisionRow(competitionId, startNumber, patch = {}, reason = '', { baseRow = null } = {}) {
   if (!competitionId) throw new Error('Ingen tävling vald.');
   if (startNumber == null) throw new Error('Startnummer saknas.');
 
@@ -382,19 +391,34 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
   if (current?.finalized === true) {
     throw new Error('Resultatet är finaliserat. Lås upp innan ändring.');
   }
+  if (isStillRunning(current)) {
+    throw new Error(`#${startNumber} kör just nu. Vänta tills domaren har stoppat tiden.`);
+  }
+
+  const edited = pickEditedFields(patch, baseRow || current || {}, PRECISION_EDIT_FIELDS, PRECISION_EDIT_DEFAULTS);
+  if (baseRow) {
+    const conflicts = findEditConflicts(edited, baseRow, current || {}, PRECISION_EDIT_DEFAULTS);
+    if (conflicts.length) {
+      throw new Error(`Domaren har ändrat ${conflicts.join(', ')} för #${startNumber} efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
+    }
+  }
+  if (!Object.keys(edited).length) return current;
 
   const payload = {
     startNumber: Number(startNumber),
     className: patch.className ?? current?.className ?? null,
     driverName: patch.driverName ?? current?.driverName ?? null,
-    timeMs: numberOrDefault(patch.timeMs, current?.timeMs ?? 0),
-    obstaclePenalty: numberOrDefault(patch.obstaclePenalty, current?.obstaclePenalty ?? 0),
-    timePenalty: numberOrDefault(patch.timePenalty, current?.timePenalty ?? 0),
-    // A manually entered time penalty is kept; otherwise it follows the time
-    timePenaltyOverride: patch.timePenaltyOverride ?? current?.timePenaltyOverride === true,
-    extraPenalty: numberOrDefault(patch.extraPenalty, current?.extraPenalty ?? 0),
-    eliminated: patch.eliminated ?? current?.eliminated ?? false,
-    comment: patch.comment ?? current?.comment ?? '',
+    timeMs: numberOrDefault(edited.timeMs, current?.timeMs ?? 0),
+    obstaclePenalty: numberOrDefault(edited.obstaclePenalty, current?.obstaclePenalty ?? 0),
+    timePenalty: numberOrDefault(edited.timePenalty, current?.timePenalty ?? 0),
+    // An edited time penalty becomes a manual override; otherwise it follows the time
+    timePenaltyOverride: 'timePenalty' in edited || current?.timePenaltyOverride === true,
+    extraPenalty: numberOrDefault(edited.extraPenalty, current?.extraPenalty ?? 0),
+    eliminated: edited.eliminated ?? current?.eliminated ?? false,
+    comment: edited.comment ?? current?.comment ?? '',
+    // savePrecisionResult would otherwise reset these two
+    disqualified: current?.disqualified === true,
+    trackWidthCm: current?.trackWidthCm ?? null,
     running: false,
     inProgress: false,
     finalized: false,
@@ -438,7 +462,12 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
   return after;
 }
 
-export async function saveSecretariatMarathonTiming(competitionId, startNumber, patch = {}, reason = '') {
+/**
+ * Saves the stage times the secretariat edited (see saveSecretariatPrecisionRow
+ * for `baseRow`). Only edited stages are written; start/finish clocks and the
+ * other stage are left as the timekeepers saved them.
+ */
+export async function saveSecretariatMarathonTiming(competitionId, startNumber, patch = {}, reason = '', { baseRow = null } = {}) {
   if (!competitionId) throw new Error('Ingen tävling vald.');
   if (startNumber == null) throw new Error('Startnummer saknas.');
 
@@ -446,26 +475,43 @@ export async function saveSecretariatMarathonTiming(competitionId, startNumber, 
   if (currentSummary?.finalized === true) {
     throw new Error('Resultatet är finaliserat. Lås upp innan ändring.');
   }
+  if (isStillRunning(currentSummary)) {
+    throw new Error(`#${startNumber} är ute på banan just nu. Vänta tills tiden är stoppad.`);
+  }
 
   const currentRows = await getMarathonTimingData(competitionId);
   const current = currentRows.get(String(startNumber)) || {};
   const summary = currentSummary || {};
+  const serverNow = {
+    duration_A: numberOrDefault(summary.duration_A_ms ?? current.duration_A, 0),
+    duration_B: numberOrDefault(summary.duration_B_ms ?? current.duration_B, 0),
+  };
+  const fields = ['duration_A', 'duration_B'];
+  const defaults = { duration_A: 0, duration_B: 0 };
+  const edited = pickEditedFields(patch, baseRow || serverNow, fields, defaults);
+  if (baseRow) {
+    const conflicts = findEditConflicts(edited, baseRow, serverNow, defaults);
+    if (conflicts.length) {
+      throw new Error(`Tiden för ${conflicts.map(f => f.replace('duration_', 'sträcka ')).join(', ')} på #${startNumber} har ändrats efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
+    }
+  }
+  if (!Object.keys(edited).length) return { ...current, ...summary };
+
   const payload = {
     startNumber: Number(startNumber),
     className: patch.className ?? summary.className ?? current.className ?? null,
-    duration_A: numberOrDefault(patch.duration_A, summary.duration_A_ms ?? current.duration_A ?? 0),
-    duration_B: numberOrDefault(patch.duration_B, summary.duration_B_ms ?? current.duration_B ?? 0),
+    duration_A: numberOrDefault(edited.duration_A, serverNow.duration_A),
+    duration_B: numberOrDefault(edited.duration_B, serverNow.duration_B),
   };
 
-  await setDoc(getCompDocRef(competitionId, 'maraton', String(startNumber)), {
-    startNumber: payload.startNumber,
-    className: payload.className,
-    duration_A_ms: payload.duration_A,
-    duration_B_ms: payload.duration_B,
-    updatedAt: serverTimestamp(),
-  }, { merge: true });
-
-  await saveMarathonTimingData(competitionId, startNumber, payload);
+  const summaryWrite = { startNumber: payload.startNumber, className: payload.className, updatedAt: serverTimestamp() };
+  const timingWrite = { startNumber: payload.startNumber, className: payload.className, updatedAt: serverTimestamp() };
+  Object.keys(edited).forEach((field) => {
+    summaryWrite[`${field}_ms`] = payload[field];
+    timingWrite[field] = payload[field];
+  });
+  await setDoc(getCompDocRef(competitionId, 'maraton', String(startNumber)), summaryWrite, { merge: true });
+  await setDoc(getCompDocRef(competitionId, 'maraton-timing', String(startNumber)), timingWrite, { merge: true });
 
   const beforeForDiff = {
     duration_A: numberOrDefault(summary.duration_A_ms ?? current.duration_A, 0),

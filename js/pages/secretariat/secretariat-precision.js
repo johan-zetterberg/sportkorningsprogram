@@ -281,15 +281,19 @@ async function handleAction(event) {
 
     if (action === 'save') {
       const patch = collectPatch(rowEl, baseRow);
-      await saveSecretariatPrecisionRow(competitionId, sn, patch, 'Sekretariatskorrigering');
+      await saveSecretariatPrecisionRow(competitionId, sn, patch, 'Sekretariatskorrigering', { baseRow });
       showAlert(`Ändringar sparade för #${sn}.`);
       await refreshData();
       return;
     }
 
     if (action === 'finalize') {
-      const patch = collectPatch(rowEl, baseRow);
-      await saveSecretariatPrecisionRow(competitionId, sn, patch, 'Sekretariatskorrigering före återfinalisering');
+      // Only edited fields are saved; without edits finalizing just locks
+      if (drafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga värden innan du finaliserar.');
+      if (drafts.has(sn)) {
+        const patch = collectPatch(rowEl, baseRow);
+        await saveSecretariatPrecisionRow(competitionId, sn, patch, 'Sekretariatskorrigering före återfinalisering', { baseRow });
+      }
       await refinalizeResult(competitionId, 'precision', sn);
       showAlert(`Resultat #${sn} finaliserat.`);
       await refreshData();
