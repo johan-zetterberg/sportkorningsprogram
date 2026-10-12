@@ -1294,23 +1294,33 @@ async function saveResult(e) {
     enteredAt: enteredAt // Sparas nu direkt i resultatet!
   };
 
+  // A double tap must not save twice and skip an equipage when moving on
+  if (obstacleSaveInFlight) return;
+  obstacleSaveInFlight = true;
+  const equipageAtSave = currentEquipage;
   try {
-    await saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, resultData);
+    const saved = await saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, resultData);
 
-    if (!navigator.onLine) {
+    if (saved?.status === 'queued') {
       showAlert(t('marathon_result_queued').replace('{obstacleNumber}', obstacleNumber), 'offline');
     } else {
       showAlert(t('marathon_result_saved').replace('{obstacleNumber}', obstacleNumber));
     }
 
-    // KORRIGERING: Anropa den rena navigeringsfunktionen som BARA byter ekipage.
-    navigateEquipage(1);
+    // Move on from the equipage that was saved, not from one chosen meanwhile
+    if (currentEquipage === equipageAtSave) navigateEquipage(1);
 
   } catch (error) {
     console.error("Kunde inte spara maratonresultat:", error);
-    showAlert("Ett allvarligt fel inträffade vid sparande. Kontrollera konsolen (F12).", false);
+    showAlert(error?.message?.startsWith('Ekipage #')
+      ? error.message
+      : `Hinderresultatet för #${equipageId} kunde inte sparas. Kontrollera nätet och försök igen.`, false);
+  } finally {
+    obstacleSaveInFlight = false;
   }
 }
+
+let obstacleSaveInFlight = false;
 
 /**
  * Sätter upp alla händelselyssnare för sidan.

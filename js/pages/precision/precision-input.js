@@ -14,8 +14,11 @@ import {
     where,
     getDocs,
     onSnapshot,
-    runTransaction
+    arrayUnion,
+    arrayRemove,
+    deleteField
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { downloadJson } from '../../utils/sharedUtils.js';
@@ -213,53 +216,33 @@ function updateObstaclePenaltySummary() {
     summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
 }
 
-async function saveKnockToggle(gateLabel, shouldAdd, elapsedMs) {
-    if (!currentEquipage) return;
+// One knock (or its removal) for `equipage`, already applied to the local
+// state. A merge write with arrayUnion/arrayRemove and a single map key, not a
+// transaction: Firestore keeps it on the device without signal (a transaction
+// needs the server), and two devices toggling different gates don't overwrite
+// each other.
+async function saveKnockToggle(equipage, gateLabel, shouldAdd, elapsedMs) {
+    if (!equipage) return 'saved';
 
-    const ref = precisionDocRef(currentEquipage.startNumber);
-    const nowElapsedMs = getElapsedMs();
+    const knocksArray = Array.from(knocks).sort((a, b) => String(a).localeCompare(String(b), 'sv', { numeric: true }));
+    const {
+        obstaclePenalty: liveObstaclePenalty,
+        totalPenalty: liveTotalPenalty,
+        extraPenalty
+    } = livePenalties(getElapsedMs(), knocksArray);
 
-    const saved = await runTransaction(db, async (transaction) => {
-        const snap = await transaction.get(ref);
-        const current = snap.exists() ? snap.data() : {};
-        const mergedKnocks = new Set(Array.isArray(current.knocks) ? current.knocks.map(String) : []);
-        const mergedTimes = current.knockDownTimes && typeof current.knockDownTimes === 'object'
-            ? { ...current.knockDownTimes }
-            : {};
-
-        if (shouldAdd) {
-            mergedKnocks.add(gateLabel);
-            if (!Number.isFinite(Number(mergedTimes[gateLabel]))) {
-                mergedTimes[gateLabel] = elapsedMs;
-            }
-        } else {
-            mergedKnocks.delete(gateLabel);
-            delete mergedTimes[gateLabel];
-        }
-
-        const knocksArray = Array.from(mergedKnocks).sort((a, b) => String(a).localeCompare(String(b), 'sv', { numeric: true }));
-        const {
-            obstaclePenalty: liveObstaclePenalty,
-            totalPenalty: liveTotalPenalty,
-            extraPenalty
-        } = livePenalties(nowElapsedMs, knocksArray);
-
-        transaction.set(ref, {
-            startNumber: currentEquipage.startNumber,
-            className: currentEquipage.className,
-            knocks: knocksArray,
-            knockDownTimes: mergedTimes,
-            liveObstaclePenalty,
-            liveTotalPenalty,
-            extraPenalty,
-            updatedAt: Date.now()
-        }, { merge: true });
-
-        return { knocksArray, mergedTimes };
-    });
-
-    knocks = new Set(saved.knocksArray);
-    knockDownTimes = saved.mergedTimes;
+    mirrorToLocal(equipage.startNumber, { knocks: knocksArray, knockDownTimes: { ...knockDownTimes }, updatedAt: Date.now() });
+    const write = setDoc(precisionDocRef(equipage.startNumber), {
+        startNumber: equipage.startNumber,
+        className: equipage.className,
+        knocks: shouldAdd ? arrayUnion(gateLabel) : arrayRemove(gateLabel),
+        knockDownTimes: { [gateLabel]: shouldAdd ? elapsedMs : deleteField() },
+        liveObstaclePenalty,
+        liveTotalPenalty,
+        extraPenalty,
+        updatedAt: Date.now()
+    }, { merge: true });
+    return awaitWriteOrQueue(write, { onLateError: () => showAlert(t('precision_save_error'), false) });
 }
 
 function stringTimeToMs(label) {
@@ -276,16 +259,18 @@ function precisionDocRef(startNumber) {
     return doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`, String(startNumber));
 }
 async function pushLiveSafe(update) {
-    if (!currentEquipage) return;
+    const equipage = currentEquipage;
+    if (!equipage) return;
     try {
         const snapshot = {
-            startNumber: currentEquipage.startNumber,
-            className: currentEquipage.className,
+            startNumber: equipage.startNumber,
+            className: equipage.className,
             ...update,
-            updatedAt: Date.now() 
+            updatedAt: Date.now()
         };
-        await setDoc(precisionDocRef(currentEquipage.startNumber), snapshot, { merge: true });
-        mirrorToLocal(currentEquipage.startNumber, snapshot);
+        // Backup first: the write's promise waits for the server
+        mirrorToLocal(equipage.startNumber, snapshot);
+        await setDoc(precisionDocRef(equipage.startNumber), snapshot, { merge: true });
     } catch (e) {
         console.warn('Live push misslyckades (troligen p.g.a. säkerhetsregler):', e.message);
     }
@@ -652,6 +637,7 @@ function renderGates() {
     host.querySelectorAll('.gateBtn').forEach(btn => {
         btn.addEventListener('click', async () => {
             const g = btn.dataset.g;
+            const equipage = currentEquipage;
             const shouldAdd = !knocks.has(g);
             const elapsedMs = getElapsedMs();
 
@@ -667,11 +653,11 @@ function renderGates() {
             updateObstaclePenaltySummary();
 
             try {
-                await saveKnockToggle(g, shouldAdd, elapsedMs);
-                renderGates();
-                updateObstaclePenaltySummary();
+                await saveKnockToggle(equipage, g, shouldAdd, elapsedMs);
             } catch (err) {
-                console.error('Kunde inte spara rivning transaktionssäkert:', err);
+                console.error('Kunde inte spara rivning:', err);
+                // Undo only on the equipage it was made for
+                if (currentEquipage !== equipage) return;
                 if (shouldAdd) {
                     knocks.delete(g);
                     delete knockDownTimes[g];
@@ -857,6 +843,7 @@ function resetTimer() {
 
     const commentInput = document.getElementById('commentInput');
     if (commentInput) commentInput.value = '';
+    clearFormDirty();
 
     // 3. Uppdatera UI-visning omedelbart (använd rena render-funktioner)
     renderTimerUI(0);
@@ -911,13 +898,13 @@ function applyLiveDocToState(data = null) {
     }
 
     const extraPenaltyInput = document.getElementById('extraPenaltyInput');
-    if (extraPenaltyInput) extraPenaltyInput.value = String(extraPenalty);
+    if (extraPenaltyInput && !isUserEditing(extraPenaltyInput)) extraPenaltyInput.value = String(extraPenalty);
 
     const eliminatedInput = document.getElementById('eliminatedInput');
-    if (eliminatedInput) eliminatedInput.checked = payload.eliminated === true;
+    if (eliminatedInput && !isUserEditing(eliminatedInput)) eliminatedInput.checked = payload.eliminated === true;
 
     const commentInput = document.getElementById('commentInput');
-    if (commentInput) commentInput.value = comment;
+    if (commentInput && !isUserEditing(commentInput)) commentInput.value = comment;
 
     updateHeaderInfo();
     renderGates();
@@ -940,6 +927,8 @@ function resetSelectionUi() {
     knockDownTimes = {};
     extraPenalty = 0;
     comment = '';
+    clearFormDirty();
+    wireFormDirtyTracking();
 
     const extraPenaltyInput = document.getElementById('extraPenaltyInput');
     if (extraPenaltyInput) extraPenaltyInput.value = '0';
@@ -1071,15 +1060,54 @@ async function saveFinal() {
         updatedAt: Date.now()
     };
 
+    // The save belongs to this equipage even if the judge moves on before the
+    // server answers; backup before the write, since its promise waits for the server
+    const equipage = currentEquipage;
+    if (saveInFlight) return;
+    saveInFlight = true;
+    mirrorToLocal(equipage.startNumber, payload);
+    clearFormDirty();
+    if (currentEquipage === equipage) applyLiveDocToState(payload);
     try {
-        await setDoc(precisionDocRef(currentEquipage.startNumber), payload, { merge: true });
-        mirrorToLocal(currentEquipage.startNumber, payload);
-        applyLiveDocToState(payload);
-        showAlert(calc.configMissing ? t('precision_saved_course_missing') : t('precision_save_success'), !calc.configMissing);
+        const result = await awaitWriteOrQueue(
+            setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
+            { onLateError: () => showAlert(`#${equipage.startNumber}: ${t('precision_save_error')}`, false) }
+        );
+        const message = calc.configMissing ? t('precision_saved_course_missing') : t('precision_save_success');
+        showAlert(`${message}${queuedNotice(result)}`, result === 'queued' ? 'offline' : !calc.configMissing);
     } catch (error) {
         console.error('Kunde inte spara precisionresultatet:', error);
         showAlert(t('precision_save_error'), false);
+    } finally {
+        saveInFlight = false;
     }
+}
+
+let saveInFlight = false;
+
+// Fields the judge types in: a snapshot (also the 5 s live push while the
+// clock runs) must not replace what is being typed
+const FORM_FIELD_IDS = ['commentInput', 'extraPenaltyInput', 'eliminatedInput'];
+
+function isUserEditing(el) {
+    return !!el && (el.dataset.dirty === '1' || document.activeElement === el);
+}
+
+function clearFormDirty() {
+    FORM_FIELD_IDS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) delete el.dataset.dirty;
+    });
+}
+
+function wireFormDirtyTracking() {
+    FORM_FIELD_IDS.forEach((id) => {
+        const el = document.getElementById(id);
+        if (!el || el.dataset.dirtyWired) return;
+        el.dataset.dirtyWired = '1';
+        el.addEventListener('input', () => { el.dataset.dirty = '1'; });
+        el.addEventListener('change', () => { el.dataset.dirty = '1'; });
+    });
 }
 
 // ---------- Lifecycle ----------

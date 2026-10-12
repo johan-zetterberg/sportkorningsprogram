@@ -127,6 +127,49 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
 });
 
+test('precision knocks can be recorded without signal and reach the server afterwards', async ({ page, context }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  // The seed has no precision course: give every class three gates
+  await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const classes = [...new Set((await getEquipages(competitionId)).map(e => e.className).filter(Boolean))];
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    classes.forEach((cls) => { courses[cls] = { ...(courses[cls] || {}), obstacleLabels: ['1', '2', '3'] }; });
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+  }, competitionId);
+
+  await page.goto('/index.html#precision-input');
+  await expect(page.locator('#precisionEquipageSearchContainer .search-input')).toBeVisible();
+  await page.locator('#btnNextEq').click();
+  const gate = page.locator('#gatesGrid .gateBtn').first();
+  await expect(gate).toBeVisible();
+  const gateLabel = await gate.getAttribute('data-g');
+  const startNumber = await page.evaluate(() => document.querySelector('#precisionEquipageSearchContainer .search-input')?.value?.match(/#(\d+)/)?.[1]);
+  expect(startNumber).toBeTruthy();
+  await page.waitForTimeout(1500);
+
+  // No signal: the knock must stay (it was rolled back with an error before)
+  await context.setOffline(true);
+  await gate.click();
+  await page.waitForTimeout(6000);
+  await expect(gate).toHaveClass(/bg-red-600/);
+  await expect(page.locator('#alertModal')).not.toContainText(/Fel|fel/);
+
+  // Signal back: the queued write reaches the server
+  await context.setOffline(false);
+  await expect.poll(async () => page.evaluate(async ({ competitionId, startNumber }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDocFromServer } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    try {
+      const snap = await getDocFromServer(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${startNumber}`));
+      return snap.exists() ? (snap.data().knocks || []) : [];
+    } catch { return []; }
+  }, { competitionId, startNumber }), { timeout: 60000 }).toContain(gateLabel);
+});
+
 test('marathon input loads a seeded equipage with obstacle data without errors', async ({ page }) => {
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
   // Errors in loading a result are caught and logged (console.error), errors

@@ -8,7 +8,8 @@ import {
   doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, runTransaction
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-import { getCompetitionHeader } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
@@ -244,7 +245,26 @@ function filterEquipages(term) {
   );
 }
 
+// Bumped on every selection: a slow read for the previous equipage must not
+// load its log into the one selected now (the next save would store it there)
+let selectionSeq = 0;
+
 async function onEquipageSelected(sn, container) {
+  const mySelection = ++selectionSeq;
+  const previousSn = currentSn;
+
+  // A running halt or wrong-gait timer belongs to the previous equipage: stop
+  // it and save it there instead of dropping it
+  if (previousSn && previousSn !== String(sn ?? '') && (haltRunning || wrongGaitRunning)) {
+    if (haltRunning) halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) });
+    if (wrongGaitRunning) wrongGaitAccum += (nowSec() - wrongGaitStartTs);
+    const previousLog = { wrongGaitSeconds: wrongGaitAccum, halts: [...halts], notes: qs('#notesField', container)?.value ?? notes };
+    awaitWriteOrQueue(writeObserverLog(previousSn, previousLog)).catch((e) => {
+      console.error('Kunde inte spara observatörslogg vid byte:', e);
+      showAlert(`#${previousSn}: observatörsloggen kunde inte sparas.`, false);
+    });
+  }
+
   currentSn = sn ? String(sn) : null;
   const eq = findEquipageBySn(currentSn);
 
@@ -274,6 +294,7 @@ async function onEquipageSelected(sn, container) {
   }
   try {
     const log = await readObserverLog(currentSn);
+    if (mySelection !== selectionSeq) return;
     wrongGaitAccum = Math.max(0, toInt(log.wrongGaitSeconds));
     halts = Array.isArray(log.halts) ? log.halts.map(h => ({
       atSec: Math.max(0, toInt(h.atSec)),
@@ -662,17 +683,20 @@ function wire(container) {
     if (notesStatus) notesStatus.textContent = t('observer_saving');
 
     try {
-      await writeObserverLog(currentSn, {
+      // Without signal the write is kept on the device; say so instead of
+      // showing "Sparar…" until the network returns
+      const result = await awaitWriteOrQueue(writeObserverLog(currentSn, {
         wrongGaitSeconds: wrongGaitAccum,
         halts,
         notes: notesEl ? notesEl.value : notes
-      });
+      }));
+      const savedText = result === 'queued' ? 'Sparat på enheten – skickas när nätet är tillbaka' : t('observer_saved_check');
       if (msg) {
-        msg.textContent = t('observer_saved_check');
+        msg.textContent = savedText;
         setTimeout(() => msg.textContent = '', 2000);
       }
       if (notesStatus) {
-        notesStatus.textContent = t('observer_saved_check');
+        notesStatus.textContent = savedText;
         setTimeout(() => notesStatus.textContent = "", 2000);
       }
     } catch (e) {

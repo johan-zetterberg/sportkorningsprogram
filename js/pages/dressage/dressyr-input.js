@@ -20,6 +20,7 @@ import { t } from '../../utils/i18n.js';
 
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { requestWakeLock } from '../../utils/wakeLock.js';
+import { awaitWriteOrQueue, WRITE_ACK_TIMEOUT_MS } from '../../utils/offlineWrite.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
@@ -290,8 +291,13 @@ function handleSelectionChange() {
 }
 
 // --- Global dressyr-straffkoefficient (programnivå) ---
+// Bumped on every load: a slow load for one equipage or judge must not fill
+// the form after another has been chosen (a save would store it there)
+let protocolLoadSeq = 0;
+
 async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
   const allowTestChange = opts.allowTestChange !== false; // default = true
+  const mySeq = ++protocolLoadSeq;
   clearForm();
   if (!startNumber || !judgeId || !competitionId) return;
 
@@ -304,6 +310,7 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
     fetchFailed = true;
     console.warn("Kunde inte ladda befintligt dressyrprotokoll från Firestore, försöker lokal backup:", error);
   }
+  if (mySeq !== protocolLoadSeq) return;
 
   try {
     const jid = String(judgeId);
@@ -697,12 +704,14 @@ async function updateLiveStatus(lastUpdatedElement = null) {
       updatedAt: new Date().toISOString()
     };
 
+    // Backup on the device first: the write only resolves when the server has
+    // answered, so without signal a backup written after it would never happen
+    mirrorToLocal(startNumber, { live: payload });
+
     // Skriv med enkel retry/backoff för att undvika tappade pulser på nätverksglitch
     for (let i = 0; i < 3; i++) {
       try {
         await setDoc(liveDocRef, payload, { merge: true });
-        // Mirror live state locally too!
-        mirrorToLocal(startNumber, { live: payload });
         break; // klart
       } catch (err) {
         if (i === 2) throw err; // ge upp efter 3 försök
@@ -715,11 +724,22 @@ async function updateLiveStatus(lastUpdatedElement = null) {
   }
 }
 
+let protocolSaveInFlight = false;
+
 async function saveProtocol() {
   const startNumber = equipageSearchDropdown.getValue();
   if (!startNumber) { showAlert(t('alert_select_equipage'), false); return; }
   if (!activeDressageJudge) { showAlert(t('alert_select_judge'), false); return; }
   if (!currentDressageTest) { showAlert(t('alert_select_program'), false); return; }
+  // A double tap must not save twice and skip an equipage when moving on
+  if (protocolSaveInFlight) return;
+  protocolSaveInFlight = true;
+  const saveButton = document.getElementById('saveProtocol');
+  if (saveButton) saveButton.disabled = true;
+
+  // The save belongs to this equipage and judge even if the judge moves on
+  // before the server answers
+  const judge = activeDressageJudge;
 
   try {
     const testKey = document.getElementById('testSelector').value;
@@ -732,25 +752,24 @@ async function saveProtocol() {
 
     // KORRIGERING: Lägger till 'testKey' i dokumentet som sparas.
     const protocolData = {
-      judgeId: activeDressageJudge.id,
-      judgeName: activeDressageJudge.name,
-      judgePosition: activeDressageJudge._pos || '',
-      testKey, // <--- DENNA VAR DEN KRITISKA DELEN SOM SAKNADES
+      judgeId: judge.id,
+      judgeName: judge.name,
+      judgePosition: judge._pos || '',
+      testKey,
       eliminated,
       movements: movementsData
     };
-    await saveDressageJudgeProtocol(competitionId, startNumber, activeDressageJudge.id, protocolData);
+    const generalData = generalDataDirty ? {
+      errorPoints: parseFloat(document.getElementById('errorPointsInput').value) || 0,
+      errorComment: document.getElementById('errorCommentInput').value || ''
+    } : null;
 
-    if (generalDataDirty) {
-      const generalData = {
-        errorPoints: parseFloat(document.getElementById('errorPointsInput').value) || 0,
-        errorComment: document.getElementById('errorCommentInput').value || ''
-      };
-      await saveDressageGeneralData(competitionId, startNumber, generalData);
-      mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
-    } else {
-      mirrorToLocal(startNumber, { protocol: protocolData });
-    }
+    // Backup on the device first: the writes below only resolve when the
+    // server has answered, which without signal can be much later
+    mirrorToLocal(startNumber, generalData ? { protocol: protocolData, general: generalData } : { protocol: protocolData });
+
+    const writes = [saveDressageJudgeProtocol(competitionId, startNumber, judge.id, protocolData)];
+    if (generalData) writes.push(saveDressageGeneralData(competitionId, startNumber, generalData));
 
     // This judge's own score (no error points), from the result engine.
     // Calculated as not eliminated so points stay visible on an eliminated protocol.
@@ -761,9 +780,9 @@ async function saveProtocol() {
     ) || {};
 
     const finalJudgeScorePayload = {
-      judgeId: activeDressageJudge.id,
-      judgeName: activeDressageJudge.name,
-      judgePosition: activeDressageJudge._pos || '',
+      judgeId: judge.id,
+      judgeName: judge.name,
+      judgePosition: judge._pos || '',
       points: judgeCalc.points ?? 0,
       totalPoints: judgeCalc.points ?? 0,
       penalty: eliminated ? null : (judgeCalc.judgePenalty ?? null),
@@ -771,16 +790,20 @@ async function saveProtocol() {
       eliminated: eliminated,
     };
 
-    // Calculate if ALL expected judges have finished
+    // Calculate if ALL expected judges have finished (from the device's copy
+    // when there is no signal; this judge's protocol counts in any case)
     const savedPositions = new Set();
-    const allProtocols = await getDressageResultsForEquipage(competitionId, startNumber);
+    const allProtocols = await Promise.race([
+      getDressageResultsForEquipage(competitionId, startNumber).catch(() => []),
+      new Promise(resolve => setTimeout(() => resolve([]), WRITE_ACK_TIMEOUT_MS))
+    ]);
     allProtocols.forEach(p => {
       if (p.id !== 'general' && p.judgePosition) {
         savedPositions.add(p.judgePosition.toUpperCase());
       }
     });
-    if (activeDressageJudge._pos) {
-      savedPositions.add(activeDressageJudge._pos.toUpperCase());
+    if (judge._pos) {
+      savedPositions.add(judge._pos.toUpperCase());
     }
 
     const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
@@ -789,28 +812,36 @@ async function saveProtocol() {
       const mapped = window.dressageJudgeMapping[equipage.className];
       expectedPositions = Object.keys(mapped).filter(k => mapped[k] && String(mapped[k]).trim() !== '').map(k => k.toUpperCase());
     } else {
-      expectedPositions = window.allJudges.map(j => (j._pos || '').toUpperCase()).filter(p => p !== '');
+      expectedPositions = (allJudges || []).map(j => (j._pos || '').toUpperCase()).filter(p => p !== '');
     }
 
     const expectedCount = new Set(expectedPositions).size;
     const isFullyFinished = savedPositions.size >= expectedCount || expectedCount === 0;
     const finalState = isFullyFinished ? 'finished' : 'ongoing';
 
-    await setDressageStatus(competitionId, startNumber, {
+    writes.push(setDressageStatus(competitionId, startNumber, {
       state: finalState,
-      judgeId: activeDressageJudge.id,
-      judgeName: activeDressageJudge.name,
-      judgePosition: activeDressageJudge._pos || '',
+      judgeId: judge.id,
+      judgeName: judge.name,
+      judgePosition: judge._pos || '',
       protocol: null,
       lastUpdate: null,
       finalJudgeScore: finalJudgeScorePayload
+    }));
+
+    const result = await awaitWriteOrQueue(Promise.all(writes), {
+      onLateError: () => showAlert(`#${startNumber}: ${t('alert_protocol_save_error')}`, false)
     });
 
-    if (!navigator.onLine) {
+    if (result === 'queued') {
       showAlert(t('alert_protocol_queued').replace('{startNumber}', startNumber), 'offline');
     } else {
       showAlert(t('alert_protocol_saved').replace('{startNumber}', startNumber));
     }
+
+    // Clear and move on only if the judge is still on the saved equipage; if
+    // they already picked another one, its scores stay as they are
+    if (String(equipageSearchDropdown?.getValue() ?? '') !== String(startNumber) || activeDressageJudge !== judge) return;
     clearForm();
 
     // Auto-advance to the next equipage according to the start list
@@ -823,8 +854,10 @@ async function saveProtocol() {
     }
   } catch (error) {
     console.error("Kunde inte spara protokoll: ", error);
-    // Kunde inte spara protokoll: 
     showAlert(t('alert_protocol_save_error'), false);
+  } finally {
+    protocolSaveInFlight = false;
+    if (saveButton) saveButton.disabled = false;
   }
 }
 
@@ -1547,13 +1580,20 @@ export function load() {
     </div></div>`;
 
   // SPARA UNSUBSCRIBE
+  const myLoad = ++inputLoadSeq;
   const unsubscribeJudges = listenForJudges(competitionId, async (judges) => {
     allJudges = judges;
     try {
       if (!document.getElementById('page-dressyr-input')) return; // Skydd om vi lämnat
 
-      const [equipages, startTimes, mappingCfg, overrides, judgeMapCfg, rulesCfg, statusDocs] = await Promise.race([
-        Promise.all([
+      // On a slow link the reads can take long: say so, and keep waiting (a
+      // hard timeout left the page without selectors and Save did nothing)
+      const slowNotice = setTimeout(() => {
+        if (myLoad === inputLoadSeq) showAlert('Långsam uppkoppling – startlistan och programmen laddas fortfarande…', 'offline');
+      }, 5000);
+      let loaded;
+      try {
+        loaded = await Promise.all([
           getEquipages(competitionId),
           getConfig(competitionId, 'startTimes'),
           getConfig(competitionId, 'dressyrProgramMapping'),
@@ -1561,9 +1601,13 @@ export function load() {
           getConfig(competitionId, 'dressageJudgeMapping'),
           getConfig(competitionId, 'dressageRules'),
           getDressageStatusCollection(competitionId)
-        ]),
-        new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout loading dressage data')), 5000))
-      ]);
+        ]);
+      } finally {
+        clearTimeout(slowNotice);
+      }
+      // Left (or reloaded) the page meanwhile: start no listeners
+      if (myLoad !== inputLoadSeq) return;
+      const [equipages, startTimes, mappingCfg, overrides, judgeMapCfg, rulesCfg, statusDocs] = loaded;
 
       // Gör mapping + ev. overrides tillgängliga globalt
       const rawMap = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
@@ -1633,7 +1677,10 @@ export function load() {
       setupEventListeners();
       showProgramAuditBanner(sortedEquipages);
     } catch (e) {
-      // Kunde inte ladda grunddata för dressyr-input:
+      console.error('Kunde inte ladda grunddata för dressyrinmatning:', e);
+      if (myLoad === inputLoadSeq) {
+        showAlert('Startlistan och programmen kunde inte laddas. Kontrollera nätet och ladda om sidan.', false);
+      }
     }
   });
 
@@ -1645,8 +1692,12 @@ export function load() {
 }
 
 let unsubStatus = null;
+// Bumped by load and __unload: an initial load still waiting for data must not
+// start listeners after the page was left
+let inputLoadSeq = 0;
 
 export function __unload() {
+  inputLoadSeq++;
   // Städar dressyr-input...
   if (window.__dressageInputUnsub) {
     window.__dressageInputUnsub();

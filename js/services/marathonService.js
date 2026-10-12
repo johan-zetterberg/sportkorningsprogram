@@ -5,6 +5,7 @@ import { getConfig, listenForConfig, saveConfig } from './competitionService.js'
 import { auth } from '../config/firebase-config.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 import { setPauseWindows } from '../utils/marathonUtils.js';
+import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
 
 /**
  * Loads the competition's global pause log (config/globalStatus) into the
@@ -205,27 +206,35 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
     eliminated: !!data?.eliminated,
     holdTimeSec: Number(data?.holdTimeSec || 0),
     routeString: data?.routeString || '',
-    gateSplits: data?.gateSplits || [],
-    enteredAt: data?.enteredAt || new Date().toISOString()
+    // A save without them (the secretariat's correction) keeps the judge's
+    gateSplits: Array.isArray(data?.gateSplits) ? data.gateSplits : null,
+    enteredAt: data?.enteredAt || null
   };
 
   const summaryDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`, eid);
 
-  return trackWrite(`Sparar hinderresultat #${eid} Hinder ${on}`, (async () => {
-    await runTransaction(db, async (transaction) => {
-      const snap = await transaction.get(summaryDocRef);
-      const existingData = snap.exists() ? snap.data() : {};
-      const obstacles = (existingData.obstacles || []).filter(o => Number(o.number) !== on);
-      obstacles.push(resultData);
-      obstacles.sort((a, b) => a.number - b.number);
+  // Only the fields this save owns: the obstacle list and, when they belong to
+  // this obstacle, the shared live fields. Never the whole document back (a
+  // stale copy would overwrite e.g. stage times saved meanwhile)
+  const buildSummaryUpdate = (existingData = {}) => {
+    const previous = (existingData.obstacles || []).find(o => Number(o.number) === on) || {};
+    const entry = {
+      ...resultData,
+      gateSplits: resultData.gateSplits ?? previous.gateSplits ?? [],
+      enteredAt: resultData.enteredAt ?? previous.enteredAt ?? new Date().toISOString()
+    };
+    const obstacles = (existingData.obstacles || []).filter(o => Number(o.number) !== on);
+    obstacles.push(entry);
+    obstacles.sort((a, b) => a.number - b.number);
 
-      // The live fields are shared by all obstacles: clear them only when they
-      // belong to this obstacle, not while the equipage is timed at another one
-      const liveBelongsHere = existingData.running !== true
-        || existingData.currentObstacle == null
-        || Number(existingData.currentObstacle) === on;
-      transaction.set(summaryDocRef, {
-        ...existingData,
+    // The live fields are shared by all obstacles: clear them only when they
+    // belong to this obstacle, not while the equipage is timed at another one
+    const liveBelongsHere = existingData.running !== true
+      || existingData.currentObstacle == null
+      || Number(existingData.currentObstacle) === on;
+    return {
+      entry,
+      update: {
         obstacles,
         updatedAt: serverTimestamp(),
         ...(liveBelongsHere ? {
@@ -241,16 +250,73 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
           live_holdTimeSec: '',
           live_gateSplits: []
         } : {})
-      }, { merge: true });
-    });
+      }
+    };
+  };
+
+  return trackWrite(`Sparar hinderresultat #${eid} Hinder ${on}`, (async () => {
+    let entry = null;
+    let summaryWrite = null;
+    // With signal: a transaction, so two obstacles saving the same equipage at
+    // once can't drop each other's entry. Without signal Firestore can't run
+    // one, so the list is built from the copy on the device (the input page
+    // listens to this document) and a plain write is queued
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+      try {
+        await withTimeout(runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(summaryDocRef);
+          const built = buildSummaryUpdate(snap.exists() ? snap.data() : {});
+          entry = built.entry;
+          transaction.set(summaryDocRef, built.update, { merge: true });
+        }), OBSTACLE_TRANSACTION_TIMEOUT_MS);
+        summaryWrite = Promise.resolve();
+      } catch (error) {
+        if (!isConnectionError(error)) throw error;
+      }
+    }
+    if (!summaryWrite) {
+      let cached;
+      try {
+        const snap = await getDoc(summaryDocRef);
+        cached = snap.exists() ? snap.data() : {};
+      } catch (error) {
+        // Not on the device either: a write from an empty list would erase
+        // the other obstacles' results when it reaches the server
+        throw new Error(`Ekipage #${eid} finns inte sparat på enheten och nätet saknas. Försök igen när det finns täckning.`);
+      }
+      const built = buildSummaryUpdate(cached);
+      entry = built.entry;
+      summaryWrite = setDoc(summaryDocRef, built.update, { merge: true });
+    }
+
     const obstacleDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults/${eid}/obstacles/${on}`);
-    await setDoc(obstacleDocRef, {
-      ...resultData,
+    const obstacleWrite = setDoc(obstacleDocRef, {
+      ...entry,
       obstacleNumber: on,
       updatedAt: serverTimestamp()
     }, { merge: true });
-    return { ok: true, path: summaryDocRef.path };
+
+    const status = await awaitWriteOrQueue(Promise.all([summaryWrite, obstacleWrite]));
+    return { ok: true, path: summaryDocRef.path, status };
   })());
+}
+
+const OBSTACLE_TRANSACTION_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'deadline-exceeded' })), ms);
+    })
+  ]);
+}
+
+// No (usable) connection, as opposed to a refusal such as permission-denied
+function isConnectionError(error) {
+  return ['unavailable', 'deadline-exceeded', 'failed-precondition'].includes(error?.code)
+    || /offline|network/i.test(String(error?.message || ''));
 }
 
 export async function getMarathonTimingForEquipage(competitionId, startNumber) {

@@ -1,5 +1,5 @@
 import { db, appId } from '../config/firebase-config.js';
-import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp, runTransaction, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
@@ -22,31 +22,27 @@ export async function setDressageStatus(competitionId, startNumber, {
     `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus/${String(startNumber)}`
   );
 
-  return trackWrite(`Ändrar dressyrstatus #${startNumber}`, (async () => {
-    await runTransaction(db, async (transaction) => {
-      await transaction.get(ref);
+  const payload = {
+    state,
+    judgeId: judgeId || finalJudgeScore?.judgeId || null,
+    judgeName: judgeName || null,
+    judgePosition: judgePosition || finalJudgeScore?.judgePosition || null,
+    updatedAt: serverTimestamp(),
+  };
+  if (state === 'ongoing') payload.startedAt = serverTimestamp();
+  if (state === 'finished') payload.finishedAt = serverTimestamp();
+  if (protocol !== undefined) payload.protocol = protocol;
+  if (lastUpdate !== undefined) payload.lastUpdate = lastUpdate;
+  if (finalJudgeScore !== undefined) payload.finalJudgeScore = finalJudgeScore;
+  if (finalPercent !== undefined) payload.finalPercent = finalPercent;
+  if (finalPoints !== undefined) payload.finalPoints = finalPoints;
+  if (finalPenalty !== undefined) payload.finalPenalty = finalPenalty;
+  if (errorPoints !== undefined) payload.errorPoints = errorPoints;
+  if (errorPenalty !== undefined) payload.errorPenalty = errorPenalty;
 
-      const payload = {
-        state,               
-        judgeId: judgeId || finalJudgeScore?.judgeId || null,
-        judgeName: judgeName || null,
-        judgePosition: judgePosition || finalJudgeScore?.judgePosition || null,
-        updatedAt: serverTimestamp(),
-      };
-      if (state === 'ongoing') payload.startedAt = serverTimestamp();
-      if (state === 'finished') payload.finishedAt = serverTimestamp();
-      if (protocol !== undefined) payload.protocol = protocol;
-      if (lastUpdate !== undefined) payload.lastUpdate = lastUpdate;
-      if (finalJudgeScore !== undefined) payload.finalJudgeScore = finalJudgeScore;
-      if (finalPercent !== undefined) payload.finalPercent = finalPercent;
-      if (finalPoints !== undefined) payload.finalPoints = finalPoints;
-      if (finalPenalty !== undefined) payload.finalPenalty = finalPenalty;
-      if (errorPoints !== undefined) payload.errorPoints = errorPoints;
-      if (errorPenalty !== undefined) payload.errorPenalty = errorPenalty;
-
-      transaction.set(ref, payload, { merge: true });
-    });
-  })());
+  // A plain merge write, not a transaction: a transaction needs the server, so
+  // a judge without signal could not save (and it never used what it read)
+  return trackWrite(`Ändrar dressyrstatus #${startNumber}`, setDoc(ref, payload, { merge: true }));
 }
 
 export function listenForDressageStatus(competitionId, startNumber, callback) {
