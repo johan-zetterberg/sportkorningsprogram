@@ -3,6 +3,7 @@ import { getConfig, replaceConfig } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { resolveTestLevelMergeForClass } from './adminParticipantClassUtils.js';
 import { removeMergeGroupsBySelection } from './adminParticipantMergeUtils.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let currentCompetitionId = null;
 let currentEquipages = [];
@@ -82,7 +83,7 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
           <input type="checkbox" class="mt-1 h-4 w-4 cnChoice rounded border-gray-300 dark:border-gray-500 dark:bg-gray-600 text-blue-600" data-num="${item.num}">
           <div class="text-sm">
             <div class="font-semibold dark:text-gray-200">TDB #${item.num}</div>
-            <div class="text-xs text-slate-600 dark:text-gray-400">Möjliga etiketter: ${label || '-'} - (${item.count} ekipage)</div>
+            <div class="text-xs text-slate-600 dark:text-gray-400">Möjliga etiketter: ${escapeHtml(label || '-')} - (${item.count} ekipage)</div>
           </div>
         </label>`;
     }
@@ -119,10 +120,10 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
                 const nums = (group.members || []).join(', ');
                 return `
         <label class="flex items-start gap-2 p-2 border rounded bg-white hover:bg-slate-50 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600 cursor-pointer">
-            <input type="checkbox" class="mt-1 h-4 w-4 cnActiveGroupChoice rounded border-gray-300 dark:border-gray-500 dark:bg-gray-600 text-blue-600" data-key="${key}">
+            <input type="checkbox" class="mt-1 h-4 w-4 cnActiveGroupChoice rounded border-gray-300 dark:border-gray-500 dark:bg-gray-600 text-blue-600" data-key="${escapeHtml(key)}">
                 <div>
-                    <div class="text-sm font-semibold dark:text-gray-200">${group.label}</div>
-                    <div class="text-xs text-slate-600 dark:text-gray-400">TDB#: ${nums}</div>
+                    <div class="text-sm font-semibold dark:text-gray-200">${escapeHtml(group.label)}</div>
+                    <div class="text-xs text-slate-600 dark:text-gray-400">TDB#: ${escapeHtml(nums)}</div>
                 </div>
             </label>`;
             }).join('');

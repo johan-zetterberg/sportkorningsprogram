@@ -1,13 +1,15 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 function formatPaymentStatus(payment) {
     if (!payment) return '<span class="text-red-400">Ej betald</span>';
-    if (payment.status === 'paid') return `<span class="text-green-600 font-bold">OK ${payment.amount ? payment.amount + ' kr' : ''}</span>`;
-    if (payment.status === 'partial') return `<span class="text-amber-600 font-bold">Delvis ${payment.amount ? '(' + payment.amount + ' kr)' : ''}</span>`;
+    if (payment.status === 'paid') return `<span class="text-green-600 font-bold">OK ${payment.amount ? escapeHtml(payment.amount) + ' kr' : ''}</span>`;
+    if (payment.status === 'partial') return `<span class="text-amber-600 font-bold">Delvis ${payment.amount ? '(' + escapeHtml(payment.amount) + ' kr)' : ''}</span>`;
     return '<span class="text-red-400">Ej betald</span>';
 }
 
 function formatTdbClassNumber(equipage) {
     if (equipage?.tdbClassNumber == null || equipage.tdbClassNumber === '') return '-';
-    return `#${equipage.tdbClassNumber}`;
+    return `#${escapeHtml(equipage.tdbClassNumber)}`;
 }
 
 export function renderAdminEquipageTable(equipages, { onSelectEquipage, onRendered } = {}) {
@@ -32,23 +34,23 @@ export function renderAdminEquipageTable(equipages, { onSelectEquipage, onRender
         <td class="p-3 font-bold">${equipage.startNumber}</td>
         <td class="p-3">
             <div class="flex items-center gap-1.5 flex-wrap">
-                <span class="font-medium">${equipage.driverName}</span>
+                <span class="font-medium">${escapeHtml(equipage.driverName)}</span>
                 ${equipage.hasMultipleStarts ? `
                     <span class="inline-flex items-center gap-1 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${equipage.driverStartCount} starter (TR Mom 535.4)">
                         <i class="fa fa-clone text-[10px]"></i> ${equipage.driverStartCount} starter
                     </span>
                 ` : ''}
             </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">${equipage.clubName}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(equipage.clubName)}</div>
         </td>
         <td class="p-3 text-sm font-mono text-gray-600 dark:text-gray-400">${formatTdbClassNumber(equipage)}</td>
-        <td class="p-3">${(equipage.useMergedTestForDisplay && equipage.mergedTestLabel) ? equipage.mergedTestLabel : equipage.className}</td>
+        <td class="p-3">${escapeHtml((equipage.useMergedTestForDisplay && equipage.mergedTestLabel) ? equipage.mergedTestLabel : equipage.className)}</td>
         <td class="p-3 text-sm text-gray-600 dark:text-gray-400">
-            ${equipage.trackWidth ? `${equipage.trackWidth} cm` : '-'}
+            ${equipage.trackWidth ? `${escapeHtml(equipage.trackWidth)} cm` : '-'}
             ${equipage.trackWidthSource === 'registry' ? '<span class="ml-1 text-[10px] text-blue-600 dark:text-blue-400 font-medium" title="Förifylld från sparad vagn">(sparad)</span>' : ''}
         </td>
         <td class="p-3">${formatPaymentStatus(equipage.payment)}</td>
-        <td class="p-3 ${equipage.status === 'struken' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${equipage.status}</td>
+        <td class="p-3 ${equipage.status === 'struken' ? 'text-red-500 dark:text-red-400' : 'text-green-600 dark:text-green-400'}">${escapeHtml(equipage.status)}</td>
     </tr>
         `).join('');
 

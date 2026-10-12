@@ -1,5 +1,6 @@
 import { saveEquipage } from '../../services/equipageService.js';
 import { showAlert } from '../../ui/components.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 function buildClassRows(equipages) {
     const classMap = new Map();
@@ -29,10 +30,10 @@ function buildClassRows(equipages) {
 function renderClassRows(container, rows) {
     container.innerHTML = rows.map((row, index) => `
         <div class="flex items-center gap-3 p-2 hover:bg-gray-50 dark:hover:bg-gray-700 rounded">
-            <div class="w-8 text-center text-xs font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded p-1" title="TDB Klassnummer">${row.tdbNum || '-'}</div>
+            <div class="w-8 text-center text-xs font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 rounded p-1" title="TDB Klassnummer">${escapeHtml(row.tdbNum || '-')}</div>
             <div class="flex-1">
-                <input type="text" data-idx="${index}" class="class-rename-input w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white" value="${row.name}">
-                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">Nuvarande: ${row.name} (${row.count} ekipage)</div>
+                <input type="text" data-idx="${index}" class="class-rename-input w-full p-2 border rounded dark:bg-gray-800 dark:border-gray-600 dark:text-white" value="${escapeHtml(row.name)}">
+                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">Nuvarande: ${escapeHtml(row.name)} (${row.count} ekipage)</div>
             </div>
         </div>
     `).join('');

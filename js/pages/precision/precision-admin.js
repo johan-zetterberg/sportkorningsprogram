@@ -354,8 +354,8 @@ function renderLayout() {
                     </div>
                     <div class="precision-field-wrap">
                         <label class="block text-sm font-medium dark:text-gray-300">Tidsstraff per sekund (p/s)</label>
-                        <input type="number" step="0.1" id="globalTimePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${defRate}">
-                        <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Normal TR/FEI-inställning: ${defRate} p per sekund över maxtiden.</p>
+                        <input type="number" step="0.1" id="globalTimePenaltyRate" class="mt-1 w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${escapeHtml(defRate)}">
+                        <p class="text-xs text-gray-500 mt-1 dark:text-gray-500">Normal TR/FEI-inställning: ${escapeHtml(defRate)} p per sekund över maxtiden.</p>
                     </div>
                 </div>
             </section>
@@ -479,14 +479,14 @@ function renderClassCards() {
                 const delta = specialPortAllowance[label] ?? '';
                 return `
             <div class="precision-admin-special-row flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
-                <span class="w-14 text-sm">${label}</span>
+                <span class="w-14 text-sm">${escapeHtml(label)}</span>
                 <span class="flex-1 text-xs text-gray-500">± cm relativt standard</span>
                 <input
                     type="number"
                     step="1"
                     class="special-port-input w-full sm:w-20 p-1 border rounded-md text-right dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    data-label="${label}"
-                    value="${delta === '' ? '' : delta}"
+                    data-label="${escapeHtml(label)}"
+                    value="${escapeHtml(delta)}"
                     placeholder="0"
                 />
             </div>
@@ -506,7 +506,7 @@ function renderClassCards() {
         // Use saved override if available, otherwise the TR standard tempo.
         const activeTempo = savedTempo > 0 ? savedTempo : stdTempo;
         const sourceClassLabel = group.isMerged && group.sourceClasses.length
-            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Ingår: ${group.sourceClasses.join(', ')}. Tempo räknas per ursprungsklass om inget manuellt tempo anges.</p>`
+            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Ingår: ${escapeHtml(group.sourceClasses.join(', '))}. Tempo räknas per ursprungsklass om inget manuellt tempo anges.</p>`
             : '';
 
         let maxTime = tempoState.hasMixedTempo && !(savedTempo > 0) ? 'Klassvis' : '--:--';
@@ -515,37 +515,37 @@ function renderClassCards() {
         }
 
         return `
-            <div class="precision-admin-card p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${className}" data-bulk-group-id="${escapeHtml(bulkGroupId)}">
-                <h4 class="text-lg font-bold text-gray-800 dark:text-white">${className}</h4>
+            <div class="precision-admin-card p-3 md:p-4 border-2 rounded-lg bg-gray-50 dark:bg-gray-800 dark:border-gray-700" data-class-name="${escapeHtml(className)}" data-bulk-group-id="${escapeHtml(bulkGroupId)}">
+                <h4 class="text-lg font-bold text-gray-800 dark:text-white">${escapeHtml(className)}</h4>
                 ${sourceClassLabel}
                 <div class="grid grid-cols-1 xl:grid-cols-3 gap-3 mt-3">
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Port-tillägg (cm)</label>
                         <div class="precision-admin-inline-panel flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-white border rounded-md dark:bg-gray-700 dark:border-gray-600">
-                            <span class="flex-1 text-gray-700 dark:text-gray-300">Standard: <strong>${stdAllowance}</strong></span>
-                            <input type="number" value="${manualAllowance ?? ''}" class="allowance-override-input w-full sm:w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
+                            <span class="flex-1 text-gray-700 dark:text-gray-300">Standard: <strong>${escapeHtml(stdAllowance)}</strong></span>
+                            <input type="number" value="${escapeHtml(manualAllowance ?? '')}" class="allowance-override-input w-full sm:w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
                         </div>
                     </div>
                     <div>
                         <label for="len_${classId}" class="block text-sm font-medium dark:text-gray-300">Banlängd (m)</label>
-                        <input type="number" id="len_${classId}" value="${trackLength}" class="track-length-input mt-1 w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500 dark:text-white">
+                        <input type="number" id="len_${classId}" value="${escapeHtml(trackLength)}" class="track-length-input mt-1 w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500 dark:text-white">
                     </div>
                     <div>
                         <label class="block text-sm font-medium dark:text-gray-300">Tempo & Maxtid</label>
                         <div class="precision-admin-inline-panel flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
                            <div class="flex items-center gap-1">
-                               <input type="number" value="${savedTempo ?? ''}" class="tempo-override-input w-full sm:w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${tempoPlaceholder}">
+                               <input type="number" value="${escapeHtml(savedTempo ?? '')}" class="tempo-override-input w-full sm:w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${tempoPlaceholder}">
                                <span class="text-xs text-gray-600 dark:text-gray-400">m/min</span>
                            </div>
                            <span class="flex-1 sm:text-right text-xs text-gray-500">Maxtid:</span>
-                           <strong id="maxtime_${classId}" class="text-gray-800 dark:text-white whitespace-nowrap">${maxTime}</strong>
+                           <strong id="maxtime_${classId}" class="text-gray-800 dark:text-white whitespace-nowrap">${escapeHtml(maxTime)}</strong>
                         </div>
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${tempoState.hasMixedTempo ? 'Lämna tempo tomt för klassvis beräkning per ursprungsklass. Fyll bara i tempo om hela gruppen ska ha samma tempo.' : 'Lämna tempo tomt för att använda klassens standardtempo.'}</p>
                     </div>
                 </div>
                 <div class="precision-field-wrap mt-4">
                     <label for="labels_${classId}" class="block text-sm font-medium dark:text-gray-300">Hinderetiketter</label>
-                    <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${labels.join(', ')}</textarea>
+                    <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${escapeHtml(labels.join(', '))}</textarea>
                 </div>
                 <div class="mt-4">
                     <label class="block text-sm font-medium dark:text-gray-300">Särskilda portar per hinder</label>
@@ -627,14 +627,14 @@ function renderClassCards() {
                 const val = currentValues[label] ?? savedSpecial[label] ?? '';
                 return `
                     <div class="flex items-center gap-2">
-                        <span class="w-14 text-sm">${label}</span>
+                        <span class="w-14 text-sm">${escapeHtml(label)}</span>
                         <span class="flex-1 text-xs text-gray-500">± cm relativt standard</span>
                         <input
                             type="number"
                             step="1"
                             class="special-port-input w-20 p-1 border rounded-md text-right dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                            data-label="${label}"
-                            value="${val}"
+                            data-label="${escapeHtml(label)}"
+                            value="${escapeHtml(val)}"
                             placeholder="0"
                         />
                     </div>
@@ -1348,7 +1348,7 @@ function updateGateSelector(entities) {
     if (gates.length > 0) {
         optionsHtml += `<optgroup label="Gates">`;
         gates.forEach(g => {
-            optionsHtml += `<option value="${g}">Port ${g.replace('gate_', '')}</option>`;
+            optionsHtml += `<option value="${escapeHtml(g)}">Port ${escapeHtml(g.replace('gate_', ''))}</option>`;
         });
         optionsHtml += `</optgroup>`;
     }
@@ -1418,7 +1418,7 @@ function syncPrecMarkers() {
 
         const icon = L.divIcon({
             className: 'custom-prec-admin-marker',
-            html: `<div style="background-color:${color}; color:white; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${label}</div>`,
+            html: `<div style="background-color:${color}; color:white; border-radius:50%; width:24px; height:24px; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:bold; border: 2px solid white; box-shadow: 0 2px 4px rgba(0,0,0,0.3);">${escapeHtml(label)}</div>`,
             iconSize: [24, 24],
             iconAnchor: [12, 12]
         });

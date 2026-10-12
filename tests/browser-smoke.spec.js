@@ -114,7 +114,8 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   });
 
   const routes = ['deltagare', 'hastar', 'starttider', 'dressyr-results', 'maraton-results', 'precision-results',
-    'total-resultat', 'dressyr-monitor', 'maraton-monitor', 'precision-monitor', 'speaker', 'competition-center'];
+    'total-resultat', 'dressyr-monitor', 'maraton-monitor', 'precision-monitor', 'speaker', 'competition-center',
+    'admin', 'ekipage', 'maraton-admin', 'precision-admin', 'dressyr-input', 'maraton-stages', 'observator-input'];
   for (const route of routes) {
     await page.goto(`/index.html#${route}`);
     await page.waitForTimeout(2500);

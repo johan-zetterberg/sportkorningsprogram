@@ -481,8 +481,8 @@ function renderClassGateOverrides(container, overrides = {}) {
     const val = overrides[cls] || '';
     return `
         <div class="marathon-admin-override-row flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-           <label class="text-xs text-gray-700 truncate sm:w-2/3 dark:text-gray-400" title="${cls}">${cls}</label>
-           <input type="number" data-override-class="${cls}" value="${val}" class="gate-override-input w-full sm:w-16 p-1 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="-">
+           <label class="text-xs text-gray-700 truncate sm:w-2/3 dark:text-gray-400" title="${escapeAttr(cls)}">${escapeHtml(cls)}</label>
+           <input type="number" data-override-class="${escapeAttr(cls)}" value="${escapeAttr(val)}" class="gate-override-input w-full sm:w-16 p-1 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="-">
         </div>
       `;
   }).join('')}
@@ -885,7 +885,7 @@ function getMarathonInputClass(className, field, extraClass = '') {
 
 function renderFieldError(className, field) {
   const error = getFieldError(className, field);
-  return error ? `<div class="mt-1 text-[11px] font-medium text-red-600 dark:text-red-300">${error.message}</div>` : '';
+  return error ? `<div class="mt-1 text-[11px] font-medium text-red-600 dark:text-red-300">${escapeHtml(error.message)}</div>` : '';
 }
 
 function renderClassValidationSummary(className) {
@@ -896,7 +896,7 @@ function renderClassValidationSummary(className) {
     <div class="rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-900/25 dark:text-red-200">
       <div class="font-semibold">Kontrollera denna klass innan du sparar:</div>
       <ul class="mt-1 list-disc pl-5 space-y-0.5">
-        ${errors.map(error => `<li>${error.message}</li>`).join('')}
+        ${errors.map(error => `<li>${escapeHtml(error.message)}</li>`).join('')}
       </ul>
     </div>
   `;
@@ -1026,7 +1026,7 @@ function applyMarathonValidationDom(container, validationErrors) {
       summary.className = 'marathon-validation-summary rounded-md border border-red-300 bg-red-50 p-3 text-sm text-red-800 dark:border-red-700 dark:bg-red-900/25 dark:text-red-200';
       summary.innerHTML = `
         <div class="font-semibold">Kontrollera denna klass innan du sparar:</div>
-        <ul class="mt-1 list-disc pl-5 space-y-0.5">${errors.map(error => `<li>${error.message}</li>`).join('')}</ul>
+        <ul class="mt-1 list-disc pl-5 space-y-0.5">${errors.map(error => `<li>${escapeHtml(error.message)}</li>`).join('')}</ul>
       `;
       title?.insertAdjacentElement('afterend', summary);
     }
@@ -1219,22 +1219,22 @@ async function setupMarathonSettings() {
     // Ny, grupperad layout per klass
     html += `
       <div class="marathon-admin-card border rounded-lg p-4 space-y-4 mb-4 bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700">
-        <h4 class="font-semibold text-lg text-gray-800 dark:text-white">${cn}</h4>
+        <h4 class="font-semibold text-lg text-gray-800 dark:text-white">${escapeHtml(cn)}</h4>
         ${renderClassValidationSummary(cn)}
         
         <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-4 border-b dark:border-gray-600 pb-4">
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Etapp A / Warm Up</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 items-center">
-              <input type="number" data-class-name="${cn}" data-field="distanceA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceA ?? ''}" placeholder="Distans (m)">
-              <input type="number" data-class-name="${cn}" data-field="tempoA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoA ?? ''}" placeholder="${finalTempoA ? `TR: ${Math.round(finalTempoA)}` : 'Tempo'}">
-              <input type="number" data-class-name="${cn}" data-field="windowA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.windowA ?? '2'}" placeholder="Fönster (min)">
-              <div class="text-center min-w-[60px]"><span class="block font-semibold text-gray-800 dark:text-gray-200" data-ideal-for="${cn}|A">${aIdeal}</span> <span class="text-[10px] text-gray-400 uppercase tracking-wider">Idealtid</span></div>
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="distanceA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.distanceA ?? '')}" placeholder="Distans (m)">
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="tempoA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.tempoA ?? '')}" placeholder="${finalTempoA ? `TR: ${Math.round(finalTempoA)}` : 'Tempo'}">
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="windowA" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.windowA ?? '2')}" placeholder="Fönster (min)">
+              <div class="text-center min-w-[60px]"><span class="block font-semibold text-gray-800 dark:text-gray-200" data-ideal-for="${escapeAttr(cn)}|A">${aIdeal}</span> <span class="text-[10px] text-gray-400 uppercase tracking-wider">Idealtid</span></div>
             </div>
              <!-- NYTT: Fixed Time Input -->
             <div class="marathon-admin-fixed-row mt-2 flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
                  <label class="text-xs text-blue-800 font-semibold dark:text-blue-300">Fast tid (WU):</label>
-                 <input type="number" data-class-name="${cn}" data-field="fixedTimeA" class="marathon-class-input w-20 p-1 border border-blue-200 rounded text-sm bg-blue-50 dark:bg-blue-900/40 dark:border-blue-700 dark:text-white" value="${defaultFixedA ?? ''}" placeholder="min">
+                 <input type="number" data-class-name="${escapeAttr(cn)}" data-field="fixedTimeA" class="marathon-class-input w-20 p-1 border border-blue-200 rounded text-sm bg-blue-50 dark:bg-blue-900/40 dark:border-blue-700 dark:text-white" value="${escapeAttr(defaultFixedA ?? '')}" placeholder="min">
                  <span class="text-[10px] text-gray-400"> (åsidosätter distans/tempo)</span>
             </div>
             <div class="text-xs text-gray-400 mt-1 pl-1">TR-tempo: ${trTempoMminForWithCat(data.trTemplate || cn, 'A', catKey) ? Math.round(trTempoMminForWithCat(data.trTemplate || cn, 'A', catKey)) : '—'} m/min</div>
@@ -1242,10 +1242,10 @@ async function setupMarathonSettings() {
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Etapp B</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-2 items-center">
-              <input type="number" data-class-name="${cn}" data-field="distanceB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceB ?? ''}" placeholder="Distans (m)">
-              <input type="number" data-class-name="${cn}" data-field="tempoB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoB ?? ''}" placeholder="${finalTempoB ? `TR: ${Math.round(finalTempoB)}` : 'Tempo'}">
-              <input type="number" data-class-name="${cn}" data-field="windowB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.windowB ?? '3'}" placeholder="Fönster (min)">
-              <div class="text-center min-w-[60px]"><span class="block font-semibold text-gray-800 dark:text-gray-200" data-ideal-for="${cn}|B">${bIdeal}</span> <span class="text-[10px] text-gray-400 uppercase tracking-wider">Idealtid</span></div>
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="distanceB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.distanceB ?? '')}" placeholder="Distans (m)">
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="tempoB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.tempoB ?? '')}" placeholder="${finalTempoB ? `TR: ${Math.round(finalTempoB)}` : 'Tempo'}">
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="windowB" class="marathon-class-input p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.windowB ?? '3')}" placeholder="Fönster (min)">
+              <div class="text-center min-w-[60px]"><span class="block font-semibold text-gray-800 dark:text-gray-200" data-ideal-for="${escapeAttr(cn)}|B">${bIdeal}</span> <span class="text-[10px] text-gray-400 uppercase tracking-wider">Idealtid</span></div>
             </div>
             <div class="text-xs text-gray-400 mt-1 pl-1">TR-tempo: ${trTempoMminForWithCat(data.trTemplate || cn, 'B', catKey) ? Math.round(trTempoMminForWithCat(data.trTemplate || cn, 'B', catKey)) : '—'} m/min</div>
           </div>
@@ -1255,8 +1255,8 @@ async function setupMarathonSettings() {
           <div>
             <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Transport</p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <input type="number" data-class-name="${cn}" data-field="distanceT" data-include-transport="${data.includeTransport === true ? 'true' : 'false'}" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.distanceT ?? ''}" placeholder="Distans (m)">
-              <input type="number" data-class-name="${cn}" data-field="tempoT" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.tempoT ?? ''}" placeholder="Tempo (m/min)">
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="distanceT" data-include-transport="${data.includeTransport === true ? 'true' : 'false'}" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.distanceT ?? '')}" placeholder="Distans (m)">
+              <input type="number" data-class-name="${escapeAttr(cn)}" data-field="tempoT" class="marathon-class-input p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.tempoT ?? '')}" placeholder="Tempo (m/min)">
             </div>
           </div>
            <div>
@@ -1264,16 +1264,16 @@ async function setupMarathonSettings() {
                <div>
                   <p class="font-medium text-gray-700 dark:text-gray-300 mb-2">Klassens standardportar</p>
                   <p class="text-[11px] text-gray-500 dark:text-gray-400 mb-1">Används när hindret inte har egen avvikelse.</p>
-                  <input type="number" data-class-name="${cn}" data-field="gateCount" class="marathon-class-input w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.gateCount ?? '6'}" placeholder="Antal portar">
+                  <input type="number" data-class-name="${escapeAttr(cn)}" data-field="gateCount" class="marathon-class-input w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.gateCount ?? '6')}" placeholder="Antal portar">
                </div>
                <div>
                   <p class="font-medium text-gray-700 dark:text-gray-300 mb-2 text-sm" title="Om tomt används globalt värde">Hinderstraff/sek</p>
-                  <input type="number" step="0.01" data-class-name="${cn}" data-field="obstaclePenaltyRate" class="marathon-class-input w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.obstaclePenaltyRate ?? ''}" placeholder="Globalt">
+                  <input type="number" step="0.01" data-class-name="${escapeAttr(cn)}" data-field="obstaclePenaltyRate" class="marathon-class-input w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.obstaclePenaltyRate ?? '')}" placeholder="Globalt">
                </div>
              </div>
              <div class="mt-4">
                 <p class="font-medium text-gray-700 dark:text-gray-300 mb-1">Körda Hinder <span class="text-xs font-normal text-gray-500">(1,2,3..)</span></p>
-                <input type="text" data-class-name="${cn}" data-field="drivenObstacles" class="marathon-class-input w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${data.drivenObstacles ?? ''}" placeholder="t.ex. 1, 2, 4, 5 (lämna tomt för alla upplagda hinder)">
+                <input type="text" data-class-name="${escapeAttr(cn)}" data-field="drivenObstacles" class="marathon-class-input w-full p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(data.drivenObstacles ?? '')}" placeholder="t.ex. 1, 2, 4, 5 (lämna tomt för alla upplagda hinder)">
              </div>
           </div>
         </div>
@@ -1282,7 +1282,7 @@ async function setupMarathonSettings() {
         <div class="mt-4 pt-4 border-t dark:border-gray-600">
             <div class="flex flex-col gap-4">
                 <label class="flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-800 dark:bg-emerald-950/20">
-                    <input type="checkbox" data-class-name="${cn}" data-field="clearRound" class="marathon-class-input mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" ${data.clearRound === true ? 'checked' : ''}>
+                    <input type="checkbox" data-class-name="${escapeAttr(cn)}" data-field="clearRound" class="marathon-class-input mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" ${data.clearRound === true ? 'checked' : ''}>
                     <span>
                         <span class="block text-sm font-semibold text-gray-800 dark:text-gray-100">Lätt B Clear Round</span>
                         <span class="block text-xs text-gray-600 dark:text-gray-400">Ingen rangordning. Godkänd kräver 0 maratonstraff; hindertid ger inget straff upp till 5 minuter per hinder.</span>
@@ -1290,8 +1290,8 @@ async function setupMarathonSettings() {
                 </label>
                 <div class="min-w-0">
                      <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Tempo-mall (TR-nivå)</label>
-                     <select data-class-name="${cn}" data-field="trTemplate" class="marathon-class-input p-2 border rounded-md text-sm w-full sm:max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                        <option value="">(Använd klassnamn: "${cn}")</option>
+                     <select data-class-name="${escapeAttr(cn)}" data-field="trTemplate" class="marathon-class-input p-2 border rounded-md text-sm w-full sm:max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <option value="">(Använd klassnamn: "${escapeHtml(cn)}")</option>
                         <option value="Lätt B" ${data.trTemplate === 'Lätt B' ? 'selected' : ''}>Lätt B (Grundtempo)</option>
                         <option value="Lätt B Para" ${data.trTemplate === 'Lätt B Para' ? 'selected' : ''}>Lätt B Para</option>
                         <option value="Lätt A" ${data.trTemplate === 'Lätt A' ? 'selected' : ''}>Lätt A</option>
@@ -1414,7 +1414,7 @@ async function setupMarathonSettings() {
     const cls = e.target.dataset.className;
     if (!cls) return;
     const q = (field) => {
-      const el = container.querySelector(`input[data-class-name="${cls}"][data-field="${field}"]`);
+      const el = container.querySelector(`input[data-class-name="${CSS.escape(cls)}"][data-field="${field}"]`);
       return el ? parseFloat(el.value) : NaN;
     };
     const catKey = classCatMap.get(cls) || 'horse';
@@ -1466,7 +1466,7 @@ async function setupMarathonSettings() {
 
     // Om man väljer "CAI Children" eller "Barnklass", och Fixed Time är tomt, sätt till 10 min.
     if (val === 'CAI Children' || val === 'Barnklass') {
-      const fixedInput = container.querySelector(`input[data-class-name="${cls}"][data-field="fixedTimeA"]`);
+      const fixedInput = container.querySelector(`input[data-class-name="${CSS.escape(cls)}"][data-field="fixedTimeA"]`);
       if (fixedInput && !fixedInput.value) {
         fixedInput.value = 10;
         // Trigger input event to update ideals?
@@ -1610,13 +1610,13 @@ function renderObstacleList(obstacles = []) {
     return `
       <div class="flex items-center justify-between p-2 rounded border bg-gray-50 dark:bg-gray-700/50 dark:border-gray-700">
         <div class="text-sm dark:text-gray-300">
-          <span class="font-semibold text-gray-900 dark:text-white">#${o.number}</span>
-          <span class="ml-2">${o.name || ''}</span>
+          <span class="font-semibold text-gray-900 dark:text-white">#${escapeHtml(o.number)}</span>
+          <span class="ml-2">${escapeHtml(o.name || '')}</span>
           <span class="ml-2 text-gray-500 dark:text-gray-400">${kd} ${gates}</span>
         </div>
         <div class="flex items-center gap-2">
-          <button type="button" data-action="edit-obstacle" data-number="${o.number}" class="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">Redigera</button>
-          <button type="button" data-action="delete-obstacle" data-number="${o.number}" class="px-2 py-1 text-xs rounded border bg-white text-red-600 hover:bg-red-50 dark:bg-gray-800 dark:border-gray-600 dark:text-red-400 dark:hover:bg-red-900/20">Ta bort</button>
+          <button type="button" data-action="edit-obstacle" data-number="${escapeAttr(o.number)}" class="px-2 py-1 text-xs rounded border bg-white hover:bg-gray-100 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700">Redigera</button>
+          <button type="button" data-action="delete-obstacle" data-number="${escapeAttr(o.number)}" class="px-2 py-1 text-xs rounded border bg-white text-red-600 hover:bg-red-50 dark:bg-gray-800 dark:border-gray-600 dark:text-red-400 dark:hover:bg-red-900/20">Ta bort</button>
         </div>
       </div>
     `;

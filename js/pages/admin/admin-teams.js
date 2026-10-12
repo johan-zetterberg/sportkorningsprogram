@@ -8,7 +8,7 @@ import { getTeamScoringProfile, getTeamScoringProfileOptions } from '../../servi
 import { getTeamCompositionIssues } from '../../services/teamCalculationService.js';
 import { getFeiDressageStartSlots, supportsFeiTeamBlocks } from '../../services/feiStartOrderService.js';
 import { setGlobalState } from '../../main.js';
-import { jsStringAttr } from '../../utils/sharedUtils.js';
+import { jsStringAttr, isSafeImageUrl } from '../../utils/sharedUtils.js';
 
 function escapeHtml(value) {
   return String(value ?? '')
@@ -332,25 +332,25 @@ function renderTeamsList() {
 
     // 1. Club Logo?
     const clubUrl = getClubLogoUrl(team.name);
-    if (clubUrl) {
-      teamAssetHtml += `<img src="${clubUrl}" alt="Logga" class="h-8 w-auto object-contain mr-2">`;
+    if (clubUrl && isSafeImageUrl(clubUrl)) {
+      teamAssetHtml += `<img src="${escapeAttr(clubUrl)}" alt="Logga" class="h-8 w-auto object-contain mr-2">`;
     }
 
     // 2. Nation Flag? (If name is a country)
     const cc = normalizeCountryCode(team.name);
     if (cc) {
       const flagUrl = flagPngUrl(cc);
-      teamAssetHtml += `<img src="${flagUrl}" alt="${cc}" class="h-6 w-auto object-contain mr-2 shadow-sm">`;
+      teamAssetHtml += `<img src="${escapeAttr(flagUrl)}" alt="${escapeAttr(cc)}" class="h-6 w-auto object-contain mr-2 shadow-sm">`;
     }
 
     return `
-      <div class="bg-white dark:bg-gray-800 rounded-lg shadow border dark:border-gray-700 overflow-hidden" data-team-id="${team.id}">
+      <div class="bg-white dark:bg-gray-800 rounded-lg shadow border dark:border-gray-700 overflow-hidden" data-team-id="${escapeAttr(team.id)}">
         <!-- Header -->
         <div class="flex items-center justify-between p-3 bg-gray-100 dark:bg-gray-700/50 border-b dark:border-gray-700">
           <div class="flex items-center gap-2">
             ${teamAssetHtml}
             <h3 class="font-bold text-gray-800 dark:text-white flex items-center gap-2">
-                <span class="text-blue-600">🏆</span> ${team.name}
+                <span class="text-blue-600">🏆</span> ${escapeHtml(team.name)}
                 <span class="text-xs ${memberCountIsValid ? 'bg-gray-200 dark:bg-gray-600 text-gray-600 dark:text-gray-300' : 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200'} px-2 py-0.5 rounded-full">${members.length} / ${profile.minimumMembers}-${profile.maximumMembers}</span>
             </h3>
           </div>
@@ -362,7 +362,7 @@ function renderTeamsList() {
         ${memberCountMessage}
 
         <!-- Drop Zone for this team -->
-        <div class="p-3 min-h-[80px] space-y-2 drop-zone bg-gray-50/50 dark:bg-gray-900/20 transition-colors" data-team-id="${team.id}">
+        <div class="p-3 min-h-[80px] space-y-2 drop-zone bg-gray-50/50 dark:bg-gray-900/20 transition-colors" data-team-id="${escapeAttr(team.id)}">
           ${memberObjects.length === 0
         ? `<div class="text-sm text-gray-400 text-center py-4 italic pointer-events-none">Dra kuskar hit...</div>`
         : memberObjects.map(eq => createDraggableCard(eq, team.id)).join('')

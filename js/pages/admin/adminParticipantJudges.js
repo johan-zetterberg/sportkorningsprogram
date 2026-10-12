@@ -1,6 +1,7 @@
 import { saveJudge, deleteJudge } from '../../services/adminService.js';
 import { showAlert } from '../../ui/components.js';
 import { normalizeJudgeRoles } from './adminJudgeRoleUtils.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 export function renderAdminJudgesList(judges) {
     const list = document.getElementById('adminJudgesList');
@@ -16,13 +17,13 @@ export function renderAdminJudgesList(judges) {
         }).join(', ');
 
         return `
-        <div class="flex justify-between items-center p-3 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded shadow-sm clickable-judge cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" data-judge-id="${judge.id}">
+        <div class="flex justify-between items-center p-3 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded shadow-sm clickable-judge cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors" data-judge-id="${escapeHtml(judge.id)}">
             <div>
-                <div class="font-bold text-gray-800 dark:text-gray-200">${judge.name}</div>
-                <div class="text-sm text-gray-500 dark:text-gray-400">${roles || 'Inga roller'}</div>
-                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">${(judge.classes || []).join(', ')}</div>
+                <div class="font-bold text-gray-800 dark:text-gray-200">${escapeHtml(judge.name)}</div>
+                <div class="text-sm text-gray-500 dark:text-gray-400">${escapeHtml(roles || 'Inga roller')}</div>
+                <div class="text-xs text-gray-400 dark:text-gray-500 mt-1">${escapeHtml((judge.classes || []).join(', '))}</div>
             </div>
-            <button class="delete-judge-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" data-id="${judge.id}" title="Ta bort domare">
+            <button class="delete-judge-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-2 rounded-full hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" data-id="${escapeHtml(judge.id)}" title="Ta bort domare">
                 Ta bort
             </button>
         </div>
@@ -40,7 +41,7 @@ export function setupJudgeForm({ competitionId, getJudges }) {
     const render = () => {
         roleContainer.innerHTML = currentRoles.map((role, index) => `
         <div class="flex justify-between bg-white dark:bg-gray-800 p-2 border dark:border-gray-600 rounded mb-1 dark:text-gray-200">
-                <span>${role.discipline} ${role.position || ''}</span>
+                <span>${escapeHtml(role.discipline)} ${escapeHtml(role.position || '')}</span>
                 <button type="button" class="remove-judge-role-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" data-idx="${index}">&times;</button>
             </div>`).join('');
 

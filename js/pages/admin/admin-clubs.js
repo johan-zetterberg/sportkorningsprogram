@@ -2,6 +2,7 @@ import { getGlobalState } from '../../main.js';
 import { getClubLogoHtml, getClubLogoUrl, saveCompetitionLogo, saveGlobalLogo, ensureClubLogosLoaded, updateClubLogo } from '../../services/logosService.js';
 import { uploadClubLogo } from '../../services/storageService.js';
 import { showAlert } from '../../ui/components.js';
+import { escapeHtml, isSafeImageUrl } from '../../utils/sharedUtils.js';
 
 export async function renderClubsTab(container, competitionId) {
     container.innerHTML = `<div class="text-center py-12"><div class="spinner"></div> Laddar klubbar...</div>`;
@@ -63,20 +64,21 @@ export async function renderClubs(container, competitionId, equipages = []) {
     sortedClubs.forEach(club => {
         if (!club) return;
         const normalizedClub = club;
-        const currentUrl = getClubLogoUrl(club);
-        const hasLogo = !!currentUrl;
+        const logoUrl = getClubLogoUrl(club);
+        const hasLogo = !!logoUrl;
+        const currentUrl = isSafeImageUrl(logoUrl) ? logoUrl : '';
 
         html += `
             <div class="flex items-center justify-between p-3 bg-gray-50 dark:bg-gray-700/50 rounded border dark:border-gray-700">
                 <div class="flex items-center gap-3">
                     <div class="w-12 h-12 flex items-center justify-center bg-white dark:bg-gray-800 rounded border dark:border-gray-600 overflow-hidden shadow-sm">
                         ${currentUrl
-                ? `<img src="${currentUrl}" class="max-w-full max-h-full object-contain" id="img-${btoa(encodeURIComponent(club))}">`
+                ? `<img src="${escapeHtml(currentUrl)}" class="max-w-full max-h-full object-contain" id="img-${btoa(encodeURIComponent(club))}">`
                 : `<span class="text-gray-300 text-xs text-center leading-none" id="placeholder-${btoa(encodeURIComponent(club))}">Ingen<br>logga</span>`
             }
                     </div>
                     <div>
-                        <h3 class="font-bold text-gray-800 dark:text-gray-100 text-sm truncate w-40 md:w-56" title="${club}">${club}</h3>
+                        <h3 class="font-bold text-gray-800 dark:text-gray-100 text-sm truncate w-40 md:w-56" title="${escapeHtml(club)}">${escapeHtml(club)}</h3>
                         <span id="status-text-${btoa(encodeURIComponent(club))}" class="text-xs ${hasLogo ? 'text-green-600 dark:text-green-400' : 'text-gray-400'}">
                             ${hasLogo ? 'Logga finns' : 'Saknar logga'}
                         </span>
@@ -85,7 +87,7 @@ export async function renderClubs(container, competitionId, equipages = []) {
                 <div>
                     <input type="file" id="file-${btoa(encodeURIComponent(club))}" class="hidden" accept="image/*">
                     <button class="btn-upload px-3 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 rounded text-xs font-semibold transition-colors" 
-                            data-club="${club}"
+                            data-club="${escapeHtml(club)}"
                             onclick="document.getElementById('file-${btoa(encodeURIComponent(club))}').click()">
                         Ladda upp
                     </button>
@@ -113,7 +115,7 @@ export async function renderClubs(container, competitionId, equipages = []) {
             if (!file) return;
 
             // Feedback UI
-            const btn = document.querySelector(`button[data-club="${club}"]`);
+            const btn = document.querySelector(`button[data-club="${CSS.escape(club)}"]`);
             const box = document.getElementById(`img-${id}`)?.parentElement || document.getElementById(`placeholder-${id}`)?.parentElement;
 
             const originalText = btn.textContent;

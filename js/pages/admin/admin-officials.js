@@ -76,6 +76,15 @@ function renderSystemRoleBadges(official, competition = {}) {
     `).join('');
 }
 
+// The scheme is fixed here, so stored data can never turn the link into javascript: etc.
+function mailtoHref(email) {
+    return escapeHtml(`mailto:${String(email ?? '').trim()}`);
+}
+
+function telHref(phone) {
+    return escapeHtml(`tel:${String(phone ?? '').replace(/[^\d+]/g, '')}`);
+}
+
 function findOfficialById(officialId) {
     return officials.find(official => String(official.id) === String(officialId));
 }
@@ -283,7 +292,7 @@ function refreshUI(container, competition) {
         container.innerHTML = `
             <div class="p-4 rounded border border-red-300 bg-red-50 text-red-800 dark:bg-red-900/20 dark:border-red-700 dark:text-red-100">
                 <h3 class="font-bold mb-2">Kunde inte visa funktionärssidan</h3>
-                <p class="text-sm">${error?.message || 'Okänt fel'}</p>
+                <p class="text-sm">${escapeHtml(error?.message || 'Okänt fel')}</p>
             </div>
         `;
     }
@@ -358,22 +367,22 @@ function renderCheckInView(competition) {
         return `
                     <div class="border rounded-lg p-3 shadow-sm ${statusClass} transition-colors flex flex-col sm:flex-row justify-between items-center gap-3">
                         <div class="flex-grow text-center sm:text-left">
-                            <div class="font-bold text-lg dark:text-white">${p.name}</div>
-                            <div class="text-sm text-gray-600 dark:text-gray-400">${p.role || p.notes || '-'}</div>
-                            <input type="text" data-checkin-note="${p.id}" value="${String(p.checkInNotes || '').replace(/"/g, '&quot;')}" placeholder="Notering för incheckning..." class="mt-2 w-full max-w-md px-2 py-1 text-sm border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
+                            <div class="font-bold text-lg dark:text-white">${escapeHtml(p.name)}</div>
+                            <div class="text-sm text-gray-600 dark:text-gray-400">${escapeHtml(p.role || p.notes || '-')}</div>
+                            <input type="text" data-checkin-note="${escapeHtml(p.id)}" value="${escapeHtml(p.checkInNotes || '')}" placeholder="Notering för incheckning..." class="mt-2 w-full max-w-md px-2 py-1 text-sm border rounded bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
                             ${p.isCheckedIn ? `<div class="text-xs text-green-700 dark:text-green-400 font-medium">🕒 ${new Date(p.checkInTime || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>` : ''}
                         </div>
                         
                         <div class="flex flex-wrap justify-center gap-2">
-                            <button data-toggle-checkin="${p.id}" class="px-4 py-2 rounded font-bold border flex items-center gap-2 ${p.isCheckedIn ? 'bg-green-600 text-white border-green-700 shadow-inner' : 'bg-white text-gray-400 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'}">
+                            <button data-toggle-checkin="${escapeHtml(p.id)}" class="px-4 py-2 rounded font-bold border flex items-center gap-2 ${p.isCheckedIn ? 'bg-green-600 text-white border-green-700 shadow-inner' : 'bg-white text-gray-400 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-600'}">
                                 ${p.isCheckedIn ? '✅ Incheckad' : '⚪ Checka in'}
                             </button>
                             
-                            <button data-toggle-vest="${p.id}" class="px-3 py-2 rounded font-bold border flex items-center gap-2 ${p.hasVest ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:border-yellow-700' : 'bg-white text-gray-300 border-gray-200 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600'}" title="Har fått väst">
+                            <button data-toggle-vest="${escapeHtml(p.id)}" class="px-3 py-2 rounded font-bold border flex items-center gap-2 ${p.hasVest ? 'bg-yellow-100 text-yellow-800 border-yellow-300 dark:bg-yellow-900/30 dark:text-yellow-200 dark:border-yellow-700' : 'bg-white text-gray-300 border-gray-200 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600'}" title="Har fått väst">
                                 🦺
                             </button>
                             
-                            <button data-toggle-radio="${p.id}" class="px-3 py-2 rounded font-bold border flex items-center gap-2 ${p.hasRadio ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700' : 'bg-white text-gray-300 border-gray-200 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600'}" title="Har fått radio">
+                            <button data-toggle-radio="${escapeHtml(p.id)}" class="px-3 py-2 rounded font-bold border flex items-center gap-2 ${p.hasRadio ? 'bg-blue-100 text-blue-800 border-blue-300 dark:bg-blue-900/30 dark:text-blue-200 dark:border-blue-700' : 'bg-white text-gray-300 border-gray-200 hover:bg-gray-50 dark:bg-gray-700 dark:border-gray-600 dark:hover:bg-gray-600'}" title="Har fått radio">
                                 📻
                             </button>
                         </div>
@@ -475,14 +484,14 @@ function renderPeopleView(_officials = officials, competition = {}) {
                         <tbody class="divide-y divide-blue-100 dark:divide-blue-900/40 bg-white dark:bg-gray-800">
                             ${keyOfficials.length > 0 ? keyOfficials.map(p => `
                                 <tr>
-                                    <td class="px-3 py-2 font-bold text-blue-900 dark:text-blue-300">${p.role}</td>
+                                    <td class="px-3 py-2 font-bold text-blue-900 dark:text-blue-300">${escapeHtml(p.role)}</td>
                                     <td class="px-3 py-2 dark:text-gray-300">
-                                        <div>${p.name} ${p.club ? `<span class="text-xs text-gray-500 dark:text-gray-400">(${p.club})</span>` : ''}</div>
+                                        <div>${escapeHtml(p.name)} ${p.club ? `<span class="text-xs text-gray-500 dark:text-gray-400">(${escapeHtml(p.club)})</span>` : ''}</div>
                                         <div class="mt-1 flex flex-wrap gap-1">${renderSystemRoleBadges(p, competition)}</div>
                                     </td>
-                                    <td class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">${p.phone || '-'} <br> <a href="mailto:${p.email}" class="text-xs text-blue-600 hover:underline dark:text-blue-400">${p.email || ''}</a></td>
+                                    <td class="px-3 py-2 text-sm text-gray-700 dark:text-gray-300">${escapeHtml(p.phone || '-')} <br> <a href="${mailtoHref(p.email)}" class="text-xs text-blue-600 hover:underline dark:text-blue-400">${escapeHtml(p.email || '')}</a></td>
                                     <td class="px-3 py-2 text-right">
-                                        <button class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" data-edit-official="${p.id}">✏️</button>
+                                        <button class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300" data-edit-official="${escapeHtml(p.id)}">✏️</button>
                                     </td>
                                 </tr>
                             `).join('') : '<tr><td colspan="4" class="p-3 text-center text-sm text-gray-500 dark:text-gray-400">Inga nyckelpersoner inlagda. (Använd "Lägg till person" och ange roll t.ex. Tävlingsledare)</td></tr>'}
@@ -510,31 +519,31 @@ function renderPeopleView(_officials = officials, competition = {}) {
                             ${otherOfficials.map(p => `
                             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50 group text-sm dark:bg-gray-800">
                                 <td class="px-3 py-2 align-top">
-                                    <div class="font-bold text-gray-900 dark:text-white">${p.name}</div>
-                                    ${p.club ? `<div class="text-xs text-gray-500 dark:text-gray-400">${p.club}</div>` : ''}
+                                    <div class="font-bold text-gray-900 dark:text-white">${escapeHtml(p.name)}</div>
+                                    ${p.club ? `<div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(p.club)}</div>` : ''}
                                     <div class="mt-1 flex flex-wrap gap-1">${renderSystemRoleBadges(p, competition)}</div>
                                 </td>
                                 <td class="px-3 py-2 align-top">
-                                    <div class="dark:text-gray-300">${p.phone || '-'}</div>
-                                    <div class="text-xs truncate max-w-[150px]"><a href="mailto:${p.email}" class="text-blue-600 hover:underline dark:text-blue-400">${p.email || ''}</a></div>
+                                    <div class="dark:text-gray-300">${escapeHtml(p.phone || '-')}</div>
+                                    <div class="text-xs truncate max-w-[150px]"><a href="${mailtoHref(p.email)}" class="text-blue-600 hover:underline dark:text-blue-400">${escapeHtml(p.email || '')}</a></div>
                                 </td>
                                 <td class="px-3 py-2 align-top">
                                     ${p.iceName ? `
-                                        <div class="font-medium dark:text-gray-300">${p.iceName}</div>
-                                        <div class="text-xs text-gray-500 dark:text-gray-400">${p.icePhone || ''}</div>
+                                        <div class="font-medium dark:text-gray-300">${escapeHtml(p.iceName)}</div>
+                                        <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(p.icePhone || '')}</div>
                                     ` : `<span class="text-gray-300 dark:text-gray-600">-</span>`}
                                 </td>
                                 <td class="px-3 py-2 align-top">
-                                    ${p.diet ? `<div class="text-amber-700 dark:text-amber-400 font-medium text-xs mb-1">🍽️ ${p.diet}</div>` : ''}
-                                    ${p.shirtSize ? `<div class="text-xs"><span class="bg-gray-100 dark:bg-gray-700 border dark:border-gray-600 px-1 rounded dark:text-gray-300">👕 ${p.shirtSize}</span></div>` : ''}
+                                    ${p.diet ? `<div class="text-amber-700 dark:text-amber-400 font-medium text-xs mb-1">🍽️ ${escapeHtml(p.diet)}</div>` : ''}
+                                    ${p.shirtSize ? `<div class="text-xs"><span class="bg-gray-100 dark:bg-gray-700 border dark:border-gray-600 px-1 rounded dark:text-gray-300">👕 ${escapeHtml(p.shirtSize)}</span></div>` : ''}
                                     ${!p.diet && !p.shirtSize ? '<span class="text-gray-300 dark:text-gray-600">-</span>' : ''}
                                 </td>
                                 <td class="px-3 py-2 align-top">
-                                    <div class="max-w-[200px] break-words text-gray-700 dark:text-gray-300">${[p.role, p.notes].filter(Boolean).join(', ') || '-'}</div>
+                                    <div class="max-w-[200px] break-words text-gray-700 dark:text-gray-300">${escapeHtml([p.role, p.notes].filter(Boolean).join(', ') || '-')}</div>
                                 </td>
                                 <td class="px-3 py-2 text-right align-top">
-                                    <button class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mr-2 opacity-0 group-hover:opacity-100 transition-opacity" data-edit-official="${p.id}" title="Redigera">✏️</button>
-                                    <button class="text-red-400 hover:text-red-700 dark:hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity" data-delete-official="${p.id}" title="Ta bort">🗑️</button>
+                                    <button class="text-blue-500 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mr-2 opacity-0 group-hover:opacity-100 transition-opacity" data-edit-official="${escapeHtml(p.id)}" title="Redigera">✏️</button>
+                                    <button class="text-red-400 hover:text-red-700 dark:hover:text-red-300 opacity-0 group-hover:opacity-100 transition-opacity" data-delete-official="${escapeHtml(p.id)}" title="Ta bort">🗑️</button>
                                 </td>
                             </tr>
                             `).join('')}
@@ -573,7 +582,7 @@ function renderAssignView() {
                                 <option value="">-- Välj person --</option>
                                 ${officials.map(o => {
         const label = [o.role, o.notes].filter(Boolean).join(', ');
-        return `<option value="${o.id}">${o.name} ${label ? `(${label})` : ''}</option>`;
+        return `<option value="${escapeHtml(o.id)}">${escapeHtml(o.name)} ${label ? `(${escapeHtml(label)})` : ''}</option>`;
     }).join('')}
                             </select>
                             <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700 dark:text-gray-300">
@@ -588,7 +597,7 @@ function renderAssignView() {
                          <div class="relative">
                             <select id="assignRole" class="w-full p-3 md:p-2 border border-blue-300 dark:border-blue-700 rounded-lg bg-white dark:bg-gray-700 shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-base dark:text-white">
                                 <option value="">-- Välj roll --</option>
-                                ${roles.map(r => `<option value="${r}">${r}</option>`).join('')}
+                                ${roles.map(r => `<option value="${escapeHtml(r)}">${escapeHtml(r)}</option>`).join('')}
                                 <option value="MANUAL_ROLE" class="font-bold text-blue-600 dark:text-blue-400">+ Lägg till ny roll...</option>
                             </select>
                              <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700 dark:text-gray-300">
@@ -633,7 +642,7 @@ function renderAssignView() {
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-1">Datum</label>
-                                <input type="date" id="assignDate" class="w-full p-3 md:p-2 border rounded-lg text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${lastSelectedDate}">
+                                <input type="date" id="assignDate" class="w-full p-3 md:p-2 border rounded-lg text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeHtml(lastSelectedDate)}">
                             </div>
                             
                             <div>
@@ -677,15 +686,15 @@ function renderAssignView() {
         const locale = locations.find(l => l.id === a.locationId);
         return `
                                 <tr class="dark:text-gray-200">
-                                    <td class="px-4 py-2 font-medium">${personName}</td>
-                                    <td class="px-4 py-2">${a.roleLabel}</td>
-                                    <td class="px-4 py-2 text-gray-500 dark:text-gray-400">${locale ? locale.label : '-'}</td>
-                                    <td class="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono text-xs">${a.dateString || '-'}</td>
+                                    <td class="px-4 py-2 font-medium">${escapeHtml(personName)}</td>
+                                    <td class="px-4 py-2">${escapeHtml(a.roleLabel)}</td>
+                                    <td class="px-4 py-2 text-gray-500 dark:text-gray-400">${escapeHtml(locale ? locale.label : '-')}</td>
+                                    <td class="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono text-xs">${escapeHtml(a.dateString || '-')}</td>
                                     <td class="px-4 py-2 text-gray-500 dark:text-gray-400 font-mono text-xs">
-                                        ${a.startTime ? `${a.startTime} - ${a.endTime || '?'}` : (a.shift !== 'all' ? a.shift : '-')}
+                                        ${escapeHtml(a.startTime ? `${a.startTime} - ${a.endTime || '?'}` : (a.shift !== 'all' ? a.shift : '-'))}
                                     </td>
                                     <td class="px-4 py-2 text-right">
-                                        <button class="text-red-400 hover:text-red-600 dark:hover:text-red-300" data-delete-assignment="${a.id}">🗑️</button>
+                                        <button class="text-red-400 hover:text-red-600 dark:hover:text-red-300" data-delete-assignment="${escapeHtml(a.id)}">🗑️</button>
                                     </td>
                                 </tr>`;
     }).join('')}
@@ -818,22 +827,22 @@ function renderOverviewView() {
     const renderCard = (locData) => `
         <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-4 break-inside-avoid mb-4 shadow-md bg-opacity-90">
             <h4 class="font-bold text-gray-900 dark:text-white border-b dark:border-gray-700 pb-2 mb-3 flex justify-between items-center text-lg">
-                ${locData.label}
+                ${escapeHtml(locData.label)}
             </h4>
             ${locData.folks.length > 0 ? `
                 <div class="space-y-4">
                     ${locData.folks.map(f => `
                         <div class="border-b dark:border-gray-700 last:border-0 pb-3 last:pb-0">
                             <div class="flex justify-between items-start mb-1">
-                                <span class="font-bold text-gray-800 dark:text-gray-200 text-sm">${f.role}</span>
+                                <span class="font-bold text-gray-800 dark:text-gray-200 text-sm">${escapeHtml(f.role)}</span>
                                 <div class="text-right">
-                                    ${f.dateString ? `<div class="text-xs text-gray-500 dark:text-gray-400 font-mono mb-0.5">${f.dateString}</div>` : ''}
-                                    ${f.shift ? `<span class="inline-block bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 text-xs font-bold px-2 py-1 rounded shadow-sm font-mono whitespace-nowrap">🕒 ${f.shift}</span>` : ''}
+                                    ${f.dateString ? `<div class="text-xs text-gray-500 dark:text-gray-400 font-mono mb-0.5">${escapeHtml(f.dateString)}</div>` : ''}
+                                    ${f.shift ? `<span class="inline-block bg-blue-100 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 text-xs font-bold px-2 py-1 rounded shadow-sm font-mono whitespace-nowrap">🕒 ${escapeHtml(f.shift)}</span>` : ''}
                                 </div>
                             </div>
                             <div class="flex justify-between items-center text-sm mt-1">
-                                <span class="text-gray-700 dark:text-gray-300 font-medium">${f.pName}</span>
-                                ${f.pPhone ? `<a href="tel:${f.pPhone}" class="text-gray-400 dark:text-gray-500 text-xs hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1">📞 ${f.pPhone}</a>` : ''}
+                                <span class="text-gray-700 dark:text-gray-300 font-medium">${escapeHtml(f.pName)}</span>
+                                ${f.pPhone ? `<a href="${telHref(f.pPhone)}" class="text-gray-400 dark:text-gray-500 text-xs hover:text-blue-600 dark:hover:text-blue-400 flex items-center gap-1">📞 ${escapeHtml(f.pPhone)}</a>` : ''}
                             </div>
                         </div>
                     `).join('')}
@@ -876,15 +885,15 @@ function renderOverviewView() {
                     <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
                         ${allFolks.map(f => `
                             <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/50">
-                                <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-200">${f.locLabel}</td>
-                                <td class="px-4 py-3 text-gray-800 dark:text-gray-300">${f.role}</td>
+                                <td class="px-4 py-3 font-medium text-gray-900 dark:text-gray-200">${escapeHtml(f.locLabel)}</td>
+                                <td class="px-4 py-3 text-gray-800 dark:text-gray-300">${escapeHtml(f.role)}</td>
                                 <td class="px-4 py-3">
-                                    <div class="font-medium dark:text-white">${f.pName}</div>
-                                    ${f.pPhone ? `<div class="text-xs text-gray-400 dark:text-gray-500">${f.pPhone}</div>` : ''}
+                                    <div class="font-medium dark:text-white">${escapeHtml(f.pName)}</div>
+                                    ${f.pPhone ? `<div class="text-xs text-gray-400 dark:text-gray-500">${escapeHtml(f.pPhone)}</div>` : ''}
                                 </td>
-                                <td class="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">${f.dateString || '-'}</td>
+                                <td class="px-4 py-3 text-gray-600 dark:text-gray-400 whitespace-nowrap">${escapeHtml(f.dateString || '-')}</td>
                                 <td class="px-4 py-3 text-gray-600 dark:text-gray-400 font-mono text-xs whitespace-nowrap">
-                                    ${f.shift ? `<span class="bg-blue-50 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 px-2 py-1 rounded">${f.shift}</span>` : '-'}
+                                    ${f.shift ? `<span class="bg-blue-50 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 px-2 py-1 rounded">${escapeHtml(f.shift)}</span>` : '-'}
                                 </td>
                             </tr>
                         `).join('')}
@@ -1004,7 +1013,7 @@ function renderSignupsView(competition) {
             <div class="text-center py-10 bg-gray-50 rounded border border-dashed border-gray-300">
                 <p class="text-gray-500 font-medium">Inga nya anmälningar just nu</p>
                 <div class="flex items-center justify-center mt-2">
-                    <p class="text-xs text-gray-400">Dela länken <span class="font-mono bg-gray-100 p-1 rounded">${volLink}</span></p>
+                    <p class="text-xs text-gray-400">Dela länken <span class="font-mono bg-gray-100 p-1 rounded">${safeVolLink}</span></p>
                     ${copyHtml}
                 </div>
             </div>
@@ -1017,7 +1026,7 @@ function renderSignupsView(competition) {
                 <h3 class="text-lg font-bold text-gray-800 m-0">Inkomna anmälningar (${volunteerSignups.length})</h3>
                 <div class="flex items-center text-sm">
                     <span class="text-gray-500 mr-2">Dela länken:</span>
-                    <span class="font-mono bg-white border px-2 py-1 rounded text-xs truncate max-w-[200px] sm:max-w-none">${volLink}</span>
+                    <span class="font-mono bg-white border px-2 py-1 rounded text-xs truncate max-w-[200px] sm:max-w-none">${safeVolLink}</span>
                     ${copyHtml}
                 </div>
             </div>
@@ -1028,26 +1037,26 @@ function renderSignupsView(competition) {
                             <div>
                                 <h4 class="font-bold text-lg">${escapeHtml(signup.name || '')}</h4>
                                 <div class="text-sm text-gray-600 flex gap-4 mt-1">
-                                    <span>📞 ${signup.phone}</span>
-                                    <span>📧 <a href="mailto:${signup.email}" class="text-blue-600 hover:underline">${signup.email}</a></span>
-                                    <span>🏠 ${signup.club || '-'}</span>
+                                    <span>📞 ${escapeHtml(signup.phone)}</span>
+                                    <span>📧 <a href="${mailtoHref(signup.email)}" class="text-blue-600 hover:underline">${escapeHtml(signup.email)}</a></span>
+                                    <span>🏠 ${escapeHtml(signup.club || '-')}</span>
                                 </div>
                                 <div class="mt-2 text-sm bg-blue-50 p-2 rounded inline-block text-blue-800 font-medium">
-                                    Önskar: ${signup.role || 'Inget specifikt'}
+                                    Önskar: ${escapeHtml(signup.role || 'Inget specifikt')}
                                 </div>
-                                ${signup.notes ? `<div class="mt-2 text-sm text-gray-700 italic">"${signup.notes}"</div>` : ''}
-                                
+                                ${signup.notes ? `<div class="mt-2 text-sm text-gray-700 italic">"${escapeHtml(signup.notes)}"</div>` : ''}
+
                                 <div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-500">
-                                    <div><span class="font-bold">ICE:</span> ${signup.iceName} (${signup.icePhone})</div>
-                                    <div><span class="font-bold">Kost:</span> ${signup.diet || '-'}</div>
-                                    <div><span class="font-bold">Tröja:</span> ${signup.shirtSize || '-'}</div>
+                                    <div><span class="font-bold">ICE:</span> ${escapeHtml(signup.iceName)} (${escapeHtml(signup.icePhone)})</div>
+                                    <div><span class="font-bold">Kost:</span> ${escapeHtml(signup.diet || '-')}</div>
+                                    <div><span class="font-bold">Tröja:</span> ${escapeHtml(signup.shirtSize || '-')}</div>
                                 </div>
                             </div>
                             <div class="flex flex-col gap-2">
-                                <button data-approve-signup="${signup.id}" class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 font-bold whitespace-nowrap">
+                                <button data-approve-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 font-bold whitespace-nowrap">
                                     ✅ Granska & Godkänn
                                 </button>
-                                <button data-reject-signup="${signup.id}" class="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 whitespace-nowrap">
+                                <button data-reject-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 whitespace-nowrap">
                                     🗑️ Ta bort
                                 </button>
                             </div>
@@ -1218,7 +1227,7 @@ function bindContentEvents(container, competition) {
 
             selLocation.innerHTML = `<option value="">-- Välj plats --</option>`;
             filtered.forEach(l => {
-                selLocation.innerHTML += `<option value="${l.id}">${l.label}</option>`;
+                selLocation.innerHTML += `<option value="${escapeHtml(l.id)}">${escapeHtml(l.label)}</option>`;
             });
             selLocation.innerHTML += `<option value="MANUAL_ENTRY" class="font-bold text-blue-600">+ Lägg till ny plats...</option>`;
             manualLocContainer.classList.add('hidden');
