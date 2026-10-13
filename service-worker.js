@@ -1,5 +1,5 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v70'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v71'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
@@ -80,6 +80,9 @@ const urlsToCache = [
   abs('/favicon.ico'),
   abs('/favicon-16x16.png'),
   abs('/favicon-32x32.png'),
+  abs('/apple-touch-icon.png'),
+  abs('/android-chrome-192x192.png'),
+  abs('/android-chrome-512x512.png'),
   abs('/icons/DriveLive_192.png'),
   abs('/icons/DriveLive_512.png'),
   abs('/js/config/firebase-config.js'),
@@ -125,6 +128,11 @@ const urlsToCache = [
   abs('/js/pages/precision/precision-monitor-map.js'),
   abs('/js/pages/precision/precision-monitor.js'),
   abs('/js/pages/precision/precision-resultat.js'),
+  abs('/js/pages/precision/precision-split-input.js'),
+  abs('/js/pages/secretariat/secretariat-dressage.js'),
+  abs('/js/pages/secretariat/secretariat-marathon.js'),
+  abs('/js/pages/secretariat/secretariat-precision.js'),
+  abs('/js/pages/secretariat/secretariat-shared.js'),
   abs('/js/pages/shared/hub.js'),
   abs('/js/pages/shared/manual.js'),
   abs('/js/pages/shared/official.js'),
@@ -143,6 +151,7 @@ const urlsToCache = [
   abs('/js/pdf/marathonPdf.js'),
   abs('/js/pdf/officialsReports.js'),
   abs('/js/pdf/precisionPdf.js'),
+  abs('/js/pdf/quickGuidePdf.js'),
   abs('/js/pdf/startListPdf.js'),
   abs('/js/pdf/timecardsPdf.js'),
   abs('/js/pdf/totalResultsPdf.js'),
@@ -166,6 +175,7 @@ const urlsToCache = [
   abs('/js/ui/languageToggle.js'),
   abs('/js/ui/marathonModal.js'),
   abs('/js/ui/precisionModal.js'),
+  abs('/js/ui/quickGuideDrawer.js'),
   abs('/js/ui/scrollHelper.js'),
   abs('/js/ui/syncQueue.js'),
   abs('/js/utils/dressageUtils.js'),

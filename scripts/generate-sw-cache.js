@@ -5,8 +5,18 @@ const ROOT_DIR = path.resolve(__dirname, '..');
 const SW_PATH = path.join(ROOT_DIR, 'service-worker.js');
 
 // Mappar att skanna
-const DIRS_TO_SCAN = ['js', 'css', 'assets', 'lib'];
-const FILES_TO_INCLUDE = ['index.html', 'manifest.json', 'favicon.ico', 'icon-192.png', 'icon-512.png'];
+const FILES_TO_INCLUDE = [
+    'index.html',
+    'manifest.json',
+    'favicon.ico',
+    'favicon-16x16.png',
+    'favicon-32x32.png',
+    'apple-touch-icon.png',
+    'android-chrome-192x192.png',
+    'android-chrome-512x512.png',
+    'icons/DriveLive_192.png',
+    'icons/DriveLive_512.png'
+];
 
 // Externa URL:er att alltid inkludera (CDNs)
 const EXTRA_URLS = [
