@@ -111,6 +111,8 @@ export const DICTIONARY = {
     'marathon_stages_stop_error': { sv: 'Kunde inte stoppa etappen.', en: 'Could not stop the section.' },
     'marathon_stages_reset_error': { sv: 'Kunde inte återställa etappen.', en: 'Could not reset the section.' },
     'marathon_stages_save_error': { sv: 'Kunde inte spara etappdata.', en: 'Could not save the section data.' },
+    'marathon_stages_already_running': { sv: 'Etappen är redan startad. Stoppa den först om den ska startas om.', en: 'The section is already running. Stop it first to restart it.' },
+    'marathon_stages_stop_without_start': { sv: 'Den här enheten har inte sett etappens start (ingen uppkoppling?). Vänta tills starten syns, eller notera måltiden och ange tiden manuellt.', en: 'This device has not seen the section start (no signal?). Wait until the start shows, or note the finish time and enter the time manually.' },
     'marathon_stages_confirm_reset': { sv: 'Nollställa etappen? Start- och måltid raderas.', en: 'Reset the section? The start and finish times are deleted.' },
     'precision_confirm_reset': { sv: 'Nollställa rundan? Tid, rivningar och tillägg raderas.', en: 'Reset the round? Time, knockdowns and penalties are deleted.' },
     'edit_via_edit': { sv: 'Redigeras via "Ändra"', en: 'Use "Edit" to modify' },

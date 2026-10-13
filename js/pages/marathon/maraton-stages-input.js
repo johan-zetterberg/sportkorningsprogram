@@ -1720,6 +1720,12 @@ async function startStage(stage) {
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   const now = serverNow();
   const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
+  // Already running (a double tap, or started on another device): a new
+  // start would throw away the time driven so far
+  if (activeTimers.get(key)?.isRunning || (stageData.runningSince && !stageData.stopClock)) {
+    showAlert(t('marathon_stages_already_running'), 'warning');
+    return;
+  }
   const existingDuration = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
   const startClock = stageData.startClock || new Date(now).toISOString();
 
@@ -1758,9 +1764,23 @@ async function stopStage(stage) {
   const timerState = activeTimers.get(key);
   const now = serverNow();
   const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
-  const durationMs = timerState?.isRunning
-    ? timerState.pausedMs + (now - timerState.startEpoch)
-    : (Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0);
+  const savedMs = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
+  // Running per the document (older documents have only the start clock)
+  const docRunningSince = !stageData.stopClock && (stageData.runningSince || (!savedMs && stageData.startClock))
+    ? Date.parse(stageData.runningSince || stageData.startClock)
+    : NaN;
+  let durationMs;
+  if (timerState?.isRunning) {
+    durationMs = timerState.pausedMs + (now - timerState.startEpoch);
+  } else if (Number.isFinite(docRunningSince)) {
+    // Started on another device: the time from its start
+    durationMs = savedMs + (now - docRunningSince);
+  } else {
+    // This device has not seen the stage start (no signal at the finish):
+    // a stop now would save 0 seconds over the real start
+    showAlert(t('marathon_stages_stop_without_start'), 'warning');
+    return;
+  }
 
   activeTimers.delete(key);
   lastLocalStop.set(key, now);
