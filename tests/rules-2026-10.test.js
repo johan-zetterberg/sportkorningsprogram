@@ -53,3 +53,14 @@ test('a class for ponies and horses together gives each its own precision tempo 
     assert.equal(getClassTempoMpm({ className: 'Lätt B Enbet', category: 'horse' }, {}), 180);
     assert.equal(getClassTempoMpm({ className: 'Lätt B Enbet', horses: [{ heightCm: 128 }] }, {}), 160);
 });
+
+test('mixed class: no category and no height gives no tempo (result withheld), a group tempo applies to all', () => {
+    assert.equal(getClassTempoMpm({ className: 'Lätt B Enbet' }, {}), null);
+    const config = { courses: { 'Lätt B (sammanslagen)': { tempo: 170 } } };
+    assert.equal(getClassTempoMpm({ className: 'Lätt B Enbet', category: 'horse', _mergedLabel: 'Lätt B (sammanslagen)' }, config), 170);
+});
+
+test('FEI dressage penalty is never negative (printed coefficients are rounded)', () => {
+    const program = dressagePrograms.FEI_3star_HP2_P4_2023;   // max 220, coeff 0.73
+    assert.equal(dressagePenaltyFromPoints(220, program), 0);
+});

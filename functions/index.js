@@ -21,6 +21,11 @@ import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
 import { createHash } from "node:crypto";
 import { nextCounter, VOLUNTEER_SIGNUP_LIMITS } from "./src/rateLimit.js";
+import {
+    buildCompetitionDeletionPlan,
+    canResumeCompetitionDeletion,
+    isGlobalAdminIdentity
+} from "./src/competitionDeletion.js";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { RESULT_ENGINE_VERSION } from "./src/core-engine/version.js";
@@ -416,32 +421,99 @@ export const deleteCompetitionData = onCall({ timeoutSeconds: 540, memory: '512M
     if (!isValidCompetitionId(competitionId)) {
         throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
     }
-    const competition = await getCompetitionArtifactsDoc(competitionId);
-    if (!competition) {
+    // A record of the deletion outside the deleted data (no client access)
+    const tombstoneRef = db.collection('deletedCompetitions').doc(competitionId);
+    const [competition, tombstoneSnap] = await Promise.all([
+        getCompetitionArtifactsDoc(competitionId),
+        tombstoneRef.get()
+    ]);
+    const tombstone = tombstoneSnap.exists ? tombstoneSnap.data() : null;
+    const plan = buildCompetitionDeletionPlan(competitionId, competition, tombstone);
+    if (!plan) {
         throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
     }
-    await assertCanMaintainResults(request, competition, 'Endast tävlingsägare eller full administratör får radera tävlingen.');
+
+    if (competition) {
+        // Irreversible: only the owner or a global admin (the same as the rules
+        // allowed for the competition document), not an admin who joined by PIN
+        await assertCanDeleteCompetition(request, competition);
+    } else {
+        if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+        const userSnap = await db.doc(`users/${request.auth.uid}`).get();
+        const user = userSnap.exists ? userSnap.data() : {};
+        if (!canResumeCompetitionDeletion(request.auth.uid, request.auth.token || {}, user, tombstone || {})) {
+            throw new HttpsError('permission-denied', 'Endast den ursprungliga raderaren eller en global administratör får återuppta raderingen.');
+        }
+        if (plan.alreadyDone) {
+            return { deleted: true, storageFilesDeleted: tombstone?.storageFilesDeleted !== false };
+        }
+    }
+
+    const now = Date.now();
+    await tombstoneRef.set({
+        competitionId,
+        appId: plan.appId,
+        name: plan.competitionData?.name || tombstone?.name || null,
+        dates: plan.competitionData?.dates || tombstone?.dates || null,
+        deletedBy: tombstone?.deletedBy || request.auth.uid,
+        deletedByEmail: tombstone?.deletedByEmail || String(request.auth.token?.email || '').toLowerCase() || null,
+        startedAt: tombstone?.startedAt || now,
+        lastAttemptAt: now,
+        lastAttemptBy: request.auth.uid,
+        status: 'running'
+    }, { merge: true });
 
     // Recalculation triggers fire for every deleted document; this mark makes
     // them stop, so they cannot write results back while the data goes
-    await competition.ref.set({ deleting: true, deletingBy: request.auth.uid, deletingAt: Date.now() }, { merge: true });
-
-    const appId = competition.appId;
-    await db.recursiveDelete(db.doc(`artifacts/${appId}/private/data/competitions/${competitionId}`));
-    await db.recursiveDelete(db.doc(`competitions/${competitionId}`));
-    let storageFilesDeleted = true;
-    try {
-        await getStorage().bucket().deleteFiles({ prefix: `competitions/${competitionId}/` });
-    } catch (error) {
-        storageFilesDeleted = false;
-        logger.error('Kunde inte radera tävlingens filer i Storage', { competitionId, error: String(error?.message || error) });
+    const publicRef = db.doc(plan.publicPath);
+    if (plan.hasCompetitionDocument) {
+        await publicRef.set({ deleting: true, deletingBy: request.auth.uid, deletingAt: now }, { merge: true });
     }
-    // Last: the public tree with the competition document itself
-    await db.recursiveDelete(competition.ref);
 
+    const appId = plan.appId;
+    let storageFilesDeleted = true;
+    let storageError = null;
+    try {
+        await db.recursiveDelete(db.doc(`artifacts/${appId}/private/data/competitions/${competitionId}`));
+        await db.recursiveDelete(db.doc(`competitions/${competitionId}`));
+        try {
+            await getStorage().bucket().deleteFiles({ prefix: `competitions/${competitionId}/` });
+        } catch (error) {
+            storageFilesDeleted = false;
+            storageError = error;
+            logger.error('Kunde inte radera tävlingens filer i Storage', { competitionId, error: String(error?.message || error) });
+        }
+        // Last: the public tree with the competition document itself
+        await db.recursiveDelete(publicRef);
+        if (storageError) throw storageError;
+    } catch (error) {
+        // Half deleted: the record says so, and running it again finishes it
+        logger.error('Radering av tävling avbröts', { competitionId, error: String(error?.message || error) });
+        await tombstoneRef.set({ status: 'failed', failedAt: Date.now(), error: String(error?.message || error) }, { merge: true });
+        throw new HttpsError('internal', 'Raderingen avbröts. Försök igen; det som redan raderats raderas inte två gånger.');
+    }
+
+    await tombstoneRef.set({ status: 'done', finishedAt: Date.now(), storageFilesDeleted }, { merge: true });
     logger.info('Tävling raderad', { competitionId, appId, by: request.auth.uid, storageFilesDeleted });
     return { deleted: true, storageFilesDeleted };
 });
+
+// Owner (createdBy/ownerId) or a global admin; a competition admin role
+// (joined with the admin PIN) is not enough to delete a competition
+async function assertCanDeleteCompetition(request, competition) {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    }
+    const uid = request.auth.uid;
+    const data = competition.data || {};
+    const isOwner = data.createdBy === uid || data.ownerId === uid;
+    if (isGlobalAdminIdentity(request.auth.token || {}) || isOwner) return;
+    const userSnap = await db.doc(`users/${uid}`).get();
+    const user = userSnap.exists ? userSnap.data() : {};
+    if (!isGlobalAdminIdentity({}, user)) {
+        throw new HttpsError('permission-denied', 'Endast tävlingens ägare eller en global administratör får radera tävlingen.');
+    }
+}
 
 async function assertCanMaintainResults(request, competition, deniedMessage = 'Endast tävlingsägare eller full administratör får räkna om resultat.') {
     if (!request.auth?.uid) {

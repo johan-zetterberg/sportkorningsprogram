@@ -745,7 +745,8 @@ function buildPrecisionConfigFromForm() {
         newConfig.courses[className] = courseConfig;
         (group?.sourceClasses || []).forEach(sourceClassName => {
             if (!sourceClassName || sourceClassName === className) return;
-            newConfig.courses[sourceClassName] = { ...courseConfig, tempo: null };
+            // A filled-in group tempo applies to all; empty: each class its own standard tempo
+            newConfig.courses[sourceClassName] = { ...courseConfig, tempo: courseConfig.tempo ?? null };
             if (allowanceOverride != null) newConfig.portAllowanceByClass[sourceClassName] = allowanceOverride;
         });
 
@@ -864,9 +865,10 @@ async function saveData() {
             newConfig.courses[className] = courseConfig;
             (group?.sourceClasses || []).forEach(sourceClassName => {
                 if (!sourceClassName || sourceClassName === className) return;
+                // A filled-in group tempo applies to all; empty: each class its own standard tempo
                 newConfig.courses[sourceClassName] = {
                     ...courseConfig,
-                    tempo: null
+                    tempo: courseConfig.tempo ?? null
                 };
                 if (allowanceOverride != null) {
                     newConfig.portAllowanceByClass[sourceClassName] = allowanceOverride;

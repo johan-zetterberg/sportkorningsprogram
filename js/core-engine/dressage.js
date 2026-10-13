@@ -83,7 +83,9 @@ export function isFeiProgram(program) {
 export function dressagePenaltyFromPoints(points, program, allPrograms = {}) {
     const maxScore = getProgramMaxScore(program);
     const coeff = getDressagePenaltyCoeff(program, allPrograms);
-    if (isFeiProgram(program)) return 160 - points * (maxScore > 160 ? coeff : 1);
+    // The printed coefficient is rounded (0.73 for 160/220 = 0.727), so a
+    // near-perfect test could come out below 0: a penalty is never negative
+    if (isFeiProgram(program)) return Math.max(0, 160 - points * (maxScore > 160 ? coeff : 1));
     return (maxScore - points) * coeff;
 }
 

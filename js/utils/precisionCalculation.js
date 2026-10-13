@@ -5,7 +5,7 @@ import {
     isNum,
     round2 as roundNumber
 } from '../core-engine/rules-ledger.js';
-import { detectTRCategoryFromEquipage } from '../core-engine/marathon.js';
+import { detectKnownTRCategory } from '../core-engine/marathon.js';
 
 const norm = (value) => String(value || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 const round2 = (value) => isNum(value) ? roundNumber(value) : value;
@@ -86,10 +86,18 @@ export function getClassTempoMpm(cls, config = {}) {
     }
     if (key && klassTempoData[key]?.precision) return klassTempoData[key].precision;
 
+    // A tempo the admin set for the merged class applies to all in it
+    const mergedTempo = tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
+    if (mergedTempo) return mergedTempo;
+
     // A class for ponies and horses together ("Lätt B Enbet", TR 535.1): each
-    // equipage drives its own tempo, from its horse/pony category (Bilaga 5)
-    if (cls && typeof cls === 'object' && !/(häst|hast|ponny|pony)/i.test(className)) {
-        const category = detectTRCategoryFromEquipage(cls);
+    // equipage drives its own tempo, from its horse/pony category (Bilaga 5).
+    // Without a stated category or height the tempo stays unknown, so the
+    // result is withheld instead of guessing horse
+    const category = cls && typeof cls === 'object' && !/(häst|hast|ponny|pony)/i.test(className)
+        ? detectKnownTRCategory(cls)
+        : null;
+    if (category) {
         const withCategory = norm(`${className} ${category === 'horse' ? 'Häst' : 'Ponny'}`);
         const byCategory = keys.find((candidate) => norm(candidate) === withCategory)
             || keys
@@ -98,7 +106,7 @@ export function getClassTempoMpm(cls, config = {}) {
         if (byCategory && klassTempoData[byCategory]?.precision) return klassTempoData[byCategory].precision;
     }
 
-    return tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
+    return null;
 }
 
 export function computeMaxSecondsForClass(cls, config = {}) {

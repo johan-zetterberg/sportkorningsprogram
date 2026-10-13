@@ -129,6 +129,15 @@ function categoryFromClassName(className) {
 }
 
 export function detectTRCategoryFromEquipage(e) {
+    return detectKnownTRCategory(e) || 'horse';
+}
+
+/**
+ * The category when something says it (a stated category, the height or the
+ * class name), else null. detectTRCategoryFromEquipage falls back to horse;
+ * callers that must not guess (a class for ponies and horses together) use this.
+ */
+export function detectKnownTRCategory(e) {
     // 1. A category stated on the equipage
     const candidates = [
         e?.category, e?.categoryName, e?.division, e?.animalCategory,
@@ -156,7 +165,7 @@ export function detectTRCategoryFromEquipage(e) {
         return byClass;
     }
     if (byClass === 'pony') return (byHeight && byHeight.startsWith('pony')) ? byHeight : 'ponyCD';
-    return byHeight || 'horse';
+    return byHeight || null;
 }
 
 export function detectTRCategory(categoryString) {
