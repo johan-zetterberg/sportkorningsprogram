@@ -170,7 +170,11 @@ function findProgramKeyForClass(classOrEquipage) {
     : (typeof klassProgramMapping !== 'undefined' ? klassProgramMapping : {});
   const clean = String(className).trim().toLowerCase();
 
-  const programKeyExistsSafe = (k) => !!(k && allProgs && isDressageProgramSelectable(allProgs[k]));
+  // An explicit choice (the equipage's program or the class mapping) may name
+  // a program that is no longer offered for new mappings: it is still that
+  // class's program. Guesses only pick programs that are offered.
+  const programKeyExistsSafe = (k) => !!(k && allProgs && allProgs[k]);
+  const programKeySelectable = (k) => !!(k && allProgs && isDressageProgramSelectable(allProgs[k]));
   const isVerified = (k) => !!(allProgs[k] && allProgs[k].verified);
   const isNonParaClass = !/para/i.test(clean);
 
@@ -216,12 +220,12 @@ function findProgramKeyForClass(classOrEquipage) {
 
   // 3) Fuzzy-gissning från klassnamn
   const guess = guessProgramKeyFromClass(className);
-  if (programKeyExistsSafe(guess)) return guess;
+  if (programKeySelectable(guess)) return guess;
 
   // 4) Sista chansen: prioritera verifierad kandidat bland de vi testat
   const candidates = [directKey, resolveLegacyProgramKey(directKey), guess].filter(Boolean);
   const verifiedFirst = candidates.find(isVerified);
-  return programKeyExistsSafe(verifiedFirst) ? verifiedFirst : null;
+  return programKeySelectable(verifiedFirst) ? verifiedFirst : null;
 }
 
 

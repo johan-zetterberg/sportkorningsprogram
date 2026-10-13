@@ -317,7 +317,11 @@ export function guessProgramKeyFromClass(className, allPrograms) {
     if (!className || !allPrograms) return null;
     const s = String(className).toLowerCase();
 
-    const firstExisting = (...keys) => keys.find((key) => allPrograms[key]) || null;
+    // A guess never picks a program that is no longer offered (deprecated):
+    // a class that used one keeps it only through an explicit mapping
+    const firstExisting = (...keys) => keys.find((key) => allPrograms[key]
+        && allPrograms[key].deprecated !== true
+        && allPrograms[key].selectable !== false) || null;
 
     // Mapping based on common structured class names. Return only keys that
     // actually exist in the supplied program dictionary.
