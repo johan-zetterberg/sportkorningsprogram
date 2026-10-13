@@ -50,9 +50,44 @@ const ROUTE_PERMISSIONS = {
   official: ['funktionar', 'domare', 'admin']
 };
 
-test.beforeEach(async ({ page }) => {
+test.beforeEach(async ({ page }, testInfo) => {
+  if (testInfo.title.includes('quick guide keeps keyboard focus')) return;
   await useFirebaseEmulators(page);
   await loginIfNeeded(page);
+});
+
+test('quick guide keeps keyboard focus inside the dialog and restores it on close', async ({ page }) => {
+  // This UI component has no Firebase dependency. Loading a same-origin static
+  // resource gives the module a browser document without coupling the test to
+  // emulator login or competition state.
+  await page.goto('/service-worker.js');
+
+  await page.evaluate(async () => {
+    document.body.innerHTML = '';
+    const opener = document.createElement('button');
+    opener.id = 'quick-guide-test-opener';
+    opener.textContent = 'Open guide';
+    document.body.appendChild(opener);
+    opener.focus();
+
+    const { openQuickGuide } = await import('/js/ui/quickGuideDrawer.js');
+    openQuickGuide('dressage');
+  });
+
+  const dialog = page.locator('.qg-backdrop[role="dialog"]');
+  await expect(dialog).toBeVisible();
+  await expect(page.locator('#qg-close-btn')).toBeFocused();
+
+  await page.locator('#qg-footer-close').focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#qg-pdf-btn')).toBeFocused();
+
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#qg-footer-close')).toBeFocused();
+
+  await page.keyboard.press('Escape');
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('#quick-guide-test-opener')).toBeFocused();
 });
 
 test('seeded edge-case smoke flow', async ({ page }) => {

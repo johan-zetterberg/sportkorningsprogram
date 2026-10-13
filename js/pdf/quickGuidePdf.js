@@ -234,10 +234,10 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
   doc.setDrawColor(52, 211, 153); // smaragdgrön ram
   doc.roundedRect(margin, y, contentWidth, bannerHeight, 3, 3, 'FD');
 
-  const titlePrefix = isEn ? 'OFFLINE-PROTECTED:' : 'OFFLINE-SÄKRAT SYSTEM:';
+  const titlePrefix = isEn ? 'OFFLINE QUEUE:' : 'OFFLINEKÖ:';
   const descText = isEn
-    ? 'All scores and timestamps queue locally in memory. Always click Save even with zero coverage!'
-    : 'Alla inmatningar köas tryggt i enhetens minne. Klicka alltid på SPARA även vid noll mobiltäckning!';
+    ? 'On a loaded view: save, verify the queue, keep the tab open, and wait for green sync.'
+    : 'På laddad vy: spara, kontrollera kön, håll fliken öppen och invänta grön synk.';
 
   doc.setFontSize(8);
   doc.setFont(undefined, 'bold');
@@ -299,8 +299,8 @@ export async function generateAdminChecklistPdf(competition = null) {
   const isEn = (typeof localStorage !== 'undefined' && localStorage.getItem('user_lang_pref') === 'en');
 
   const headerBannerText = isEn
-    ? 'OFFICIAL EVENT MANAGEMENT CHECKLIST (FEI & TR X KÖRNING)'
-    : 'OFFICIELL ARRANGERINGSCHECKLISTA (TR X KÖRNING & DRIVELIVE)';
+    ? 'OFFICIAL EVENT MANAGEMENT CHECKLIST (FEI & TR V KÖRNING)'
+    : 'OFFICIELL ARRANGERINGSCHECKLISTA (TR V KÖRNING & DRIVELIVE)';
 
   const doc = new jsPDF({
     orientation: 'portrait',
@@ -478,10 +478,10 @@ export async function generateAdminChecklistPdf(competition = null) {
   doc.setDrawColor(129, 140, 248); // indigo-400
   doc.roundedRect(margin, y, contentWidth, bannerHeight, 3, 3, 'FD');
 
-  const bannerTitle = isEn ? 'OFFLINE & LIVE SYNC:' : 'OFFLINE-SÄKERHET & LIVESYNK:';
+  const bannerTitle = isEn ? 'OFFLINE QUEUE & LIVE SYNC:' : 'OFFLINEKÖ & LIVESYNK:';
   const bannerDesc = isEn
-    ? 'All field judges and timers queue offline in local memory if coverage drops. Secretariat dashboard monitors all posts in real time.'
-    : 'Funktionärer i fält köar automatiskt offline om nätet svajar. Sekretariatets live-dashboard har full överblick i realtid.';
+    ? 'Loaded field views can queue writes locally. Keep each tab open and verify green sync after reconnecting.'
+    : 'Laddade fältvyer kan köa skrivningar lokalt. Håll fliken öppen och verifiera grön synk efter återanslutning.';
 
   doc.setFontSize(8);
   doc.setFont(undefined, 'bold');

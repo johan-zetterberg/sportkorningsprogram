@@ -19,15 +19,25 @@ test('manual.js contains 1-click A4 Cheat Sheet PDF buttons across key roles', (
   assert.ok(manualCode.includes('data-role-pdf="observer"'), 'Should have Observer cheat sheet button');
 });
 
-test('manual.js contains modernized, reassuring offline guidance and removed outdated bad advice', () => {
+test('manual.js contains accurate conditional offline guidance', () => {
   // Ensure the old, dangerous advice is completely gone
   assert.ok(!manualCode.includes('INTE på "Spara Protokoll"'), 'Should not warn against saving while offline');
   assert.ok(!manualCode.includes('INTE på Spara Protokoll'), 'Should not warn against saving while offline');
 
-  // Ensure positive auto-sync guidance is present
-  assert.ok(manualCode.includes('Appen är fullt offline-säkrad'), 'Should explain that app is fully offline safe');
-  assert.ok(manualCode.includes('Klicka på "Spara Protokoll" som vanligt'), 'Should instruct user to save as usual');
+  // Offline writes are conditional on an already loaded view and are not
+  // server-confirmed until the queue has synchronized.
+  assert.ok(!manualCode.includes('Appen är fullt offline-säkrad'), 'Should not promise unconditional offline safety');
+  assert.ok(manualCode.includes('Offline-stöd för en redan laddad domarvy'));
+  assert.ok(manualCode.includes('klicka på <strong>"Spara Protokoll"</strong> som vanligt'), 'Should instruct user to save as usual');
   assert.ok(manualCode.includes('Synk-molnet'), 'Should explain sync indicator states');
+  assert.ok(manualCode.includes('inte serverbekräftad förrän synkikonen blir grön'));
+});
+
+test('dressage manual distinguishes saving from finalizing a protocol', () => {
+  assert.ok(!manualCode.includes('Sign Protocol'), 'Should not mention a signature control that does not exist');
+  assert.ok(!manualCode.includes('Detta låser resultatet och gör det officiellt'), 'Saving must not be described as finalization');
+  assert.ok(manualCode.includes('resultatet blir inte officiellt eller låst förrän en behörig användare finaliserar det på resultatsidan'));
+  assert.ok(manualCode.includes('the result is not official or locked until an authorized user finalizes it on the results page'));
 });
 
 test('manual.js contains complete chronological admin competition setup checklist', () => {
@@ -60,6 +70,8 @@ test('quickGuidePdf.js includes generateAdminChecklistPdf with all 6 phases', ()
   assert.ok(pdfCode.includes("roleKey === 'admin_checklist'"), 'Should handle admin_checklist in generateQuickGuidePdf');
   assert.ok(pdfCode.includes('FAS 1: FÖRBEREDELSER & TDB-EXPORT'), 'Should include Phase 1 in PDF');
   assert.ok(pdfCode.includes('FAS 6: AVSLUT, PRISUTDELNING & TDB-EXPORT'), 'Should include Phase 6 in PDF');
+  assert.ok(pdfCode.includes('TR V KÖRNING'), 'Should identify the driving regulations as TR V');
+  assert.ok(!pdfCode.includes('TR X KÖRNING'), 'Should not use the incorrect TR X designation');
 });
 
 test('portal.js includes showDriverPortalHelpModal and portal help buttons', () => {

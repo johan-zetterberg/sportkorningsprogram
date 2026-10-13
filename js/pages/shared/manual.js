@@ -606,9 +606,9 @@ function getTabContentSV(tab) {
                         Systemet är byggt för att klara svajigt internet ute på fältet.
                     </p>
                     <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
-                        <li><strong>Du kan fortsätta mata in tider/resultat även om du tappar täckning.</strong></li>
-                        <li>Datat sparas lokalt ("I kön") och skickas automatiskt när internet kommer tillbaka.</li>
-                        <li class="font-bold text-red-600">VIKTIGT: Stäng INTE webbläsarfliken om du är offline! Då kan icke-sparad data gå förlorad.</li>
+                        <li><strong>På en inmatningsvy som redan har laddats kan du fortsätta registrera tider och resultat när täckningen försvinner.</strong></li>
+                        <li>Skrivningar kan köas lokalt ("I kön") och skickas när internet kommer tillbaka. En köad skrivning är inte serverbekräftad förrän synkikonen blir grön.</li>
+                        <li class="font-bold text-red-600">VIKTIGT: Stäng eller uppdatera inte fliken, logga inte ut och rensa inte webbplatsdata medan något väntar i kön. Byt inte enhet innan synkningen är klar.</li>
                     </ul>
                 </div>
             </section>
@@ -804,7 +804,7 @@ function getTabContentSV(tab) {
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
                             <li><strong>Gå tillbaka:</strong> Klicka alltid på loggan (längst upp till vänster) för att återgå till Hubben och byta tävling.</li>
                             <li><strong>Skapa Nytt:</strong> (Endast Admin) Använd formuläret i Hubben för att starta en ny tävling.</li>
-                            <li><strong>Offline-säker:</strong> Högst upp ser du en synk-ikon (moln) eller en "Offline"-badge. Du kan fortsätta skriva in resultat även utan internet!</li>
+                            <li><strong>Offline-stöd:</strong> Högst upp ser du en synkikon (moln) eller en "Offline"-badge. Redan laddade inmatningsvyer kan köa resultat lokalt; vänta på grön synkikon innan du stänger sidan.</li>
                             <li><strong>Mobil & Surfplatta:</strong> Systemet anpassar sig automatiskt. På mobiler visas listor som klickbara "Kort", medan surfplattor och datorer visar klassiska tabeller för bättre överblick.</li>
                         </ul>
                     </div>
@@ -1486,8 +1486,8 @@ function getTabContentSV(tab) {
                   <br><span class="ml-4 text-sm">Använd knapparna för "Fel 1" / "Fel 2" eller fyll i "Övriga avdrag" manuellt längst ner.</span>
                 </li>
                 <li>
-                  <strong>Signera & Spara:</strong>
-                  <br><span class="ml-4 text-sm">När protokollet är klart, klicka på <strong>Spara Protokoll</strong>. Detta låser resultatet och gör det officiellt.</span>
+                  <strong>Spara protokollet:</strong>
+                  <br><span class="ml-4 text-sm">När protokollet är klart, klicka på <strong>Spara Protokoll</strong>. Domarens bedömning sparas och du går vidare till nästa ekipage. När alla tilldelade domare har sparat visas ekipaget som klart, men resultatet blir inte officiellt eller låst förrän en behörig användare finaliserar det på resultatsidan.</span>
                 </li>
               </ol>
             </div>
@@ -1507,13 +1507,13 @@ function getTabContentSV(tab) {
           <section class="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-xl border-l-4 border-emerald-500 shadow-xs mb-4">
             <h4 class="font-bold text-emerald-800 dark:text-emerald-300 text-sm uppercase mb-1">📡 Offline & Tappad anslutning</h4>
             <div class="text-sm text-emerald-900 dark:text-emerald-200 space-y-2">
-              <p><strong>Appen är fullt offline-säkrad:</strong> Om internet försvinner kan du fortsätta döma precis som vanligt. <strong>Klicka på "Spara Protokoll" som vanligt när ritten är klar!</strong></p>
-              <p>Resultatet sparas tryggt i surfplattans lokala minne och laddas automatiskt upp till molnet så fort anslutningen återupptas.</p>
+              <p><strong>Offline-stöd för en redan laddad domarvy:</strong> Om internet försvinner kan du fortsätta fylla i protokollet och klicka på <strong>"Spara Protokoll"</strong> som vanligt.</p>
+              <p>Skrivningen köas då lokalt på den aktuella enheten och skickas när anslutningen återupptas. Den är inte bekräftad på servern förrän synkikonen blir grön.</p>
               <div class="p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-800/60 text-xs space-y-1">
                 <div class="font-semibold text-gray-800 dark:text-gray-200">Synk-molnet i sidans topp:</div>
                 <div>• 🟢 <strong>Grön bock:</strong> Sparat och synkat med molnet.</div>
                 <div>• 🟡 <strong>Gult moln / roterande:</strong> Sparat lokalt på surfplattan, väntar på synk.</div>
-                <div>• 🔴 <strong>Röd / offline:</strong> Offline-läge. Inget internet just nu, men data sparas tryggt lokalt.</div>
+                <div>• 🔴 <strong>Röd / offline:</strong> Ingen anslutning. Fortsätt endast i den redan laddade vyn och kontrollera att skrivningen visas i kön.</div>
               </div>
               <p class="font-semibold text-amber-800 dark:text-amber-300 text-xs">⚠️ VIKTIGT: Stäng eller uppdatera inte fliken medan det finns osparade ändringar i synkkön. Vänta tills ikonen blir grön.</p>
             </div>
@@ -1522,7 +1522,7 @@ function getTabContentSV(tab) {
           <section class="bg-gray-50 dark:bg-gray-900/40 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
             <h4 class="font-bold text-gray-800 dark:text-gray-200 text-sm uppercase mb-1">✍️ Rättelse i efterhand</h4>
             <p class="text-xs text-gray-600 dark:text-gray-300">
-              Ett signerat protokoll är låst för att förhindra misstag. Om ett domarprotokoll behöver korrigeras i efterhand kontaktar du <strong>Sekretariatet</strong>, som kan låsa upp protokollet eller göra justeringen direkt i sekretariatsvyn.
+              Innan resultatet är finaliserat kan domaren välja samma ekipage och spara protokollet på nytt. Om resultatet redan är finaliserat måste en behörig användare först återöppna det på resultatsidan; därefter kan domaren eller <strong>Sekretariatet</strong> göra rättelsen.
             </p>
           </section>
         </div>
@@ -1748,9 +1748,9 @@ function getTabContentEN(tab) {
                         The system is built to handle unstable internet connections in the field.
                     </p>
                     <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
-                        <li><strong>You can continue to enter times/results even if you lose coverage.</strong></li>
-                        <li>Data is saved locally ("In Queue") and sent automatically when internet returns.</li>
-                        <li class="font-bold text-red-600">IMPORTANT: DO NOT close the browser tab if you are offline! Unsaved data may be lost.</li>
+                        <li><strong>If the input view and competition data were already loaded, you can continue entering times and results after coverage is lost.</strong></li>
+                        <li>Writes can be queued locally ("In Queue") and sent when internet returns. A queued write is not server-confirmed until the sync icon turns green.</li>
+                        <li class="font-bold text-red-600">IMPORTANT: Do not close or reload the tab, sign out, clear site data, or switch devices while writes remain queued.</li>
                     </ul>
                 </div>
             </section>
@@ -1940,7 +1940,7 @@ function getTabContentEN(tab) {
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
                             <li><strong>Go Back:</strong> Always click the logo (top left) to return to the Hub and switch competitions.</li>
                             <li><strong>Create New:</strong> (Admin only) Use the form in the Hub to start a new competition.</li>
-                            <li><strong>Offline Safe:</strong> Look for the sync cloud or "Offline" badge at the top. You can continue working even without internet!</li>
+                            <li><strong>Offline support:</strong> Look for the sync cloud or "Offline" badge. An already loaded input view can queue results locally; wait for a green sync icon before closing it.</li>
                             <li><strong>Mobile & Tablet:</strong> The system adapts automatically. Phones show click-friendly "Cards", while tablets and PCs show classic tables.</li>
                         </ul>
                     </div>
@@ -2392,8 +2392,8 @@ function getTabContentEN(tab) {
                 <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Sync Indicator Colors</strong>
                 <ul class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 mt-1">
                   <li>🟢 <strong>Green check:</strong> Everything is saved in the cloud and live in the secretariat.</li>
-                  <li>🟡 <strong>Yellow count (Queue):</strong> Low or spotty mobile coverage. Results are securely saved in device memory and will sync automatically when signal returns. <em>Do not close the tab!</em></li>
-                  <li>🔴 <strong>Red warning:</strong> Offline. Continue timing and scoring normally – all entries queue locally.</li>
+                  <li>🟡 <strong>Yellow count (Queue):</strong> Writes are waiting locally on this device. They are not server-confirmed until the icon turns green. <em>Do not close the tab!</em></li>
+                  <li>🔴 <strong>Red warning:</strong> Offline. Continue only in views and competition data that were loaded before coverage was lost, and verify that each save enters the queue.</li>
                 </ul>
               </div>
               <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
@@ -2427,7 +2427,7 @@ function getTabContentEN(tab) {
                             <li><strong>Navigation:</strong> Use the <code>TAB</code> key to jump to comment, and <code>ENTER</code> to jump to the next movement.</li>
                         </ul>
                     </li>
-                    <li><strong>Sign & Save:</strong> When finished, scroll down. Sign with your signature (scribble with finger) and click <strong>"Sign Protocol"</strong>.</li>
+                    <li><strong>Save the protocol:</strong> When finished, scroll down and click <strong>"Save Protocol"</strong>. The judge's assessment is saved and you move to the next equipage. Once every assigned judge has saved, the equipage is shown as complete, but the result is not official or locked until an authorized user finalizes it on the results page.</li>
                 </ol>
             </div>
            </section>
@@ -2438,8 +2438,7 @@ function getTabContentEN(tab) {
              </h4>
              <p class="text-sm text-red-900 mt-1">
                 If the internet goes down, <strong>DO NOT CLOSE THE PAGE</strong>.
-                Continue judging as usual. The button will say "Save Locally (Queue)".
-                When internet returns, the system automatically uploads all saved protocols.
+                If this judge view and the competition data were loaded before coverage was lost, continue judging and click "Save Protocol" as usual. Verify the queued notice, keep the tab open, and wait for the green sync icon when internet returns.
              </p>
            </section>
 

@@ -26,24 +26,24 @@ export const GUIDES = {
         '<strong>Betyg 0–10:</strong> Skriv siffran direkt. Halva poäng är tillåtna (t.ex. 6, 6.5, 7.5).',
         '<strong>Tangentbordsgenvägar:</strong> Tryck <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Enter</kbd> för att hoppa till nästa rörelse. Tryck <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Tab</kbd> för att öppna och skriva kommentar för aktuell rörelse.',
         '<strong>Kommentarer:</strong> Klicka på <span class="text-blue-600 font-semibold">💬 Kom.</span> vid behov för att motivera poängen.',
-        '<strong>Felridning / Avdrag:</strong> Klicka på knapparna för felridning (+2, +4 straff) eller fyll i övriga straff längst ner i protokollet.',
+        '<strong>Felkörning / Avdrag:</strong> Första felkörningen ger 5 straffpoäng, den andra ger ytterligare 10 straffpoäng (15 totalt) och den tredje innebär uteslutning. Använd knapparna Fel 1, Fel 2 och Fel 3, eller fyll i övriga straff längst ner i protokollet.',
         '<strong>Autosparning:</strong> Resultatet sparas automatiskt i bakgrunden var 30:e sekund och vid varje ändring.',
-        '<strong>Slutför:</strong> Klicka på <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA PROTOKOLL</span> när sista momentet är bedömt.'
+        '<strong>Spara:</strong> Klicka på <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA PROTOKOLL</span> när sista momentet är bedömt. Protokollet blir inte låst eller officiellt förrän resultatet finaliseras på resultatsidan.'
       ],
       en: [
         '<strong>Marks 0–10:</strong> Type marks directly. Half points allowed (e.g. 6.5, 7.5).',
         '<strong>Keyboard navigation:</strong> Press <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Enter</kbd> to move to next movement. Press <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Tab</kbd> to jump to comments for the current movement.',
         '<strong>Comments:</strong> Click <span class="text-blue-600 font-semibold">💬 Remarks</span> to add explanatory notes.',
-        '<strong>Errors of course:</strong> Click Error buttons (+2, +4 points) or enter manual penalty points at the bottom.',
+        '<strong>Errors of course:</strong> The first error gives 5 penalty points, the second adds 10 more (15 total), and the third results in elimination. Use the Error 1, Error 2 and Error 3 buttons, or enter other penalties at the bottom.',
         '<strong>Autosave:</strong> Progress is saved in the background every 30 seconds and on change.',
-        '<strong>Finalize:</strong> Click <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE PROTOCOL</span> once the test is finished.'
+        '<strong>Save:</strong> Click <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE PROTOCOL</span> once the test is finished. The protocol is not locked or official until the result is finalized on the results page.'
       ]
     },
     troubleshooting: {
       sv: [
         {
           q: 'Kunde inte spara eller dålig mobiltäckning (Offline)?',
-          a: '<strong>Systemet är offline-säkrat!</strong> Klicka på Spara som vanligt. Protokollet sparas tryggt i surfplattans minne och skickas in till sekretariatet i samma sekund som nätet återkommer. Håll bara koll på moln-ikonen.'
+          a: 'Om domarvyn och tävlingsdatan redan är laddade kan du klicka på Spara som vanligt. Kontrollera att protokollet visas som köat, håll fliken öppen och vänta på grön synkikon innan du lämnar sidan.'
         },
         {
           q: 'Skrev fel poäng eller kommentar?',
@@ -55,13 +55,13 @@ export const GUIDES = {
         },
         {
           q: 'Måste ändra ett redan sparat protokoll?',
-          a: 'Sparade protokoll låses för säkerhets skull. Kontakta sekretariatet så låser de upp protokollet åt dig.'
+          a: 'Om resultatet inte är finaliserat kan du välja ekipaget igen, rätta uppgiften och spara på nytt. Är resultatet finaliserat måste en behörig användare först återöppna det på resultatsidan.'
         }
       ],
       en: [
         {
           q: 'Lost internet connection / Offline warning?',
-          a: '<strong>The app works offline!</strong> Click Save as usual. All scores are safely stored locally in your device and automatically synced to the secretariat when connection restores.'
+          a: 'If the judge view and competition data were already loaded, click Save as usual. Verify that the protocol is queued, keep the tab open, and wait for the green sync icon before leaving the page.'
         },
         {
           q: 'Entered the wrong mark or remark?',
@@ -73,7 +73,7 @@ export const GUIDES = {
         },
         {
           q: 'Need to edit an already saved protocol?',
-          a: 'Saved protocols are locked against accidental changes. Contact the secretariat to unlock it.'
+          a: 'If the result has not been finalized, select the equipage again, correct the entry, and save it again. If it is finalized, an authorized user must first reopen it on the results page.'
         }
       ]
     },
@@ -197,13 +197,13 @@ export const GUIDES = {
     icon: '⏱️',
     steps: {
       sv: [
-        'Välj aktiv **Etapp** i flikarna (Warmup, Sträcka A, Transfer eller Sträcka B).',
-        'Välj **Startnummer / Ekipage** i rullistan när ekipaget närmar sig tidskontrollen.',
+        'Välj aktiv <strong>Etapp</strong> i flikarna (Warmup, Sträcka A, Transfer eller Sträcka B).',
+        'Välj <strong>Startnummer / Ekipage</strong> i rullistan när ekipaget närmar sig tidskontrollen.',
         'Kontrollera ekipagets idealtid och tidsfönster (min/max) på skärmen.'
       ],
       en: [
-        'Select active **Phase** in tabs (Warmup, Section A, Transfer or Section B).',
-        'Select **Start Number / Equipage** as turnout approaches the timing station.',
+        'Select active <strong>Phase</strong> in tabs (Warmup, Section A, Transfer or Section B).',
+        'Select <strong>Start Number / Equipage</strong> as turnout approaches the timing station.',
         'Check time window (min/optimum/max) displayed on screen.'
       ]
     },
@@ -235,7 +235,7 @@ export const GUIDES = {
         },
         {
           q: 'Offline vid mål A eller start B?',
-          a: 'Alla tider sparas säkert lokalt i surfplattan och synkroniseras mot sekretariatet så fort nätverket är tillbaka.'
+          a: 'På en redan laddad vy kan tider köas lokalt. Kontrollera köindikatorn, håll fliken öppen och vänta på grön synkikon när nätverket är tillbaka.'
         }
       ],
       en: [
@@ -275,13 +275,13 @@ export const GUIDES = {
     icon: '🎯',
     steps: {
       sv: [
-        'Välj **Startnummer / Ekipage** i rullistan eller med pilarna.',
-        'Kontrollera klassens **Tillåtna tid** och **Maxtid** som visas under timern.',
+        'Välj <strong>Startnummer / Ekipage</strong> i rullistan eller med pilarna.',
+        'Kontrollera klassens <strong>Tillåtna tid</strong> och <strong>Maxtid</strong> som visas under timern.',
         'Stå redo med blicken på startlinjen.'
       ],
       en: [
-        'Select **Start Number / Equipage** from dropdown or with arrow keys.',
-        'Check **Time Allowed** and **Time Limit** shown below the timer.',
+        'Select <strong>Start Number / Equipage</strong> from dropdown or with arrow keys.',
+        'Check <strong>Time Allowed</strong> and <strong>Time Limit</strong> shown below the timer.',
         'Watch the entry gates ready to start.'
       ]
     },
@@ -317,7 +317,7 @@ export const GUIDES = {
         },
         {
           q: 'Offline i ridhuset / på banan?',
-          a: 'Klicka Spara som vanligt. Resultatet sparas tryggt i enheten och laddas upp automatiskt till sekretariatet så fort nätverket nås.'
+          a: 'På en redan laddad vy kan du klicka Spara som vanligt. Kontrollera köindikatorn, håll fliken öppen och vänta på grön synkikon när nätverket är tillbaka.'
         }
       ],
       en: [
@@ -335,7 +335,7 @@ export const GUIDES = {
         },
         {
           q: 'Offline in arena?',
-          a: 'Save normally. All records queue locally and upload when online.'
+          a: 'On an already loaded view, save normally, verify the queue indicator, keep the tab open, and wait for the green sync icon after reconnecting.'
         }
       ]
     },
@@ -361,12 +361,12 @@ export const GUIDES = {
     icon: '👁️',
     steps: {
       sv: [
-        'Välj **Startnummer / Ekipage** när du ser ekipaget närma sig din observationspost.',
+        'Välj <strong>Startnummer / Ekipage</strong> när du ser ekipaget närma sig din observationspost.',
         'Håll uppsikt över föreskriven gångart (t.ex. skritt på skrittsträcka).',
         'Var beredd att agera vid otillåten hjälp, galopp eller otillåtna halter.'
       ],
       en: [
-        'Select **Start Number / Equipage** as they approach your observation post.',
+        'Select <strong>Start Number / Equipage</strong> as they approach your observation post.',
         'Monitor prescribed gait (e.g. walk on walk section).',
         'Watch for unauthorized assistance, canter in walk, or unauthorized halts.'
       ]
@@ -376,13 +376,13 @@ export const GUIDES = {
         '<strong>Fel gångart (Galopp i skritt):</strong> Klicka på START vid första galoppsprånget. Klicka på STOPP när hästen skrittar igen. Sekunderna räknas ihop automatiskt.',
         '<strong>Otillåten halt:</strong> Klicka START när ekipaget stannar olovligen och STOPP när det rör sig framåt igen.',
         '<strong>Noteringar / Kommentarer:</strong> Skriv en kort förklaring vid behov (t.ex. "Galopp ca 15 m").',
-        '<strong>Nödstopp (Global Paus):</strong> Vid allvarlig incident eller blockerat spår: Klicka på den röda knappen **NÖD-PAUS**. Detta fryser officiell tid för hela sträckan och larmar funktionärer omedelbart.'
+        '<strong>Nödstopp (Global Paus):</strong> Vid allvarlig incident eller blockerat spår: Klicka på den röda knappen <strong>NÖD-PAUS</strong>. Detta fryser officiell tid för hela sträckan och larmar funktionärer omedelbart.'
       ],
       en: [
         '<strong>Wrong gait (Canter in walk):</strong> Click START on first canter stride. Click STOP when back to walk. Seconds accumulate automatically.',
         '<strong>Unauthorized halt:</strong> Click START on halt and STOP when moving forward.',
         '<strong>Remarks:</strong> Type explanatory notes (e.g. "Cantered approx 15 m").',
-        '<strong>Emergency pause:</strong> If track is blocked or in an emergency, hit **EMERGENCY PAUSE** to freeze race clocks and alert officials.'
+        '<strong>Emergency pause:</strong> If track is blocked or in an emergency, hit <strong>EMERGENCY PAUSE</strong> to freeze race clocks and alert officials.'
       ]
     },
     troubleshooting: {
@@ -427,51 +427,53 @@ export const GUIDES = {
     icon: '🩺',
     steps: {
       sv: [
-        'Sök upp **Startnummer / Ekipage / Häst** i sökfältet.',
+        'Sök upp <strong>Startnummer / Ekipage / Häst</strong> i sökfältet.',
+        'Välj rätt kontrollflik: <strong>Förbesiktning, Selning, Vilobox</strong> eller <strong>Slutbesiktning</strong>.',
         'Kontrollera chipnummer och passuppgifter mot skärmen vid behov.',
         'Genomför besiktningen tillsammans med tävlingsveterinären.'
       ],
       en: [
-        'Search **Start Number / Equipage / Horse** in search box.',
+        'Search <strong>Start Number / Equipage / Horse</strong> in search box.',
+        'Select the correct inspection tab: <strong>Initial, Harness, Rest Area</strong>, or <strong>Final</strong>.',
         'Verify microchip and passport details if requested.',
         'Conduct inspection with treating/official veterinarian.'
       ]
     },
     during: {
       sv: [
-        '🟢 **Godkänd:** Hästen är i fullgott skick och godkänd för start.',
-        '🟡 **Holding Box (Återbesiktning):** Hästen skickas till Holding Box för fördjupad kontroll före slutligt beslut.',
-        '🔴 **Ej godkänd / Struken:** Hästen får ej starta.',
-        '<strong>Puls & Noteringar:</strong> Fyll i uppmätt puls samt eventuella sår eller kommentarer.',
-        'Klicka på **SPARA BEDÖMNING**.'
+        '🟢 <strong>Godkänd:</strong> Hästen är i fullgott skick och godkänd för start.',
+        '🟡 <strong>Holding Box (Återbesiktning):</strong> Hästen skickas till Holding Box för fördjupad kontroll före slutligt beslut.',
+        '🔴 <strong>Ej godkänd / Struken:</strong> Hästen får ej starta.',
+        '<strong>Vilobox:</strong> Registrera puls, andning och allmäntillstånd i fliken Vilobox. Dessa fält visas inte i övriga kontroller.',
+        '<strong>Spara:</strong> Hästens status sparas direkt när du trycker på statusknappen. För en ändrad veterinärnotering visas en separat knapp märkt Spara.'
       ],
       en: [
-        '🟢 **Passed:** Fit to compete.',
-        '🟡 **Holding Box:** Referred for re-inspection before final verdict.',
-        '🔴 **Not fit / Withdrawn:** Not permitted to start.',
-        '<strong>Heart rate & Remarks:</strong> Record measured pulse and any skin lesions/notes.',
-        'Click **SAVE EVALUATION**.'
+        '🟢 <strong>Passed:</strong> Fit to compete.',
+        '🟡 <strong>Holding Box:</strong> Referred for re-inspection before final verdict.',
+        '🔴 <strong>Not fit / Withdrawn:</strong> Not permitted to start.',
+        '<strong>Rest Area:</strong> Record pulse, respiration, and general condition on the Rest Area tab. These fields are not shown for the other inspections.',
+        '<strong>Saving:</strong> The horse status is saved immediately when you press its status button. A separate Save button appears after you edit the veterinary note.'
       ]
     },
     troubleshooting: {
       sv: [
         {
           q: 'Status ändrades efter ombesiktning?',
-          a: 'Öppna samma häst igen, ändra status till Godkänd (eller Struken) och spara på nytt.'
+          a: 'Öppna samma häst igen och tryck på den nya statusen. Ändringen sparas direkt.'
         },
         {
           q: 'Offline vid stallarna?',
-          a: 'Besiktningsprotokollet sparas lokalt och laddas upp till sekretariatet så fort nätverket återfås.'
+          a: 'På en redan laddad vy kan uppgifterna köas lokalt. Kontrollera köindikatorn och vänta på grön synkikon innan du lämnar sidan.'
         }
       ],
       en: [
         {
           q: 'Status updated after holding box?',
-          a: 'Open the equipage again, update status to Passed (or Not Fit) and save.'
+          a: 'Open the same horse again and press the new status. The change is saved immediately.'
         },
         {
           q: 'Offline near stables?',
-          a: 'Results are stored offline and synchronize automatically.'
+          a: 'On an already loaded view, results can queue locally. Verify the queue indicator and wait for the green sync icon before leaving the page.'
         }
       ]
     },
@@ -717,6 +719,8 @@ export function renderQuickGuideButton(roleKey = 'dressage', options = {}) {
 export function openQuickGuide(initialRoleKey = 'dressage') {
   injectGuideStyles();
 
+  const previouslyFocusedElement = document.activeElement;
+
   // Ta bort eventuell redan öppen guide
   if (typeof document !== 'undefined') {
     // ...with its Escape listener (removing only the element left it behind)
@@ -738,6 +742,7 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
 
   const drawer = document.createElement('div');
   drawer.className = 'qg-drawer';
+  drawer.tabIndex = -1;
 
   function renderContent() {
     const guide = GUIDES[activeRole] || GUIDES['dressage'];
@@ -878,12 +883,12 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
         <section class="p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200 text-xs">
           <div class="flex items-center gap-2 font-bold mb-0.5">
             <span>🛡️</span>
-            <span>${isEn ? 'Offline-Protected System' : 'Offline-säkrat system'}</span>
+            <span>${isEn ? 'Offline Queue Support' : 'Stöd för offlinekö'}</span>
           </div>
           <p class="leading-normal opacity-90">
             ${isEn
-              ? 'All entries are safely backed up inside your device\'s local storage. You do not need to wait for internet to hit Save!'
-              : 'Alla inmatningar och sparningar köas och skyddas tryggt i enhetens lokala minne. Du behöver aldrig vänta med att trycka på Spara!'}
+              ? 'In an already loaded input view, press Save and verify the local queue. Keep the tab open until the sync icon turns green.'
+              : 'I en redan laddad inmatningsvy: tryck på Spara och kontrollera den lokala kön. Håll fliken öppen tills synkikonen blir grön.'}
           </p>
         </section>
 
@@ -947,6 +952,7 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
     drawer.querySelector('#qg-role-select')?.addEventListener('change', (e) => {
       activeRole = e.target.value;
       renderContent();
+      drawer.querySelector('#qg-role-select')?.focus();
     });
   }
 
@@ -958,21 +964,55 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
   // Animera in
   requestAnimationFrame(() => {
     backdrop.classList.add('visible');
+    drawer.querySelector('#qg-close-btn')?.focus();
   });
 
+  let isClosing = false;
+
   function closeGuide() {
+    if (isClosing) return;
+    isClosing = true;
     document.removeEventListener('keydown', onKeyDown);
     backdrop.classList.remove('visible');
     setTimeout(() => {
       try {
         backdrop.remove();
       } catch {}
+      if (previouslyFocusedElement?.isConnected && typeof previouslyFocusedElement.focus === 'function') {
+        previouslyFocusedElement.focus();
+      }
     }, 220);
   }
 
   function onKeyDown(e) {
     if (e.key === 'Escape') {
+      e.preventDefault();
       closeGuide();
+      return;
+    }
+
+    if (e.key === 'Tab') {
+      const focusable = Array.from(drawer.querySelectorAll(
+        'a[href], button:not([disabled]), select:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      )).filter((element) => !element.hasAttribute('hidden') && element.getAttribute('aria-hidden') !== 'true');
+
+      if (focusable.length === 0) {
+        e.preventDefault();
+        drawer.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+
+      if (e.shiftKey && (activeElement === first || !drawer.contains(activeElement))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (activeElement === last || !drawer.contains(activeElement))) {
+        e.preventDefault();
+        first.focus();
+      }
     }
   }
 

@@ -69,3 +69,66 @@ test('GUIDES defines all required competition roles with complete sections', asy
   }
 });
 
+test('dressage quick guide uses the current error-of-course penalties', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  const swedish = GUIDES.dressage.during.sv.join(' ');
+  const english = GUIDES.dressage.during.en.join(' ');
+
+  assert.match(swedish, /5 straffpoäng/);
+  assert.match(swedish, /ytterligare 10 straffpoäng/);
+  assert.match(swedish, /tredje innebär uteslutning/);
+  assert.match(english, /first error gives 5 penalty points/);
+  assert.match(english, /second adds 10 more/);
+  assert.match(english, /third results in elimination/);
+  assert.ok(!swedish.includes('+2, +4'));
+  assert.ok(!english.includes('+2, +4'));
+});
+
+test('dressage quick guide distinguishes saving from finalizing', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  const swedish = [...GUIDES.dressage.during.sv, ...GUIDES.dressage.troubleshooting.sv.map(item => item.a)].join(' ');
+  const english = [...GUIDES.dressage.during.en, ...GUIDES.dressage.troubleshooting.en.map(item => item.a)].join(' ');
+
+  assert.match(swedish, /inte låst eller officiellt förrän resultatet finaliseras/);
+  assert.match(english, /not locked or official until the result is finalized/);
+  assert.ok(!swedish.includes('Sparade protokoll låses'));
+  assert.ok(!english.includes('Saved protocols are locked'));
+});
+
+test('quick guides use HTML emphasis instead of visible Markdown markers', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  const serializedGuides = JSON.stringify(GUIDES);
+
+  assert.ok(!serializedGuides.includes('**'));
+});
+
+test('veterinary quick guide matches phase-specific controls and saving', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  const swedish = [...GUIDES['vet-check'].steps.sv, ...GUIDES['vet-check'].during.sv].join(' ');
+  const english = [...GUIDES['vet-check'].steps.en, ...GUIDES['vet-check'].during.en].join(' ');
+
+  assert.match(swedish, /Förbesiktning, Selning, Vilobox/);
+  assert.match(swedish, /status sparas direkt/);
+  assert.match(english, /status is saved immediately/);
+  assert.ok(!swedish.includes('SPARA BEDÖMNING'));
+  assert.ok(!english.includes('SAVE EVALUATION'));
+});
+
+test('quick guides describe offline writes as a conditional local queue', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  const serializedGuides = JSON.stringify(GUIDES);
+
+  assert.match(serializedGuides, /redan laddad/);
+  assert.match(serializedGuides, /already loaded/);
+  assert.ok(!serializedGuides.includes('Systemet är offline-säkrat'));
+  assert.ok(!serializedGuides.includes('The app works offline'));
+});
+
+test('quick guide dialog implements keyboard focus management', async () => {
+  const source = await import('node:fs').then(fs => fs.readFileSync('js/ui/quickGuideDrawer.js', 'utf8'));
+
+  assert.match(source, /previouslyFocusedElement/);
+  assert.match(source, /e\.key === 'Tab'/);
+  assert.match(source, /drawer\.querySelector\('#qg-close-btn'\)\?\.focus\(\)/);
+  assert.match(source, /previouslyFocusedElement\.focus\(\)/);
+});
