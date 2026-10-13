@@ -60,3 +60,15 @@ test('static class-to-program mapping points only to existing dressage programs'
     assert.ok(dressagePrograms[programKey], `${className} maps to missing program ${programKey}`);
   }
 });
+
+test('obsolete dressage programs remain available only for historical results', () => {
+  for (const key of ['SvMsvC', 'SvSvar']) {
+    assert.ok(dressagePrograms[key], `${key} must remain readable for historical results`);
+    assert.equal(dressagePrograms[key].deprecated, true, `${key} must be marked as obsolete`);
+    assert.equal(dressagePrograms[key].selectable, false, `${key} must not be selectable for new protocols`);
+    assert.equal(dressagePrograms[key].verified, false, `${key} must not be presented as verified`);
+  }
+
+  assert.equal(dressagePrograms.FEI_2star_2021.deprecated, undefined);
+  assert.notEqual(dressagePrograms.FEI_2star_2021.selectable, false);
+});

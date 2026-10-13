@@ -11,7 +11,12 @@ import { listenForJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { getCompetitionHeader } from '../../ui/components.js';
-import { formatDressageProgramOptionLabel, getDressageProgramTrNumber, sortDressageProgramKeys } from './dressageAdminProgramOptions.js';
+import {
+  formatDressageProgramOptionLabel,
+  getDressageProgramTrNumber,
+  getSelectableDressageProgramKeys,
+  isDressageProgramSelectable
+} from './dressageAdminProgramOptions.js';
 
 let competitionId = null;
 let allEquipages = [];
@@ -61,7 +66,7 @@ function renderDressageAdminReadiness(root = document) {
     return;
   }
 
-  const missingMappings = classes.filter(cls => !mapping[cls] || !mergedPrograms[mapping[cls]]);
+  const missingMappings = classes.filter(cls => !mapping[cls] || !isDressageProgramSelectable(mergedPrograms[mapping[cls]]));
   const missingJudges = classes.filter(cls => !judgeMapping[cls] || Object.keys(judgeMapping[cls] || {}).length === 0);
   const ruleError1 = dressageRules?.error1 ?? DRESSAGE_DEFAULT_ERROR_1;
   const ruleError2 = dressageRules?.error2 ?? DRESSAGE_DEFAULT_ERROR_2;
@@ -114,7 +119,11 @@ function ensureDressageAdminResponsiveStyles() {
 
 function renderProgramOptions(selectedKey = '') {
   const options = ['<option value="">-- Välj dressyrprogram --</option>'];
-  sortDressageProgramKeys(mergedPrograms).forEach((key) => {
+  const selectedProgram = mergedPrograms[selectedKey];
+  if (selectedKey && selectedProgram && !isDressageProgramSelectable(selectedProgram)) {
+    options.push(`<option value="${esc(selectedKey)}" selected disabled>[Utgånget - välj ett nytt] ${esc(formatDressageProgramOptionLabel(selectedKey, selectedProgram))}</option>`);
+  }
+  getSelectableDressageProgramKeys(mergedPrograms).forEach((key) => {
     const selected = key === selectedKey ? ' selected' : '';
     options.push(`<option value="${esc(key)}"${selected}>${esc(formatDressageProgramOptionLabel(key, mergedPrograms[key]))}</option>`);
   });
@@ -127,8 +136,10 @@ function renderSelectedProgramInfo(key, program) {
   }
 
   const trNumber = getDressageProgramTrNumber(program);
-  const warn = program.verified === false
-    ? '<span class="ml-2 text-xs text-amber-700 dark:text-amber-300">(Ej verifierat)</span>'
+  const warn = !isDressageProgramSelectable(program)
+    ? '<span class="ml-2 text-xs font-semibold text-red-700 dark:text-red-300">(Utgånget - endast historik)</span>'
+    : program.verified === false
+      ? '<span class="ml-2 text-xs text-amber-700 dark:text-amber-300">(Ej verifierat)</span>'
     : '';
   const meta = [
     trNumber ? `TR nr ${trNumber}` : '',
@@ -665,7 +676,7 @@ function render(root) {
 function rebuildProgramDatalist(root) {
   const dl = root.querySelector('#programKeysList');
   if (!dl) return;
-  dl.innerHTML = sortDressageProgramKeys(mergedPrograms)
+  dl.innerHTML = getSelectableDressageProgramKeys(mergedPrograms)
     .map(k => `<option value="${esc(k)}">${esc(formatDressageProgramOptionLabel(k, mergedPrograms[k]))}</option>`).join('');
 }
 
@@ -809,9 +820,12 @@ function wire(root) {
     let changes = 0;
     classes.forEach(cls => {
       const key = mapping[cls];
-      const exists = key && mergedPrograms[key];
+      const exists = key && isDressageProgramSelectable(mergedPrograms[key]);
       if (!exists) {
-        const guess = guessProgramKeyFromClass(cls, mergedPrograms);
+        const selectablePrograms = Object.fromEntries(
+          getSelectableDressageProgramKeys(mergedPrograms).map(programKey => [programKey, mergedPrograms[programKey]])
+        );
+        const guess = guessProgramKeyFromClass(cls, selectablePrograms);
         if (guess) { mapping[cls] = guess; changes++; }
       }
     });
@@ -836,9 +850,10 @@ function wire(root) {
     // (För säkerhetsskull läser vi av DOM igen för limits ifall "input" missades, fast "change" på checkbox triggar re-render.)
 
     // Validera – alla manuella nycklar måste finnas i mergedPrograms
-    const invalid = Object.entries(mapping).filter(([cls, key]) => key && !mergedPrograms[key]);
+    const invalid = Object.entries(mapping)
+      .filter(([, key]) => key && !isDressageProgramSelectable(mergedPrograms[key]));
     if (invalid.length) {
-      const msgTxt = 'Ogiltig programnyckel för: ' + invalid.map(([c, k]) => `${c}→${k}`).join(', ');
+      const msgTxt = 'Ogiltigt eller utgånget dressyrprogram för: ' + invalid.map(([c, k]) => `${c}→${k}`).join(', ');
       alert(msgTxt);
       return; // avbryt sparning
     }

@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   formatDressageProgramOptionLabel,
+  getSelectableDressageProgramKeys,
   getDressageProgramTrNumber,
+  isDressageProgramSelectable,
   sortDressageProgramKeys
 } from '../js/pages/dressage/dressageAdminProgramOptions.js';
 
@@ -29,4 +31,17 @@ test('sortDressageProgramKeys sorts numbered programs by TR number first', () =>
   });
 
   assert.deepEqual(sorted, ['SvLB', 'SvLA', 'FEIParaG1']);
+});
+
+test('selectable dressage programs exclude historical and explicitly disabled programs', () => {
+  const programs = {
+    active: { name: 'Aktivt program' },
+    deprecated: { name: 'Utgånget program', deprecated: true },
+    disabled: { name: 'Historiskt program', selectable: false }
+  };
+
+  assert.equal(isDressageProgramSelectable(programs.active), true);
+  assert.equal(isDressageProgramSelectable(programs.deprecated), false);
+  assert.equal(isDressageProgramSelectable(programs.disabled), false);
+  assert.deepEqual(getSelectableDressageProgramKeys(programs), ['active']);
 });

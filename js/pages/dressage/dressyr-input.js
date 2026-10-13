@@ -14,7 +14,13 @@ import { db, appId } from '../../config/firebase-config.js';
 import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { klassProgramMapping } from '../../data/competitionData.js';
-import { formatDressageProgramOptionLabel, getDressageProgramTrNumber, sortDressageProgramKeys } from './dressageAdminProgramOptions.js';
+import {
+  formatDressageProgramOptionLabel,
+  getDressageProgramTrNumber,
+  getSelectableDressageProgramKeys,
+  isDressageProgramSelectable,
+  sortDressageProgramKeys
+} from './dressageAdminProgramOptions.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 
@@ -60,7 +66,7 @@ function programKeyExists(key) {
 function resolveLegacyProgramKey(legacyKey) {
   if (!legacyKey) return null;
   const all = getPrograms();
-  const entries = Object.entries(all);
+  const entries = Object.entries(all).filter(([, program]) => isDressageProgramSelectable(program));
   const map = {
     'svlb': [/l[äa]tt/i, /\bB\b/i],
     'svla': [/l[äa]tt/i, /\bA\b/i],
@@ -164,7 +170,7 @@ function findProgramKeyForClass(classOrEquipage) {
     : (typeof klassProgramMapping !== 'undefined' ? klassProgramMapping : {});
   const clean = String(className).trim().toLowerCase();
 
-  const programKeyExistsSafe = (k) => !!(k && allProgs && allProgs[k]);
+  const programKeyExistsSafe = (k) => !!(k && allProgs && isDressageProgramSelectable(allProgs[k]));
   const isVerified = (k) => !!(allProgs[k] && allProgs[k].verified);
   const isNonParaClass = !/para/i.test(clean);
 
@@ -335,10 +341,12 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
       }
       programmaticChange = true;
       const testSelector = document.getElementById('testSelector');
+      const savedProgram = getPrograms()[testKey];
+      const isHistoricalProtocol = !!savedProgram && !isDressageProgramSelectable(savedProgram);
       // FIX: Lägg till check för !currentDressageTest eller om det laddade programmet inte matchar det som är renderat
       const needsRender = !currentDressageTest || (currentDressageTest.key !== testKey && currentDressageTest.name !== testKey);
 
-      if (allowTestChange && testKey && testSelector && (testSelector.value !== testKey || needsRender) && !manualTestOverride) {
+      if ((allowTestChange || isHistoricalProtocol) && testKey && testSelector && (testSelector.value !== testKey || needsRender) && !manualTestOverride) {
         testSelector.value = testKey;
         renderProtocol(testKey);
         manualTestOverride = true;     // lås valet så det inte skrivs över
@@ -414,7 +422,7 @@ function populateSelectors() {
   const src = getPrograms();
   testSelector.innerHTML = '';
   const categories = {};
-  sortDressageProgramKeys(src).forEach(key => {
+  getSelectableDressageProgramKeys(src).forEach(key => {
     const p = src[key] || {};
     const cat = p.category || 'Övrigt';
     if (!categories[cat]) categories[cat] = [];
@@ -437,6 +445,21 @@ function populateSelectors() {
         });
       testSelector.appendChild(group);
     });
+
+  const historicalKeys = sortDressageProgramKeys(src)
+    .filter(key => !isDressageProgramSelectable(src[key]));
+  if (historicalKeys.length) {
+    const historicalGroup = document.createElement('optgroup');
+    historicalGroup.label = 'Utgångna program (endast historik)';
+    historicalKeys.forEach(key => {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = `[Utgånget] ${formatDressageProgramOptionLabel(key, src[key])}`;
+      opt.disabled = true;
+      historicalGroup.appendChild(opt);
+    });
+    testSelector.appendChild(historicalGroup);
+  }
 
   judgeSelector.innerHTML = `<option value="">${t('input_select_judge')}</option>`;
   const order = { C: 0, E: 1, B: 2, H: 3, M: 4 };
@@ -490,7 +513,9 @@ function updateProgramMetaLegacy(key) {
   if (!host) return;
   const meta = getProgramMeta(key);
   if (!meta) { host.innerHTML = ''; return; }
-  const badge = `<span class="inline-block px-2 py-0.5 rounded ${meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${meta.verified ? t('input_verified') : t('input_not_verified')}</span>`;
+  const program = getPrograms()[key];
+  const historical = !isDressageProgramSelectable(program);
+  const badge = `<span class="inline-block px-2 py-0.5 rounded ${historical ? 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-100' : meta.verified ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-100' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-100'} mr-2">${historical ? 'Utgånget - historik' : meta.verified ? t('input_verified') : t('input_not_verified')}</span>`;
   const ver = meta.version ? ` • v${escapeHtml(meta.version)}` : '';
   const src = meta.source ? ` • ${escapeHtml(meta.source)}` : '';
   const coeff = getDressagePenaltyCoeff(key);

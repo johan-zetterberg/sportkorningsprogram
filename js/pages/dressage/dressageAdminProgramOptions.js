@@ -32,6 +32,10 @@ export function formatDressageProgramOptionLabel(key, program = {}) {
   return `${prefix}${name}${version}${arena}${suffix}`.trim();
 }
 
+export function isDressageProgramSelectable(program = {}) {
+  return !!program && program.selectable !== false && program.deprecated !== true;
+}
+
 export function sortDressageProgramKeys(programs = {}) {
   return Object.keys(programs).sort((a, b) => {
     const rawNrA = getDressageProgramTrNumber(programs[a]);
@@ -49,4 +53,9 @@ export function sortDressageProgramKeys(programs = {}) {
       { numeric: true }
     );
   });
+}
+
+export function getSelectableDressageProgramKeys(programs = {}) {
+  return sortDressageProgramKeys(programs)
+    .filter(key => isDressageProgramSelectable(programs[key]));
 }

@@ -56,7 +56,10 @@ export const dressagePrograms = {
         name: 'Msv 2 (C) (2020) (nr 524)',
         category: 'Svenska Program',
         calculationType: 'national',
-        verified: true,
+        verified: false,
+        deprecated: true,
+        selectable: false,
+        deprecatedReason: 'Utgånget program. Behålls endast för historiska resultat.',
         movements: [
             { no: 1, text: 'A-X, Vid X: Inkörning i arbetstrav, Halt-hälsning', judge: 'Rakhet, halt, hälsning', coeff: 1 },
             { no: 2, text: 'X-C, C-H: Arbetstrav', judge: 'Takt, ställning', coeff: 1 },
@@ -177,6 +180,10 @@ export const dressagePrograms = {
         name: 'Svår Klass (2020) (nr 526)',
         category: 'Svenska Program',
         calculationType: 'national',
+        verified: false,
+        deprecated: true,
+        selectable: false,
+        deprecatedReason: 'Ersatt av det verifierade FEI 2* HP1-programmet. Behålls endast för historiska resultat.',
         movements: [
             { no: 1, text: 'A: Inkörning i samlad trav. X: Halt, hälsning', judge: 'Rakhet, halt, samling', coeff: 1 },
             { no: 2, text: 'X-C-M: Samlad trav', judge: 'Takt, samling', coeff: 1 },
