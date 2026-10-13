@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { calculateDressageResult, getDressagePenaltyCoeff, protocolsForAssignedJudges } from '../js/core-engine/dressage.js';
+import { calculateDressageResult, getDressagePenaltyCoeff, guessProgramKeyFromClass, protocolsForAssignedJudges } from '../js/core-engine/dressage.js';
 import { dressagePrograms } from '../js/data/dressagePrograms.js';
 
 const program = {
@@ -58,4 +58,10 @@ test('a saved program copy without coefficient keeps the built-in one', () => {
     assert.equal(getDressagePenaltyCoeff('FEI_2star_2021', { FEI_2star_2021: savedCopy }), builtIn.penaltyCoeff);
     // An explicit coefficient still wins
     assert.equal(getDressagePenaltyCoeff({ ...savedCopy, penaltyCoeff: 0.5 }, {}), 0.5);
+});
+
+test('a guess from the class name never picks a deprecated program', () => {
+    // SvMsvC (Msv 2) and SvSvar are kept for old results only
+    assert.equal(guessProgramKeyFromClass('MSV 2 Enbet Ponny', dressagePrograms), null);
+    assert.notEqual(guessProgramKeyFromClass('Svår Enbet Häst', dressagePrograms), 'SvSvar');
 });
