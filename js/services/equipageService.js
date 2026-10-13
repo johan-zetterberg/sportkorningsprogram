@@ -243,11 +243,6 @@ export async function saveEquipage(competitionId, startNumber, equipageData) {
 
 const LATEST_UPDATE_TIMEOUT_MS = 5000;
 
-function isConnectionError(error) {
-  return ['unavailable', 'deadline-exceeded', 'failed-precondition'].includes(error?.code)
-    || /offline|network/i.test(String(error?.message || ''));
-}
-
 /**
  * Saves a change built from the latest server copy of the equipage, so two
  * devices changing different parts of the same list (e.g. two vets, one horse
@@ -260,38 +255,66 @@ export async function updateEquipageFromLatest(competitionId, startNumber, build
   const safeStartNumber = normalizeDocumentId(startNumber, 'Startnummer');
   const equipageRef = getCompDocRef(safeCompetitionId, 'equipages', safeStartNumber);
 
-  if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-    let timer;
-    try {
-      let built = null;
-      await Promise.race([
-        runTransaction(db, async (transaction) => {
-          const snap = await transaction.get(equipageRef);
-          built = cleanFirestoreData(buildUpdate(snap.exists() ? snap.data() : { ...fallbackEquipage }) || {});
-          const { publicData } = splitEquipageData(built);
-          if (Object.keys(publicData).length > 0) transaction.set(equipageRef, publicData, { merge: true });
-        }),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'deadline-exceeded' })), LATEST_UPDATE_TIMEOUT_MS);
-        })
-      ]);
-      const { privateData } = splitEquipageData(built || {});
-      if (Object.keys(privateData).length > 0) {
-        await setDoc(getPrivateEquipageDocRef(safeCompetitionId, safeStartNumber), privateData, { merge: true });
-      }
-      return built;
-    } catch (error) {
-      if (!isConnectionError(error)) throw mapEquipageWriteError(error);
-    } finally {
-      clearTimeout(timer);
+  // Without signal: built from the device's copy and queued
+  const queueFallback = async () => {
+    const fallback = buildUpdate({ ...fallbackEquipage }) || {};
+    // The write only resolves when the server answers: give the page an
+    // answer once it is queued on the device
+    await awaitWriteOrQueue(saveEquipage(competitionId, startNumber, fallback));
+    return fallback;
+  };
+
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) return queueFallback();
+
+  let built = null;
+  const transactionDone = runTransaction(db, async (transaction) => {
+    const snap = await transaction.get(equipageRef);
+    built = cleanFirestoreData(buildUpdate(snap.exists() ? snap.data() : { ...fallbackEquipage }) || {});
+    const { publicData } = splitEquipageData(built);
+    if (Object.keys(publicData).length > 0) transaction.set(equipageRef, publicData, { merge: true });
+  }).then(async () => {
+    const { privateData } = splitEquipageData(built || {});
+    if (Object.keys(privateData).length > 0) {
+      await setDoc(getPrivateEquipageDocRef(safeCompetitionId, safeStartNumber), privateData, { merge: true });
     }
+    return built;
+  });
+
+  let timer;
+  const slow = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(SLOW), LATEST_UPDATE_TIMEOUT_MS);
+  });
+  try {
+    const first = await Promise.race([transactionDone, slow]);
+    if (first !== SLOW) return first;
+  } catch (error) {
+    // Lost connection before the transaction went through: queue it instead
+    if (isOfflineError(error)) return queueFallback();
+    throw mapEquipageWriteError(error);
+  } finally {
+    clearTimeout(timer);
   }
 
-  const fallback = buildUpdate({ ...fallbackEquipage }) || {};
-  // Without signal the write only resolves when the server answers: give the
-  // page an answer once it is queued on the device
-  await awaitWriteOrQueue(saveEquipage(competitionId, startNumber, fallback));
-  return fallback;
+  // Slow signal: the transaction keeps going and may still commit, so no
+  // second write from the device's copy now (that would put back an older
+  // horse list). Only if it then fails for lack of connection is the change
+  // queued instead.
+  transactionDone.catch((error) => {
+    if (isOfflineError(error)) {
+      queueFallback().catch((queueError) => console.error('[equipage] Kunde inte köa ändringen:', queueError));
+    } else {
+      console.error('[equipage] Ändringen kunde inte sparas:', error);
+    }
+  });
+  return built;
+}
+
+const SLOW = Symbol('slow');
+
+// No connection to the server (not: refused, or contention between writers,
+// which the transaction itself retries)
+function isOfflineError(error) {
+  return error?.code === 'unavailable' || /offline|network/i.test(String(error?.message || ''));
 }
 
 export async function deleteEquipage(competitionId, equipageId) {

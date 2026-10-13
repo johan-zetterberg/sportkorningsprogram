@@ -86,7 +86,10 @@ async function flushPendingFormFields() {
   const fields = pendingFormFields;
   cancelPendingFormFields();
   if (!fields || !currentEquipage || currentObstacleNumber == null) return;
-  await pushLiveSafe(fields);
+  // Queued at once for this equipage, not awaited: a write resolves only when
+  // the server answers, and Save or a switch must not wait for that offline
+  // (Firestore keeps the order of writes)
+  pushLiveSafe(fields).catch((error) => console.error('Kunde inte skicka hinderformuläret live:', error));
 }
 
 function cancelPendingLiveCommentSave() {
@@ -107,7 +110,8 @@ async function flushPendingLiveComment() {
   if (!currentEquipage || currentObstacleNumber == null) return;
   if ((currentLiveState?.live_comment || '') === valueToSave) return;
 
-  await pushLiveSafe({ live_comment: valueToSave });
+  // Queued, not awaited (see flushPendingFormFields)
+  pushLiveSafe({ live_comment: valueToSave }).catch((error) => console.error('Kunde inte spara hinderkommentar live:', error));
 }
 
 function scheduleLiveCommentSave(value) {
