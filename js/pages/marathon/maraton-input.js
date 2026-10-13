@@ -67,13 +67,37 @@ function clearLiveCommentSaveTimer() {
   }
 }
 
+// Form fields (knockdowns, penalty, hold time, eliminated) are sent together
+// after a short pause in typing: each write wakes every spectator
+const FORM_FIELD_PUSH_DEBOUNCE_MS = 500;
+let pendingFormFields = null;
+let formFieldPushTimer = null;
+
+function cancelPendingFormFields() {
+  if (formFieldPushTimer) {
+    clearTimeout(formFieldPushTimer);
+    formFieldPushTimer = null;
+  }
+  pendingFormFields = null;
+}
+
+async function flushPendingFormFields() {
+  const fields = pendingFormFields;
+  cancelPendingFormFields();
+  if (!fields || !currentEquipage || currentObstacleNumber == null) return;
+  await pushLiveSafe(fields);
+}
+
 function cancelPendingLiveCommentSave() {
   clearLiveCommentSaveTimer();
   pendingLiveComment = null;
+  cancelPendingFormFields();
 }
 
+// Sends everything typed but not yet sent (before switching equipage or saving)
 async function flushPendingLiveComment() {
   clearLiveCommentSaveTimer();
+  await flushPendingFormFields();
   if (pendingLiveComment == null) return;
 
   const valueToSave = pendingLiveComment;
@@ -427,7 +451,9 @@ function applyLiveStateToUI(data) {
     live_holdTimeSec: (data.live_holdTimeSec ?? (savedObstacle?.holdTimeSec ?? '')),
     live_comment: (data.live_comment ?? (savedObstacle?.comment ?? '')),
     live_eliminated: (data.live_eliminated ?? !!(savedObstacle?.eliminated)),
-    live_gateSplits: (data.live_gateSplits ?? (savedObstacle?.gateSplits ?? []))
+    live_gateSplits: (data.live_gateSplits ?? (savedObstacle?.gateSplits ?? [])),
+    // Typed but not yet sent wins over the server copy
+    ...(pendingFormFields || {})
   };
 
   // Se till att timern använder “effective” tid, även om liveObstacleTimeMs saknas i docet
@@ -834,7 +860,13 @@ function resetTimerMar(force = false) {
 // NY funktion för att skicka formulärdata live
 function pushFormField(fieldName, value) {
   if (!currentEquipage || currentObstacleNumber == null) return;
-  pushLiveSafe({ [fieldName]: value });
+  pendingFormFields = { ...(pendingFormFields || {}), [fieldName]: value };
+  if (formFieldPushTimer) clearTimeout(formFieldPushTimer);
+  formFieldPushTimer = setTimeout(() => {
+    flushPendingFormFields().catch((error) => {
+      console.error('Kunde inte skicka hinderformuläret live:', error);
+    });
+  }, FORM_FIELD_PUSH_DEBOUNCE_MS);
 }
 
 async function onMarathonEquipageSelected(equipage) {

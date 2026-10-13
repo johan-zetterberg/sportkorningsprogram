@@ -651,6 +651,8 @@ function calculateTotals() {
 }
 
 // ERSÄTT DENNA FUNKTION i dressyr-input.js
+let lastLiveSignature = null;
+
 async function updateLiveStatus(lastUpdatedElement = null) {
   const startNumber = equipageSearchDropdown.getValue();
   const testSelector = document.getElementById('testSelector');
@@ -696,6 +698,12 @@ async function updateLiveStatus(lastUpdatedElement = null) {
       }
     }
 
+    // Every spectator pays a read per write: send nothing when the protocol
+    // and the last moment are what was sent last (e.g. leaving a field)
+    const signature = JSON.stringify([startNumber, liveProtocolData, lastUpdatePayload]);
+    if (signature === lastLiveSignature) return;
+    lastLiveSignature = signature;
+
     const liveDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'dressageStatus', String(startNumber), 'live', 'data');
     const payload = {
       state: 'ongoing',
@@ -714,7 +722,10 @@ async function updateLiveStatus(lastUpdatedElement = null) {
         await setDoc(liveDocRef, payload, { merge: true });
         break; // klart
       } catch (err) {
-        if (i === 2) throw err; // ge upp efter 3 försök
+        if (i === 2) {
+          lastLiveSignature = null; // nästa ändring ska försöka igen
+          throw err; // ge upp efter 3 försök
+        }
         await new Promise(r => setTimeout(r, 300 * (i + 1))); // 300ms, 600ms
       }
     }
@@ -734,6 +745,7 @@ async function saveProtocol() {
   // A double tap must not save twice and skip an equipage when moving on
   if (protocolSaveInFlight) return;
   protocolSaveInFlight = true;
+  lastLiveSignature = null;
   const saveButton = document.getElementById('saveProtocol');
   if (saveButton) saveButton.disabled = true;
 
@@ -957,9 +969,11 @@ function setupEventListeners() {
       // 1. Formatera poängen (55 -> 5.5)
       formatScoreInput(event.target);
 
-      // 2. Kör befintlig logik
+      // 2. Kör befintlig logik. Lämnat fält skickar direkt, så den väntande
+      // skrivningen från inmatningen behövs inte
       calculateTotals();
       if (!isFieldModeEnabled()) {
+        clearTimeout(liveUpdateTimer);
         updateLiveStatus(event.target);
       }
     }
@@ -985,11 +999,12 @@ function setupEventListeners() {
       // Uppdatera totals live
       calculateTotals();
       if (isFieldModeEnabled()) return;
-      // Debounce:a live-skrivning
+      // Debounce:a live-skrivning. Domaren går oftast vidare med Enter, och
+      // då skickar focusout direkt; detta täcker ett fält som blir kvar
       clearTimeout(liveUpdateTimer);
       liveUpdateTimer = setTimeout(() => {
         updateLiveStatus(target);
-      }, 250);
+      }, 1500);
 
     } else if (target.classList.contains('comment-input')) {
       // Uppdatera knappens utseende om kommentar finns

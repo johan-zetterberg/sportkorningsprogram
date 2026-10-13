@@ -2129,7 +2129,9 @@ function setupLive(competitionId, activeEquipages) {
             const cur = dressageStatusMap.get(key) || {};
             dressageStatusMap.set(key, { ...cur, ...st, state: st?.state || cur.state });
         });
-        reprocessAndRenderAll();
+        // Samlas ihop: flera domares skrivningar (och ~120 lyssnare vid start)
+        // ger en omräkning i stället för en per snapshot
+        queueRecompute(reprocessAndRenderAll);
     });
     liveUnsubs.set('dressageLiveGroup', unLiveGroup);
     // 4) Sparade protokoll (NU COLLECTION GROUP)

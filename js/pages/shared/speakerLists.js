@@ -13,6 +13,7 @@ import {
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
 import { escapeHtml, jsStringAttr } from '../../utils/sharedUtils.js';
+import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import {
     assignPlaces,
     compareDressageRank,
@@ -112,9 +113,19 @@ export function renderTop3List(className, discipline, ctx) {
     return `<div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mt-2">${cells}</div>`;
 }
 
+// Penalty of the precision round on course, ticked from its start time (the
+// input no longer pushes the running total every few seconds)
+function currentPrecisionPenalty(ctx) {
+    const data = ctx.currentRider?.data;
+    if (!data) return null;
+    const live = calculatePrecisionLiveResult(data, ctx.currentRider?.eq || {}, ctx.precisionConfig || {});
+    return live?.totalPenalty ?? data.liveTotalPenalty ?? data.totalPenalty ?? null;
+}
+
 export function renderLeaderToBeat(className, ctx) {
+    const precisionPenalty = ctx.currentDiscipline === 'precision' ? currentPrecisionPenalty(ctx) : null;
     const leader = ctx.currentDiscipline === 'precision'
-        ? getChasingTarget(className, ctx.currentRider?.data?.liveTotalPenalty || ctx.currentRider?.data?.totalPenalty || 0, ctx)
+        ? getChasingTarget(className, precisionPenalty || 0, ctx)
         : getLeaderToBeat(className, ctx.currentDiscipline, ctx);
 
     if (!leader) return '';
@@ -130,7 +141,7 @@ export function renderLeaderToBeat(className, ctx) {
 
     let diffHtml = '';
     if (ctx.currentDiscipline === 'precision' && ctx.currentRider) {
-        const currentPen = getSpeakerPenaltyOrNull(ctx.currentRider.data?.liveTotalPenalty);
+        const currentPen = getSpeakerPenaltyOrNull(precisionPenalty);
         const leaderScore = getSpeakerPenaltyOrNull(leader.score);
         const diff = currentPen !== null && leaderScore !== null ? currentPen - leaderScore : null;
         if (diff !== null && diff > 0) {

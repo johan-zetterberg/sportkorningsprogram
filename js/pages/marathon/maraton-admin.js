@@ -834,10 +834,10 @@ async function setupMapSettings() {
       entities: entities
     };
 
-    const currentCfg = await getConfig(competitionId, 'maratonConfig') || {};
     try {
+      // saveConfig merges: write only the map, so a stale cached copy of the
+      // rest of the config cannot revert another device's changes
       await saveConfig(competitionId, 'maratonConfig', {
-        ...currentCfg,
         mapSettings: newMapSettings
       });
       showAlert('Kartinställningar har sparats.');
@@ -1373,8 +1373,6 @@ async function setupMarathonSettings() {
     }
 
     const pauseVal = parseInt(pageRoot.querySelector('#pauseTime')?.value) || 10;
-    const oldCfg = await getConfig(competitionId, 'maratonConfig') || {};
-
     // --- Bygg normaliserat marathonClassDistances parallellt från admin-formatet ---
     const marathonClassDistances = {};
     for (const [className, row] of Object.entries(newClassData)) {
@@ -1392,9 +1390,9 @@ async function setupMarathonSettings() {
       };
     }
 
-    // Spara allt i samma dokument (backwards-compat bibehålls)
+    // Spara allt i samma dokument (backwards-compat bibehålls). saveConfig
+    // slår ihop, så övriga fält skrivs inte om från en gammal cachad kopia
     const newConfig = {
-      ...oldCfg,
       marathonClassData: newClassData,     // ditt originalformat (windowA/B, gateCount, etc.)
       marathonClassDistances,              // normaliserat A/T/B-format som andra sidor kan läsa direkt
       pauseTime: pauseVal

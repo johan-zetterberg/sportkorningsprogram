@@ -183,7 +183,7 @@ async function ensurePdfJs() {
   if (window.pdfjsLib?.getDocument) return window.pdfjsLib;
 
   if (!pdfJsLoadPromise) {
-    pdfJsLoadPromise = import('../../../lib/pdfjs/build/pdf.mjs')
+    pdfJsLoadPromise = import('../../../lib/pdfjs/build/pdf.min.mjs')
       .then((lib) => {
         lib.GlobalWorkerOptions.workerSrc = new URL(
           '../../../lib/pdfjs/build/pdf.worker.min.mjs',

@@ -27,7 +27,9 @@ const IGNORE_PATTERNS = [
     /\.DS_Store/,
     /test/,
     /scripts/,
-    /^assets\/rules\//  // Regeltexterna publiceras inte (se hosting.ignore i firebase.json)
+    /^assets\/rules\//, // Regeltexterna publiceras inte (se hosting.ignore i firebase.json)
+    // PDF.js-byggen som inte används (och inte publiceras, se hosting.ignore)
+    /^lib\/pdfjs\/build\/(pdf\.js|pdf\.min\.js|pdf\.mjs|pdf\.sandbox.*|pdf\.worker\.min\.js|pdf\.worker\.mjs)$/
 ];
 
 function scanDir(dir, fileList = []) {

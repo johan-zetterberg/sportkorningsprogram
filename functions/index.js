@@ -11,6 +11,12 @@ import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { buildDeclarationUpdate } from "./src/declarationUtils.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
+import {
+    equipageWriteAffectsResults,
+    marathonWriteAffectsResults,
+    precisionWriteAffectsResults,
+    storedResultUnchanged
+} from "./src/triggerFilters.js";
 import { getAuth } from "firebase-admin/auth";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
@@ -206,8 +212,11 @@ async function recalculateEquipage(appId, competitionId, startNumber) {
         engineVersion: RESULT_ENGINE_VERSION,
         recalculatedAt,
         triggerType: 'automatic'
-    });
+    }, { skipUnchanged: true });
 }
+
+const beforeData = (event) => (event.data?.before?.exists ? event.data.before.data() : null);
+const afterData = (event) => (event.data?.after?.exists ? event.data.after.data() : null);
 
 function storedResultDoc(record, audit) {
     return {
@@ -235,15 +244,22 @@ const MAX_TRANSACTION_WRITES = 450;
  * and an older run finishing last must not overwrite it. Returns whether the
  * results were written.
  */
-async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, audit) {
+async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, audit, { skipUnchanged = false } = {}) {
     const target = (record) => compRef.collection('computed_equipages').doc(record.startNumber);
 
     if (records.length <= MAX_TRANSACTION_WRITES) {
         const written = await db.runTransaction(async (tx) => {
             const current = await getContext(compRef, (ref) => tx.get(ref));
             if (current.settingsFingerprint !== settingsFingerprint) return false;
-            records.forEach((record) => {
+            // Automatic runs leave an equal stored result alone: rewriting it
+            // would only change updatedAt and wake every listener
+            const existing = skipUnchanged
+                ? await Promise.all(records.map((record) => tx.get(target(record))))
+                : [];
+            records.forEach((record, index) => {
                 const doc = storedResultDoc(record, audit);
+                const stored = existing[index]?.exists ? existing[index].data() : null;
+                if (skipUnchanged && storedResultUnchanged(stored, doc, audit.engineVersion)) return;
                 tx.set(target(record), doc, storedResultWriteOptions(doc));
             });
             return true;
@@ -284,14 +300,19 @@ async function recalculateWholeCompetition(appId, competitionId, triggerType) {
     const context = await getContext(compRef);
     const equipagesSnapshot = await compRef.collection('equipages').get();
     const records = [];
-    for (const equipageSnapshot of equipagesSnapshot.docs) {
-        try {
-            const record = await calculateEquipageRecord(compRef, equipageSnapshot.id, context, equipageSnapshot);
-            if (record) records.push(record);
-        } catch (error) {
-            // One broken equipage must not keep the others stale
-            logger.error(`Omräkning av #${equipageSnapshot.id} misslyckades`, { competitionId, error: String(error?.message || error) });
-        }
+    // A few equipages at a time: in series a large competition takes seconds
+    const docs = equipagesSnapshot.docs;
+    for (let offset = 0; offset < docs.length; offset += 10) {
+        const chunk = await Promise.all(docs.slice(offset, offset + 10).map(async (equipageSnapshot) => {
+            try {
+                return await calculateEquipageRecord(compRef, equipageSnapshot.id, context, equipageSnapshot);
+            } catch (error) {
+                // One broken equipage must not keep the others stale
+                logger.error(`Omräkning av #${equipageSnapshot.id} misslyckades`, { competitionId, error: String(error?.message || error) });
+                return null;
+            }
+        }));
+        chunk.forEach((record) => { if (record) records.push(record); });
     }
     await writeIfSettingsUnchanged(compRef, context.settingsFingerprint, records, {
         engineVersion: RESULT_ENGINE_VERSION,
@@ -340,6 +361,8 @@ export const onMarathonResultWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/maraton/{startNo}",
     async (event) => {
         const { appId, compId, startNo } = event.params;
+        // The obstacle input writes its live form state here on every change
+        if (!marathonWriteAffectsResults(beforeData(event), afterData(event))) return;
         await recalculateEquipage(appId, compId, startNo);
     }
 );
@@ -357,6 +380,7 @@ export const onPrecisionResultWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/precision/{startNo}",
     async (event) => {
         const { appId, compId, startNo } = event.params;
+        if (!precisionWriteAffectsResults(beforeData(event), afterData(event))) return;
         await recalculateEquipage(appId, compId, startNo);
     }
 );
@@ -366,6 +390,8 @@ export const onEquipageUpdate = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/equipages/{startNo}",
     async (event) => {
         const { appId, compId, startNo } = event.params;
+        // Speaker notes, temperatures and the like do not change the result
+        if (!equipageWriteAffectsResults(beforeData(event), afterData(event))) return;
         await recalculateEquipage(appId, compId, startNo);
     }
 );

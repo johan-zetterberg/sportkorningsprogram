@@ -50,7 +50,15 @@
             "test_pdf.html",
             "test_pdf_error.html",
             "pdf.min.js",
-            "pdf.worker.min.js"
+            "pdf.worker.min.js",
+            "lib/pdfjs/build/*.map",
+            "lib/pdfjs/build/pdf.js",
+            "lib/pdfjs/build/pdf.min.js",
+            "lib/pdfjs/build/pdf.mjs",
+            "lib/pdfjs/build/pdf.sandbox*",
+            "lib/pdfjs/build/pdf.worker.min.js",
+            "lib/pdfjs/build/pdf.worker.mjs",
+            "img/maraton-course.png"
         ],
         "headers": [
             {

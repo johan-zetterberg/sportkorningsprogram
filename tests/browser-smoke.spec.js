@@ -664,6 +664,9 @@ async function useFirebaseEmulators(page) {
 async function loginIfNeeded(page) {
   await page.goto('/index.html#hub');
 
+  // Both buttons stay hidden until the auth state is known
+  await expect(page.locator('#loginButton:visible, #logoutButton:visible').first()).toBeVisible({ timeout: 20000 });
+
   const roleLabel = page.locator('#userRole');
   if (await roleLabel.getByText(/Superadmin|Admin/i).isVisible().catch(() => false)) {
     return;

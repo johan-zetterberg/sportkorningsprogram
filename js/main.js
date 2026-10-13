@@ -273,7 +273,16 @@ function initialize() {
     window.updateCompactPageContext = updateCompactPageContext;
     const mainEl = document.querySelector('main');
     if (mainEl) {
-        const observer = new MutationObserver(() => updateCompactPageContext());
+        // Live pages write the DOM ~10 times a second: update at most once a frame
+        let contextUpdateQueued = false;
+        const observer = new MutationObserver(() => {
+            if (contextUpdateQueued) return;
+            contextUpdateQueued = true;
+            requestAnimationFrame(() => {
+                contextUpdateQueued = false;
+                updateCompactPageContext();
+            });
+        });
         observer.observe(mainEl, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'data-competition-name', 'data-page-title'] });
     }
 
@@ -318,30 +327,6 @@ function initialize() {
         };
 
         render();
-    })();
-
-    // 🆕 SÄKERHETSNÄT: ge kända live/publiceringsknappar class="needs-online"
-    (function markKnownOnlineOnlyButtons() {
-        const ids = ['startLivestreamBtn', 'stopLivestreamBtn', 'publishLiveBtn', 'toggleLivestreamBtn'];
-
-        function apply() {
-            ids.forEach(id => {
-                const el = document.getElementById(id);
-                if (el) el.classList.add('needs-online');
-            });
-        }
-
-        // kör direkt om de redan finns
-        apply();
-
-        // körs när nya noder läggs in (t.ex. efter sidbyte/render)
-        const mo = new MutationObserver(() => apply());
-        if (document.body) {
-            mo.observe(document.body, { childList: true, subtree: true });
-        }
-
-        // kör även vid hash-bytet (navigering i din router)
-        window.addEventListener('hashchange', apply);
     })();
 
     // 1. Initiera autentiseringen. Vi skickar med en callback-funktion.

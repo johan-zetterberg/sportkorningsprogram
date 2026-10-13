@@ -106,6 +106,8 @@ let competitionId = null;
 let allEquipages = [];
 let startTimes = {};
 const allMarathonData = new Map(); // Derived: { ...timing, ...state }
+// Bumped on every data change; result-flash cards are rebuilt only when it moves
+let marathonDataVersion = 0;
 const marathonStateMap = new Map();  // From 'maraton' collection
 const marathonTimingMap = new Map(); // From 'maraton-timing' collection
 const activeEquipages = new Map();
@@ -555,6 +557,8 @@ function renderMonitor() {
   }
 
   if (activeEquipages.size === 0) {
+    // Called every 100 ms: leave the already shown message alone
+    if (lastRenderedGridHash === "empty" && grid.childElementCount > 0) return;
     grid.innerHTML = `<div class="col-span-full text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md text-gray-500 dark:text-gray-400">${t('no_active_equipages')}</div>`;
     lastRenderedGridHash = "empty";
     return;
@@ -627,6 +631,11 @@ function renderMonitor() {
     // Handle Flash Results (different template)
     if (active.task.type === 'result_flash') {
       const flashData = active.task.data;
+      // The card does not tick: rebuild it (and the class placements over all
+      // equipages) only when its data or the competition data changed
+      const flashKey = `${marathonDataVersion}|${allEquipages.length}|${active.task.name}|${JSON.stringify(flashData)}`;
+      if (card.dataset.flashKey === flashKey) return;
+      card.dataset.flashKey = flashKey;
       const { timeSec } = obstacleValues(flashData);
       const { penalty } = calculateObstacleResult(flashData, eq);
       const timeStr = Number.isFinite(timeSec) ? timeSec.toFixed(2) + 's' : '—';
@@ -883,6 +892,7 @@ function rebuildMarathonData(sn) {
   const merged = { ...t, ...s };
 
   allMarathonData.set(sn, merged);
+  marathonDataVersion++;
   evaluateActiveState(sn, merged);
 }
 

@@ -53,7 +53,6 @@ let timerInterval = null;
 let keydownHandler = null;
 let startEpoch = 0;
 let pausedMs = 0;
-let lastPushedTick = -1; // throttlas nu till ~5 s
 let inProgress = false; // <-- NY: håll “Pågår” tills Spara
 let wasOverLimit = false; // minns om vi passerat maxtiden
 let isRunning = false; // <-- NY explicit flagga
@@ -753,32 +752,12 @@ function renderTimerUI(t) {
 }
 
 /**
- * updateTimerView - Körs av setInterval(). 
- * Sköter både rendering (via renderTimerUI) och den throttlade push-logiken.
+ * updateTimerView - Körs av setInterval() och uppdaterar bara skärmen.
+ * Ingen periodisk live-push: tittarna räknar tiden själva från liveStartEpoch,
+ * och start, stopp, rivning och paus skickas direkt (pushImmediateState).
  */
 function updateTimerView() {
-    const t = getElapsedMs();
-
-    // 1. Uppdatera UI
-    renderTimerUI(t);
-
-    // 2. Throttlad live-push (~ var 5:e sekund)
-    const tick = Math.floor(t / 5000);
-    if (tick !== lastPushedTick) {
-        lastPushedTick = tick;
-        const p = livePenalties(t);
-
-        pushLiveSafe({
-            running: !!timerInterval,
-            liveStartEpoch: startEpoch,
-            livePausedMs: pausedMs,
-            liveTimeMs: t,
-            liveTimePenalty: p.timePenalty,
-            liveObstaclePenalty: p.obstaclePenalty,
-            extraPenalty: p.extraPenalty,
-            liveTotalPenalty: p.totalPenalty
-        });
-    }
+    renderTimerUI(getElapsedMs());
 }
 
 
@@ -812,7 +791,6 @@ function stopTimer() {
 function clearLocalState() {
     stopTimerLocal(); // Stoppa timer men pusha inte
     pausedMs = 0;
-    lastPushedTick = -1;
     inProgress = false;
     // Töm UI
     updateTimerView();
@@ -829,7 +807,6 @@ function resetTimer() {
 
     // 1. Återställ all lokal state för rundan
     pausedMs = 0;
-    lastPushedTick = -1;
     inProgress = false;
     knocks.clear();
     knockDownTimes = {};
@@ -921,7 +898,6 @@ function resetSelectionUi() {
     stopTimerLocal();
     startEpoch = 0;
     pausedMs = 0;
-    lastPushedTick = -1;
     inProgress = false;
     knocks = new Set();
     knockDownTimes = {};

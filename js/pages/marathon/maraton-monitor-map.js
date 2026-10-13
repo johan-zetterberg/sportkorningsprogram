@@ -342,6 +342,8 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
     if (badgeEl) badgeEl.textContent = activeEquipages.size;
 
     if (activeEquipages.size === 0) {
+        // Called on every tick: leave the already shown message alone
+        if (lastSidebarHash === "empty" && listEl.childElementCount > 0) return;
         listEl.innerHTML = `
             <div class="flex flex-col items-center justify-center h-20 text-gray-400 text-[11px] italic">
                 ${t('no_active_equipages')}

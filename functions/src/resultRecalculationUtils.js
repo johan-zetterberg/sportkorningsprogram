@@ -39,6 +39,17 @@ export function stableJson(value) {
     return JSON.stringify(value ?? null);
 }
 
+// Config fields only used for display (the course maps); saving them must not
+// recalculate every equipage
+const DISPLAY_ONLY_CONFIG_FIELDS = ['mapSettings'];
+
+export function withoutDisplayOnlyConfig(data) {
+    if (!data || typeof data !== 'object') return data ?? null;
+    const copy = { ...data };
+    DISPLAY_ONLY_CONFIG_FIELDS.forEach((field) => { delete copy[field]; });
+    return copy;
+}
+
 /**
  * Whether a write to a competition config document changes stored results.
  * globalStatus is written for live status too; only its pause log counts.
@@ -46,7 +57,7 @@ export function stableJson(value) {
 export function configChangeAffectsResults(configId, before = null, after = null) {
     if (configId === 'globalStatus') return stableJson(before?.pauseLog) !== stableJson(after?.pauseLog);
     if (!RESULT_CONFIG_DOCS.includes(configId)) return false;
-    return stableJson(before) !== stableJson(after);
+    return stableJson(withoutDisplayOnlyConfig(before)) !== stableJson(withoutDisplayOnlyConfig(after));
 }
 
 // The competition document carries the rule settings (coefficients, rates)
@@ -64,7 +75,7 @@ export function resultSettingsFingerprint({ competition = null, configs = {}, gl
     return stableJson({
         ruleSettings: competition?.ruleSettings ?? null,
         pauseLog: globalStatus?.pauseLog ?? null,
-        configs: Object.fromEntries(RESULT_CONFIG_DOCS.map((id) => [id, configs[id] ?? null]))
+        configs: Object.fromEntries(RESULT_CONFIG_DOCS.map((id) => [id, withoutDisplayOnlyConfig(configs[id] ?? null)]))
     });
 }
 
