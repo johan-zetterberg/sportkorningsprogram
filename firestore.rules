@@ -207,6 +207,7 @@ service cloud.firestore {
         || pathStr.matches(comp + 'roleEmails($|/.*)')
         || pathStr.matches(comp + 'judges($|/.*)')
         || pathStr.matches(comp + 'officials($|/.*)')
+        || pathStr.matches(comp + 'officialsPrivate($|/.*)')
         || pathStr.matches(comp + 'assignments($|/.*)')
         || pathStr.matches(comp + 'messages($|/.*)')
         || pathStr.matches(comp + 'documents($|/.*)')
@@ -427,8 +428,11 @@ service cloud.firestore {
              // horse entries also hold the vet's inspection results, so horse
              // names are saved by the updateEquipageDeclaration function
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-               ['groom', 'carriage', 'clubName', 'speakerNotes', 'lastUpdated', 'updatedAt']
+               ['groom', 'carriage', 'clubName', 'speakerNotes', 'horseTemperatures', 'lastUpdated', 'updatedAt']
              )
+             // Temperatures the driver takes (portal): a map per horse
+             && (!('horseTemperatures' in request.resource.data)
+               || (request.resource.data.horseTemperatures is map && request.resource.data.horseTemperatures.size() <= 12))
              && canSelfServiceEquipage(appId, compId, equipageId)
           )
         );
@@ -486,6 +490,18 @@ service cloud.firestore {
           getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId)
         );
+    }
+
+    // Officials' contact details (phone, email, emergency contact, diet, notes):
+    // admins, and each official their own (matched on the verified email)
+    match /artifacts/{appId}/public/data/competitions/{compId}/officialsPrivate/{officialId} {
+      allow read: if request.auth != null
+        && (
+          canAdminThisArtifactsComp(appId, compId) ||
+          (hasVerifiedEmail() && resource.data.get('email', '') == request.auth.token.email.lower())
+        );
+      allow write, delete: if request.auth != null
+        && canAdminThisArtifactsComp(appId, compId);
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/assignments/{assignmentId} {

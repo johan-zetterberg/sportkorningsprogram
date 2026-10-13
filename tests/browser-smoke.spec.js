@@ -127,6 +127,36 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
 });
 
+test('officials contact details are stored privately and still shown to the admin', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const result = await page.evaluate(async (competitionId) => {
+    const { saveOfficial, getOfficials, migrateOfficialsPrivacy } = await import('../js/services/adminService.js');
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDoc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+    const id = await saveOfficial(competitionId, { name: 'Test Funktionär', role: 'Hinderdomare', phone: '070-111', email: 'Test@Example.com', iceName: 'Bo', icePhone: '070-222' });
+    // An official stored the old way, with the contact details on the public document
+    await setDoc(doc(db, `${base}/officials/legacy-1`), { name: 'Gammal', phone: '070-333', email: 'gammal@example.com' });
+    const moved = await migrateOfficialsPrivacy(competitionId);
+    const publicNew = (await getDoc(doc(db, `${base}/officials/${id}`))).data();
+    const publicLegacy = (await getDoc(doc(db, `${base}/officials/legacy-1`))).data();
+    const merged = await getOfficials(competitionId);
+    return {
+      moved,
+      publicNewHasPhone: 'phone' in publicNew || 'email' in publicNew,
+      publicLegacyHasPhone: 'phone' in publicLegacy,
+      adminSees: merged.find(o => o.id === id)?.phone,
+      adminSeesEmail: merged.find(o => o.id === id)?.email,
+      adminSeesLegacy: merged.find(o => o.id === 'legacy-1')?.phone
+    };
+  }, competitionId);
+  expect(result).toEqual({
+    moved: 1, publicNewHasPhone: false, publicLegacyHasPhone: false,
+    adminSees: '070-111', adminSeesEmail: 'test@example.com', adminSeesLegacy: '070-333'
+  });
+});
+
 test('a driver declaration keeps the vet results on the horses', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

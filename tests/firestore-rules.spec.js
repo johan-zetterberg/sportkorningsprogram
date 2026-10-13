@@ -345,6 +345,27 @@ test('speaker role may update speaker notes but no other equipage field', { skip
   }));
 });
 
+test('officials contact details: admins and the official, not the other competition roles', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-pin-1', 'marathon', 'marathon-pin@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('officials/off-1')), { name: 'Anna', role: 'Hinderdomare' });
+    await setDoc(doc(db, compPath('officialsPrivate/off-1')), { email: 'anna@example.com', phone: '070', icePhone: '071' });
+  });
+  const pinRoleDb = testEnv.authenticatedContext('marathon-pin-1', { email_verified: true, email: 'marathon-pin@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(pinRoleDb, compPath('officials/off-1'))));
+  await assertFails(getDoc(doc(pinRoleDb, compPath('officialsPrivate/off-1'))));
+  await assertFails(getDocs(collection(pinRoleDb, compPath('officialsPrivate'))));
+
+  const annaDb = testEnv.authenticatedContext('anna-uid', { email_verified: true, email: 'anna@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(annaDb, compPath('officialsPrivate/off-1'))));
+  await assertSucceeds(getDocs(query(collection(annaDb, compPath('officialsPrivate')), where('email', '==', 'anna@example.com'))));
+
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(getDocs(collection(ownerDb, compPath('officialsPrivate'))));
+  await assertFails(getDocs(collection(testEnv.unauthenticatedContext().firestore(), compPath('officialsPrivate'))));
+});
+
 test('drivers cannot write their horse entries directly (vet results live there)', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -359,6 +380,11 @@ test('drivers cannot write their horse entries directly (vet results live there)
     horses: [{ name: 'Ella', id: 'SE001', vetStatus: 'godkänd' }]
   }));
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { groom: 'Anna' }));
+  // Their horses' temperatures they may enter
+  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-horse-1')), {
+    horseTemperatures: { SE001: { '2026-10-13_morning': { temperatureC: 37.8 } } }
+  }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { horseTemperatures: 'x' }));
 });
 
 test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {

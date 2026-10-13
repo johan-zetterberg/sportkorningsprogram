@@ -15,6 +15,7 @@ import {
     listenForRoles,
     saveRoles
 } from '../../services/officialsService.js';
+import { migrateOfficialsPrivacy } from '../../services/adminService.js';
 
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -156,6 +157,12 @@ export function renderOfficialsTab(container, competition) {
     if (activeOfficialsCompetitionId !== competition.id) {
         unloadOfficialsTab();
         activeOfficialsCompetitionId = competition.id;
+
+        // Contact details stored with the official from before the split are
+        // moved to the admin-only part (only an admin can, and this page is theirs)
+        migrateOfficialsPrivacy(competition.id)
+            .then((moved) => { if (moved) console.info(`[officials] ${moved} funktionärers kontaktuppgifter flyttade till privat lagring.`); })
+            .catch((error) => console.warn('Kunde inte flytta funktionärers kontaktuppgifter:', error));
 
         addOfficialsUnsubscriber(listenForOfficials(competition.id, (data) => {
             officials = data;

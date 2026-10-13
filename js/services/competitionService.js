@@ -150,6 +150,7 @@ export async function deleteCompetition(competitionId) {
     'equipagePrivate',
     'judges',
     'officials',
+    'officialsPrivate',
     'roleEmails',
     'maratonObstacles',
     'config',

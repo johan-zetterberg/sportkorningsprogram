@@ -1,5 +1,6 @@
-import { db, appId, functions } from '../config/firebase-config.js';
-import { collection, doc, getDocs, setDoc, onSnapshot, query, deleteDoc, getDoc, updateDoc, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { db, appId, functions, auth } from '../config/firebase-config.js';
+import { collection, doc, getDocs, setDoc, onSnapshot, query, where, deleteDoc, getDoc, updateDoc, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { OFFICIAL_PRIVATE_FIELDS, legacyPrivateFields, mergeOfficials, splitOfficialData } from './officialPrivacyUtils.js';
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
@@ -39,16 +40,41 @@ function buildRoleEmailPayload(email, roles) {
   };
 }
 
+function getOfficialsPrivateRef(competitionId) {
+  return getCompCollectionRef(competitionId, 'officialsPrivate');
+}
+
+// The officials' contact details this user may read: all of them for admins,
+// otherwise only their own (rules: officialsPrivate)
+async function loadOfficialPrivateDocs(competitionId) {
+  const toList = (snap) => snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  try {
+    return toList(await getDocs(query(getOfficialsPrivateRef(competitionId))));
+  } catch (_) {
+    const email = normalizeEmail(auth?.currentUser?.email);
+    if (!email) return [];
+    try {
+      return toList(await getDocs(query(getOfficialsPrivateRef(competitionId), where('email', '==', email))));
+    } catch (__) {
+      return [];
+    }
+  }
+}
+
+async function getOfficialsWithPrivate(competitionId) {
+  const [publicSnap, privateDocs] = await Promise.all([
+    getDocs(query(getCompCollectionRef(competitionId, 'officials'))),
+    loadOfficialPrivateDocs(competitionId)
+  ]);
+  return mergeOfficials(publicSnap.docs.map(d => ({ ...d.data(), id: d.id })), privateDocs);
+}
+
 async function rebuildRoleEmailAccessDoc(competitionId, email) {
   const normalizedEmail = normalizeEmail(email);
   if (!normalizedEmail) return;
 
-  const officialsRef = getCompCollectionRef(competitionId, 'officials');
-  const snapshot = await getDocs(query(officialsRef));
   const mergedRoles = new Set();
-
-  snapshot.docs.forEach((docSnap) => {
-    const data = docSnap.data() || {};
+  (await getOfficialsWithPrivate(competitionId)).forEach((data) => {
     if (normalizeEmail(data.email) !== normalizedEmail) return;
     normalizeOfficialRoles(data).forEach((role) => mergedRoles.add(role));
   });
@@ -86,18 +112,58 @@ export async function deleteJudge(competitionId, judgeId) {
   })());
 }
 
+// Officials with the contact details the user may read merged in (admins: all)
 export function listenForOfficials(competitionId, callback) {
   const officialsRef = getCompCollectionRef(competitionId, 'officials');
-  return onSnapshot(query(officialsRef), (snapshot) => {
-    const officials = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
-    callback(officials);
+  let publicList = null;
+  let privateList = [];
+  const emit = () => { if (publicList) callback(mergeOfficials(publicList, privateList)); };
+
+  const unsubPublic = onSnapshot(query(officialsRef), (snapshot) => {
+    publicList = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    emit();
   }, buildSnapshotErrorHandler('listenForOfficials', callback, []));
+
+  let unsubPrivate = () => { };
+  unsubPrivate = onSnapshot(query(getOfficialsPrivateRef(competitionId)), (snapshot) => {
+    privateList = snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+    emit();
+  }, () => {
+    // Not an admin: only the user's own contact details
+    loadOfficialPrivateDocs(competitionId).then((docs) => { privateList = docs; emit(); });
+  });
+
+  return () => {
+    try { unsubPublic(); } catch (_) { }
+    try { unsubPrivate(); } catch (_) { }
+  };
 }
 
 export async function getOfficials(competitionId) {
-  const officialsRef = getCompCollectionRef(competitionId, 'officials');
-  const snapshot = await getDocs(query(officialsRef));
-  return snapshot.docs.map(doc => ({ ...doc.data(), id: doc.id }));
+  return getOfficialsWithPrivate(competitionId);
+}
+
+/**
+ * Moves contact details still stored on officials/{id} (from before the
+ * split) to officialsPrivate/{id}. Admins only; run when the officials page
+ * opens. Returns the number of officials moved.
+ */
+export async function migrateOfficialsPrivacy(competitionId) {
+  if (!competitionId) return 0;
+  const snapshot = await getDocs(query(getCompCollectionRef(competitionId, 'officials')));
+  let moved = 0;
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data() || {};
+    const legacy = legacyPrivateFields(data);
+    if (!legacy.length) continue;
+    const { privateData } = splitOfficialData(Object.fromEntries(legacy.map(key => [key, data[key]])));
+    const batch = writeBatch(db);
+    batch.set(doc(getOfficialsPrivateRef(competitionId), docSnap.id), privateData, { merge: true });
+    batch.update(docSnap.ref, Object.fromEntries(legacy.map(key => [key, deleteField()])));
+    await batch.commit();
+    moved += 1;
+  }
+  return moved;
 }
 
 export async function getJudges(competitionId) {
@@ -113,24 +179,30 @@ export async function saveOfficial(competitionId, data) {
     const officialsRef = getCompCollectionRef(competitionId, 'officials');
     const officialId = data.id || doc(officialsRef).id;
     const officialRef = doc(officialsRef, officialId);
+    const privateRef = doc(getOfficialsPrivateRef(competitionId), officialId);
     const roles = normalizeOfficialRoles(data);
     const email = normalizeEmail(data.email);
 
     let previousEmail = '';
     try {
-      const previousSnap = await getDoc(officialRef);
-      if (previousSnap.exists()) {
-        previousEmail = normalizeEmail(previousSnap.data().email);
-      }
-    } catch (_) { }
+      const [previousPrivate, previousPublic] = await Promise.all([getDoc(privateRef), getDoc(officialRef)]);
+      previousEmail = normalizeEmail(previousPrivate.exists() ? previousPrivate.data().email : '')
+        || normalizeEmail(previousPublic.exists() ? previousPublic.data().email : '');
+    } catch (error) {
+      console.warn('Kunde inte läsa funktionärens tidigare e-post:', error);
+    }
 
-    await setDoc(officialRef, {
-      ...data,
-      id: officialId,
-      email,
-      roles,
-      updatedAt: Date.now()
+    // Contact details in the private document, the rest public to the
+    // competition's roles; any contact fields left on the public document
+    // from before are removed
+    const { publicData, privateData } = splitOfficialData({ ...data, id: officialId, email, roles, updatedAt: Date.now() });
+    const batch = writeBatch(db);
+    batch.set(officialRef, {
+      ...publicData,
+      ...Object.fromEntries(OFFICIAL_PRIVATE_FIELDS.map(key => [key, deleteField()]))
     }, { merge: true });
+    batch.set(privateRef, { ...privateData, updatedAt: Date.now() }, { merge: true });
+    await batch.commit();
 
     try {
       if (previousEmail && previousEmail !== email) {
@@ -150,16 +222,22 @@ export async function saveOfficial(competitionId, data) {
 export async function deleteOfficial(competitionId, officialId) {
   return trackWrite(`Tar bort funktionar ${officialId}`, (async () => {
     const officialRef = getCompDocRef(competitionId, 'officials', officialId);
+    const privateRef = doc(getOfficialsPrivateRef(competitionId), officialId);
 
     let emailToRemove = null;
     try {
-      const snap = await getDoc(officialRef);
-      if (snap.exists() && snap.data().email) {
-        emailToRemove = normalizeEmail(snap.data().email);
-      }
-    } catch (_) { }
+      const [privateSnap, publicSnap] = await Promise.all([getDoc(privateRef), getDoc(officialRef)]);
+      emailToRemove = normalizeEmail(privateSnap.exists() ? privateSnap.data().email : '')
+        || normalizeEmail(publicSnap.exists() ? publicSnap.data().email : '')
+        || null;
+    } catch (error) {
+      console.warn('Kunde inte läsa funktionärens e-post före borttagning:', error);
+    }
 
-    await deleteDoc(officialRef);
+    const batch = writeBatch(db);
+    batch.delete(officialRef);
+    batch.delete(privateRef);
+    await batch.commit();
 
     if (emailToRemove) {
       try {
@@ -176,10 +254,9 @@ export async function migrateLegacyCompetitionRoleEmails(competitionId) {
 
   return trackWrite('Migrerar rollmejl till privat lagring', (async () => {
     const competitionRef = doc(db, `artifacts/${appId}/public/data/competitions`, competitionId);
-    const officialsRef = getCompCollectionRef(competitionId, 'officials');
-    const [competitionSnap, officialsSnap] = await Promise.all([
+    const [competitionSnap, officialsList] = await Promise.all([
       getDoc(competitionRef),
-      getDocs(officialsRef)
+      getOfficialsWithPrivate(competitionId)
     ]);
 
     const competitionData = competitionSnap.exists() ? competitionSnap.data() || {} : {};
@@ -199,8 +276,7 @@ export async function migrateLegacyCompetitionRoleEmails(competitionId) {
       });
     });
 
-    officialsSnap.docs.forEach((docSnap) => {
-      const data = docSnap.data() || {};
+    officialsList.forEach((data) => {
       const email = normalizeEmail(data.email);
       if (!email) return;
       normalizeOfficialRoles(data).forEach((role) => addRole(email, role));
