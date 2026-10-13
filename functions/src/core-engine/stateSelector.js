@@ -7,9 +7,14 @@
  * field an engine reads must be carried over.
  */
 
-const toHeight = (v) => Number(v) || null;
-const horseHeight = (h) => toHeight(h?.heightCm) || toHeight(h?.withersHeightCm)
-    || (typeof h?.height === 'number' ? toHeight(h.height) : null);
+// Heights are often typed as text ("128", "128 cm", "1,32"): the pony
+// category (and with it the marathon and precision tempo) comes from them
+const toHeight = (v) => {
+    if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : null;
+    const n = parseFloat(String(v ?? '').replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : null;
+};
+const horseHeight = (h) => toHeight(h?.heightCm) || toHeight(h?.withersHeightCm) || toHeight(h?.height);
 
 export function buildEquipageState(equipageDoc) {
     if (!equipageDoc) return null;

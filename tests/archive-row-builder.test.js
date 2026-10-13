@@ -179,7 +179,8 @@ test('buildArchiveRowsFromData keeps incomplete rows after ranked rows and outsi
   assert.equal(row31.plac, 2);
   assert.equal(row32.plac, '');
 
-  assert.equal(row30.totalPenalty, 9.5);
+  // KlassA has only judge C: the stray protocol from E does not count (TR 518.9)
+  assert.equal(row30.totalPenalty, 9);
   assert.ok(row31.totalPenalty > row30.totalPenalty);
   assert.equal(row32.totalPenalty, null);
   assert.equal(row32.isEliminated, false);

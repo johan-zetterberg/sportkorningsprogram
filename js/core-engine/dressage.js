@@ -1,14 +1,33 @@
 // js/core-engine/dressage.js
 import { DRESSAGE_COEFFICIENTS_BY_CODE, round2 } from './rules-ledger.js';
+import { dressagePrograms as BUILT_IN_PROGRAMS } from '../data/dressagePrograms.js';
+
+function explicitPenaltyCoeff(p) {
+    const raw = p?.penaltyCoeff ?? p?.penaltyFactor ?? p?.coeffPenalty;
+    if (raw == null) return null;
+    const n = Number(String(raw).replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+// The built-in program a competition's copy was made from (same key, or the
+// same name): copies saved by the dressage admin used to lose the coefficient
+function builtInProgramFor(p, key) {
+    if (key && BUILT_IN_PROGRAMS[key]) return BUILT_IN_PROGRAMS[key];
+    const ownKey = p?.key || p?.id;
+    if (ownKey && BUILT_IN_PROGRAMS[ownKey]) return BUILT_IN_PROGRAMS[ownKey];
+    const name = String(p?.name || '').trim().toLowerCase();
+    if (!name) return null;
+    return Object.values(BUILT_IN_PROGRAMS).find((b) => String(b?.name || '').trim().toLowerCase() === name) || null;
+}
 
 export function getDressagePenaltyCoeff(programOrKey, allPrograms = {}) {
-    const p = (typeof programOrKey === 'string') ? (allPrograms[programOrKey] || null) : programOrKey || null;
+    const key = typeof programOrKey === 'string' ? programOrKey : null;
+    const p = key ? (allPrograms[key] || BUILT_IN_PROGRAMS[key] || null) : programOrKey || null;
 
-    const raw = p?.penaltyCoeff ?? p?.penaltyFactor ?? p?.coeffPenalty;
-    if (raw != null) {
-        const n = Number(String(raw).replace(',', '.'));
-        if (Number.isFinite(n) && n > 0) return n;
-    }
+    const explicit = explicitPenaltyCoeff(p);
+    if (explicit != null) return explicit;
+    const inherited = explicitPenaltyCoeff(builtInProgramFor(p, key));
+    if (inherited != null) return inherited;
 
     const name = String(p?.name || p?.title || p?.id || '');
     const category = String(p?.category || '');
@@ -181,6 +200,29 @@ function isProtocolComplete(protocol, program) {
 }
 
 /**
+ * The protocols that count for a class with a judge mapping: one per assigned
+ * position (TR 518.9 / FEI 958.1.1 divide by the class's judges). A protocol
+ * belongs to a position by the assigned judge's id, else by its position;
+ * protocols of judges not assigned to the class are left out. For a position
+ * the assigned judge's own protocol wins over one only marked with the
+ * position (e.g. an old account), and the later protocol over an earlier one.
+ * Without assignments the list is returned unchanged.
+ */
+export function protocolsForAssignedJudges(judgeProtocols, assignments) {
+    const entries = Object.entries(assignments || {});
+    if (entries.length === 0) return judgeProtocols || [];
+    const picked = [];
+    for (const [pos, judgeId] of entries) {
+        const candidates = (judgeProtocols || []).filter(p => p && p.id !== 'general');
+        const byId = candidates.filter(p => normJudgeId(p.judgeId) && normJudgeId(p.judgeId) === normJudgeId(judgeId));
+        const byPos = candidates.filter(p => String(p.position || p.judgePosition || '').toUpperCase() === pos);
+        const chosen = byId.length ? byId[byId.length - 1] : (byPos.length ? byPos[byPos.length - 1] : null);
+        if (chosen && !picked.includes(chosen)) picked.push(chosen);
+    }
+    return picked;
+}
+
+/**
  * Expected judge positions for the class with no complete protocol yet.
  * A protocol counts for a position by its position or by the assigned judge's id.
  */
@@ -334,7 +376,14 @@ export function calculateDressageResult(state) {
 
     const allPrograms = config.allPrograms || {};
     const rawProtocols = dressage?.protocols || [];
-    const judgeProtocols = deduplicateAndFilterProtocols(rawProtocols, config.judges);
+    // Judges the class is assigned (dressageJudgeMapping). With a mapping only
+    // their protocols count, one per position; this also makes the server
+    // (which has no judge list) count the same protocols as the browser
+    const assignments = getClassJudgeAssignments(equipage.className, config.dressageJudgeMapping);
+    const judgeProtocols = protocolsForAssignedJudges(
+        deduplicateAndFilterProtocols(rawProtocols, config.judges),
+        assignments
+    );
     const programKey = resolveDressageProgramKey(
         equipage,
         judgeProtocols.length ? judgeProtocols : rawProtocols,
@@ -347,10 +396,8 @@ export function calculateDressageResult(state) {
     // TR Mom 518.9 & FEI Art 958.1.4: error points from C are added directly 1:1
     const errorPoints = resolveDressageErrorPoints(equipage, rawProtocols);
 
-    // Judges the class is assigned (dressageJudgeMapping). Without a mapping it
-    // is unknown which judges must judge, so the dressage is never complete
-    // (the provisional penalty is still given).
-    const assignments = getClassJudgeAssignments(equipage.className, config.dressageJudgeMapping);
+    // Without a mapping it is unknown which judges must judge, so the dressage
+    // is never complete (the provisional penalty is still given).
     const expectedJudgePositions = Object.keys(assignments);
     const judgeMappingMissing = expectedJudgePositions.length === 0;
     const missingJudgePositions = getMissingJudgePositions(assignments, judgeProtocols, program);

@@ -927,10 +927,13 @@ function wire(root) {
 
   // spara program
   qs('#btnSaveProgram', root)?.addEventListener('click', async () => {
-    const { key, program } = readProgramForm(root);
+    const { key, program: formProgram } = readProgramForm(root);
     if (!key) { alert('Program-nyckel saknas.'); return; }
     try {
       const old = await getConfig(competitionId, 'dressagePrograms') || {};
+      // The form edits only some fields: keep the rest of the program
+      // (penaltyCoeff, which weighs dressage against the other disciplines)
+      const program = { ...(mergedPrograms[key] || {}), ...(old[key] || {}), ...formProgram };
       const next = { ...old, [key]: program };
       await saveConfig(competitionId, 'dressagePrograms', next);
       // uppdatera lokalt index så det finns i datalist direkt

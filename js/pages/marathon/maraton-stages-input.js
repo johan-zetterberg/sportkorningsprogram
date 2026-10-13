@@ -1,5 +1,5 @@
 // js/pages/maraton-stages-input.js
-import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, getPauseTime, pausedMsSince, isDurationSuspicious, getStageTimePenaltyRate, getTotalHoldTimeMs } from '../../utils/marathonUtils.js';
+import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, setPauseWindows, getPauseTime, pausedMsSince, pausedMsBetween, isDurationSuspicious, getStageTimePenaltyRate, getTotalHoldTimeMs } from '../../utils/marathonUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
@@ -14,6 +14,9 @@ import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
+// Stage start and stop may be stamped on different phones: use the server's clock
+import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
+import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 
 // --- Wrapper functions for marathonUtils ---
 
@@ -119,25 +122,22 @@ function listenForGlobalCompetitionPause() {
   return onSnapshot(statusRef, (docSnap) => {
     const isPaused = docSnap.exists() && docSnap.data().isPaused === true;
     isGloballyPaused = isPaused; // <-- UPPDATERA DEN GLOBALA VARIABELN
+    // The stopwatch measures wall time; global pauses are subtracted from the
+    // pause log, on screen here and once in the result engine. (Shifting the
+    // stopwatch on resume made the saved time net, and the engine then took
+    // the pause off a second time.)
+    setPauseWindows(docSnap.exists() && Array.isArray(docSnap.data().pauseLog) ? docSnap.data().pauseLog : []);
 
     if (isPaused && !lastPauseState) {
       // TÄVLINGEN PAUSAS NU
 
       if (tickInterval) clearInterval(tickInterval);
       tickInterval = null;
-      pauseStartTime = Date.now();
+      pauseStartTime = serverNow();
       document.body.style.filter = 'grayscale(80%)';
 
     } else if (!isPaused && lastPauseState) {
       // TÄVLINGEN ÅTERUPPTAS NU
-      const pauseDurationMs = Date.now() - pauseStartTime;
-
-      for (const timer of activeTimers.values()) {
-        if (timer.isRunning) {
-          timer.startEpoch += pauseDurationMs;
-        }
-      }
-
       ensureGlobalTicker();
       document.body.style.filter = '';
     }
@@ -282,17 +282,28 @@ async function ensureMaratonDoc(sn, equipage = currentEquipage) {
   // acknowledgement of the Start restart the stopped timer)
   if (knownMaratonDocs.has(String(sn))) return;
   const ref = maratonDocRef(sn);
-  const snap = await getDoc(ref);
+  let snap;
+  try {
+    snap = await getDoc(ref);
+  } catch (error) {
+    // Without signal (and not cached): the stage write that follows is a
+    // merge and creates the document anyway
+    console.warn('[stages] Kunde inte läsa maratondokumentet; skrivningen skapar det.', error?.code || error);
+    return;
+  }
   if (snap.exists()) knownMaratonDocs.add(String(sn));
   if (!snap.exists()) {
     try {
-      await setDoc(ref, {
+      // Not awaited to the server: without signal the stage write behind this
+      // one would otherwise not even be queued
+      await awaitWriteOrQueue(setDoc(ref, {
         startNumber: Number(sn),
         className: equipage?.className || '',
         running: false,
         currentObstacle: null,
         updatedAt: serverTimestamp()
-      }, { merge: true });
+      }, { merge: true }));
+      knownMaratonDocs.add(String(sn));
       return;
     } catch (e) {
       if (e.code !== 'permission-denied') throw e;
@@ -339,7 +350,15 @@ function findEquipageBySn(sn) {
 
 // ---------- Utils ----------
 const pad2 = (n) => String(n).padStart(2, '0');
-const nowMs = () => Date.now();
+const nowMs = () => serverNow();
+
+// Time shown for a stopwatch: wall time minus the competition's global pauses
+// (the saved duration stays wall time; the result engine subtracts them)
+function shownElapsedMs(t, now = serverNow()) {
+  if (!t) return 0;
+  if (!t.isRunning) return t.pausedMs || 0;
+  return Math.max(0, (t.pausedMs || 0) + (now - t.startEpoch) - pausedMsSince(t.startEpoch, now));
+}
 function msToLabel(ms) {
   const t = Math.max(0, Math.floor(ms || 0));
   const m = Math.floor(t / 60000);
@@ -413,7 +432,7 @@ function renderActiveCards() {
     const [sn, stage] = key.split('|');
     const eq = findEquipageBySn(sn);
     const name = eq?.driverName || t('marathon_stages_unknown_driver');
-    const ms = timerObj?.isRunning ? (timerObj.pausedMs + (Date.now() - timerObj.startEpoch)) : (timerObj?.pausedMs || 0);
+    const ms = shownElapsedMs(timerObj);
 
     parts.push(`
 <div class="flex items-center justify-between px-3 py-2 rounded-lg border bg-white dark:bg-gray-800 dark:border-gray-700"
@@ -728,7 +747,7 @@ function stopGlobalTickerIfIdle() {
   }
 }
 function tickAll() {
-  const now = Date.now();
+  const now = serverNow();
 
   // Måla alla aktiva timers i listan
   for (const key of activeTimers.keys()) {
@@ -745,10 +764,10 @@ function tickAll() {
   }
 }
 
-function paintTimer(key, now = Date.now()) {
+function paintTimer(key, now = serverNow()) {
   const [sn, stage] = key.split('|');
   const t = activeTimers.get(key);
-  const ms = t?.isRunning ? (t.pausedMs + (now - t.startEpoch)) : (t?.pausedMs || 0);
+  const ms = shownElapsedMs(t, now);
 
   // 1) Uppdatera lilla rad-timern i "Aktiva timrar"
   const small = document.querySelector(`[data-active="${sn}|${stage}"] .timer`);
@@ -858,7 +877,7 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
             ? warmupDoc.durationMs
             : (stopMs - tsToMillis(warmupDoc.startClock) - pausedMsSince(tsToMillis(warmupDoc.startClock)));
 
-          const activeRestTime = (Date.now() - stopMs) - pausedMsSince(stopMs);
+          const activeRestTime = (serverNow() - stopMs) - pausedMsSince(stopMs);
           totalElapsedMs = durA + activeRestTime;
         } else {
           // A pågår fortfarande (eller är pausad)
@@ -867,11 +886,11 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
           const tMap = activeTimers.get(`${sn}|${wStageKey}`);
 
           if (tMap && tMap.isRunning) {
-            totalElapsedMs = tMap.pausedMs + (Date.now() - tMap.startEpoch);
+            totalElapsedMs = shownElapsedMs(tMap);
           } else if (warmupDoc.startClock && !warmupDoc.stopClock) {
             const startMs = tsToMillis(warmupDoc.startClock);
             const durA = warmupDoc.durationMs || 0;
-            totalElapsedMs = durA + (Date.now() - startMs) - pausedMsSince(startMs);
+            totalElapsedMs = durA + (serverNow() - startMs) - pausedMsSince(startMs);
           } else {
             totalElapsedMs = warmupDoc.durationMs || 0;
           }
@@ -1352,8 +1371,8 @@ function updateTimerLabel(stage) {
   const key = `${sn}|${actualStage}`;
   const t = activeTimers.get(key);
   if (t) {
-    const now = Date.now();
-    const ms = t.isRunning ? (t.pausedMs + (now - t.startEpoch)) : t.pausedMs;
+    const now = serverNow();
+    const ms = shownElapsedMs(t, now);
     host.setAttribute('data-sn', sn);
     host.setAttribute('data-sn', sn);
     host.textContent = msToLabel(ms);
@@ -1365,12 +1384,19 @@ function updateTimerLabel(stage) {
   const st = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
   const savedDurationMs = Number(st.durationMs);
   if (st.stopClock && Number.isFinite(savedDurationMs)) {
-    host.textContent = msToLabel(savedDurationMs);
-    applyTimerColor(host, sn, stage, savedDurationMs);
-    updateTimerInfo(stage, sn, savedDurationMs);
+    // Saved as wall time: show it without the global pauses, as it is scored
+    const startMs = Date.parse(st.startClock);
+    const stopMs = Date.parse(st.stopClock);
+    const shownMs = Number.isFinite(startMs) && Number.isFinite(stopMs)
+      ? Math.max(0, savedDurationMs - pausedMsBetween(startMs, stopMs))
+      : savedDurationMs;
+    host.textContent = msToLabel(shownMs);
+    applyTimerColor(host, sn, stage, shownMs);
+    updateTimerInfo(stage, sn, shownMs);
   } else if (st.startClock && !st.stopClock) {
     const runningSince = Date.parse(st.runningSince || st.startClock);
-    const ms = (Number.isFinite(savedDurationMs) ? savedDurationMs : 0) + (Date.now() - runningSince);
+    const now = serverNow();
+    const ms = Math.max(0, (Number.isFinite(savedDurationMs) ? savedDurationMs : 0) + (now - runningSince) - pausedMsSince(runningSince, now));
     host.textContent = msToLabel(ms);
     applyTimerColor(host, sn, stage, ms);
     updateTimerInfo(stage, sn, ms);
@@ -1436,7 +1462,7 @@ function attachActiveTimersManualEditDelegate() {
 
     paintTimer(tKey, ms);
 
-    const now = Date.now();
+    const now = serverNow();
     const payload = {
       durationMs: ms,
       startClock: new Date(now - ms).toISOString(),
@@ -1499,7 +1525,7 @@ function bindManualEditor(stage) {
     paintTimer(key);
     const seq = nextStageAction(key);
 
-    const now = Date.now();
+    const now = serverNow();
     const payload = {
       durationMs: ms,
       startClock: new Date(now - ms).toISOString(),
@@ -1692,7 +1718,7 @@ async function startStage(stage) {
   }
 
   const key = `${currentEquipage.startNumber}|${actualStage}`;
-  const now = Date.now();
+  const now = serverNow();
   const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
   const existingDuration = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
   const startClock = stageData.startClock || new Date(now).toISOString();
@@ -1730,7 +1756,7 @@ async function stopStage(stage) {
   const actualStage = normalizeStageForEquipage(currentEquipage, stage);
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   const timerState = activeTimers.get(key);
-  const now = Date.now();
+  const now = serverNow();
   const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
   const durationMs = timerState?.isRunning
     ? timerState.pausedMs + (now - timerState.startEpoch)
@@ -1769,7 +1795,7 @@ async function resetStage(stage) {
   const actualStage = normalizeStageForEquipage(currentEquipage, stage);
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   activeTimers.delete(key);
-  lastLocalStop.set(key, Date.now());
+  lastLocalStop.set(key, serverNow());
   const seq = nextStageAction(key);
   stopGlobalTickerIfIdle();
 
@@ -1869,9 +1895,16 @@ async function saveStageDetails(stage) {
   }
 
   // The values the user entered first, in one write, so they are saved even if
-  // the page is left right after "Spara"; then the stage fields
-  await setDoc(maratonDocRef(equipage.startNumber), rootPayload, { merge: true });
-  await saveStageSnapshot(stage, stagePayload, equipage);
+  // the page is left right after "Spara"; then the stage fields. Both are made
+  // at once: a write only resolves when the server answers, so awaiting the
+  // first would keep the second from even being queued without signal
+  const writes = Promise.all([
+    setDoc(maratonDocRef(equipage.startNumber), rootPayload, { merge: true }),
+    saveStageSnapshot(stage, stagePayload, equipage)
+  ]);
+  const saveResult = await awaitWriteOrQueue(writes, {
+    onLateError: () => showAlert(t('marathon_stages_save_error'), false)
+  });
 
   // Update the screen only if it still shows this equipage
   if (currentEquipage !== equipage) return;
@@ -1881,7 +1914,7 @@ async function saveStageDetails(stage) {
   clearStageFormDirty(stage); // saved: the fields follow the document again
   populateStageUI(stage, currentDocData);
   updateTabStatuses(currentDocData);
-  showAlert('Ändringarna sparades.', true);
+  showAlert(`Ändringarna sparades.${queuedNotice(saveResult)}`, saveResult === 'queued' ? 'offline' : true);
 }
 
 function bindStagePanel(stage) {
@@ -2157,9 +2190,9 @@ async function onEquipageSelected(eq) {
           const durationMs = Number(stageData.durationMs);
 
           // Skapa ett lokalt timer-objekt som matchar den verkliga starttiden.
-          // `paintTimer` beräknar tiden som `pausedMs + (Date.now() - startEpoch)`.
+          // `paintTimer` beräknar tiden som `pausedMs + (serverNow() - startEpoch)`.
           // Genom att sätta `startEpoch` till den ursprungliga starttiden och `pausedMs`
-          // till 0, blir beräkningen `0 + (Date.now() - startTS)`, vilket är exakt rätt.
+          // till 0, blir beräkningen `0 + (serverNow() - startTS)`, vilket är exakt rätt.
           const timerState = {
             isRunning: true,
             startEpoch: startTS, // Den ursprungliga, verkliga start-timestampen
@@ -2218,6 +2251,7 @@ export async function load() {
     if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
     return;
   }
+  startServerClockSync();
 
   // 1. Rendera grundlayouten först så att alla HTML-element finns på plats
   renderLayout();
@@ -2327,6 +2361,7 @@ export async function load() {
 let unsubMaratonList = null;
 export function __unload() {
   releaseWakeLock();
+  stopServerClockSync();
   // Stoppa global ticker
   if (tickInterval) { clearInterval(tickInterval); tickInterval = null; }
   // Start numbers repeat across competitions: forget what this visit saw

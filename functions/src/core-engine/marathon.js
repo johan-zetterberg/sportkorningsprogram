@@ -80,16 +80,24 @@ function normalizeTRCategoryKey(raw) {
     return null;
 }
 
+// Heights may be stored as text ("128", "128 cm", "1,32")
+function heightValue(v) {
+    if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : null;
+    const n = parseFloat(String(v ?? '').replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function readHeightCmFromEquipage(e) {
     const nums = [];
-    if (Number.isFinite(e?.heightCm)) nums.push(e.heightCm);
-    if (Number.isFinite(e?.horseHeightCm)) nums.push(e.horseHeightCm);
-    if (Number.isFinite(e?.withersHeightCm)) nums.push(e.withersHeightCm);
+    const add = (v) => { const n = heightValue(v); if (n != null) nums.push(n); };
+    add(e?.heightCm);
+    add(e?.horseHeightCm);
+    add(e?.withersHeightCm);
     if (Array.isArray(e?.horses)) {
         for (const h of e.horses) {
-            if (Number.isFinite(h?.heightCm)) nums.push(h.heightCm);
-            if (Number.isFinite(h?.withersHeightCm)) nums.push(h.withersHeightCm);
-            if (Number.isFinite(h?.height)) nums.push(h.height);
+            add(h?.heightCm);
+            add(h?.withersHeightCm);
+            add(h?.height);
         }
     }
 
@@ -108,17 +116,47 @@ function categoryFromHeightCm(cm) {
     return 'horse';
 }
 
+// The class name says horse or pony, but its letter is the class level
+// ("Lätt A Enbet Ponny"), not the pony category; only "kat. A/B" names it
+function categoryFromClassName(className) {
+    const s = String(className || '').toLowerCase();
+    if (/(häst|horse)/.test(s)) return 'horse';
+    if (!/(ponny|pony)/.test(s)) return null;
+    if (/\b(kat|cat)\.?[\s\-]*a\b/.test(s)) return 'ponyA';
+    if (/\b(kat|cat)\.?[\s\-]*b\b/.test(s)) return 'ponyB';
+    if (/\b(kat|cat)\.?[\s\-]*[cd]\b/.test(s)) return 'ponyCD';
+    return 'pony';
+}
+
 export function detectTRCategoryFromEquipage(e) {
+    // 1. A category stated on the equipage
     const candidates = [
         e?.category, e?.categoryName, e?.division, e?.animalCategory,
         e?.equineCategory, e?.ponyCategory, e?.horseCategory,
-        e?.type, e?.equineType, e?.className
+        e?.type, e?.equineType
     ];
+    let statedPony = false;
     for (const r of candidates) {
         const k = normalizeTRCategoryKey(r);
-        if (k) return k;
+        if (!k) continue;
+        // "Ponny" without a letter: the height decides the category
+        const text = String(r).toLowerCase();
+        if (k === 'ponyCD' && /(ponny|pony)/.test(text) && !/\b(c|d|cat[\s\-]*[cd]|kat\.?[\s\-]*[cd])\b/.test(text)) {
+            statedPony = true;
+            continue;
+        }
+        return k;
     }
-    return categoryFromHeightCm(readHeightCmFromEquipage(e)) || 'horse';
+    // 2. The measured height (TR V Moment 163), then 3. the class name
+    const byHeight = categoryFromHeightCm(readHeightCmFromEquipage(e));
+    const byClass = statedPony ? 'pony' : categoryFromClassName(e?.className);
+    if (byClass && byClass !== 'pony') {
+        // A pony class with a measured pony height: the height decides A/B/C-D
+        if (byClass.startsWith('pony') && byHeight && byHeight.startsWith('pony')) return byHeight;
+        return byClass;
+    }
+    if (byClass === 'pony') return (byHeight && byHeight.startsWith('pony')) ? byHeight : 'ponyCD';
+    return byHeight || 'horse';
 }
 
 export function detectTRCategory(categoryString) {

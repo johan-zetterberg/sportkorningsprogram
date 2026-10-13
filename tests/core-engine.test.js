@@ -180,6 +180,7 @@ test('calculateDressageResult computes judge penalty plus equipage error points'
 
 test('calculateDressageResult averages multiple judges', () => {
   const state = createBaseState();
+  state.config.dressageJudgeMapping = { Testklass: { C: 'c', E: 'e' } };
   state.dressage.protocols.push({
     judgeId: 'e',
     movements: [
@@ -197,6 +198,7 @@ test('calculateDressageResult averages multiple judges', () => {
 
 test('calculateDressageResult adds error points directly to penalty without applying dressage coefficient', () => {
   const state = createBaseState();
+  state.config.dressageJudgeMapping = { Testklass: { C: 'c', E: 'e' } };
   state.config.allPrograms = {
     ...state.config.allPrograms,
     LA: {
