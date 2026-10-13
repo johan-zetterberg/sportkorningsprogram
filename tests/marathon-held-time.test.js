@@ -5,7 +5,8 @@ import {
   parseHoldTimeInput,
   getTotalHoldTimeMs,
   calculateMarathonResult,
-  setMarathonConfig
+  setMarathonConfig,
+  shouldShowObstacleKnockdowns
 } from '../js/utils/marathonUtils.js';
 
 test('parseHoldTimeInput parses seconds, mm:ss, decimals, and gracefully handles edge cases', () => {
@@ -95,4 +96,21 @@ test('calculateMarathonResult deducts obstacle hold time from Stage B elapsed ti
   assert.equal(result.stages.B.holdTimeMs, 60 * 1000, 'Tracks applied hold time in milliseconds');
   assert.equal(result.stages.B.durationMs, 1490 * 1000, 'Deducts hold time from net driving duration');
   assert.equal(result.stages.B.timePenalty, 0, 'No time penalty when net time is within allowed limits');
+});
+
+test('shouldShowObstacleKnockdowns correctly checks obstacle and global settings', () => {
+  // Enabled on obstacle, standard global config
+  assert.equal(shouldShowObstacleKnockdowns({ number: 4, knockdown: { enabled: true } }, {}), true);
+  assert.equal(shouldShowObstacleKnockdowns({ number: 4, knockdown: { enabled: true } }, null), true);
+
+  // Disabled or missing on obstacle
+  assert.equal(shouldShowObstacleKnockdowns({ number: 4, knockdown: { enabled: false } }, {}), false);
+  assert.equal(shouldShowObstacleKnockdowns({ number: 4 }, {}), false);
+  assert.equal(shouldShowObstacleKnockdowns(null, {}), false);
+
+  // Explicitly blocked globally
+  assert.equal(shouldShowObstacleKnockdowns(
+    { number: 4, knockdown: { enabled: true } },
+    { obstacleKnockdown: { enabled: false } }
+  ), false);
 });

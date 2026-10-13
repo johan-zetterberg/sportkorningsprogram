@@ -12,6 +12,7 @@ import {
   getClassDrivenObstacles,
   setMarathonConfig,
   parseHoldTimeInput,
+  shouldShowObstacleKnockdowns,
 } from '../../utils/marathonUtils.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
@@ -692,13 +693,10 @@ function updateKnockdownVisibility() {
 
   const obstacleNumber = document.getElementById('maratonObstacleSelect')?.value;
   const list = obstacleList || [];
-  const obsConfig = list.find(o => o.number == obstacleNumber);
+  const obsConfig = list.find(o => String(o.number) === String(obstacleNumber));
 
-  // Hämta global inställning
-  const isEnabledGlobally = marathonConfigCache?.obstacleKnockdown?.enabled;
-
-  // Fältet ska visas om knockdowns är på globalt OCH för det specifika hindret
-  const shouldShow = isEnabledGlobally && obsConfig?.knockdown?.enabled;
+  // Fältet ska visas om det specifika hindret har bollar / rivningsbara element aktiverade
+  const shouldShow = shouldShowObstacleKnockdowns(obsConfig, marathonConfigCache);
 
   container.classList.toggle('hidden', !shouldShow);
   // Nollställ värdet om fältet döljs för att undvika fel
@@ -939,6 +937,7 @@ async function handleObstacleChange() {
   if (newVal) {
     localStorage.setItem(`maratonLastObstacle_${competitionId}`, newVal);
   }
+  updateKnockdownVisibility();
 
   // 2. Försök hitta en löpare i DETTA hinder
   const found = await autoSelectRunningDriverMar(newVal);

@@ -101,6 +101,12 @@ export function getKnockdownPenaltyPerElement() {
   return core.getKnockdownPenaltyPerElement(maraton_marathonConfig);
 }
 
+export function shouldShowObstacleKnockdowns(obsConfig, marathonConfig = null) {
+  const cfg = marathonConfig || maraton_marathonConfig;
+  const isBlockedGlobally = cfg?.obstacleKnockdown?.enabled === false;
+  return !isBlockedGlobally && Boolean(obsConfig?.knockdown?.enabled);
+}
+
 // Most common TR category per class in a list of equipages
 export function buildDominantTRCategoryByClass(equipages = []) {
   const groups = new Map();
