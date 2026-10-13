@@ -8,7 +8,6 @@ import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
-import { getMarathonTimingData } from '../../services/marathonService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
 import { listenForOfficials, listenForJudges } from '../../services/adminService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates, loadPauseWindows } from '../../services/marathonService.js';
@@ -1437,13 +1436,6 @@ function attachListeners() {
 }
 
 
-// Återställd refreshMarathonTimes för initial laddning
-async function refreshMarathonTimes() {
-  if (!competitionId) return;
-  const map = await getMarathonTimingData(competitionId);
-  replaceMapContents(marathonTimeMap, normalizeTimingDocs(map));
-  requestRecompute();
-}
 
 
 export async function load(el) {
@@ -1534,8 +1526,7 @@ export async function load(el) {
   // 3. Starta lyssnare (dressyr, maratonhinder, precision)
   attachListeners();
 
-  // 4. Hämta maratontider (A/B)
-  await refreshMarathonTimes();
+  // 4. Maratontiderna (A/B) kommer från lyssnaren ovan
 
   // 5. Trigga första beräkningen
   requestRecompute();

@@ -16,7 +16,9 @@ const EQUIPAGE_NON_RESULT_FIELDS = new Set([
 // the saved obstacles and stage times, never these.
 const MARATHON_NON_RESULT_FIELDS = new Set([
     'running', 'inProgress', 'currentObstacle', 'startNumber', 'className',
-    'updatedAt', 'lastUpdated'
+    'updatedAt', 'lastUpdated',
+    // Entry/exit timestamps per obstacle (shown on monitors, not scored)
+    'obstacleTimes'
 ]);
 const isMarathonLiveField = (key) => MARATHON_NON_RESULT_FIELDS.has(key)
     || key.startsWith('live_') || key.startsWith('liveObstacle');

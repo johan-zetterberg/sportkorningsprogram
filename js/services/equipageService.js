@@ -240,6 +240,57 @@ export async function saveEquipage(competitionId, startNumber, equipageData) {
   }
 }
 
+const LATEST_UPDATE_TIMEOUT_MS = 5000;
+
+function isConnectionError(error) {
+  return ['unavailable', 'deadline-exceeded', 'failed-precondition'].includes(error?.code)
+    || /offline|network/i.test(String(error?.message || ''));
+}
+
+/**
+ * Saves a change built from the latest server copy of the equipage, so two
+ * devices changing different parts of the same list (e.g. two vets, one horse
+ * each) do not overwrite each other. `buildUpdate(equipage)` returns the
+ * fields to write. Without a connection (a transaction needs the server) the
+ * update is built from `fallbackEquipage`, the copy on the device, and queued.
+ */
+export async function updateEquipageFromLatest(competitionId, startNumber, buildUpdate, fallbackEquipage = {}) {
+  const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
+  const safeStartNumber = normalizeDocumentId(startNumber, 'Startnummer');
+  const equipageRef = getCompDocRef(safeCompetitionId, 'equipages', safeStartNumber);
+
+  if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+    let timer;
+    try {
+      let built = null;
+      await Promise.race([
+        runTransaction(db, async (transaction) => {
+          const snap = await transaction.get(equipageRef);
+          built = cleanFirestoreData(buildUpdate(snap.exists() ? snap.data() : { ...fallbackEquipage }) || {});
+          const { publicData } = splitEquipageData(built);
+          if (Object.keys(publicData).length > 0) transaction.set(equipageRef, publicData, { merge: true });
+        }),
+        new Promise((_, reject) => {
+          timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'deadline-exceeded' })), LATEST_UPDATE_TIMEOUT_MS);
+        })
+      ]);
+      const { privateData } = splitEquipageData(built || {});
+      if (Object.keys(privateData).length > 0) {
+        await setDoc(getPrivateEquipageDocRef(safeCompetitionId, safeStartNumber), privateData, { merge: true });
+      }
+      return built;
+    } catch (error) {
+      if (!isConnectionError(error)) throw mapEquipageWriteError(error);
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  const fallback = buildUpdate({ ...fallbackEquipage }) || {};
+  await saveEquipage(competitionId, startNumber, fallback);
+  return fallback;
+}
+
 export async function deleteEquipage(competitionId, equipageId) {
   if (!competitionId || !equipageId) {
     throw new Error("Competition ID och Equipage ID krävs för att kunna radera.");

@@ -728,6 +728,16 @@ export const updateEquipageDeclaration = onCall(async (request) => {
     return { ok: true };
 });
 
+// The server's clock, so timing devices can correct their own: a marathon
+// section started on one phone and stopped on another must not carry the
+// difference between the phones' clocks (js/utils/serverClock.js)
+export const getServerTime = onCall((request) => {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    }
+    return { now: Date.now() };
+});
+
 // Messages and documents for a driver: the rules let only admins list
 // driver-only items, so drivers get theirs here, after their verified email has
 // been matched to the competition's equipages (driverInbox).

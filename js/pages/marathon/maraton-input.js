@@ -559,24 +559,14 @@ function marathonDocRef(startNumber) {
   return doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`, String(startNumber));
 }
 
-// Uppdatera/infoga tidsstämplar i obstacles[] i sammanfattningsdokumentet /maraton/{sn}
+// Tidsstämplar för in- och utpassage i obstacleTimes.{number} på /maraton/{sn}.
+// Hinderlistan obstacles[] skrivs inte här: den bär de sparade hinderresultaten,
+// och att läsa och skriva tillbaka hela listan kunde radera ett resultat som en
+// annan hinderdomare sparade emellan. Kartan slås ihop per nyckel (merge).
 async function upsertObstacleTimestamp(equipageId, obstacleNumber, patch) {
   const summaryDocRef = marathonDocRef(equipageId);
-  const snap = await getDoc(summaryDocRef);
-  const existing = snap.exists() ? (snap.data().obstacles || []) : [];
-
-  const num = Number(obstacleNumber);
-  let found = false;
-  const next = existing.map(o => {
-    if (Number(o?.number) === num) { found = true; return { ...o, ...patch }; }
-    return o;
-  });
-  if (!found) next.push({ number: num, ...patch });
-
-  // Bygg payload för root-dokumentet
-  const key = String(num); // map-nyckel måste vara sträng
+  const key = String(Number(obstacleNumber)); // map-nyckel måste vara sträng
   const payload = {
-    obstacles: next,
     updatedAt: serverTimestamp()
   };
 

@@ -18,7 +18,7 @@ import {
   saveDressageJudgeProtocol
 } from './dressageService.js';
 import { getCompDocRef } from './firestoreService.js';
-import { findEditConflicts, isStillRunning, pickEditedFields } from './secretariatPatchUtils.js';
+import { findEditConflicts, isStillRunning, mergeProtocolEdits, pickEditedFields } from './secretariatPatchUtils.js';
 import { getConfig } from './competitionService.js';
 import { calculatePrecisionResult } from '../utils/precisionCalculation.js';
 import { calculateObstacleResult } from '../core-engine/marathon.js';
@@ -590,7 +590,12 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
   return after;
 }
 
-export async function saveSecretariatDressageProtocol(competitionId, startNumber, judgeId, patch = {}, reason = '') {
+/**
+ * `loaded` is the protocol as the secretariat page loaded it. When given, only
+ * the movements the secretariat changed are saved on top of the protocol now
+ * on the server, and a movement the judge changed in between is refused.
+ */
+export async function saveSecretariatDressageProtocol(competitionId, startNumber, judgeId, patch = {}, reason = '', loaded = null) {
   if (!competitionId) throw new Error('Ingen tävling vald.');
   if (startNumber == null) throw new Error('Startnummer saknas.');
   if (judgeId == null) throw new Error('Domare saknas.');
@@ -602,13 +607,26 @@ export async function saveSecretariatDressageProtocol(competitionId, startNumber
 
   const detail = await loadSecretariatDressageDetail(competitionId, startNumber);
   const current = detail.protocols.find(protocol => String(protocol.judgeId) === String(judgeId)) || {};
+
+  let eliminated = patch.eliminated ?? current.eliminated ?? false;
+  let movements = Array.isArray(patch.movements) ? patch.movements : (current.movements || []);
+  if (loaded && Array.isArray(patch.movements)) {
+    const merged = mergeProtocolEdits(patch, loaded, current);
+    if (merged.conflicts.length > 0) {
+      throw new Error('Domaren har ändrat samma moment sedan protokollet öppnades. Läs in protokollet igen och gör ändringen på nytt.');
+    }
+    if (merged.changedFields.length === 0) return current;
+    eliminated = merged.eliminated;
+    movements = merged.movements;
+  }
+
   const payload = {
     judgeId: String(judgeId),
     judgeName: patch.judgeName ?? current.judgeName ?? '',
     judgePosition: patch.judgePosition ?? current.judgePosition ?? '',
     programKey: patch.programKey ?? current.programKey ?? '',
-    eliminated: patch.eliminated ?? current.eliminated ?? false,
-    movements: Array.isArray(patch.movements) ? patch.movements : (current.movements || []),
+    eliminated,
+    movements,
   };
 
   await saveDressageJudgeProtocol(competitionId, startNumber, judgeId, payload);
@@ -638,7 +656,7 @@ export async function saveSecretariatDressageProtocol(competitionId, startNumber
   return payload;
 }
 
-export async function saveSecretariatDressageGeneral(competitionId, startNumber, patch = {}, reason = '') {
+export async function saveSecretariatDressageGeneral(competitionId, startNumber, patch = {}, reason = '', loaded = null) {
   if (!competitionId) throw new Error('Ingen tävling vald.');
   if (startNumber == null) throw new Error('Startnummer saknas.');
 
@@ -649,9 +667,20 @@ export async function saveSecretariatDressageGeneral(competitionId, startNumber,
 
   const detail = await loadSecretariatDressageDetail(competitionId, startNumber);
   const current = detail.general || {};
+  // Same rule as for protocols: only what was edited, never over a newer change
+  let effectivePatch = patch;
+  if (loaded) {
+    const defaults = { errorPoints: 0, errorComment: '' };
+    const edited = pickEditedFields(patch, loaded, ['errorPoints', 'errorComment'], defaults);
+    if (findEditConflicts(edited, loaded, current, defaults).length > 0) {
+      throw new Error('Felpoängen har ändrats sedan protokollet öppnades. Läs in igen och gör ändringen på nytt.');
+    }
+    if (Object.keys(edited).length === 0) return current;
+    effectivePatch = edited;
+  }
   const payload = {
-    errorPoints: Number.isFinite(Number(patch.errorPoints)) ? Number(patch.errorPoints) : Number(current.errorPoints || 0),
-    errorComment: patch.errorComment ?? current.errorComment ?? '',
+    errorPoints: Number.isFinite(Number(effectivePatch.errorPoints)) ? Number(effectivePatch.errorPoints) : Number(current.errorPoints || 0),
+    errorComment: effectivePatch.errorComment ?? current.errorComment ?? '',
   };
 
   await saveDressageGeneralData(competitionId, startNumber, payload);

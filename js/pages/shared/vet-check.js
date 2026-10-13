@@ -1,5 +1,5 @@
 import { getGlobalState } from '../../main.js';
-import { listenForEquipages, saveEquipage } from '../../services/equipageService.js';
+import { listenForEquipages, saveEquipage, updateEquipageFromLatest } from '../../services/equipageService.js';
 import { getCompetitionById, getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -676,9 +676,12 @@ function attachCardHandlers(container, eq) {
 
 async function saveHorseClinicalField(eq = {}, horseKey, updateData = {}) {
     if (!competitionId || !eq.startNumber) return;
+    const phase = currentPhase;
     try {
-        const horses = updateHorsePhaseInspection(eq.horses, horseKey, currentPhase, updateData);
-        await saveEquipage(competitionId, eq.startNumber, { horses });
+        // Built from the latest copy: another vet may have saved another horse
+        await updateEquipageFromLatest(competitionId, eq.startNumber, (latest) => ({
+            horses: updateHorsePhaseInspection(latest.horses, horseKey, phase, updateData)
+        }), eq);
     } catch (err) {
         console.warn('Failed to save horse clinical data:', err);
     }
@@ -706,46 +709,51 @@ async function setVetStatus(startNumber, status) {
         return;
     }
 
+    const phase = currentPhase;
     try {
-        const eq = allEquipages.find(item => String(item.startNumber) === String(startNumber));
-        const horses = Array.isArray(eq?.horses) && eq.horses.length
-            ? eq.horses.map(horse => {
-                const currentData = horse.inspections?.[currentPhase] || {};
-                const nowIso = new Date().toISOString();
-                const newInspections = {
-                    ...(horse.inspections || {}),
-                    [currentPhase]: {
-                        ...currentData,
-                        status: normalizeVetStatus(status),
-                        checkedAt: nowIso
+        const local = allEquipages.find(item => String(item.startNumber) === String(startNumber)) || {};
+        // Built from the latest copy of the equipage (see updateEquipageFromLatest)
+        const buildPayload = (eq) => {
+            const horses = Array.isArray(eq?.horses) && eq.horses.length
+                ? eq.horses.map(horse => {
+                    const currentData = horse.inspections?.[phase] || {};
+                    const nowIso = new Date().toISOString();
+                    const newInspections = {
+                        ...(horse.inspections || {}),
+                        [phase]: {
+                            ...currentData,
+                            status: normalizeVetStatus(status),
+                            checkedAt: nowIso
+                        }
+                    };
+                    const updated = {
+                        ...horse,
+                        inspections: newInspections
+                    };
+                    if (phase === 'initial') {
+                        updated.vetStatus = normalizeVetStatus(status);
+                        updated.vetCheckedAt = nowIso;
                     }
-                };
-                const updated = {
-                    ...horse,
-                    inspections: newInspections
-                };
-                if (currentPhase === 'initial') {
-                    updated.vetStatus = normalizeVetStatus(status);
-                    updated.vetCheckedAt = nowIso;
-                }
-                return updated;
-            })
-            : null;
+                    return updated;
+                })
+                : null;
 
-        const derived = horses ? deriveVetStatusFromHorses(horses, eq.status, currentPhase) : status;
-        const payload = horses ? { horses } : {};
-        if (currentPhase === 'initial') {
-            payload.status = derived;
-        } else if (currentPhase === 'restArea' && status === 'struken') {
-            payload.vetUnfitStageB = true;
-        }
+            const derived = horses ? deriveVetStatusFromHorses(horses, eq?.status, phase) : status;
+            const payload = horses ? { horses } : {};
+            if (phase === 'initial') {
+                payload.status = derived;
+            } else if (phase === 'restArea' && status === 'struken') {
+                payload.vetUnfitStageB = true;
+            }
 
-        payload[`vetInspection_${currentPhase}`] = {
-            status: derived,
-            updatedAt: new Date().toISOString()
+            payload[`vetInspection_${phase}`] = {
+                status: derived,
+                updatedAt: new Date().toISOString()
+            };
+            return payload;
         };
 
-        await saveEquipage(competitionId, startNumber, payload);
+        await updateEquipageFromLatest(competitionId, startNumber, buildPayload, local);
         showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet update failed', error);
@@ -760,26 +768,29 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
         return;
     }
 
+    const phase = currentPhase;
     try {
-        const horses = updateHorsePhaseInspection(eq.horses, horseKey, currentPhase, {
-            status,
-            ...extraData
-        });
-        const derivedStatus = deriveVetStatusFromHorses(horses, eq.status, currentPhase);
-        const payload = {
-            horses,
-            [`vetInspection_${currentPhase}`]: {
-                status: derivedStatus,
-                updatedAt: new Date().toISOString()
+        // Built from the latest copy: another vet may have saved another horse
+        await updateEquipageFromLatest(competitionId, eq.startNumber, (latest) => {
+            const horses = updateHorsePhaseInspection(latest.horses, horseKey, phase, {
+                status,
+                ...extraData
+            });
+            const derivedStatus = deriveVetStatusFromHorses(horses, latest.status, phase);
+            const payload = {
+                horses,
+                [`vetInspection_${phase}`]: {
+                    status: derivedStatus,
+                    updatedAt: new Date().toISOString()
+                }
+            };
+            if (phase === 'initial') {
+                payload.status = derivedStatus;
+            } else if (phase === 'restArea' && derivedStatus === 'struken') {
+                payload.vetUnfitStageB = true;
             }
-        };
-        if (currentPhase === 'initial') {
-            payload.status = derivedStatus;
-        } else if (currentPhase === 'restArea' && derivedStatus === 'struken') {
-            payload.vetUnfitStageB = true;
-        }
-
-        await saveEquipage(competitionId, eq.startNumber, payload);
+            return payload;
+        }, eq);
         showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet horse update failed', error);

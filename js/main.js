@@ -1,4 +1,4 @@
-import { initAuth, updateUIVisibility } from './services/authService.js';
+import { initAuth, recallRoles, rememberRoles, updateUIVisibility } from './services/authService.js';
 import { initRouter, navigateTo } from './services/navigationService.js';
 import { showAlert } from './ui/components.js';
 import { getCompetitionById, getConfig } from './services/competitionService.js';
@@ -130,8 +130,13 @@ export async function refreshUserCompRole() {
             adminRoles = normalizeRoleList(adminRoles);
             emailRoleCache.set(contextKey, emailRoles);
             adminRoleCache.set(contextKey, adminRoles);
+            rememberRoles(`comp|${contextKey}`, [...emailRoles, ...adminRoles]);
         } catch (e) {
             console.warn("Could not fetch compRoles", e);
+            // A reload without signal: the roles this device last saw here
+            const noSignal = navigator.onLine === false || e?.code === 'unavailable';
+            const remembered = noSignal ? recallRoles(`comp|${contextKey}`) : null;
+            if (Array.isArray(remembered)) emailRoles = normalizeRoleList(remembered);
         }
 
         return applyCompetitionRoles(contextKey, [...emailRoles, ...adminRoles]);

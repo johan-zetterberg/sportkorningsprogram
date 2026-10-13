@@ -2,7 +2,6 @@
 // En "kontrollrums"-vy som visar alla ekipage som just nu är aktiva på maratonbanan.
 
 import { getGlobalState } from '../../main.js';
-import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { collection, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -915,8 +914,34 @@ export async function load() {
   injectMonitorStylesOnce();
 
   try {
+    // The equipage listener's first snapshot is the initial list: a separate
+    // getEquipages() first would read every equipage twice on each load
+    let resolveFirstEquipages;
+    const firstEquipages = new Promise((resolve) => { resolveFirstEquipages = resolve; });
+    let equipagesLoaded = false;
+    const unSubEquipages = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'equipages'), (snapshot) => {
+      if (!equipagesLoaded) {
+        equipagesLoaded = true;
+        resolveFirstEquipages(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
+        return;
+      }
+      snapshot.docChanges().forEach((change) => {
+        // Refresh equipage info if changed
+        const data = { id: change.doc.id, ...change.doc.data() };
+        const sn = String(data.startNumber);
+        const idx = allEquipages.findIndex(e => String(e.startNumber) === sn);
+        if (idx >= 0) allEquipages[idx] = { ...allEquipages[idx], ...data };
+        else allEquipages.push(data);
+      });
+      renderUpcomingPanel();
+    }, (error) => {
+      console.error('[maraton-monitor] equipages listener:', error);
+      if (!equipagesLoaded) { equipagesLoaded = true; resolveFirstEquipages([]); }
+    });
+    unsubscribes.push(unSubEquipages);
+
     const [equipagesRaw, startTimesData, configData] = await Promise.all([
-      getEquipages(competitionId),
+      firstEquipages,
       getConfig(competitionId, 'startTimes').catch(() => ({})),
       getConfig(competitionId, 'maratonConfig').catch(() => null)
     ]);
@@ -930,21 +955,7 @@ export async function load() {
     await ensureClubLogosLoaded();
     if (currentLoadToken !== loadToken) return;
 
-    // START LISTENERS
-    // 1. Equipages / Status
-    const unSubEquipages = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'equipages'), (snapshot) => {
-      snapshot.docChanges().forEach((change) => {
-        // Refresh equipage info if changed
-        const data = change.doc.data();
-        const sn = String(data.startNumber);
-        const idx = allEquipages.findIndex(e => String(e.startNumber) === sn);
-        if (idx >= 0) allEquipages[idx] = { ...allEquipages[idx], ...data };
-        else allEquipages.push(data);
-      });
-      renderUpcomingPanel();
-    });
-    unsubscribes.push(unSubEquipages);
-
+    // START LISTENERS (1. equipages: started above)
     // 2. Marathon Data Collection (State / Manual)
     const unSubMarathon = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {

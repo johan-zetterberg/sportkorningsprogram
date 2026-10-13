@@ -842,7 +842,7 @@ async function handleAction(event) {
         await saveSecretariatDressageGeneral(competitionId, selectedStartNumber, {
           errorPoints: Number(scope?.querySelector('#dressageGeneralErrorPoints')?.value || 0),
           errorComment: scope?.querySelector('#dressageGeneralErrorComment')?.value || '',
-        }, 'Sekretariatskorrigering allmänt');
+        }, 'Sekretariatskorrigering allmänt', detailData?.general || {});
         showAlert(`Allmän dressyrdata sparad för #${selectedStartNumber}.`);
       } else {
         const protocol = detailData?.protocols.find(item => item.id === selectedProtocolId);
@@ -852,7 +852,8 @@ async function handleAction(event) {
           selectedStartNumber,
           protocol.judgeId,
           collectProtocolPayload(protocol),
-          'Sekretariatskorrigering protokoll'
+          'Sekretariatskorrigering protokoll',
+          protocol
         );
         showAlert(`Dressyrprotokoll sparat för #${selectedStartNumber}.`);
       }

@@ -13,6 +13,7 @@ import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
+import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -57,7 +58,8 @@ function globalStatusDocRef() {
 async function setGlobalPause(isPaused) {
   try {
     const statusRef = globalStatusDocRef();
-    const now = new Date();
+    // The pause log is subtracted from stage times stamped in server time
+    const now = new Date(serverNow());
     const statusText = isPaused ? t('observer_pause_time').replace('{time}', now.toLocaleTimeString('sv-SE')) : t('observer_resume');
 
     // Den nya pausloggen, eller null om inget ska ändras
@@ -871,6 +873,7 @@ export async function load() {
     return;
   }
 
+  startServerClockSync();
   unsubscribeGlobalPause = listenForGlobalPause();
   const emPause = qs('#btnEmergencyPause', root);
   const emResume = qs('#btnEmergencyResume', root);
@@ -899,6 +902,7 @@ export async function load() {
 
 export function __unload() {
   releaseWakeLock();
+  stopServerClockSync();
   loadToken++;
   stopTicker();
 

@@ -25,6 +25,7 @@ test('marathon: live form state skips the recalculation, saved obstacles and sta
     const base = { obstacles: [{ obstacle: 1, timeMs: 40000 }], start_A: 1000 };
     assert.equal(marathonWriteAffectsResults(base, { ...base, live_knockdowns: '2', currentObstacle: 2 }), false);
     assert.equal(marathonWriteAffectsResults(base, { ...base, running: true, liveObstacleStartAt: 5 }), false);
+    assert.equal(marathonWriteAffectsResults(base, { ...base, obstacleTimes: { 2: { enteredAtClient: 'x' } } }), false);
     assert.equal(marathonWriteAffectsResults(base, { ...base, obstacles: [...base.obstacles, { obstacle: 2 }] }), true);
     assert.equal(marathonWriteAffectsResults(base, { ...base, stop_A: 9000 }), true);
     assert.equal(marathonWriteAffectsResults(base, { ...base, finalized: true }), true);

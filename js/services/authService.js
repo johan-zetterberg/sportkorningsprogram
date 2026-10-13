@@ -12,6 +12,25 @@ let onAuthReadyCallback = null;
 let recoveryAccessAttemptedForUid = null;
 const OWNER_RECOVERY_EMAIL = 'johan.zetterberg@gmail.com';
 
+// Last known roles on this device, used when they cannot be read (a reload
+// without signal and the document not in the offline cache). They only decide
+// which pages are shown; the database rules still decide what may be written.
+// Logout removes them with the other device data.
+export const ROLE_CACHE_PREFIX = 'roleCache:';
+
+export function rememberRoles(key, roles) {
+    try { localStorage.setItem(ROLE_CACHE_PREFIX + key, JSON.stringify(roles)); } catch (_) { }
+}
+
+export function recallRoles(key) {
+    try {
+        const value = JSON.parse(localStorage.getItem(ROLE_CACHE_PREFIX + key) || 'null');
+        return value ?? null;
+    } catch (_) {
+        return null;
+    }
+}
+
 async function ensureRecoveryAccess(user) {
     if (!user?.uid) return false;
     if (String(user.email || '').trim().toLowerCase() !== OWNER_RECOVERY_EMAIL) return false;
@@ -255,7 +274,7 @@ export async function registerUser(email, password) {
 
 // Device storage with competition data: the Firestore copy (IndexedDB) and
 // these localStorage entries (field backups, cached competition settings)
-const DEVICE_DATA_KEY_PREFIXES = ['bkp_', 'configCache:'];
+const DEVICE_DATA_KEY_PREFIXES = ['bkp_', 'configCache:', ROLE_CACHE_PREFIX];
 
 export async function logoutUser() {
     // Saves still waiting for the network live in the device's Firestore copy,
@@ -443,6 +462,7 @@ export function initAuth(callback) {
                                     userRole = dbRole;
                                 }
                             }
+                            rememberRoles(`global|${user.uid}`, userRole);
                             // Om vi lyckas, bryt loopen
                             break;
                         } catch (err) {
@@ -450,7 +470,14 @@ export function initAuth(callback) {
                             retries--;
                             if (retries === 0) {
                                 console.error('Kunde inte hämta användarroll efter flera försök:', err);
-                                alert("Kunde inte ladda din profil fullständigt. Vissa funktioner kanske inte fungerar. Prova att ladda om sidan.");
+                                const noSignal = navigator.onLine === false || err?.code === 'unavailable';
+                                const remembered = noSignal ? recallRoles(`global|${user.uid}`) : null;
+                                if (typeof remembered === 'string' && remembered) {
+                                    // Without signal: the role this device last saw
+                                    if (userRole === 'publik') userRole = remembered;
+                                } else if (navigator.onLine !== false) {
+                                    alert("Kunde inte ladda din profil fullständigt. Vissa funktioner kanske inte fungerar. Prova att ladda om sidan.");
+                                }
                             } else {
                                 await new Promise(res => setTimeout(res, 500));
                             }
