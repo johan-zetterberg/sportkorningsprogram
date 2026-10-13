@@ -844,322 +844,281 @@ function getTabContentSV(tab) {
 
     case 'admin':
       return `
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">För Administratörer</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 mb-6">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <span>⚙️</span> För Administratörer & Arrangörer
+            </h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Komplett vägledning för att sätta upp, konfigurera och leda en tävling från grunden.</p>
+          </div>
+          <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95">
+            <span>📋</span> Lathund Sekretariat (A4 PDF)
+          </button>
+        </div>
+
         <div class="space-y-8">
-          
+
+          <!-- KRONOLOGISK CHECKLISTA FÖR ATT SÄTTA UPP EN TÄVLING -->
+          <section class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 p-5 rounded-xl border border-blue-200 dark:border-blue-800/60 shadow-xs">
+            <h3 class="font-bold text-lg text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-2">
+              <span>🧭</span> Steg-för-steg: Sätta upp en tävling från scratch
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-gray-300 mb-4">
+              Följ denna kronologiska checklista för att konfigurera tävlingen rätt från början:
+            </p>
+
+            <div class="space-y-3">
+
+              <!-- FAS 1 -->
+              <details class="manual-accordion" open>
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-blue-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">1</span>
+                    <strong>Fas 1: Skapa tävling & Importera anmälningar från TDB</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(1–2 veckor före)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Skapa tävlingen:</strong> Gå till <em>Start / Hubben</em>. Ange tävlingens namn, datum och plats. Om du arrangerade förra året kan du välja <em>"Basera på tidigare tävling"</em> för att kopiera klasser och hinderparametrar direkt.</p>
+                  <p><strong>2. Hämta anmälningsfilen från TDB:</strong> Logga in på Svenska Ridsportförbundets Tävlingsdatabas (TDB). Gå in på tävlingen -> <em>Hantera anmälningar</em> -> Klicka på <em>"Exportera anmälningar som XML för Equipe"</em> (filen slutar på <code>.eqentries.xml</code>).</p>
+                  <p><strong>3. Importera deltagare:</strong> Gå till <em>Admin > Deltagare</em> och klicka på <em>"Importera XML"</em>. Alla ekipage, hästar, klubbar och klasser läggs in automatiskt.</p>
+                  <p><strong>4. Manuella kontroller:</strong> Klicka på ett ekipage vid efteranmälningar eller strykningar. Kryssa i <em>"Parakusk"</em> för ekipage som har beviljad para-anpassning, och kontrollera ponnykategorier.</p>
+                </div>
+              </details>
+
+              <!-- FAS 2 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-purple-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">2</span>
+                    <strong>Fas 2: Domare & Funktionärer</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(1 vecka före)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Lägg in funktionärer:</strong> Under <em>Admin > Funktionärer</em> lägger du in alla som ska arbeta. Tilldela deras huvudsakliga roll (t.ex. "Dressyr - C", "Hinderdomare", "Start A", "Sekretariat").</p>
+                  <p><strong>2. ICE, Kost & Kläder:</strong> Registrera telefonnummer, ICE-kontakt och eventuella kostavvikelser/allergier för catering.</p>
+                  <p><strong>3. Tilldela dressyrdomare per klass:</strong> Gå till <em>Admin > Dressyr</em>. Välj vilka domare som dömer respektive klass (C, E, B). Det är detta som styr vilka protokoll domarna ser på sina iPads.</p>
+                  <p><strong>4. Dressyrprogram:</strong> Kontrollera att rätt dressyrprogram är valt för klassen. Systemet har officiella program inbyggda. Vid specialprogram kan du ladda upp SvRF:s officiella PDF under programhanteringen.</p>
+                </div>
+              </details>
+
+              <!-- FAS 3 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-green-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">3</span>
+                    <strong>Fas 3: Banfakta för Maraton & Precision (Banbyggnad)</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(1–2 dagar före)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Maratonsträckor & Tempon:</strong> Gå till <em>Admin > Maraton</em>. Fyll i sträckornas längd i meter och tempo för Sträcka A, ev. Transport, och Sträcka B. Idealtider, minimitider och maxtider beräknas automatiskt för häst, ponny och para.</p>
+                  <p><strong>2. Maratonhinder, Portar & Bollar:</strong> Gå till hinderhanteringen i maraton. Lägg upp Hinder 1–N. Ange antal portar (A–F). <strong>Viktigt:</strong> Om hindret har rivningsbara element eller bollar, kryssa i rutan <em>☑️ "Rivningsbart element / boll"</em> på hindret. Det är denna inställning som gör att fältet för rivning/boll visas för hinderdomaren!</p>
+                  <p><strong>3. Maratonkarta (Valfritt men uppskattat):</strong> Länka in tävlingens banskiss och klicka ut positioner för Hinder 1–N, Start och Mål. Då visar publikskärmen liverapportering direkt på kartan.</p>
+                  <p><strong>4. Precision:</strong> Gå till <em>Admin > Precision</em>. Ange banans längd och tempo -> systemet beräknar tillåten tid och maxtid automatiskt. Ange hinderbredd (standard: vagnbredd + 20 cm).</p>
+                </div>
+              </details>
+
+              <!-- FAS 4 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-amber-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">4</span>
+                    <strong>Fas 4: Starttider & Schemaläggning</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(Dagen innan start)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Generera starttider:</strong> Gå till <em>Admin > Starttider</em>. Välj disciplin och klasser, ange startintervall (t.ex. 8 eller 10 min) och klicka <em>"Generera"</em>.</p>
+                  <p><strong>2. Drag-and-Drop:</strong> Dra och släpp rader i listan för att lösa kuskönskemål eller dubbelstarter (samma kusk med två ekipage).</p>
+                  <p><strong>3. Pauser:</strong> Klicka på kaffekoppen ☕ på en rad för att lägga in domarpaus eller banvård. Efterföljande tider flyttas automatiskt framåt.</p>
+                  <p><strong>4. Publicera:</strong> Klicka på <em>"Spara"</em> och slå på reglaget <em>"Publicera startlista"</em> så att kuskarna ser tiderna i Min Portal och på publika skärmar.</p>
+                </div>
+              </details>
+
+              <!-- FAS 5 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-indigo-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">5</span>
+                    <strong>Fas 5: Tävlingsdagen (Mätning, Besiktning & Deklarering)</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(Tävlingsmorgonen)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Vagnbreddsmätning:</strong> Öppna fliken <em>Vagnbredd</em>. Mät och registrera spårvidd. Systemet validerar automatiskt bredden mot TR Bilaga 2 och varnar om vagnen är för smal.</p>
+                  <p><strong>2. Veterinärbesiktning:</strong> Veterinären/funktionären använder sidan <em>Veterinärbesiktning</em> för initial besiktning, viloboxpuls (varnar automatiskt vid över 64 bpm) och slutbesiktning.</p>
+                  <p><strong>3. Låsning av Kuskportalen (Deklarering):</strong> Under <em>Admin > Inställningar</em> sätter du timer för automatisk låsning av häst-/groombyte (standard: 60 min före start). Vid behov kan du klicka <em>"Lås alla ändringar NU"</em>.</p>
+                  <p><strong>4. Tävlingsläge:</strong> Se till att tävlingen står i läget <strong>Live</strong> i inställningarna så att alla live-funktioner och monitorer är igång.</p>
+                </div>
+              </details>
+
+              <!-- FAS 6 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-emerald-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">6</span>
+                    <strong>Fas 6: Slutkontroll, Prisutdelning & Arkivering</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(Efter avslutad tävling)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Resultatgranskning:</strong> Kontrollera på <em>Totalresultat</em> att alla domare har grön bock (klara). Vid eventuella protester eller domarkorrigeringar kan sekretariatet öppna protokollet med knappen <em>Ångra</em>.</p>
+                  <p><strong>2. Skriv ut resultatlistor:</strong> Skriv ut officiella resultatlistor (A4 PDF) inför prisutdelningen.</p>
+                  <p><strong>3. Avsluta & Arkivera:</strong> När prisutdelningen är genomförd går du till <em>Admin > Inställningar</em> och klickar på <em>"Avsluta & Arkivera tävling"</em>. Detta fryser resultaten mot vidare ändringar och sparar ett permanent historiskt arkiv.</p>
+                  <p><strong>4. TDB-resultatfil:</strong> Exportera den officiella resultatfilen för direkt inrapportering i Svenska Ridsportförbundets Tävlingsdatabas.</p>
+                </div>
+              </details>
+
+            </div>
+          </section>
+
+          <!-- FÖRDJUPNING 1: ANMÄLAN & DATA -->
           <section>
-            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">1. Skapa & Hantera Tävling</h3>
-            <div class="bg-blue-50 p-4 rounded-lg space-y-2 text-gray-700">
-              <p>Som administratör har du full kontroll över tävlingens upplägg under <strong>Start</strong>-menyn.</p>
-              <ul class="list-disc list-inside ml-2">
-                <li><strong>Skapa Tävling:</strong> Ange namn, datum och plats.</li>
-                <li><strong>Nytt: Basera på tidigare tävling:</strong> Du kan välja en gammal tävling i rullistan för att kopiera inställningar (Hinder, Klasser, Parametrar) till den nya.</li>
-                <li><strong>Välj Tävling:</strong> Klicka på en tävling i listan för att göra den aktiv och börja arbeta med den.</li>
+            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">2. Administrationspanelen & Deltagarhantering</h3>
+            <p class="text-gray-700 mb-2">Gå till <strong>Admin</strong> i menyn. Här finns huvudverktygen för den löpande administrationen:</p>
+            
+            <div class="space-y-6">
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">📋 Deltagare & Equipe/TDB XML-import</h4>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>TDB-export:</strong> Hämta filen <code>.eqentries.xml</code> från TDB genom att exportera anmälningarna. Ladda upp den här för att skapa alla ekipage direkt.</li>
+                  <li><strong>Redigera ekipage:</strong> Klicka på ett ekipage i listan för att ändra kusk, häst, hästlicensnummer, klubb eller klass.</li>
+                  <li><strong>Strykningar & Efteranmälningar:</strong> Ändra status till "Struken" direkt i listan, eller klicka "Nytt ekipage" för manuell registrering av sena starter.</li>
+                  <li><strong>Betalningsstatus:</strong> Notera "Betald", "Delbetald" eller "Obetald" samt eventuell summa för sekretariatets egen ekonomiska kontroll.</li>
+                </ul>
+
+                <h5 class="text-sm font-bold text-gray-700 mt-4 mb-1">Domare & Funktionärer</h5>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>Obligatorisk registrering:</strong> Personer som ska döma dressyr eller ta tid i maraton måste finnas inlagda här för att kunna logga in och kopplas till rätt position.</li>
+                  <li><strong>Säkerhet & Logistik:</strong> Lägg in ICE-telefonnummer, kostavvikelser/allergier och tröjstorlek.</li>
+                  <li><strong>Utskriftsrapporter:</strong> Under <em>Rapporter</em> kan du exportera telefonlistor, funktionärslistor per hinder/plats, incheckningslistor och sammanställning för catering (PDF och CSV).</li>
+                </ul>
+              </div>
+
+              <!-- KOMMUNIKATION -->
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">📢 Kommunikation & Banskisser</h4>
+                <p class="text-sm text-gray-600 mb-2">Skicka realtidsmeddelanden till kuskarnas personliga portaler:</p>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1 mb-3">
+                  <li><strong>Broadcast (Alla):</strong> Skicka en notis till samtliga deltagare (t.ex. vid tidsförskjutning eller banändring).</li>
+                  <li><strong>Privat Meddelande:</strong> Välj en specifik kusk i rullistan för riktad information (t.ex. påminnelse om pass/vaccinationskontroll).</li>
+                  <li><strong>Dokument & Banskisser:</strong> Länka in publika PDF-filer eller Google Drive-länkar som kuskarna kan öppna direkt i sin mobilapp under <em>Dokument</em>.</li>
+                </ul>
+              </div>
+
+              <!-- INSTÄLLNINGAR -->
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Inställningar & Tävlingsprofil</h4>
+                <div class="space-y-2 text-sm text-gray-600">
+                  <p><strong>Tävlingsprofil (FEI/Nationell):</strong> Styr språk, rubriker, PDF-mallar och publiktexter.</p>
+                  <p><strong>Tävlingslogga:</strong> Ladda upp arrangörens eller tävlingens logotyp. Den visas automatiskt i sidhuvudet på alla officiella PDF-protokoll och resultatlistor.</p>
+                  <p><strong>Tävlingsläge:</strong> Välj <strong>Live</strong> för full realtidssynk med monitorer och klockor. Välj <strong>Fältläge</strong> vid enklare tävlingar där sekretariatet matar in resultaten manuellt.</p>
+                  <p><strong>Digital Deklarering & Låsning:</strong> Ställ in hur många minuter före start kuskportalen automatiskt ska låsas för ändringar (standard 60 min). Knappen <em>"Lås alla ändringar NU"</em> låser omedelbart.</p>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <!-- FÖRDJUPNING 2: BANFAKTA & HINDER -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-orange-700 border-l-4 border-orange-500 pl-2">3. Banfakta & Hinderkonfiguration</h3>
+            <p class="text-gray-700 mb-2">Ställ in banans mått och regler innan tävlingen startar så att resultatmotorn räknar korrekt:</p>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+              <div class="bg-orange-50 p-4 rounded border border-orange-200">
+                <strong class="block text-orange-900 mb-2">🌲 Maraton: Sträckor, Hinder & Bollar</strong>
+                <ul class="list-disc list-inside space-y-1.5 text-xs text-gray-700">
+                  <li><strong>Sträckor:</strong> Ange längd (meter) och tempo (km/h) för Sträcka A, ev. Transport och Sträcka B. Idealtid, maxtid och tidsfönster beräknas automatiskt.</li>
+                  <li><strong>Hinder & Portar:</strong> Skapa hindren 1–8 och sätt antal portar per hinder (t.ex. 5 för A–E eller 6 för A–F).</li>
+                  <li><strong>Rivningsbara bollar:</strong> Bocka i <em>"Rivningsbart element / boll"</em> på de hinder som har bollar. Då visas bollfältet automatiskt i hinderdomarens vy med +2 straff per boll.</li>
+                  <li><strong>Tidskontroll:</strong> Använd <em>Maraton > Beräkna tider</em> för att skriva ut en komplett kontrollista med idealtider och fönster för alla klasser.</li>
+                </ul>
+              </div>
+              <div class="bg-purple-50 p-4 rounded border border-purple-200">
+                <strong class="block text-purple-900 mb-2">🏁 Precision: Banlängd, Maxtid & Bredd</strong>
+                <ul class="list-disc list-inside space-y-1.5 text-xs text-gray-700">
+                  <li><strong>Banans längd & Tempo:</strong> Ange längd (m) och hastighet (m/min). Tillåten tid och maxtid räknas ut automatiskt.</li>
+                  <li><strong>Hinderbredd:</strong> Ange standardmått (t.ex. Vagnbredd + 20 cm).</li>
+                  <li><strong>Tidsfel:</strong> Standardstraff för tidsfel per påbörjad sekund appliceras automatiskt enligt gällande TR.</li>
+                  <li><strong>Konrivning:</strong> Standardstraff är 3 straffpoäng per nedslag.</li>
+                </ul>
+              </div>
+            </div>
+          </section>
+
+          <!-- SPECIALKLASSER MARATON -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">4. Maraton: Specialklasser & Undantag</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div class="bg-white border rounded p-4 shadow-sm">
+                <strong class="text-indigo-900 block font-bold mb-1">1. Sammanslagna Klasser (Mixed)</strong>
+                <p class="text-xs text-gray-600 mb-2">Om en klass innehåller både ponny och häst väljer du rätt nivå under <em>"Tempo-mall"</em> (t.ex. Lätt B). Systemet tilldelar då automatiskt rätt idealtid till respektive kategori.</p>
+              </div>
+              <div class="bg-white border rounded p-4 shadow-sm">
+                <strong class="text-indigo-900 block font-bold mb-1">2. Parakuskar</strong>
+                <p class="text-xs text-gray-600 mb-2">Kryssa i rutan <em>"Parakusk"</em> på ekipaget. Föraren får då automatiskt sin klass nivå med reglementsenlig Para-tempoanpassning.</p>
+              </div>
+              <div class="bg-white border rounded p-4 shadow-sm">
+                <strong class="text-indigo-900 block font-bold mb-1">3. Barnklasser</strong>
+                <p class="text-xs text-gray-600 mb-2">Välj <em>"Barnklass"</em> i tempomallen. Detta ger automatiskt 10 minuter obligatorisk Warm-up (fast tid) och reglementsenliga tempon.</p>
+              </div>
+              <div class="bg-white border rounded p-4 shadow-sm">
+                <strong class="text-indigo-900 block font-bold mb-1">4. Warm-up (istället för Sträcka A)</strong>
+                <p class="text-xs text-gray-600 mb-2">Fyll i minuter i rutan <em>"Fast tid (WU)"</em> under maratoninställningar (t.ex. 30 min). Sträckan döps automatiskt om till Warm-up utan tidsfönster.</p>
+              </div>
+            </div>
+          </section>
+
+          <!-- DRESSYR & PROGRAM -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">5. Dressyr: Program, Domare & PDF-import</h3>
+            <div class="bg-purple-50 p-4 rounded-lg space-y-3 text-sm text-gray-700">
+              <p><strong>PDF-import av protokoll:</strong> Ladda upp Ridsportförbundets officiella PDF för ett dressyrprogram. Systemet läser av momenten och skapar inmatningsprotokollet automatiskt.</p>
+              <p><strong>Domarplacering:</strong> Styr vilka domare som dömer från C, E eller B per klass.</p>
+              <p><strong>Clear Round / Träningsklasser:</strong> Aktivera <em>"Clear Round"</em> för att dölja decimalstraff och istället visa "Godkänd" när procenten överstiger godkänd gräns (t.ex. 60 %).</p>
+            </div>
+          </section>
+
+          <!-- STARTTIDER -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">6. Hantera Starttider & Schemaläggning</h3>
+            <div class="bg-gray-50 p-4 rounded-lg text-sm text-gray-700 space-y-2">
+              <p><strong>Schemalägg starterna smidigt:</strong></p>
+              <ul class="list-disc list-inside text-xs space-y-1">
+                <li>Välj klasser, ange startintervall (t.ex. 10 minuter) och klicka <em>"Generera"</em>.</li>
+                <li><strong>Drag-and-Drop:</strong> Ta tag i valfri rad och flytta den upp/ner för att anpassa startordningen.</li>
+                <li><strong>Kaffepaus ☕:</strong> Klicka på kaffekoppen på en rad för att skjuta in en paus (t.ex. 15 minuter). Alla efterföljande starter justeras automatiskt.</li>
+                <li><strong>Omvänd startordning (Precision):</strong> Låt de med sämst sammanlagda resultat starta först så att ledaren startar sist för maximal spänning.</li>
+                <li><strong>Spara & Publicera:</strong> Klicka på spara och aktivera publiceringstogglen när startlistan är redo för allmänheten.</li>
               </ul>
             </div>
           </section>
 
+          <!-- VAGNBREDDSMÄTNING & LAG -->
           <section>
-            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">2. Administrationspanelen</h3>
-            <p class="text-gray-700 mb-2">Gå till <strong>Admin</strong> i menyn. Här finns fyra huvudflikar:</p>
-            
-            <div class="space-y-6">
-              <!-- Anmälan & Data -->
-              <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">📋 Anmälan & Data</h4>
-                
-                <h5 class="text-sm font-bold text-gray-700 mt-2">Hantera Deltagare</h5>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                  <li><strong>Importera:</strong> Ladda upp en <code>.eqentries.xml</code>-fil för att slippa manuell inmatning.</li>
-                  <li><strong>Redigera:</strong> Klicka på ett ekipage i listan. Du kan ändra allt från hästar till klass.
-                    <div class="mt-1 ml-4 p-2 bg-gray-50 rounded border text-xs bg-yellow-50 text-yellow-900 border-yellow-200">
-                        <strong>Betalning:</strong> Du kan markera status som "Betald", "Delbetald" eller "Obetald" samt ange summa. Detta syns dock <em>inte</em> för kusken i nuläget, utan är för din egen kontroll.
-                    </div>
-                  </li>
-                  <li><strong>Strykningar:</strong> Ändra status till "Struken" i dropdown-menyn inne på ekipaget.</li>
-                </ul>
-
-                <h5 class="text-sm font-bold text-gray-700 mt-3">Domare & Funktionärer</h5>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                    <li><strong>Måste finnas!</strong> För att kunna döma dressyr eller ta tid i maraton MÅSTE personen finnas inlagd här.</li>
-                    <li><strong>Roller:</strong> Se till att tilldela rätt roll (t.ex. "Dressyr - C" eller "Start A").</li>
-                    <li><strong>Nytt:</strong> Du kan nu lägga in <strong>ICE-kontakt</strong>, <strong>Kost/Allergi</strong> och <strong>Tröjstorlek</strong> för varje funktionär. Detta underlättar säkerhetsarbetet och logistiken.</li>
-                    <li><strong>Funktionärsanmälan:</strong> Under funktionärsfliken finns en länk till en separat anmälningssida. Inkomna anmälningar hamnar i <strong>Inkorg</strong>, där du kan godkänna dem och skapa funktionären direkt.</li>
-                </ul>
-
-                <h5 class="text-sm font-bold text-gray-700 mt-3">Utskrifter & Listor (För Funktionärer)</h5>
-                <p class="text-xs text-gray-600 mb-1">Gå till underfliken <strong>" 🖨️ Rapporter"</strong> eller <strong>"👀 Översikt & Print"</strong>:</p>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                    <li><strong>Översikt (NY):</strong> Få en utskriftsvänlig lista grupperad per hinder/plats. Använd "PDF" för papper eller "CSV" för Excel.</li>
-                    <li><strong>Funktionärslistor (PDF/CSV):</strong> Exportera kompletta listor med kontaktuppgifter, roller och tillval (kost/tröja) för incheckning eller utdelning.</li>
-                    <li><strong>Telefonlista:</strong> En kompakt lista med alla funktionärers namn och telefonnummer.</li>
-                    <li><strong>Catering:</strong> En sammanställning av allergier och antal luncher som behövs.</li>
-                    <li><strong>Incheckning:</strong> En utskrivbar lista för att bocka av ankomst.</li>
-                </ul>
-              </div>
-
-              <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">📢 Kommunikation</h4>
-                <p class="text-sm text-gray-600 mb-2">Skicka meddelanden till kuskarnas portaler.</p>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1 mb-3">
-                    <li><strong>Broadcast (Alla):</strong> Skicka en blänkare till ALLA deltagare (t.ex. vid tidsförskjutningar).</li>
-                    <li><strong>Privat Meddelande:</strong> Välj en specifik kusk i rullistan ("Mottagare") för att skicka info som bara rör dem (t.ex. påminnelse om pass/vaccination).</li>
-                    <li><strong>Meddelandetyper:</strong>
-                        <ul class="list-circle list-inside ml-4 text-xs mt-1">
-                            <li><strong>Info (Blå):</strong> Allmän information.</li>
-                            <li><strong>Viktigt (Röd):</strong> Akuta eller kritiska meddelanden som sticker ut.</li>
-                        </ul>
-                    </li>
-                </ul>
-                <h4 class="font-bold text-gray-800 text-sm mb-2">📂 Dokument & Banskisser</h4>
-                <p class="text-xs text-gray-600 mb-3">Du kan länka in externa filer som visas i kuskportalen (t.ex. PDF-kartor från Google Drive/Dropbox).</p>
-                <div class="bg-yellow-50 p-2 rounded text-xs text-yellow-800 border border-yellow-100 space-y-2">
-                    <p><strong>Tips 1:</strong> Se till att länken är publik ("Alla med länken kan se"). Välj kategorin "Banskiss" för rätt ikon.</p>
-                    <p><strong>Tips 2:</strong> Välj <strong>Typ: "Text / HTML"</strong> för att skapa en enkel infosida (t.ex. "Regler för framkörning") direkt i systemet utan att ladda upp en fil.</p>
-                </div>
-              </div>
-
-              <!-- Inställningar -->
-              <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Inställningar</h4>
-                <div class="space-y-2 text-sm text-gray-600">
-                  <p><strong>Tävlingsprofil (FEI/Nationell):</strong> Styr språk, rubriker, PDF-mallar och vissa publiktexter. FEI-profilen ger engelska rubriker men byter inte automatiskt tävlingens regelverk eller beräkningslogik.</p>
-                  <p><strong>Tävlingslogga:</strong> Ladda upp arrangörens eller tävlingens logga här. Loggan används på PDF:er och i utskrifter där det finns plats. PNG, JPG och WebP stöds.</p>
-                  <p><strong>Tävlingsläge (Live / Fältläge):</strong> Välj <strong>Live</strong> när ni använder monitorer, live-timers och realtidsflöden. Välj <strong>Fältläge</strong> när ni vill arbeta enklare med manuell rapportering och sekretariatssidorna som huvudverktyg.</p>
-                  <p><strong>Publicering (Visa på startsidan):</strong></p>
-                  <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
-                    <li><strong>Utkast (Dold):</strong> Tävlingen syns inte för allmänheten. Perfekt medan du sätter upp klasser och resultat.</li>
-                    <li><strong>Publicerad (Grön):</strong> Gör tävlingen synlig på startsidan. Slå på detta när du är redo för besökare!</li>
-                  </ul>
-                  <p><strong>Digital Deklarering & Låsning:</strong></p>
-                  <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
-                    <li><strong>Timer:</strong> Ställ in hur många minuter före start portalen ska låsas (standard 60 min).</li>
-                    <li><strong>Nödlåsning:</strong> Knappen "Lås alla ändringar NU" fryser startlistorna direkt.</li>
-                  </ul>
-                  <p class="mt-2"><strong>Globala Inställningar (Precision):</strong></p>
-                  <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
-                    <li>Här kan du ändra straffpoäng för rivning (t.ex. 3 eller 4 poäng) och tidsfel per sekund. Gäller alla klasser om inget annat anges.</li>
-                  </ul>
-                </div>
-              </div>
-
-              <!-- Arkivering -->
-              <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">📦 Arkivering & Utskrift</h4>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 mt-1">
-                    <li><strong>Avsluta Tävling:</strong> Låser alla resultat så inga fler ändringar kan ske. Genererar "Master List" (PDF).</li>
-                    <li><strong>Utskrifter:</strong> Gå till respektive resultatsida (Startlistor, Dressyrprotokoll etc) och använd webbläsarens "Skriv ut" eller "Spara som PDF". Systemet är anpassat för A4.</li>
-                </ul>
-              </div>
-            </div>
-          </section>
-
-            </div>
-          </section>
-
-            </div>
-          </section>
-          
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-orange-700 border-l-4 border-orange-500 pl-2">3. Admin: Banfakta (Maraton/Precision)</h3>
-            <p class="text-gray-700 mb-2">För att systemet ska kunna räkna ut tider och straff rätt måste du ställa in banfakta.</p>
-            
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
-                <div class="bg-orange-50 p-4 rounded border border-orange-200">
-                    <strong class="block text-orange-900 mb-2">🌲 Maraton: Sträckor & Tider</strong>
-                    <ul class="list-disc list-inside space-y-1">
-                        <li>Gå till fliken <strong>Maraton</strong> i Admin.</li>
-                        <li>Fyll i <strong>Längd (m)</strong> och <strong>Tempo</strong> för Sträcka A, Transport och Sträcka B.</li>
-                        <li>Ange vilka hinder som körs i respektive klass om en klass inte ska köra alla hinder.</li>
-                        <li>Systemet räknar automatiskt ut <em>Idealtid</em>, <em>Maxtid</em> och <em>Minimumtid</em>.</li>
-                        <li>Använd <strong>Maraton &gt; Beräkna tider</strong> för kontrollutskrift per ekipage innan tävlingen startar.</li>
-                        <li><strong>Viktigt:</strong> Gör detta INNAN tävlingen börjar! Annars får funktionärerna inga tidsfönster.</li>
-                    </ul>
-                </div>
-                <div class="bg-purple-50 p-4 rounded border border-purple-200">
-                    <strong class="block text-purple-900 mb-2">🏁 Precision: Maxtid & Bredd</strong>
-                    <ul class="list-disc list-inside space-y-1">
-                        <li>Gå till fliken <strong>Precision</strong> i Admin.</li>
-                        <li>Ange <strong>Banans Längd</strong> och <strong>Tempo</strong> (eller sätt en fast Maxtid manuellt).</li>
-                        <li>Ange <strong>Hinderbredd</strong> (t.ex. Vagnbredd + 20cm).</li>
-                        <li>Detta styr när klockan blir röd (Tidsfel) på monitorn.</li>
-                    </ul>
-                </div>
-            </div>
-          </section>
-
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">4. Maraton: Specialklasser & Tempo</h3>
-            <p class="text-gray-700 mb-2">Så här hanterar du sammanslagna klasser, parakuskar och barnklasser.</p>
-            
-            <div class="space-y-4">
-              <!-- Mixed Classes -->
+            <h3 class="font-bold text-lg mb-2 text-cyan-700 border-l-4 border-cyan-500 pl-2">7. Vagnbreddsmätning & Lagtävling</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">1. Sammanslagna Klasser (Mixed)</strong>
-                  <p class="text-sm text-gray-700 mb-2">Om en klass innehåller både ponny och häst men ska följa en specifik mall (t.ex. "Lätt B"):</p>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Gå till <strong>Maratoninställningar</strong>.</li>
-                      <li>Välj rätt nivå i rullistan <strong>"Tempo-mall"</strong> (t.ex. "Lätt B").</li>
-                      <li>Systemet ger då automatiskt rätt idealtid till Ponny A, Ponny B, Häst etc.</li>
-                  </ul>
+                <strong class="text-cyan-900 block font-bold mb-1">🏎️ Vagnbreddskontroll (TR Bilaga 2)</strong>
+                <p class="text-xs text-gray-600 mb-2">Öppna fliken <em>Vagnbredd</em> under administrationen. Välj ekipage och ange uppmätt spårvidd i centimeter. Systemet kontrollerar måttet mot TR:s minimikrav för klassen/vagnstypen och markerar avvikelser i rött.</p>
               </div>
-
-              <!-- Para -->
               <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">2. Parakuskar (Undantag)</strong>
-                  <p class="text-sm text-gray-700 mb-2">Om en enskild kusk i en vanlig klass ska ha Para-tempo:</p>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Gå till <strong>Deltagare</strong> och redigera kusken.</li>
-                      <li>Kryssa i rutan <strong>"Parakusk"</strong>.</li>
-                      <li>Hen får då automatiskt sin klass nivå minus Para-anpassning.</li>
-                  </ul>
-              </div>
-
-              <!-- Barnklass -->
-              <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">3. Barnklass</strong>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Välj <strong>"Barnklass"</strong> i "Tempo-mall" under Maratoninställningar.</li>
-                      <li>Ger automatiskt <strong>10 minuter Warm-up</strong> (Fast tid).</li>
-                      <li>Tempo sätts enligt Barnklass-reglementet (Lätt B-hastigheter).</li>
-                  </ul>
-              </div>
-              
-                <!-- Warm-up -->
-              <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">4. Warm-up (Istället för Sträcka A)</strong>
-                  <p class="text-sm text-gray-700 mb-2">För att göra om Sträcka A till en ren uppvärmning:</p>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Gå till <strong>Maratoninställningar</strong>.</li>
-                      <li>Fyll i minuter i rutan <strong>"Fast tid (WU)"</strong> (t.ex. 30).</li>
-                      <li>Sträckan döps om till "Warm-up" och får fast tid utan fönster.</li>
-                  </ul>
+                <strong class="text-cyan-900 block font-bold mb-1">🏆 Lagtävling (Teams)</strong>
+                <p class="text-xs text-gray-600 mb-2">Aktivera lagtävling, skapa lag och dra kuskar från listan till lagkorten med Drag-and-Drop. Systemet matchar automatiskt klubblogga och nationsflagga baserat på lagnamn.</p>
               </div>
             </div>
           </section>
 
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">5. Dressyr: Avancerat</h3>
-            <div class="bg-purple-50 p-4 rounded-lg space-y-4 text-gray-700">
-              <div>
-                <strong class="text-purple-900 block font-bold">📄 PDF-import av program</strong>
-                <p class="text-sm">Du behöver inte skriva in varje rörelse manuellt! Ladda upp programmets officiella PDF från Ridsportförbundet, så "läser" systemet av texten och skapar protokollet åt dig.</p>
-              </div>
-              <div>
-                <strong class="text-purple-900 block font-bold">👨‍⚖️ Domartilldelning</strong>
-                <p class="text-sm">Välj <strong>Admin > Dressyr</strong> för att styra vilka domare (C, E, H) som dömer respektive klass. Systemet håller koll på behörigheter.</p>
-              </div>
-              <div>
-                <strong class="text-purple-900 block font-bold">✨ Clear Round / Pay & Drive</strong>
-                <p class="text-sm">För träningsklasser kan du aktivera "Clear Round". Då döljs de exakta straffpoängen för publiken och ersätts med "Godkänd" om kuskens procent når över din valda gräns (t.ex. 60%).</p>
-              </div>
-            </div>
-          </section>
-
-            <section>
-              <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">5. Hantera Starttider</h3>
-              <p class="text-gray-700 mb-2">Gå till <strong>Starttider</strong> för att schemalägga starterna.</p>
-              <div class="bg-gray-50 p-3 rounded text-sm text-gray-700">
-                  <strong>Tips för smidig planering:</strong>
-                  <ol class="list-decimal list-inside mt-1 ml-2">
-                      <li>Välj klasser och sätt ett intervall (t.ex. 10 min).</li>
-                      <li>Klicka "Generera".</li>
-                      <li><strong>Dra och släpp:</strong> Du kan ta tag i en rad och flytta den upp/ner för att finjustera startordningen <em>innan</em> du sparar.</li>
-                       <li><strong>Lägg in paus:</strong> Klicka på kaffekoppen <span class="text-sm">☕</span> på en rad för att lägga in en paus (t.ex. 15 min) <em>efter</em> den kusken. Alla efterföljande tider skjuts framåt.</li>
-                      <li>Glöm inte <strong>"Spara & Publicera"</strong>! Innan dess ser ingen tiderna.</li>
-                      <li><strong>Nytt:</strong> Knappen "Publicera startlista" (Toggle) gör tiderna synliga för publiken. Du kan arbeta med tiderna i lugn och ro innan du slår på denna.</li>
-                  </ol>
-                  
-                  <h4 class="font-bold text-gray-800 text-sm mt-3 mb-1">🔥 Avancerad Generering</h4>
-                  <p class="text-xs text-gray-600 mb-2">För Maraton och Precision kan du låta tidigare resultat styra startordningen:</p>
-                  <ul class="list-disc list-inside text-xs text-gray-600 space-y-1 ml-1">
-                      <li><strong>Maraton efter Dressyr:</strong> Sämst dressyrresultat startar först (eller tvärtom).</li>
-                      <li><strong>Precision ("Omvänd Startordning"):</strong> För att skapa spänning kan du låta de med <em>sämst</em> totalresultat (Dressyr + Maraton) starta först, så att ledaren startar sist. Välj "Sortera efter Resultat" i inställningarna.</li>
-                  </ul>
-              </div>
-            </section>
-
-            <section>
-              <h3 class="font-bold text-lg mb-2 text-green-700 border-l-4 border-green-500 pl-2">6. Admin: Maraton (Karta)</h3>
-              <p class="text-gray-700 mb-2">För att "Monitor Maraton" (publikskärmen) ska visa en snygg karta:</p>
-              <div class="bg-green-50 p-4 rounded-lg space-y-3 text-sm text-gray-700">
-                  <div>
-                      <strong class="text-green-900 font-bold block">1. Ladda upp bild</strong>
-                      <ul class="list-disc list-inside ml-2">
-                          <li>Ladda upp din banskiss (bild) till <strong>Google Drive</strong>.</li>
-                          <li>Högerklicka på filen i Drive -> "Dela" -> "Kopiera länk" (Alla med länken).</li>
-                          <li>I systemet: Klicka på knappen <strong>"📁 G-Drive"</strong> och klistra in länken. Systemet konverterar den automatiskt till en bildlänk.</li>
-                      </ul>
-                  </div>
-                  <div>
-                      <strong class="text-green-900 font-bold block">2. Placera ut hinder</strong>
-                      <ul class="list-disc list-inside ml-2">
-                          <li>Välj vad du vill placera i rullistan (t.ex. "Hinder 1").</li>
-                          <li>Klicka på en punkt på förhandsvisningen av kartan.</li>
-                          <li>En röd prick dyker upp. Koordinaterna sparas automatiskt.</li>
-                          <li>Upprepa för alla hinder, start och mål.</li>
-                      </ul>
-                  </div>
-              </div>
-            </section>
-
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">7. Korrigera Resultat</h3>
-            <p class="text-gray-700 mb-2">Om ett dressyrprotokoll blivit felaktigt signerat kan du öppna det igen.</p>
-            <div class="bg-red-50 p-4 rounded-lg space-y-2 border border-red-100">
-                <h4 class="font-bold text-red-800 text-sm">Lås upp ("Unfinalize") protokoll</h4>
-                <ol class="list-decimal list-inside text-sm text-gray-700 ml-2">
-                    <li>Gå till <strong>Resultat > Dressyr</strong>.</li>
-                    <li>Leta upp ekipaget i listan.</li>
-                    <li>I kolumnen längst till höger ("Finalisera"), klicka på knappen <span class="border border-emerald-600 text-emerald-700 px-1 rounded text-xs">Ångra</span>.</li>
-                    <li>Protokollet är nu "öppet" igen och domaren kan göra ändringar i sin iPad.</li>
-                </ol>
-            </div>
-          </section>
-
-
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-cyan-700 border-l-4 border-cyan-500 pl-2">8. Lag & Team (Teams)</h3>
-            <p class="text-gray-700 mb-2">Här administrerar du lagtävlingen. Gå till fliken <strong>Teams</strong> i Admin.</p>
-            
-            <div class="space-y-4">
-                <div class="bg-cyan-50 p-4 rounded border border-cyan-200">
-                    <strong class="text-cyan-900 block font-bold mb-1">Skapa & Hantera Lag</strong>
-                    <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                        <li><strong>Aktivera:</strong> Slå på "Aktivera lagtävling" högst upp.</li>
-                        <li><strong>Skapa Lag:</strong> Klicka "Nytt Lag", ange namn och spara.</li>
-                        <li><strong>Lägg till Kuskar:</strong>
-                            <ul class="list-circle list-inside ml-4 mt-1">
-                                <li>Till höger finns en lista med alla tillgängliga kuskar ("Ej placerade").</li>
-                                <li><strong>Drag-and-Drop:</strong> Ta tag i en kusk och dra den till önskat lagkort. Släpp för att lägga till.</li>
-                                <li>Du kan också dra kuskar <em>mellan</em> lag om du behöver flytta dem.</li>
-                            </ul>
-                        </li>
-                    </ul>
-                </div>
-
-                <div class="bg-white border rounded p-4 shadow-sm">
-                    <strong class="text-gray-800 block font-bold mb-1">Flaggor & Loggor</strong>
-                    <p class="text-sm text-gray-600 mb-2">Systemet försöker automatiskt matcha lagets utseende:</p>
-                    <ul class="list-disc list-inside text-sm text-gray-600 ml-2">
-                        <li><strong>Klubblogga:</strong> Om lagnamnet matchar en klubb (t.ex. "Körsällskapet ..."), visas klubbens logga.</li>
-                        <li><strong>Nationsflagga:</strong> Om laget heter ett land (t.ex. "Sweden", "Denmark", "Germany"), visas landets flagga.</li>
-                    </ul>
-                    <p class="text-xs text-gray-500 mt-2">
-                        <em>Tips: Kuskarna har sina egna flaggor/loggor baserat på sin profil (Nationalitet/Klubb).</em>
-                    </p>
-                </div>
-            </div>
-          </section>
         </div>
       `;
-
-    // ... 'official' and 'judge' blocks remain handled by 'default' case re-rendering logic or previous code ...
-    // Wait, replace_file_content replaces the BLOCK. The user asked to update Admin and Driver. 
-    // I need to be careful not to delete 'official' and 'judge' if they are inside the replaced range.
-    // The prompt says "Replace the 'admin' and 'driver' tab contents".
-    // BUT my target range covers everything from line 60 to 320 which includes ALL tabs. 
-    // So I must provide the content for ALL tabs in the ReplacementContent to avoid deleting them.
 
     case 'official':
       return `
@@ -1941,305 +1900,250 @@ function getTabContentEN(tab) {
 
     case 'admin':
       return `
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">For Administrators</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 mb-6">
+          <div>
+            <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+              <span>⚙️</span> For Administrators & Organizers
+            </h2>
+            <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Complete chronological guide to configure, schedule, and run a competition from scratch.</p>
+          </div>
+          <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95">
+            <span>📋</span> Secretariat Cheat Sheet (PDF)
+          </button>
+        </div>
+
         <div class="space-y-8">
-          
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">1. Create & Manage Competition</h3>
-            <div class="bg-blue-50 p-4 rounded-lg space-y-2 text-gray-700">
-              <p>As administrator, you have full control over the competition setup under the <strong>Start</strong> menu.</p>
-              <ul class="list-disc list-inside ml-2">
-                <li><strong>Create Competition:</strong> Enter name, date, and location.</li>
-                <li><strong>New: Base on previous competition:</strong> Select an old competition in the dropdown to copy settings (Obstacles, Classes, Parameters) to the new one.</li>
-                <li><strong>Select Competition:</strong> Click on a competition in the list to make it active and start working on it.</li>
-              </ul>
+
+          <!-- CHRONOLOGICAL SETUP CHECKLIST -->
+          <section class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 p-5 rounded-xl border border-blue-200 dark:border-blue-800/60 shadow-xs">
+            <h3 class="font-bold text-lg text-blue-900 dark:text-blue-200 mb-1 flex items-center gap-2">
+              <span>🧭</span> Step-by-Step: Setting Up a Competition from Scratch
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-gray-300 mb-4">
+              Follow this chronological checklist to configure your competition correctly from day one:
+            </p>
+
+            <div class="space-y-3">
+
+              <!-- PHASE 1 -->
+              <details class="manual-accordion" open>
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-blue-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">1</span>
+                    <strong>Phase 1: Create Competition & Import Entries (.XML)</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(1–2 weeks before)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Create competition:</strong> Go to <em>Start / Hub</em>. Enter name, dates, and venue. If you organized the event last year, use <em>"Base on previous competition"</em> to copy classes and parameters.</p>
+                  <p><strong>2. Download entry XML from national database (e.g. TDB):</strong> Export entries formatted as Equipe XML (ending in <code>.eqentries.xml</code>).</p>
+                  <p><strong>3. Import participants:</strong> Go to <em>Admin > Participants</em> and click <em>"Import XML"</em>. All drivers, horses, clubs, and classes are populated automatically.</p>
+                  <p><strong>4. Manual adjustments:</strong> Edit entries for late registrations, scratches, or division overrides. Flag <em>"Para Driver"</em> where applicable.</p>
+                </div>
+              </details>
+
+              <!-- PHASE 2 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-purple-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">2</span>
+                    <strong>Phase 2: Officials, Judges & Dressage Tests</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(1 week before)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Register officials:</strong> Under <em>Admin > Officials</em>, add judges and crew. Assign their primary role (e.g., "Dressage - C", "Obstacle Judge", "Start A", "Secretariat").</p>
+                  <p><strong>2. Safety & Logistics:</strong> Store phone number, ICE contact, dietary requirements, and shirt size for each volunteer.</p>
+                  <p><strong>3. Assign dressage judges:</strong> Go to <em>Admin > Dressage</em>. Assign judges to positions (C, E, B) per class. This controls which protocols appear on their tablets.</p>
+                  <p><strong>4. Dressage tests:</strong> Verify the correct test is attached to each class. Standard national and FEI tests are built-in; custom tests can be uploaded via PDF.</p>
+                </div>
+              </details>
+
+              <!-- PHASE 3 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-green-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">3</span>
+                    <strong>Phase 3: Course Data for Marathon & Cones</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(1–2 days before)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Marathon sections & speeds:</strong> In <em>Admin > Marathon</em>, enter distance (meters) and speed (km/h) for Section A, Transfer, and Section B. Time windows (ideal, min, max) are calculated automatically.</p>
+                  <p><strong>2. Obstacles, Gates & Knockdown Balls:</strong> Add Obstacles 1–N. Set gate count (A–F). <strong>Important:</strong> If an obstacle has dislodgeable elements or balls, tick <em>☑️ "Dislodgeable element / ball"</em>. This activates the knockdown counter for the obstacle judge with the standard +2 penalty.</p>
+                  <p><strong>3. Course Map (Optional):</strong> Link a map image from Google Drive and plot obstacle coordinates so the public screen ("Monitor Marathon") shows live positions.</p>
+                  <p><strong>4. Precision (Cones):</strong> In <em>Admin > Precision</em>, set course length and speed (m/min). Allowed and maximum times are computed automatically. Set cone clearance (+20 cm standard).</p>
+                </div>
+              </details>
+
+              <!-- PHASE 4 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-amber-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">4</span>
+                    <strong>Phase 4: Start Times & Scheduling</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(Day before start)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Generate start times:</strong> In <em>Admin > Start Times</em>, select discipline and classes, set interval (e.g. 8–10 min), and click <em>"Generate"</em>.</p>
+                  <p><strong>2. Drag-and-drop:</strong> Reorder rows to accommodate driver requests or double entries.</p>
+                  <p><strong>3. Breaks:</strong> Click the coffee cup ☕ to insert judge breaks or arena maintenance. Later times update automatically.</p>
+                  <p><strong>4. Publish:</strong> Save and toggle <em>"Publish Startlist"</em> so times appear in My Portal and on spectator boards.</p>
+                </div>
+              </details>
+
+              <!-- PHASE 5 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-indigo-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">5</span>
+                    <strong>Phase 5: Event Morning (Carriage Check, Vet & Locking)</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(Competition Day)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Carriage track width:</strong> Open <em>Carriage Width</em>. Record measured axle width; the system verifies against national TR rules and flags narrow carriages.</p>
+                  <p><strong>2. Veterinary inspection:</strong> Use <em>Vet Inspection</em> for initial check, resting area pulse (auto-warns above 64 bpm), and final check.</p>
+                  <p><strong>3. Lock driver portal:</strong> In <em>Admin > Settings</em>, ensure the declaration auto-lock timer is active (default 60 min before start) or click <em>"Lock all changes NOW"</em>.</p>
+                  <p><strong>4. Event mode:</strong> Confirm mode is set to <strong>Live</strong> in settings.</p>
+                </div>
+              </details>
+
+              <!-- PHASE 6 -->
+              <details class="manual-accordion">
+                <summary>
+                  <span class="flex items-center gap-2 text-sm text-gray-900 dark:text-gray-100">
+                    <span class="bg-emerald-600 text-white w-6 h-6 rounded-full inline-flex items-center justify-center text-xs font-bold">6</span>
+                    <strong>Phase 6: Results Verification, Prizegiving & Archiving</strong>
+                    <span class="text-xs text-gray-500 dark:text-gray-400 font-normal">(Post-Competition)</span>
+                  </span>
+                  <span class="text-gray-400 text-xs">▼</span>
+                </summary>
+                <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
+                  <p><strong>1. Final verification:</strong> Ensure all protocols show green checks in Total Results. Secretariat can reopen a score via <em>Undo</em> if corrections are needed.</p>
+                  <p><strong>2. Official printouts:</strong> Print certified A4 result sheets for prizegiving.</p>
+                  <p><strong>3. End & Archive:</strong> Go to <em>Admin > Settings</em> and click <em>"End & Archive Competition"</em> to lock the database and create a permanent read-only snapshot.</p>
+                  <p><strong>4. Export results:</strong> Download the official result file for submission to your national equestrian federation.</p>
+                </div>
+              </details>
+
             </div>
           </section>
 
+          <!-- DEEP DIVE 1: PARTICIPANTS & DATA -->
           <section>
-            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">2. The Admin Panel</h3>
-            <p class="text-gray-700 mb-2">Go to <strong>Admin</strong> in the menu. There are four main tabs:</p>
-            
+            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">2. Participants & Volunteer Management</h3>
             <div class="space-y-6">
-              <!-- Entries & Data -->
               <div class="bg-white border rounded-lg p-4 shadow-sm">
                 <h4 class="font-bold text-gray-800 text-base mb-2">📋 Entries & Data</h4>
-                
-                <h5 class="text-sm font-bold text-gray-700 mt-2">Manage Participants</h5>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                  <li><strong>Import:</strong> Upload an <code>.eqentries.xml</code> file to avoid manual data entry.</li>
-                  <li><strong>Edit:</strong> Click on an entry in the list. You can change everything from horses to class.
-                    <div class="mt-1 ml-4 p-2 bg-gray-50 rounded border text-xs bg-yellow-50 text-yellow-900 border-yellow-200">
-                        <strong>Payment:</strong> You can mark status as "Paid", "Partially Paid", or "Unpaid" and enter amount. This is currently <em>not</em> visible to the driver, but for your own control.
-                    </div>
-                  </li>
-                  <li><strong>Scratched:</strong> Change status to "Struken" (Scratched) in the dropdown menu inside the entry details.</li>
+                  <li><strong>XML import:</strong> Upload <code>.eqentries.xml</code> to populate all entries, horses, and categories instantly.</li>
+                  <li><strong>Edit entry:</strong> Click an entry to update driver, horse names, license IDs, club, or class.</li>
+                  <li><strong>Scratches & Late entries:</strong> Set status to "Struken" (Scratched) in the list, or add late starters via "New Entry".</li>
                 </ul>
 
-                <h5 class="text-sm font-bold text-gray-700 mt-3">Judges & Officials</h5>
+                <h5 class="text-sm font-bold text-gray-700 mt-4 mb-1">Judges & Crew</h5>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                    <li><strong>Must exist!</strong> To judge dressage or time marathon, the person MUST be added here.</li>
-                    <li><strong>Roles:</strong> Ensure correct role assignment (e.g., "Dressage - C" or "Start A").</li>
-                    <li><strong>New:</strong> You can now add <strong>ICE Contact</strong>, <strong>Diet/Allergy</strong>, and <strong>T-shirt Size</strong> for each official. This facilitates safety and logistics.</li>
-                    <li><strong>Volunteer signup:</strong> The officials tab contains a link to a separate signup page. New signups appear in the <strong>Inbox</strong>, where you can approve them and create the official directly.</li>
-                </ul>
-
-                <h5 class="text-sm font-bold text-gray-700 mt-3">Prints & Lists (For Officials)</h5>
-                <p class="text-xs text-gray-600 mb-1">Go to the sub-tab <strong>" 🖨️ Reports"</strong> or <strong>"👀 Overview & Print"</strong>:</p>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                    <li><strong>Overview (NEW):</strong> Get a print-friendly list grouped by obstacle/location. Use "PDF" for paper or "CSV" for Excel.</li>
-                    <li><strong>Officials Lists (PDF/CSV):</strong> Export complete lists with contact info, roles, and extras (diet/shirt) for check-in or distribution.</li>
-                    <li><strong>Phone List:</strong> A compact list with all officials' names and phone number.</li>
-                    <li><strong>Catering:</strong> A summary of allergies and number of lunches needed.</li>
-                    <li><strong>Check-in:</strong> A printable list to tick off arrivals.</li>
+                  <li><strong>Required registration:</strong> Anyone judging or timing must exist in the system to log in.</li>
+                  <li><strong>Safety & Catering:</strong> Track ICE contact, allergies, and shirt sizes for logistical reports.</li>
+                  <li><strong>Reports:</strong> Under <em>Reports</em>, export phone lists, station assignment sheets, check-in lists, and catering summaries (PDF and CSV).</li>
                 </ul>
               </div>
 
+              <!-- COMMUNICATION -->
               <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">📢 Communication</h4>
-                <p class="text-sm text-gray-600 mb-2">Send messages to driver portals.</p>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1 mb-3">
-                    <li><strong>Broadcast (All):</strong> Send a notification to ALL participants (e.g., regarding time delays).</li>
-                    <li><strong>Private Message:</strong> Select a specific driver in the dropdown ("Recipient") to send info concerning only them (e.g., passport/vaccination reminder).</li>
-                    <li><strong>Message Types:</strong>
-                        <ul class="list-circle list-inside ml-4 text-xs mt-1">
-                            <li><strong>Info (Blue):</strong> General information.</li>
-                            <li><strong>Important (Red):</strong> Urgent or critical messages that stand out.</li>
-                        </ul>
-                    </li>
+                <h4 class="font-bold text-gray-800 text-base mb-2">📢 Communication & Course Maps</h4>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>Broadcast:</strong> Send urgent notifications to all participant portals (e.g. weather delays).</li>
+                  <li><strong>Private message:</strong> Message an individual driver regarding passports or inspections.</li>
+                  <li><strong>Documents:</strong> Link external PDF course maps that drivers open in their app under <em>Documents</em>.</li>
                 </ul>
-                <h4 class="font-bold text-gray-800 text-sm mb-2">📂 Documents & Course Maps</h4>
-                <p class="text-xs text-gray-600 mb-3">You can link external files that appear in the driver portal (e.g., PDF maps from Google Drive/Dropbox).</p>
-                <div class="bg-yellow-50 p-2 rounded text-xs text-yellow-800 border border-yellow-100 space-y-2">
-                    <p><strong>Tip 1:</strong> Ensure the link is public ("Anyone with the link can view"). Choose category "Course Map" for the correct icon.</p>
-                    <p><strong>Tip 2:</strong> Select <strong>Type: "Text / HTML"</strong> to create a simple info page (e.g., "Warm-up Rules") directly in the system without uploading a file.</p>
-                </div>
               </div>
 
-              <!-- Settings -->
+              <!-- SETTINGS -->
               <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Settings</h4>
+                <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Global Settings & Profile</h4>
                 <div class="space-y-2 text-sm text-gray-600">
-                  <p><strong>Competition Profile (FEI/National):</strong> Controls language, headings, PDF templates and some public-facing labels. The FEI profile gives English headings, but does not automatically change competition rules or scoring logic.</p>
-                  <p><strong>Competition logo:</strong> Upload the organizer or competition logo here. It is used on PDFs and printed lists where space allows. PNG, JPG and WebP are supported.</p>
-                  <p><strong>Competition Mode (Live / Field):</strong> Choose <strong>Live</strong> when you use monitors, live timers and real-time workflows. Choose <strong>Field</strong> when you want a simpler setup with manual reporting and the secretariat pages as the primary tool.</p>
-                  <p><strong>Digital Declaration & Locking:</strong></p>
-                  <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
-                    <li><strong>Timer:</strong> Set how many minutes before start the portal should lock (default 60 min).</li>
-                    <li><strong>Emergency Lock:</strong> Button "Lock all changes NOW" freezes start lists immediately.</li>
-                  </ul>
-                  <p class="mt-2"><strong>Global Settings (Precision):</strong></p>
-                  <ul class="list-circle list-inside ml-4 mt-1 text-xs text-gray-500">
-                    <li>Here you can change penalty points for knockdowns (e.g., 3 or 4 points) and time faults per second. Applies to all classes unless otherwise specified.</li>
-                  </ul>
+                  <p><strong>Profile (FEI / National):</strong> Controls terminology, headings, and certificate templates.</p>
+                  <p><strong>Logo:</strong> Upload competition logo; it prints on all official PDF protocols and result sheets.</p>
+                  <p><strong>Declaration locking:</strong> Set automatic cutoff time (default 60 min before class start) or use emergency freeze.</p>
                 </div>
               </div>
+            </div>
+          </section>
 
-              <!-- Archiving -->
-              <div class="bg-white border rounded-lg p-4 shadow-sm">
-                <h4 class="font-bold text-gray-800 text-base mb-2">📦 Archiving & Printing</h4>
-                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 mt-1">
-                    <li><strong>End Competition:</strong> Locks all results so no further changes can occur. Generates "Master List" (PDF).</li>
-                    <li><strong>Printing:</strong> Go to the respective result page (Start Lists, Dressage Protocols, etc.) and use user browser "Print" or "Save as PDF". System is adapted for A4.</li>
+          <!-- DEEP DIVE 2: COURSE DATA -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-orange-700 border-l-4 border-orange-500 pl-2">3. Marathon & Precision Course Specifications</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-700">
+              <div class="bg-orange-50 p-4 rounded border border-orange-200">
+                <strong class="block text-orange-900 mb-2">🌲 Marathon: Distances, Obstacles & Balls</strong>
+                <ul class="list-disc list-inside space-y-1 text-xs text-gray-700">
+                  <li><strong>Sections:</strong> Distance (m) and speed (km/h) for Sections A, Transfer, and B.</li>
+                  <li><strong>Obstacles:</strong> Create obstacles 1–8 and assign gate counts (A–E or A–F).</li>
+                  <li><strong>Knockdowns:</strong> Tick <em>"Dislodgeable element / ball"</em> for obstacles with balls (+2 penalties).</li>
+                  <li><strong>Print timecards:</strong> Use <em>Calculate Times</em> to print verification cards for all classes.</li>
+                </ul>
+              </div>
+              <div class="bg-purple-50 p-4 rounded border border-purple-200">
+                <strong class="block text-purple-900 mb-2">🏁 Precision: Times & Clearance</strong>
+                <ul class="list-disc list-inside space-y-1 text-xs text-gray-700">
+                  <li><strong>Length & Speed:</strong> Auto-calculates allowed and maximum times.</li>
+                  <li><strong>Clearance:</strong> Carriage width + 20 cm standard.</li>
+                  <li><strong>Penalties:</strong> Standard 3 points per knockdown; time penalties per commenced second.</li>
                 </ul>
               </div>
             </div>
           </section>
-          
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-orange-700 border-l-4 border-orange-500 pl-2">3. Admin: Course Data (Maraton/Precision)</h3>
-            <p class="text-gray-700 mb-2">For the system to calculate times and penalties correctly, you must set course data.</p>
-            
-            <div class="grid md:grid-cols-2 gap-4 text-sm text-gray-700">
-                <div class="bg-orange-50 p-4 rounded border border-orange-200">
-                    <strong class="block text-orange-900 mb-2">🌲 Marathon: Sections & Times</strong>
-                    <ul class="list-disc list-inside space-y-1">
-                        <li>Go to tab <strong>Maraton</strong> in Admin.</li>
-                        <li>Fill in <strong>Length (m)</strong> and <strong>Speed</strong> for Section A, Transfer, and Section B.</li>
-                        <li>Set which obstacles are driven for each class if a class does not drive all obstacles.</li>
-                        <li>The system automatically calculates <em>Ideal Time</em>, <em>Max Time</em>, and <em>Minimum Time</em>.</li>
-                        <li>Use <strong>Marathon &gt; Calculate times</strong> for per-entry control printouts before the competition starts.</li>
-                        <li><strong>Important:</strong> Do this BEFORE competition starts! Otherwise, officials get no time windows.</li>
-                    </ul>
-                </div>
-                <div class="bg-purple-50 p-4 rounded border border-purple-200">
-                    <strong class="block text-purple-900 mb-2">🏁 Precision: Max Time & Width</strong>
-                    <ul class="list-disc list-inside space-y-1">
-                        <li>Go to tab <strong>Precision</strong> in Admin.</li>
-                        <li>Enter <strong>Course Length</strong> and <strong>Speed</strong> (or set a fixed Max Time manually).</li>
-                        <li>Enter <strong>Gate Width</strong> (e.g., Carriage Width + 20cm).</li>
-                        <li>This controls when the clock turns red (Time Faults) on the monitor.</li>
-                    </ul>
-                </div>
-            </div>
-          </section>
 
+          <!-- SPECIAL MARATHON CLASSES -->
           <section>
-            <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">4. Marathon: Special Classes & Tempo</h3>
-            <p class="text-gray-700 mb-2">How to handle mixed classes, para-drivers, and children's classes.</p>
-            
-            <div class="space-y-4">
-              <!-- Mixed Classes -->
+            <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">4. Marathon: Division Templates & Exceptions</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
               <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">1. Mixed / Combined Classes</strong>
-                  <p class="text-sm text-gray-700 mb-2">If a class contains mixed categories (e.g., Pony & Horse) but should follow a specific rule set (e.g., "Lätt B"):</p>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Go to <strong>Marathon Settings</strong>.</li>
-                      <li>Select the correct level in the <strong>"Tempo Template"</strong> dropdown (e.g., "Lätt B").</li>
-                      <li>The system automatically calculates the correct ideal time for Pony A, Pony B, Horse, etc.</li>
-                  </ul>
+                <strong class="text-indigo-900 block font-bold mb-1">1. Mixed Divisions</strong>
+                <p class="text-xs text-gray-600">Select template level (e.g. Lätt B) to automatically assign appropriate speeds across horse and pony categories in a merged class.</p>
               </div>
-
-              <!-- Para -->
               <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">2. Para-Drivers (Exception)</strong>
-                  <p class="text-sm text-gray-700 mb-2">If a single driver in a normal class needs Para-tempo:</p>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Go to <strong>Participants</strong> and edit the driver.</li>
-                      <li>Check the box <strong>"Para Driver"</strong>.</li>
-                      <li>They automatically get their class level adjusted for Para rules.</li>
-                  </ul>
+                <strong class="text-indigo-900 block font-bold mb-1">2. Para Drivers</strong>
+                <p class="text-xs text-gray-600">Check <em>"Para Driver"</em> on the entry card to apply regulatory speed adjustments automatically.</p>
               </div>
-
-              <!-- Barnklass -->
               <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">3. Children's Class ("Barnklass")</strong>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Select <strong>"Barnklass"</strong> in the "Tempo Template" dropdown.</li>
-                      <li>Automatically looks up <strong>10 minutes Warm-up</strong> (Fixed Time).</li>
-                      <li>Tempo is set according to Barnklass rules (Lätt B speeds).</li>
-                  </ul>
+                <strong class="text-indigo-900 block font-bold mb-1">3. Children's Classes</strong>
+                <p class="text-xs text-gray-600">Selecting <em>"Barnklass"</em> includes mandatory 10 min warm-up and compliant speed rates.</p>
               </div>
-              
-                <!-- Warm-up -->
               <div class="bg-white border rounded p-4 shadow-sm">
-                  <strong class="text-indigo-900 block font-bold mb-1">4. Warm-up (Instead of Section A)</strong>
-                  <p class="text-sm text-gray-700 mb-2">To turn Section A into a pure warm-up:</p>
-                  <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                      <li>Go to <strong>Marathon Settings</strong>.</li>
-                      <li>Enter minutes in the box <strong>"Fixed Time (WU)"</strong> (e.g., 30).</li>
-                      <li>The section is renamed "Warm-up" and gets a fixed time without windows.</li>
-                  </ul>
+                <strong class="text-indigo-900 block font-bold mb-1">4. Warm-up Section</strong>
+                <p class="text-xs text-gray-600">Set fixed minutes in <em>"Fixed Time (WU)"</em> to convert Section A into a warm-up period without time penalties.</p>
               </div>
             </div>
           </section>
 
+          <!-- TEAMS & CARRIAGE -->
           <section>
-            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">5. Dressage: Advanced</h3>
-            <div class="bg-purple-50 p-4 rounded-lg space-y-4 text-gray-700">
-              <div>
-                <strong class="text-purple-900 block font-bold">📄 PDF Import of Programs</strong>
-                <p class="text-sm">You don't need to type in every movement manually! Upload the program's official PDF, and the system "reads" the text and creates the protocol for you.</p>
+            <h3 class="font-bold text-lg mb-2 text-cyan-700 border-l-4 border-cyan-500 pl-2">5. Carriage Verification & Team Competition</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              <div class="bg-white border rounded p-4 shadow-sm">
+                <strong class="text-cyan-900 block font-bold mb-1">🏎️ Carriage Width Verification</strong>
+                <p class="text-xs text-gray-600">Enter measured wheel track width under <em>Carriage Width</em>. The system cross-references against minimum allowable dimensions and flags non-compliance.</p>
               </div>
-              <div>
-                <strong class="text-purple-900 block font-bold">👨‍⚖️ Judge Assignment</strong>
-                <p class="text-sm">Choose <strong>Admin > Dressage</strong> to control which judges (C, E, H) judge which class. System tracks qualifications.</p>
-              </div>
-              <div>
-                <strong class="text-purple-900 block font-bold">✨ Clear Round / Pay & Drive</strong>
-                <p class="text-sm">For training classes, you can enable "Clear Round". This hides exact penalties from the public and replaces them with "Approved" if the driver's percentage is above your chosen limit (e.g., 60%).</p>
+              <div class="bg-white border rounded p-4 shadow-sm">
+                <strong class="text-cyan-900 block font-bold mb-1">🏆 Team Championship (Teams)</strong>
+                <p class="text-xs text-gray-600">Create teams and drag drivers into team cards. System automatically looks up club logos and national flags.</p>
               </div>
             </div>
           </section>
 
-            <section>
-              <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">5. Manage Start Times</h3>
-              <p class="text-gray-700 mb-2">Go to <strong>Start Times</strong> to schedule starts.</p>
-              <div class="bg-gray-50 p-3 rounded text-sm text-gray-700">
-                  <strong>Tips for smooth planning:</strong>
-                  <ol class="list-decimal list-inside mt-1 ml-2">
-                      <li>Select classes and set an interval (e.g., 10 min).</li>
-                      <li>Click "Generate".</li>
-                      <li><strong>Drag and drop:</strong> You can grab a row and move it up/down to fine-tune start order <em>before</em> saving.</li>
-                      <li><strong>Insert Pause:</strong> Click the coffee cup <span class="text-sm">☕</span> on a row to insert a break (e.g., 15 min) <em>after</em> that driver. All subsequent times are pushed forward.</li>
-                      <li>Don't forget <strong>"Save & Publish"</strong>! Before that, no one sees the times.</li>
-                      <li><strong>New:</strong> The "Publish Startlist" toggle makes times visible to the public. You can work on the schedule privately until you switch this on.</li>
-                  </ol>
-                  
-                  <h4 class="font-bold text-gray-800 text-sm mt-3 mb-1">🔥 Advanced Generation</h4>
-                  <p class="text-xs text-gray-600 mb-2">For Marathon and Precision, you can let previous results dictate start order:</p>
-                  <ul class="list-disc list-inside text-xs text-gray-600 space-y-1 ml-1">
-                      <li><strong>Marathon after Dressage:</strong> Worst dressage result starts first (or vice versa).</li>
-                      <li><strong>Precision ("Reverse Order"):</strong> To create suspense, you can let those with the <em>worst</em> total result (Dressage + Marathon) start first, so the leader starts last. Choose "Sort by Result" in settings.</li>
-                  </ul>
-              </div>
-            </section>
-
-            <section>
-              <h3 class="font-bold text-lg mb-2 text-green-700 border-l-4 border-green-500 pl-2">6. Admin: Marathon (Map)</h3>
-              <p class="text-gray-700 mb-2">For "Monitor Marathon" (public screen) to show a nice map:</p>
-              <div class="bg-green-50 p-4 rounded-lg space-y-3 text-sm text-gray-700">
-                  <div>
-                      <strong class="text-green-900 font-bold block">1. Upload Image</strong>
-                      <ul class="list-disc list-inside ml-2">
-                          <li>Upload your course map (image) to <strong>Google Drive</strong>.</li>
-                          <li>Right-click file in Drive -> "Share" -> "Copy link" (Anyone with link).</li>
-                          <li>In system: Click button <strong>"📁 G-Drive"</strong> and paste link. System converts it automatically to an image link.</li>
-                      </ul>
-                  </div>
-                  <div>
-                      <strong class="text-green-900 font-bold block">2. Place Obstacles</strong>
-                      <ul class="list-disc list-inside ml-2">
-                          <li>Select what you want to place in dropdown (e.g., "Obstacle 1").</li>
-                          <li>Click a point on the map preview.</li>
-                          <li>A red dot appears. Coordinates save automatically.</li>
-                          <li>Repeat for all obstacles, start, and finish.</li>
-                      </ul>
-                  </div>
-              </div>
-            </section>
-
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">7. Correcting Results</h3>
-            <p class="text-gray-700 mb-2">If a dressage protocol was signed incorrectly, you can reopen it.</p>
-            <div class="bg-red-50 p-4 rounded-lg space-y-2 border border-red-100">
-                <h4 class="font-bold text-red-800 text-sm">Unlock ("Unfinalize") Protocol</h4>
-                <ol class="list-decimal list-inside text-sm text-gray-700 ml-2">
-                    <li>Go to <strong>Results > Dressage</strong>.</li>
-                    <li>Find the entry in the list.</li>
-                    <li>In the column far right ("Finalize"), click button <span class="border border-emerald-600 text-emerald-700 px-1 rounded text-xs">Undo</span>.</li>
-                    <li>Protocol is now "open" again and judge can make changes in iPad.</li>
-                </ol>
-            </div>
-          </section>
-
-          <section>
-            <h3 class="font-bold text-lg mb-2 text-cyan-700 border-l-4 border-cyan-500 pl-2">8. Teams & Groups</h3>
-            <p class="text-gray-700 mb-2">Here you manage the team competition. Go to the <strong>Teams</strong> tab in Admin.</p>
-            
-            <div class="space-y-4">
-                <div class="bg-cyan-50 p-4 rounded border border-cyan-200">
-                    <strong class="text-cyan-900 block font-bold mb-1">Create & Manage Teams</strong>
-                    <ul class="list-disc list-inside text-sm text-gray-700 ml-2">
-                        <li><strong>Activate:</strong> Switch on "Activate Team Competition" at the top.</li>
-                        <li><strong>Create Team:</strong> Click "New Team", enter name, and save.</li>
-                        <li><strong>Add Drivers:</strong>
-                            <ul class="list-circle list-inside ml-4 mt-1">
-                                <li>On the right, you see a list of available drivers ("Unassigned").</li>
-                                <li><strong>Drag-and-Drop:</strong> Grab a driver card and drag it to the desired team box. Drop to add.</li>
-                                <li>You can also drag drivers <em>between</em> teams to move them.</li>
-                            </ul>
-                        </li>
-                    </ul>
-                </div>
-
-                <div class="bg-white border rounded p-4 shadow-sm">
-                    <strong class="text-gray-800 block font-bold mb-1">Flags & Logos</strong>
-                    <p class="text-sm text-gray-600 mb-2">The system automatically tries to match team assets:</p>
-                    <ul class="list-disc list-inside text-sm text-gray-600 ml-2">
-                        <li><strong>Club Logo:</strong> If the team name matches a club (e.g., "Körsällskapet ..."), the club logo is shown.</li>
-                        <li><strong>National Flag:</strong> If the team is named after a country (e.g., "Sweden", "Denmark", "Germany"), the flag is shown.</li>
-                    </ul>
-                    <p class="text-xs text-gray-500 mt-2">
-                        <em>Tip: Drivers display their own flags/logos based on their profile data (Nationality/Club).</em>
-                    </p>
-                </div>
-            </div>
-          </section>
         </div>
       `;
 
-    case 'official':
+        case 'official':
       return `
         <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">For Officials</h2>
         <div class="space-y-8">

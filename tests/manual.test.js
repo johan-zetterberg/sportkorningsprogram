@@ -29,3 +29,17 @@ test('manual.js contains modernized, reassuring offline guidance and removed out
   assert.ok(manualCode.includes('Klicka på "Spara Protokoll" som vanligt'), 'Should instruct user to save as usual');
   assert.ok(manualCode.includes('Synk-molnet'), 'Should explain sync indicator states');
 });
+
+test('manual.js contains complete chronological admin competition setup checklist', () => {
+  assert.ok(manualCode.includes('Fas 1: Skapa tävling & Importera anmälningar från TDB'), 'Has Phase 1 in Swedish');
+  assert.ok(manualCode.includes('Fas 2: Domare & Funktionärer'), 'Has Phase 2 in Swedish');
+  assert.ok(manualCode.includes('Fas 3: Banfakta för Maraton & Precision'), 'Has Phase 3 in Swedish');
+  assert.ok(manualCode.includes('Fas 4: Starttider & Schemaläggning'), 'Has Phase 4 in Swedish');
+  assert.ok(manualCode.includes('Fas 5: Tävlingsdagen (Mätning, Besiktning & Deklarering)'), 'Has Phase 5 in Swedish');
+  assert.ok(manualCode.includes('Fas 6: Slutkontroll, Prisutdelning & Arkivering'), 'Has Phase 6 in Swedish');
+
+  // English phases
+  assert.ok(manualCode.includes('Phase 1: Create Competition & Import Entries'), 'Has Phase 1 in English');
+  assert.ok(manualCode.includes('Phase 3: Course Data for Marathon & Cones'), 'Has Phase 3 in English');
+  assert.ok(manualCode.includes('Phase 6: Results Verification, Prizegiving & Archiving'), 'Has Phase 6 in English');
+});
