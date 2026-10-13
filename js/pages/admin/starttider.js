@@ -45,6 +45,7 @@ import {
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { t } from '../../utils/i18n.js';
+import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import {
     addPauseAfterStartNumber,
     adjustStartOrderForDriverBuffer,
@@ -62,6 +63,7 @@ import {
     getStarttiderPublishButtonView,
     getPublishedState,
     getTimesOnlyPayload,
+    getChangedTimesPayload,
     moveStartTimeRow,
     parseDateTime,
     recalculateStartTimesFrom,
@@ -87,6 +89,8 @@ let competitionId = null;
 let equipages = [];
 let teams = [];
 let startTimes = {};
+// The times as loaded or last saved here: Save writes only what differs
+let savedTimesBaseline = {};
 let feiStartOrderMeta = {};
 let unsubscribers = new Map();
 let pendingListenerRenderFrame = null;
@@ -1346,11 +1350,11 @@ async function togglePublish(key) {
     renderStarttiderReadiness();
 
     try {
-        // Separera times och published för att matcha strukturen i Firestore
-        await saveConfig(competitionId, 'startTimes', {
-            times: getTimesOnlyPayload(startTimes),
-            published: startTimes.published
-        });
+        // Only this discipline's flag (the document is merged): the times and
+        // another admin's other flags are not written back from this page
+        await awaitWriteOrQueue(saveConfig(competitionId, 'startTimes', {
+            published: { [key]: startTimes.published[key] }
+        }));
     } catch (err) {
         console.error("Failed to save publish state", err);
         showAlert("Kunde inte spara publiceringsstatus", "error");
@@ -1361,14 +1365,34 @@ async function togglePublish(key) {
     }
 }
 
+let savingTimes = false;
+
 async function saveTimes() {
-    const payload = {
-        times: getTimesOnlyPayload(startTimes),
-        published: getPublishedState(startTimes),
-        updatedAt: Date.now()
-    };
-    await saveConfig(competitionId, 'startTimes', payload);
-    showAlert(t('times_saved'), 'success');
+    if (savingTimes) return;
+    // Only the start numbers changed on this page since loading (see
+    // getChangedTimesPayload); publishing is saved by its own buttons
+    const changed = getChangedTimesPayload(startTimes, savedTimesBaseline);
+    if (Object.keys(changed).length === 0) {
+        showAlert(t('times_saved'), 'success');
+        return;
+    }
+    const button = document.getElementById('btnSaveTimes');
+    savingTimes = true;
+    if (button) button.disabled = true;
+    try {
+        const result = await awaitWriteOrQueue(saveConfig(competitionId, 'startTimes', {
+            times: changed,
+            updatedAt: Date.now()
+        }));
+        savedTimesBaseline = JSON.parse(JSON.stringify(getTimesOnlyPayload(startTimes)));
+        showAlert(`${t('times_saved')}${queuedNotice(result)}`, result === 'queued' ? 'offline' : 'success');
+    } catch (err) {
+        console.error('Kunde inte spara starttider', err);
+        showAlert(t('times_save_error'), 'error');
+    } finally {
+        savingTimes = false;
+        if (button) button.disabled = false;
+    }
 }
 
 async function clearDisciplineTimes(discipline) {
@@ -1722,7 +1746,8 @@ ${renderStarttiderToolbarSection({
 async function loadData() {
     // === ÄNDRING: Lade till displayCfg och de gamla merge-filerna ===
     const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy, teamsData, feiStartOrderConfig] = await Promise.all([
-        getConfig(competitionId, 'startTimes'),
+        // Fresh: a cached copy can be an hour old and would be saved back
+        getConfig(competitionId, 'startTimes', true),
         getEquipages(competitionId),
         getMarathonStateDocuments(competitionId),
         getMarathonTimingData(competitionId),
@@ -1770,6 +1795,7 @@ async function loadData() {
     }
 
     startTimes = cfgDoc?.times || {};
+    savedTimesBaseline = JSON.parse(JSON.stringify(cfgDoc?.times || {}));
     teams = teamsData || [];
     feiStartOrderMeta = feiStartOrderConfig || {};
     // Ensure published state is loaded and attached to startTimes

@@ -49,6 +49,20 @@ export function getTimesOnlyPayload(startTimes = {}) {
     return timesOnly;
 }
 
+/**
+ * The start numbers whose times differ from what was loaded: only these are
+ * saved (the document is merged), so another admin's changes to other start
+ * numbers in the meantime are not written back with old values.
+ */
+export function getChangedTimesPayload(startTimes = {}, baseline = {}) {
+    const current = getTimesOnlyPayload(startTimes);
+    const changed = {};
+    Object.keys(current).forEach((sn) => {
+        if (JSON.stringify(current[sn] ?? null) !== JSON.stringify(baseline?.[sn] ?? null)) changed[sn] = current[sn];
+    });
+    return changed;
+}
+
 export function getStarttiderPublishButtonView(key, publishedState = {}, {
     colorClass,
     borderClass,

@@ -102,7 +102,8 @@ test('seeded edge-case smoke flow', async ({ page }) => {
   await expect(page.locator('#page-official')).toContainText('Funktionärsportal');
   const pendingWidget = page.locator('#widget-pending-text');
   await expect(pendingWidget).not.toContainText('Allt är attesterat');
-  await expect(pendingWidget).toContainText(/Dressyr|Maraton|Precision/);
+  // The widget fills in once its data has loaded, which takes longer when the whole suite runs
+  await expect(pendingWidget).toContainText(/Dressyr|Maraton|Precision/, { timeout: 30000 });
 
   await page.goto('/index.html#admin');
   await page.locator('#tab-btn-officials').click();

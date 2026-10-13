@@ -1,4 +1,5 @@
 import { getGlobalState } from '../../main.js';
+import { pickEditedFields } from '../../services/secretariatPatchUtils.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { saveEquipage } from '../../services/equipageService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
@@ -213,7 +214,7 @@ function renderEditInfoView(equipage, modalContent) {
     document.getElementById('cancelInfoBtn').addEventListener('click', () => showEquipageDetailsModal(equipage));
 
     document.getElementById('saveInfoBtn').addEventListener('click', async () => {
-        const newData = {
+        const formData = {
             driverName: document.getElementById('editDriverName').value.trim(),
             email: (document.getElementById('editEmail').value || '').trim().toLowerCase(),
             clubName: document.getElementById('editClubName').value.trim(),
@@ -221,6 +222,21 @@ function renderEditInfoView(equipage, modalContent) {
             speakerNotes: document.getElementById('editSpeakerNotes').value.trim(),
             vetNotes: document.getElementById('editVetNotes').value.trim(),
         };
+        // Only what was changed here: the vet or speaker may have written a
+        // newer note since this dialog opened
+        const newData = pickEditedFields(formData, {
+            ...equipage,
+            email: String(equipage.email || '').trim().toLowerCase()
+        }, Object.keys(formData), { driverName: '', email: '', clubName: '', className: '', speakerNotes: '', vetNotes: '' });
+        if (Object.keys(newData).length === 0) {
+            showEquipageDetailsModal(equipage);
+            return;
+        }
+        // A new class moves the equipage to another result list and program
+        if ('className' in newData
+            && !confirm(`Byta klass för #${equipage.startNumber} från "${equipage.className || '–'}" till "${newData.className}"? Resultat och placering räknas då i den nya klassen.`)) {
+            return;
+        }
 
         try {
             await saveEquipage(competitionId, equipage.startNumber, newData);

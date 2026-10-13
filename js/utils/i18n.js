@@ -533,6 +533,7 @@ export const DICTIONARY = {
     'add_pause_prompt': { sv: 'Ange pausens längd i minuter:', en: 'Enter pause duration in minutes:' },
     'confirm_clear_times': { sv: 'Är du säker på att du vill rensa ALLA starttider för', en: 'Are you sure you want to clear ALL start times for' },
     'times_cleared': { sv: '-tiderna har rensats.', en: ' times cleared.' },
+    'times_save_error': { sv: 'Kunde inte spara starttiderna. Försök igen.', en: 'Could not save the start times. Try again.' },
     'times_saved': { sv: 'Starttider sparade.', en: 'Start times saved.' },
     'cant_calc_prev_missing': { sv: 'Kan inte räkna om tider, föregående tid saknas.', en: 'Cannot recalculate, previous time missing.' },
     'cant_calc_first_missing': { sv: 'Kan inte räkna om tider, första starttid saknas.', en: 'Cannot recalculate, first start time missing.' },

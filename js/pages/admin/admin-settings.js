@@ -14,6 +14,7 @@ import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
 import { t } from '../../utils/i18n.js';
+import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { getPublishedState, parseDateTime } from './starttiderUtils.js';
 import {
     normalizeHorseTemperatureConfig,
@@ -1076,9 +1077,13 @@ export function getSettingsHtml() {
 
 export async function setupSettingsLogic(competitionId) {
     try {
-        const meta = await getConfig(competitionId, 'competitionMeta').catch(() => ({}));
+        // Read fresh (a cached copy can be an hour old). If they cannot be read,
+        // the form shows defaults and Save must not write those over the real values
+        let settingsUnreadable = false;
+        const unreadable = () => { settingsUnreadable = true; return {}; };
+        const meta = await getConfig(competitionId, 'competitionMeta', true).catch(unreadable);
         const horseTemperatureConfig = normalizeHorseTemperatureConfig(
-            await getConfig(competitionId, 'horseTemperature').catch(() => ({}))
+            await getConfig(competitionId, 'horseTemperature', true).catch(unreadable)
         );
 
         // --- 1. Basic Settings (Meta) ---
@@ -1249,6 +1254,10 @@ export async function setupSettingsLogic(competitionId) {
         const btn = document.getElementById('saveGlobalSettingsBtn');
         if (btn) {
             btn.onclick = async () => {
+                if (settingsUnreadable) {
+                    showAlert('Inställningarna kunde inte läsas (ingen uppkoppling?). Ladda om sidan med uppkoppling innan du sparar, annars skrivs standardvärden över de riktiga.', 'warning');
+                    return;
+                }
                 btn.textContent = 'Sparar...';
                 btn.disabled = true;
                 try {
@@ -1286,9 +1295,26 @@ export async function setupSettingsLogic(competitionId) {
                         }
                     });
 
-                    await updateCompetition(competitionId, {
-                        competitionMode: newCompetitionMode
-                    });
+                    // All writes at once, answered when queued: awaiting them one
+                    // by one left the button on "Sparar..." without signal
+                    const saveResult = await awaitWriteOrQueue(Promise.all([
+                        updateCompetition(competitionId, { competitionMode: newCompetitionMode }),
+                        saveConfig(competitionId, 'competitionMeta', {
+                            isInternational: newValIntl,
+                            lockdownMinutes: newValLock,
+                            manualLockdown: newValManual
+                        }),
+                        saveConfig(competitionId, 'horseTemperature', {
+                            ...newHorseTemperatureConfig,
+                            updatedAt: new Date()
+                        }),
+                        saveConfig(competitionId, 'classSettings', classSettings),
+                        // Coordinates in config/map (the root document is often not writable)
+                        saveConfig(competitionId, 'map', {
+                            coordinates: newCoords,
+                            updatedAt: new Date()
+                        })
+                    ]));
 
                     const currentComp = getGlobalState('currentCompetition');
                     if (currentComp?.id === competitionId) {
@@ -1300,28 +1326,6 @@ export async function setupSettingsLogic(competitionId) {
                             }
                         });
                     }
-
-                    // Save Meta
-                    await saveConfig(competitionId, 'competitionMeta', {
-                        isInternational: newValIntl,
-                        lockdownMinutes: newValLock,
-                        manualLockdown: newValManual
-                    });
-
-                    await saveConfig(competitionId, 'horseTemperature', {
-                        ...newHorseTemperatureConfig,
-                        updatedAt: new Date()
-                    });
-
-                    // Save Class Settings
-                    await saveConfig(competitionId, 'classSettings', classSettings);
-
-                    // Save Coordinates to Config (Safe Path)
-                    // We save to `config/map` as updating root document often fails due to permissions.
-                    await saveConfig(competitionId, 'map', {
-                        coordinates: newCoords,
-                        updatedAt: new Date()
-                    });
 
                     checklistContext.compDoc = {
                         ...checklistContext.compDoc,
@@ -1341,7 +1345,7 @@ export async function setupSettingsLogic(competitionId) {
                     renderCompetitionSetupChecklist(checklistContext);
                     renderChecklistSectionIndicators(checklistContext);
 
-                    showAlert('Inställningar sparade! ✅', true);
+                    showAlert(`Inställningar sparade! ✅${queuedNotice(saveResult)}`, saveResult === 'queued' ? 'offline' : true);
                 } catch (err) {
                     console.error(err);
                     showAlert('Kunde inte spara inställningar.', false);
