@@ -5,7 +5,8 @@ import { getGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { getEquipages } from '../../services/equipageService.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, runTransaction
+  doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, runTransaction,
+  writeBatch, increment, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
@@ -190,8 +191,8 @@ async function readObserverLog(sn) {
   if (!snap.exists()) return { wrongGaitSeconds: 0, halts: [], notes: "" };
   return snap.data().observerLog || { wrongGaitSeconds: 0, halts: [], notes: "" };
 }
-async function writeObserverLog(sn, log) {
-  const safeLog = {
+function normalizeObserverLog(log) {
+  return {
     wrongGaitSeconds: Math.max(0, Math.round(toInt(log?.wrongGaitSeconds))),
     halts: (Array.isArray(log?.halts) ? log.halts : []).map(h => ({
       atSec: Math.max(0, Math.round(toInt(h?.atSec))),
@@ -199,11 +200,47 @@ async function writeObserverLog(sn, log) {
     })),
     notes: String(log?.notes || '').trim()
   };
+}
 
-  await setDoc(summaryDocRef(sn), {
-    observerLog: safeLog,
-    updatedAt: Timestamp.now()
-  }, { merge: true });
+// What this device last read or saved per start number. Saves send only the
+// change from it (seconds added, halts added or removed, a changed note), so a
+// second observer's entries, or a log that could not be read (offline), are
+// never overwritten by this device's copy.
+const logBaselines = new Map();
+const emptyLog = () => ({ wrongGaitSeconds: 0, halts: [], notes: '' });
+const haltKey = (h) => `${h.atSec}:${h.durSec}`;
+
+function setLogBaseline(sn, log) {
+  logBaselines.set(String(sn), normalizeObserverLog(log));
+}
+
+async function writeObserverLog(sn, log) {
+  const next = normalizeObserverLog(log);
+  const base = logBaselines.get(String(sn)) || emptyLog();
+  const ref = summaryDocRef(sn);
+  const batch = writeBatch(db);
+  let changed = false;
+
+  const fields = {};
+  const addedSeconds = next.wrongGaitSeconds - base.wrongGaitSeconds;
+  if (addedSeconds !== 0) { fields.wrongGaitSeconds = increment(addedSeconds); changed = true; }
+  if (next.notes !== base.notes) { fields.notes = next.notes; changed = true; }
+  if (Object.keys(fields).length) {
+    batch.set(ref, { observerLog: fields, updatedAt: serverTimestamp() }, { merge: true });
+  }
+
+  const baseKeys = new Set(base.halts.map(haltKey));
+  const nextKeys = new Set(next.halts.map(haltKey));
+  const removed = base.halts.filter(h => !nextKeys.has(haltKey(h)));
+  const added = next.halts.filter(h => !baseKeys.has(haltKey(h)));
+  // Removing and adding are separate writes on the same field (an edited halt is both)
+  if (removed.length) { batch.set(ref, { observerLog: { halts: arrayRemove(...removed) } }, { merge: true }); changed = true; }
+  if (added.length) { batch.set(ref, { observerLog: { halts: arrayUnion(...added) }, updatedAt: serverTimestamp() }, { merge: true }); changed = true; }
+
+  if (!changed) return;
+  // The baseline moves at once: the next save sends only what comes after this
+  logBaselines.set(String(sn), next);
+  await batch.commit();
 }
 
 // ---------- Combobox helpers ----------
@@ -247,6 +284,35 @@ function filterEquipages(term) {
   );
 }
 
+// A running wrong-gait or halt timer is kept on the device, so a reload or
+// the phone closing the app does not lose it; opening the equipage resumes it
+const runningKey = (sn) => `observerRunning:${resolveCompetitionId()}:${sn}`;
+
+function persistRunning() {
+  if (!currentSn) return;
+  try {
+    if (wrongGaitRunning || haltRunning) {
+      localStorage.setItem(runningKey(currentSn), JSON.stringify({
+        wrongGaitStartTs: wrongGaitRunning ? wrongGaitStartTs : null,
+        haltStartTs: haltRunning ? haltStartTs : null
+      }));
+    } else {
+      localStorage.removeItem(runningKey(currentSn));
+    }
+  } catch (_) { /* no storage */ }
+}
+
+function restoreRunning(sn) {
+  try {
+    const saved = JSON.parse(localStorage.getItem(runningKey(sn)) || 'null');
+    if (!saved) return false;
+    if (Number.isFinite(saved.wrongGaitStartTs)) { wrongGaitRunning = true; wrongGaitStartTs = saved.wrongGaitStartTs; }
+    if (Number.isFinite(saved.haltStartTs)) { haltRunning = true; haltStartTs = saved.haltStartTs; }
+    return wrongGaitRunning || haltRunning;
+  } catch (_) {
+    return false;
+  }
+}
 // Bumped on every selection: a slow read for the previous equipage must not
 // load its log into the one selected now (the next save would store it there)
 let selectionSeq = 0;
@@ -261,6 +327,7 @@ async function onEquipageSelected(sn, container) {
     if (haltRunning) halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) });
     if (wrongGaitRunning) wrongGaitAccum += (nowSec() - wrongGaitStartTs);
     const previousLog = { wrongGaitSeconds: wrongGaitAccum, halts: [...halts], notes: qs('#notesField', container)?.value ?? notes };
+    try { localStorage.removeItem(runningKey(previousSn)); } catch (_) { }
     awaitWriteOrQueue(writeObserverLog(previousSn, previousLog)).catch((e) => {
       console.error('Kunde inte spara observatörslogg vid byte:', e);
       showAlert(`#${previousSn}: observatörsloggen kunde inte sparas.`, false);
@@ -297,6 +364,7 @@ async function onEquipageSelected(sn, container) {
   try {
     const log = await readObserverLog(currentSn);
     if (mySelection !== selectionSeq) return;
+    setLogBaseline(currentSn, log);
     wrongGaitAccum = Math.max(0, toInt(log.wrongGaitSeconds));
     halts = Array.isArray(log.halts) ? log.halts.map(h => ({
       atSec: Math.max(0, toInt(h.atSec)),
@@ -306,6 +374,7 @@ async function onEquipageSelected(sn, container) {
     const notesEl = qs('#notesField', container);
     if (notesEl) notesEl.value = notes;
 
+    restoreRunning(currentSn);
     setButtonsEnabled(container, true);
     ensureTicker(container);
     updateWrongGaitUI(container);
@@ -313,8 +382,16 @@ async function onEquipageSelected(sn, container) {
     if (status) status.textContent = '';
   } catch (e) {
     console.error('Kunde inte läsa observerLog:', e);
-    if (status) status.textContent = t('observer_read_error');
+    if (mySelection !== selectionSeq) return;
+    // Not read (offline and not on the device): start from nothing here. Saves
+    // only add to the log, so what is already saved is kept
+    setLogBaseline(currentSn, emptyLog());
+    restoreRunning(currentSn);
+    updateWrongGaitUI(container);
+    renderHalts(container);
+    if (status) status.textContent = t('observer_read_error_additive');
     setButtonsEnabled(container, true);
+    ensureTicker(container);
   }
 }
 
@@ -762,13 +839,13 @@ function wire(container) {
   // === Buttons & logic ===
   qs('#btnWgStart', container)?.addEventListener('click', () => {
     if (!currentSn || wrongGaitRunning) return;
-    wrongGaitRunning = true; wrongGaitStartTs = nowSec();
+    wrongGaitRunning = true; wrongGaitStartTs = nowSec(); persistRunning();
     ensureTicker(container); updateWrongGaitUI(container);
   });
   qs('#btnWgStop', container)?.addEventListener('click', () => {
     if (!currentSn || !wrongGaitRunning) return;
     wrongGaitAccum += (nowSec() - wrongGaitStartTs);
-    wrongGaitRunning = false; wrongGaitStartTs = 0;
+    wrongGaitRunning = false; wrongGaitStartTs = 0; persistRunning();
     updateWrongGaitUI(container); autoSave();
   });
 
@@ -780,20 +857,20 @@ function wire(container) {
   qs('#wgManualApply', container)?.addEventListener('click', () => {
     const secs = parseMMSSorSeconds(wgInp?.value || '');
     if (secs == null) { alert(t('observer_invalid_format')); return; }
-    wrongGaitRunning = false; wrongGaitAccum = Math.max(0, Math.round(secs));
+    wrongGaitRunning = false; wrongGaitAccum = Math.max(0, Math.round(secs)); persistRunning();
     updateWrongGaitUI(container); wgWrap?.classList.add('hidden'); autoSave();
   });
 
   qs('#btnHaltStart', container)?.addEventListener('click', () => {
     if (!currentSn || haltRunning) return;
-    haltRunning = true; haltStartTs = nowSec();
+    haltRunning = true; haltStartTs = nowSec(); persistRunning();
     ensureTicker(container); renderHalts(container);
   });
   qs('#btnHaltStop', container)?.addEventListener('click', () => {
     if (!currentSn || !haltRunning) return;
     const dur = Math.max(0, nowSec() - haltStartTs);
     halts.push({ atSec: haltStartTs, durSec: dur });
-    haltRunning = false; haltStartTs = 0;
+    haltRunning = false; haltStartTs = 0; persistRunning();
     renderHalts(container); autoSave();
   });
 

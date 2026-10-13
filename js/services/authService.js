@@ -274,7 +274,7 @@ export async function registerUser(email, password) {
 
 // Device storage with competition data: the Firestore copy (IndexedDB) and
 // these localStorage entries (field backups, cached competition settings)
-const DEVICE_DATA_KEY_PREFIXES = ['bkp_', 'configCache:', ROLE_CACHE_PREFIX];
+const DEVICE_DATA_KEY_PREFIXES = ['bkp_', 'configCache:', ROLE_CACHE_PREFIX, 'observerRunning:'];
 
 export async function logoutUser() {
     // Saves still waiting for the network live in the device's Firestore copy,

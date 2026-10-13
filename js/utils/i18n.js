@@ -669,6 +669,7 @@ export const DICTIONARY = {
     'observer_ongoing': { sv: 'Pågår...', en: 'Ongoing...' },
     'observer_seconds': { sv: '{sec} sek', en: '{sec} sec' },
     'observer_select_to_note': { sv: 'Välj ett ekipage för att börja notera.', en: 'Select an equipage to start taking notes.' },
+    'observer_read_error_additive': { sv: 'Kunde inte läsa tidigare anteckningar (ingen uppkoppling?). Det du noterar nu läggs till; inget som redan sparats försvinner.', en: 'Could not read earlier entries (no signal?). What you note now is added; nothing already saved is lost.' },
     'observer_read_error': { sv: 'Kunde inte läsa tidigare noteringar för ekipaget.', en: 'Could not read previous notes for the equipage.' },
     'observer_no_matches': { sv: 'Inga träffar', en: 'No matches' },
     'observer_invalid_format': { sv: 'Ogiltigt format.', en: 'Invalid format.' },
