@@ -1,11 +1,12 @@
-import { db, appId } from '../config/firebase-config.js';
+import { db, appId, auth } from '../config/firebase-config.js';
 import {
     doc,
-    updateDoc,
     serverTimestamp,
     getDoc,
-    setDoc
+    writeBatch,
+    arrayUnion
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { RESULT_ENGINE_VERSION } from '../core-engine/version.js';
 import { getEquipages } from './equipageService.js';
 import { getConfig } from './competitionService.js';
 import { getAllDressageProtocols } from './dressageService.js';
@@ -16,6 +17,8 @@ import { buildArchiveRowsFromData } from './archiveRowBuilder.js';
 import {
     assertArchiveCanFinalize,
     buildArchiveCompetition,
+    buildArchiveSnapshot,
+    findIncompleteArchiveRows,
     buildFinalizeCompetitionPatch,
     buildReopenCompetitionPatch
 } from './archivingUtils.js';
@@ -65,10 +68,16 @@ async function buildArchiveRows(competitionId) {
     };
 }
 
-export async function finalizeCompetition(competitionId) {
+/**
+ * Archives the competition: refuses while equipages lack a final result
+ * (error.code 'archive-incomplete') unless allowIncomplete, saves the result
+ * list as an unchangeable snapshot and locks the competition, in one batch.
+ */
+export async function finalizeCompetition(competitionId, { allowIncomplete = false } = {}) {
     try {
-        const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
-        const metaRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/config/competitionMeta`);
+        const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+        const compRef = doc(db, base);
+        const metaRef = doc(db, `${base}/config/competitionMeta`);
 
         const [compSnap, archiveData] = await Promise.all([
             getDoc(compRef),
@@ -78,7 +87,8 @@ export async function finalizeCompetition(competitionId) {
         assertArchiveCanFinalize({
             competitionId,
             competitionExists: compSnap.exists(),
-            rows: archiveData.rows
+            rows: archiveData.rows,
+            allowIncomplete
         });
 
         const competition = buildArchiveCompetition(compSnap.data(), archiveData.competitionMeta);
@@ -89,11 +99,22 @@ export async function finalizeCompetition(competitionId) {
             throwOnMissingPdfLib: true
         });
 
-        await updateDoc(compRef, buildFinalizeCompetitionPatch(serverTimestamp()));
+        // Snapshot, lock and declaration lock together: never locked without
+        // its snapshot or the other way round
+        const archivedAt = Date.now();
+        const snapshotId = `snapshot_${archivedAt}`;
+        const batch = writeBatch(db);
+        batch.set(doc(db, `${base}/archive/${snapshotId}`), buildArchiveSnapshot(archiveData.rows, {
+            archivedAt,
+            archivedBy: auth.currentUser?.uid || null,
+            engineVersion: RESULT_ENGINE_VERSION,
+            allowedIncomplete: findIncompleteArchiveRows(archiveData.rows)
+        }));
+        batch.update(compRef, { ...buildFinalizeCompetitionPatch(serverTimestamp()), archiveSnapshotId: snapshotId });
+        batch.set(metaRef, { manualLockdown: true }, { merge: true });
+        await batch.commit();
 
-        await setDoc(metaRef, { manualLockdown: true }, { merge: true });
-
-        return { success: true, rows: archiveData.rows.length };
+        return { success: true, rows: archiveData.rows.length, snapshotId };
     } catch (err) {
         console.error("Finalize Failed:", err);
         throw err;
@@ -104,11 +125,17 @@ export async function reopenCompetition(competitionId) {
     if (!competitionId) throw new Error("Competition ID required");
 
     try {
+        // Reopening is the only way to change an archived competition; who
+        // did it and when is kept on the competition (the snapshot stays)
         const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
-        await updateDoc(compRef, buildReopenCompetitionPatch());
-
         const metaRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/config/competitionMeta`);
-        await setDoc(metaRef, { manualLockdown: false }, { merge: true });
+        const batch = writeBatch(db);
+        batch.update(compRef, {
+            ...buildReopenCompetitionPatch(),
+            reopenHistory: arrayUnion({ at: Date.now(), by: auth.currentUser?.uid || null })
+        });
+        batch.set(metaRef, { manualLockdown: false }, { merge: true });
+        await batch.commit();
 
         return { success: true };
     } catch (err) {

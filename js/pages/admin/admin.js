@@ -322,7 +322,22 @@ function renderLayout(competition) {
       btnFinalize.classList.add('opacity-50', 'cursor-not-allowed');
 
       try {
-        const result = await finalizeCompetition(competition.id);
+        let result;
+        try {
+          result = await finalizeCompetition(competition.id);
+        } catch (err) {
+          // Equipages without a final result: archive only when the admin
+          // confirms that their results really are final as they stand
+          if (err?.code !== 'archive-incomplete') throw err;
+          const proceed = confirm(`${err.message}\n\nEtt arkiv låser resultaten som de är nu. Arkivera ändå?`);
+          if (!proceed) {
+            renderArchiveStatusMessage(statusEl, { state: 'error', message: err.message });
+            btnFinalize.disabled = false;
+            btnFinalize.classList.remove('opacity-50', 'cursor-not-allowed');
+            return;
+          }
+          result = await finalizeCompetition(competition.id, { allowIncomplete: true });
+        }
         const successMessage = buildArchiveSuccessMessage(result);
         renderArchiveStatusMessage(statusEl, { state: 'success', message: successMessage.replace('\n', ' ') });
         alert(successMessage);
@@ -344,7 +359,7 @@ function renderLayout(competition) {
   const btnReopen = document.getElementById('btnReopenCompetition');
   if (btnReopen) {
     btnReopen.addEventListener('click', async () => {
-      if (!confirm('Vill du låsa upp tävlingen igen?')) return;
+      if (!confirm('Vill du låsa upp tävlingen igen?\nResultaten kan då ändras. Det sparade arkivet ändras inte, och upplåsningen loggas.')) return;
       btnReopen.disabled = true;
       btnReopen.textContent = 'Låser upp...';
       try {

@@ -494,16 +494,18 @@ function renderClassCards() {
 
         const tempoState = getTempoStateForGroup(group);
         const stdTempo = tempoState.displayTempo;
-        const tempoPlaceholder = tempoState.hasMixedTempo ? 'Klassvis' : (stdTempo > 0 ? String(stdTempo) : 'Ange tempo');
+        const tempoPlaceholder = tempoState.hasMixedTempo ? tempoState.tempos.join('/') : (stdTempo > 0 ? String(stdTempo) : 'Ange tempo');
         const savedTempo = precisionConfig.courses?.[className]?.tempo;
         // Use saved override if available, otherwise the TR standard tempo.
         const activeTempo = savedTempo > 0 ? savedTempo : stdTempo;
         const sourceClassLabel = group.isMerged && group.sourceClasses.length
-            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Ingår: ${escapeHtml(group.sourceClasses.join(', '))}. Tempo räknas per ursprungsklass om inget manuellt tempo anges.</p>`
+            ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Ingår: ${escapeHtml(group.sourceClasses.join(', '))}. Tempo räknas per ekipage (häst/ponny) om inget manuellt tempo anges.</p>`
             : '';
 
-        let maxTime = tempoState.hasMixedTempo && !(savedTempo > 0) ? 'Klassvis' : '--:--';
-        if (trackLength > 0 && activeTempo > 0) {
+        let maxTime = tempoState.hasMixedTempo && !(savedTempo > 0) ? 'Per ekipage' : '--:--';
+        if (trackLength > 0 && tempoState.hasMixedTempo && !(savedTempo > 0)) {
+            maxTime = tempoState.tempos.map(tempo => secondsToMMSS((trackLength / tempo) * 60)).join(' / ');
+        } else if (trackLength > 0 && activeTempo > 0) {
             maxTime = secondsToMMSS((trackLength / activeTempo) * 60);
         }
 
@@ -533,7 +535,7 @@ function renderClassCards() {
                            <span class="flex-1 sm:text-right text-xs text-gray-500">Maxtid:</span>
                            <strong id="maxtime_${classId}" class="text-gray-800 dark:text-white whitespace-nowrap">${escapeHtml(maxTime)}</strong>
                         </div>
-                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${tempoState.hasMixedTempo ? 'Lämna tempo tomt för klassvis beräkning per ursprungsklass. Fyll bara i tempo om hela gruppen ska ha samma tempo.' : 'Lämna tempo tomt för att använda klassens standardtempo.'}</p>
+                        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${tempoState.hasMixedTempo ? `Häst och ponny har olika tempo (${escapeHtml(tempoState.tempos.join(' / '))} m/min). Lämna tomt: varje ekipage kör på sitt tempo (TR 535.1). Ett ifyllt tempo gäller alla i klassen.` : 'Lämna tempo tomt för att använda klassens standardtempo.'}</p>
                     </div>
                 </div>
                 <div class="precision-field-wrap mt-4">
@@ -574,13 +576,13 @@ function renderClassCards() {
         const trackLength = parseOptionalNumber(card.querySelector('.track-length-input').value) || 0;
         const maxTimeOutput = document.getElementById(`maxtime_${classId}`);
 
-        if (trackLength > 0 && activeTempo > 0 && maxTimeOutput) {
+        if (!maxTimeOutput) return;
+        if (tempoState.hasMixedTempo && !(overrideTempo > 0) && trackLength > 0) {
+            // Each equipage at its own tempo: the max time per tempo
+            maxTimeOutput.textContent = tempoState.tempos.map(tempo => secondsToMMSS((trackLength / tempo) * 60)).join(' / ');
+        } else if (trackLength > 0 && activeTempo > 0) {
             maxTimeOutput.textContent = secondsToMMSS((trackLength / activeTempo) * 60);
-        } else if (maxTimeOutput) {
-            if (tempoState.hasMixedTempo && !(overrideTempo > 0) && trackLength > 0) {
-                maxTimeOutput.textContent = 'Klassvis';
-                return;
-            }
+        } else {
             maxTimeOutput.textContent = '--:--';
         }
     };
@@ -1079,16 +1081,23 @@ function buildPrecisionClassGroups(equipages = [], mergeMap = new Map()) {
 
 function getTempoStateForGroup(group) {
     const sourceClasses = group?.sourceClasses?.length ? group.sourceClasses : [group?.label].filter(Boolean);
-    // Standard tempo exactly as the result engine finds it (no config overrides)
-    const tempos = sourceClasses
-        .map(className => getClassTempoMpm(className, {}) || 0)
+    // Standard tempo exactly as the result engine finds it (no config
+    // overrides), per equipage: a class for ponies and horses together
+    // ("Lätt B Enbet") gives each its own tempo from its category (TR 535.1)
+    const subjects = sourceClasses.flatMap(className => {
+        const inClass = (precisionAdminEquipages || []).filter(eq => eq.className === className);
+        return inClass.length ? inClass : [className];
+    });
+    const tempos = subjects
+        .map(subject => getClassTempoMpm(subject, {}) || 0)
         .filter(tempo => tempo > 0);
     const uniqueTempos = [...new Set(tempos)];
 
     return {
-        hasStandardTempo: sourceClasses.length > 0 && tempos.length === sourceClasses.length,
+        hasStandardTempo: subjects.length > 0 && tempos.length === subjects.length,
         displayTempo: uniqueTempos.length === 1 ? uniqueTempos[0] : 0,
-        hasMixedTempo: uniqueTempos.length > 1
+        hasMixedTempo: uniqueTempos.length > 1,
+        tempos: uniqueTempos.sort((a, b) => a - b)
     };
 }
 

@@ -169,8 +169,8 @@ service cloud.firestore {
     }
 
     // An archived competition (finalizeCompetition sets locked and status
-    // 'completed') takes no more result writes from judges and officials;
-    // an admin reopens it first (admins can still correct it)
+    // 'completed') takes no result writes at all, admins included: an admin
+    // reopens it first (reopenCompetition, which is logged)
     function isCompetitionOpen(appId, compId) {
       let comp = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
       return !exists(comp)
@@ -179,9 +179,10 @@ service cloud.firestore {
 
     function canWriteResultsAs(appId, compId, roleName) {
       return request.auth != null
+        && isCompetitionOpen(appId, compId)
         && (
           canAdminThisArtifactsComp(appId, compId)
-          || (hasExplicitRoleInComp(appId, compId, roleName) && isCompetitionOpen(appId, compId))
+          || hasExplicitRoleInComp(appId, compId, roleName)
         );
     }
 
@@ -695,6 +696,15 @@ service cloud.firestore {
     }
 
     // ---- SAMMANSTÄLLDA RESULTAT (computed-results)
+    // Archive snapshots (finalizeCompetition): the result list as archived.
+    // Created by an admin, never changed or removed from the app; deleting the
+    // whole competition runs on the server (deleteCompetitionData)
+    match /artifacts/{appId}/public/data/competitions/{compId}/archive/{snapshotId} {
+      allow read: if true;
+      allow create: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
+      allow update, delete: if false;
+    }
+
     match /artifacts/{appId}/public/data/competitions/{compId}/computed_equipages/{equipId} {
       allow read: if true;
 

@@ -1,4 +1,5 @@
-import { db, appId } from '../config/firebase-config.js';
+import { db, appId, functions } from '../config/firebase-config.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
 import { collection, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, query, orderBy, limit, addDoc, serverTimestamp, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompDocRef, getCompCollectionRef } from './firestoreService.js';
 import { auth } from '../config/firebase-config.js';
@@ -133,89 +134,14 @@ export async function updateCompetition(competitionId, data) {
   })());
 }
 
+// Deleting runs on the server (deleteCompetitionData): only there can all of
+// a competition go at once, including the finalization locks under
+// /competitions/{id} and its files in Storage
 export async function deleteCompetition(competitionId) {
   if (!competitionId) throw new Error("deleteCompetition: competitionId saknas");
-  const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
-
-  // Deletes every document of a query, 400 at a time (a batch takes 500)
-  const deleteQueryBatch = async (queryRef) => {
-    const snapshot = await getDocs(queryRef);
-    let deleted = 0;
-    for (let i = 0; i < snapshot.docs.length; i += 400) {
-      const batch = writeBatch(db);
-      snapshot.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
-      await batch.commit();
-      deleted += Math.min(400, snapshot.docs.length - i);
-    }
-    return deleted;
-  };
-  const deleteCollection = async (path) => {
-    try {
-      return await deleteQueryBatch(query(collection(db, path)));
-    } catch (error) {
-      error.message = `${error.message} (vid radering av ${path.replace(base + '/', '')})`;
-      throw error;
-    }
-  };
-
-  // Per-equipage subcollections first. Their parent documents often don't
-  // exist (protocols are written straight to dressage/{sn}/protocols), so
-  // listing the parent collection finds nothing: go by start number
-  const startNumbers = new Set();
-  for (const parent of ['equipages', 'dressage', 'dressageResults', 'dressageStatus', 'maratonResults', 'maraton', 'precision']) {
-    try {
-      (await getDocs(collection(db, `${base}/${parent}`))).docs.forEach(d => startNumbers.add(d.id));
-    } catch (error) {
-      console.warn(`deleteCompetition: kunde inte lista ${parent}:`, error);
-    }
-  }
-  for (const sn of startNumbers) {
-    for (const sub of [
-      `dressage/${sn}/protocols`,
-      `dressage/${sn}/meta`,
-      `dressageResults/${sn}/protocols`,
-      `dressageStatus/${sn}/live`,
-      `maratonResults/${sn}/obstacles`
-    ]) {
-      await deleteCollection(`${base}/${sub}`);
-    }
-  }
-
-  const simpleCollections = [
-    'equipages',
-    'equipagePrivate',
-    'judges',
-    'officials',
-    'officialsPrivate',
-    'assignments',
-    'volunteerSignups',
-    'teams',
-    'roleEmails',
-    'maratonObstacles',
-    'maratonLive',
-    'config',
-    'maraton-timing',
-    'maraton',
-    'maratonResults',
-    'precision',
-    'dressage',
-    'dressageResults',
-    'dressageStatus',
-    'messages',
-    'documents',
-    'computed_equipages'
-  ];
-  for (const colName of simpleCollections) {
-    await deleteCollection(`${base}/${colName}`);
-  }
-
-  await deleteCollection(`artifacts/${appId}/private/data/competitions/${competitionId}/auditLog`);
-
-  // Last: the joined officials and admins (PIN or e-mail access). Deleting
-  // them earlier could take the deleting admin's own access away
-  await deleteCollection(`${base}/admins`);
-
-  await deleteDoc(doc(db, base));
+  const callable = httpsCallable(functions, 'deleteCompetitionData');
+  const result = await callable({ competitionId });
+  return result?.data || { deleted: true };
 }
 
 export async function getConfig(competitionId, configName, forceRefresh = false) {

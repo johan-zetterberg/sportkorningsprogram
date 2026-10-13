@@ -450,7 +450,7 @@ test('precision result writes are denied when the equipage is finalized', { skip
   }));
 });
 
-test('an archived competition takes no result writes from judges, but admins can still correct it', { skip: !HAS_EMULATOR }, async () => {
+test('an archived competition takes no result writes at all; the admin reopens it first', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-arch', 'precision', 'precision-arch@example.com');
   await seedCompetitionRole('dressage-arch', 'dressage', 'dressage-arch@example.com');
   await testEnv.withSecurityRulesDisabled(async (context) => {
@@ -461,14 +461,27 @@ test('an archived competition takes no result writes from judges, but admins can
   await assertFails(setDoc(doc(precisionDb, compPath(`precision/${START_NO}`)), { timeMs: 1 }));
   await assertFails(setDoc(doc(dressageDb, compPath(`dressage/${START_NO}/protocols/judge_x`)), { movements: [] }));
 
+  // Not even the owner while archived
   const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
-  await assertSucceeds(setDoc(doc(ownerDb, compPath(`precision/${START_NO}`)), { timeMs: 2 }));
+  await assertFails(setDoc(doc(ownerDb, compPath(`precision/${START_NO}`)), { timeMs: 2 }));
 
-  // Reopened: the judge can write again
-  await testEnv.withSecurityRulesDisabled(async (context) => {
-    await updateDoc(doc(context.firestore(), compPath()), { locked: false, status: 'active' });
-  });
+  // The owner reopens it; then results can be written again
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { locked: false, status: 'active' }));
+  await assertSucceeds(setDoc(doc(ownerDb, compPath(`precision/${START_NO}`)), { timeMs: 2 }));
   await assertSucceeds(setDoc(doc(precisionDb, compPath(`precision/${START_NO}`)), { timeMs: 3 }));
+});
+
+test('archive snapshots are created by admins and never changed', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-snap', 'precision', 'precision-snap@example.com');
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  const judgeDb = testEnv.authenticatedContext('precision-snap', { email_verified: true, email: 'precision-snap@example.com' }).firestore();
+  const snapshot = compPath('archive/snapshot_1');
+
+  await assertFails(setDoc(doc(judgeDb, snapshot), { rows: [] }));
+  await assertSucceeds(setDoc(doc(ownerDb, snapshot), { rows: [], archivedAt: 1 }));
+  await assertFails(setDoc(doc(ownerDb, snapshot), { rows: [{ startNumber: '1' }] }));
+  await assertFails(deleteDoc(doc(ownerDb, snapshot)));
+  await assertSucceeds(getDoc(doc(testEnv.unauthenticatedContext().firestore(), snapshot)));
 });
 
 test('precision result writes are allowed when the equipage is not finalized', { skip: !HAS_EMULATOR }, async () => {

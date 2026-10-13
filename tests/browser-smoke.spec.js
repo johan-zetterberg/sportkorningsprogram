@@ -152,11 +152,67 @@ test('deleting a competition removes its personal data and results', async ({ pa
       });
       counts[path.startsWith('dressage/') ? 'protocols' : path] = ((await res.json()).documents || []).length;
     }
+    // The finalization locks outside the artifacts tree, and the competition itself
+    for (const path of [`competitions/${competitionId}/precisionFinalization`, `competitions/${competitionId}/marathonFinalization`, `competitions/${competitionId}/dressageFinalization`]) {
+      const res = await fetch(`http://127.0.0.1:8080/v1/projects/demo-combined-driving/databases/(default)/documents/${path}`, {
+        headers: { Authorization: 'Bearer owner' }
+      });
+      counts[path.split('/').at(-1)] = ((await res.json()).documents || []).length;
+    }
+    const compRes = await fetch(`http://127.0.0.1:8080/v1/projects/demo-combined-driving/databases/(default)/documents/${base}`, {
+      headers: { Authorization: 'Bearer owner' }
+    });
+    counts.competition = compRes.status;
     return counts;
   }, competitionId);
   expect(left).toEqual({
-    equipages: 0, equipagePrivate: 0, officials: 0, officialsPrivate: 0, precision: 0, maraton: 0, protocols: 0, config: 0
+    equipages: 0, equipagePrivate: 0, officials: 0, officialsPrivate: 0, precision: 0, maraton: 0, protocols: 0, config: 0,
+    precisionFinalization: 0, marathonFinalization: 0, dressageFinalization: 0, competition: 404
   });
+});
+
+test('archiving saves a snapshot and locks results until the competition is reopened', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  // The archiving service loads main.js (through the PDF code): run it in the app page
+  await page.goto('/index.html#hub');
+  await expect(page.locator('#logoutButton')).toBeVisible({ timeout: 30000 });
+  const outcome = await page.evaluate(async (competitionId) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDoc, setDoc, collection, getDocs } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const { finalizeCompetition, reopenCompetition } = await import('../js/services/archivingService.js');
+    const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+    const out = {};
+    // The seed leaves equipages unfinished: refused first, then allowed
+    try {
+      await finalizeCompetition(competitionId);
+      out.refused = false;
+    } catch (error) {
+      out.refused = error.code === 'archive-incomplete';
+    }
+    const result = await finalizeCompetition(competitionId, { allowIncomplete: true });
+    const snapshot = await getDoc(doc(db, `${base}/archive/${result.snapshotId}`));
+    out.snapshotRows = snapshot.data()?.rows?.length || 0;
+    out.locked = (await getDoc(doc(db, base))).data()?.locked === true;
+    const sn = (await getDocs(collection(db, `${base}/equipages`))).docs.at(-1).id;
+    try {
+      await setDoc(doc(db, `${base}/precision/${sn}`), { extraPenalty: 1 }, { merge: true });
+      out.writeWhileArchived = 'allowed';
+    } catch (error) {
+      out.writeWhileArchived = error.code;
+    }
+    await reopenCompetition(competitionId);
+    await setDoc(doc(db, `${base}/precision/${sn}`), { extraPenalty: 0 }, { merge: true });
+    out.writeAfterReopen = 'allowed';
+    out.reopenLogged = ((await getDoc(doc(db, base))).data()?.reopenHistory || []).length;
+    return out;
+  }, competitionId);
+  expect(outcome.refused).toBe(true);
+  expect(outcome.snapshotRows).toBeGreaterThan(0);
+  expect(outcome.locked).toBe(true);
+  expect(outcome.writeWhileArchived).toBe('permission-denied');
+  expect(outcome.writeAfterReopen).toBe('allowed');
+  expect(outcome.reopenLogged).toBe(1);
 });
 
 test('logout leaves no competition data on a shared device', async ({ page }) => {

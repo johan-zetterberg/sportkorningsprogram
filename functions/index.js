@@ -18,6 +18,9 @@ import {
     storedResultUnchanged
 } from "./src/triggerFilters.js";
 import { getAuth } from "firebase-admin/auth";
+import { getStorage } from "firebase-admin/storage";
+import { createHash } from "node:crypto";
+import { nextCounter, VOLUNTEER_SIGNUP_LIMITS } from "./src/rateLimit.js";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { RESULT_ENGINE_VERSION } from "./src/core-engine/version.js";
@@ -119,6 +122,10 @@ async function getContext(compRef, read = (ref) => ref.get()) {
     const pauseLog = statusSnap.exists ? statusSnap.data()?.pauseLog : null;
 
     return {
+        // Deleted or being deleted (deleteCompetitionData): nothing is written
+        competitionGone: !compSnap.exists || compSnap.data()?.deleting === true,
+        // Archived: stored results stay as archived (an admin reopens first)
+        archived: compSnap.exists && (compSnap.data()?.locked === true || compSnap.data()?.status === 'completed'),
         settingsFingerprint: resultSettingsFingerprint({
             competition: data(compSnap),
             globalStatus: data(statusSnap),
@@ -204,6 +211,7 @@ async function calculateEquipageRecord(compRef, startNumber, context, equipageSn
 async function recalculateEquipage(appId, competitionId, startNumber) {
     const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
     const context = await getContext(compRef);
+    if (context.competitionGone || context.archived) return;
     const record = await calculateEquipageRecord(compRef, startNumber, context);
     if (!record) return;
 
@@ -250,6 +258,7 @@ async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, a
     if (records.length <= MAX_TRANSACTION_WRITES) {
         const written = await db.runTransaction(async (tx) => {
             const current = await getContext(compRef, (ref) => tx.get(ref));
+            if (current.competitionGone) return false;
             if (current.settingsFingerprint !== settingsFingerprint) return false;
             // Automatic runs leave an equal stored result alone: rewriting it
             // would only change updatedAt and wake every listener
@@ -270,6 +279,7 @@ async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, a
 
     // Larger competitions: check, then write in batches (a small window remains)
     const current = await getContext(compRef);
+    if (current.competitionGone) return false;
     if (current.settingsFingerprint !== settingsFingerprint) {
         logger.info('Inställningarna ändrades under beräkningen; en nyare omräkning skriver resultaten.', { competition: compRef.id, triggerType: audit.triggerType });
         return false;
@@ -293,6 +303,7 @@ async function recalculateWholeCompetition(appId, competitionId, triggerType) {
     // an admin still can.
     const compSnap = await compRef.get();
     const comp = compSnap.exists ? compSnap.data() : null;
+    if (!comp || comp.deleting === true) return;
     if (comp?.locked === true || comp?.status === 'completed') {
         logger.info('Arkiverad tävling: automatisk omräkning hoppas över.', { competition: competitionId, triggerType });
         return;
@@ -396,7 +407,43 @@ export const onEquipageUpdate = onDocumentWritten(
     }
 );
 
-async function assertCanMaintainResults(request, competition) {
+// Deletes a competition completely: its public and private Firestore data, the
+// finalization locks under /competitions/{id} and its Storage files. The
+// client could not do this fully (no Storage, no listing of documents without
+// parents, permissions removed half-way)
+export const deleteCompetitionData = onCall({ timeoutSeconds: 540, memory: '512MiB' }, async (request) => {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
+    }
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) {
+        throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+    }
+    await assertCanMaintainResults(request, competition, 'Endast tävlingsägare eller full administratör får radera tävlingen.');
+
+    // Recalculation triggers fire for every deleted document; this mark makes
+    // them stop, so they cannot write results back while the data goes
+    await competition.ref.set({ deleting: true, deletingBy: request.auth.uid, deletingAt: Date.now() }, { merge: true });
+
+    const appId = competition.appId;
+    await db.recursiveDelete(db.doc(`artifacts/${appId}/private/data/competitions/${competitionId}`));
+    await db.recursiveDelete(db.doc(`competitions/${competitionId}`));
+    let storageFilesDeleted = true;
+    try {
+        await getStorage().bucket().deleteFiles({ prefix: `competitions/${competitionId}/` });
+    } catch (error) {
+        storageFilesDeleted = false;
+        logger.error('Kunde inte radera tävlingens filer i Storage', { competitionId, error: String(error?.message || error) });
+    }
+    // Last: the public tree with the competition document itself
+    await db.recursiveDelete(competition.ref);
+
+    logger.info('Tävling raderad', { competitionId, appId, by: request.auth.uid, storageFilesDeleted });
+    return { deleted: true, storageFilesDeleted };
+});
+
+async function assertCanMaintainResults(request, competition, deniedMessage = 'Endast tävlingsägare eller full administratör får räkna om resultat.') {
     if (!request.auth?.uid) {
         throw new HttpsError('unauthenticated', 'Inloggning krävs.');
     }
@@ -426,7 +473,7 @@ async function assertCanMaintainResults(request, competition) {
         || userRoles.includes('superadmin');
 
     if (!tokenIsAdmin && !isOwner && !listedAdmin && !isCompetitionAdmin && !isGlobalAdmin) {
-        throw new HttpsError('permission-denied', 'Endast tävlingsägare eller full administratör får räkna om resultat.');
+        throw new HttpsError('permission-denied', deniedMessage);
     }
 }
 
@@ -815,7 +862,31 @@ export const submitVolunteerSignup = onCall(async (request) => {
         };
     }
 
-    await signupRef.add(payload);
+    // Rate limits (per network address and per competition), checked and
+    // counted in the same transaction as the sign-up: changing the email
+    // address on every call must not create unlimited documents
+    const limits = VOLUNTEER_SIGNUP_LIMITS;
+    const limitsRef = db.collection(`artifacts/${competition.appId}/private/data/competitions/${competitionId}/rateLimits`);
+    const address = String(request.rawRequest?.ip || request.rawRequest?.headers?.['x-forwarded-for'] || 'unknown').split(',')[0].trim();
+    const addressKey = createHash('sha256').update(address).digest('hex').slice(0, 32);
+    const addressRef = limitsRef.doc(`volunteerSignup_addr_${addressKey}`);
+    const competitionLimitRef = limitsRef.doc('volunteerSignup_competition');
+    const now = Date.now();
+
+    const accepted = await db.runTransaction(async (tx) => {
+        const [addressSnap, competitionSnap] = await Promise.all([tx.get(addressRef), tx.get(competitionLimitRef)]);
+        const byAddress = nextCounter(addressSnap.exists ? addressSnap.data() : null, now, limits.perAddress, limits.windowMs);
+        const byCompetition = nextCounter(competitionSnap.exists ? competitionSnap.data() : null, now, limits.perCompetition, limits.windowMs);
+        if (!byAddress.allowed || !byCompetition.allowed) return false;
+        tx.set(addressRef, byAddress.next);
+        tx.set(competitionLimitRef, byCompetition.next);
+        tx.set(signupRef.doc(), payload);
+        return true;
+    });
+    if (!accepted) {
+        logger.warn('Funktionärsanmälan stoppad av hastighetsgränsen.', { competitionId });
+        throw new HttpsError('resource-exhausted', 'För många anmälningar just nu. Försök igen om en stund.');
+    }
     return {
         accepted: true,
         duplicate: false

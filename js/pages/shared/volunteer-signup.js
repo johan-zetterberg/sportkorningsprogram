@@ -64,7 +64,9 @@ form.addEventListener('submit', async (e) => {
         btnSubmit.textContent = 'Skickat!';
     } catch (err) {
         console.error(err);
-        showStatus('Något gick fel. Försök igen eller kontakta arrangören.', true);
+        // The server's own text for refusals it explains (e.g. too many sign-ups)
+        const explained = ['functions/resource-exhausted', 'functions/invalid-argument'].includes(err?.code);
+        showStatus(explained && err.message ? err.message : 'Något gick fel. Försök igen eller kontakta arrangören.', true);
         btnSubmit.disabled = false;
         btnSubmit.textContent = 'Skicka anmälan';
     }
