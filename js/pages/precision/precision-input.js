@@ -834,6 +834,9 @@ function resetTimer() {
         knocks: [],
         knockDownTimes: {},
         finalized: false,
+        // The saved time and comment of the round being reset go too
+        timeMs: null,
+        comment: '',
         status: t('precision_not_started')
     }).catch((err) => {
         console.error('Fel vid sparning av precision:', err);
@@ -845,7 +848,13 @@ function applyLiveDocToState(data = null) {
     const payload = data && typeof data === 'object' ? data : {};
     const liveStartEpoch = Number(payload.liveStartEpoch);
     const livePausedMs = Number(payload.livePausedMs);
-    const storedTimeMs = Number(payload.timeMs ?? payload.liveTimeMs ?? 0);
+    // The clock's current time is liveTimeMs (every stop, knock, correction and
+    // the secretariat write it); timeMs is the last saved final time and only
+    // counts once the result is finalized. Preferring timeMs made an old saved
+    // time come back after a reset or a correction.
+    const storedTimeMs = Number(payload.finalized === true
+        ? (payload.timeMs ?? payload.liveTimeMs ?? 0)
+        : (payload.liveTimeMs ?? payload.timeMs ?? 0));
 
     knocks = new Set(Array.isArray(payload.knocks) ? payload.knocks.map(String) : []);
     knockDownTimes = payload.knockDownTimes && typeof payload.knockDownTimes === 'object'
@@ -1228,8 +1237,11 @@ export async function load() {
         document.getElementById('liveTimer').addEventListener('click', () => manualEditor.classList.remove('hidden'));
         document.getElementById('btnManualCancel').addEventListener('click', () => manualEditor.classList.add('hidden'));
         document.getElementById('btnManualApply').addEventListener('click', () => {
+            // Stop first, then set the time: stopTimer() would add the time
+            // the clock ran to the time just typed
+            stopTimerLocal();
+            startEpoch = 0;
             pausedMs = digitsToMs(document.getElementById('manualTimeDigits').value);
-            stopTimer();         // garanterar running:false och uppdaterar pausedMs
             updateTimerView();   // visar tiden
             pushImmediateState(); // <-- meddela resultatvyn den nya stoppade tiden
             manualEditor.classList.add('hidden');

@@ -32,6 +32,9 @@ import { setCompetitionSetting } from '../../services/competitionSettingsStore.j
 
 let competitionId = null;
 let currentDressageTest = null;
+// Key of the program rendered (and scored): saved with the protocol, not the
+// dropdown's value, which a rebuild of the lists can change
+let currentDressageTestKey = null;
 let activeDressageJudge = null;
 let sortedEquipages = [];
 let equipageSearchDropdown = null;
@@ -263,7 +266,7 @@ function handleSelectionChange() {
 
     if (mapped && !manualTestOverride && (testSelector.value !== mapped || !currentDressageTest)) {
       programmaticChange = true;
-      testSelector.value = mapped;
+      restoreSelection(testSelector, mapped);
       renderProtocol(mapped);
       programmaticChange = false;
     } else if (!mapped && equipage) {
@@ -351,7 +354,7 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
       const needsRender = !currentDressageTest || (currentDressageTest.key !== testKey && currentDressageTest.name !== testKey);
 
       if ((allowTestChange || isHistoricalProtocol) && testKey && testSelector && (testSelector.value !== testKey || needsRender) && !manualTestOverride) {
-        testSelector.value = testKey;
+        restoreSelection(testSelector, testKey);
         renderProtocol(testKey);
         manualTestOverride = true;     // lås valet så det inte skrivs över
       } else if (needsRender && testSelector.value === testKey) {
@@ -398,7 +401,7 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
       // FIX: Tvinga render om inget är renderat än
       if (classKey && testSelector && !manualTestOverride && (testSelector.value !== classKey || !currentDressageTest)) {
         programmaticChange = true;
-        testSelector.value = classKey;
+        restoreSelection(testSelector, classKey);
         renderProtocol(classKey);
         programmaticChange = false;
       }
@@ -422,6 +425,12 @@ function populateSelectors() {
   const testSelector = document.getElementById('testSelector');
   const judgeSelector = document.getElementById('judgeSelector');
   if (!testSelector || !judgeSelector) return;
+
+  // The lists are rebuilt when the judges change (an admin edit, a reconnect):
+  // the program and judge in use must stay selected, or the protocol would be
+  // saved with the first program in the list
+  const previousTest = testSelector.value;
+  const previousJudge = judgeSelector.value;
 
   const src = getPrograms();
   testSelector.innerHTML = '';
@@ -501,6 +510,18 @@ function populateSelectors() {
     opt.textContent = `${posLabel} – ${j.name}${j.isOverJudge ? ' (ÖD)' : ''}`;
     judgeSelector.appendChild(opt);
   });
+
+  restoreSelection(testSelector, previousTest);
+  restoreSelection(judgeSelector, previousJudge);
+}
+
+// Selects `value` again after a rebuild; a no longer offered (deprecated)
+// program that this equipage uses stays selectable for it
+function restoreSelection(select, value) {
+  if (!select || !value) return;
+  const option = Array.from(select.options).find(o => o.value === value);
+  if (option) option.disabled = false;
+  select.value = value;
 }
 
 function clearForm() {
@@ -551,6 +572,7 @@ function updateProgramMeta(key) {
 
 function renderProtocol(testKey) {
   currentDressageTest = getPrograms()[testKey];
+  currentDressageTestKey = currentDressageTest ? testKey : null;
   updateProgramMeta(testKey);
   const protocolBody = document.getElementById('protocolBody');
   if (!currentDressageTest || !protocolBody) {
@@ -706,7 +728,7 @@ async function updateLiveStatus(lastUpdatedElement = null) {
       judgeId: activeDressageJudge.id,
       judgeName: activeDressageJudge.name,
       judgePosition: activeDressageJudge._pos || '',
-      testKey: testSelector.value,
+      testKey: currentDressageTestKey || testSelector.value,
       eliminated: eliminatedCheckbox.checked,
       movements: movementsData
     };
@@ -775,6 +797,9 @@ async function saveProtocol() {
   if (protocolSaveInFlight) return;
   protocolSaveInFlight = true;
   lastLiveSignature = null;
+  // The order as it is now: the save moves this equipage to the finished end
+  // of the list before the next one is picked
+  const orderAtSave = sortedEquipages.slice();
   const saveButton = document.getElementById('saveProtocol');
   if (saveButton) saveButton.disabled = true;
 
@@ -783,7 +808,7 @@ async function saveProtocol() {
   const judge = activeDressageJudge;
 
   try {
-    const testKey = document.getElementById('testSelector').value;
+    const testKey = currentDressageTestKey || document.getElementById('testSelector').value;
     const eliminated = document.getElementById('dressageEliminated').checked;
     const movementsData = Array.from(document.querySelectorAll('#protocolBody .movement-card')).map((card, index) => ({
       momentNo: currentDressageTest.movements[index].no,
@@ -885,10 +910,11 @@ async function saveProtocol() {
     if (String(equipageSearchDropdown?.getValue() ?? '') !== String(startNumber) || activeDressageJudge !== judge) return;
     clearForm();
 
-    // Auto-advance to the next equipage according to the start list
-    const currentIndex = sortedEquipages.findIndex(e => String(e.startNumber) === String(startNumber));
-    if (currentIndex >= 0 && currentIndex < sortedEquipages.length - 1) {
-      const nextSn = sortedEquipages[currentIndex + 1].startNumber;
+    // Auto-advance to the next equipage according to the start list (as it
+    // was when Save was pressed)
+    const currentIndex = orderAtSave.findIndex(e => String(e.startNumber) === String(startNumber));
+    if (currentIndex >= 0 && currentIndex < orderAtSave.length - 1) {
+      const nextSn = orderAtSave[currentIndex + 1].startNumber;
       equipageSearchDropdown.setValue(nextSn);
     } else {
       equipageSearchDropdown.setValue(null);
