@@ -3,6 +3,7 @@ import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebas
 import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc, collection, where, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
 
 const PRIVATE_EQUIPAGE_FIELDS = new Set([
   'address',
@@ -287,7 +288,9 @@ export async function updateEquipageFromLatest(competitionId, startNumber, build
   }
 
   const fallback = buildUpdate({ ...fallbackEquipage }) || {};
-  await saveEquipage(competitionId, startNumber, fallback);
+  // Without signal the write only resolves when the server answers: give the
+  // page an answer once it is queued on the device
+  await awaitWriteOrQueue(saveEquipage(competitionId, startNumber, fallback));
   return fallback;
 }
 

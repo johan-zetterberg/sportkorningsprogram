@@ -70,7 +70,17 @@ export function load() {
         allEquipages = Array.isArray(update) ? update : [];
         updatePhaseTabs();
         updateDatalist();
-        processData(currentSearchTerm);
+        processData(currentSearchTerm, { fromSnapshot: true });
+    });
+
+    // A card refresh held back while typing runs when the field is left
+    pageContainer.addEventListener('focusout', () => {
+        setTimeout(() => {
+            if (cardRefreshPending && !isTypingInCard()) {
+                cardRefreshPending = false;
+                renderCard();
+            }
+        }, 0);
     });
 }
 
@@ -239,10 +249,38 @@ function navigate(direction) {
     renderCard();
 }
 
-function processData(searchTerm = '') {
+// Set by this device's own status save: the next snapshot moves on in the
+// queue. Any other snapshot (another device saving) keeps the card shown.
+let advanceAfterOwnSave = false;
+let cardRefreshPending = false;
+
+function isTypingInCard() {
+    const active = document.activeElement;
+    return !!active && !!byId('vet-card-container')?.contains(active)
+        && /^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName);
+}
+
+function processData(searchTerm = '', { fromSnapshot = false } = {}) {
+    const shownStartNumber = filteredEquipages[currentIndex]?.startNumber;
     const state = resolveVetFilteredState(allEquipages, searchTerm, currentPhase);
     filteredEquipages = state.filtered;
     currentIndex = state.index;
+
+    if (fromSnapshot && !state.clearSearch) {
+        if (advanceAfterOwnSave) {
+            advanceAfterOwnSave = false;
+        } else if (shownStartNumber != null) {
+            // Another device saved: stay on the equipage the vet is looking at
+            const keep = filteredEquipages.findIndex(eq => String(eq.startNumber) === String(shownStartNumber));
+            if (keep !== -1) currentIndex = keep;
+            // ...and do not rebuild the card under the vet's fingers
+            if (keep !== -1 && isTypingInCard()) {
+                cardRefreshPending = true;
+                updateQueueDisplay();
+                return;
+            }
+        }
+    }
 
     if (state.clearSearch) {
         currentSearchTerm = '';
@@ -753,6 +791,8 @@ async function setVetStatus(startNumber, status) {
             return payload;
         };
 
+        // Done with this equipage: the next snapshot moves on in the queue
+        advanceAfterOwnSave = true;
         await updateEquipageFromLatest(competitionId, startNumber, buildPayload, local);
         showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
@@ -777,6 +817,10 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
                 ...extraData
             });
             const derivedStatus = deriveVetStatusFromHorses(horses, latest.status, phase);
+            // Every horse inspected in this phase: move on after the save;
+            // otherwise stay on the card for the next horse
+            advanceAfterOwnSave = Array.isArray(horses) && horses.length > 0
+                && horses.every(horse => !!horse?.inspections?.[phase]?.status);
             const payload = {
                 horses,
                 [`vetInspection_${phase}`]: {
