@@ -243,7 +243,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             tieBreakerTime: pTimeMs,
             isEliminated: totalEliminated,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD },
-            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0 },
+            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0 },
             precision: { pen: pPen, eliminated: isElimP }
         });
     });
@@ -255,7 +255,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         key: (r) => marathonRankKey({
             totalPenalty: r.marathon.totalPenalty,
             eliminated: r.marathon.eliminated,
-            stages: { B: { timePenalty: r.marathon.bPenalty } }
+            stages: { B: { timePenalty: r.marathon.bPenalty } },
+            obstaclePenaltySum: r.marathon.obstaclePenaltySum
         }, { requireFinished: false }),
         compare: compareMarathonRank,
         outField: 'posMar'

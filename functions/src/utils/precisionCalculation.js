@@ -5,6 +5,7 @@ import {
     isNum,
     round2 as roundNumber
 } from '../core-engine/rules-ledger.js';
+import { detectTRCategoryFromEquipage } from '../core-engine/marathon.js';
 
 const norm = (value) => String(value || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
 const round2 = (value) => isNum(value) ? roundNumber(value) : value;
@@ -23,6 +24,15 @@ export function getCourseCandidates(value) {
     const className = getClassName(value);
     const mergedClassName = getMergedClassName(value);
     return [className, mergedClassName].filter(Boolean);
+}
+
+// Children's class in Lätt B ("Lätt B Barn", "LB Barn")
+export function isLattBBarnClass(value) {
+    const names = typeof value === 'string' ? [value] : getCourseCandidates(value);
+    return names.some((name) => {
+        const s = String(name || '').toLowerCase();
+        return /\bbarn\b/.test(s) && /(l[äa]tt\s*b\b|\blb\b)/.test(s);
+    });
 }
 
 export function calculatePrecisionTimePenalty(timeMs, maxTimeSec, timePenaltyRate = PRECISION_TIME_PENALTY_RATE) {
@@ -75,6 +85,18 @@ export function getClassTempoMpm(cls, config = {}) {
             .sort((a, b) => norm(b).length - norm(a).length)[0];
     }
     if (key && klassTempoData[key]?.precision) return klassTempoData[key].precision;
+
+    // A class for ponies and horses together ("Lätt B Enbet", TR 535.1): each
+    // equipage drives its own tempo, from its horse/pony category (Bilaga 5)
+    if (cls && typeof cls === 'object' && !/(häst|hast|ponny|pony)/i.test(className)) {
+        const category = detectTRCategoryFromEquipage(cls);
+        const withCategory = norm(`${className} ${category === 'horse' ? 'Häst' : 'Ponny'}`);
+        const byCategory = keys.find((candidate) => norm(candidate) === withCategory)
+            || keys
+                .filter((candidate) => withCategory.startsWith(norm(candidate)))
+                .sort((a, b) => norm(b).length - norm(a).length)[0];
+        if (byCategory && klassTempoData[byCategory]?.precision) return klassTempoData[byCategory].precision;
+    }
 
     return tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
 }
@@ -191,7 +213,10 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     }
 
     let autoEliminated = false;
-    if (isNum(timeMs) && isNum(maxSec) && timeMs > (maxSec * 2 * 1000)) {
+    // Lätt B Barn: the time is the time allowed itself; exceeding it stops the
+    // equipage (TR Bilaga 5 #). Other classes: twice the time allowed (TR 529.10)
+    const timeLimitFactor = isLattBBarnClass(equipage) ? 1 : 2;
+    if (isNum(timeMs) && isNum(maxSec) && timeMs > (maxSec * timeLimitFactor * 1000)) {
         autoEliminated = true;
     }
 

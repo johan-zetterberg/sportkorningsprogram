@@ -61,6 +61,32 @@ const scoreOf = (mv) => (mv && mv.score !== '' && mv.score != null && Number.isF
     ? Number(mv.score)
     : null;
 
+/**
+ * FEI tests are scored by FEI 958, Swedish (TR) programs by TR 518.9. A
+ * program can say so itself (scoring: 'fei' | 'tr'); otherwise FEI/CAI in its
+ * name, category or key decides.
+ */
+export function isFeiProgram(program) {
+    const scoring = String(program?.scoring || '').toLowerCase();
+    if (scoring === 'fei') return true;
+    if (scoring === 'tr') return false;
+    const text = `${program?.name || ''} ${program?.category || ''} ${program?.key || program?.id || ''}`;
+    return /\bFEI\b|^FEI|\bCAI\d?\b|\bCAIO\b|\bCH-?EU\b/i.test(text);
+}
+
+/**
+ * Judge penalty for a points total (before error points).
+ * TR 518.9: max points − points (× the program's coefficient).
+ * FEI 958.1.3-4: 160 − points × coefficient, the coefficient applied only when
+ * the test's total possible marks exceed 160.
+ */
+export function dressagePenaltyFromPoints(points, program, allPrograms = {}) {
+    const maxScore = getProgramMaxScore(program);
+    const coeff = getDressagePenaltyCoeff(program, allPrograms);
+    if (isFeiProgram(program)) return 160 - points * (maxScore > 160 ? coeff : 1);
+    return (maxScore - points) * coeff;
+}
+
 export function getProgramMaxScore(program) {
     return (Array.isArray(program?.movements) ? program.movements : [])
         .reduce((s, m) => s + 10 * (Number(m.coeff) || 1), 0);
@@ -81,7 +107,7 @@ export function computeFinalFromSaved(savedArr, program, allPrograms) {
     const maxScore = getProgramMaxScore(program);
     if (maxScore <= 0) return null;
 
-    const penaltyCoeff = getDressagePenaltyCoeff(program, allPrograms);
+    const penaltyFor = (total) => dressagePenaltyFromPoints(total, program, allPrograms);
     const finals = [];
 
     for (const p of savedArr) {
@@ -100,7 +126,7 @@ export function computeFinalFromSaved(savedArr, program, allPrograms) {
         finals.push({
             points: total,
             percent: (total / maxScore) * 100,
-            penalty: (maxScore - total) * penaltyCoeff,
+            penalty: penaltyFor(total),
             generalImpressionsSum: general
         });
     }
@@ -429,7 +455,7 @@ export function calculateDressageResult(state) {
     const isLive = maxPointsNow > 0 && maxPointsNow < totalMaxPoints;
     const projPercent = maxPointsNow > 0 ? (pointsNow / maxPointsNow) * 100 : null;
     const projPoints = projPercent != null ? (projPercent / 100) * totalMaxPoints : null;
-    const projPenalty = projPoints != null ? round2(((totalMaxPoints - projPoints) * coeff) + errorPoints) : null;
+    const projPenalty = projPoints != null ? round2(dressagePenaltyFromPoints(projPoints, program, allPrograms) + errorPoints) : null;
 
     return {
         penalty: eliminated || !result ? null : round2(result.penalty + errorPoints),

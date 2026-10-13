@@ -244,8 +244,9 @@ test('calculateDressageResult prefers saved protocol program over equipage class
   );
 
   const coreResult = calculateDressageResult(state);
-  assert.equal(coreResult.judgePenalty, 47.88);
-  assert.equal(coreResult.penalty, 47.88);
+  // FEI program (FEI 958): 160 − 133 × 0.84
+  assert.equal(coreResult.judgePenalty, 48.28);
+  assert.equal(coreResult.penalty, 48.28);
 });
 
 test('calculateDressageResult marks eliminated dressage without numeric penalty', () => {

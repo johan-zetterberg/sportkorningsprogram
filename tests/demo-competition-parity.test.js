@@ -113,10 +113,10 @@ test('demo competition: totals match hand-checked values; unfinished equipages g
   const totals = Object.fromEntries(data.equipages.map(eq => [eq.startNumber, browser(eq)]));
 
   // dressage + marathon (obstacle seconds x 0.25 + stage time) + precision
-  assert.equal(totals[1].totalPenalty, 111.79); // 43.51 + 273.10 s x 0.25 = 68.28 + 0
-  assert.equal(totals[2].totalPenalty, 136.87); // 54.12 + 74.25 + 8.50 (6 knocks + 5 s over x 0.5)
+  assert.equal(totals[1].totalPenalty, 111.95); // 43.67 (FEI 958: 160 − points × 0.666) + 273.10 s x 0.25 = 68.28 + 0
+  assert.equal(totals[2].totalPenalty, 136.97); // 54.22 (FEI 958: 160 − points × 0.615) + 74.25 + 8.50 (6 knocks + 5 s over x 0.5)
   assert.equal(totals[5].totalPenalty, 143.45); // 57.00 + 69.95 + A 24 s over (6.00) + B 30 s over (7.50) + 3.00
-  assert.equal(totals[7].totalPenalty, 116.04);
+  assert.equal(totals[7].totalPenalty, 116.2); // dressage by FEI 958 (160 − points × 0.666)
   assert.equal(totals[8].totalPenalty, 113.30);
 
   // #3 on section B, #4 in the vet box with precision running, #6 on section A

@@ -62,9 +62,12 @@ export function marathonRankKey(result, { requireFinished = true } = {}) {
     if (!result || result.eliminated || result.isClearRound) return null;
     if (!isNum(result.totalPenalty)) return null;
     if (requireFinished && result.status !== 'Klar' && result.status !== 'Färdig') return null;
+    // TR 527.1: on equal penalties the lowest penalties on section B win. All
+    // obstacles are on section B, so they count with B's time penalties
     return {
         penalty: result.totalPenalty,
-        bPenalty: Number(result.stages?.B?.timePenalty) || 0
+        bPenalty: (Number(result.stages?.B?.timePenalty) || 0)
+            + (Number(result.obstaclePenaltySum ?? result.obstacles?.sum) || 0)
     };
 }
 

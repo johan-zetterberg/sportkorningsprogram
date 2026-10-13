@@ -1028,17 +1028,24 @@ function setupEventListeners() {
   });
   if (eliminatedCheckbox) eliminatedCheckbox.addEventListener('change', handleGenericInput);
 
-  // Snabbknappar för felkörning/vägfel enligt sparade regler eller TR/FEI-standard.
-  document.getElementById('btnErr1')?.addEventListener('click', () => {
-    const rule = getDressageRuleNumber('error1', DRESSAGE_DEFAULT_ERROR_1);
-    errorPointsInput.value = rule;
+  // Snabbknappar för felkörning (TR 518 / FEI 957): straffet gäller per
+  // tillfälle och läggs till det som redan står i fältet (1:a 5, 2:a 10 =
+  // 15 totalt), tredje gången utesluts ekipaget
+  const addErrorPoints = (points) => {
+    const current = Number(String(errorPointsInput.value || '0').replace(',', '.')) || 0;
+    errorPointsInput.value = current + points;
     generalDataDirty = true;
     handleGenericInput();
+  };
+  document.getElementById('btnErr1')?.addEventListener('click', () => {
+    addErrorPoints(getDressageRuleNumber('error1', DRESSAGE_DEFAULT_ERROR_1));
   });
   document.getElementById('btnErr2')?.addEventListener('click', () => {
-    const rule2 = getDressageRuleNumber('error2', DRESSAGE_DEFAULT_ERROR_2);
-    errorPointsInput.value = rule2;
-    generalDataDirty = true;
+    addErrorPoints(getDressageRuleNumber('error2', DRESSAGE_DEFAULT_ERROR_2));
+  });
+  document.getElementById('btnErr3')?.addEventListener('click', () => {
+    if (!eliminatedCheckbox || !window.confirm(t('input_error_3_confirm'))) return;
+    eliminatedCheckbox.checked = true;
     handleGenericInput();
   });
 
@@ -1564,6 +1571,7 @@ export function load() {
                <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                <button type="button" id="btnErr1" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
                <button type="button" id="btnErr2" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
+               <button type="button" id="btnErr3" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_3')}</button>
             </div>
           </div>
           

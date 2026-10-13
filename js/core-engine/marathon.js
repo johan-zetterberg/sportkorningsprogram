@@ -278,11 +278,14 @@ export function limitsFor(equipage, rawStage, marathonConfig) {
         };
     }
     if (stage === 'transport') {
+        // TR 523.2 penalises deviations on A and B only; the transfer has just
+        // the time limit (TR 523.3: double the max time)
         return {
             ideal: idealSec,
             min: 0,
             max: idealSec,
-            timeLimit: Math.round(idealSec * MARATHON_TIME_LIMIT_FACTOR_TRANSPORT)
+            timeLimit: Math.round(idealSec * MARATHON_TIME_LIMIT_FACTOR_TRANSPORT),
+            noTimePenalty: true
         };
     }
     return null;
@@ -301,6 +304,7 @@ export function stagePenaltyFromMs(ms, equipage, stage, marathonConfig) {
 
     const sec = ms / 1000;
     if (sec > lim.timeLimit) return { points: Infinity, elim: true };
+    if (lim.noTimePenalty) return { points: 0, elim: false };
 
     let diff = 0;
     if (sec < lim.min) {

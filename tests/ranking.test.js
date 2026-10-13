@@ -55,13 +55,14 @@ test('marathon: equal total is decided by B-section penalty (TR 527.1)', () => {
   assert.deepEqual(places(rows), [3, 2, 1]);
 });
 
-test('marathon: equal total and B-section share the place (no obstacle tie-breaks)', () => {
+test('marathon: on equal total the B section decides, its obstacles included (TR 527.1)', () => {
   const rows = [
     { startNumber: 1, r: { status: 'Klar', totalPenalty: 40, stages: { B: { timePenalty: 2 } }, obstaclePenaltySum: 30, obstacleTimes: [50] } },
     { startNumber: 2, r: { status: 'Klar', totalPenalty: 40, stages: { B: { timePenalty: 2 } }, obstaclePenaltySum: 20, obstacleTimes: [40] } }
   ];
   assignPlaces(rows, { key: x => marathonRankKey(x.r), compare: compareMarathonRank });
-  assert.deepEqual(places(rows), [1, 1]);
+  // #2 has fewer obstacle penalties on B (2 + 20 against 2 + 30)
+  assert.deepEqual(places(rows), [2, 1]);
 });
 
 test('marathon: clear round, eliminated and unfinished rows are not placed', () => {
