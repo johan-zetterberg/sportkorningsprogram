@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const i18nPath = path.join(__dirname, 'js', 'utils', 'i18n.js');
+const ROOT = path.resolve(__dirname, '..');
+const i18nPath = path.join(ROOT, 'js', 'utils', 'i18n.js');
 let i18nContent = fs.readFileSync(i18nPath, 'utf8');
 
 const definedKeys = new Set();
@@ -38,7 +39,8 @@ function walkDir(dir) {
     }
   }
 }
-walkDir(__dirname);
+walkDir(path.join(ROOT, 'js'));
+filesToScan.push(path.join(ROOT, 'index.html'));
 
 const usedKeys = new Map();
 
@@ -47,13 +49,13 @@ for (const file of filesToScan) {
   const content = fs.readFileSync(file, 'utf8');
   
   // Look for exactly t('key') or t("key") or t(`key`) with word boundary on t
-  const usageRegex = /\bt\(['"\`]([a-zA-Z0-9_]+)['"\`]\)/g;
+  const usageRegex = /\bt\(['"\`]([a-zA-Z0-9_]+)['"\`]\s*[,)]/g;
   let usageMatch;
   while ((usageMatch = usageRegex.exec(content)) !== null) {
     const key = usageMatch[1].toLowerCase();
     if (!ignoredKeys.has(key)) {
       if (!usedKeys.has(key)) usedKeys.set(key, new Set());
-      usedKeys.get(key).add(file.replace(__dirname, ''));
+      usedKeys.get(key).add(path.relative(ROOT, file));
     }
   }
 }

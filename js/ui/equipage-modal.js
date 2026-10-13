@@ -26,9 +26,9 @@ import {
 import { setMarathonConfig } from '../utils/marathonUtils.js';
 import { renderPrecisionContent } from './precisionModal.js';
 import { renderDressageContent } from './dressageModal.js';
+import { escapeHtml } from '../utils/sharedUtils.js';
 
 // --- Små hjälpare (lokala till modalen, så totalfilen slipper exportera dem) ---
-const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const escapeAttr = (s) => escapeHtml(s ?? '');
 const fmt2 = (v) => (Number.isFinite(+v) ? (+v).toFixed(2) : '—');
 const secondsToMMSS = (s) => { if (s == null || isNaN(s)) return null; const m = Math.floor(s / 60); const ss = Math.round(s % 60).toString().padStart(2, '0'); return `${m}:${ss}`; };

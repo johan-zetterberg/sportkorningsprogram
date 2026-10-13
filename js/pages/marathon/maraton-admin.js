@@ -15,6 +15,7 @@ import {
   MARATHON_KNOCKDOWN_PENALTY,
   MARATHON_OBSTACLE_MAX_TIME_SEC
 } from '../../core-engine/rules-ledger.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let competitionId = null;
 let allEquipages = [];
@@ -26,14 +27,6 @@ let currentCompetition = null;
 let pickerMap = null; // Global reference for cleanup
 let marathonValidationErrors = {};
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 function ensureMarathonAdminResponsiveStyles() {
   if (document.getElementById('marathon-admin-responsive-styles')) return;

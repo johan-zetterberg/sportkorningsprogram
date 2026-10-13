@@ -496,7 +496,7 @@ function generateResultHtml(equipage, distances, args, type) {
     const tempoMpm = transportTempoMpm;
     if (!tempoMpm) {
       if (type === 'screen') {
-         return `<div class="bg-red-50 dark:bg-red-900/20 p-4 border border-red-200 dark:border-red-800 rounded shadow text-red-600 dark:text-red-400"><strong>Transport (T):</strong> ${t('missing_transport_tempo') || 'Transport-tempo (m/min) saknas!'} Ange tempo i maratonadmin eller manuellt för att visa tabellen.</div>`;
+         return `<div class="bg-red-50 dark:bg-red-900/20 p-4 border border-red-200 dark:border-red-800 rounded shadow text-red-600 dark:text-red-400"><strong>Transport (T):</strong> ${t('missing_transport_tempo')} Ange tempo i maratonadmin eller manuellt för att visa tabellen.</div>`;
       }
       return '';
     }

@@ -1900,7 +1900,7 @@ function bindStagePanel(stage) {
       await startStage(stage);
     } catch (error) {
       console.error(error);
-      showAlert(t('marathon_stages_save_error') || 'Kunde inte starta etappen.', false);
+      showAlert(t('marathon_stages_start_error'), false);
     }
   });
 
@@ -1909,16 +1909,18 @@ function bindStagePanel(stage) {
       await stopStage(stage);
     } catch (error) {
       console.error(error);
-      showAlert(t('marathon_stages_save_error') || 'Kunde inte stoppa etappen.', false);
+      showAlert(t('marathon_stages_stop_error'), false);
     }
   });
 
   document.getElementById(`btnReset-${stage}`)?.addEventListener('click', async () => {
+    // The button sits next to Stop: a slip must not wipe the stage time
+    if (!window.confirm(t('marathon_stages_confirm_reset'))) return;
     try {
       await resetStage(stage);
     } catch (error) {
       console.error(error);
-      showAlert(t('marathon_stages_save_error') || 'Kunde inte återställa etappen.', false);
+      showAlert(t('marathon_stages_reset_error'), false);
     }
   });
 
@@ -1927,7 +1929,7 @@ function bindStagePanel(stage) {
       await saveStageDetails(stage);
     } catch (error) {
       console.error(error);
-      showAlert(t('marathon_stages_save_error') || 'Kunde inte spara etappdata.', false);
+      showAlert(t('marathon_stages_save_error'), false);
     }
   });
 

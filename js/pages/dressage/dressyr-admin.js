@@ -1,3 +1,4 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
 // js/pages/dressyr-admin.js
 // Dressyr-admin: (1) Klass→Program mapping-editor (typeahead) (2) PDF-import till dressagePrograms (overrides)
 // Kräver firestoreService.getConfig/saveConfig/getEquipages och global dressagePrograms för förhandsval.
@@ -29,7 +30,7 @@ const DRESSAGE_DEFAULT_ERROR_2 = 10;
 
 // ---- Helpers ----
 const qs = (s, r = document) => r.querySelector(s);
-const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const esc = escapeHtml;
 const normKey = s => String(s || '').trim().toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/gi, '');
 const unique = a => Array.from(new Set(a));
 const toNumber = v => Number.isFinite(+v) ? +v : 0;

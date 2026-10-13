@@ -1,0 +1,26 @@
+name: Tests
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The unit tests use only Node's built-in test runner; no install needed
+      - name: Unit tests
+        run: npm test
+      - name: Result engine copy in functions matches js/core-engine
+        run: |
+          node scripts/copy-core-engine.js
+          git diff --exit-code -- functions/src/core-engine
+      - name: Translation keys
+        run: |
+          node scripts/audit_i18n.cjs | tee i18n.txt
+          grep -q "All i18n keys" i18n.txt

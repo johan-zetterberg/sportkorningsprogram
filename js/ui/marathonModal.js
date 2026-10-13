@@ -24,15 +24,8 @@ import {
 
 // Importera PDF-funktionen från din nya plats
 import { printMarathonPdf } from '../pdf/marathonPdf.js';
+import { escapeHtml } from '../utils/sharedUtils.js';
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 function getMomentHorseLabel(equipage) {
   const allHorsesRaw = equipage.horses || equipage.horseNames || equipage.horse || [];

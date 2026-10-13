@@ -2225,7 +2225,7 @@ export function load() {
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label for="maratonHoldTime" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_hold_time', 'Uppehåll (sek)')}</label>
+              <label for="maratonHoldTime" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_hold_time')}</label>
               <div class="flex gap-1">
                 <button type="button" id="btnQuickHold15" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+15 sek">+15s</button>
                 <button type="button" id="btnQuickHold30" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+30 sek">+30s</button>

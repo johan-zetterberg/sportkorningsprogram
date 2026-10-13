@@ -257,7 +257,11 @@ const externalUrls = [
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js',
   'https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js',
   'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
-  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'
+  'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+  // Icons: the stylesheet and the two fonts the pages use (solid, regular)
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css',
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-solid-900.woff2',
+  'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/fa-regular-400.woff2'
 ];
 
 self.addEventListener('install', (event) => {

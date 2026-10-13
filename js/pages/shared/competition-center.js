@@ -1,19 +1,12 @@
 import { getGlobalState } from '../../main.js';
 import { getPublicCompetitionViewModel } from '../../services/publicCompetitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let expandedClasses = new Set();
 let venueMapInstance = null;
 let venueMapObserver = null;
 
-function escapeHtml(value) {
-  return String(value || '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 function sanitizeUrl(value) {
   const raw = String(value || '').trim();

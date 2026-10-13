@@ -1167,7 +1167,10 @@ export async function load() {
         // Event Listeners
         document.getElementById('btnStart')?.addEventListener('click', startTimer);
         document.getElementById('btnStop')?.addEventListener('click', stopTimer);
-        document.getElementById('btnResetTop')?.addEventListener('click', resetTimer);
+        document.getElementById('btnResetTop')?.addEventListener('click', () => {
+            // A slip must not wipe the round's time and knockdowns
+            if (window.confirm(t('precision_confirm_reset'))) resetTimer();
+        });
         document.getElementById('btnSave').addEventListener('click', saveFinal);
         document.getElementById('extraPenaltyInput').addEventListener('input', () => {
             const p = livePenalties(getElapsedMs());

@@ -1,83 +1,89 @@
 # Sportkörningsprogram (Tävlingssystem)
 
-Ett modernt, molnbaserat system för att hantera tävlingar i sportkörning. Systemet hanterar hela flödet från anmälan och startlistor till liveresultat för Dressyr, Maraton och Precision.
+Ett molnbaserat system för tävlingar i sportkörning: anmälan, startlistor, domarinmatning och liveresultat för dressyr, maraton och precision, med publik-, speaker- och sekretariatsvyer.
 
-**Status:** Aktivt utvecklad 
+**Status:** Aktivt utvecklad
 **Ägare:** Johan Zetterberg
+**Produktion:** https://combined-driving.web.app (Firebase-projekt `combined-driving`)
 
 ## 🚀 Kom igång lokalt
 
-För att köra systemet på din egen dator behöver du en enkel webbserver, eftersom moderna webbläsare stoppar vissa funktioner (som moduler och CORS) om du bara öppnar `index.html` direkt från filhanteraren.
+Kräver Node.js 22 och Firebase CLI (`npm install -g firebase-tools`). Emulatorerna kräver Java.
 
-### Alternativ 1: VS Code (Rekommenderas)
-1. Öppna mappen i **VS Code**.
-2. Installera tillägget **"Live Server"** (av Ritwick Dey).
-3. Klicka på "Go Live" längst ner i högra hörnet.
-4. Systemet öppnas i din webbläsare.
-
-### Alternativ 2: Python
-Om du har Python installerat kan du köra följande i terminalen:
 ```bash
-# Python 3
-python -m http.server 8000
+npm install
+cd functions && npm install && cd ..
+node scripts/static-server.mjs 5500      # appen på http://localhost:5500
 ```
-Gå sedan till `http://localhost:8000` i din webbläsare.
 
----
+Appen måste köras via en webbserver (ES-moduler fungerar inte från `file://`). Utan emulatorer pratar den lokala appen med produktionsdatabasen, så testa mot emulatorerna i stället:
 
-## ☁️ Online vs Offline
+```bash
+firebase emulators:start --only auth,firestore,functions,storage --project demo-combined-driving
+```
 
-### Online (Standard)
-Systemet är **Cloud-First**. Det innebär att:
-- All data lagras i **Google Firebase** (molndatabas).
-- Rättelser och resultat syns direkt ("Live") för alla anslutna enheter (publik, speaker, sekretariat).
-- Det krävs internetuppkoppling för att *spara* data.
+`seed_test.html` skapar testtävlingar i emulatorn (se [TESTING.md](TESTING.md)).
 
-### Offline (Säkerhetsläge)
-Om nätverket går ner under en tävling:
-1. **APPEN FORTSÄTTER FUNGERA:** All funktionalitet körs lokalt i webbläsaren via cache och IndexedDB.
-2. **Lokal lagring:** Data sparas tillfälligt i webbläsaren.
-3. **VARNING:** Stäng INTE webbläsaren.
-4. **Synkronisering:** Så fort nätverket kommer tillbaka försöker systemet skicka upp all data automatiskt.
+## 🧪 Tester
 
-> **VIKTIGT:** Om du dömer Dressyr offline – skriv upp poängen på papper som backup tills du ser att den gröna bocken ("Sparad") visas.
+| Kommando | Vad |
+|---|---|
+| `npm test` | Enhetstester (resultatmotor, regler, hjälpfunktioner) |
+| `npm run test:rules` | Firestore-reglerna mot emulatorn |
+| `npm run test:smoke` | Webbläsartester (Playwright) mot emulatorerna; startar egna om inga körs |
+| `node scripts/audit_i18n.cjs` | Letar översättningsnycklar som används men saknas i `js/utils/i18n.js` |
 
----
+Smoke-testerna startar egna emulatorer. Kör en emulator redan på port 8080 måste alla fyra (auth, firestore, functions, storage) vara igång, annars avbryts körningen.
 
-## 📂 Strukturöversikt
+## 🚢 Driftsättning
 
-Kort guide till projektets mappar för dig som vill utveckla vidare:
+```bash
+npm run deploy                              # webbplatsen
+npm run deploy -- --only functions          # molnfunktionerna
+npm run deploy -- --only firestore          # databasreglerna
+npm run deploy -- --dry-run                 # bara kontroller och tester
+```
 
-- **`index.html`** – Startpunkten. Innehåller grundläggande layout och laddar huvudscriptet.
-- **`js/`** – All logik.
-    - **`main.js`** – Bootstrappar appen, hanterar routing.
-    - **`pages/`** – Vyer för olika roller (t.ex. `admin.js`, `judge.js`, `speaker.js`, `manual.js`).
-    - **`services/`** – Kommunikation med databasen (`firestoreService.js`), autentisering och arkivering.
-    - **`utils/`** – Hjälpfunktioner för tidsberäkning, validering och formatering.
-- **`css/`** – Styling.
-    - **`index.css`** – Tailwind-direktiv och globala stilar.
-- **`assets/`** – Bilder och ikoner som är fria att distribuera.
-    - **`logos/`** – *Obs! Vissa logotyper är borttagna från detta repo pga upphovsrätt.* Placeras här lokalt.
-- **`lib/`** – Externa bibliotek (t.ex. `jspdf` för PDF-generering, `qrcode` etc).
+`scripts/deploy.mjs` kräver att allt är incheckat och att de lokala filerna i `assets/logos` och `assets/dressage` finns. Sedan kör det enhetstester, regeltester (för firestore/functions) och smoke-tester (hoppa över med `--skip-smoke`), bygger CSS, höjer service worker-versionen (en egen commit) och driftsätter till `combined-driving`.
 
----
+## ☁️ Online och offline
 
-## 🔒 Privata Assets & Licenser
-Detta repository innehåller inte upphovsrättsskyddade logotyper eller specifika föreningsdokument.
-- **Loggor:** Om du sätter upp systemet för en ny förening, lägg era loggor i `assets/logos/`.
-- **PDF-mallar:** Systemet genererar PDF:er dynamiskt, men använder ibland `assets/header-bg.png` som bakgrund.
+- All data ligger i **Firestore**. Ändringar syns direkt på alla anslutna enheter.
+- **Utan uppkoppling** sparas ändringar i en kö på enheten och skickas när nätet kommer tillbaka. Appen visar då "Sparad till kö" i stället för "Klart!".
+- **Stäng inte webbläsaren** och logga inte ut innan kön är tom. Utloggning väntar på osparade ändringar och vägrar om de inte går att skicka.
+- Service workern (`service-worker.js`) lagrar appen och biblioteken så att den startar även utan nät. Efter en driftsättning visas en uppdateringsruta.
 
-## 🛠 Teknisk Stack
-- **Frontend:** Vanilla JavaScript (ES6 Modules) + Tailwind CSS (via CDN för enkelhet).
-- **Backend:** Firebase (Firestore, Auth, Functions).
-- **Bygge:** Inget byggsteg krävs! (No-build). "What you see is what you run".
+> **VIKTIGT:** Dömer du dressyr offline, skriv upp poängen på papper tills protokollet visar att det är sparat.
 
-- ## 🤝 Bidra
-Bidrag är välkomna. Se [CONTRIBUTING.md](CONTRIBUTING.md) för riktlinjer.
+## 📂 Struktur
 
-## 🌿 Branch-struktur
+- **`index.html`**: startsidan; laddar `js/main.js` och de externa biblioteken.
+- **`js/`**
+  - **`main.js`**: startar appen; routing finns i `services/navigationService.js`.
+  - **`core-engine/`**: **resultatmotorn**, samma kod i webbläsaren och i molnfunktionerna. Den kopieras till `functions/src/core-engine` av `scripts/copy-core-engine.js` före driftsättning; ändra bara i `js/core-engine`.
+  - **`pages/`**: vyerna, uppdelade per gren (`dressage/`, `marathon/`, `precision/`), `admin/`, `secretariat/` och `shared/` (resultat, speaker, portal m.m.).
+  - **`services/`**: Firestore, inloggning, köer och offline-skrivningar.
+  - **`ui/`**: delade komponenter och modaler.
+  - **`pdf/`**: PDF-generering (jsPDF).
+  - **`utils/`**: hjälpfunktioner, t.ex. `sharedUtils.js` (`escapeHtml` med flera) och översättningarna i `i18n.js`.
+- **`functions/`**: molnfunktioner. De räknar om resultaten till `computed_equipages` när data ändras och har anropbara funktioner för anslutning med PIN-kod, kuskarnas deklarationer och kuskarnas inkorg.
+- **`firestore.rules`**, **`storage.rules`**: behörigheterna; testas i `tests/firestore-rules.spec.js`.
+- **`css/`**: `tailwind.input.css` byggs till `tailwind.css` (`npm run build:css`); egna stilar i `style.css`.
+- **`lib/`**: lokala bibliotek (pdf.js, jsPDF).
+- **`tests/`**, **`scripts/`**: tester och verktyg.
 
-- **`main`** – Stabil tävlingsversion (används på tävling)
-- **`dev`** – Aktiv utveckling
+## 🔒 Filer som inte finns i git
 
-All utveckling sker i `dev`. Endast testad och fungerande kod mergas till `main`.
+Upphovsrättsskyddade eller licensierade filer hålls utanför repot och finns bara på driftsättningsdatorn:
+- **`assets/logos/`**: föreningarnas logotyper (mappning i `assets/config/club-logos.json`). Håll dem små, högst cirka 320 px.
+- **`assets/dressage/`**: dressyrprogrammen som PDF.
+
+## 🛠 Teknik
+
+- **Frontend:** Vanilla JavaScript (ES-moduler), Tailwind CSS (förbyggd), Leaflet för kartor, Font Awesome-ikoner.
+- **Backend:** Firebase (Firestore, Auth, Cloud Functions v2 i `europe-west1`, Storage, Hosting).
+- **Bygge:** inget byggsteg för JavaScript; bara CSS byggs.
+
+## 🤝 Bidra
+
+Se [CONTRIBUTING.md](CONTRIBUTING.md).

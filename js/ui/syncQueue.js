@@ -1,12 +1,6 @@
 import { syncService } from '../services/syncService.js';
+import { escapeHtml } from '../utils/sharedUtils.js';
 
-const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({
-  '&': '&amp;',
-  '<': '&lt;',
-  '>': '&gt;',
-  '"': '&quot;',
-  "'": '&#39;'
-}[char]));
 
 export class SyncQueue extends HTMLElement {
   constructor() {

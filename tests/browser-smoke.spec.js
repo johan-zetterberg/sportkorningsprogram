@@ -583,6 +583,8 @@ test('maraton stages can pause resume reset save and reload state', async ({ pag
   expect(reloadedTimerText && reloadedTimerText !== '00:00,00', `Reloaded timer was not persisted, current text: ${reloadedTimerText}`).toBeTruthy();
   await expect(page.locator(`#startClock-${stageId}`)).toHaveText(originalStartClock || '');
 
+  // Reset asks for confirmation
+  page.once('dialog', dialog => dialog.accept());
   await page.locator(`#btnReset-${stageId}`).click();
   await expect(page.locator(`#timer-${stageId}`)).toHaveText('00:00,00');
   await expect(page.locator(`#startClock-${stageId}`)).toHaveText(/^[–—-]$/);

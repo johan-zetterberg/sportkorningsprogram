@@ -8,16 +8,8 @@ import { getTeamScoringProfile, getTeamScoringProfileOptions } from '../../servi
 import { getTeamCompositionIssues } from '../../services/teamCalculationService.js';
 import { getFeiDressageStartSlots, supportsFeiTeamBlocks } from '../../services/feiStartOrderService.js';
 import { setGlobalState } from '../../main.js';
-import { jsStringAttr, isSafeImageUrl } from '../../utils/sharedUtils.js';
+import { jsStringAttr, isSafeImageUrl, escapeHtml } from '../../utils/sharedUtils.js';
 
-function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
 
 function escapeAttr(value) {
   return escapeHtml(value);

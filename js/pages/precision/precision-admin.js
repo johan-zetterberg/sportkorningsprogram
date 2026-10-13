@@ -17,6 +17,7 @@ import {
     buildPrecisionMergeState,
     resolvePrecisionMergeGrouping
 } from './precisionResultMerge.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let competitionId = null;
 let activeClasses = [];
@@ -27,14 +28,6 @@ let precisionMergeMap = new Map();
 
 const PRECISION_ERROR_CLASSES = ['border-red-500', 'ring-2', 'ring-red-300', 'bg-red-50', 'dark:bg-red-950/30'];
 
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
 
 function getSortedPrecisionTempoEntries() {
     const sectionOrder = [

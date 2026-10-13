@@ -1,11 +1,4 @@
-function escapeHtml(value) {
-    return String(value || '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
+import { escapeHtml } from '../../utils/sharedUtils.js';
 
 // Links typed in by admins: web, mail and site links only (never javascript:)
 function safeLinkUrl(value) {

@@ -198,7 +198,17 @@ export function showAlert(message, isSuccess = true) {
     if (!modal || !iconDiv || !titleEl || !messageEl) return;
     const button = document.getElementById('closeAlertModal');
 
-    if (isSuccess === 'offline') {
+    // Callers pass true/false or a type: 'error' and 'warning' are not
+    // successes even though a non-empty string is truthy
+    if (isSuccess === 'error') isSuccess = false;
+    else if (isSuccess === 'success' || isSuccess === 'info') isSuccess = true;
+
+    if (isSuccess === 'warning') {
+        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 dark:bg-yellow-900';
+        iconDiv.innerHTML = `<svg class="h-6 w-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+        titleEl.textContent = 'Observera';
+        button.className = "px-4 py-2 bg-yellow-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500";
+    } else if (isSuccess === 'offline') {
         iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 dark:bg-yellow-900';
         iconDiv.innerHTML = `<svg class="h-6 w-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
         titleEl.textContent = 'Sparad till kö';

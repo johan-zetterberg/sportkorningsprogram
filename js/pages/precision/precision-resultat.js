@@ -1138,7 +1138,8 @@ export function __unload() {
   document.body.classList.remove('has-fixed-xbar');
   try { document.querySelector('.pr-xbar')?.remove(); } catch { }
 
-  stopTicker();
+  // Always stop on leaving: stopTicker() keeps it while a round is running
+  if (precisionTickerInterval) clearInterval(precisionTickerInterval);
   precisionTickerInterval = null;
   precision_equipages = [];
   precision_precisionMap.clear();

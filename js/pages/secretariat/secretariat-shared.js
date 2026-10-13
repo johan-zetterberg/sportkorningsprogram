@@ -7,14 +7,7 @@ function toComparableStartNumber(value) {
 
 let stickyCloneStyleInjected = false;
 
-export function escapeHtml(value) {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
+export { escapeHtml } from '../../utils/sharedUtils.js';
 
 export function renderFieldModeBanner(competition, options = {}) {
   if ((competition?.competitionMode || 'live') !== 'field') return '';

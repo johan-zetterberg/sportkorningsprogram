@@ -10,6 +10,7 @@ import {
   guessProgramKeyFromClass as _guessProg,
   deduplicateAndFilterProtocols as _dedupe
 } from '../core-engine/dressage.js';
+import { escapeHtml } from './sharedUtils.js';
 
 export { normJudgeId, getProtocolProgramKey, resolveDressageProgramKey, findProgramKey } from '../core-engine/dressage.js';
 
@@ -136,7 +137,6 @@ export function getMomentHorseLabelStacked(equipage) {
   const names = label.split(/\s*&\s*/); // Dela upp på " & "
 
   // Använder en enkel escape-funktion för säkerhets skull
-  const escapeHtml = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
   return names.map(n => `<span class="block">${escapeHtml(n)}</span>`).join('');
 }
