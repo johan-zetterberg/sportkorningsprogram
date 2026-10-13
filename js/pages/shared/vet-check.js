@@ -137,7 +137,7 @@ function renderPage(pageContainer, competition) {
         </style>
 
         <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-3xl">
-            ${getCompetitionHeader(competition, 'Veterinärbesiktning')}
+            ${getCompetitionHeader(competition, 'Veterinärbesiktning', { quickGuideRole: 'vet-check' })}
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[85vh]">
                 <div class="vet-header shrink-0 p-4 bg-white dark:bg-gray-900 border-b dark:border-gray-700 z-30 shadow-sm space-y-3">
                     <div id="vet-phase-tabs-container">

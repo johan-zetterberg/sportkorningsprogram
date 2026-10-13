@@ -2109,7 +2109,7 @@ export function load() {
   <div class="container mx-auto p-4 md:p-8 max-w-2xl">
     ${getCompetitionHeader(competition, competition?.competitionMode === 'field'
       ? 'Maraton - manuell hinderregistrering'
-      : t('marathon_input_header'))}
+      : t('marathon_input_header'), { quickGuideRole: 'marathon-obstacle' })}
     ${renderCompetitionModeBanner(competition, {
       message: 'Tävlingen körs i fältläge. Hinder rapporteras manuellt här utan krav på full liveproduktion.'
     })}

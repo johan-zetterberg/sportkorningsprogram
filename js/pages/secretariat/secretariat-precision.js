@@ -125,7 +125,7 @@ function render() {
 
   rootEl.innerHTML = `
     <div class="w-full max-w-7xl mx-auto px-3 py-4 sm:px-4">
-      ${getCompetitionHeader(competition, t('secretariat_precision_title'))}
+      ${getCompetitionHeader(competition, t('secretariat_precision_title'), { quickGuideRole: 'secretariat' })}
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Registrera tider och straff manuellt här och använd sekretariatet för upplåsning och återfinalisering.',
       })}

@@ -399,7 +399,7 @@ function render(container) {
 
       <div class="container mx-auto p-4 md:p-8 max-w-4xl">
         <div class="mb-6">
-          ${getCompetitionHeader(comp, 'Observatör')}
+          ${getCompetitionHeader(comp, 'Observatör', { quickGuideRole: 'observer' })}
         </div>
 
         <!-- Emergency Pause (Compact/Premium) -->

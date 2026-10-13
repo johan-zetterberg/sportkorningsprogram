@@ -1262,7 +1262,7 @@ export function load() {
   <div class="container mx-auto p-4 md:p-8 max-w-4xl">
     ${getCompetitionHeader(competition, competition?.competitionMode === 'field'
       ? 'Inmatning Dressyr - Manuellt domarprotokoll'
-      : 'Inmatning Dressyr - Digitalt Domarprotokoll')}
+      : 'Inmatning Dressyr - Digitalt Domarprotokoll', { quickGuideRole: 'dressage' })}
     ${renderCompetitionModeBanner(competition, {
       message: 'Tävlingen körs i fältläge. Domarprotokoll registreras manuellt här, och sekretariatet används för efterkontroll och finalisering.'
     })}

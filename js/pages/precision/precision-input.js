@@ -446,7 +446,7 @@ function renderLayout() {
             <div class="mb-4">
                 ${getCompetitionHeader(comp, comp?.competitionMode === 'field'
                     ? 'Precision - manuell registrering'
-                    : t('precision_header'))}
+                    : t('precision_header'), { quickGuideRole: 'precision' })}
             </div>
             ${renderCompetitionModeBanner(comp, {
                 message: 'Tävlingen körs i fältläge. Tid, rivningar och övriga straff registreras manuellt här.'

@@ -1,30 +1,22 @@
-// js/ui/components.js
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { getCompetitionLogoHtml } from '../utils/competitionLogo.js';
 import { t } from '../utils/i18n.js';
+import { renderQuickGuideButton, openQuickGuide } from './quickGuideDrawer.js';
+
+export { renderQuickGuideButton, openQuickGuide };
 
 /**
  * Renderar ett standardiserat sidhuvud för en tävling.
  * @param {object} competition - Det aktiva tävlingsobjektet.
- * @param {string} title - Sidans titel.
+ * @param {string} pageTitle - Sidans titel.
+ * @param {object|boolean} options - Tillvalsobjekt ({ quickGuideRole: string, actionsHtml: string })
  * @returns {string} En HTML-sträng med sidhuvudet.
  */
-//export function getCompetitionHeader(competition, title) {
-//    if (!competition) return '';
-//    return `
-//        <header class="mb-8 text-center">
-//            <h1 class="text-4xl font-bold text-gray-800">${competition.name}</h1>
-//            <p class="text-lg text-gray-600 mt-2">${title}</p>
-//            <p class="text-sm text-gray-500 mt-1">${competition.place} | ${competition.dates} | ${competition.club}</p>
-//        </header>
-//    `;
-//}
-
 // Ny kod med DriveLive-färger
-export function getCompetitionHeader(competition, pageTitle) {
+export function getCompetitionHeader(competition, pageTitle, options = {}) {
     // Om inget tävlingsobjekt finns, visa en standard-header
     if (!competition) {
-        return `<header class="bg-brand-darkblue ...">Ingen tävling vald</header>`;
+        return `<header class="bg-brand-darkblue p-4 rounded-t-lg text-white">Ingen tävling vald</header>`;
     }
 
     // --- Datumformatering (robust) ---
@@ -49,6 +41,12 @@ export function getCompetitionHeader(competition, pageTitle) {
         // Lämnar dateString tom om datumen är ogiltiga
     }
 
+    const opts = (typeof options === 'object' && options !== null) ? options : {};
+    let actionsHtml = opts.actionsHtml || '';
+    if (opts.quickGuideRole) {
+        actionsHtml = renderQuickGuideButton(opts.quickGuideRole) + (actionsHtml ? ` ${actionsHtml}` : '');
+    }
+
     return `
         <header
             class="competition-page-header bg-gradient-to-r from-brand-darkblue to-indigo-950 dark:from-gray-900 dark:to-gray-800 border-b-4 border-brand-gold dark:border-brand-gold/70 p-2 md:p-4 rounded-t-lg mb-2 md:mb-4 shadow-xl flex items-center gap-3 md:gap-4 transition-colors"
@@ -60,12 +58,12 @@ export function getCompetitionHeader(competition, pageTitle) {
                 fallbackHtml: '<img src="/icons/DriveLive_512.png" alt="DriveLive Logga" class="h-12 w-12 md:h-16 md:w-16 rounded-md flex-shrink-0">'
             })}
 
-            <div class="flex-grow">
+            <div class="flex-grow min-w-0">
                 <div class="flex items-center gap-2">
-                    <h1 class="text-xl md:text-2xl font-bold font text-white">${escapeHtml(competition.name || 'Tävling')}</h1>
+                    <h1 class="text-xl md:text-2xl font-bold font text-white truncate">${escapeHtml(competition.name || 'Tävling')}</h1>
                     ${(competition.published === false) ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-400 text-yellow-900 shadow-sm uppercase tracking-wider">UTKAST</span>' : ''}
                 </div>
-                <p class="text-sm md:text-base text-brand-lightblue dark:text-blue-300">${escapeHtml(pageTitle || '')}</p>
+                <p class="text-sm md:text-base text-brand-lightblue dark:text-blue-300 truncate">${escapeHtml(pageTitle || '')}</p>
                 
                 ${(competition.location || dateString) ? `
                     <div class="text-xs text-gray-300 dark:text-gray-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -74,6 +72,12 @@ export function getCompetitionHeader(competition, pageTitle) {
                     </div>
                 ` : ''}
             </div>
+
+            ${actionsHtml ? `
+                <div class="shrink-0 flex items-center gap-2">
+                    ${actionsHtml}
+                </div>
+            ` : ''}
         </header>
     `;
 }

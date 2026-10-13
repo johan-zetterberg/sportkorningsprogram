@@ -1129,7 +1129,7 @@ function renderLayout() {
     <div class="container mx-auto p-4 md:p-8 max-w-4xl">
       ${getCompetitionHeader(comp, comp?.competitionMode === 'field'
         ? 'Maraton - manuell etappregistrering'
-        : t('marathon_stages_header'))}
+        : t('marathon_stages_header'), { quickGuideRole: 'marathon-stages' })}
       ${renderCompetitionModeBanner(comp, {
         message: 'Tävlingen körs i fältläge. Etapptider registreras manuellt här och sekretariatet används för uppföljning och korrigering.'
       })}
