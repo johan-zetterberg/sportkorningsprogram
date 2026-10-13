@@ -719,7 +719,11 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
 
   // Ta bort eventuell redan öppen guide
   if (typeof document !== 'undefined') {
-    document.querySelectorAll('.qg-backdrop').forEach((el) => el.remove());
+    // ...with its Escape listener (removing only the element left it behind)
+    document.querySelectorAll('.qg-backdrop').forEach((el) => {
+      try { el.__qgRemoveKeyListener?.(); } catch {}
+      el.remove();
+    });
   }
 
   let activeRole = GUIDES[initialRoleKey] ? initialRoleKey : 'dressage';
@@ -973,6 +977,7 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
   }
 
   document.addEventListener('keydown', onKeyDown);
+  backdrop.__qgRemoveKeyListener = () => document.removeEventListener('keydown', onKeyDown);
 
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) {

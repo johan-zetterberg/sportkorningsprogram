@@ -185,14 +185,21 @@ service cloud.firestore {
         );
     }
 
+    // Unlocked before this write (finalizing: result and lock in one batch) or
+    // after it (unlocking: lock and result in one batch, so a network error
+    // cannot leave an unlocked lock with a result still marked finalized)
     function isPrecisionResultUnlocked(compId, startNo) {
       let finPath = /databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo);
-      return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
+      return !exists(finPath)
+        || get(finPath).data.get('finalized', false) != true
+        || (existsAfter(finPath) && getAfter(finPath).data.get('finalized', false) != true);
     }
 
     function isMarathonResultUnlocked(compId, startNo) {
       let finPath = /databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo);
-      return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
+      return !exists(finPath)
+        || get(finPath).data.get('finalized', false) != true
+        || (existsAfter(finPath) && getAfter(finPath).data.get('finalized', false) != true);
     }
 
     function isDressageResultUnlocked(compId, startNo) {

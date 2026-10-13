@@ -172,7 +172,7 @@ export function getClassSettings(className, marathonConfig) {
     if (dataMap[className]) return dataMap[className];
     if (typeof className !== 'string') return null;
 
-    const clean = (s) => s.trim().toLowerCase().replace(/ /g, ' ');
+    const clean = (s) => s.trim().toLowerCase().replace(/\u00a0/g, ' ');
     const normClass = clean(className);
     const key = Object.keys(dataMap).find(k => normClass.startsWith(clean(k)));
     if (key) return dataMap[key];

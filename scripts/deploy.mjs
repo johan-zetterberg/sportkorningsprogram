@@ -1,7 +1,7 @@
 // Safe deploy to production (combined-driving).
 //
-//   npm run deploy                         hosting only (the usual case)
-//   npm run deploy -- --only hosting,functions
+//   npm run deploy                         everything: hosting, functions, rules
+//   npm run deploy -- --only hosting       just the website (faster)
 //   npm run deploy -- --skip-smoke         when the smoke emulators can't run
 //   npm run deploy -- --dry-run            checks and tests only
 //
@@ -25,8 +25,11 @@ const LOCAL_ONLY_ASSET_DIRS = ['assets/logos', 'assets/dressage'];
 
 const args = process.argv.slice(2);
 const onlyArg = args.find(a => a.startsWith('--only'));
-const onlyValue = onlyArg?.includes('=') ? onlyArg.split('=')[1] : (onlyArg ? args[args.indexOf(onlyArg) + 1] : 'hosting');
-const targets = String(onlyValue || 'hosting').split(',').map(s => s.trim()).filter(Boolean);
+// Without --only everything is deployed: a website that expects a function or
+// rule not deployed yet is easy to ship by mistake
+const ALL_TARGETS = 'hosting,functions,firestore,storage';
+const onlyValue = onlyArg?.includes('=') ? onlyArg.split('=')[1] : (onlyArg ? args[args.indexOf(onlyArg) + 1] : ALL_TARGETS);
+const targets = String(onlyValue || ALL_TARGETS).split(',').map(s => s.trim()).filter(Boolean);
 const skipSmoke = args.includes('--skip-smoke');
 const dryRun = args.includes('--dry-run'); // all checks and tests, no commit or deploy
 
@@ -60,9 +63,12 @@ for (const t of targets) {
 console.log(`Deploying ${targets.join(', ')} to ${PROJECT}${skipSmoke ? ' (smoke tests skipped)' : ''}.`);
 
 step('Only committed work is deployed');
-const status = run('git status --porcelain --untracked-files=no', { capture: true });
+// Untracked files count too: hosting publishes the whole folder and functions
+// uploads its folder, so a stray file would go live (gitignored files, like
+// the local-only assets, are not listed)
+const status = run('git status --porcelain', { capture: true });
 if (status.code !== 0) fail('Could not read git status.');
-if (status.out) fail(`Uncommitted changes in tracked files — commit or stash them first:\n${status.out}`);
+if (status.out) fail(`Uncommitted or untracked files — commit, stash or remove them first:\n${status.out}`);
 
 if (targets.includes('hosting')) {
   step('Local-only assets are present');

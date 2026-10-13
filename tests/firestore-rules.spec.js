@@ -500,6 +500,25 @@ test('finalizing writes result and lock in one batch, after which the judge is l
   await assertFails(setDoc(doc(db, compPath(`precision/${START_NO}`)), { timeMs: 1 }, { merge: true }));
 });
 
+test('unlocking writes lock and result in one batch; a locked result alone stays refused', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-unlock-1', 'precision', 'precision-unlock@example.com');
+  const db = testEnv.authenticatedContext('precision-unlock-1', { email_verified: true, email: 'precision-unlock@example.com' }).firestore();
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, compPath(`precision/${START_NO}`)), { startNumber: Number(START_NO), timeMs: 100000, finalized: true });
+    await setDoc(doc(adminDb, rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: true });
+  });
+
+  // Locked: the result alone cannot be written
+  await assertFails(setDoc(doc(db, compPath(`precision/${START_NO}`)), { finalized: false }, { merge: true }));
+
+  // Unlock lock and result together
+  const batch = writeBatch(db);
+  batch.set(doc(db, rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: false }, { merge: true });
+  batch.set(doc(db, compPath(`precision/${START_NO}`)), { finalized: false }, { merge: true });
+  await assertSucceeds(batch.commit());
+});
+
 test('competition discipline roles may finalize only their matching discipline', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-finalizer-1', 'precision', 'precision-finalizer@example.com');
   const ctx = testEnv.authenticatedContext('precision-finalizer-1', { email_verified: true, email: 'precision-finalizer@example.com' });

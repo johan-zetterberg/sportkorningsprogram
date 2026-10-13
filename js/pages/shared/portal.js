@@ -210,7 +210,15 @@ export function showDriverPortalHelpModal() {
     div.innerHTML = modalHtml;
     const modal = div.firstElementChild;
 
-    const closeModal = () => modal.remove();
+    // Every way of closing removes the Escape listener too, so opening the
+    // help again does not stack listeners
+    const keyHandler = (e) => {
+        if (e.key === 'Escape') closeModal();
+    };
+    const closeModal = () => {
+        document.removeEventListener('keydown', keyHandler);
+        modal.remove();
+    };
 
     modal.querySelector('#closePortalHelpBtn')?.addEventListener('click', closeModal);
     modal.querySelector('#dismissPortalHelpBtn')?.addEventListener('click', closeModal);
@@ -223,12 +231,6 @@ export function showDriverPortalHelpModal() {
         if (e.target === modal) closeModal();
     });
 
-    const keyHandler = (e) => {
-        if (e.key === 'Escape') {
-            closeModal();
-            document.removeEventListener('keydown', keyHandler);
-        }
-    };
     document.addEventListener('keydown', keyHandler);
 
     document.body.appendChild(modal);

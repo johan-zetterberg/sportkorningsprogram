@@ -1,0 +1,17 @@
+{
+    "root": true,
+    "env": {
+        "node": true,
+        "es2022": true
+    },
+    "parserOptions": {
+        "ecmaVersion": 2022,
+        "sourceType": "module"
+    },
+    "extends": ["eslint:recommended"],
+    "ignorePatterns": ["node_modules/", "lib/"],
+    "rules": {
+        "no-unused-vars": ["warn", { "args": "none", "caughtErrors": "none" }],
+        "no-useless-escape": "off"
+    }
+}

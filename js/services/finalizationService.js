@@ -74,21 +74,24 @@ export async function finalizeMarathon(competitionId, startNumber) {
 
 export async function unfinalizeMarathon(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering maraton #${startNumber}`, (async () => {
-    // Release the Firestore lock first, so the write to artifacts can succeed
+    // Lock and result in one batch, like finalizing: a network error between
+    // two writes left an unlocked result still marked finalized (the rules
+    // accept the result write because the lock is open after the batch)
     const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
-    await setDoc(lockRef, {
+    const ref = getCompDocRef(competitionId, 'maraton', String(startNumber));
+    const batch = writeBatch(db);
+    batch.set(lockRef, {
       finalized: false,
       unfinalizedAt: Date.now(),
       unfinalizedBy: getUid()
     }, { merge: true });
-
-    const ref = getCompDocRef(competitionId, 'maraton', String(startNumber));
-    await setDoc(ref, { 
-      finalized: false, 
-      status: 'Pågår', 
+    batch.set(ref, {
+      finalized: false,
+      status: 'Pågår',
       updatedAt: serverTimestamp(),
       unfinalizedBy: getUid()
     }, { merge: true });
+    await batch.commit();
   })());
 }
 
@@ -120,19 +123,20 @@ export async function finalizePrecision(competitionId, startNumber) {
 
 export async function unfinalizePrecision(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering precision #${startNumber}`, (async () => {
-    // Release the Firestore lock first, so the write to artifacts can succeed
+    // Lock and result in one batch (see unfinalizeMarathon)
     const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
-    await setDoc(lockRef, {
-      finalized: false,
-      unfinalizedAt: Date.now(),
-      unfinalizedBy: getUid()
-    }, { merge: true });
-
     const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
-    await setDoc(ref, { 
+    const batch = writeBatch(db);
+    batch.set(lockRef, {
       finalized: false,
       unfinalizedAt: Date.now(),
       unfinalizedBy: getUid()
     }, { merge: true });
+    batch.set(ref, {
+      finalized: false,
+      unfinalizedAt: Date.now(),
+      unfinalizedBy: getUid()
+    }, { merge: true });
+    await batch.commit();
   })());
 }
