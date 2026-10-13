@@ -417,11 +417,17 @@ service cloud.firestore {
       allow update: if request.auth != null
         && (
           canAdminThisArtifactsComp(appId, compId) ||
-          hasExplicitRoleInComp(appId, compId, 'speaker') ||
           (
-             // Allow drivers to update declaration fields for their own entry only.
+            // The speaker keeps notes for the commentary, nothing else
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(['speakerNotes', 'lastUpdated', 'updatedAt'])
+            && hasExplicitRoleInComp(appId, compId, 'speaker')
+          ) ||
+          (
+             // Drivers: declaration fields of their own entry. Not `horses`: the
+             // horse entries also hold the vet's inspection results, so horse
+             // names are saved by the updateEquipageDeclaration function
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-               ['groom', 'horses', 'carriage', 'clubName', 'speakerNotes', 'lastUpdated', 'updatedAt']
+               ['groom', 'carriage', 'clubName', 'speakerNotes', 'lastUpdated', 'updatedAt']
              )
              && canSelfServiceEquipage(appId, compId, equipageId)
           )

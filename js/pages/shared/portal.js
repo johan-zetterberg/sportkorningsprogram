@@ -3,7 +3,7 @@ import { getDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { autoClaimEquipages } from '../../services/authService.js';
-import { getComputedResultForEquipage, getEquipagePrivateData, saveEquipage } from '../../services/equipageService.js';
+import { getComputedResultForEquipage, getEquipagePrivateData, saveEquipage, updateEquipageDeclaration } from '../../services/equipageService.js';
 import { getMarathonTimingForEquipage, getMarathonLiveDocument } from '../../services/marathonService.js';
 import { getPrecisionResultForEquipage } from '../../services/precisionService.js';
 import { listenForDressageProtocols } from '../../services/dressageService.js';
@@ -1191,12 +1191,12 @@ async function renderDashboard(container, compId, startNumber, user) {
                             });
 
                             try {
-                                await saveEquipage(compId, startNumber, {
+                                // Saved by the server, which keeps the vet's data on the horses
+                                await updateEquipageDeclaration(compId, startNumber, {
                                     groom,
                                     carriage,
                                     clubName,
                                     horses: newHorses
-                                    // lastUpdated: new Date() // Commented out to debug permissions
                                 });
                                 showAlert('Ändringar sparade! 💾', true);
                                 close();

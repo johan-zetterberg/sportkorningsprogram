@@ -8,7 +8,8 @@ import { setGlobalOptions } from "firebase-functions/v2";
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
-import { getFirestore } from "firebase-admin/firestore";
+import { FieldValue, getFirestore } from "firebase-admin/firestore";
+import { buildDeclarationUpdate } from "./src/declarationUtils.js";
 import { getAuth } from "firebase-admin/auth";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
@@ -654,6 +655,47 @@ export const ensureOwnerSuperadminAccess = onCall(async (request) => {
         elevated: true,
         claimsUpdated: !claimsAlreadySet
     };
+});
+
+// A driver's declaration from the portal. Drivers may not write `horses`
+// directly (the rules forbid it): the horse entries also hold the vet's
+// inspection results, so here only names and ids are taken from the driver and
+// everything else on a horse is kept (declarationUtils).
+export const updateEquipageDeclaration = onCall(async (request) => {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    }
+    const authEmail = String(request.auth.token?.email || '').trim().toLowerCase();
+    if (!authEmail || request.auth.token?.email_verified !== true) {
+        throw new HttpsError('permission-denied', 'Bekräfta din e-postadress innan du ändrar deklarationen.');
+    }
+    const competitionId = String(request.data?.competitionId || '').trim();
+    const startNumber = String(request.data?.startNumber ?? '').trim();
+    if (!isValidCompetitionId(competitionId) || !/^[\w-]{1,20}$/.test(startNumber)) {
+        throw new HttpsError('invalid-argument', 'Ogiltig tävling eller ogiltigt startnummer.');
+    }
+
+    const comp = await getCompetitionArtifactsDoc(competitionId);
+    if (!comp) throw new HttpsError('not-found', 'Tävlingen finns inte.');
+    const privateSnap = await comp.ref.collection('equipagePrivate').doc(startNumber).get();
+    const ownerEmail = String(privateSnap.exists ? privateSnap.data()?.email || '' : '').trim().toLowerCase();
+    if (!ownerEmail || ownerEmail !== authEmail) {
+        throw new HttpsError('permission-denied', 'Ekipaget är inte kopplat till din e-postadress. Kontakta sekretariatet.');
+    }
+
+    const equipageRef = comp.ref.collection('equipages').doc(startNumber);
+    await db.runTransaction(async (transaction) => {
+        const snap = await transaction.get(equipageRef);
+        if (!snap.exists) throw new HttpsError('not-found', 'Ekipaget finns inte.');
+        let update;
+        try {
+            update = buildDeclarationUpdate(request.data || {}, snap.data()?.horses);
+        } catch (error) {
+            throw new HttpsError('failed-precondition', error.message);
+        }
+        transaction.set(equipageRef, { ...update, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+    });
+    return { ok: true };
 });
 
 export const submitVolunteerSignup = onCall(async (request) => {

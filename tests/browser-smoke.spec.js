@@ -127,6 +127,37 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
 });
 
+test('a driver declaration keeps the vet results on the horses', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const outcome = await page.evaluate(async (competitionId) => {
+    const { getEquipages, saveEquipage, updateEquipageDeclaration } = await import('../js/services/equipageService.js');
+    const { auth } = await import('../js/config/firebase-config.js');
+    const eq = (await getEquipages(competitionId))[0];
+    const sn = String(eq.startNumber);
+    // This (verified) user is the equipage's contact; one horse is inspected
+    await saveEquipage(competitionId, sn, {
+      email: auth.currentUser.email,
+      horses: [{ name: 'Ella', id: 'SE001', chip: '752', vetStatus: 'underkänd', inspections: { first: { status: 'underkänd' } } }]
+    });
+    await updateEquipageDeclaration(competitionId, sn, {
+      groom: 'Anna', carriage: 'Maraton', clubName: 'Klubben',
+      horses: [{ name: 'Ella', id: 'SE001', vetStatus: 'godkänd' }, { name: 'Ny häst', id: '' }]
+    });
+    let renameRefused = '';
+    try {
+      await updateEquipageDeclaration(competitionId, sn, { horses: [{ name: 'Annan', id: 'SE001' }] });
+    } catch (error) { renameRefused = error.message; }
+    const after = (await getEquipages(competitionId)).find(e => String(e.startNumber) === sn);
+    return { horses: after.horses, groom: after.groom, renameRefused };
+  }, competitionId);
+
+  expect(outcome.groom).toBe('Anna');
+  expect(outcome.horses[0]).toMatchObject({ name: 'Ella', chip: '752', vetStatus: 'underkänd' });
+  expect(outcome.horses[1]).toMatchObject({ name: 'Ny häst' });
+  expect(outcome.renameRefused).toMatch(/besiktad/);
+});
+
 test('after an update the app starts without signal and opens pages not visited yet', async ({ page, context }) => {
   test.setTimeout(300000);
   await page.goto('/index.html#hub');

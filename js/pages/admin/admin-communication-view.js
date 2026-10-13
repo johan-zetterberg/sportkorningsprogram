@@ -7,6 +7,12 @@ function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
+// Links typed in by admins: web, mail and site links only (never javascript:)
+function safeLinkUrl(value) {
+    const url = String(value || '').trim();
+    return /^(https?:|mailto:|\/(?!\/))/i.test(url) ? url : '#';
+}
+
 function formatFileSize(bytes) {
     const size = Number(bytes);
     if (!Number.isFinite(size) || size <= 0) return '';
@@ -345,7 +351,7 @@ export function renderDocumentsList(items, badgeRenderer) {
                         <span class="bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded text-gray-600 dark:text-gray-300">${escapeHtml(document.category)}</span>
                         ${badgeRenderer(document)}
                         ${document.isUpload ? '<span class="bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 px-1.5 py-0.5 rounded">Uppladdad fil</span>' : ''}
-                        ${document.type === 'url' ? `<a href="${escapeHtml(document.url)}" target="_blank" class="text-blue-600 dark:text-blue-400 hover:underline">Öppna</a>` : '<span class="text-gray-400">(Text)</span>'}
+                        ${document.type === 'url' ? `<a href="${escapeHtml(safeLinkUrl(document.url))}" target="_blank" rel="noopener noreferrer" class="text-blue-600 dark:text-blue-400 hover:underline">Öppna</a>` : '<span class="text-gray-400">(Text)</span>'}
                     </div>
                 </div>
             </div>

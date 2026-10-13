@@ -1,4 +1,5 @@
-import { db, appId } from '../config/firebase-config.js';
+import { db, appId, functions } from '../config/firebase-config.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
 import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc, collection, where, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
@@ -18,7 +19,13 @@ const PRIVATE_EQUIPAGE_FIELDS = new Set([
   'mobile',
   'personnummer',
   'phone',
-  'ssn'
+  'ssn',
+  // Payments and the secretariat's own notes (from the entry system import)
+  'payment',
+  'administrativeFees',
+  'otherFees',
+  'adminComments',
+  'notes'
 ]);
 
 function normalizeDocumentId(value, label) {
@@ -200,6 +207,17 @@ export async function updateEquipage(competitionId, equipageId, data) {
   } catch (error) {
     throw mapEquipageWriteError(error);
   }
+}
+
+/**
+ * A driver's own declaration (groom, carriage, club, horse names/ids) from the
+ * portal, saved by the server: drivers may not write the horse entries
+ * directly, since they also hold the vet's inspection results.
+ */
+export async function updateEquipageDeclaration(competitionId, startNumber, declaration = {}) {
+  const callable = httpsCallable(functions, 'updateEquipageDeclaration');
+  const response = await callable({ competitionId, startNumber: String(startNumber), ...declaration });
+  return response.data;
 }
 
 export async function saveEquipage(competitionId, startNumber, equipageData) {

@@ -317,7 +317,7 @@ test('self-service equipage update is denied for mismatched email', { skip: !HAS
   }));
 });
 
-test('speaker role may update equipage outside self-service restrictions', { skip: !HAS_EMULATOR }, async () => {
+test('speaker role may update speaker notes but no other equipage field', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('speaker-eq-1', 'speaker', 'speaker-eq@example.com');
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -335,8 +335,30 @@ test('speaker role may update equipage outside self-service restrictions', { ski
   const db = ctx.firestore();
 
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-speaker-1')), {
+    speakerNotes: 'Första start i klassen'
+  }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-speaker-1')), {
     driverName: 'Speaker Edited Driver'
   }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-speaker-1')), {
+    status: 'struken'
+  }));
+});
+
+test('drivers cannot write their horse entries directly (vet results live there)', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('equipages/eq-horse-1')), {
+      startNumber: 5,
+      horses: [{ name: 'Ella', id: 'SE001', vetStatus: 'underkänd' }]
+    });
+    await setDoc(doc(db, compPath('equipagePrivate/eq-horse-1')), { email: 'horse-driver@example.com' });
+  });
+  const db = testEnv.authenticatedContext('horse-driver', { email_verified: true, email: 'horse-driver@example.com' }).firestore();
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), {
+    horses: [{ name: 'Ella', id: 'SE001', vetStatus: 'godkänd' }]
+  }));
+  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { groom: 'Anna' }));
 });
 
 test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
