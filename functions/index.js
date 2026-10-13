@@ -570,8 +570,9 @@ export const joinCompetitionAsOfficial = onCall(async (request) => {
         const [userSnap, competitionSnap] = await Promise.all([tx.get(userAttemptsRef), tx.get(competitionAttemptsRef)]);
         const userState = userSnap.exists ? userSnap.data() : null;
         const competitionState = competitionSnap.exists ? competitionSnap.data() : null;
-        const check = checkPinAttempts(userState, competitionState, now);
-        if (!check.allowed) return { locked: true, retryAfterMs: check.retryAfterMs };
+        const emailVerified = request.auth.token?.email_verified === true;
+        const check = checkPinAttempts(userState, competitionState, now, PIN_ATTEMPT_LIMITS, { emailVerified });
+        if (!check.allowed) return { locked: true, retryAfterMs: check.retryAfterMs, emailVerified };
 
         const role = resolveJoinRoleForPin(pinCode, secrets);
         if (!role) {
@@ -582,7 +583,9 @@ export const joinCompetitionAsOfficial = onCall(async (request) => {
     });
     if (attempt.locked) {
         const minutes = Math.max(1, Math.ceil(attempt.retryAfterMs / 60000));
-        throw new HttpsError('resource-exhausted', `For manga felaktiga PIN-forsok. Forsok igen om ${minutes} min.`);
+        throw new HttpsError('resource-exhausted', attempt.emailVerified
+            ? `För många felaktiga PIN-försök. Försök igen om ${minutes} min.`
+            : `För många felaktiga PIN-försök i tävlingen. Bekräfta din e-postadress för att fortsätta direkt, eller försök igen om ${minutes} min.`);
     }
     const matchedRole = attempt.role;
     if (!matchedRole) {

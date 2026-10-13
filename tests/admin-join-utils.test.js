@@ -38,6 +38,16 @@ test('PIN joining stops for the whole competition after 100 wrong PINs in an hou
   assert.equal(checkPinAttempts(null, competition, t0 + 61 * 60 * 1000).allowed, true);
 });
 
+test('an official with a verified email can still join while the competition is locked', () => {
+  const t0 = 2_000_000_000;
+  const competition = { failures: Array.from({ length: 100 }, (_, i) => t0 + i * 1000) };
+  // Throwaway accounts guessing PINs must not lock real officials out
+  assert.equal(checkPinAttempts(null, competition, t0 + 200 * 1000, PIN_ATTEMPT_LIMITS, { emailVerified: true }).allowed, true);
+  // ...who still have their own limit
+  const own = { failures: Array.from({ length: 5 }, (_, i) => t0 + i * 1000) };
+  assert.equal(checkPinAttempts(own, competition, t0 + 10 * 1000, PIN_ATTEMPT_LIMITS, { emailVerified: true }).allowed, false);
+});
+
 test('competition ids from clients must be a single document id', () => {
   assert.equal(isValidCompetitionId('HHm4tBR1K5aYGXv1DssB'), true);
   assert.equal(isValidCompetitionId('demo-e2e_123'), true);

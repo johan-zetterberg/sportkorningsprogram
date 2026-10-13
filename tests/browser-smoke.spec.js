@@ -127,6 +127,56 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
 });
 
+test('deleting a competition removes its personal data and results', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  const left = await page.evaluate(async (competitionId) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { collection, doc, getDocs, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const { deleteCompetition } = await import('../js/services/competitionService.js');
+    const { saveOfficial } = await import('../js/services/adminService.js');
+    const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+    // A protocol without a parent document (as the judges' page writes them),
+    // and an official with contact details
+    // (the last equipage: the seed finalizes the first ones, which locks them)
+    const sn = (await getDocs(collection(db, `${base}/equipages`))).docs.at(-1).id;
+    await setDoc(doc(db, `${base}/dressage/${sn}/protocols/judge_x`), { startNumber: sn, movements: [] });
+    await saveOfficial(competitionId, { name: 'Radera Mig', phone: '070', email: 'radera@example.com' });
+    await deleteCompetition(competitionId);
+    // Counted with the emulator's admin access: without the competition
+    // nobody may list its private collections any more
+    const counts = {};
+    for (const path of ['equipages', 'equipagePrivate', 'officials', 'officialsPrivate', 'precision', 'maraton', `dressage/${sn}/protocols`, 'config']) {
+      const res = await fetch(`http://127.0.0.1:8080/v1/projects/demo-combined-driving/databases/(default)/documents/${base}/${path}`, {
+        headers: { Authorization: 'Bearer owner' }
+      });
+      counts[path.startsWith('dressage/') ? 'protocols' : path] = ((await res.json()).documents || []).length;
+    }
+    return counts;
+  }, competitionId);
+  expect(left).toEqual({
+    equipages: 0, equipagePrivate: 0, officials: 0, officialsPrivate: 0, precision: 0, maraton: 0, protocols: 0, config: 0
+  });
+});
+
+test('logout leaves no competition data on a shared device', async ({ page }) => {
+  await page.goto('/index.html#hub');
+  await expect(page.locator('#logoutButton')).toBeVisible({ timeout: 30000 });
+  await page.evaluate(() => {
+    localStorage.setItem('bkp_comp_dre_12', JSON.stringify({ protocol: { judgeId: 'x' } }));
+    localStorage.setItem('configCache:comp:display', JSON.stringify({ ts: Date.now(), data: {} }));
+    localStorage.setItem('theme', 'dark');
+  });
+  // Logout ends with a reload: check after it
+  const reloaded = page.waitForEvent('load', { timeout: 30000 });
+  await page.locator('#logoutButton').click();
+  await reloaded;
+  await expect(page.locator('#loginButton')).toBeVisible({ timeout: 30000 });
+  const left = await page.evaluate(() => Object.keys(localStorage));
+  expect(left.filter(k => k.startsWith('bkp_') || k.startsWith('configCache:'))).toEqual([]);
+  expect(left).toContain('theme'); // personal settings stay
+});
+
 test('a driver gets their own messages from the server, not other drivers\'', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

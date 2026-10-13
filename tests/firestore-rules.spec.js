@@ -450,6 +450,27 @@ test('precision result writes are denied when the equipage is finalized', { skip
   }));
 });
 
+test('an archived competition takes no result writes from judges, but admins can still correct it', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-arch', 'precision', 'precision-arch@example.com');
+  await seedCompetitionRole('dressage-arch', 'dressage', 'dressage-arch@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), compPath()), { locked: true, status: 'completed' });
+  });
+  const precisionDb = testEnv.authenticatedContext('precision-arch', { email_verified: true, email: 'precision-arch@example.com' }).firestore();
+  const dressageDb = testEnv.authenticatedContext('dressage-arch', { email_verified: true, email: 'dressage-arch@example.com' }).firestore();
+  await assertFails(setDoc(doc(precisionDb, compPath(`precision/${START_NO}`)), { timeMs: 1 }));
+  await assertFails(setDoc(doc(dressageDb, compPath(`dressage/${START_NO}/protocols/judge_x`)), { movements: [] }));
+
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(ownerDb, compPath(`precision/${START_NO}`)), { timeMs: 2 }));
+
+  // Reopened: the judge can write again
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), compPath()), { locked: false, status: 'active' });
+  });
+  await assertSucceeds(setDoc(doc(precisionDb, compPath(`precision/${START_NO}`)), { timeMs: 3 }));
+});
+
 test('precision result writes are allowed when the equipage is not finalized', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-2', 'precision', 'precision2@example.com');
   const ctx = testEnv.authenticatedContext('precision-2', { email_verified: true, email: 'precision2@example.com' });

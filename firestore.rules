@@ -168,6 +168,23 @@ service cloud.firestore {
         );
     }
 
+    // An archived competition (finalizeCompetition sets locked and status
+    // 'completed') takes no more result writes from judges and officials;
+    // an admin reopens it first (admins can still correct it)
+    function isCompetitionOpen(appId, compId) {
+      let comp = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
+      return !exists(comp)
+        || (get(comp).data.get('locked', false) != true && get(comp).data.get('status', '') != 'completed');
+    }
+
+    function canWriteResultsAs(appId, compId, roleName) {
+      return request.auth != null
+        && (
+          canAdminThisArtifactsComp(appId, compId)
+          || (hasExplicitRoleInComp(appId, compId, roleName) && isCompetitionOpen(appId, compId))
+        );
+    }
+
     function isPrecisionResultUnlocked(compId, startNo) {
       let finPath = /databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo);
       return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
@@ -340,9 +357,11 @@ service cloud.firestore {
     // Precision (artifacts-komplettering – äldre regel du hade)
     match /artifacts/{appId}/public/data/competitions/{compId}/precision/{docId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'precision')
+          canWriteResultsAs(appId, compId, 'precision')
         )
         && (
           isPrecisionResultUnlocked(compId, docId)
@@ -352,9 +371,11 @@ service cloud.firestore {
     // ---- Dressyrprotokoll (NY STRUKTUR)
     match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNumber}/protocols/{docId} {
       allow read: if true; // (läsning täcks även av public/** ovan, men OK att vara explicit)
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'dressage')
+          canWriteResultsAs(appId, compId, 'dressage')
         )
         && (
           isDressageResultUnlocked(compId, startNumber)
@@ -364,9 +385,11 @@ service cloud.firestore {
     // Status och live-data för dressyr
     match /artifacts/{appId}/public/data/competitions/{compId}/dressageStatus/{startNumber} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'dressage')
+          canWriteResultsAs(appId, compId, 'dressage')
         )
         && (
           isDressageResultUnlocked(compId, startNumber)
@@ -374,9 +397,11 @@ service cloud.firestore {
 
       match /live/{docId} {
         allow read: if true;
+        // Deleting (the competition) is an admin action, also for finalized results
+        allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
         allow write: if request.auth != null
           && (
-            hasRoleInComp(appId, compId, 'dressage')
+            canWriteResultsAs(appId, compId, 'dressage')
           )
           && (
             isDressageResultUnlocked(compId, startNumber)
@@ -387,9 +412,11 @@ service cloud.firestore {
     // ---- Dressyrprotokoll (LEGACY-STRUKTUR)
     match /artifacts/{appId}/public/data/competitions/{compId}/dressageResults/{startNumber}/protocols/{docId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'dressage')
+          canWriteResultsAs(appId, compId, 'dressage')
         )
         && (
           isDressageResultUnlocked(compId, startNumber)
@@ -399,9 +426,11 @@ service cloud.firestore {
     // Status för dressyr per ekipage
     match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/meta/{docId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'dressage')
+          canWriteResultsAs(appId, compId, 'dressage')
         )
         && (
           isDressageResultUnlocked(compId, startNo)
@@ -530,8 +559,10 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
-      // get only: a list query on config would include config/secrets
+      // get only: a list query on config would include config/secrets. Admins
+      // (who may read the secrets anyway) list it, e.g. to delete a competition
       allow get: if configId != 'secrets';
+      allow list: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write, delete: if configId != 'globalStatus' && configId != 'secrets'
         && request.auth != null
         && canAdminThisArtifactsComp(appId, compId);
@@ -541,7 +572,7 @@ service cloud.firestore {
     // input) record pauses here, and the pause log is subtracted from stage times
     match /artifacts/{appId}/public/data/competitions/{compId}/config/globalStatus {
       allow write: if request.auth != null
-        && hasRoleInComp(appId, compId, 'marathon');
+        && canWriteResultsAs(appId, compId, 'marathon');
     }
 
     // Hemliga konfigurationer (t.ex. PIN-kod)
@@ -675,15 +706,17 @@ service cloud.firestore {
       allow read: if true;
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'marathon')
+          canWriteResultsAs(appId, compId, 'marathon')
         );
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonLive/{docId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'marathon')
+          canWriteResultsAs(appId, compId, 'marathon')
         )
         && (
           isMarathonResultUnlocked(compId, docId)
@@ -692,9 +725,11 @@ service cloud.firestore {
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maraton/{resultId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'marathon')
+          canWriteResultsAs(appId, compId, 'marathon')
         )
         && (
           isMarathonResultUnlocked(compId, resultId)
@@ -703,9 +738,11 @@ service cloud.firestore {
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maraton-timing/{equipageId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'marathon')
+          canWriteResultsAs(appId, compId, 'marathon')
         )
         && (
           isMarathonResultUnlocked(compId, equipageId)
@@ -718,9 +755,11 @@ service cloud.firestore {
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonResults/{equipageId}/obstacles/{obstacleId} {
       allow read: if true;
+      // Deleting (the competition) is an admin action, also for finalized results
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
         && (
-          hasRoleInComp(appId, compId, 'marathon')
+          canWriteResultsAs(appId, compId, 'marathon')
         )
         && (
           isMarathonResultUnlocked(compId, equipageId)

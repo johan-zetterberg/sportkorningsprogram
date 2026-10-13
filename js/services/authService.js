@@ -1,5 +1,5 @@
 import { onAuthStateChanged, signInWithEmailAndPassword, createUserWithEmailAndPassword, signOut, sendPasswordResetEmail, sendEmailVerification } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arrayUnion } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arrayUnion, waitForPendingWrites, terminate, clearIndexedDbPersistence } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { auth, db, appId, functions } from '../config/firebase-config.js';
 import { findClaimableEquipagesByEmail } from './equipageService.js';
@@ -253,8 +253,43 @@ export async function registerUser(email, password) {
     }
 }
 
+// Device storage with competition data: the Firestore copy (IndexedDB) and
+// these localStorage entries (field backups, cached competition settings)
+const DEVICE_DATA_KEY_PREFIXES = ['bkp_', 'configCache:'];
+
 export async function logoutUser() {
+    // Saves still waiting for the network live in the device's Firestore copy,
+    // which logout deletes: don't log out until they have been sent
+    try {
+        await Promise.race([
+            waitForPendingWrites(db),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('pending-writes')), 5000))
+        ]);
+    } catch (_) {
+        window.showAlert?.('Det finns ändringar som inte har skickats till servern än. Vänta tills du har täckning och logga ut igen.', false);
+        return;
+    }
+
     await signOut(auth);
+
+    // A shared tablet or phone keeps no competition data for the next user
+    // (officials' and drivers' details, results, settings read as admin)
+    try {
+        Object.keys(localStorage)
+            .filter(key => DEVICE_DATA_KEY_PREFIXES.some(prefix => key.startsWith(prefix)))
+            .forEach(key => localStorage.removeItem(key));
+    } catch (_) { /* storage unavailable */ }
+    // Clearing the Firestore copy waits while another tab still uses it: give
+    // it a few seconds, the reload below happens either way
+    try {
+        await Promise.race([
+            (async () => { await terminate(db); await clearIndexedDbPersistence(db); })(),
+            new Promise((resolve) => setTimeout(resolve, 3000))
+        ]);
+    } catch (error) {
+        console.warn('Kunde inte rensa lokal Firestore-data vid utloggning:', error);
+    }
+
     window.location.hash = '#hub';
     window.location.reload();
 }

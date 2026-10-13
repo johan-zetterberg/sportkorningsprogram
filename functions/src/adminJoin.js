@@ -60,8 +60,16 @@ function recentFailures(state, windowMs, now) {
  * the user (in this competition) and for the competition. When refused,
  * retryAfterMs says when the oldest counted failure leaves the window.
  */
-export function checkPinAttempts(userState, competitionState, now = Date.now(), limits = PIN_ATTEMPT_LIMITS) {
-  for (const [state, { max, windowMs }] of [[userState, limits.perUser], [competitionState, limits.perCompetition]]) {
+//
+// The competition-wide limit stops guessing with many throwaway accounts, but
+// anyone could also use it to lock real officials out on competition day. So
+// it applies to accounts with an unverified email only: an official who has
+// confirmed their email can still join (limited per user).
+export function checkPinAttempts(userState, competitionState, now = Date.now(), limits = PIN_ATTEMPT_LIMITS, { emailVerified = false } = {}) {
+  const checks = emailVerified
+    ? [[userState, limits.perUser]]
+    : [[userState, limits.perUser], [competitionState, limits.perCompetition]];
+  for (const [state, { max, windowMs }] of checks) {
     const recent = recentFailures(state, windowMs, now);
     if (recent.length >= max) {
       return { allowed: false, retryAfterMs: Math.max(0, Math.min(...recent) + windowMs - now) };

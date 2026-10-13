@@ -135,15 +135,51 @@ export async function updateCompetition(competitionId, data) {
 
 export async function deleteCompetition(competitionId) {
   if (!competitionId) throw new Error("deleteCompetition: competitionId saknas");
+  const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
 
+  // Deletes every document of a query, 400 at a time (a batch takes 500)
   const deleteQueryBatch = async (queryRef) => {
     const snapshot = await getDocs(queryRef);
-    if (snapshot.empty) return 0;
-    const batch = writeBatch(db);
-    snapshot.docs.forEach((d) => batch.delete(d.ref));
-    await batch.commit();
-    return snapshot.size;
+    let deleted = 0;
+    for (let i = 0; i < snapshot.docs.length; i += 400) {
+      const batch = writeBatch(db);
+      snapshot.docs.slice(i, i + 400).forEach((d) => batch.delete(d.ref));
+      await batch.commit();
+      deleted += Math.min(400, snapshot.docs.length - i);
+    }
+    return deleted;
   };
+  const deleteCollection = async (path) => {
+    try {
+      return await deleteQueryBatch(query(collection(db, path)));
+    } catch (error) {
+      error.message = `${error.message} (vid radering av ${path.replace(base + '/', '')})`;
+      throw error;
+    }
+  };
+
+  // Per-equipage subcollections first. Their parent documents often don't
+  // exist (protocols are written straight to dressage/{sn}/protocols), so
+  // listing the parent collection finds nothing: go by start number
+  const startNumbers = new Set();
+  for (const parent of ['equipages', 'dressage', 'dressageResults', 'dressageStatus', 'maratonResults', 'maraton', 'precision']) {
+    try {
+      (await getDocs(collection(db, `${base}/${parent}`))).docs.forEach(d => startNumbers.add(d.id));
+    } catch (error) {
+      console.warn(`deleteCompetition: kunde inte lista ${parent}:`, error);
+    }
+  }
+  for (const sn of startNumbers) {
+    for (const sub of [
+      `dressage/${sn}/protocols`,
+      `dressage/${sn}/meta`,
+      `dressageResults/${sn}/protocols`,
+      `dressageStatus/${sn}/live`,
+      `maratonResults/${sn}/obstacles`
+    ]) {
+      await deleteCollection(`${base}/${sub}`);
+    }
+  }
 
   const simpleCollections = [
     'equipages',
@@ -151,60 +187,35 @@ export async function deleteCompetition(competitionId) {
     'judges',
     'officials',
     'officialsPrivate',
+    'assignments',
+    'volunteerSignups',
+    'teams',
     'roleEmails',
     'maratonObstacles',
+    'maratonLive',
     'config',
     'maraton-timing',
+    'maraton',
+    'maratonResults',
     'precision',
+    'dressage',
+    'dressageResults',
     'dressageStatus',
     'messages',
     'documents',
     'computed_equipages'
   ];
-
   for (const colName of simpleCollections) {
-    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/${colName}`);
-    await deleteQueryBatch(query(colRef));
+    await deleteCollection(`${base}/${colName}`);
   }
 
-  const privateCollections = [
-    'auditLog'
-  ];
+  await deleteCollection(`artifacts/${appId}/private/data/competitions/${competitionId}/auditLog`);
 
-  for (const colName of privateCollections) {
-    const colRef = collection(db, `artifacts/${appId}/private/data/competitions/${competitionId}/${colName}`);
-    await deleteQueryBatch(query(colRef));
-  }
+  // Last: the joined officials and admins (PIN or e-mail access). Deleting
+  // them earlier could take the deleting admin's own access away
+  await deleteCollection(`${base}/admins`);
 
-  const marResCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults`);
-  const marResSnap = await getDocs(marResCol);
-  for (const d of marResSnap.docs) {
-    const obsCol = collection(db, `${marResCol.path}/${d.id}/obstacles`);
-    await deleteQueryBatch(query(obsCol));
-    await deleteDoc(d.ref); 
-  }
-
-  const dressCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage`);
-  const dressSnap = await getDocs(dressCol);
-  for (const d of dressSnap.docs) {
-    const protCol = collection(db, `${dressCol.path}/${d.id}/protocols`);
-    await deleteQueryBatch(query(protCol));
-    await deleteDoc(d.ref);
-  }
-
-  const dressResCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageResults`);
-  const dressResSnap = await getDocs(dressResCol);
-  for (const d of dressResSnap.docs) {
-    const protCol = collection(db, `${dressResCol.path}/${d.id}/protocols`);
-    await deleteQueryBatch(query(protCol));
-    await deleteDoc(d.ref);
-  }
-
-  const marLiveCol = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
-  await deleteQueryBatch(query(marLiveCol));
-
-  const compRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`);
-  await deleteDoc(compRef);
+  await deleteDoc(doc(db, base));
 }
 
 export async function getConfig(competitionId, configName, forceRefresh = false) {
