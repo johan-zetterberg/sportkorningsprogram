@@ -1,4 +1,5 @@
 import { getViloboxBadgeInfo } from './vetCheckUtils.js';
+import { stageRunningSince } from '../../core-engine/marathon.js';
 
 function timestampToMs(value) {
     if (!value) return 0;
@@ -86,6 +87,7 @@ export function buildSpeakerMarathonActiveEntry(sn, eq, data, options = {}) {
     let pausedMs = 0;
     let fixedElapsedMs = null;
     let timerBaseMs = 0;
+    let ownPauses = false; // the clock's source already stops during a global pause
     let isActive = false;
 
     if (data.currentObstacle && (data.liveObstacleStartAt || (data.liveObstacleTimeMs && data.liveObstacleTimeMs > 0))) {
@@ -93,9 +95,14 @@ export function buildSpeakerMarathonActiveEntry(sn, eq, data, options = {}) {
         task = { type: 'obstacle', name: `Hinder ${data.currentObstacle}`, key: data.currentObstacle };
 
         if (data.running === true) {
-            const lastUpdateMs = Number(data.liveObstacleTimeMs) || 0;
-            const lastUpdateTime = timestampToMs(data.updatedAt) || now;
-            timerBaseMs = lastUpdateTime - lastUpdateMs;
+            // Time accumulated before the latest (re)start plus the time since
+            // it, as on the obstacle page. (updatedAt moved with every other
+            // write to the document and reset the clock.)
+            const accumulatedMs = Number(data.liveObstacleTimeMs) || 0;
+            const startedAt = timestampToMs(data.liveObstacleStartAt) || timestampToMs(data.updatedAt) || now;
+            timerBaseMs = startedAt - accumulatedMs;
+            // The obstacle page stops its clock during a global pause itself
+            ownPauses = true;
         } else {
             fixedElapsedMs = Number(data.liveObstacleTimeMs) || 0;
         }
@@ -128,8 +135,18 @@ export function buildSpeakerMarathonActiveEntry(sn, eq, data, options = {}) {
                 if (start && !stop) {
                     isActive = true;
                     task = { type: 'stage', name: stage.name, key: stage.key };
-                    timerBaseMs = start;
-                    pausedMs = getStageDurationMsSaved(data, stage.key) || 0;
+                    const savedMs = getStageDurationMsSaved(data, stage.key) || 0;
+                    const since = stageRunningSince(data, stage.key);
+                    if (since.known && since.ms === null) {
+                        // Paused on the stage page: the saved time, not ticking
+                        fixedElapsedMs = savedMs;
+                    } else if (since.known) {
+                        // Saved time plus the time since the latest (re)start
+                        timerBaseMs = since.ms - savedMs;
+                    } else {
+                        timerBaseMs = start;
+                        pausedMs = savedMs;
+                    }
                     startTime = start;
                     break;
                 }
@@ -176,6 +193,7 @@ export function buildSpeakerMarathonActiveEntry(sn, eq, data, options = {}) {
         startTime,
         pausedMs,
         timerBaseMs,
+        ownPauses,
         fixedElapsedMs,
         updatedAt: now
     };

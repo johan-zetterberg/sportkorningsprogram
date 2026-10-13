@@ -466,7 +466,7 @@ export function renderActiveListNew(ctx) {
             let timeTxt = '00:00,00';
             if (c.timerBaseMs > 0 || c.fixedElapsedMs != null) {
                 const tickTimeNow = ctx.isGloballyPaused ? ctx.pauseStartTime : Date.now();
-                const ms = Math.max(0, c.fixedElapsedMs != null ? c.fixedElapsedMs : (c.timerBaseMs ? (tickTimeNow - c.timerBaseMs) - ctx.pausedMsSince(c.timerBaseMs, tickTimeNow) : 0));
+                const ms = Math.max(0, c.fixedElapsedMs != null ? c.fixedElapsedMs : (c.timerBaseMs ? (tickTimeNow - c.timerBaseMs) - (c.ownPauses ? 0 : ctx.pausedMsSince(c.timerBaseMs, tickTimeNow)) : 0));
                 timeTxt = ctx.formatMsLive(ms);
             }
 
@@ -498,7 +498,7 @@ export function renderActiveListNew(ctx) {
 
             if (c.timerBaseMs > 0 || c.fixedElapsedMs != null) {
                 const tickTimeNow = ctx.isGloballyPaused ? ctx.pauseStartTime : Date.now();
-                const ms = Math.max(0, c.fixedElapsedMs != null ? c.fixedElapsedMs : (c.timerBaseMs ? (tickTimeNow - c.timerBaseMs) - ctx.pausedMsSince(c.timerBaseMs, tickTimeNow) : 0));
+                const ms = Math.max(0, c.fixedElapsedMs != null ? c.fixedElapsedMs : (c.timerBaseMs ? (tickTimeNow - c.timerBaseMs) - (c.ownPauses ? 0 : ctx.pausedMsSince(c.timerBaseMs, tickTimeNow)) : 0));
                 timeTxt = ctx.formatMsLive(ms);
 
                 if (c.task && (c.task.key === 'A' || c.task.key === 'B')) {

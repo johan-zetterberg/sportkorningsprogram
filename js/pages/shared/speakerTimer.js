@@ -101,7 +101,7 @@ export function updateLiveClocks(context) {
 
             // Priority: Active Equipage (Source of Truth)
             if (active && (active.timerBaseMs > 0 || active.fixedElapsedMs != null)) {
-                const ms = Math.max(0, active.fixedElapsedMs != null ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - pausedMsSince(active.timerBaseMs, tickTimeNow) : 0));
+                const ms = Math.max(0, active.fixedElapsedMs != null ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - (active.ownPauses ? 0 : pausedMsSince(active.timerBaseMs, tickTimeNow)) : 0));
                 mTimeEl.textContent = formatMsLive(ms);
                 handled = true;
             }
@@ -154,7 +154,7 @@ export function updateLiveClocks(context) {
                 // then we can trust the active record's pausedMs and startTime.
                 // This avoids issues with key naming ('wait_b' vs 'transport' vs 'A') or case sensitivity.
                 if (startStr && Math.abs((act.startTime || act.timerBaseMs) - Number(startStr)) < 2000) {
-                    const ms = Math.max(0, act.fixedElapsedMs != null ? act.fixedElapsedMs : (act.timerBaseMs ? (tickTimeNow - act.timerBaseMs) - pausedMsSince(act.timerBaseMs, tickTimeNow) : 0));
+                    const ms = Math.max(0, act.fixedElapsedMs != null ? act.fixedElapsedMs : (act.timerBaseMs ? (tickTimeNow - act.timerBaseMs) - (act.ownPauses ? 0 : pausedMsSince(act.timerBaseMs, tickTimeNow)) : 0));
                     sec = ms / 1000;
                     handled = true;
                 } else {
@@ -196,7 +196,7 @@ export function updateLiveClocks(context) {
             if (act && (act.timerBaseMs > 0 || act.fixedElapsedMs != null)) {
                 // Robust Match: Proximity check (same as above)
                 if (startStr && Math.abs((act.startTime || act.timerBaseMs) - Number(startStr)) < 2000) {
-                    ms = Math.max(0, act.fixedElapsedMs != null ? act.fixedElapsedMs : (act.timerBaseMs ? (tickTimeNow - act.timerBaseMs) - pausedMsSince(act.timerBaseMs, tickTimeNow) : 0));
+                    ms = Math.max(0, act.fixedElapsedMs != null ? act.fixedElapsedMs : (act.timerBaseMs ? (tickTimeNow - act.timerBaseMs) - (act.ownPauses ? 0 : pausedMsSince(act.timerBaseMs, tickTimeNow)) : 0));
                     handled = true;
                 }
             }

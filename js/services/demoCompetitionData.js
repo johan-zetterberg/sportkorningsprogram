@@ -528,8 +528,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
       finalized: false,
       status: 'Pågår',
       currentObstacle: 3,
+      // As the obstacle page writes it: started 28 s ago, nothing accumulated
+      // before that start (liveObstacleTimeMs is the time before the latest start)
       liveObstacleStartAt: now - 28000,
-      liveObstacleTimeMs: 28000,
+      liveObstacleTimeMs: 0,
       updatedAt: now,
       start_A: aStart3,
       finish_A: aFinish3,

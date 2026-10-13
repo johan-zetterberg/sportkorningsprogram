@@ -401,7 +401,10 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
         if (timerEl) {
             const timerBase = active.timerBaseMs;
             let liveTime = '00:00,00';
-            if (timerBase) {
+            if (active.fixedElapsedMs != null) {
+                // Stopped or paused: the saved time, not ticking
+                liveTime = formatMsLive(active.fixedElapsedMs);
+            } else if (timerBase) {
                 const diff = tickTimeNow - timerBase;
                 const pauseToSubtract = active.timerIsVirtual ? 0 : pausedMsSince(timerBase, tickTimeNow);
                 const ms = diff - pauseToSubtract + (active.pausedMs || 0);

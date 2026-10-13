@@ -1216,7 +1216,7 @@ function renderCurrentRiderCard() {
         // Live Timer calculation
         if (active && (active.timerBaseMs > 0 || active.fixedElapsedMs != null)) {
             const tickTimeNow = isGloballyPaused ? pauseStartTime : Date.now();
-            const ms = Math.max(0, active.fixedElapsedMs != null ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - pausedMsSince(active.timerBaseMs, tickTimeNow) : 0));
+            const ms = Math.max(0, active.fixedElapsedMs != null ? active.fixedElapsedMs : (active.timerBaseMs ? (tickTimeNow - active.timerBaseMs) - (active.ownPauses ? 0 : pausedMsSince(active.timerBaseMs, tickTimeNow)) : 0));
             elapsedTime = formatMsLive(ms);
         }
 

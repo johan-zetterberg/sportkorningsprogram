@@ -132,7 +132,7 @@ test('buildDemoCompetitionDataset provides live running marathon equipage #3 in 
   assert.equal(m3.running, true);
   assert.equal(m3.finalized, false);
   assert.equal(m3.currentObstacle, 3);
-  assert.equal(m3.liveObstacleTimeMs, 28000);
+  assert.equal(m3.liveObstacleTimeMs, 0);
   assert.equal(m3.liveObstacleStartAt, fixedNow - 28000);
   assert.equal(m3.updatedAt, fixedNow);
   assert.equal(m3.start_B, fixedNow - 210000);

@@ -17,6 +17,7 @@ import { showDetailsModal } from '../../ui/marathonModal.js';
 import { renderMap, destroyMap, updateSidebar as updateSidebarMap } from './maraton-monitor-map.js';
 import { buildObstaclePlacementsByClass, getObstaclePlacement } from './marathonObstaclePlacings.js';
 import { assignPlaces, compareMarathonRank, marathonRankKey } from '../../core-engine/ranking.js';
+import { stageRunningSince } from '../../core-engine/marathon.js';
 
 import {
   setMarathonConfig,
@@ -1164,10 +1165,26 @@ function evaluateActiveState(sn, data) {
     }
   }
 
+  // A running stage ticks from its latest (re)start on the stage page with the
+  // time saved before it; a stage paused there shows the saved time. (The
+  // first start plus the saved time counted the first leg twice.)
+  let stageBase = startTime;
+  let stagePausedMs = data.timing?.[task.key]?.durationMs || 0;
+  if ((task.type === 'stage' || task.type === 'transport') && fixedElapsedMs == null) {
+    const since = stageRunningSince(data, task.key);
+    const savedMs = stageDurationMsSaved(data, task.key) || 0;
+    if (since.known && since.ms === null) {
+      fixedElapsedMs = savedMs;
+    } else if (since.known) {
+      stageBase = since.ms;
+      stagePausedMs = savedMs;
+    }
+  }
+
   // Final base time and pause offset
   // If it's an obstacle, we use the specific obstacle entry/resume time.
-  // Otherwise, we use the stage start time.
-  const baseTime = (task.type === 'obstacle' && obstacleStart) ? obstacleStart : startTime;
+  // Otherwise, we use the stage's latest (re)start.
+  const baseTime = (task.type === 'obstacle' && obstacleStart) ? obstacleStart : stageBase;
 
   activeEquipages.set(sn, {
     equipageInfo: eq,
@@ -1181,7 +1198,7 @@ function evaluateActiveState(sn, data) {
     fixedElapsedMs: fixedElapsedMs,
     // For obstacles, pausedMs is the accumulated time before the current segment (liveObstacleTimeMs).
     // For stages, it's any manual adjustment (durationMs).
-    pausedMs: (task.type === 'obstacle') ? (data.liveObstacleTimeMs || 0) : (data.timing?.[task.key]?.durationMs || 0),
+    pausedMs: (task.type === 'obstacle') ? (data.liveObstacleTimeMs || 0) : stagePausedMs,
     isRunning: !isGloballyPaused,
     totalPenalty: calculateTotalPenalty(data, eq)
   });

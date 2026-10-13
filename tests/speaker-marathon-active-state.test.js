@@ -9,14 +9,15 @@ test('speaker marathon active entry detects running obstacle timers', () => {
   const entry = buildSpeakerMarathonActiveEntry('12', eq, {
     currentObstacle: 3,
     running: true,
-    liveObstacleStartAt: 1000,
-    liveObstacleTimeMs: 2500,
-    updatedAt: { toMillis: () => 10000 }
+    liveObstacleStartAt: 9000,       // resumed at 9 s
+    liveObstacleTimeMs: 2500,        // 2.5 s driven before that
+    updatedAt: { toMillis: () => 11000 } // a later write (e.g. the observer): no effect
   }, 12000);
 
   assert.equal(entry.task.type, 'obstacle');
   assert.equal(entry.task.key, 3);
-  assert.equal(entry.timerBaseMs, 7500);
+  assert.equal(entry.timerBaseMs, 6500);   // 9000 − 2500: at 12 s the clock shows 5.5 s
+  assert.equal(entry.ownPauses, true);
   assert.equal(entry.fixedElapsedMs, null);
   assert.equal(entry.updatedAt, 12000);
 });
