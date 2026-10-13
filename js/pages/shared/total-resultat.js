@@ -5,6 +5,7 @@
 //  - Liten "Skriv ut / PDF"-knapp (window.print()) i headern
 
 import { getGlobalState } from '../../main.js';
+import { applyArchivedSnapshot, loadArchiveSnapshot } from './archivedResults.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
@@ -126,6 +127,7 @@ let showOnlyCompleted = false;
 let showOnlyOngoing = false;
 
 // === Visningskonfig (sammanslagning per TDB-klassnummer) ===
+let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 let displayConfig = null;   // { mergeByClassNumber: { "<grpKey>": { label, members:[<tdb#>,...] }, ... } }
 
 // === Export: håll alltid den visade listan (efter filter + sort) ===
@@ -1373,6 +1375,9 @@ async function recompute() {
       });
     });
 
+  // Archived: the values it was archived with, also for the placings
+  applyArchivedSnapshot(rows, archiveSnapshot);
+
   applyTotalDisciplinePlacements(rows);
   processedResults = placeWithinClass(rows);
   applyTotalResultDiffs(processedResults);
@@ -1523,6 +1528,16 @@ export async function load(el) {
     precision: precisionSettingsIssues(equipages, precisionConfig)
   });
 
+  // An archived competition shows the results it was archived with
+  archiveSnapshot = await loadArchiveSnapshot(comp);
+  if (archiveSnapshot && el) {
+    const notice = document.createElement('div');
+    notice.className = 'mx-auto max-w-5xl mb-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200';
+    const archivedAt = Number(archiveSnapshot.archivedAt);
+    notice.textContent = `Arkiverat resultat${Number.isFinite(archivedAt) ? ` (${new Date(archivedAt).toLocaleDateString('sv-SE')})` : ''}: placeringar och poäng visas som när tävlingen avslutades.`;
+    el.prepend(notice);
+  }
+
   // 3. Starta lyssnare (dressyr, maratonhinder, precision)
   attachListeners();
 
@@ -1569,6 +1584,7 @@ function getDurationSec(row, section) {
 }
 
 export function __unload() {
+  archiveSnapshot = null;
   if (totalResultsResizeHandler) {
     try { window.removeEventListener('resize', totalResultsResizeHandler); } catch { }
     totalResultsResizeHandler = null;
