@@ -10,6 +10,7 @@ import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { buildDeclarationUpdate } from "./src/declarationUtils.js";
+import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { getAuth } from "firebase-admin/auth";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
@@ -696,6 +697,45 @@ export const updateEquipageDeclaration = onCall(async (request) => {
         transaction.set(equipageRef, { ...update, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
     });
     return { ok: true };
+});
+
+// Messages and documents for a driver: the rules let only admins list
+// driver-only items, so drivers get theirs here, after their verified email has
+// been matched to the competition's equipages (driverInbox).
+export const getDriverInbox = onCall(async (request) => {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    }
+    const authEmail = String(request.auth.token?.email || '').trim().toLowerCase();
+    if (!authEmail || request.auth.token?.email_verified !== true) {
+        throw new HttpsError('permission-denied', 'Bekräfta din e-postadress för att se förarmeddelanden.');
+    }
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltig tävling.');
+    }
+    const comp = await getCompetitionArtifactsDoc(competitionId);
+    if (!comp) throw new HttpsError('not-found', 'Tävlingen finns inte.');
+
+    const ownSnap = await comp.ref.collection('equipagePrivate').where('email', '==', authEmail).get();
+    const startNumbers = ownSnap.docs.map(d => String(d.id).trim());
+    if (!startNumbers.length) {
+        throw new HttpsError('permission-denied', 'Inget ekipage i tävlingen är kopplat till din e-postadress.');
+    }
+
+    const [messagesSnap, documentsSnap] = await Promise.all([
+        comp.ref.collection('messages').get(),
+        comp.ref.collection('documents').get()
+    ]);
+    const messages = messagesSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(m => isMessageForDriver(m, startNumbers))
+        .map(toPlainTimestamps);
+    const documents = documentsSnap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(isDocumentForDriver)
+        .map(toPlainTimestamps);
+    return { startNumbers, messages, documents };
 });
 
 export const submitVolunteerSignup = onCall(async (request) => {

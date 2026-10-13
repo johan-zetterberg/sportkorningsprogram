@@ -238,10 +238,13 @@ service cloud.firestore {
       return !data.keys().hasAny(['audience']);
     }
 
-    function canReadAudienceScopedItem(data, legacyPublic) {
+    // Driver-only items: not for any signed-in account (anyone can register
+    // one). Drivers get theirs from the getDriverInbox function, which matches
+    // their verified email to the competition's equipages
+    function canReadAudienceScopedItem(data, legacyPublic, appId, compId) {
       return hasPublicAudience(data)
         || legacyPublic
-        || (request.auth != null && hasDriverAudience(data));
+        || (request.auth != null && canAdminThisArtifactsComp(appId, compId));
     }
 
     // ------------------------------------------------------------------------
@@ -609,8 +612,9 @@ service cloud.firestore {
 
     // NYTT: Meddelanden (Messages)
     match /artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId} {
-      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicMessage(resource.data));
-      allow list: if request.auth != null || hasPublicAudience(resource.data);
+      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicMessage(resource.data), appId, compId);
+      allow list: if hasPublicAudience(resource.data)
+        || (request.auth != null && canAdminThisArtifactsComp(appId, compId));
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -621,8 +625,9 @@ service cloud.firestore {
 
     // NYTT: Dokument (Documents)
     match /artifacts/{appId}/public/data/competitions/{compId}/documents/{docId} {
-      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicDocument(resource.data));
-      allow list: if request.auth != null || hasPublicAudience(resource.data);
+      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicDocument(resource.data), appId, compId);
+      allow list: if hasPublicAudience(resource.data)
+        || (request.auth != null && canAdminThisArtifactsComp(appId, compId));
       allow write, delete: if request.auth != null
         && (
           isSuperAdmin() ||

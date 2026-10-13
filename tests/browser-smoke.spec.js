@@ -127,6 +127,26 @@ test('names with HTML are shown as text on public pages, never run', async ({ pa
   await expect(page.locator('.competition-page-header h1').first()).toContainText('<img src=x');
 });
 
+test('a driver gets their own messages from the server, not other drivers\'', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const titles = await page.evaluate(async (competitionId) => {
+    const { getEquipages, saveEquipage } = await import('../js/services/equipageService.js');
+    const { saveCompetitionMessage, getDriverInbox } = await import('../js/services/documentService.js');
+    const { auth } = await import('../js/config/firebase-config.js');
+    const [mine, other] = await getEquipages(competitionId);
+    await saveEquipage(competitionId, String(mine.startNumber), { email: auth.currentUser.email });
+    const send = (title, extra) => saveCompetitionMessage(competitionId, { title, body: '-', ...extra });
+    await send('Till alla', { audience: { public: true, drivers: true } });
+    await send('Alla förare', { audience: { public: false, drivers: true } });
+    await send('Till mig', { audience: { public: false, drivers: true }, targetStartNumbers: [String(mine.startNumber)] });
+    await send('Till någon annan', { audience: { public: false, drivers: true }, targetStartNumbers: [String(other.startNumber)] });
+    const inbox = await getDriverInbox(competitionId);
+    return inbox.messages.map(m => m.title).sort();
+  }, competitionId);
+  expect(titles).toEqual(['Alla förare', 'Till alla', 'Till mig']);
+});
+
 test('officials contact details are stored privately and still shown to the admin', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

@@ -1,4 +1,5 @@
-import { db, appId } from '../config/firebase-config.js';
+import { db, appId, functions } from '../config/firebase-config.js';
+import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
 import { collection, doc, getDocs, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
@@ -111,6 +112,18 @@ export async function getPublicCompetitionMessages(competitionId) {
     console.warn('Could not fetch public messages:', err);
     return [];
   }
+}
+
+/**
+ * A driver's messages and documents in a competition (public ones, ones for
+ * all drivers and ones addressed to their start numbers), from the server:
+ * the rules let only admins list driver-only items. Throws when the user has
+ * no equipage there (an admin can then read the collections directly).
+ */
+export async function getDriverInbox(competitionId) {
+  const callable = httpsCallable(functions, 'getDriverInbox');
+  const response = await callable({ competitionId });
+  return response.data || { startNumbers: [], messages: [], documents: [] };
 }
 
 export function listenForCompetitionMessages(competitionId, callback) {

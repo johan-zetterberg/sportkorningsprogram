@@ -38,7 +38,7 @@ import {
 } from './horseTemperatureUtils.js';
 
 import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.js';
-import { getCompetitionDocuments, getCompetitionMessages, listenForCompetitionMessages, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
+import { getCompetitionDocuments, getCompetitionMessages, getDriverInbox, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
 import { listenForConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getOfficials } from '../../services/adminService.js';
@@ -284,11 +284,27 @@ export async function load() {
         };
 
         uniqueCompIds.forEach(cid => {
-            const u = listenForCompetitionMessages(cid, (msgs) => {
+            // Driver-only messages come from the server (getDriverInbox; the
+            // rules no longer let any account list them), checked every minute.
+            // Not a driver there (an admin): read the messages directly
+            let firstPoll = true;
+            const poll = async () => {
+                if (currentLoadToken !== portalLoadToken) return;
+                let msgs;
+                try {
+                    msgs = (await getDriverInbox(cid)).messages || [];
+                } catch (_) {
+                    msgs = await getCompetitionMessages(cid).catch(() => []);
+                }
+                if (currentLoadToken !== portalLoadToken) return;
+                onMessages(msgs, firstPoll);
+                firstPoll = false;
+            };
+            const onMessages = (msgs, isInitial) => {
                 allMessagesMap.set(cid, msgs);
 
                 // Toast Logic
-                if (!isFirstLoad) {
+                if (!isFirstLoad && !isInitial) {
                     msgs.forEach(m => {
                         // Check if new and relevant
                         const claim = claims.find(c => c.competitionId === cid);
@@ -303,8 +319,10 @@ export async function load() {
 
                 msgs.forEach(m => knownMsgIds.add(m.id));
                 renderAllMessages();
-            });
-            unsubs.push(u);
+            };
+            poll();
+            const timer = setInterval(poll, 60000);
+            unsubs.push(() => clearInterval(timer));
         });
 
         messageUnsub = () => unsubs.forEach(u => {
@@ -469,6 +487,10 @@ async function renderDashboard(container, compId, startNumber, user) {
     });
 
     try {
+        // The driver's documents and messages from the server (null when the
+        // user has no equipage here, e.g. an admin viewing a driver's dashboard:
+        // they read the collections directly)
+        const inboxPromise = getDriverInbox(compId).catch(() => null);
         const [
             compConfig,
             computedRes,
@@ -501,8 +523,8 @@ async function renderDashboard(container, compId, startNumber, user) {
             getConfig(compId, 'dressyrProgramMapping').catch(() => ({})),
             getDressageResultsForEquipage(compId, startNumber).catch(() => []),
             ensureClubLogosLoaded(),
-            getCompetitionDocuments(compId).catch(() => []),
-            getCompetitionMessages(compId).catch(() => []),
+            inboxPromise.then(inbox => inbox ? (inbox.documents || []) : getCompetitionDocuments(compId).catch(() => [])),
+            inboxPromise.then(inbox => inbox ? (inbox.messages || []) : getCompetitionMessages(compId).catch(() => [])),
             getOfficials(compId).catch(() => []),
             getJudges(compId).catch(() => [])
         ]);

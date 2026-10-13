@@ -725,12 +725,20 @@ test('messages and documents expose only public audience anonymously and remain 
   await assertFails(getDocs(query(collection(anonymousDb, compPath('messages')), orderBy('timestamp', 'desc'))));
   await assertFails(getDocs(query(collection(anonymousDb, compPath('documents')), orderBy('timestamp', 'desc'))));
 
-  const driverCtx = testEnv.authenticatedContext('driver-doc-1', { email_verified: true, email: 'driver-doc@example.com' });
-  const driverDb = driverCtx.firestore();
-  await assertSucceeds(getDoc(doc(driverDb, compPath('messages/msg-driver-1'))));
-  await assertSucceeds(getDoc(doc(driverDb, compPath('documents/doc-driver-1'))));
-  await assertSucceeds(getDocs(query(collection(driverDb, compPath('messages')), orderBy('timestamp', 'desc'))));
-  await assertSucceeds(getDocs(query(collection(driverDb, compPath('documents')), orderBy('timestamp', 'desc'))));
+  // Any signed-in account (anyone can register one) no longer reads
+  // driver-only items: drivers get theirs from the getDriverInbox function
+  const accountCtx = testEnv.authenticatedContext('driver-doc-1', { email_verified: true, email: 'driver-doc@example.com' });
+  const accountDb = accountCtx.firestore();
+  await assertFails(getDoc(doc(accountDb, compPath('messages/msg-driver-1'))));
+  await assertFails(getDoc(doc(accountDb, compPath('documents/doc-driver-1'))));
+  await assertFails(getDocs(query(collection(accountDb, compPath('messages')), orderBy('timestamp', 'desc'))));
+  await assertFails(getDocs(query(collection(accountDb, compPath('documents')), orderBy('timestamp', 'desc'))));
+  await assertSucceeds(getDocs(query(collection(accountDb, compPath('messages')), where('audience.public', '==', true))));
+
+  // Admins list everything (admin communication page)
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(getDocs(query(collection(ownerDb, compPath('messages')), orderBy('timestamp', 'desc'))));
+  await assertSucceeds(getDoc(doc(ownerDb, compPath('documents/doc-driver-1'))));
 
   await seedCompetitionRole('speaker-doc-1', 'speaker', 'speaker-doc@example.com');
   const speakerCtx = testEnv.authenticatedContext('speaker-doc-1', { email_verified: true, email: 'speaker-doc@example.com' });
