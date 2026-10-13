@@ -308,10 +308,16 @@ function listenForGlobalCompetitionPause_Obstacles() {
 
       // Återuppta mätningen i Firestore
       if (!currentLiveState.running && currentLiveState.inProgress) {
+        // Stamped on the device like Start: a server timestamp reads as empty
+        // until the server answers, and the clock stood still until then
+        const resumedAt = Timestamp.fromMillis(Date.now());
+        currentLiveState = { ...currentLiveState, running: true, liveObstacleStartAt: resumedAt };
         pushLiveSafe({
           running: true,
-          liveObstacleStartAt: serverTimestamp()
+          liveObstacleStartAt: resumedAt
         });
+        if (!timerInterval) timerInterval = setInterval(updateTimerViewMar, 90);
+        updateTimerViewMar();
       }
       document.body.style.filter = '';
     }
@@ -549,7 +555,8 @@ function subscribeToMarathonDoc(startNumber) {
     if (typeof window.setSyncStatus === 'function') {
       window.setSyncStatus(snap.metadata.hasPendingWrites);
     }
-    const data = snap.exists() ? snap.data() : readMarathonBackup(startNumber);
+    // Pending server timestamps as estimates (not empty) until the server answers
+    const data = snap.exists() ? snap.data({ serverTimestamps: 'estimate' }) : readMarathonBackup(startNumber);
     if (snap.exists() && data) mirrorToLocal(startNumber, data); // Backuppa lokalt
     applyLiveStateToUI(data);
   }, (error) => {
