@@ -327,6 +327,14 @@ test('a driver declaration keeps the vet results on the horses', async ({ page }
     const { auth } = await import('../js/config/firebase-config.js');
     const eq = (await getEquipages(competitionId))[0];
     const sn = String(eq.startNumber);
+    // The seed's start times are today, which locks the declaration: start in a week
+    const { saveConfig, getConfig } = await import('../js/services/competitionService.js');
+    const inAWeek = new Date(Date.now() + 7 * 24 * 3600 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const later = `${inAWeek.getFullYear()}-${pad(inAWeek.getMonth() + 1)}-${pad(inAWeek.getDate())}T10:00`;
+    const seeded = (await getConfig(competitionId, 'startTimes', true))?.times?.[sn] || {};
+    const moved = Object.fromEntries(['dressage', 'marathon', 'precision', ...Object.keys(seeded)].map(key => [key, later]));
+    await saveConfig(competitionId, 'startTimes', { times: { [sn]: moved } });
     // This (verified) user is the equipage's contact; one horse is inspected
     await saveEquipage(competitionId, sn, {
       email: auth.currentUser.email,
