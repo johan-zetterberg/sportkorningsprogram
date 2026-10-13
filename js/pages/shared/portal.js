@@ -105,12 +105,12 @@ export function showDriverPortalHelpModal() {
         {
             icon: '🏁',
             title: 'Start Times & Live Scores',
-            desc: 'Your designated start times for dressage, cones, and marathon appear under the <em>Start Times</em> tab. Once judges and timers approve each round, your scores and total standings update in real time.'
+            desc: 'Your start times for dressage, cones and the marathon sections appear under each discipline tab (<em>Dressage</em>, <em>Marathon</em>, <em>Cones</em>). Your scores and the standings update live as the officials save them.'
         },
         {
             icon: '🩺',
             title: 'Vet Inspection & Temperature Checks',
-            desc: 'View veterinary inspection approval (Passed, Holding Box, etc.). If the organizer requires health monitoring, you can submit arrival and morning horse temperatures directly on each horse card.'
+            desc: 'See the status from the vet inspection (Passed, Re-inspection). If the organiser requires health monitoring, you enter the horse\'s temperature for the days before the competition (morning and evening, or once a day) directly on each horse card.'
         },
         {
             icon: '📄',
@@ -136,12 +136,12 @@ export function showDriverPortalHelpModal() {
         {
             icon: '🏁',
             title: 'Starttider & Live-resultat',
-            desc: 'Dina personliga starttider för dressyr, precision och maratonens delsträckor visas under fliken <em>Starttider</em>. Resultat och totalställning uppdateras live direkt när funktionärerna signerat dem.'
+            desc: 'Dina starttider för dressyr, precision och maratonens delsträckor visas under respektive gren (<em>Dressyr</em>, <em>Maraton</em>, <em>Precision</em>). Resultat och totalställning uppdateras live när funktionärerna sparar dem.'
         },
         {
             icon: '🩺',
             title: 'Hästbesiktning & Temperaturkontroll',
-            desc: 'Se status från veterinärbesiktningen (Godkänd, Vilobox etc.). Om tävlingen kräver smittskyddskontroll registrerar du ankomst- och morgontemperaturer smidigt direkt på respektive hästkort.'
+            desc: 'Se status från veterinärbesiktningen (Godkänd, Ombesiktning). Om tävlingen kräver smittskyddskontroll registrerar du hästens temperatur för dagarna före tävlingen (morgon och kväll, eller en gång per dag) direkt på respektive hästkort.'
         },
         {
             icon: '📄',
@@ -162,17 +162,17 @@ export function showDriverPortalHelpModal() {
 
     const modalHtml = `
         <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in" id="driver-portal-help-modal">
-            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
+            <div role="dialog" aria-modal="true" aria-labelledby="driver-portal-help-title" class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
                 <!-- Header -->
                 <div class="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 bg-amber-50/70 dark:bg-amber-950/30 flex items-start justify-between gap-3">
                     <div class="flex items-center gap-3">
                         <span class="text-2xl p-2 bg-amber-100 dark:bg-amber-900/50 rounded-xl text-amber-800 dark:text-amber-200">🐴</span>
                         <div>
-                            <h3 class="font-bold text-lg sm:text-xl text-gray-900 dark:text-white leading-tight">${escapeHtml(title)}</h3>
+                            <h3 id="driver-portal-help-title" class="font-bold text-lg sm:text-xl text-gray-900 dark:text-white leading-tight">${escapeHtml(title)}</h3>
                             <p class="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-0.5">${escapeHtml(sub)}</p>
                         </div>
                     </div>
-                    <button type="button" id="closePortalHelpBtn" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-1 leading-none rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">&times;</button>
+                    <button type="button" id="closePortalHelpBtn" aria-label="${isEn ? 'Close' : 'Stäng'}" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-1 leading-none rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">&times;</button>
                 </div>
 
                 <!-- Body (Cards) -->
@@ -215,6 +215,7 @@ export function showDriverPortalHelpModal() {
         document.removeEventListener('keydown', keyHandler);
         modal.remove();
     };
+    modal.__closePortalHelp = closeModal;
 
     modal.querySelector('#closePortalHelpBtn')?.addEventListener('click', closeModal);
     modal.querySelector('#dismissPortalHelpBtn')?.addEventListener('click', closeModal);
@@ -230,6 +231,7 @@ export function showDriverPortalHelpModal() {
     document.addEventListener('keydown', keyHandler);
 
     document.body.appendChild(modal);
+    modal.querySelector('#closePortalHelpBtn')?.focus();
 }
 
 export async function load() {
@@ -1822,4 +1824,5 @@ export function __unload() {
     cleanupPortalSubscriptions();
     const modal = document.getElementById('doc-modal-overlay');
     if (modal) modal.remove();
+    document.getElementById('driver-portal-help-modal')?.__closePortalHelp?.();
 }

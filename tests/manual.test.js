@@ -29,8 +29,38 @@ test('manual.js contains accurate conditional offline guidance', () => {
   assert.ok(!manualCode.includes('Appen är fullt offline-säkrad'), 'Should not promise unconditional offline safety');
   assert.ok(manualCode.includes('Offline-stöd för en redan laddad domarvy'));
   assert.ok(manualCode.includes('klicka på <strong>"Spara Protokoll"</strong> som vanligt'), 'Should instruct user to save as usual');
-  assert.ok(manualCode.includes('Synk-molnet'), 'Should explain sync indicator states');
-  assert.ok(manualCode.includes('inte serverbekräftad förrän synkikonen blir grön'));
+  assert.ok(manualCode.includes('Synkindikatorn'), 'Should explain sync indicator states');
+  assert.ok(manualCode.includes('inte serverbekräftad förrän den har skickats'));
+  // The indicator has no green state: the queue button disappears when everything is sent
+  assert.ok(!/synkikonen blir grön|grön synkikon|sync icon turns green|green sync icon/i.test(manualCode), 'Should not describe a green sync icon');
+});
+
+test('help texts match the rules and the app', () => {
+  const drawerCode = fs.readFileSync('js/ui/quickGuideDrawer.js', 'utf8');
+  const pdfCode = fs.readFileSync('js/pdf/quickGuidePdf.js', 'utf8');
+  for (const [name, code] of [['manual', manualCode], ['drawer', drawerCode], ['pdf', pdfCode]]) {
+    assert.ok(!/grön synk|green sync|synkikon/i.test(code), `${name}: no green sync icon`);
+    assert.ok(!/påbörjad sekund|started second|commenced second/i.test(code), `${name}: precision time penalty is 0.5 per second, not per started second`);
+    assert.ok(!/\+ ?20 cm/.test(code), `${name}: gate allowance is per class, not a flat +20 cm`);
+    assert.ok(!/km\/h/.test(code), `${name}: marathon speeds are entered in m/min`);
+    assert.ok(!/eqresults/.test(code), `${name}: there is no result file export`);
+  }
+  assert.ok(drawerCode.includes('0,5 straffpoäng per sekund'), 'Precision time penalty per TR V 525.9');
+  assert.ok(drawerCode.includes('2 straffpoäng per rivet element'), 'Marathon knockdown is 2 penalty points');
+  assert.ok(!drawerCode.includes('Mellanslag'), 'Precision has no Space shortcut');
+  assert.ok(!drawerCode.includes('var 30:e sekund'), 'Dressage has no 30-second autosave');
+  assert.ok(pdfCode.includes('(C, E, B, H, M)') && !pdfCode.includes('C, R, B'), 'Judge positions are C, E, B, H, M');
+  assert.ok(pdfCode.includes('TR Mom 514') && !pdfCode.includes('Mom 526)'), 'First horse inspection is TR Mom 514');
+  assert.ok(!/4-siffriga|4-digit/.test(pdfCode), 'Role codes are 8 digits');
+  assert.ok(!/kuriosa|sign-off|signering/i.test(pdfCode), 'No features that do not exist');
+});
+
+test('quick guide drawer keeps keys and printing to itself', () => {
+  const drawerCode = fs.readFileSync('js/ui/quickGuideDrawer.js', 'utf8');
+  assert.ok(drawerCode.includes('body.qg-open *'), 'Print rule only applies while the drawer is open');
+  assert.ok(!/@media print \{\s*body \*/.test(drawerCode), 'Print rule is not global');
+  assert.ok(drawerCode.includes("document.addEventListener('keydown', onOutsideKeyDown, true)"), 'Keys outside the drawer are stopped in the capture phase');
+  assert.ok(drawerCode.includes('e.stopPropagation()'), 'Keys inside the drawer do not reach the page');
 });
 
 test('dressage manual distinguishes saving from finalizing a protocol', () => {
@@ -68,8 +98,8 @@ test('quickGuidePdf.js includes generateAdminChecklistPdf with all 6 phases', ()
   const pdfCode = fs.readFileSync('js/pdf/quickGuidePdf.js', 'utf8');
   assert.ok(pdfCode.includes('generateAdminChecklistPdf'), 'Should export generateAdminChecklistPdf');
   assert.ok(pdfCode.includes("roleKey === 'admin_checklist'"), 'Should handle admin_checklist in generateQuickGuidePdf');
-  assert.ok(pdfCode.includes('FAS 1: FÖRBEREDELSER & TDB-EXPORT'), 'Should include Phase 1 in PDF');
-  assert.ok(pdfCode.includes('FAS 6: AVSLUT, PRISUTDELNING & TDB-EXPORT'), 'Should include Phase 6 in PDF');
+  assert.ok(pdfCode.includes('FAS 1: FÖRBEREDELSER & ANMÄLNINGAR'), 'Should include Phase 1 in PDF');
+  assert.ok(pdfCode.includes('FAS 6: AVSLUT, PRISUTDELNING & ARKIVERING'), 'Should include Phase 6 in PDF');
   assert.ok(pdfCode.includes('TR V KÖRNING'), 'Should identify the driving regulations as TR V');
   assert.ok(!pdfCode.includes('TR X KÖRNING'), 'Should not use the incorrect TR X designation');
 });

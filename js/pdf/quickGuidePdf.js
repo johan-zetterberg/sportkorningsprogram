@@ -5,7 +5,8 @@ import { loadPdfLibs, loadStandardHeaderLogos, drawStandardHeader } from './pdfB
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 import { GUIDES } from '../ui/quickGuideDrawer.js';
 
-function cleanPdfText(text) {
+function cleanPdfText(text, lang = 'sv') {
+  const en = lang === 'en';
   let s = String(text || '')
     .replace(/<kbd[^>]*>/gi, '[')
     .replace(/<\/kbd>/gi, ']')
@@ -25,16 +26,16 @@ function cleanPdfText(text) {
     .replace(/💬/g, '')
     .replace(/❓/g, '')
     .replace(/⌨️/g, '')
-    .replace(/☁️/g, 'Moln: ')
+    .replace(/☁️/g, en ? 'Cloud: ' : 'Moln: ')
     .replace(/🟢/g, 'Status: ')
     .replace(/🔴/g, 'Status: ')
     .replace(/🟡/g, 'Status: ')
-    .replace(/⚪/g, 'Port: ')
-    .replace(/⏱️/g, 'Tid: ')
-    .replace(/🔄/g, 'Nollställ: ')
-    .replace(/🚨/g, 'NÖD: ')
-    .replace(/🐎/g, 'Gångart: ')
-    .replace(/🛑/g, 'Halt: ')
+    .replace(/⚪/g, en ? 'Gate: ' : 'Port: ')
+    .replace(/⏱️/g, en ? 'Time: ' : 'Tid: ')
+    .replace(/🔄/g, en ? 'Reset: ' : 'Nollställ: ')
+    .replace(/🚨/g, en ? 'STOP: ' : 'NÖD: ')
+    .replace(/🐎/g, en ? 'Gait: ' : 'Gångart: ')
+    .replace(/🛑/g, en ? 'Stop: ' : 'Halt: ')
     .replace(/🩺/g, '')
     .replace(/📊/g, '')
     .replace(/📝/g, '')
@@ -43,8 +44,8 @@ function cleanPdfText(text) {
     .replace(/👁️/g, '')
     .replace(/🛡️/g, '')
     .replace(/🖨️/g, '')
-    .replace(/🔒/g, '[Låst] ')
-    .replace(/🔓/g, '[Öppen] ');
+    .replace(/🔒/g, en ? '[Locked] ' : '[Låst] ')
+    .replace(/🔓/g, en ? '[Open] ' : '[Öppen] ');
 
   // Rensa bort eventuella kvarvarande Unicode-emojis och surrogate pairs som förvrängs i jsPDF
   try {
@@ -70,13 +71,13 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
     return;
   }
 
-  const resolvedCompetition = await resolvePdfCompetition(competition || {});
+  const resolvedCompetition = await resolvePdfCompetition(competition || null);
   const isEn = (typeof localStorage !== 'undefined' && localStorage.getItem('user_lang_pref') === 'en');
   const lang = isEn ? 'en' : 'sv';
 
   const guide = GUIDES[roleKey] || GUIDES['dressage'];
-  const titleText = cleanPdfText(guide.title[lang] || guide.title.sv);
-  const badgeText = cleanPdfText(guide.badge[lang] || guide.badge.sv);
+  const titleText = cleanPdfText(guide.title[lang] || guide.title.sv, lang);
+  const badgeText = cleanPdfText(guide.badge[lang] || guide.badge.sv, lang);
   const headerBannerText = isEn
     ? `OFFICIAL FIELD CHEAT SHEET: ${titleText.toUpperCase()}`
     : `OFFICIELL FÄLTLATHUND: ${titleText.toUpperCase()}`;
@@ -103,16 +104,16 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
   const brandDarkBlue = [10, 31, 55];
   const tableHeaderBg = [28, 52, 84];
 
-  // 2. SEKTION: SNABBSTART (3 STEG FÖRE START)
+  // 2. SEKTION: SNABBSTART (STEGEN FÖRE START)
   const stepsData = (guide.steps[lang] || guide.steps.sv).map((st, i) => [
-    `Steg ${i + 1}`,
-    cleanPdfText(st)
+    `${isEn ? 'Step' : 'Steg'} ${i + 1}`,
+    cleanPdfText(st, lang)
   ]);
 
   doc.autoTable({
     startY: y,
     head: [[{
-      content: isEn ? '1. QUICK START (3 STEPS BEFORE START)' : '1. SNABBSTART (3 STEG FÖRE START)',
+      content: isEn ? `1. QUICK START (${stepsData.length} STEPS BEFORE START)` : `1. SNABBSTART (${stepsData.length} STEG FÖRE START)`,
       colSpan: 2,
       styles: { halign: 'left', fontStyle: 'bold', fontSize: 9, fillColor: tableHeaderBg, textColor: [255, 255, 255] }
     }]],
@@ -131,7 +132,7 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
   // 3. SEKTION: UNDER RITTEN / MOMENTET
   const duringData = (guide.during[lang] || guide.during.sv).map((item) => [
     '•',
-    cleanPdfText(item)
+    cleanPdfText(item, lang)
   ]);
 
   doc.autoTable({
@@ -156,8 +157,8 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
 
   // 4. SEKTION: FELSÖKNING & VANLIGA MISSTAG
   const faqData = (guide.troubleshooting[lang] || guide.troubleshooting.sv).map((faq) => [
-    cleanPdfText(faq.q),
-    cleanPdfText(faq.a)
+    cleanPdfText(faq.q, lang),
+    cleanPdfText(faq.a, lang)
   ]);
 
   doc.autoTable({
@@ -191,10 +192,10 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
     const s1 = symbols[i];
     const s2 = symbols[i + 1];
     symRows.push([
-      cleanPdfText(s1.sym),
-      cleanPdfText(s1.desc),
-      s2 ? cleanPdfText(s2.sym) : '',
-      s2 ? cleanPdfText(s2.desc) : ''
+      cleanPdfText(s1.sym, lang),
+      cleanPdfText(s1.desc, lang),
+      s2 ? cleanPdfText(s2.sym, lang) : '',
+      s2 ? cleanPdfText(s2.desc, lang) : ''
     ]);
   }
 
@@ -236,8 +237,8 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
 
   const titlePrefix = isEn ? 'OFFLINE QUEUE:' : 'OFFLINEKÖ:';
   const descText = isEn
-    ? 'On a loaded view: save, verify the queue, keep the tab open, and wait for green sync.'
-    : 'På laddad vy: spara, kontrollera kön, håll fliken öppen och invänta grön synk.';
+    ? 'On a loaded view: save, check the queue, keep the tab open until the queue indicator is gone.'
+    : 'På laddad vy: spara, kontrollera kön och håll fliken öppen tills köindikatorn är borta.';
 
   doc.setFontSize(8);
   doc.setFont(undefined, 'bold');
@@ -258,7 +259,9 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
   doc.text(
-    `DriveLive Tävlingssystem • Lathund ${badgeText} • www.drivelive.se`,
+    isEn
+      ? `DriveLive competition system • Cheat sheet ${badgeText} • www.drivelive.se`
+      : `DriveLive Tävlingssystem • Lathund ${badgeText} • www.drivelive.se`,
     margin,
     footerY
   );
@@ -271,7 +274,7 @@ export async function generateQuickGuidePdf(roleKey = 'dressage', competition = 
     minute: '2-digit'
   });
   doc.text(
-    `Utskriven: ${printTs} • Sida 1 av 1`,
+    isEn ? `Printed: ${printTs} • Page 1 of 1` : `Utskriven: ${printTs} • Sida 1 av 1`,
     pageWidth - margin,
     footerY,
     { align: 'right' }
@@ -295,7 +298,7 @@ export async function generateAdminChecklistPdf(competition = null) {
     return;
   }
 
-  const resolvedCompetition = await resolvePdfCompetition(competition || {});
+  const resolvedCompetition = await resolvePdfCompetition(competition || null);
   const isEn = (typeof localStorage !== 'undefined' && localStorage.getItem('user_lang_pref') === 'en');
 
   const headerBannerText = isEn
@@ -327,7 +330,7 @@ export async function generateAdminChecklistPdf(competition = null) {
     {
       phase: '1. PREPARATION & ENTRIES',
       items: [
-        '[ ] Export entries XML file (.eqentries.xml) from national portal (TDB)',
+        '[ ] Export the entries file (.eqentries.xml) from TDB and import it under Participants',
         '[ ] Verify driver & horse competition licenses and active club memberships',
         '[ ] Reconcile entry payments, fees, and special dispensations / stabling'
       ]
@@ -343,44 +346,44 @@ export async function generateAdminChecklistPdf(competition = null) {
     {
       phase: '3. CONFIGURE DISCIPLINES',
       items: [
-        '[ ] Dressage: Set test program per class & assign judges (C, R, B, E, M)',
-        '[ ] Marathon: Define obstacles (A-F), knockdowns (+2p) & Phase A/B times',
-        '[ ] Cones: Set track length, speed, time allowed and wheel width allowance'
+        '[ ] Dressage: Set the test per class & assign judges (C, E, B, H, M)',
+        '[ ] Marathon: Define obstacles, knockdowns (2 p per element) & section A/B times',
+        '[ ] Cones: Set course length, speed, time allowed and the clearance per class'
       ]
     },
     {
       phase: '4. SCHEDULES, CREW & MEASURING',
       items: [
         '[ ] Generate dressage start order and auto-calculate start time intervals',
-        '[ ] Check carriage track width per TR Appendix 2 and save in Vet Check',
-        '[ ] Issue 4-digit PINs to judges, timers, and obstacle officials',
+        '[ ] Measure carriage track widths and save them on the Track width page',
+        '[ ] Hand out the 8-digit role codes to judges, timekeepers and obstacle officials',
         '[ ] Print 1-page A4 field cheat sheets for the morning official briefing'
       ]
     },
     {
       phase: '5. COMPETITION DAY (LIVE DRIFT)',
       items: [
-        '[ ] First horse inspection (TR Mom 526) – record status (Passed, Holding Box)',
-        '[ ] Handle scratchings and equipage self-declarations (locks 60m pre-start)',
+        '[ ] First horse inspection (TR Mom 514) – record status (Passed, Re-inspection)',
+        '[ ] Handle withdrawals and driver declarations (locks before the first start, 60 min by default)',
         '[ ] Monitor secretariat live dashboard for dressage, marathon & precision',
-        '[ ] Announcer view: Enable live announcements and split times for speaker'
+        '[ ] Speaker view: open it for the speaker (live times, standings and driver notes)'
       ]
     },
     {
       phase: '6. RESULTS, PRIZE GIVING & EXPORT',
       items: [
-        '[ ] Finalize results and observe the 30-minute official protest window',
-        '[ ] Ground Jury President approval and digital sign-off of official results',
+        '[ ] Finalize the results and wait out the protest time according to TR',
+        '[ ] President of the Ground Jury approves the official results',
         '[ ] Print prize-giving protocol and rosettes / ribbon award lists',
-        '[ ] Export result XML (.eqresults.xml) and upload directly to national system',
-        '[ ] Generate full PDF protocol archive and lock competition for archiving'
+        '[ ] Report the results to TDB',
+        '[ ] Close the competition on the Archiving tab (End competition)'
       ]
     }
   ] : [
     {
-      phase: 'FAS 1: FÖRBEREDELSER & TDB-EXPORT',
+      phase: 'FAS 1: FÖRBEREDELSER & ANMÄLNINGAR',
       items: [
-        '[ ] Exportera anmälningsfil (.eqentries.xml) från TDB',
+        '[ ] Exportera anmälningsfilen (.eqentries.xml) från TDB och importera den under Deltagare',
         '[ ] Granska kusklicenser, hästlicenser och kuskens klubbtillhörighet',
         '[ ] Kontrollera betalningsstatus, startavgifter och beviljade dispenser'
       ]
@@ -396,37 +399,37 @@ export async function generateAdminChecklistPdf(competition = null) {
     {
       phase: 'FAS 3: KONFIGURERA DELGRENARNA',
       items: [
-        '[ ] Dressyr: Ange dressyrprogram per klass och tilldela domare (C, R, B, E, M)',
-        '[ ] Maraton: Lägg in hinder (A-F), rivningar/bollar (+2p) samt sträcktider A/B',
-        '[ ] Precision: Registrera banlängd, tempo, maxtider och spårviddstillägg (+20 cm)'
+        '[ ] Dressyr: Ange dressyrprogram per klass och tilldela domare (C, E, B, H, M)',
+        '[ ] Maraton: Lägg in hinder, rivningar (2 p per element) samt sträcktider A/B',
+        '[ ] Precision: Registrera banlängd, tempo, tillåten tid och portbredd per klass (spårvidd + 20–45 cm)'
       ]
     },
     {
       phase: 'FAS 4: TIDSCHEMAN, FUNKTIONÄRER & KONTROLLMÄTNING',
       items: [
         '[ ] Generera dressyrens startordning och beräkna automatiska startintervaller',
-        '[ ] Kontrollmät spårvidd/vagnbredd enligt TR Bilaga 2 och spara i besiktningsvyn',
-        '[ ] Tilldela 4-siffriga PIN-koder till domare, tidtagare och hinderpersonal',
+        '[ ] Kontrollmät vagnarnas spårvidd och spara den på sidan Vagnbredd',
+        '[ ] Dela ut de 8-siffriga rollkoderna till domare, tidtagare och hinderpersonal',
         '[ ] Skriv ut 1-sidiga A4-lathundar för funktionärsmötet på morgonen'
       ]
     },
     {
       phase: 'FAS 5: UNDER TÄVLINGEN (DRIFT & LIVESYNK)',
       items: [
-        '[ ] Hästbesiktning före start (TR Mom 526) – registrera status i realtid',
-        '[ ] Hantera strykningar och kuskars självdeklarering (låses 60 min före start)',
+        '[ ] Hästbesiktning före start (TR Mom 514) – registrera status (Godkänd, Ombesiktning)',
+        '[ ] Hantera strykningar och kuskarnas deklaration (låses före första start, 60 min som standard)',
         '[ ] Övervaka sekretariatets live-dashboard för dressyr, maraton och precision',
-        '[ ] Speakervy: Aktivera speakerns kuriosa-notiser och automatiska mellantider'
+        '[ ] Speakervy: Öppna den för speakern (livetider, placeringar och kuskarnas anteckningar)'
       ]
     },
     {
-      phase: 'FAS 6: AVSLUT, PRISUTDELNING & TDB-EXPORT',
+      phase: 'FAS 6: AVSLUT, PRISUTDELNING & ARKIVERING',
       items: [
-        '[ ] Fastställ preliminära resultat och invänta 30 minuters officiell protesttid',
-        '[ ] Överdomarens signering och slutgodkännande av officiell resultatlista',
+        '[ ] Fastställ resultaten och invänta protesttiden enligt TR',
+        '[ ] Överdomaren godkänner den officiella resultatlistan',
         '[ ] Skriv ut prisutdelningsprotokoll och hedersprislistor för prisceremoni',
-        '[ ] Exportera resultatfil (.eqresults.xml) och ladda upp direkt till TDB',
-        '[ ] Skapa komplett PDF-arkiv över alla protokoll och arkivera tävlingen'
+        '[ ] Rapportera resultaten till TDB',
+        '[ ] Avsluta tävlingen under fliken Arkivering (Avsluta Tävling)'
       ]
     }
   ];
@@ -480,8 +483,8 @@ export async function generateAdminChecklistPdf(competition = null) {
 
   const bannerTitle = isEn ? 'OFFLINE QUEUE & LIVE SYNC:' : 'OFFLINEKÖ & LIVESYNK:';
   const bannerDesc = isEn
-    ? 'Loaded field views can queue writes locally. Keep each tab open and verify green sync after reconnecting.'
-    : 'Laddade fältvyer kan köa skrivningar lokalt. Håll fliken öppen och verifiera grön synk efter återanslutning.';
+    ? 'Loaded field views can queue writes locally. Keep each tab open until the queue indicator is gone after reconnecting.'
+    : 'Laddade fältvyer kan köa skrivningar lokalt. Håll fliken öppen tills köindikatorn är borta efter återanslutning.';
 
   doc.setFontSize(8);
   doc.setFont(undefined, 'bold');
@@ -502,7 +505,9 @@ export async function generateAdminChecklistPdf(competition = null) {
   doc.setFontSize(7.5);
   doc.setTextColor(100, 116, 139);
   doc.text(
-    `DriveLive Tävlingssystem • Arrangörschecklista • www.drivelive.se`,
+    isEn
+      ? 'DriveLive competition system • Organiser checklist • www.drivelive.se'
+      : 'DriveLive Tävlingssystem • Arrangörschecklista • www.drivelive.se',
     margin,
     footerY
   );
@@ -515,7 +520,7 @@ export async function generateAdminChecklistPdf(competition = null) {
     minute: '2-digit'
   });
   doc.text(
-    `Utskriven: ${printTs} • Sida 1 av 1`,
+    isEn ? `Printed: ${printTs} • Page 1 of 1` : `Utskriven: ${printTs} • Sida 1 av 1`,
     pageWidth - margin,
     footerY,
     { align: 'right' }

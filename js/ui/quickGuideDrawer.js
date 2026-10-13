@@ -25,17 +25,17 @@ export const GUIDES = {
       sv: [
         '<strong>Betyg 0–10:</strong> Skriv siffran direkt. Halva poäng är tillåtna (t.ex. 6, 6.5, 7.5).',
         '<strong>Tangentbordsgenvägar:</strong> Tryck <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Enter</kbd> för att hoppa till nästa rörelse. Tryck <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Tab</kbd> för att öppna och skriva kommentar för aktuell rörelse.',
-        '<strong>Kommentarer:</strong> Klicka på <span class="text-blue-600 font-semibold">💬 Kom.</span> vid behov för att motivera poängen.',
-        '<strong>Felkörning / Avdrag:</strong> Första felkörningen ger 5 straffpoäng, den andra ger ytterligare 10 straffpoäng (15 totalt) och den tredje innebär uteslutning. Använd knapparna Fel 1, Fel 2 och Fel 3, eller fyll i övriga straff längst ner i protokollet.',
-        '<strong>Autosparning:</strong> Resultatet sparas automatiskt i bakgrunden var 30:e sekund och vid varje ändring.',
+        '<strong>Kommentarer:</strong> Klicka på <span class="text-blue-600 font-semibold">💬</span> vid behov för att motivera poängen.',
+        '<strong>Felkörning / Avdrag:</strong> Första felkörningen ger 5 straffpoäng, den andra ger ytterligare 10 straffpoäng (15 totalt) och den tredje innebär uteslutning. Använd knapparna "1:a fel (+5)", "2:a fel (+10)" och "3:e fel" (frågar innan ekipaget markeras som eliminerat), eller fyll i övriga straff längst ner i protokollet.',
+        '<strong>Spara:</strong> Protokollet sparas när du trycker på Spara Protokoll. Poängen du skriver visas live för publiken under tiden, men det är inget sparat protokoll.',
         '<strong>Spara:</strong> Klicka på <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA PROTOKOLL</span> när sista momentet är bedömt. Protokollet blir inte låst eller officiellt förrän resultatet finaliseras på resultatsidan.'
       ],
       en: [
         '<strong>Marks 0–10:</strong> Type marks directly. Half points allowed (e.g. 6.5, 7.5).',
         '<strong>Keyboard navigation:</strong> Press <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Enter</kbd> to move to next movement. Press <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Tab</kbd> to jump to comments for the current movement.',
-        '<strong>Comments:</strong> Click <span class="text-blue-600 font-semibold">💬 Remarks</span> to add explanatory notes.',
-        '<strong>Errors of course:</strong> The first error gives 5 penalty points, the second adds 10 more (15 total), and the third results in elimination. Use the Error 1, Error 2 and Error 3 buttons, or enter other penalties at the bottom.',
-        '<strong>Autosave:</strong> Progress is saved in the background every 30 seconds and on change.',
+        '<strong>Comments:</strong> Click <span class="text-blue-600 font-semibold">💬</span> to add explanatory notes.',
+        '<strong>Errors of course:</strong> The first error gives 5 penalty points, the second adds 10 more (15 total), and the third results in elimination. Use the "1st error (+5)", "2nd error (+10)" and "3rd error" buttons (the third asks before marking the turnout eliminated), or enter other penalties at the bottom.',
+        '<strong>Saving:</strong> The protocol is saved when you press Save Protocol. The scores you type are shown live to spectators meanwhile, but that is not a saved protocol.',
         '<strong>Save:</strong> Click <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE PROTOCOL</span> once the test is finished. The protocol is not locked or official until the result is finalized on the results page.'
       ]
     },
@@ -43,7 +43,7 @@ export const GUIDES = {
       sv: [
         {
           q: 'Kunde inte spara eller dålig mobiltäckning (Offline)?',
-          a: 'Om domarvyn och tävlingsdatan redan är laddade kan du klicka på Spara som vanligt. Kontrollera att protokollet visas som köat, håll fliken öppen och vänta på grön synkikon innan du lämnar sidan.'
+          a: 'Om domarvyn och tävlingsdatan redan är laddade kan du klicka på Spara som vanligt. Kontrollera att protokollet visas som köat, håll fliken öppen och vänta tills köindikatorn är borta (allt skickat) innan du lämnar sidan.'
         },
         {
           q: 'Skrev fel poäng eller kommentar?',
@@ -51,7 +51,7 @@ export const GUIDES = {
         },
         {
           q: 'Ekipaget utesluts eller utgår?',
-          a: 'Kryssa i rutan "Utesluten" eller "Utgått" längst ner och klicka på Spara Protokoll.'
+          a: 'Kryssa i rutan "Eliminerad" längst ner och klicka på Spara Protokoll.'
         },
         {
           q: 'Måste ändra ett redan sparat protokoll?',
@@ -61,15 +61,15 @@ export const GUIDES = {
       en: [
         {
           q: 'Lost internet connection / Offline warning?',
-          a: 'If the judge view and competition data were already loaded, click Save as usual. Verify that the protocol is queued, keep the tab open, and wait for the green sync icon before leaving the page.'
+          a: 'If the judge view and competition data were already loaded, click Save as usual. Verify that the protocol is queued, keep the tab open, and wait until the queue indicator is gone (everything sent) before leaving the page.'
         },
         {
           q: 'Entered the wrong mark or remark?',
           a: 'Click into the field and edit it directly. The summary updates immediately.'
         },
         {
-          q: 'Equipage eliminated or retired?',
-          a: 'Check the "Eliminated" or "Retired" checkbox at the bottom and click Save.'
+          q: 'Equipage eliminated?',
+          a: 'Check the "Eliminated" box at the bottom and click Save Protocol.'
         },
         {
           q: 'Need to edit an already saved protocol?',
@@ -115,7 +115,7 @@ export const GUIDES = {
       sv: [
         '<strong>Starta klockan:</strong> Tryck på <span class="bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> exakt när första hästens nos skär linjen mellan startflaggorna.',
         '<strong>Portmarkering (A, B, C...):</strong> Klicka på respektive portknapp när porten passeras för att verifiera korrekt körväg.',
-        '<strong>Rivningar (Bollar):</strong> Om en boll trillar av en port, klicka på porten eller öka antalet rivningar (+2 sekunder per boll).',
+        '<strong>Rivningar (Bollar):</strong> Om en boll trillar av en port, klicka på porten eller öka antalet rivningar (2 straffpoäng per rivet element, TR V 525.5).',
         '<strong>Stoppa klockan:</strong> Tryck på <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOPP</span> exakt när ekipaget passerar ut mellan de röda och vita målflaggorna.',
         '<strong>Uppehåll i hinder:</strong> Om ekipaget tvingas stanna på grund av hinderblockering eller tekniskt fel: Klicka på Uppehåll, ange sekunder och orsak. Tiden dras då av från sträcktiden.',
         '<strong>Spara:</strong> Klicka på <span class="bg-blue-900 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA RESULTAT</span>.'
@@ -123,7 +123,7 @@ export const GUIDES = {
       en: [
         '<strong>Start clock:</strong> Press <span class="bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> the instant the first horse\'s nose crosses the entry flags.',
         '<strong>Gate tracking (A, B, C...):</strong> Tap gate buttons as they are negotiated to track the correct route.',
-        '<strong>Knockdowns (Balls):</strong> If a ball falls, tap the gate or increment balls (+2 seconds penalty per ball).',
+        '<strong>Knockdowns (Balls):</strong> If a ball falls, tap the gate or increment balls (2 penalty points per element knocked down).',
         '<strong>Stop clock:</strong> Press <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOP</span> the instant the turnout crosses the exit flags.',
         '<strong>Hold time / Delay:</strong> If held by officials or obstruction, record hold time in seconds and enter note. This time is deducted from Phase B.',
         '<strong>Save:</strong> Click <span class="bg-blue-900 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE RESULT</span>.'
@@ -211,41 +211,41 @@ export const GUIDES = {
       sv: [
         '<strong>Tidtagning vid passage:</strong> Klicka på klock-ikonen vid Start eller Mål exakt när ekipaget passerar tidskontrollen.',
         '<strong>Automatisk beräkning:</strong> Systemet räknar automatiskt ut förfluten tid och eventuella tidsstraff mot gällande tidsfönster.',
-        '<strong>Manuell tidsinmatning:</strong> Om officiellt tidtagarur eller tidrapport används: Klicka på tidsfältet och skriv in klockslaget (TT:MM:SS) manuellt.',
+        '<strong>Manuell tid:</strong> Om tiden tagits med ett officiellt tidtagarur: tryck på etappens tid och skriv in den körda tiden som mmsscc (t.ex. 251530 = 25:15,30).',
         '<strong>Aktiva ekipage:</strong> Fäll ut listan "Aktiva ekipage" för att se vilka som befinner sig på sträckan just nu.',
-        '<strong>Nödstopp / Banpaus:</strong> Om en olycka sker på sträckan, fäll ut Nöd-paus och aktivera tävlingspaus. Alla domare och sekretariatet meddelas omedelbart.'
+        '<strong>Tävlingspaus:</strong> En global paus sätts från observatörssidan (NÖD-PAUS). Den här sidan pausar då automatiskt, och tiden under pausen räknas inte.'
       ],
       en: [
         '<strong>Passage timing:</strong> Tap the clock icon at Start or Finish the moment the equipage passes.',
         '<strong>Automatic calculation:</strong> Elapsed time and penalties are computed automatically according to rules ledger.',
-        '<strong>Manual entry:</strong> If using physical timing logs: Tap the time box and enter official time (HH:MM:SS).',
+        '<strong>Manual time:</strong> If the time was taken with an official stopwatch: tap the section time and enter the driven time as mmsscc (e.g. 251530 = 25:15.30).',
         '<strong>Active turnouts:</strong> Expand "Active Timers" to monitor all equipages currently on the phase.',
-        '<strong>Emergency pause:</strong> In case of accident or blocked track, activate Global Emergency Pause to freeze timing across all stations.'
+        '<strong>Competition pause:</strong> A global pause is set from the observer page (EMERGENCY PAUSE). This page then pauses automatically, and the paused time does not count.'
       ]
     },
     troubleshooting: {
       sv: [
         {
           q: 'Tiden registrerades vid fel klockslag?',
-          a: 'Klicka på tidsrutan och välj "Redigera tid". Skriv in rätt klockslag och bekräfta.'
+          a: 'Tryck på etappens tid för att öppna rutan för manuell tid och skriv in den körda tiden (mmsscc).'
         },
         {
           q: 'Kusken körde för fort eller för långsamt?',
-          a: 'Systemet lägger automatiskt på 0.25 straffpoäng per påbörjad sekund utanför tidsfönstret. Om maxtiden överskridits flaggas ekipaget som uteslutet.'
+          a: 'Utanför tidsfönstret ges 0,25 straffpoäng per sekund på A och B (TR V 523.2). Uteslutning sker först vid tidsgränsen: maxtid + 20 % på A, dubbla maxtiden på B och transportsträckan (523.3). Transportsträckan har bara tidsgränsen, inga tidsstraff.'
         },
         {
           q: 'Offline vid mål A eller start B?',
-          a: 'På en redan laddad vy kan tider köas lokalt. Kontrollera köindikatorn, håll fliken öppen och vänta på grön synkikon när nätverket är tillbaka.'
+          a: 'På en redan laddad vy kan tider köas lokalt. Kontrollera köindikatorn, håll fliken öppen och vänta tills köindikatorn är borta när nätverket är tillbaka.'
         }
       ],
       en: [
         {
           q: 'Time was recorded incorrectly?',
-          a: 'Tap the time box, choose "Edit time", enter the correct timestamp and confirm.'
+          a: 'Tap the section time to open the manual time box and enter the driven time (mmsscc).'
         },
         {
           q: 'Equipage outside the time window?',
-          a: 'The engine automatically adds 0.25 penalty per second outside window. Exceeding time limit triggers elimination warning.'
+          a: 'Outside the time window 0.25 penalties per second are given on sections A and B. Elimination comes only at the time limit: max time + 20 % on A, double the max time on B and the transfer. The transfer has only the time limit, no time penalties.'
         },
         {
           q: 'Offline at checkpoint?',
@@ -256,15 +256,15 @@ export const GUIDES = {
     symbols: {
       sv: [
         { sym: '🟢 Klocka', desc: 'Registrera tid vid passage' },
-        { sym: '⚠️ Röd tid', desc: 'Överskriden maxtid (uteslutning)' },
+        { sym: '⚠️ Röd tid', desc: 'Över maxtid: 0,25 straffpoäng/s (uteslutning först vid tidsgränsen)' },
         { sym: '🟡 Gul tid', desc: 'Utanför tidsfönster (straff)' },
-        { sym: '🚨 Nödpaus', desc: 'Stoppar tid för alla på sträckan' }
+        { sym: '🚨 Paus', desc: 'Sätts från observatörssidan; pausar alla klockor' }
       ],
       en: [
         { sym: '🟢 Clock', desc: 'Stamp time at passage' },
-        { sym: '⚠️ Red time', desc: 'Over time limit (elimination)' },
+        { sym: '⚠️ Red time', desc: 'Over max time: 0.25 penalties/s (elimination only at the time limit)' },
         { sym: '🟡 Yellow time', desc: 'Outside time window (penalties)' },
-        { sym: '🚨 Pause', desc: 'Global race hold for all drivers' }
+        { sym: '🚨 Pause', desc: 'Set from the observer page; holds all clocks' }
       ]
     }
   },
@@ -287,16 +287,16 @@ export const GUIDES = {
     },
     during: {
       sv: [
-        '<strong>Start:</strong> Klicka på <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> (eller tryck <kbd class="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs">Mellanslag</kbd>) när ekipaget korsar startlinjen.',
+        '<strong>Start:</strong> Klicka på <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> när ekipaget korsar startlinjen.',
         '<strong>Rivningar (Bollar):</strong> Klicka på motsvarande portknapp (t.ex. 1, 4, 12A) så fort en boll trillar. Knappen blir röd och 3 straff läggs till direkt. Klicka igen om bollen dömdes fel för att ångra.',
-        '<strong>Målgång:</strong> Klicka på <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOPP</span> (eller tryck <kbd class="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs">Mellanslag</kbd>) när ekipaget skär mållinjen.',
+        '<strong>Målgång:</strong> Klicka på <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOPP</span> när ekipaget skär mållinjen.',
         '<strong>Övriga straff:</strong> Ange eventuella straff (t.ex. 5 straff för groom avstigen) i fältet "Övriga straff".',
         '<strong>Spara:</strong> Klicka på <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA RESULTAT</span>.'
       ],
       en: [
-        '<strong>Start:</strong> Press <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> (or press <kbd class="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs">Space</kbd>) when crossing the start line.',
+        '<strong>Start:</strong> Press <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> when crossing the start line.',
         '<strong>Knockdowns:</strong> Tap the gate button (e.g. 1, 4, 12A) immediately when a ball falls. Button turns red (+3 penalties). Tap again to toggle/undo.',
-        '<strong>Finish:</strong> Press <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOP</span> (or press <kbd class="px-1 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs">Space</kbd>) when crossing finish line.',
+        '<strong>Finish:</strong> Press <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOP</span> when crossing finish line.',
         '<strong>Other penalties:</strong> Enter additional penalties (e.g. groom dismounting, 5 pts) in "Other Penalties".',
         '<strong>Save:</strong> Click <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE RESULT</span>.'
       ]
@@ -305,11 +305,11 @@ export const GUIDES = {
       sv: [
         {
           q: 'Tiden överskred tillåten tid?',
-          a: 'Klockan skiftar färg och tidsstraff beräknas automatiskt (1 straffpoäng per påbörjad sekund över tillåten tid enligt TR V).'
+          a: 'Klockan skiftar färg och tidsstraff beräknas automatiskt (0,5 straffpoäng per sekund över tillåten tid, med två decimaler, TR V 525.9).'
         },
         {
           q: 'Klockan överskred maxtiden?',
-          a: 'Systemet varnar automatiskt för uteslutning (dubbla tillåtna tiden).'
+          a: 'Över dubbla tillåtna tiden utesluts ekipaget. I Lätt B Barn räcker det att tillåten tid överskrids (TR V Bilaga 5).'
         },
         {
           q: 'Missade att trycka Start eller manuell klocka användes?',
@@ -317,17 +317,17 @@ export const GUIDES = {
         },
         {
           q: 'Offline i ridhuset / på banan?',
-          a: 'På en redan laddad vy kan du klicka Spara som vanligt. Kontrollera köindikatorn, håll fliken öppen och vänta på grön synkikon när nätverket är tillbaka.'
+          a: 'På en redan laddad vy kan du klicka Spara som vanligt. Kontrollera köindikatorn, håll fliken öppen och vänta tills köindikatorn är borta när nätverket är tillbaka.'
         }
       ],
       en: [
         {
           q: 'Time exceeded Time Allowed?',
-          a: 'Timer highlights and time penalty is calculated automatically (1 penalty per started second over Time Allowed).'
+          a: 'Timer highlights and time penalty is calculated automatically (0.5 penalty points per second over Time Allowed, to two decimals).'
         },
         {
           q: 'Time exceeded Time Limit?',
-          a: 'System flags elimination (exceeding double Time Allowed).'
+          a: 'Above double the Time Allowed the turnout is eliminated. In Lätt B Barn, exceeding the Time Allowed is enough.'
         },
         {
           q: 'Missed start click or used stopwatch?',
@@ -335,19 +335,19 @@ export const GUIDES = {
         },
         {
           q: 'Offline in arena?',
-          a: 'On an already loaded view, save normally, verify the queue indicator, keep the tab open, and wait for the green sync icon after reconnecting.'
+          a: 'On an already loaded view, save normally, verify the queue indicator, keep the tab open, and wait until the queue indicator is gone after reconnecting.'
         }
       ]
     },
     symbols: {
       sv: [
-        { sym: '⌨️ Mellanslag', desc: 'Starta / Stoppa klockan' },
+        { sym: '⌨️ ← / →', desc: 'Föregående / nästa ekipage' },
         { sym: '🔴 Röd port', desc: 'Rivning registrerad (+3 straff)' },
         { sym: '⏱️ Klicka tid', desc: 'Öppna manuell tidsinmatning' },
         { sym: '🔄 Återställ', desc: 'Nollställ klocka och rivningar' }
       ],
       en: [
-        { sym: '⌨️ Spacebar', desc: 'Start / Stop timer' },
+        { sym: '⌨️ ← / →', desc: 'Previous / next equipage' },
         { sym: '🔴 Red gate', desc: 'Knockdown registered (+3 pen)' },
         { sym: '⏱️ Tap digits', desc: 'Manual time input' },
         { sym: '🔄 Reset', desc: 'Reset timer and cones' }
@@ -463,7 +463,7 @@ export const GUIDES = {
         },
         {
           q: 'Offline vid stallarna?',
-          a: 'På en redan laddad vy kan uppgifterna köas lokalt. Kontrollera köindikatorn och vänta på grön synkikon innan du lämnar sidan.'
+          a: 'På en redan laddad vy kan uppgifterna köas lokalt. Kontrollera köindikatorn och vänta tills köindikatorn är borta (allt skickat) innan du lämnar sidan.'
         }
       ],
       en: [
@@ -473,7 +473,7 @@ export const GUIDES = {
         },
         {
           q: 'Offline near stables?',
-          a: 'On an already loaded view, results can queue locally. Verify the queue indicator and wait for the green sync icon before leaving the page.'
+          a: 'On an already loaded view, results can queue locally. Verify the queue indicator and wait until the queue indicator is gone (everything sent) before leaving the page.'
         }
       ]
     },
@@ -518,7 +518,7 @@ export const GUIDES = {
         '<strong>Live Overview:</strong> Yellow rows indicate in-progress or unfinalized entries; green rows are finalized.',
         '<strong>Review before finalizing:</strong> Verify that all judges and timing points reported in before finalizing.',
         '<strong>Unlock on query / protest:</strong> If correction is required, unlock the record, update with Ground Jury and re-save.',
-        '<strong>PDF & Printouts:</strong> Generate signed official result sheets and speaker dashboards via Report Center.'
+        '<strong>PDF & Printouts:</strong> Generate official result sheets, protocols and speaker material via Report Center.'
       ]
     },
     troubleshooting: {
@@ -644,13 +644,14 @@ function injectGuideStyles() {
     .dark .quick-guide-btn:hover {
       background: #92400e;
     }
+    /* Only while the drawer is open; otherwise printing the page would come out blank. */
     @media print {
-      body * {
+      body.qg-open * {
         visibility: hidden !important;
       }
-      .qg-backdrop,
-      .qg-drawer,
-      .qg-drawer * {
+      body.qg-open .qg-backdrop,
+      body.qg-open .qg-drawer,
+      body.qg-open .qg-drawer * {
         visibility: visible !important;
       }
       .qg-backdrop {
@@ -697,6 +698,8 @@ export function renderQuickGuideButton(roleKey = 'dressage', options = {}) {
   const label = options.label || (isEn ? 'Cheat Sheet' : 'Lathund');
   const extraClass = options.extraClass || '';
   const title = isEn ? 'Open 60-second role cheat sheet' : 'Öppna 60-sekunders lathund för denna sida';
+  // The button's own styles live in the same sheet, so inject it now rather than on first open
+  if (typeof document !== 'undefined') injectGuideStyles();
 
   return `
     <button
@@ -887,8 +890,8 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
           </div>
           <p class="leading-normal opacity-90">
             ${isEn
-              ? 'In an already loaded input view, press Save and verify the local queue. Keep the tab open until the sync icon turns green.'
-              : 'I en redan laddad inmatningsvy: tryck på Spara och kontrollera den lokala kön. Håll fliken öppen tills synkikonen blir grön.'}
+              ? 'In an already loaded input view, press Save and verify the local queue. Keep the tab open until the queue indicator is gone.'
+              : 'I en redan laddad inmatningsvy: tryck på Spara och kontrollera den lokala kön. Håll fliken öppen tills köindikatorn är borta.'}
           </p>
         </section>
 
@@ -960,6 +963,7 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
 
   backdrop.appendChild(drawer);
   document.body.appendChild(backdrop);
+  document.body.classList.add('qg-open');
 
   // Animera in
   requestAnimationFrame(() => {
@@ -972,12 +976,13 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
   function closeGuide() {
     if (isClosing) return;
     isClosing = true;
-    document.removeEventListener('keydown', onKeyDown);
+    removeKeyListeners();
     backdrop.classList.remove('visible');
     setTimeout(() => {
       try {
         backdrop.remove();
       } catch {}
+      if (!document.querySelector('.qg-backdrop')) document.body.classList.remove('qg-open');
       if (previouslyFocusedElement?.isConnected && typeof previouslyFocusedElement.focus === 'function') {
         previouslyFocusedElement.focus();
       }
@@ -1016,8 +1021,25 @@ export function openQuickGuide(initialRoleKey = 'dressage') {
     }
   }
 
-  document.addEventListener('keydown', onKeyDown);
-  backdrop.__qgRemoveKeyListener = () => document.removeEventListener('keydown', onKeyDown);
+  // Keys must not reach the page behind the drawer (its arrow/1-4/Space shortcuts are
+  // document/window bubble listeners). Keys inside the drawer stop at the backdrop so
+  // the drawer's own controls still work; keys aimed elsewhere stop in the capture phase.
+  function onDrawerKeyDown(e) {
+    onKeyDown(e);
+    e.stopPropagation();
+  }
+  function onOutsideKeyDown(e) {
+    if (backdrop.contains(e.target)) return;
+    onKeyDown(e);
+    e.stopPropagation();
+  }
+  function removeKeyListeners() {
+    backdrop.removeEventListener('keydown', onDrawerKeyDown);
+    document.removeEventListener('keydown', onOutsideKeyDown, true);
+  }
+  backdrop.addEventListener('keydown', onDrawerKeyDown);
+  document.addEventListener('keydown', onOutsideKeyDown, true);
+  backdrop.__qgRemoveKeyListener = removeKeyListeners;
 
   backdrop.addEventListener('click', (e) => {
     if (e.target === backdrop) {

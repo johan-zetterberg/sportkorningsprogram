@@ -301,10 +301,12 @@ function getManualSearchIndex(isEn) {
 
 function highlightSearchTerms(text, query) {
   if (!query) return escapeHtml(text);
-  const safeText = escapeHtml(text);
   const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`(${escapedQuery})`, 'gi');
-  return safeText.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800 text-gray-900 dark:text-white px-0.5 rounded font-semibold">$1</mark>');
+  // split() with a capture group puts the matches at the odd indexes
+  return String(text ?? '').split(regex).map((part, i) => (i % 2
+    ? `<mark class="bg-yellow-200 dark:bg-yellow-800 text-gray-900 dark:text-white px-0.5 rounded font-semibold">${escapeHtml(part)}</mark>`
+    : escapeHtml(part))).join('');
 }
 
 function extractSnippet(text, query, maxLen = 170) {
@@ -323,10 +325,11 @@ function extractSnippet(text, query, maxLen = 170) {
 }
 
 async function downloadRolePdf(role, btnEl = null) {
+  const isEn = localStorage.getItem('user_lang_pref') === 'en';
   let originalHtml = '';
   if (btnEl) {
     originalHtml = btnEl.innerHTML;
-    btnEl.innerHTML = `<span>⏳</span> Genererar...`;
+    btnEl.innerHTML = `<span>⏳</span> ${isEn ? 'Generating...' : 'Genererar...'}`;
     btnEl.disabled = true;
   }
   try {
@@ -334,7 +337,7 @@ async function downloadRolePdf(role, btnEl = null) {
     await generateQuickGuidePdf(role);
   } catch (err) {
     console.error('Kunde inte skapa lathund-PDF:', err);
-    alert('Kunde inte ladda ner PDF: ' + err.message);
+    alert((isEn ? 'Could not download the PDF: ' : 'Kunde inte ladda ner PDF: ') + err.message);
   } finally {
     if (btnEl) {
       btnEl.innerHTML = originalHtml;
@@ -607,7 +610,7 @@ function getTabContentSV(tab) {
                     </p>
                     <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
                         <li><strong>På en inmatningsvy som redan har laddats kan du fortsätta registrera tider och resultat när täckningen försvinner.</strong></li>
-                        <li>Skrivningar kan köas lokalt ("I kön") och skickas när internet kommer tillbaka. En köad skrivning är inte serverbekräftad förrän synkikonen blir grön.</li>
+                        <li>Skrivningar kan köas lokalt ("I kön") och skickas när internet kommer tillbaka. En köad skrivning är inte serverbekräftad förrän den har skickats, alltså tills den orange köknappen nere till höger (☁️ Synkar...) är borta.</li>
                         <li class="font-bold text-red-600">VIKTIGT: Stäng eller uppdatera inte fliken, logga inte ut och rensa inte webbplatsdata medan något väntar i kön. Byt inte enhet innan synkningen är klar.</li>
                     </ul>
                 </div>
@@ -631,11 +634,11 @@ function getTabContentSV(tab) {
                 <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
                    <li><strong>"Sidan ser konstig ut":</strong> Prova att ladda om sidan (dra neråt eller tryck F5).</li>
                    <li><strong>"Inget händer när jag klickar":</strong> Kontrollera din internetuppkoppling. Syns en "Offline"-symbol?</li>
-                   <li><strong>Synk-kö (Moln-ikonen):</strong>
+                   <li><strong>Synk-kön:</strong>
                        <ul class="list-circle list-inside ml-4 mt-1 text-xs">
-                           <li><span class="text-green-600">Grön:</span> Allt är sparat i molnet.</li>
-                           <li><span class="text-amber-500">Gul (Puls):</span> Sparar just nu... (Vänta tills den blir grön).</li>
-                           <li><span class="text-red-500">Röd/Streckad:</span> Offline. Datan sparas lokalt och skickas senare.</li>
+                           <li><span class="text-amber-500">Orange knapp nere till höger (☁️ antal, Synkar...):</span> Så många skrivningar väntar på att skickas. Tryck på den för att se vilka.</li>
+                           <li><span class="text-gray-500">"Offline" i menyraden:</span> Ingen anslutning. Skrivningar från en redan laddad vy köas lokalt och skickas senare.</li>
+                           <li><span class="text-green-600">Ingen knapp och ingen badge:</span> Allt är skickat.</li>
                        </ul>
                    </li>
                 </ul>
@@ -804,7 +807,7 @@ function getTabContentSV(tab) {
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
                             <li><strong>Gå tillbaka:</strong> Klicka alltid på loggan (längst upp till vänster) för att återgå till Hubben och byta tävling.</li>
                             <li><strong>Skapa Nytt:</strong> (Endast Admin) Använd formuläret i Hubben för att starta en ny tävling.</li>
-                            <li><strong>Offline-stöd:</strong> Högst upp ser du en synkikon (moln) eller en "Offline"-badge. Redan laddade inmatningsvyer kan köa resultat lokalt; vänta på grön synkikon innan du stänger sidan.</li>
+                            <li><strong>Offline-stöd:</strong> I menyraden visas "Offline" eller "Synkar...", och nere till höger en orange köknapp när något väntar. Redan laddade inmatningsvyer kan köa resultat lokalt; vänta tills den orange köknappen nere till höger (☁️ Synkar...) är borta innan du stänger sidan.</li>
                             <li><strong>Mobil & Surfplatta:</strong> Systemet anpassar sig automatiskt. På mobiler visas listor som klickbara "Kort", medan surfplattor och datorer visar klassiska tabeller för bättre överblick.</li>
                         </ul>
                     </div>
@@ -947,10 +950,10 @@ function getTabContentSV(tab) {
                   <span class="text-gray-400 text-xs">▼</span>
                 </summary>
                 <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
-                  <p><strong>1. Maratonsträckor & Tempon:</strong> Gå till <em>Admin > Maraton</em>. Fyll i sträckornas längd i meter och tempo för Sträcka A, ev. Transport, och Sträcka B. Idealtider, minimitider och maxtider beräknas automatiskt för häst, ponny och para.</p>
+                  <p><strong>1. Maratonsträckor & Tempon:</strong> Gå till <em>Admin > Maraton</em>. Fyll i sträckornas längd i meter och tempo för Sträcka A, ev. Transport, och Sträcka B. Idealtider, minimitider och maxtider beräknas automatiskt för häst, ponny och para. Transportsträckan har bara en tidsgräns (dubbla maxtiden) och inga tidsstraff.</p>
                   <p><strong>2. Maratonhinder, Portar & Bollar:</strong> Gå till hinderhanteringen i maraton. Lägg upp Hinder 1–N. Ange antal portar (A–F). <strong>Viktigt:</strong> Om hindret har rivningsbara element eller bollar, kryssa i rutan <em>☑️ "Rivningsbart element / boll"</em> på hindret. Det är denna inställning som gör att fältet för rivning/boll visas för hinderdomaren!</p>
                   <p><strong>3. Maratonkarta (Valfritt men uppskattat):</strong> Länka in tävlingens banskiss och klicka ut positioner för Hinder 1–N, Start och Mål. Då visar publikskärmen liverapportering direkt på kartan.</p>
-                  <p><strong>4. Precision:</strong> Gå till <em>Admin > Precision</em>. Ange banans längd och tempo -> systemet beräknar tillåten tid och maxtid automatiskt. Ange hinderbredd (standard: vagnbredd + 20 cm).</p>
+                  <p><strong>4. Precision:</strong> Gå till <em>Admin > Precision</em>. Ange banans längd och tempo -> systemet beräknar tillåten tid och maxtid automatiskt. Portbredden är vagnens spårvidd plus klassens tillägg enligt TR (t.ex. Lätt B 35 cm, Lätt A 30 cm, Barn 45 cm). Tillägget kan ändras per klass.</p>
                 </div>
               </details>
 
@@ -1003,8 +1006,8 @@ function getTabContentSV(tab) {
                 <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
                   <p><strong>1. Resultatgranskning:</strong> Kontrollera på <em>Totalresultat</em> att alla domare har grön bock (klara). Vid eventuella protester eller domarkorrigeringar kan sekretariatet öppna protokollet med knappen <em>Ångra</em>.</p>
                   <p><strong>2. Skriv ut resultatlistor:</strong> Skriv ut officiella resultatlistor (A4 PDF) inför prisutdelningen.</p>
-                  <p><strong>3. Avsluta & Arkivera:</strong> När prisutdelningen är genomförd går du till <em>Admin > Inställningar</em> och klickar på <em>"Avsluta & Arkivera tävling"</em>. Detta fryser resultaten mot vidare ändringar och sparar ett permanent historiskt arkiv.</p>
-                  <p><strong>4. TDB-resultatfil:</strong> Exportera den officiella resultatfilen för direkt inrapportering i Svenska Ridsportförbundets Tävlingsdatabas.</p>
+                  <p><strong>3. Avsluta & Arkivera:</strong> När prisutdelningen är genomförd går du till fliken <em>📦 Arkivering</em> i Admin och klickar på <em>"🏁 Avsluta Tävling"</em>. Detta fryser resultaten och sparar en permanent kopia av resultatlistan. Ska något ändras efteråt måste tävlingen öppnas igen.</p>
+                  <p><strong>4. Rapportera till TDB:</strong> DriveLive skapar ingen resultatfil för TDB. Rapportera resultaten i TDB enligt förbundets rutin, med de utskrivna resultatlistorna som underlag.</p>
                 </div>
               </details>
 
@@ -1067,9 +1070,9 @@ function getTabContentSV(tab) {
               <div class="bg-orange-50 p-4 rounded border border-orange-200">
                 <strong class="block text-orange-900 mb-2">🌲 Maraton: Sträckor, Hinder & Bollar</strong>
                 <ul class="list-disc list-inside space-y-1.5 text-xs text-gray-700">
-                  <li><strong>Sträckor:</strong> Ange längd (meter) och tempo (km/h) för Sträcka A, ev. Transport och Sträcka B. Idealtid, maxtid och tidsfönster beräknas automatiskt.</li>
+                  <li><strong>Sträckor:</strong> Ange längd (meter) och tempo (m/min) för Sträcka A, ev. Transport och Sträcka B. TR-tempot för klassen visas som hjälp. Idealtid, maxtid och tidsfönster beräknas automatiskt.</li>
                   <li><strong>Hinder & Portar:</strong> Skapa hindren 1–8 och sätt antal portar per hinder (t.ex. 5 för A–E eller 6 för A–F).</li>
-                  <li><strong>Rivningsbara bollar:</strong> Bocka i <em>"Rivningsbart element / boll"</em> på de hinder som har bollar. Då visas bollfältet automatiskt i hinderdomarens vy med +2 straff per boll.</li>
+                  <li><strong>Rivningsbara bollar:</strong> Bocka i <em>"Rivningsbart element / boll"</em> på de hinder som har bollar. Då visas fältet för rivningar i hinderdomarens vy, med 2 straffpoäng per rivet element.</li>
                   <li><strong>Tidskontroll:</strong> Använd <em>Maraton > Beräkna tider</em> för att skriva ut en komplett kontrollista med idealtider och fönster för alla klasser.</li>
                 </ul>
               </div>
@@ -1077,8 +1080,8 @@ function getTabContentSV(tab) {
                 <strong class="block text-purple-900 mb-2">🏁 Precision: Banlängd, Maxtid & Bredd</strong>
                 <ul class="list-disc list-inside space-y-1.5 text-xs text-gray-700">
                   <li><strong>Banans längd & Tempo:</strong> Ange längd (m) och hastighet (m/min). Tillåten tid och maxtid räknas ut automatiskt.</li>
-                  <li><strong>Hinderbredd:</strong> Ange standardmått (t.ex. Vagnbredd + 20 cm).</li>
-                  <li><strong>Tidsfel:</strong> Standardstraff för tidsfel per påbörjad sekund appliceras automatiskt enligt gällande TR.</li>
+                  <li><strong>Portbredd:</strong> Spårvidd plus klassens tillägg enligt TR (t.ex. Lätt B 35 cm, Lätt A 30 cm, Barn 45 cm). Kan ändras per klass och per port.</li>
+                  <li><strong>Tidsfel:</strong> 0,5 straffpoäng per sekund över tillåten tid, med två decimaler (TR V 525.9). Över dubbla tillåtna tiden blir ekipaget uteslutet; i Lätt B Barn räcker det att tillåten tid överskrids.</li>
                   <li><strong>Konrivning:</strong> Standardstraff är 3 straffpoäng per nedslag.</li>
                 </ul>
               </div>
@@ -1191,13 +1194,12 @@ function getTabContentSV(tab) {
               <h4 class="font-semibold text-green-800">Arbetsflöde:</h4>
               <ol class="list-decimal list-inside space-y-2 text-gray-700">
                 <li>Välj <strong>Maraton Tidtagning</strong> i menyn.</li>
-                <li>Välj din start/mål-position i listan (t.ex. "Start Sträcka B").</li>
+                <li>Välj ekipaget (du kan söka på startnummer).</li>
                 <li>
-                  <strong>När ett ekipage kommer:</strong>
+                  <strong>När ekipaget passerar linjen:</strong>
                   <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                    <li>Leta upp ekipaget i listan (du kan söka på nummer).</li>
-                    <li>Tryck på den gröna <strong>KLOCKA-ikonen</strong> exakt när de passerar linjen.</li>
-                    <li>Tiden sparas direkt. En grön bock visas.</li>
+                    <li>Tryck på den gröna <strong>START</strong>-knappen för sträckan när ekipaget startar, och på den röda <strong>MÅL</strong>-knappen när det går i mål.</li>
+                    <li>Tiden sparas direkt. Med ↺ nollställer du sträckan.</li>
                   </ul>
                 </li>
                 <li>
@@ -1211,8 +1213,8 @@ function getTabContentSV(tab) {
                 <li>
                   <strong>Om du klockade fel:</strong>
                   <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                    <li>Tryck på tiden (textfältet) för att redigera den manuellt.</li>
-                    <li>Ange rätt tid i formatet <code>TT:MM:SS</code> och spara.</li>
+                    <li>Tryck på sträckans tid (den stora klockan) för att ange tiden manuellt.</li>
+                    <li>Skriv in den körda tiden som <code>mmsscc</code> (t.ex. 251530 = 25:15,30) och tryck Använd.</li>
                   </ul>
                 </li>
               </ol>
@@ -1348,11 +1350,11 @@ function getTabContentSV(tab) {
                 </p>
               </div>
               <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
-                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Synk-indikatorns färger</strong>
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Synkindikatorn</strong>
                 <ul class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 mt-1">
-                  <li>🟢 <strong>Grön bock:</strong> Allt är sparat i molnet och direkt synligt för sekretariatet.</li>
-                  <li>🟡 <strong>Gul siffra (Kö):</strong> Svag eller bruten täckning. Protokollet är tryggt sparat i enhetens minne och skickas automatiskt så fort internet återfås. <em>Stäng inte fliken!</em></li>
-                  <li>🔴 <strong>Röd varning:</strong> Nätverksavbrott. Fortsätt mata in som vanligt – allt köas lokalt.</li>
+                  <li>🟠 <strong>Orange köknapp nere till höger (☁️ antal):</strong> Skrivningar väntar i enhetens minne och skickas automatiskt när internet är tillbaka. <em>Stäng inte fliken!</em></li>
+                  <li>⚫ <strong>"Offline" i menyraden:</strong> Nätverksavbrott. Fortsätt bara i den redan laddade vyn och kontrollera att det du sparar hamnar i kön.</li>
+                  <li>✅ <strong>Ingen köknapp:</strong> Allt är skickat och synligt för sekretariatet.</li>
                 </ul>
               </div>
               <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
@@ -1470,8 +1472,8 @@ function getTabContentSV(tab) {
                   <strong>Under körningen:</strong>
                   <ul class="list-disc list-inside ml-4 mt-1 text-sm">
                     <li>Fyll i poäng (0-10) för varje moment. Använd HEL- eller HALV-poäng (t.ex. 6, 6.5, 7).</li>
-                    <li>Systemet autosparar ("Heartbeat") var 30:e sekund och vid varje fältbyte.</li>
-                    <li>Lägg till <strong>Kommentarer</strong> vi behov genom att klicka på "💬 Kom.".</li>
+                    <li>Poängen du skriver visas live för publiken medan du dömer, men protokollet sparas först när du trycker på <strong>Spara Protokoll</strong>.</li>
+                    <li>Lägg till <strong>Kommentarer</strong> vid behov genom att klicka på "💬".</li>
                   </ul>
                   <div class="mt-2 ml-4 p-2 bg-white border border-purple-200 rounded text-xs text-purple-900">
                       <strong>💡 Tips för snabbare inmatning (Tangentbord):</strong>
@@ -1483,7 +1485,7 @@ function getTabContentSV(tab) {
                 </li>
                 <li>
                   <strong>Vid felkörning:</strong>
-                  <br><span class="ml-4 text-sm">Använd knapparna för "Fel 1" / "Fel 2" eller fyll i "Övriga avdrag" manuellt längst ner.</span>
+                  <br><span class="ml-4 text-sm">Använd knapparna "1:a fel (+5)", "2:a fel (+10)" och "3:e fel" (frågar innan ekipaget markeras som eliminerat), eller fyll i "Övriga avdrag" manuellt längst ner.</span>
                 </li>
                 <li>
                   <strong>Spara protokollet:</strong>
@@ -1508,14 +1510,14 @@ function getTabContentSV(tab) {
             <h4 class="font-bold text-emerald-800 dark:text-emerald-300 text-sm uppercase mb-1">📡 Offline & Tappad anslutning</h4>
             <div class="text-sm text-emerald-900 dark:text-emerald-200 space-y-2">
               <p><strong>Offline-stöd för en redan laddad domarvy:</strong> Om internet försvinner kan du fortsätta fylla i protokollet och klicka på <strong>"Spara Protokoll"</strong> som vanligt.</p>
-              <p>Skrivningen köas då lokalt på den aktuella enheten och skickas när anslutningen återupptas. Den är inte bekräftad på servern förrän synkikonen blir grön.</p>
+              <p>Skrivningen köas då lokalt på den aktuella enheten och skickas när anslutningen återupptas. Den är inte bekräftad på servern förrän den har skickats, alltså tills den orange köknappen nere till höger (☁️ Synkar...) är borta.</p>
               <div class="p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-800/60 text-xs space-y-1">
-                <div class="font-semibold text-gray-800 dark:text-gray-200">Synk-molnet i sidans topp:</div>
-                <div>• 🟢 <strong>Grön bock:</strong> Sparat och synkat med molnet.</div>
-                <div>• 🟡 <strong>Gult moln / roterande:</strong> Sparat lokalt på surfplattan, väntar på synk.</div>
-                <div>• 🔴 <strong>Röd / offline:</strong> Ingen anslutning. Fortsätt endast i den redan laddade vyn och kontrollera att skrivningen visas i kön.</div>
+                <div class="font-semibold text-gray-800 dark:text-gray-200">Synkindikatorn:</div>
+                <div>• 🟠 <strong>Orange köknapp nere till höger (☁️ antal):</strong> Sparat lokalt på surfplattan, väntar på att skickas.</div>
+                <div>• ⚫ <strong>"Offline" i menyraden:</strong> Ingen anslutning. Fortsätt endast i den redan laddade vyn och kontrollera att skrivningen visas i kön.</div>
+                <div>• ✅ <strong>Ingen köknapp:</strong> Allt är skickat.</div>
               </div>
-              <p class="font-semibold text-amber-800 dark:text-amber-300 text-xs">⚠️ VIKTIGT: Stäng eller uppdatera inte fliken medan det finns osparade ändringar i synkkön. Vänta tills ikonen blir grön.</p>
+              <p class="font-semibold text-amber-800 dark:text-amber-300 text-xs">⚠️ VIKTIGT: Stäng eller uppdatera inte fliken medan det finns osparade ändringar i synkkön. Vänta tills köknappen är borta.</p>
             </div>
           </section>
 
@@ -1749,7 +1751,7 @@ function getTabContentEN(tab) {
                     </p>
                     <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
                         <li><strong>If the input view and competition data were already loaded, you can continue entering times and results after coverage is lost.</strong></li>
-                        <li>Writes can be queued locally ("In Queue") and sent when internet returns. A queued write is not server-confirmed until the sync icon turns green.</li>
+                        <li>Writes can be queued locally ("In Queue") and sent when internet returns. A queued write is not server-confirmed until it has been sent, that is until the amber queue button at the bottom right (☁️ Synkar...) is gone.</li>
                         <li class="font-bold text-red-600">IMPORTANT: Do not close or reload the tab, sign out, clear site data, or switch devices while writes remain queued.</li>
                     </ul>
                 </div>
@@ -1775,8 +1777,8 @@ function getTabContentEN(tab) {
                    <li><strong>"Nothing happens when I click":</strong> Check your internet connection. Is there an "Offline" symbol visible?</li>
                    <li><strong>Sync Queue (Cloud Icon):</strong>
                        <ul class="list-circle list-inside ml-4 mt-1 text-xs">
-                           <li><span class="text-green-600">Green:</span> All saved to cloud.</li>
-                           <li><span class="text-amber-500">Yellow (Pulse):</span> Saving right now... (Wait until green).</li>
+                           <li><span class="text-amber-500">Amber button at the bottom right (☁️ count, Synkar...):</span> That many writes are waiting to be sent. Tap it to see which.</li>
+                           <li><span class="text-green-600">No button and no badge:</span> Everything has been sent.</li>
                            <li><span class="text-red-500">Red/Strikethrough:</span> Offline. Data saved locally and sent later.</li>
                        </ul>
                    </li>
@@ -1940,7 +1942,7 @@ function getTabContentEN(tab) {
                         <ul class="list-disc list-inside text-sm text-gray-600 space-y-1">
                             <li><strong>Go Back:</strong> Always click the logo (top left) to return to the Hub and switch competitions.</li>
                             <li><strong>Create New:</strong> (Admin only) Use the form in the Hub to start a new competition.</li>
-                            <li><strong>Offline support:</strong> Look for the sync cloud or "Offline" badge. An already loaded input view can queue results locally; wait for a green sync icon before closing it.</li>
+                            <li><strong>Offline support:</strong> The menu bar shows "Offline" or "Synkar...", and an amber queue button appears at the bottom right while something is waiting. An already loaded input view can queue results locally; wait until the amber queue button at the bottom right (☁️ Synkar...) is gone before closing it.</li>
                             <li><strong>Mobile & Tablet:</strong> The system adapts automatically. Phones show click-friendly "Cards", while tablets and PCs show classic tables.</li>
                         </ul>
                     </div>
@@ -2083,10 +2085,10 @@ function getTabContentEN(tab) {
                   <span class="text-gray-400 text-xs">▼</span>
                 </summary>
                 <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
-                  <p><strong>1. Marathon sections & speeds:</strong> In <em>Admin > Marathon</em>, enter distance (meters) and speed (km/h) for Section A, Transfer, and Section B. Time windows (ideal, min, max) are calculated automatically.</p>
-                  <p><strong>2. Obstacles, Gates & Knockdown Balls:</strong> Add Obstacles 1–N. Set gate count (A–F). <strong>Important:</strong> If an obstacle has dislodgeable elements or balls, tick <em>☑️ "Dislodgeable element / ball"</em>. This activates the knockdown counter for the obstacle judge with the standard +2 penalty.</p>
+                  <p><strong>1. Marathon sections & speeds:</strong> In <em>Admin > Marathon</em>, enter distance (meters) and speed (m/min) for Section A, Transfer, and Section B. Time windows (ideal, min, max) are calculated automatically. The transfer has only a time limit (double the max time) and no time penalties.</p>
+                  <p><strong>2. Obstacles, Gates & Knockdown Balls:</strong> Add Obstacles 1–N. Set gate count (A–F). <strong>Important:</strong> If an obstacle has dislodgeable elements or balls, tick <em>☑️ "Dislodgeable element / ball"</em>. This activates the knockdown counter for the obstacle judge, with 2 penalty points per element knocked down.</p>
                   <p><strong>3. Course Map (Optional):</strong> Link a map image from Google Drive and plot obstacle coordinates so the public screen ("Monitor Marathon") shows live positions.</p>
-                  <p><strong>4. Precision (Cones):</strong> In <em>Admin > Precision</em>, set course length and speed (m/min). Allowed and maximum times are computed automatically. Set cone clearance (+20 cm standard).</p>
+                  <p><strong>4. Precision (Cones):</strong> In <em>Admin > Precision</em>, set course length and speed (m/min). Allowed and maximum times are computed automatically. The gate width is the track width plus the class allowance under TR (e.g. Lätt B 35 cm, Lätt A 30 cm, children 45 cm), which can be changed per class.</p>
                 </div>
               </details>
 
@@ -2138,9 +2140,9 @@ function getTabContentEN(tab) {
                 </summary>
                 <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
                   <p><strong>1. Final verification:</strong> Ensure all protocols show green checks in Total Results. Secretariat can reopen a score via <em>Undo</em> if corrections are needed.</p>
-                  <p><strong>2. Official printouts:</strong> Print certified A4 result sheets for prizegiving.</p>
-                  <p><strong>3. End & Archive:</strong> Go to <em>Admin > Settings</em> and click <em>"End & Archive Competition"</em> to lock the database and create a permanent read-only snapshot.</p>
-                  <p><strong>4. Export results:</strong> Download the official result file for submission to your national equestrian federation.</p>
+                  <p><strong>2. Official printouts:</strong> Print the official A4 result sheets for prizegiving.</p>
+                  <p><strong>3. End & Archive:</strong> Open the <em>📦 Arkivering</em> (Archiving) tab in Admin and click <em>"🏁 Avsluta Tävling"</em> (End competition). This freezes the results and stores a permanent copy of the result list. To change anything afterwards the competition must be reopened.</p>
+                  <p><strong>4. Report to the federation:</strong> DriveLive does not create a result file for TDB. Report the results there following the federation's routine, using the printed result lists.</p>
                 </div>
               </details>
 
@@ -2196,9 +2198,9 @@ function getTabContentEN(tab) {
               <div class="bg-orange-50 p-4 rounded border border-orange-200">
                 <strong class="block text-orange-900 mb-2">🌲 Marathon: Distances, Obstacles & Balls</strong>
                 <ul class="list-disc list-inside space-y-1 text-xs text-gray-700">
-                  <li><strong>Sections:</strong> Distance (m) and speed (km/h) for Sections A, Transfer, and B.</li>
+                  <li><strong>Sections:</strong> Distance (m) and speed (m/min) for Sections A, Transfer, and B.</li>
                   <li><strong>Obstacles:</strong> Create obstacles 1–8 and assign gate counts (A–E or A–F).</li>
-                  <li><strong>Knockdowns:</strong> Tick <em>"Dislodgeable element / ball"</em> for obstacles with balls (+2 penalties).</li>
+                  <li><strong>Knockdowns:</strong> Tick <em>"Dislodgeable element / ball"</em> for obstacles with balls (2 penalty points per element).</li>
                   <li><strong>Print timecards:</strong> Use <em>Calculate Times</em> to print verification cards for all classes.</li>
                 </ul>
               </div>
@@ -2206,8 +2208,8 @@ function getTabContentEN(tab) {
                 <strong class="block text-purple-900 mb-2">🏁 Precision: Times & Clearance</strong>
                 <ul class="list-disc list-inside space-y-1 text-xs text-gray-700">
                   <li><strong>Length & Speed:</strong> Auto-calculates allowed and maximum times.</li>
-                  <li><strong>Clearance:</strong> Carriage width + 20 cm standard.</li>
-                  <li><strong>Penalties:</strong> Standard 3 points per knockdown; time penalties per commenced second.</li>
+                  <li><strong>Clearance:</strong> Track width plus the class allowance under TR (e.g. Lätt B 35 cm, Lätt A 30 cm, children 45 cm).</li>
+                  <li><strong>Penalties:</strong> 3 points per knockdown; 0.5 points per second over the Time Allowed, to two decimals.</li>
                 </ul>
               </div>
             </div>
@@ -2280,12 +2282,12 @@ function getTabContentEN(tab) {
                 <ol class="list-decimal list-inside space-y-2 text-gray-700">
                     <li><strong>Log in:</strong> Ensure you are logged in (top right).</li>
                     <li><strong>Select View:</strong> Choose <strong>Marathon Timing</strong> in the menu.</li>
-                    <li><strong>Select Position:</strong> Choose which line you are manning (e.g., "Start B").</li>
+                    <li><strong>Select the equipage:</strong> Pick it in the list (you can search by start number).</li>
                     <li><strong>Timing:</strong>
                         <ul class="list-disc list-inside ml-5 mt-1">
                             <li>Wait for the equipage.</li>
-                            <li><strong>Tap the big green CLOCK icon</strong> exactly when the nose crosses the line.</li>
-                            <li><em>Correction:</em> If you tapped too early/late, you can adjust the time manually in the list below.</li>
+                            <li>Tap the green <strong>START</strong> button for the section when the turnout starts, and the red <strong>FINISH</strong> button when it finishes.</li>
+                            <li><em>Correction:</em> Tap the section time (the big clock) and enter the driven time as <code>mmsscc</code> (e.g. 251530 = 25:15.30).</li>
                         </ul>
                     </li>
                     <li><strong>Active Timers:</strong> The dropdown at the top shows currently running clocks. It allows you to start #1, switch to #2, while still seeing #1 ticking.</li>
@@ -2389,11 +2391,11 @@ function getTabContentEN(tab) {
                 </p>
               </div>
               <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
-                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Sync Indicator Colors</strong>
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Sync Indicator</strong>
                 <ul class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 mt-1">
-                  <li>🟢 <strong>Green check:</strong> Everything is saved in the cloud and live in the secretariat.</li>
-                  <li>🟡 <strong>Yellow count (Queue):</strong> Writes are waiting locally on this device. They are not server-confirmed until the icon turns green. <em>Do not close the tab!</em></li>
-                  <li>🔴 <strong>Red warning:</strong> Offline. Continue only in views and competition data that were loaded before coverage was lost, and verify that each save enters the queue.</li>
+                  <li>🟠 <strong>Amber queue button at the bottom right (☁️ count):</strong> Writes are waiting locally on this device and are sent automatically when the connection returns. <em>Do not close the tab!</em></li>
+                  <li>✅ <strong>No queue button:</strong> Everything has been sent and is visible to the secretariat.</li>
+                  <li>⚫ <strong>"Offline" in the menu bar:</strong> No connection. Continue only in views and competition data that were loaded before coverage was lost, and verify that each save enters the queue.</li>
                 </ul>
               </div>
               <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
@@ -2438,16 +2440,17 @@ function getTabContentEN(tab) {
              </h4>
              <p class="text-sm text-red-900 mt-1">
                 If the internet goes down, <strong>DO NOT CLOSE THE PAGE</strong>.
-                If this judge view and the competition data were loaded before coverage was lost, continue judging and click "Save Protocol" as usual. Verify the queued notice, keep the tab open, and wait for the green sync icon when internet returns.
+                If this judge view and the competition data were loaded before coverage was lost, continue judging and click "Save Protocol" as usual. Verify the queued notice and keep the tab open until the amber queue button at the bottom right (☁️ Synkar...) is gone after the connection returns.
              </p>
            </section>
 
            <section>
                 <h3 class="font-bold text-lg mb-2 text-gray-700 border-l-4 border-gray-500 pl-2">Common Errors & Course Errors</h3>
                 <div class="bg-gray-50 p-4 rounded text-sm text-gray-700 border">
-                    <p class="mb-2"><strong>First Error (-5):</strong> Click the button "-5" at the top.</p>
-                    <p class="mb-2"><strong>Second Error (-10):</strong> Click the button again.</p>
-                    <p><strong>Elimination:</strong> Explain why in the "General Comments" at the bottom and click "Eliminate".</p>
+                    <p class="mb-2"><strong>First error (+5):</strong> Click "1st error (+5)".</p>
+                    <p class="mb-2"><strong>Second error (+10):</strong> Click "2nd error (+10)".</p>
+                    <p class="mb-2"><strong>Third error:</strong> Click "3rd error". It asks before marking the turnout eliminated.</p>
+                    <p><strong>Elimination for other reasons:</strong> Tick "Eliminated" at the bottom, explain why in the general comment and save the protocol.</p>
                 </div>
            </section>
         </div>`;
