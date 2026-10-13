@@ -1,6 +1,8 @@
-import { isMobile } from '../../utils/sharedUtils.js';
+import { isMobile, escapeHtml } from '../../utils/sharedUtils.js';
 
-let activeTab = 'admin'; // 'admin', 'official', 'judge', 'driver'
+let currentSearchQuery = '';
+
+let activeTab = 'overview'; // 'overview', 'admin', 'official', 'judge', 'driver'
 
 function ensureManualThemeStyles() {
   if (document.getElementById('manual-theme-styles')) return;
@@ -216,60 +218,316 @@ export async function load(container) {
   render(container);
 }
 
+let cachedSearchIndex = null;
+let cachedSearchLang = null;
+
+function getManualSearchIndex(isEn) {
+  const langKey = isEn ? 'en' : 'sv';
+  if (cachedSearchIndex && cachedSearchLang === langKey) {
+    return cachedSearchIndex;
+  }
+
+  const tabList = [
+    { id: 'overview', name: isEn ? 'Overview' : 'Översikt' },
+    { id: 'official', name: isEn ? 'Official' : 'Funktionär' },
+    { id: 'judge', name: isEn ? 'Judge' : 'Domare' },
+    { id: 'secretary', name: isEn ? 'Secretariat' : 'Sekretariat' },
+    { id: 'admin', name: isEn ? 'Admin' : 'Administratör' },
+    { id: 'driver', name: isEn ? 'Driver' : 'Kusk/Deltagare' },
+    { id: 'speaker', name: 'Speaker' },
+    { id: 'tech', name: isEn ? 'Tech/Support' : 'Teknik/Support' },
+    { id: 'observer', name: isEn ? 'Observer' : 'Observatör' }
+  ];
+
+  const index = [];
+  const tempDiv = document.createElement('div');
+
+  for (const tab of tabList) {
+    const rawHtml = isEn ? getTabContentEN(tab.id) : getTabContentSV(tab.id);
+    tempDiv.innerHTML = rawHtml;
+
+    const sections = tempDiv.querySelectorAll('section');
+    if (sections.length > 0) {
+      sections.forEach((sec, idx) => {
+        const titleEl = sec.querySelector('h3, h4, h2');
+        const title = titleEl ? titleEl.textContent.trim() : `${tab.name} (${idx + 1})`;
+        const text = sec.textContent.trim();
+        index.push({
+          tabId: tab.id,
+          tabName: tab.name,
+          title,
+          text,
+          html: sec.innerHTML
+        });
+      });
+    } else {
+      index.push({
+        tabId: tab.id,
+        tabName: tab.name,
+        title: tab.name,
+        text: tempDiv.textContent.trim(),
+        html: rawHtml
+      });
+    }
+  }
+
+  cachedSearchIndex = index;
+  cachedSearchLang = langKey;
+  return index;
+}
+
+function highlightSearchTerms(text, query) {
+  if (!query) return escapeHtml(text);
+  const safeText = escapeHtml(text);
+  const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const regex = new RegExp(`(${escapedQuery})`, 'gi');
+  return safeText.replace(regex, '<mark class="bg-yellow-200 dark:bg-yellow-800 text-gray-900 dark:text-white px-0.5 rounded font-semibold">$1</mark>');
+}
+
+function extractSnippet(text, query, maxLen = 170) {
+  const lowerText = text.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const idx = lowerText.indexOf(lowerQuery);
+  if (idx === -1) {
+    return text.slice(0, maxLen) + (text.length > maxLen ? '...' : '');
+  }
+  const start = Math.max(0, idx - 40);
+  const end = Math.min(text.length, idx + query.length + 80);
+  let snippet = text.slice(start, end).trim();
+  if (start > 0) snippet = '...' + snippet;
+  if (end < text.length) snippet = snippet + '...';
+  return snippet;
+}
+
+async function downloadRolePdf(role, btnEl = null) {
+  let originalHtml = '';
+  if (btnEl) {
+    originalHtml = btnEl.innerHTML;
+    btnEl.innerHTML = `<span>⏳</span> Genererar...`;
+    btnEl.disabled = true;
+  }
+  try {
+    const { generateQuickGuidePdf } = await import('../../pdf/quickGuidePdf.js');
+    await generateQuickGuidePdf(role);
+  } catch (err) {
+    console.error('Kunde inte skapa lathund-PDF:', err);
+    alert('Kunde inte ladda ner PDF: ' + err.message);
+  } finally {
+    if (btnEl) {
+      btnEl.innerHTML = originalHtml;
+      btnEl.disabled = false;
+    }
+  }
+}
+
 function render(container) {
   const lang = localStorage.getItem('user_lang_pref') || 'sv';
   const isEn = lang === 'en';
 
   const ui = {
-    title: isEn ? 'User Manual' : 'Användarmanual',
-    sub: isEn ? 'Select your role below to see instructions and guides.' : 'Välj din roll nedan för att se instruktioner och guider.',
+    title: isEn ? 'User Manual' : 'Användarmanual & Kunskapsbank',
+    sub: isEn ? 'Search or select your role below to find step-by-step guides and printable cheat sheets.' : 'Sök i kunskapsbanken eller välj roll nedan för steg-för-steg-guider och utskrivbara fältlathundar.',
+    searchPlaceholder: isEn ? 'Search manual (e.g. offline, pause, dressage, keyboard, penalties)...' : 'Sök i manualen (t.ex. offline, paus, dressyr, tangentbord, straff, klocka)...',
     tabs: {
       overview: isEn ? 'Overview' : 'Översikt',
-      admin: isEn ? 'Admin' : 'Administratör',
       official: isEn ? 'Official' : 'Funktionär',
       judge: isEn ? 'Judge' : 'Domare',
-      driver: isEn ? 'Driver' : 'Kusk/Deltagare',
-      speaker: 'Speaker', // Same
       secretary: isEn ? 'Secretariat' : 'Sekretariat',
+      admin: isEn ? 'Admin' : 'Administratör',
+      driver: isEn ? 'Driver' : 'Kusk/Deltagare',
+      speaker: 'Speaker',
       tech: isEn ? 'Tech/Support' : 'Teknik/Support',
       observer: isEn ? 'Observer' : 'Observatör'
     }
   };
 
+  const isSearching = currentSearchQuery.trim().length >= 2;
+
   const content = `
     <div class="manual-theme max-w-4xl mx-auto px-4 py-6">
-      <h1 class="manual-shell-title text-2xl font-bold mb-4 text-gray-800 dark:text-gray-100">${ui.title}</h1>
-      <p class="text-gray-600 mb-6">${ui.sub}</p>
+      <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+        <div>
+          <h1 class="manual-shell-title text-2xl font-bold text-gray-800 dark:text-gray-100 flex items-center gap-2">
+            <span>📖</span> ${ui.title}
+          </h1>
+          <p class="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-1">${ui.sub}</p>
+        </div>
+      </div>
+
+      <!-- SÖKRUTA -->
+      <div class="mb-5 relative">
+        <div class="relative flex items-center">
+          <span class="absolute left-3.5 text-gray-400 text-base pointer-events-none">🔍</span>
+          <input 
+            id="manualSearchInput" 
+            type="search" 
+            value="${escapeHtml(currentSearchQuery)}" 
+            placeholder="${ui.searchPlaceholder}" 
+            class="w-full pl-10 pr-10 py-3 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-xl text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-gray-900 dark:text-gray-100 shadow-sm transition-all placeholder-gray-400 dark:placeholder-gray-500"
+          />
+          <button 
+            id="manualSearchClear" 
+            type="button" 
+            class="${currentSearchQuery ? '' : 'hidden'} absolute right-3 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-sm font-bold p-1 rounded-full hover:bg-gray-100 dark:hover:bg-gray-700"
+            title="${isEn ? 'Clear search' : 'Rensa sökning'}">
+            ✕
+          </button>
+        </div>
+      </div>
 
       <!-- TABS -->
-      <div class="manual-tabbar flex flex-wrap gap-2 mb-4 md:mb-6 border-b border-gray-200 pb-2 overflow-x-auto whitespace-nowrap scrollbar-hide">
+      <div class="manual-tabbar flex flex-wrap gap-2 mb-4 md:mb-6 border-b border-gray-200 dark:border-gray-700 pb-2 overflow-x-auto whitespace-nowrap scrollbar-hide ${isSearching ? 'opacity-50' : ''}">
         ${renderTabBtn('overview', ui.tabs.overview)}
-        ${renderTabBtn('admin', ui.tabs.admin)}
         ${renderTabBtn('official', ui.tabs.official)}
         ${renderTabBtn('judge', ui.tabs.judge)}
+        ${renderTabBtn('secretary', ui.tabs.secretary)}
+        ${renderTabBtn('admin', ui.tabs.admin)}
         ${renderTabBtn('driver', ui.tabs.driver)}
         ${renderTabBtn('speaker', ui.tabs.speaker)}
-        ${renderTabBtn('secretary', ui.tabs.secretary)}
         ${renderTabBtn('tech', ui.tabs.tech)}
         ${renderTabBtn('observer', ui.tabs.observer)}
       </div>
 
       <!-- CONTENT AREA -->
-      <div class="manual-surface bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 min-h-[400px] border border-gray-200 dark:border-gray-700">
-        ${getTabContent(activeTab)}
+      <div id="manual-content-container" class="manual-surface bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 min-h-[400px] border border-gray-200 dark:border-gray-700">
+        ${isSearching ? renderSearchResults(currentSearchQuery, isEn) : getTabContent(activeTab)}
       </div>
     </div>
   `;
 
   container.innerHTML = content;
 
-  // Add listeners
-  document.querySelectorAll('.manual-tab-btn').forEach(btn => {
+  // Add search listeners
+  const searchInput = container.querySelector('#manualSearchInput');
+  const searchClear = container.querySelector('#manualSearchClear');
+  const contentArea = container.querySelector('#manual-content-container');
+
+  if (searchInput) {
+    searchInput.addEventListener('input', (e) => {
+      currentSearchQuery = e.target.value;
+      if (searchClear) searchClear.classList.toggle('hidden', !currentSearchQuery);
+      if (currentSearchQuery.trim().length >= 2) {
+        contentArea.innerHTML = renderSearchResults(currentSearchQuery, isEn);
+        bindContentAreaListeners(contentArea, container);
+      } else {
+        contentArea.innerHTML = getTabContent(activeTab);
+        bindContentAreaListeners(contentArea, container);
+      }
+    });
+
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        currentSearchQuery = '';
+        searchInput.value = '';
+        if (searchClear) searchClear.classList.add('hidden');
+        contentArea.innerHTML = getTabContent(activeTab);
+        bindContentAreaListeners(contentArea, container);
+      }
+    });
+  }
+
+  if (searchClear) {
+    searchClear.addEventListener('click', () => {
+      currentSearchQuery = '';
+      if (searchInput) searchInput.value = '';
+      searchClear.classList.add('hidden');
+      contentArea.innerHTML = getTabContent(activeTab);
+      bindContentAreaListeners(contentArea, container);
+      if (searchInput) searchInput.focus();
+    });
+  }
+
+  // Add tab listeners
+  container.querySelectorAll('.manual-tab-btn').forEach(btn => {
     btn.addEventListener('click', (e) => {
-      activeTab = e.target.dataset.tab;
+      activeTab = e.currentTarget.dataset.tab;
+      currentSearchQuery = '';
       render(container);
     });
   });
+
+  bindContentAreaListeners(container, container);
+}
+
+function bindContentAreaListeners(area, rootContainer) {
+  // Bind PDF download buttons
+  area.querySelectorAll('[data-role-pdf]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      downloadRolePdf(btn.dataset.rolePdf, btn);
+    });
+  });
+
+  // Bind Jump-to-tab buttons in search results
+  area.querySelectorAll('[data-jump-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      activeTab = btn.dataset.jumpTab;
+      currentSearchQuery = '';
+      render(rootContainer);
+    });
+  });
+
+  // Bind exit search button
+  const exitBtn = area.querySelector('#btnExitSearch');
+  if (exitBtn) {
+    exitBtn.addEventListener('click', () => {
+      currentSearchQuery = '';
+      render(rootContainer);
+    });
+  }
+}
+
+function renderSearchResults(query, isEn) {
+  const q = query.trim().toLowerCase();
+  const index = getManualSearchIndex(isEn);
+  const matches = index.filter(item => item.text.toLowerCase().includes(q) || item.title.toLowerCase().includes(q));
+
+  if (matches.length === 0) {
+    return `
+      <div class="text-center py-12">
+        <div class="text-4xl mb-3">🔍</div>
+        <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100">${isEn ? 'No results found' : 'Inga resultat hittades'}</h3>
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-1 max-w-md mx-auto">
+          ${isEn ? `No sections matched "${escapeHtml(query)}". Try another search word or select a role from the tabs above.` : `Inga avsnitt matchade "${escapeHtml(query)}". Prova ett annat sökord eller välj en roll i flikarna ovan.`}
+        </p>
+      </div>
+    `;
+  }
+
+  return `
+    <div class="space-y-4">
+      <div class="flex items-center justify-between pb-3 border-b dark:border-gray-700">
+        <div>
+          <h3 class="text-sm font-bold text-gray-800 dark:text-gray-200">
+            ${isEn ? `Found ${matches.length} matches for "${escapeHtml(query)}"` : `Hittade ${matches.length} träffar i manualen för "${escapeHtml(query)}"`}
+          </h3>
+          <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">${isEn ? 'Click on any section to open its full tab' : 'Klicka på ett avsnitt för att gå till dess fullständiga flik'}</p>
+        </div>
+        <button type="button" id="btnExitSearch" class="text-xs text-blue-600 dark:text-blue-400 hover:underline font-semibold flex items-center gap-1">
+          ${isEn ? '✕ Clear search' : '✕ Avsluta sökning'}
+        </button>
+      </div>
+      <div class="grid grid-cols-1 gap-3">
+        ${matches.map(hit => `
+          <div class="p-4 bg-gray-50 dark:bg-gray-900/40 rounded-xl border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-700 transition-all shadow-xs">
+            <div class="flex items-center justify-between gap-2 mb-2">
+              <span class="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-100 dark:bg-blue-950 text-blue-800 dark:text-blue-200 border border-blue-200 dark:border-blue-800">
+                ${escapeHtml(hit.tabName)}
+              </span>
+              <button type="button" data-jump-tab="${hit.tabId}" class="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1">
+                ${isEn ? `Open ${hit.tabName} ➔` : `Öppna fliken ${hit.tabName} ➔`}
+              </button>
+            </div>
+            <h4 class="font-bold text-base text-gray-900 dark:text-gray-100 mb-1.5">
+              ${highlightSearchTerms(hit.title, query)}
+            </h4>
+            <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+              ${highlightSearchTerms(extractSnippet(hit.text, query), query)}
+            </p>
+          </div>
+        `).join('')}
+      </div>
+    </div>
+  `;
 }
 
 function renderTabBtn(id, label) {
@@ -285,10 +543,10 @@ function renderTabBtn(id, label) {
 
 function getTabContent(tab) {
   const lang = localStorage.getItem('user_lang_pref') || 'sv';
-  if (lang === 'en') {
-    return getTabContentEN(tab);
-  }
+  return lang === 'en' ? getTabContentEN(tab) : getTabContentSV(tab);
+}
 
+function getTabContentSV(tab) {
   switch (tab) {
     case 'tech':
       return `
@@ -365,7 +623,12 @@ function getTabContent(tab) {
 
     case 'secretary':
       return `
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">För Sekretariatet</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100">För Sekretariatet</h2>
+          <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95">
+            <span>📋</span> Skriv ut Lathund (A4 PDF)
+          </button>
+        </div>
         <div class="space-y-8">
             
             <section>
@@ -455,9 +718,43 @@ function getTabContent(tab) {
                         Detta är ett heltäckande system för att hantera sportkörningstävlingar – från anmälan till slutresultat.
                         Systemet är <strong>molnbaserat</strong> vilket innebär att alla ändringar sker i realtid ("Live").
                     </p>
-                    <div class="inline-flex items-center gap-2 bg-white px-3 py-1 rounded-full border border-blue-200 text-sm text-blue-800 shadow-sm">
+                    <div class="inline-flex items-center gap-2 bg-white dark:bg-gray-800 px-3 py-1 rounded-full border border-blue-200 dark:border-blue-800 text-sm text-blue-800 dark:text-blue-300 shadow-sm">
                         <span>💡 Tips: Byt språk (🇸🇪/🇬🇧) på flaggan. Använd månen 🌙 i menyn för Mörkt Läge.</span>
                     </div>
+                </div>
+            </section>
+
+            <!-- LATHUNDAR SNABBLÄNKAR -->
+            <section class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 p-5 rounded-xl border border-blue-200 dark:border-blue-800/60 shadow-xs">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <div>
+                        <h4 class="font-bold text-base text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                            <span>🖨️</span> Fältlathundar & Snabbguider (A4 PDF)
+                        </h4>
+                        <p class="text-xs text-gray-600 dark:text-gray-300">
+                            1-sidiga utskrivbara lathundar för funktionärer och domare vid banan:
+                        </p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" data-role-pdf="dressage" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        📄 Dressyrskrivare
+                    </button>
+                    <button type="button" data-role-pdf="marathon-obstacle" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        ⏱️ Hinderdomare Maraton
+                    </button>
+                    <button type="button" data-role-pdf="marathon-stages" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-950/50 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        🏁 Tidtagare Sträckor
+                    </button>
+                    <button type="button" data-role-pdf="precision" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        🎾 Precision
+                    </button>
+                    <button type="button" data-role-pdf="secretariat" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        📋 Sekretariat
+                    </button>
+                    <button type="button" data-role-pdf="observer" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-950/50 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        🛑 Observatör
+                    </button>
                 </div>
             </section>
 
@@ -866,7 +1163,20 @@ function getTabContent(tab) {
 
     case 'official':
       return `
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">För Funktionärer</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100">För Funktionärer</h2>
+          <div class="flex flex-wrap gap-2">
+            <button type="button" data-role-pdf="marathon-obstacle" class="px-3 py-1.5 bg-blue-700 hover:bg-blue-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+              <span>⏱️</span> Lathund Hinder (PDF)
+            </button>
+            <button type="button" data-role-pdf="marathon-stages" class="px-3 py-1.5 bg-green-700 hover:bg-green-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+              <span>🏁</span> Lathund Sträckor (PDF)
+            </button>
+            <button type="button" data-role-pdf="precision" class="px-3 py-1.5 bg-indigo-700 hover:bg-indigo-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+              <span>🎾</span> Lathund Precision (PDF)
+            </button>
+          </div>
+        </div>
         <div class="space-y-8">
 
           <!-- ÖVERSIKT & DASHBOARD -->
@@ -1105,7 +1415,12 @@ function getTabContent(tab) {
 
     case 'judge':
       return `
-        <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">För Domare</h2>
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b pb-3 mb-6">
+          <h2 class="text-xl font-semibold text-gray-800 dark:text-gray-100">För Domare</h2>
+          <button type="button" data-role-pdf="dressage" class="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95">
+            <span>📄</span> Skriv ut Lathund (A4 PDF)
+          </button>
+        </div>
         <div class="space-y-8">
           
           <section>
@@ -1160,14 +1475,27 @@ function getTabContent(tab) {
             </ul>
           </section>
 
-          <section class="bg-red-50 p-4 rounded border-l-4 border-red-500">
-            <h4 class="font-bold text-red-800 text-sm uppercase mb-1">Felsökning & Problem</h4>
-            <div class="text-sm text-red-900 space-y-2">
-                <p><strong>⚠️ Tappad anslutning (Off-line):</strong><br>
-                Om internet försvinner kan du fortsätta döma, men tryck INTE på "Spara Protokoll" förrän anslutningen är tillbaka. Notera resultaten på papper som backup.</p>
-                <p><strong>✍️ Rättelse i efterhand:</strong><br>
-                Ett signerat protokoll är låst. För att ändra måste en <strong>Administratör</strong> låsa upp det, eller redigera direkt i databasen. Kontakta sekretariatet.</p>
+          <!-- OFFLINE GUIDANCE -->
+          <section class="bg-emerald-50 dark:bg-emerald-950/30 p-4 rounded-xl border-l-4 border-emerald-500 shadow-xs mb-4">
+            <h4 class="font-bold text-emerald-800 dark:text-emerald-300 text-sm uppercase mb-1">📡 Offline & Tappad anslutning</h4>
+            <div class="text-sm text-emerald-900 dark:text-emerald-200 space-y-2">
+              <p><strong>Appen är fullt offline-säkrad:</strong> Om internet försvinner kan du fortsätta döma precis som vanligt. <strong>Klicka på "Spara Protokoll" som vanligt när ritten är klar!</strong></p>
+              <p>Resultatet sparas tryggt i surfplattans lokala minne och laddas automatiskt upp till molnet så fort anslutningen återupptas.</p>
+              <div class="p-2.5 bg-white dark:bg-gray-800 rounded-lg border border-emerald-200 dark:border-emerald-800/60 text-xs space-y-1">
+                <div class="font-semibold text-gray-800 dark:text-gray-200">Synk-molnet i sidans topp:</div>
+                <div>• 🟢 <strong>Grön bock:</strong> Sparat och synkat med molnet.</div>
+                <div>• 🟡 <strong>Gult moln / roterande:</strong> Sparat lokalt på surfplattan, väntar på synk.</div>
+                <div>• 🔴 <strong>Röd / offline:</strong> Offline-läge. Inget internet just nu, men data sparas tryggt lokalt.</div>
+              </div>
+              <p class="font-semibold text-amber-800 dark:text-amber-300 text-xs">⚠️ VIKTIGT: Stäng eller uppdatera inte fliken medan det finns osparade ändringar i synkkön. Vänta tills ikonen blir grön.</p>
             </div>
+          </section>
+
+          <section class="bg-gray-50 dark:bg-gray-900/40 p-4 rounded-xl border border-gray-200 dark:border-gray-700">
+            <h4 class="font-bold text-gray-800 dark:text-gray-200 text-sm uppercase mb-1">✍️ Rättelse i efterhand</h4>
+            <p class="text-xs text-gray-600 dark:text-gray-300">
+              Ett signerat protokoll är låst för att förhindra misstag. Om ett domarprotokoll behöver korrigeras i efterhand kontaktar du <strong>Sekretariatet</strong>, som kan låsa upp protokollet eller göra justeringen direkt i sekretariatsvyn.
+            </p>
           </section>
         </div>
       `;
