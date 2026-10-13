@@ -517,6 +517,26 @@ export function stageStopTS(t, s) {
     return parseTimestamp(val);
 }
 
+/**
+ * When the stage clock last (re)started: the stage page writes runningSince on
+ * start and resume and clears it on a local pause. Returns { known: false }
+ * for data without the field (older documents), else { known: true, ms }
+ * where ms is null while the stage is paused.
+ */
+export function stageRunningSince(t, s) {
+    if (!t) return { known: false, ms: null };
+    const upper = String(s).toUpperCase();
+    const flat = (s === 'transport') ? 'transfer' : s;
+    for (const key of [`runningSince_${flat}`, `runningSince_${upper}`, `runningSince_${s}`]) {
+        if (key in t) return { known: true, ms: t[key] ? parseTimestamp(t[key]) : null };
+    }
+    const nested = t?.timing?.[s] || t?.stages?.[s];
+    if (nested && 'runningSince' in nested) {
+        return { known: true, ms: nested.runningSince ? parseTimestamp(nested.runningSince) : null };
+    }
+    return { known: false, ms: null };
+}
+
 // Saved (possibly manually corrected) stage duration
 export function stageDurationMsSaved(t, s) {
     if (!t) return null;
@@ -629,18 +649,26 @@ export function calculateMarathonResult(state) {
         const start = stageStartTS(t, s);
         const stop = stageStopTS(t, s);
         const savedDuration = stageDurationMsSaved(t, s);
+        // The latest (re)start on the stage page; null while paused locally
+        const since = stageRunningSince(t, s);
 
         if (start) started = true;
-        if (start && !stop && !Number.isFinite(savedDuration)) running = true;
+        if (start && !stop && (since.known ? since.ms !== null : !Number.isFinite(savedDuration))) running = true;
 
         let ms = null;
         if (start && stop) {
             ms = (Number.isFinite(savedDuration) ? savedDuration : (stop - start))
                 - pausedMsBetween(start, stop, pauseWindows, nowMs);
+        } else if (start && nowMs !== null && since.known && since.ms === null) {
+            // Paused on the stage page: the saved time, not ticking
+            ms = Number.isFinite(savedDuration) ? savedDuration : 0;
         } else if (start && nowMs !== null) {
-            // Live: saved (paused/manual) time plus ticking time
+            // Live: saved time (before a local pause) plus the time ticking
+            // since the latest (re)start; older data has no runningSince and
+            // ticks from the stage start
+            const tickFrom = since.known && since.ms !== null ? since.ms : start;
             ms = (Number.isFinite(savedDuration) ? savedDuration : 0)
-                + (nowMs - start) - pausedMsSince(start, pauseWindows, nowMs);
+                + (nowMs - tickFrom) - pausedMsSince(tickFrom, pauseWindows, nowMs);
         } else if (Number.isFinite(savedDuration)) {
             ms = savedDuration;
         }
