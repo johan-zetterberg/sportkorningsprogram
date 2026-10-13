@@ -177,6 +177,13 @@ service cloud.firestore {
         || (get(comp).data.get('locked', false) != true && get(comp).data.get('status', '') != 'completed');
     }
 
+    // The driver portal's declaration: not archived and not locked by the secretariat
+    function isDeclarationOpen(appId, compId) {
+      let meta = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/competitionMeta;
+      return isCompetitionOpen(appId, compId)
+        && (!exists(meta) || get(meta).data.get('manualLockdown', false) != true);
+    }
+
     function canWriteResultsAs(appId, compId, roleName) {
       return request.auth != null
         && isCompetitionOpen(appId, compId)
@@ -473,6 +480,11 @@ service cloud.firestore {
              // Temperatures the driver takes (portal): a map per horse
              && (!('horseTemperatures' in request.resource.data)
                || (request.resource.data.horseTemperatures is map && request.resource.data.horseTemperatures.size() <= 12))
+             // Declaration fields follow the portal's lock (archived, or locked
+             // by the secretariat); temperatures and notes stay open. The lock
+             // before a start is checked by the portal and updateEquipageDeclaration.
+             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['groom', 'carriage', 'clubName'])
+               || isDeclarationOpen(appId, compId))
              && canSelfServiceEquipage(appId, compId, equipageId)
           )
         );

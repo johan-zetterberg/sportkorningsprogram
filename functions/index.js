@@ -10,6 +10,7 @@ import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { buildDeclarationUpdate } from "./src/declarationUtils.js";
+import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import {
     equipageWriteAffectsResults,
@@ -839,6 +840,27 @@ export const updateEquipageDeclaration = onCall(async (request) => {
     const ownerEmail = String(privateSnap.exists ? privateSnap.data()?.email || '' : '').trim().toLowerCase();
     if (!ownerEmail || ownerEmail !== authEmail) {
         throw new HttpsError('permission-denied', 'Ekipaget är inte kopplat till din e-postadress. Kontakta sekretariatet.');
+    }
+
+    // The portal's lock, enforced here: archived, locked by the secretariat,
+    // or too close to (or past) the equipage's first start
+    const [metaSnap, startTimesSnap] = await Promise.all([
+        comp.ref.collection('config').doc('competitionMeta').get(),
+        comp.ref.collection('config').doc('startTimes').get()
+    ]);
+    const lockReason = declarationLockReason({
+        competition: comp.data || {},
+        meta: metaSnap.exists ? metaSnap.data() : {},
+        startTimes: startTimesSnap.exists ? startTimesSnap.data() : {},
+        startNumber
+    });
+    if (lockReason) {
+        const messages = {
+            archived: 'Tävlingen är avslutad. Deklarationen kan inte ändras.',
+            manual: 'Sekretariatet har låst deklarationen. Kontakta sekretariatet för ändringar.',
+            time: 'Deklarationen är låst inför start. Kontakta sekretariatet för ändringar.'
+        };
+        throw new HttpsError('failed-precondition', messages[lockReason]);
     }
 
     const equipageRef = comp.ref.collection('equipages').doc(startNumber);

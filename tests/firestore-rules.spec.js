@@ -387,6 +387,25 @@ test('drivers cannot write their horse entries directly (vet results live there)
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { horseTemperatures: 'x' }));
 });
 
+test('a locked declaration cannot be changed directly; temperatures stay open', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('equipages/eq-lock-1')), { startNumber: 6, groom: 'Bo' });
+    await setDoc(doc(db, compPath('equipagePrivate/eq-lock-1')), { email: 'lock-driver@example.com' });
+    await setDoc(doc(db, compPath('config/competitionMeta')), { manualLockdown: true });
+  });
+  const db = testEnv.authenticatedContext('lock-driver', { email_verified: true, email: 'lock-driver@example.com' }).firestore();
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { groom: 'Anna' }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { carriage: 'Ny vagn' }));
+  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-lock-1')), {
+    horseTemperatures: { SE002: { '2026-10-13_morning': { temperatureC: 37.6 } } }
+  }));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('config/competitionMeta')), { manualLockdown: false });
+  });
+  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { groom: 'Anna' }));
+});
+
 test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
