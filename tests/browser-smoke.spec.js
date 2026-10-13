@@ -701,7 +701,12 @@ async function forceLogin(page) {
 
   const logoutButton = page.locator('#logoutButton');
   if (await logoutButton.isVisible().catch(() => false)) {
-    await logoutButton.click();
+    // Logout clears the device's data and then reloads the page; continuing
+    // before that reload races it
+    await Promise.all([
+      page.waitForEvent('load', { timeout: 20000 }),
+      logoutButton.click()
+    ]);
     await expect(page.locator('#loginButton')).toBeVisible();
   }
 
