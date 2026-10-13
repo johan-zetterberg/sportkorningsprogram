@@ -519,7 +519,7 @@ export async function load() {
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">PIN-kod</label>
-                        <input type="text" id="pinCodeInput" class="w-full border rounded-md p-3 text-center text-2xl tracking-widest font-mono font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" maxlength="6" placeholder="000000">
+                        <input type="text" id="pinCodeInput" class="w-full border rounded-md p-3 text-center text-2xl tracking-widest font-mono font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" maxlength="8" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN-kod">
                     </div>
                 </div>
             </div>

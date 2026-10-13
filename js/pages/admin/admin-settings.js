@@ -1408,7 +1408,11 @@ export async function setupSettingsLogic(competitionId) {
             let secretData = await getSecretConfig(competitionId);
             
             const generateAndSavePin = async (role) => {
-                const newPin = Math.floor(100000 + Math.random() * 900000).toString(); // 6 digits
+                // 8 digits from the cryptographic generator (Math.random is
+                // predictable, and 6 digits are few against guessing)
+                const digits = new Uint32Array(8);
+                crypto.getRandomValues(digits);
+                const newPin = String(1 + (digits[0] % 9)) + Array.from(digits.slice(1), d => String(d % 10)).join('');
                 const key = role === 'admin' ? 'accessCode' : `accessCode_${role}`;
                 const updateData = { updatedAt: Date.now() };
                 updateData[key] = newPin;

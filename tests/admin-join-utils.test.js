@@ -48,6 +48,13 @@ test('an official with a verified email can still join while the competition is 
   assert.equal(checkPinAttempts(own, competition, t0 + 10 * 1000, PIN_ATTEMPT_LIMITS, { emailVerified: true }).allowed, false);
 });
 
+test('many verified accounts guessing together hit the high competition cap', () => {
+  const t0 = 2_000_000_000;
+  const flood = { failures: Array.from({ length: 500 }, (_, i) => t0 + i * 1000) };
+  assert.equal(checkPinAttempts(null, flood, t0 + 600 * 1000, PIN_ATTEMPT_LIMITS, { emailVerified: true }).allowed, false);
+  assert.equal(checkPinAttempts(null, flood, t0 + 61 * 60 * 1000 + 600 * 1000, PIN_ATTEMPT_LIMITS, { emailVerified: true }).allowed, true);
+});
+
 test('competition ids from clients must be a single document id', () => {
   assert.equal(isValidCompetitionId('HHm4tBR1K5aYGXv1DssB'), true);
   assert.equal(isValidCompetitionId('demo-e2e_123'), true);

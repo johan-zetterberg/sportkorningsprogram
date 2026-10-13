@@ -42,11 +42,14 @@ export function buildCompetitionAdminJoinPayload(existingData = {}, role, email,
   };
 }
 
-// Wrong PINs allowed before joining is refused for a while. PINs are 6 digits;
-// the per-competition cap stops spreading guesses over many accounts.
+// Wrong PINs allowed before joining is refused for a while. New PINs have 8
+// digits (older ones 6); the per-competition caps stop spreading guesses over
+// many accounts: a low one for unverified emails, a high one for verified
+// emails (which can be created in bulk too, but real officials never come near it)
 export const PIN_ATTEMPT_LIMITS = {
   perUser: { max: 5, windowMs: 15 * 60 * 1000 },
-  perCompetition: { max: 100, windowMs: 60 * 60 * 1000 }
+  perCompetition: { max: 100, windowMs: 60 * 60 * 1000 },
+  perCompetitionVerified: { max: 500, windowMs: 60 * 60 * 1000 }
 };
 
 // Failed attempts still inside the window, as stored: { failures: [ms, ...] }
@@ -63,11 +66,11 @@ function recentFailures(state, windowMs, now) {
 //
 // The competition-wide limit stops guessing with many throwaway accounts, but
 // anyone could also use it to lock real officials out on competition day. So
-// it applies to accounts with an unverified email only: an official who has
-// confirmed their email can still join (limited per user).
+// accounts with a confirmed email get a much higher cap (unverified accounts
+// alone cannot reach it, being refused at the low cap).
 export function checkPinAttempts(userState, competitionState, now = Date.now(), limits = PIN_ATTEMPT_LIMITS, { emailVerified = false } = {}) {
   const checks = emailVerified
-    ? [[userState, limits.perUser]]
+    ? [[userState, limits.perUser], [competitionState, limits.perCompetitionVerified || limits.perCompetition]]
     : [[userState, limits.perUser], [competitionState, limits.perCompetition]];
   for (const [state, { max, windowMs }] of checks) {
     const recent = recentFailures(state, windowMs, now);
