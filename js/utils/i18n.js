@@ -163,6 +163,13 @@ export const DICTIONARY = {
     'message_default_title': { sv: 'Meddelande', en: 'Message' },
     'back_to_comps': { sv: 'Tillbaka till mina tävlingar', en: 'Back to my competitions' },
     'loading_data': { sv: 'Laddar data...', en: 'Loading data...' },
+    'portal_help_btn': { sv: 'Hjälp & FAQ för deltagare', en: 'Driver Help & FAQ' },
+    'portal_help_modal_title': { sv: 'Deltagarguide – Så fungerar Min Portal', en: 'Driver Guide – How My Portal Works' },
+    'portal_help_read_manual': { sv: 'Öppna fullständiga manualen för kuskar', en: 'Open full driver manual' },
+    'hub_guide_banner_title': { sv: 'Ny arrangör eller funktionär?', en: 'New organizer or official?' },
+    'hub_guide_banner_desc': { sv: 'Se vår 6-fasers arrangörsguide för att sätta upp tävlingen (TDB-import, tider & protokoll) eller ladda ner utskrivbara A4-lathundar.', en: 'See our 6-phase organizer guide to set up your event (TDB import, times & scoring) or download printable A4 cheat sheets.' },
+    'hub_guide_banner_btn_admin': { sv: '🚀 6-stegs arrangörsguide', en: '🚀 6-step organizer guide' },
+    'hub_guide_banner_btn_manual': { sv: '📖 Manual & Lathundar', en: '📖 Manual & Cheat Sheets' },
 
     // Portal Tabs & Content
     'tab_info': { sv: 'Info', en: 'Info' },

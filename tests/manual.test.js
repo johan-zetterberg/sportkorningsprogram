@@ -43,3 +43,35 @@ test('manual.js contains complete chronological admin competition setup checklis
   assert.ok(manualCode.includes('Phase 3: Course Data for Marathon & Cones'), 'Has Phase 3 in English');
   assert.ok(manualCode.includes('Phase 6: Results Verification, Prizegiving & Archiving'), 'Has Phase 6 in English');
 });
+
+test('manual.js contains 1-click A4 organizer checklist PDF button and practical field guide', () => {
+  assert.ok(manualCode.includes('data-role-pdf="admin_checklist"'), 'Should have admin_checklist button');
+  assert.ok(manualCode.includes('Praktisk Fältguide & Hårdvara'), 'Should have Swedish field guide section');
+  assert.ok(manualCode.includes('Practical Field & Hardware Guide'), 'Should have English field guide section');
+  assert.ok(manualCode.includes('Screen Wake Lock'), 'Should mention Screen Wake Lock');
+  assert.ok(manualCode.includes('Powerbank'), 'Should mention Powerbank');
+  assert.ok(manualCode.includes('setManualActiveTab'), 'Should export setManualActiveTab');
+  assert.ok(manualCode.includes("params.get('tab')"), 'Should parse tab query parameter');
+});
+
+test('quickGuidePdf.js includes generateAdminChecklistPdf with all 6 phases', () => {
+  const pdfCode = fs.readFileSync('js/pdf/quickGuidePdf.js', 'utf8');
+  assert.ok(pdfCode.includes('generateAdminChecklistPdf'), 'Should export generateAdminChecklistPdf');
+  assert.ok(pdfCode.includes("roleKey === 'admin_checklist'"), 'Should handle admin_checklist in generateQuickGuidePdf');
+  assert.ok(pdfCode.includes('FAS 1: FÖRBEREDELSER & TDB-EXPORT'), 'Should include Phase 1 in PDF');
+  assert.ok(pdfCode.includes('FAS 6: AVSLUT, PRISUTDELNING & TDB-EXPORT'), 'Should include Phase 6 in PDF');
+});
+
+test('portal.js includes showDriverPortalHelpModal and portal help buttons', () => {
+  const portalCode = fs.readFileSync('js/pages/shared/portal.js', 'utf8');
+  assert.ok(portalCode.includes('showDriverPortalHelpModal'), 'Should define showDriverPortalHelpModal');
+  assert.ok(portalCode.includes('id="portalHelpBtn"'), 'Should render portalHelpBtn on portal landing');
+  assert.ok(portalCode.includes('id="portalDashboardHelpBtn"'), 'Should render portalDashboardHelpBtn on dashboard');
+  assert.ok(portalCode.includes('Digital Deklarering & 60-minuterslås'), 'Should explain 60m lock in modal');
+});
+
+test('hub.js includes organizer guide banner linking to admin manual', () => {
+  const hubCode = fs.readFileSync('js/pages/shared/hub.js', 'utf8');
+  assert.ok(hubCode.includes('href="#manual?tab=admin"'), 'Should link directly to admin manual');
+  assert.ok(hubCode.includes('hub_guide_banner_title'), 'Should use i18n title for organizer guide banner');
+});

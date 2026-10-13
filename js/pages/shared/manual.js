@@ -212,8 +212,31 @@ function ensureManualThemeStyles() {
   document.head.appendChild(style);
 }
 
+export function setManualActiveTab(tabId) {
+  const validTabs = ['overview', 'official', 'judge', 'secretary', 'admin', 'driver', 'speaker', 'tech', 'observer'];
+  if (validTabs.includes(tabId)) {
+    activeTab = tabId;
+    currentSearchQuery = '';
+    const container = document.getElementById('page-manual');
+    if (container && container.classList.contains('active')) {
+      render(container);
+    }
+  }
+}
+
 export async function load(container) {
   if (!container) return;
+
+  const hash = window.location.hash || '';
+  const query = hash.includes('?') ? hash.split('?')[1] : (window.location.search || '').replace(/^\?/, '');
+  const params = new URLSearchParams(query);
+  const tabParam = params.get('tab');
+  const validTabs = ['overview', 'official', 'judge', 'secretary', 'admin', 'driver', 'speaker', 'tech', 'observer'];
+  if (tabParam && validTabs.includes(tabParam)) {
+    activeTab = tabParam;
+    currentSearchQuery = '';
+  }
+
   ensureManualThemeStyles();
   render(container);
 }
@@ -749,6 +772,9 @@ function getTabContentSV(tab) {
                     <button type="button" data-role-pdf="precision" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
                         🎾 Precision
                     </button>
+                    <button type="button" data-role-pdf="admin_checklist" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        📥 Arrangörschecklista
+                    </button>
                     <button type="button" data-role-pdf="secretariat" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
                         📋 Sekretariat
                     </button>
@@ -851,9 +877,14 @@ function getTabContentSV(tab) {
             </h2>
             <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Komplett vägledning för att sätta upp, konfigurera och leda en tävling från grunden.</p>
           </div>
-          <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95">
+          <div class="flex flex-wrap gap-2 self-start sm:self-auto">
+            <button type="button" data-role-pdf="admin_checklist" class="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
+              <span>📥</span> Arrangörschecklista (A4 PDF)
+            </button>
+            <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
             <span>📋</span> Lathund Sekretariat (A4 PDF)
           </button>
+          </div>
         </div>
 
         <div class="space-y-8">
@@ -1292,6 +1323,44 @@ function getTabContentSV(tab) {
                         <li><strong>Spara:</strong> Tryck Enter eller klicka Spara för att hoppa till nästa ekipage i listan.</li>
                     </ul>
                 </div>
+            </div>
+          </section>
+
+          <!-- FÄLTGUIDE & HÅRDVARA -->
+          <section class="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 p-5 rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-xs">
+            <h3 class="font-bold text-lg text-emerald-900 dark:text-emerald-200 mb-2 flex items-center gap-2">
+              <span>🔋</span> Praktisk Fältguide & Hårdvara (Ute på banan)
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-gray-300 mb-4">
+              Funktionärer vid hinder och tidtagning sitter ofta ute i fält under långa tävlingsdagar. Här är de viktigaste praktiska tipsen:
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📱 Håll skärmen vaken (Screen Wake Lock)</strong>
+                <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  Appen aktiverar automatiskt <em>Screen Wake Lock</em> så att telefonen eller surfplattan inte slocknar mitt under en ritt. För att detta ska fungera måste fliken vara öppen i förgrunden. Kontrollera att enheten inte har aggressivt strömsparläge påslaget.
+                </p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">🔋 Batteri & Powerbank</strong>
+                <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  Heldag i fält drar batteri när skärmen är tänd hela tiden. Ta alltid med en laddad powerbank och laddsladd till hinderposteringen eller tidtagningsbordet.
+                </p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Synk-indikatorns färger</strong>
+                <ul class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 mt-1">
+                  <li>🟢 <strong>Grön bock:</strong> Allt är sparat i molnet och direkt synligt för sekretariatet.</li>
+                  <li>🟡 <strong>Gul siffra (Kö):</strong> Svag eller bruten täckning. Protokollet är tryggt sparat i enhetens minne och skickas automatiskt så fort internet återfås. <em>Stäng inte fliken!</em></li>
+                  <li>🔴 <strong>Röd varning:</strong> Nätverksavbrott. Fortsätt mata in som vanligt – allt köas lokalt.</li>
+                </ul>
+              </div>
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">☀️ Solljus, Regn & Kontrast</strong>
+                <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  I starkt solsken ger oftast <em>Ljust läge</em> bäst läsbarhet mot skärmreflexer (växla via månikonen i menyn). Vid regn: ha gärna en genomskinlig plastficka eller vattentätt fodral över surfplattan; pekskärmar fungerar utmärkt genom tunn plast.
+                </p>
+              </div>
             </div>
           </section>
 
@@ -1814,6 +1883,43 @@ function getTabContentEN(tab) {
                 </div>
             </section>
 
+            <!-- CHEAT SHEETS QUICK LINKS -->
+            <section class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/40 p-5 rounded-xl border border-blue-200 dark:border-blue-800/60 shadow-xs">
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                    <div>
+                        <h4 class="font-bold text-base text-gray-900 dark:text-gray-100 flex items-center gap-2">
+                            <span>🖨️</span> Field Cheat Sheets & Quick Guides (A4 PDF)
+                        </h4>
+                        <p class="text-xs text-gray-600 dark:text-gray-300">
+                            1-page printable cheat sheets for officials and judges at the ring:
+                        </p>
+                    </div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" data-role-pdf="dressage" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        📄 Dressage Writer
+                    </button>
+                    <button type="button" data-role-pdf="marathon-obstacle" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-950/50 text-blue-800 dark:text-blue-300 border border-blue-200 dark:border-blue-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        ⏱️ Marathon Obstacles
+                    </button>
+                    <button type="button" data-role-pdf="marathon-stages" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-950/50 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        🏁 Section Timers
+                    </button>
+                    <button type="button" data-role-pdf="precision" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-800 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        🎾 Cones
+                    </button>
+                    <button type="button" data-role-pdf="admin_checklist" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-purple-50 dark:hover:bg-purple-950/50 text-purple-800 dark:text-purple-300 border border-purple-200 dark:border-purple-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        📥 Organizer Checklist
+                    </button>
+                    <button type="button" data-role-pdf="secretariat" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-amber-50 dark:hover:bg-amber-950/50 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        📋 Secretariat
+                    </button>
+                    <button type="button" data-role-pdf="observer" class="px-3 py-1.5 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-950/50 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800 rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1 active:scale-95">
+                        🛑 Observer
+                    </button>
+                </div>
+            </section>
+
             <section>
                 <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">🏠 Main Menu & Navigation</h3>
                 <p class="text-gray-700 mb-2">
@@ -1907,9 +2013,14 @@ function getTabContentEN(tab) {
             </h2>
             <p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">Complete chronological guide to configure, schedule, and run a competition from scratch.</p>
           </div>
-          <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 self-start sm:self-auto active:scale-95">
+          <div class="flex flex-wrap gap-2 self-start sm:self-auto">
+            <button type="button" data-role-pdf="admin_checklist" class="px-3.5 py-1.5 bg-purple-700 hover:bg-purple-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
+              <span>📥</span> Organizer Checklist (A4 PDF)
+            </button>
+            <button type="button" data-role-pdf="secretariat" class="px-3.5 py-1.5 bg-amber-700 hover:bg-amber-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-all flex items-center gap-1.5 active:scale-95">
             <span>📋</span> Secretariat Cheat Sheet (PDF)
           </button>
+          </div>
         </div>
 
         <div class="space-y-8">
@@ -2253,6 +2364,44 @@ function getTabContentEN(tab) {
                         <li><strong>Save:</strong> Press Enter or click Save to jump to the next entry.</li>
                     </ul>
                 </div>
+            </div>
+          </section>
+
+          <!-- FIELD GUIDE & HARDWARE -->
+          <section class="bg-gradient-to-r from-emerald-50 to-teal-50 dark:from-emerald-950/40 dark:to-teal-950/30 p-5 rounded-xl border border-emerald-200 dark:border-emerald-800 shadow-xs">
+            <h3 class="font-bold text-lg text-emerald-900 dark:text-emerald-200 mb-2 flex items-center gap-2">
+              <span>🔋</span> Practical Field & Hardware Guide
+            </h3>
+            <p class="text-xs text-gray-600 dark:text-gray-300 mb-4">
+              Officials on obstacles and timing lines often spend 6-8 hours outdoors. Key tips for hassle-free operations:
+            </p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📱 Keep Screen Awake (Screen Wake Lock)</strong>
+                <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  The app automatically engages the browser's <em>Screen Wake Lock</em> to prevent your device from going to sleep during a round. Keep the tab open in the foreground and verify that aggressive power-saving mode is disabled on your device.
+                </p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">🔋 Battery & Power Bank</strong>
+                <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  Keeping screens on outdoors drains battery. Always bring a fully charged power bank and suitable charging cable to your obstacle or timing post.
+                </p>
+              </div>
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">📡 Sync Indicator Colors</strong>
+                <ul class="text-xs text-gray-600 dark:text-gray-300 space-y-1.5 mt-1">
+                  <li>🟢 <strong>Green check:</strong> Everything is saved in the cloud and live in the secretariat.</li>
+                  <li>🟡 <strong>Yellow count (Queue):</strong> Low or spotty mobile coverage. Results are securely saved in device memory and will sync automatically when signal returns. <em>Do not close the tab!</em></li>
+                  <li>🔴 <strong>Red warning:</strong> Offline. Continue timing and scoring normally – all entries queue locally.</li>
+                </ul>
+              </div>
+              <div class="bg-white dark:bg-gray-800 p-4 rounded-lg border border-emerald-100 dark:border-emerald-900/50 shadow-xs">
+                <strong class="text-emerald-800 dark:text-emerald-300 block mb-1 text-sm">☀️ Sunlight & Rain Protection</strong>
+                <p class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed">
+                  In direct sunlight, <em>Light Mode</em> typically offers superior contrast against screen reflections. In case of drizzle or rain, a clear plastic pouch or waterproof sleeve protects tablets while touch input continues to work through the plastic.
+                </p>
+              </div>
             </div>
           </section>
         </div>`;

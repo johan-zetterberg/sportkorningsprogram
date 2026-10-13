@@ -146,6 +146,27 @@ function renderLayout() {
         </div>
       </div>
 
+      <!-- Arrangörs- och funktionärsguide banner -->
+      <div class="mb-6 rounded-xl border border-blue-200 dark:border-blue-900 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+        <div class="flex items-center gap-3.5">
+          <div class="p-2.5 bg-blue-600 text-white rounded-xl text-xl shrink-0 shadow-sm">📋</div>
+          <div>
+            <h3 class="font-bold text-gray-900 dark:text-gray-100 text-sm sm:text-base">${t('hub_guide_banner_title')}</h3>
+            <p class="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-0.5">
+              ${t('hub_guide_banner_desc')}
+            </p>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 self-stretch sm:self-auto shrink-0">
+          <a href="#manual?tab=admin" class="flex-1 sm:flex-initial text-center px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs sm:text-sm font-semibold transition-colors shadow-sm whitespace-nowrap">
+            ${t('hub_guide_banner_btn_admin')}
+          </a>
+          <a href="#manual" class="flex-1 sm:flex-initial text-center px-3 py-2 rounded-lg bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 text-xs sm:text-sm font-medium transition-colors shadow-sm whitespace-nowrap">
+            ${t('hub_guide_banner_btn_manual')}
+          </a>
+        </div>
+      </div>
+
       <!--Innehåll -->
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
         <!-- Sök -->

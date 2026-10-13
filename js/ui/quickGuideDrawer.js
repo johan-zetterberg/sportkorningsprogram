@@ -146,6 +146,10 @@ export const GUIDES = {
         {
           q: 'Ekipaget kör fel väg eller välter?',
           a: 'Markera "Eliminerad" med kryssrutan, skriv en kort förklarande kommentar och klicka på Spara.'
+        },
+        {
+          q: 'Skärmen släcker sig mitt i en ritt?',
+          a: 'Appen aktiverar Screen Wake Lock automatiskt så länge fliken är öppen. Kontrollera att enhetens energisparläge inte stänger av skärmen aggressivt. Ha gärna en powerbank ansluten under heldag i fält.'
         }
       ],
       en: [
@@ -164,6 +168,10 @@ export const GUIDES = {
         {
           q: 'Turnout goes wrong course or overturns?',
           a: 'Check "Eliminated", write a concise remark, and save.'
+        },
+        {
+          q: 'Screen dims or locks during a round?',
+          a: 'The app engages Screen Wake Lock automatically while the tab remains open. Ensure aggressive battery saver mode is disabled and consider connecting a power bank for full-day field use.'
         }
       ]
     },

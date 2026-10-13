@@ -91,6 +91,149 @@ function cleanupPortalSubscriptions() {
     }
 }
 
+export function showDriverPortalHelpModal() {
+    const existing = document.getElementById('driver-portal-help-modal');
+    if (existing) existing.remove();
+
+    const isEn = (typeof localStorage !== 'undefined' && localStorage.getItem('user_lang_pref') === 'en');
+    
+    const title = isEn ? 'Driver Guide – How My Portal Works' : 'Deltagarguide – Så fungerar Min Portal';
+    const sub = isEn ? 'Quick guide to self-declaration, start times, documents, and protocols.' : 'Snabbguide för självdeklarering, starttider, banskisser och protokoll.';
+    
+    const items = isEn ? [
+        {
+            icon: '✏️',
+            title: 'Digital Declaration & 60-Minute Lock',
+            desc: 'You can update declared horses, groom, carriage, and club directly from your phone. <strong>Note:</strong> Self-service declaration locks automatically prior to class start (typically 60 minutes before your start time). After it locks, any changes must be made in person at the Secretariat.'
+        },
+        {
+            icon: '🏁',
+            title: 'Start Times & Live Scores',
+            desc: 'Your designated start times for dressage, cones, and marathon appear under the <em>Start Times</em> tab. Once judges and timers approve each round, your scores and total standings update in real time.'
+        },
+        {
+            icon: '🩺',
+            title: 'Vet Inspection & Temperature Checks',
+            desc: 'View veterinary inspection approval (Passed, Holding Box, etc.). If the organizer requires health monitoring, you can submit arrival and morning horse temperatures directly on each horse card.'
+        },
+        {
+            icon: '📄',
+            title: 'Course Maps, Bulletins & Notices',
+            desc: 'Access official course sketches, rider bulletins, and schedules under the <em>Documents</em> tab. Urgent organizer announcements and personal notices appear directly in your portal messages.'
+        },
+        {
+            icon: '📝',
+            title: 'Dressage Protocol (PDF Download)',
+            desc: 'After dressage results are validated and official, you can download your complete score protocol with movement points and judges\' notes as a PDF directly to your device.'
+        },
+        {
+            icon: '🔍',
+            title: 'Can\'t find your competition?',
+            desc: 'Tap the <strong>"Try finding my entries again"</strong> button on the landing page. Ensure you are signed in with the exact same email address used during entry registration.'
+        }
+    ] : [
+        {
+            icon: '✏️',
+            title: 'Digital Deklarering & 60-minuterslås',
+            desc: 'Ändra anmälda hästar, groom/medhjälpare, vagn och klubb direkt i mobilen. <strong>Obs!</strong> Deklareringen låses automatiskt före klassens start (oftast 60 minuter före din starttid) så sekretariatet kan skriva ut listor. Ändringar därefter måste anmälas personligen till sekretariatet.'
+        },
+        {
+            icon: '🏁',
+            title: 'Starttider & Live-resultat',
+            desc: 'Dina personliga starttider för dressyr, precision och maratonens delsträckor visas under fliken <em>Starttider</em>. Resultat och totalställning uppdateras live direkt när funktionärerna signerat dem.'
+        },
+        {
+            icon: '🩺',
+            title: 'Hästbesiktning & Temperaturkontroll',
+            desc: 'Se status från veterinärbesiktningen (Godkänd, Vilobox etc.). Om tävlingen kräver smittskyddskontroll registrerar du ankomst- och morgontemperaturer smidigt direkt på respektive hästkort.'
+        },
+        {
+            icon: '📄',
+            title: 'Banskisser, PM & Meddelanden',
+            desc: 'Under fliken <em>Dokument</em> hittar du banskisser, ryttarmeddelanden och tidsprogram. Viktiga utrop och personliga meddelanden från tävlingsledningen plingar till i din notislåda.'
+        },
+        {
+            icon: '📝',
+            title: 'Dressyrprotokoll (PDF)',
+            desc: 'När dressyrklassen är avslutad och officiellt godkänd kan du öppna och spara ditt fullständiga domarprotokoll med kommentarer och rörelsepoäng som PDF direkt i mobilen.'
+        },
+        {
+            icon: '🔍',
+            title: 'Hittar du inte din tävling i listan?',
+            desc: 'Klicka på <strong>"Försök hitta mina anmälningar igen"</strong> på startsidan. Säkerställ att du är inloggad med exakt samma e-postadress som registrerades i TDB vid anmälan.'
+        }
+    ];
+
+    const modalHtml = `
+        <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-3 sm:p-4 animate-fade-in" id="driver-portal-help-modal">
+            <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-2xl max-w-2xl w-full max-h-[90vh] flex flex-col border border-gray-200 dark:border-gray-700 overflow-hidden">
+                <!-- Header -->
+                <div class="p-4 sm:p-5 border-b border-gray-200 dark:border-gray-700 bg-amber-50/70 dark:bg-amber-950/30 flex items-start justify-between gap-3">
+                    <div class="flex items-center gap-3">
+                        <span class="text-2xl p-2 bg-amber-100 dark:bg-amber-900/50 rounded-xl text-amber-800 dark:text-amber-200">🐴</span>
+                        <div>
+                            <h3 class="font-bold text-lg sm:text-xl text-gray-900 dark:text-white leading-tight">${escapeHtml(title)}</h3>
+                            <p class="text-xs sm:text-sm text-gray-600 dark:text-gray-300 mt-0.5">${escapeHtml(sub)}</p>
+                        </div>
+                    </div>
+                    <button type="button" id="closePortalHelpBtn" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl font-bold p-1 leading-none rounded-lg hover:bg-black/5 dark:hover:bg-white/5 transition-colors">&times;</button>
+                </div>
+
+                <!-- Body (Cards) -->
+                <div class="p-4 sm:p-6 overflow-y-auto space-y-3.5 custom-scrollbar">
+                    ${items.map(it => `
+                        <div class="p-3.5 sm:p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/70 dark:bg-gray-900/30 flex items-start gap-3.5">
+                            <span class="text-xl sm:text-2xl shrink-0 select-none">${it.icon}</span>
+                            <div class="min-w-0">
+                                <h4 class="font-bold text-gray-900 dark:text-gray-100 text-sm mb-1">${escapeHtml(it.title)}</h4>
+                                <p class="text-xs sm:text-sm text-gray-600 dark:text-gray-300 leading-relaxed">${it.desc}</p>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <!-- Footer -->
+                <div class="p-4 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <button type="button" id="openFullManualDriverBtn" class="w-full sm:w-auto inline-flex items-center justify-center gap-2 px-4 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 hover:bg-blue-100 transition-colors">
+                        <span>📖</span>
+                        <span>${isEn ? 'Open Full Driver Manual' : 'Öppna fullständiga kuskmanualen'}</span>
+                    </button>
+                    <button type="button" id="dismissPortalHelpBtn" class="w-full sm:w-auto px-5 py-2 text-xs sm:text-sm font-medium rounded-lg bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 transition-colors">
+                        ${isEn ? 'Close' : 'Stäng'}
+                    </button>
+                </div>
+            </div>
+        </div>
+    `;
+
+    const div = document.createElement('div');
+    div.innerHTML = modalHtml;
+    const modal = div.firstElementChild;
+
+    const closeModal = () => modal.remove();
+
+    modal.querySelector('#closePortalHelpBtn')?.addEventListener('click', closeModal);
+    modal.querySelector('#dismissPortalHelpBtn')?.addEventListener('click', closeModal);
+    modal.querySelector('#openFullManualDriverBtn')?.addEventListener('click', () => {
+        closeModal();
+        window.location.hash = '#manual?tab=driver';
+    });
+
+    modal.addEventListener('click', (e) => {
+        if (e.target === modal) closeModal();
+    });
+
+    const keyHandler = (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+            document.removeEventListener('keydown', keyHandler);
+        }
+    };
+    document.addEventListener('keydown', keyHandler);
+
+    document.body.appendChild(modal);
+}
+
 export async function load() {
     __unload();
     const currentLoadToken = ++portalLoadToken;
@@ -144,9 +287,15 @@ export async function load() {
     // 3. Rendera Dashboard
     container.innerHTML = `
         <div class="container mx-auto p-3 md:p-8">
-            <header class="mb-6 md:mb-8">
-                <h1 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">${t('my_portal')}</h1>
-                <p class="text-sm md:text-base text-gray-600 dark:text-gray-400">${t('welcome')}, ${user.email}</p>
+            <header class="mb-6 md:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">${t('my_portal')}</h1>
+                    <p class="text-sm md:text-base text-gray-600 dark:text-gray-400">${t('welcome')}, ${user.email}</p>
+                </div>
+                <button id="portalHelpBtn" type="button" class="self-start sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors shadow-sm">
+                    <span>❓</span>
+                    <span>${t('portal_help_btn')}</span>
+                </button>
             </header>
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
@@ -352,6 +501,8 @@ export async function load() {
         }
     });
 
+    document.getElementById('portalHelpBtn')?.addEventListener('click', showDriverPortalHelpModal);
+
     document.getElementById('joinAsAdminBtn')?.addEventListener('click', () => {
         const modal = document.createElement('div');
         modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in";
@@ -462,9 +613,15 @@ async function renderDashboard(container, compId, startNumber, user) {
 
     container.innerHTML = `
         <div class="container mx-auto p-2 md:p-8 animate-fade-in">
-            <button id="backToPortalBtn" class="mb-4 text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium">
-                ← ${t('back_to_comps')}
-            </button>
+            <div class="flex items-center justify-between mb-4">
+                <button id="backToPortalBtn" class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1 font-medium">
+                    ← ${t('back_to_comps')}
+                </button>
+                <button id="portalDashboardHelpBtn" type="button" class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs sm:text-sm font-semibold rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors shadow-sm">
+                    <span>❓</span>
+                    <span>${t('portal_help_btn')}</span>
+                </button>
+            </div>
             <div id="dashboard-header" class="mb-4 md:mb-6 bg-white dark:bg-gray-800 p-3 sm:p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
                 <div class="animate-pulse h-16 bg-gray-100 rounded"></div>
             </div>
@@ -480,11 +637,13 @@ async function renderDashboard(container, compId, startNumber, user) {
         </div>
     `;
 
-    document.getElementById('backToPortalBtn').addEventListener('click', () => {
+    document.getElementById('backToPortalBtn')?.addEventListener('click', () => {
         setGlobalState({ key: 'currentCompetition', value: null });
         window.location.hash = '#portal';
         location.reload();
     });
+
+    document.getElementById('portalDashboardHelpBtn')?.addEventListener('click', showDriverPortalHelpModal);
 
     try {
         // The driver's documents and messages from the server (null when the
