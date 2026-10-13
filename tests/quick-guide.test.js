@@ -60,6 +60,12 @@ test('GUIDES defines all required competition roles with complete sections', asy
     assert.ok(Array.isArray(guide.during?.sv) && guide.during.sv.length >= 3, `${role} must have round instructions`);
     assert.ok(Array.isArray(guide.troubleshooting?.sv) && guide.troubleshooting.sv.length >= 2, `${role} must have troubleshooting items`);
     assert.ok(Array.isArray(guide.symbols?.sv) && guide.symbols.sv.length >= 2, `${role} must have symbols`);
+
+    // English assertions
+    assert.ok(Array.isArray(guide.steps?.en) && guide.steps.en.length >= 3, `${role} must have at least 3 English quick start steps`);
+    assert.ok(Array.isArray(guide.during?.en) && guide.during.en.length >= 3, `${role} must have English round instructions`);
+    assert.ok(Array.isArray(guide.troubleshooting?.en) && guide.troubleshooting.en.length >= 2, `${role} must have English troubleshooting items`);
+    assert.ok(Array.isArray(guide.symbols?.en) && guide.symbols.en.length >= 2, `${role} must have English symbols`);
   }
 });
 
