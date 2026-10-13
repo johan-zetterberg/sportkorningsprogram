@@ -12,7 +12,9 @@ const RESYNC_MS = 10 * 60 * 1000;
 const MAX_ROUND_TRIP_MS = 3000;           // slower answers are too imprecise
 const SAMPLES = 3;
 
-let offsetMs = 0;
+let offsetMs = 0;          // the offset serverNow() uses
+let measuredOffsetMs = null; // the latest measurement, held back while timing
+let holdOffset = false;
 let syncTimer = null;
 let syncing = null;
 
@@ -30,6 +32,23 @@ export function serverNow() {
 
 export function getServerClockOffset() {
     return offsetMs;
+}
+
+/**
+ * While a stopwatch runs on this device the offset must not change: start and
+ * stop would be stamped with different corrections and the duration would
+ * absorb the difference. A measurement made meanwhile is applied on release.
+ */
+/** A new measurement: used at once, or after the hold is released */
+export function applyMeasuredOffset(measured) {
+    if (!Number.isFinite(measured)) return;
+    measuredOffsetMs = measured;
+    if (!holdOffset) offsetMs = measured;
+}
+
+export function setServerClockHold(hold) {
+    holdOffset = !!hold;
+    if (!holdOffset && Number.isFinite(measuredOffsetMs)) offsetMs = measuredOffsetMs;
 }
 
 /**
@@ -73,8 +92,8 @@ export function syncServerClock() {
         syncing = measure()
             .then((measured) => {
                 if (Number.isFinite(measured)) {
-                    offsetMs = measured;
-                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ offsetMs, measuredAt: Date.now() })); } catch (_) { }
+                    applyMeasuredOffset(measured);
+                    try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ offsetMs: measured, measuredAt: Date.now() })); } catch (_) { }
                 }
                 return offsetMs;
             })
@@ -97,6 +116,7 @@ export function startServerClockSync() {
 }
 
 export function stopServerClockSync() {
+    setServerClockHold(false);
     if (syncTimer) clearInterval(syncTimer);
     syncTimer = null;
     if (typeof window !== 'undefined') window.removeEventListener('online', syncServerClock);

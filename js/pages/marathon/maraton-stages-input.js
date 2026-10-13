@@ -15,7 +15,7 @@ import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
 // Stage start and stop may be stamped on different phones: use the server's clock
-import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
+import { serverNow, setServerClockHold, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 
 // --- Wrapper functions for marathonUtils ---
@@ -720,7 +720,13 @@ function subscribeToEquipageDoc(sn) {
 }
 
 // ---------- Global ticker ----------
+// Hold the server-clock offset while a stopwatch runs here (serverClock.js)
+function updateServerClockHold() {
+  setServerClockHold([...activeTimers.values()].some(timer => timer?.isRunning));
+}
+
 function ensureGlobalTicker() {
+  updateServerClockHold();
   // Starta bara om den inte redan körs OCH om tävlingen INTE är pausad
   if (!tickInterval && !isGloballyPaused) {
     tickInterval = setInterval(tickAll, 95);
@@ -737,6 +743,7 @@ function mirrorToLocal(sn, data) {
   }
 }
 function stopGlobalTickerIfIdle() {
+  updateServerClockHold();
   const limA = currentEquipage ? limitsFor(currentEquipage, 'A') : null;
   const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
   const bStarted = currentDocData?.timing?.['B']?.startClock;
@@ -747,6 +754,7 @@ function stopGlobalTickerIfIdle() {
   }
 }
 function tickAll() {
+  updateServerClockHold();
   const now = serverNow();
 
   // Måla alla aktiva timers i listan

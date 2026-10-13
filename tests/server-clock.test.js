@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { offsetFromSamples, serverNow } from '../js/utils/serverClock.js';
+import { applyMeasuredOffset, getServerClockOffset, offsetFromSamples, serverNow, setServerClockHold } from '../js/utils/serverClock.js';
 
 test('the fastest round trip gives the offset, answered halfway', () => {
     // Device 2 s behind the server
@@ -24,4 +24,14 @@ test('without a measurement the device clock is used', () => {
     const before = Date.now();
     const now = serverNow();
     assert.ok(now >= before && now <= Date.now());
+});
+
+test('a measurement made while a stopwatch runs is applied only after it stops', () => {
+    applyMeasuredOffset(0);
+    setServerClockHold(true);              // a stage started on this phone
+    applyMeasuredOffset(2500);             // first measurement arrives late
+    assert.equal(getServerClockOffset(), 0, 'start and stop keep the same correction');
+    setServerClockHold(false);             // no stopwatch running any more
+    assert.equal(getServerClockOffset(), 2500);
+    applyMeasuredOffset(0);
 });
