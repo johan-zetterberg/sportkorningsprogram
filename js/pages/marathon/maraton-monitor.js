@@ -675,7 +675,7 @@ function renderMonitor() {
              <div class="text-center mb-4 font-sans">${comparisonHtml}</div>
              <div class="mt-auto flex gap-4 text-sm text-gray-500 dark:text-gray-400 font-sans">
                  <span>${t('penalty')}: ${Number.isFinite(penalty) ? penalty.toFixed(2) : '—'}</span>
-                 <span>${t('knockdown')}: ${flashData.knockdowns || 0}</span>
+                 <span>${t('knockdown')}: ${Number(flashData.knockdowns) || 0}</span>
              </div>
       `;
       return;

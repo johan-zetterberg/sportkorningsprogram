@@ -25,10 +25,20 @@ export function jsStringAttr(value) {
 }
 
 /** Image URLs from organisers: web, site-relative and inline images only (never javascript: etc.) */
+/**
+ * A link typed in by an admin, for href: web, mail, or a path on this site.
+ * "//host" and "/\host" are rejected: browsers treat both as another site.
+ * Anything else (javascript:, data:…) becomes "#".
+ */
+export function safeLinkUrl(value) {
+    const url = String(value || '').trim();
+    return /^(https?:|mailto:|\/(?![\/\\]))/i.test(url) ? url : '#';
+}
+
 export function isSafeImageUrl(url) {
     const u = String(url || '').trim();
     if (!u) return false;
-    if (/^(https?:\/\/|\/(?!\/)|\.{1,2}\/|data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,])/i.test(u)) return true;
+    if (/^(https?:\/\/|\/(?![\/\\])|\.{1,2}\/|data:image\/(png|jpe?g|gif|webp|svg\+xml)[;,])/i.test(u)) return true;
     return /^[\w.\-%][\w.\-/ %]*$/.test(u); // relative path without a scheme
 }
 

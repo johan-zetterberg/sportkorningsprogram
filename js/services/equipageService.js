@@ -331,6 +331,33 @@ export async function deleteEquipage(competitionId, equipageId) {
   })());
 }
 
+/**
+ * horseTemperatures entries whose updatedBy is an email address, with the
+ * address removed; null when there is nothing to change. The entries are on
+ * the public equipage document.
+ */
+export function scrubTemperatureEmails(horseTemperatures) {
+  if (!horseTemperatures || typeof horseTemperatures !== 'object') return null;
+  let changed = false;
+  const scrubEntry = (entry) => {
+    if (entry && typeof entry === 'object' && String(entry.updatedBy || '').includes('@')) {
+      changed = true;
+      return { ...entry, updatedBy: '' };
+    }
+    return entry;
+  };
+  // { [horseKey]: { [slotId]: entry } }
+  const scrubbed = {};
+  Object.entries(horseTemperatures).forEach(([horseKey, slots]) => {
+    if (!slots || typeof slots !== 'object') { scrubbed[horseKey] = slots; return; }
+    const isEntry = 'temperatureC' in slots || 'updatedBy' in slots;
+    scrubbed[horseKey] = isEntry
+      ? scrubEntry(slots)
+      : Object.fromEntries(Object.entries(slots).map(([slotId, entry]) => [slotId, scrubEntry(entry)]));
+  });
+  return changed ? scrubbed : null;
+}
+
 export async function migrateEquipagePrivacy(competitionId) {
   const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
   return trackWrite('Migrerar privata ekipageuppgifter', (async () => {
@@ -340,15 +367,20 @@ export async function migrateEquipagePrivacy(competitionId) {
 
     for (const item of snapshot.docs) {
       const { privateData } = splitEquipageData(cleanFirestoreData(item.data() || {}));
-      if (Object.keys(privateData).length === 0) continue;
+      // Horse temperatures saved before the fix carried the driver's email
+      const temperatures = scrubTemperatureEmails(item.data()?.horseTemperatures);
+      if (Object.keys(privateData).length === 0 && !temperatures) continue;
 
       const batch = writeBatch(db);
-      batch.set(getPrivateEquipageDocRef(safeCompetitionId, item.id), privateData, { merge: true });
+      if (Object.keys(privateData).length > 0) {
+        batch.set(getPrivateEquipageDocRef(safeCompetitionId, item.id), privateData, { merge: true });
+      }
 
       const clearPayload = {};
       Object.keys(privateData).forEach((key) => {
         clearPayload[key] = deleteField();
       });
+      if (temperatures) clearPayload.horseTemperatures = temperatures;
       batch.set(item.ref, clearPayload, { merge: true });
 
       await batch.commit();

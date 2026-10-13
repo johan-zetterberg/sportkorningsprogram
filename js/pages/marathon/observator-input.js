@@ -129,7 +129,9 @@ function listenForGlobalPause() {
       logContainer.innerHTML = data.pauseLog.map((p, i) => {
         const startTime = new Date(p.start).toLocaleTimeString('sv-SE');
         const endTime = p.end ? new Date(p.end).toLocaleTimeString('sv-SE') : t('observer_ongoing');
-        const duration = p.durationSec ? t('observer_seconds').replace('{sec}', p.durationSec) : '-';
+        // A number only: the log is written by any marathon official
+        const durationSec = Math.round(Number(p.durationSec));
+        const duration = Number.isFinite(durationSec) && durationSec > 0 ? t('observer_seconds').replace('{sec}', String(durationSec)) : '-';
         return `
           <div class="text-[10px] text-gray-500 font-medium">
             ${t('observer_pause_log_item').replace('{index}', i + 1).replace('{startTime}', startTime).replace('{endTime}', endTime).replace('{duration}', duration)}

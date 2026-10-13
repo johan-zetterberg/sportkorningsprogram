@@ -369,6 +369,10 @@ self.addEventListener('activate', (event) => {
           if (new URL(request.url).origin === self.location.origin) continue;
           if (await current.match(request)) continue;
           const response = await old.match(request);
+          // Files from Storage only when they are images (older versions also
+          // kept documents, which must go)
+          const fromStorage = /(^|\.)(firebasestorage|storage)\.googleapis\.com$/.test(new URL(request.url).hostname);
+          if (fromStorage && !/^image\//i.test(response?.headers.get('content-type') || '')) continue;
           if (response) await current.put(request, response);
         }
       } catch (error) {
@@ -496,7 +500,10 @@ self.addEventListener('fetch', (event) => {
         // Vi tvingar 'cors' och 'omit' för att matcha FlagCDN:s krav och tillåta caching
         const cleanReq = new Request(url.href, { mode: 'cors', credentials: 'omit', cache: 'no-cache' });
         const net = await fetch(cleanReq);
-        if (net.ok) cache.put(req, net.clone()).catch(() => { });
+        // Images only (flags, logos): documents from Storage (e.g. PDFs for
+        // drivers) must not stay on a shared device after logout
+        const isImage = /^image\//i.test(net.headers.get('content-type') || '');
+        if (net.ok && isImage) cache.put(req, net.clone()).catch(() => { });
         return net;
       } catch {
         return new Response('', { status: 404 });

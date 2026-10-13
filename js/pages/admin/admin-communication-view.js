@@ -1,10 +1,5 @@
-import { escapeHtml } from '../../utils/sharedUtils.js';
+import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
 
-// Links typed in by admins: web, mail and site links only (never javascript:)
-function safeLinkUrl(value) {
-    const url = String(value || '').trim();
-    return /^(https?:|mailto:|\/(?!\/))/i.test(url) ? url : '#';
-}
 
 function formatFileSize(bytes) {
     const size = Number(bytes);

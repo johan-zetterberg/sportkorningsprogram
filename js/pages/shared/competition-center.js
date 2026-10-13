@@ -1,20 +1,14 @@
 import { getGlobalState } from '../../main.js';
 import { getPublicCompetitionViewModel } from '../../services/publicCompetitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
-import { escapeHtml } from '../../utils/sharedUtils.js';
+import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
 
 let expandedClasses = new Set();
 let venueMapInstance = null;
 let venueMapObserver = null;
 
 
-function sanitizeUrl(value) {
-  const raw = String(value || '').trim();
-  if (!raw) return '#';
-  if (/^(https?:|mailto:)/i.test(raw)) return raw;
-  if (raw.startsWith('/') && !raw.startsWith('//')) return raw;
-  return '#';
-}
+const sanitizeUrl = safeLinkUrl;
 
 function displayOrDash(value) {
   const text = String(value ?? '').trim();

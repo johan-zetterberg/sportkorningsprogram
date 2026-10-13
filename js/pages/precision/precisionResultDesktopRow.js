@@ -65,7 +65,7 @@ export function renderPrecisionResultDesktopRow({
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 time-cell align-top" data-sn="${sn}" title="${timeTitle}">
                     <span class="tabular-nums ${timeAlertCls} text-[11px] lg:text-sm whitespace-nowrap">${data.d?.running === true ? '••:••,••' : data.display.timeLabel}</span>
                 </td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">${data.display.knocksSimple}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">${escapeHtml(data.display.knocksSimple)}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm obstacle-penalty-cell" data-sn="${sn}">${formatPenalty(data.obstaclePenalty)}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm time-penalty-cell" data-sn="${sn}">${formatPenalty(data.timePenalty)}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-[11px] lg:text-sm">${formatPenalty(data.extraPenalty)}</td>
@@ -74,7 +74,7 @@ export function renderPrecisionResultDesktopRow({
                     ${overallLabel}
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center">
-                    <span class="inline-block px-1.5 py-0.5 rounded-md text-[10px] lg:text-xs font-medium whitespace-nowrap ${statusBadgeClass}">${data.status}</span>
+                    <span class="inline-block px-1.5 py-0.5 rounded-md text-[10px] lg:text-xs font-medium whitespace-nowrap ${statusBadgeClass}">${escapeHtml(data.status)}</span>
                     ${incompleteResultReasonHtml({ configMissing: data.configMissing === true })}
                 </td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right whitespace-nowrap">

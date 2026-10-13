@@ -96,7 +96,7 @@ export function renderPrecisionResultCard({
                       <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">Running</span>
                   </div>
                   `
-                : `<span class="text-gray-500 dark:text-gray-400 font-medium">${data.status || '–'}</span>`
+                : `<span class="text-gray-500 dark:text-gray-400 font-medium">${escapeHtml(data.status || '–')}</span>`
               }
            </div>
 

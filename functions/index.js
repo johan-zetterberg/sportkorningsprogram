@@ -515,6 +515,15 @@ async function assertCanDeleteCompetition(request, competition) {
     }
 }
 
+// The caller's network address. Google's front end appends the address it
+// saw as the last X-Forwarded-For entry; the first entries can be set by the
+// caller, so they are not used.
+function callerAddress(request) {
+    const forwarded = String(request.rawRequest?.headers?.['x-forwarded-for'] || '')
+        .split(',').map((part) => part.trim()).filter(Boolean);
+    return forwarded.length ? forwarded[forwarded.length - 1] : String(request.rawRequest?.ip || 'unknown');
+}
+
 async function assertCanMaintainResults(request, competition, deniedMessage = 'Endast tävlingsägare eller full administratör får räkna om resultat.') {
     if (!request.auth?.uid) {
         throw new HttpsError('unauthenticated', 'Inloggning krävs.');
@@ -927,20 +936,14 @@ export const submitVolunteerSignup = onCall(async (request) => {
         return createdAt >= Date.now() - VOLUNTEER_DUPLICATE_WINDOW_MS;
     });
 
-    if (duplicateExists) {
-        return {
-            accepted: true,
-            duplicate: true
-        };
-    }
-
     // Rate limits (per network address and per competition), checked and
     // counted in the same transaction as the sign-up: changing the email
-    // address on every call must not create unlimited documents
+    // address on every call must not create unlimited documents. A repeated
+    // sign-up counts against the address too, so whether an email has signed
+    // up cannot be probed without limit.
     const limits = VOLUNTEER_SIGNUP_LIMITS;
     const limitsRef = db.collection(`artifacts/${competition.appId}/private/data/competitions/${competitionId}/rateLimits`);
-    const address = String(request.rawRequest?.ip || request.rawRequest?.headers?.['x-forwarded-for'] || 'unknown').split(',')[0].trim();
-    const addressKey = createHash('sha256').update(address).digest('hex').slice(0, 32);
+    const addressKey = createHash('sha256').update(callerAddress(request)).digest('hex').slice(0, 32);
     const addressRef = limitsRef.doc(`volunteerSignup_addr_${addressKey}`);
     const competitionLimitRef = limitsRef.doc('volunteerSignup_competition');
     const now = Date.now();
@@ -948,9 +951,11 @@ export const submitVolunteerSignup = onCall(async (request) => {
     const accepted = await db.runTransaction(async (tx) => {
         const [addressSnap, competitionSnap] = await Promise.all([tx.get(addressRef), tx.get(competitionLimitRef)]);
         const byAddress = nextCounter(addressSnap.exists ? addressSnap.data() : null, now, limits.perAddress, limits.windowMs);
-        const byCompetition = nextCounter(competitionSnap.exists ? competitionSnap.data() : null, now, limits.perCompetition, limits.windowMs);
-        if (!byAddress.allowed || !byCompetition.allowed) return false;
+        if (!byAddress.allowed) return false;
         tx.set(addressRef, byAddress.next);
+        if (duplicateExists) return true;
+        const byCompetition = nextCounter(competitionSnap.exists ? competitionSnap.data() : null, now, limits.perCompetition, limits.windowMs);
+        if (!byCompetition.allowed) return false;
         tx.set(competitionLimitRef, byCompetition.next);
         tx.set(signupRef.doc(), payload);
         return true;
@@ -961,6 +966,6 @@ export const submitVolunteerSignup = onCall(async (request) => {
     }
     return {
         accepted: true,
-        duplicate: false
+        duplicate: duplicateExists
     };
 });

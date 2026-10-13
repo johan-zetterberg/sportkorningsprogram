@@ -148,7 +148,9 @@ function asPlainDressageProtocol(data, docId, fallbackStartNumber) {
 
   return {
     id: docId,
-    startNumber: protocol.startNumber ?? data.startNumber ?? fallbackStartNumber,
+    // Where the protocol is stored decides whose it is: a startNumber field
+    // inside it could point a protocol at another (even finalized) equipage
+    startNumber: fallbackStartNumber ?? protocol.startNumber ?? data.startNumber,
     judgeId: protocol.judgeId ?? data.judgeId ?? (docId.startsWith('judge_') ? docId.replace('judge_', '') : docId),
     judgeName: protocol.judgeName ?? data.judgeName ?? '',
     judgePosition,

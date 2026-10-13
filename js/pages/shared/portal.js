@@ -46,7 +46,7 @@ import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosServ
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { t } from '../../utils/i18n.js';
-import { escapeHtml, sanitizeRichHtml } from '../../utils/sharedUtils.js';
+import { escapeHtml, sanitizeRichHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
 
 let messageUnsub = null;
 let dashboardUnsub = null;
@@ -54,12 +54,8 @@ let portalLoadToken = 0;
 let dashboardSeq = 0;
 const escapeAttr = (value) => escapeHtml(value ?? '');
 
-function sanitizePortalUrl(value) {
-    const raw = String(value || '').trim();
-    if (!raw) return '#';
-    if (/^(https?:|mailto:|\/)/i.test(raw)) return raw;
-    return '#';
-}
+// Links in documents and messages (sharedUtils.safeLinkUrl)
+const sanitizePortalUrl = safeLinkUrl;
 
 function normalizePortalEmail(value) {
     return String(value || '').trim().toLowerCase();
@@ -278,7 +274,7 @@ export async function load() {
             <div class="mt-6 pt-6 border-t dark:border-gray-700">
                 <h3 class="font-bold text-purple-900 dark:text-purple-300 mb-2 flex items-center gap-2">🛡️ Admin: Granska portal</h3>
                 <div class="flex gap-2">
-                    <input type="text" id="adminImpersonateCompId" placeholder="Tävlings-ID" class="px-3 py-2 border rounded-md text-sm flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${compId}">
+                    <input type="text" id="adminImpersonateCompId" placeholder="Tävlings-ID" class="px-3 py-2 border rounded-md text-sm flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeHtml(compId || '')}">
                     <input type="text" id="adminImpersonateStartNo" placeholder="Startnr" class="px-3 py-2 border rounded-md text-sm w-24 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                     <button id="adminImpersonateBtn" class="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-purple-700 transition-colors">Granska</button>
                 </div>
@@ -292,7 +288,7 @@ export async function load() {
             <header class="mb-6 md:mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                 <div>
                     <h1 class="text-2xl md:text-3xl font-bold text-gray-900 dark:text-white">${t('my_portal')}</h1>
-                    <p class="text-sm md:text-base text-gray-600 dark:text-gray-400">${t('welcome')}, ${user.email}</p>
+                    <p class="text-sm md:text-base text-gray-600 dark:text-gray-400">${t('welcome')}, ${escapeHtml(user.email || '')}</p>
                 </div>
                 <button id="portalHelpBtn" type="button" class="self-start sm:self-auto inline-flex items-center gap-1.5 px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800 hover:bg-amber-100 dark:hover:bg-amber-900/60 transition-colors shadow-sm">
                     <span>❓</span>
@@ -1034,7 +1030,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                         horseKey,
                         horseName: row.dataset.horseName || '',
                         updatedAt: now,
-                        updatedBy: user?.email || user?.uid || ''
+                        // The account id only: the equipage is public and the email is private
+                        updatedBy: user?.uid || ''
                     };
                 });
 
