@@ -15,7 +15,7 @@ import {
     listenForRoles,
     saveRoles
 } from '../../services/officialsService.js';
-import { migrateOfficialsPrivacy } from '../../services/adminService.js';
+import { migrateJudgesPrivacy, migrateOfficialsPrivacy } from '../../services/adminService.js';
 
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -163,6 +163,9 @@ export function renderOfficialsTab(container, competition) {
         migrateOfficialsPrivacy(competition.id)
             .then((moved) => { if (moved) console.info(`[officials] ${moved} funktionärers kontaktuppgifter flyttade till privat lagring.`); })
             .catch((error) => console.warn('Kunde inte flytta funktionärers kontaktuppgifter:', error));
+        migrateJudgesPrivacy(competition.id)
+            .then((moved) => { if (moved) console.info(`[officials] ${moved} domares kontaktuppgifter flyttade till privat lagring.`); })
+            .catch((error) => console.warn('Kunde inte flytta domares kontaktuppgifter:', error));
 
         addOfficialsUnsubscriber(listenForOfficials(competition.id, (data) => {
             officials = data;

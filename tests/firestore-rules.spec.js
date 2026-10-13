@@ -366,6 +366,26 @@ test('officials contact details: admins and the official, not the other competit
   await assertFails(getDocs(collection(testEnv.unauthenticatedContext().firestore(), compPath('officialsPrivate'))));
 });
 
+test('judges contact details are for admins and the judge only', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('speaker-pin-j', 'speaker', 'speaker-j@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('judges/judge-1')), { name: 'Dora Domare', roles: [{ discipline: 'dressage', position: 'C' }] });
+    await setDoc(doc(db, compPath('judgesPrivate/judge-1')), { email: 'dora@example.com', phone: '070' });
+  });
+  const speakerDb = testEnv.authenticatedContext('speaker-pin-j', { email_verified: true, email: 'speaker-j@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(speakerDb, compPath('judges/judge-1'))));
+  await assertFails(getDoc(doc(speakerDb, compPath('judgesPrivate/judge-1'))));
+  await assertFails(getDocs(collection(speakerDb, compPath('judgesPrivate'))));
+
+  const doraDb = testEnv.authenticatedContext('dora-uid', { email_verified: true, email: 'dora@example.com' }).firestore();
+  await assertSucceeds(getDocs(query(collection(doraDb, compPath('judgesPrivate')), where('email', '==', 'dora@example.com'))));
+
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(getDocs(collection(ownerDb, compPath('judgesPrivate'))));
+  await assertFails(setDoc(doc(speakerDb, compPath('judgesPrivate/judge-2')), { email: 'x@example.com' }));
+});
+
 test('drivers cannot write their horse entries directly (vet results live there)', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();

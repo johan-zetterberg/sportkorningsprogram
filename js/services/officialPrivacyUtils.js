@@ -35,6 +35,26 @@ export function mergeOfficials(publicList = [], privateList = []) {
 }
 
 /** Private fields still stored on the public document (from before the split) */
-export function legacyPrivateFields(data = {}) {
-    return OFFICIAL_PRIVATE_FIELDS.filter(key => Object.prototype.hasOwnProperty.call(data || {}, key));
+export function legacyPrivateFields(data = {}, fields = OFFICIAL_PRIVATE_FIELDS) {
+    return fields.filter(key => Object.prototype.hasOwnProperty.call(data || {}, key));
+}
+
+// Judges (judges/{id}) are read by every competition role too; their contact
+// details and licence go to judgesPrivate/{id} like the officials'
+export const JUDGE_PRIVATE_FIELDS = Object.freeze([...OFFICIAL_PRIVATE_FIELDS, 'telephone', 'license', 'licence']);
+
+const JUDGE_PRIVATE_SET = new Set(JUDGE_PRIVATE_FIELDS);
+
+export function splitJudgeData(data = {}) {
+    const publicData = {};
+    const privateData = {};
+    Object.entries(data || {}).forEach(([key, value]) => {
+        if (value === undefined) return;
+        if (JUDGE_PRIVATE_SET.has(key)) {
+            privateData[key] = key === 'email' ? String(value || '').trim().toLowerCase() : value;
+        } else {
+            publicData[key] = value;
+        }
+    });
+    return { publicData, privateData };
 }

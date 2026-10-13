@@ -240,6 +240,7 @@ service cloud.firestore {
         || pathStr.matches(comp + 'judges($|/.*)')
         || pathStr.matches(comp + 'officials($|/.*)')
         || pathStr.matches(comp + 'officialsPrivate($|/.*)')
+        || pathStr.matches(comp + 'judgesPrivate($|/.*)')
         || pathStr.matches(comp + 'assignments($|/.*)')
         || pathStr.matches(comp + 'messages($|/.*)')
         || pathStr.matches(comp + 'documents($|/.*)')
@@ -547,6 +548,17 @@ service cloud.firestore {
     // Officials' contact details (phone, email, emergency contact, diet, notes):
     // admins, and each official their own (matched on the verified email)
     match /artifacts/{appId}/public/data/competitions/{compId}/officialsPrivate/{officialId} {
+      allow read: if request.auth != null
+        && (
+          canAdminThisArtifactsComp(appId, compId) ||
+          (hasVerifiedEmail() && resource.data.get('email', '') == request.auth.token.email.lower())
+        );
+      allow write, delete: if request.auth != null
+        && canAdminThisArtifactsComp(appId, compId);
+    }
+
+    // Judges' contact details and licence: as for officials
+    match /artifacts/{appId}/public/data/competitions/{compId}/judgesPrivate/{judgeId} {
       allow read: if request.auth != null
         && (
           canAdminThisArtifactsComp(appId, compId) ||

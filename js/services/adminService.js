@@ -1,6 +1,6 @@
 import { db, appId, functions, auth } from '../config/firebase-config.js';
 import { collection, doc, getDocs, setDoc, onSnapshot, query, where, deleteDoc, getDoc, updateDoc, writeBatch, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { OFFICIAL_PRIVATE_FIELDS, legacyPrivateFields, mergeOfficials, splitOfficialData } from './officialPrivacyUtils.js';
+import { JUDGE_PRIVATE_FIELDS, OFFICIAL_PRIVATE_FIELDS, legacyPrivateFields, mergeOfficials, splitJudgeData, splitOfficialData } from './officialPrivacyUtils.js';
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
@@ -98,11 +98,56 @@ export function listenForJudges(competitionId, callback) {
   }, buildSnapshotErrorHandler('listenForJudges', callback, []));
 }
 
+const getJudgesPrivateRef = (competitionId) => getCompCollectionRef(competitionId, 'judgesPrivate');
+
+// Contact details and licence in judgesPrivate (admins, and the judge their
+// own); name, roles and positions public to the competition's roles
 export async function saveJudge(competitionId, judgeId, data) {
   return trackWrite(`Sparar domare ${data.name || judgeId}`, (async () => {
-    const judgeRef = getCompDocRef(competitionId, 'judges', judgeId);
-    await setDoc(judgeRef, data);
+    const { publicData, privateData } = splitJudgeData(data || {});
+    const batch = writeBatch(db);
+    // Replaces the public document, which also removes contact fields stored there before
+    batch.set(getCompDocRef(competitionId, 'judges', judgeId), publicData);
+    if (Object.keys(privateData).length > 0) {
+      batch.set(doc(getJudgesPrivateRef(competitionId), judgeId), privateData, { merge: true });
+    }
+    await batch.commit();
   })());
+}
+
+// Judges' contact details that the user may read (admins: all; a judge: their own)
+async function loadJudgePrivateDocs(competitionId) {
+  const toList = (snap) => snap.docs.map(d => ({ ...d.data(), id: d.id }));
+  try {
+    return toList(await getDocs(query(getJudgesPrivateRef(competitionId))));
+  } catch (_) {
+    const email = normalizeEmail(auth?.currentUser?.email);
+    if (!email) return [];
+    try {
+      return toList(await getDocs(query(getJudgesPrivateRef(competitionId), where('email', '==', email))));
+    } catch (__) {
+      return [];
+    }
+  }
+}
+
+/** Moves judges' contact details left on the public documents to judgesPrivate (admin) */
+export async function migrateJudgesPrivacy(competitionId) {
+  if (!competitionId) return 0;
+  const snapshot = await getDocs(query(getCompCollectionRef(competitionId, 'judges')));
+  let moved = 0;
+  for (const docSnap of snapshot.docs) {
+    const data = docSnap.data() || {};
+    const legacy = legacyPrivateFields(data, JUDGE_PRIVATE_FIELDS);
+    if (!legacy.length) continue;
+    const { privateData } = splitJudgeData(Object.fromEntries(legacy.map(key => [key, data[key]])));
+    const batch = writeBatch(db);
+    batch.set(doc(getJudgesPrivateRef(competitionId), docSnap.id), privateData, { merge: true });
+    batch.update(docSnap.ref, Object.fromEntries(legacy.map(key => [key, deleteField()])));
+    await batch.commit();
+    moved += 1;
+  }
+  return moved;
 }
 
 export async function deleteJudge(competitionId, judgeId) {
@@ -168,8 +213,11 @@ export async function migrateOfficialsPrivacy(competitionId) {
 
 export async function getJudges(competitionId) {
   const judgesRef = getCompCollectionRef(competitionId, 'judges');
-  const snapshot = await getDocs(query(judgesRef));
-  return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+  const [snapshot, privateDocs] = await Promise.all([
+    getDocs(query(judgesRef)),
+    loadJudgePrivateDocs(competitionId)
+  ]);
+  return mergeOfficials(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })), privateDocs);
 }
 
 export async function saveOfficial(competitionId, data) {
