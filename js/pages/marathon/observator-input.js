@@ -13,6 +13,7 @@ import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { isFeiMarathonClass, wrongGaitIncidentPenalty } from '../../core-engine/marathon.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 
@@ -30,6 +31,8 @@ let comboActiveIndex = -1;
 let wrongGaitRunning = false;
 let wrongGaitStartTs = 0; // epoch s
 let wrongGaitAccum = 0;   // sekunder (ackumulerat)
+// Each start–stop is one incident: TR V 523.1 penalises per incident
+let wrongGaits = [];       // [{ atSec, durSec }]
 
 // Halt
 let haltRunning = false;
@@ -190,12 +193,16 @@ function summaryDocRef(sn) {
 
 async function readObserverLog(sn) {
   const snap = await getDoc(summaryDocRef(sn));
-  if (!snap.exists()) return { wrongGaitSeconds: 0, halts: [], notes: "" };
-  return snap.data().observerLog || { wrongGaitSeconds: 0, halts: [], notes: "" };
+  if (!snap.exists()) return { wrongGaitSeconds: 0, wrongGaits: [], halts: [], notes: "" };
+  return snap.data().observerLog || { wrongGaitSeconds: 0, wrongGaits: [], halts: [], notes: "" };
 }
 function normalizeObserverLog(log) {
   return {
     wrongGaitSeconds: Math.max(0, Math.round(toInt(log?.wrongGaitSeconds))),
+    wrongGaits: (Array.isArray(log?.wrongGaits) ? log.wrongGaits : []).map(w => ({
+      atSec: Math.max(0, Math.round(toInt(w?.atSec))),
+      durSec: Math.max(0, Math.round(toInt(w?.durSec)))
+    })),
     halts: (Array.isArray(log?.halts) ? log.halts : []).map(h => ({
       atSec: Math.max(0, Math.round(toInt(h?.atSec))),
       durSec: Math.max(0, Math.round(toInt(h?.durSec)))
@@ -209,7 +216,7 @@ function normalizeObserverLog(log) {
 // second observer's entries, or a log that could not be read (offline), are
 // never overwritten by this device's copy.
 const logBaselines = new Map();
-const emptyLog = () => ({ wrongGaitSeconds: 0, halts: [], notes: '' });
+const emptyLog = () => ({ wrongGaitSeconds: 0, wrongGaits: [], halts: [], notes: '' });
 const haltKey = (h) => `${h.atSec}:${h.durSec}`;
 
 function setLogBaseline(sn, log) {
@@ -239,10 +246,45 @@ async function writeObserverLog(sn, log) {
   if (removed.length) { batch.set(ref, { observerLog: { halts: arrayRemove(...removed) } }, { merge: true }); changed = true; }
   if (added.length) { batch.set(ref, { observerLog: { halts: arrayUnion(...added) }, updatedAt: serverTimestamp() }, { merge: true }); changed = true; }
 
+  const baseWg = new Set(base.wrongGaits.map(haltKey));
+  const nextWg = new Set(next.wrongGaits.map(haltKey));
+  const removedWg = base.wrongGaits.filter(w => !nextWg.has(haltKey(w)));
+  const addedWg = next.wrongGaits.filter(w => !baseWg.has(haltKey(w)));
+  if (removedWg.length) { batch.set(ref, { observerLog: { wrongGaits: arrayRemove(...removedWg) } }, { merge: true }); changed = true; }
+  if (addedWg.length) { batch.set(ref, { observerLog: { wrongGaits: arrayUnion(...addedWg) }, updatedAt: serverTimestamp() }, { merge: true }); changed = true; }
+
   if (!changed) return;
   // The baseline moves at once: the next save sends only what comes after this
   logBaselines.set(String(sn), next);
-  await batch.commit();
+  try {
+    await batch.commit();
+  } catch (err) {
+    // Refused by the server: what this batch sent is not stored, so the next
+    // save must send it again. Undo only this batch's change on the baseline
+    // as it is now: a newer save may already have moved it, and restoring
+    // the old baseline would then send that newer change twice (increment)
+    // or drop a still pending one.
+    const current = logBaselines.get(String(sn)) || emptyLog();
+    if (current === next) {
+      logBaselines.set(String(sn), base);
+    } else {
+      const without = (list, gone) => {
+        const keys = new Set(gone.map(haltKey));
+        return list.filter(item => !keys.has(haltKey(item)));
+      };
+      const withBack = (list, back) => {
+        const keys = new Set(list.map(haltKey));
+        return [...list, ...back.filter(item => !keys.has(haltKey(item)))];
+      };
+      logBaselines.set(String(sn), {
+        wrongGaitSeconds: current.wrongGaitSeconds - addedSeconds,
+        wrongGaits: withBack(without(current.wrongGaits, addedWg), removedWg),
+        halts: withBack(without(current.halts, added), removed),
+        notes: (next.notes !== base.notes && current.notes === next.notes) ? base.notes : current.notes
+      });
+    }
+    throw err;
+  }
 }
 
 // ---------- Combobox helpers ----------
@@ -327,8 +369,8 @@ async function onEquipageSelected(sn, container) {
   // it and save it there instead of dropping it
   if (previousSn && previousSn !== String(sn ?? '') && (haltRunning || wrongGaitRunning)) {
     if (haltRunning) halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) });
-    if (wrongGaitRunning) wrongGaitAccum += (nowSec() - wrongGaitStartTs);
-    const previousLog = { wrongGaitSeconds: wrongGaitAccum, halts: [...halts], notes: qs('#notesField', container)?.value ?? notes };
+    if (wrongGaitRunning) endWrongGaitIncident();
+    const previousLog = { wrongGaitSeconds: wrongGaitAccum, wrongGaits: [...wrongGaits], halts: [...halts], notes: qs('#notesField', container)?.value ?? notes };
     try { localStorage.removeItem(runningKey(previousSn)); } catch (_) { }
     awaitWriteOrQueue(writeObserverLog(previousSn, previousLog)).catch((e) => {
       console.error('Kunde inte spara observatörslogg vid byte:', e);
@@ -349,7 +391,7 @@ async function onEquipageSelected(sn, container) {
   if (stickyHeader) stickyHeader.classList.toggle('hidden', !currentSn);
 
   // nollställ lokalt
-  wrongGaitRunning = false; wrongGaitStartTs = 0; wrongGaitAccum = 0;
+  wrongGaitRunning = false; wrongGaitStartTs = 0; wrongGaitAccum = 0; wrongGaits = [];
   haltRunning = false; haltStartTs = 0; halts = [];
   notes = "";
 
@@ -368,6 +410,10 @@ async function onEquipageSelected(sn, container) {
     if (mySelection !== selectionSeq) return;
     setLogBaseline(currentSn, log);
     wrongGaitAccum = Math.max(0, toInt(log.wrongGaitSeconds));
+    wrongGaits = Array.isArray(log.wrongGaits) ? log.wrongGaits.map(w => ({
+      atSec: Math.max(0, toInt(w.atSec)),
+      durSec: Math.max(0, toInt(w.durSec))
+    })) : [];
     halts = Array.isArray(log.halts) ? log.halts.map(h => ({
       atSec: Math.max(0, toInt(h.atSec)),
       durSec: Math.max(0, toInt(h.durSec))
@@ -550,10 +596,11 @@ function render(container) {
                   <button id="btnWgStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">${t('observer_start')}</button>
                   <button id="btnWgStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">${t('observer_stop')}</button>
                 </div>
+                <div id="wgList" class="mt-3 space-y-1.5"></div>
                 
                 <!-- Manual Overlay -->
                 <div id="wgManual" class="manual-overlay hidden absolute inset-0 z-10 p-5 flex flex-col justify-center items-center">
-                   <h4 class="text-xs font-black uppercase text-gray-500 dark:text-gray-400 mb-2">${t('observer_change_time')}</h4>
+                   <h4 class="text-xs font-black uppercase text-gray-500 dark:text-gray-400 mb-2">${t('observer_add_wrong_gait')}</h4>
                    <input id="wgManualInput" class="w-full h-12 text-center text-xl font-bold bg-white dark:bg-gray-801 border-2 border-blue-500 rounded-xl mb-4 dark:text-white" placeholder="mm:ss" />
                    <div class="flex gap-2 w-full">
                       <button id="wgManualApply" class="flex-1 h-10 rounded-lg bg-blue-600 text-white font-bold">${t('observer_ok')}</button>
@@ -681,6 +728,7 @@ function updateWrongGaitUI(container) {
   const total = base + extra;
 
   el.textContent = fmtMMSS(total);
+  renderWrongGaits(container);
 
   if (wrongGaitRunning) {
     card?.classList.add('active-timer', 'border-emerald-500');
@@ -694,6 +742,33 @@ function updateWrongGaitUI(container) {
     el.classList.remove('text-emerald-600');
     if (stickyStatus && !haltRunning) stickyStatus.innerHTML = '';
   }
+}
+
+function endWrongGaitIncident() {
+  const durSec = Math.max(0, nowSec() - wrongGaitStartTs);
+  wrongGaits.push({ atSec: wrongGaitStartTs, durSec });
+  wrongGaitAccum += durSec;
+  wrongGaitRunning = false; wrongGaitStartTs = 0;
+}
+
+function renderWrongGaits(container) {
+  const list = qs('#wgList', container);
+  if (!list) return;
+  const className = findEquipageBySn(currentSn)?.className;
+  const fei = isFeiMarathonClass(className);
+  const earlierSec = Math.max(0, wrongGaitAccum - wrongGaits.reduce((sum, w) => sum + w.durSec, 0));
+  const row = (label, durSec, i) => `
+        <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 px-2.5 py-1.5 rounded-lg border dark:border-gray-800">
+          <div class="text-xs"><span class="font-bold text-gray-500 dark:text-gray-400">${escapeHtml(label)}</span>
+            <span class="font-bold tabular-nums text-gray-900 dark:text-white ml-1">${fmtMMSS(durSec)}</span>
+            <span class="text-gray-500 ml-1">→ ${wrongGaitIncidentPenalty(durSec, { fei })} p</span></div>
+          ${i == null ? '' : `<button class="btnDelWg w-7 h-7 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center" data-i="${i}" aria-label="${escapeHtml(t('observer_remove_wrong_gait_confirm'))}"><i class="fas fa-trash text-[10px]"></i></button>`}
+        </div>`;
+  const rows = wrongGaits.map((w, i) => row(t('observer_wrong_gait_n').replace('{n}', i + 1), w.durSec, i));
+  if (earlierSec > 0) rows.unshift(row(t('observer_wrong_gait_earlier'), earlierSec, null));
+  list.innerHTML = rows.length
+    ? rows.join('')
+    : `<div class="text-gray-400 text-[11px] italic text-center">${escapeHtml(t('observer_no_wrong_gaits_yet'))}</div>`;
 }
 
 function ensureTicker(container) {
@@ -768,6 +843,7 @@ function wire(container) {
       // showing "Sparar…" until the network returns
       const result = await awaitWriteOrQueue(writeObserverLog(currentSn, {
         wrongGaitSeconds: wrongGaitAccum,
+        wrongGaits,
         halts,
         notes: notesEl ? notesEl.value : notes
       }));
@@ -846,8 +922,7 @@ function wire(container) {
   });
   qs('#btnWgStop', container)?.addEventListener('click', () => {
     if (!currentSn || !wrongGaitRunning) return;
-    wrongGaitAccum += (nowSec() - wrongGaitStartTs);
-    wrongGaitRunning = false; wrongGaitStartTs = 0; persistRunning();
+    endWrongGaitIncident(); persistRunning();
     updateWrongGaitUI(container); autoSave();
   });
 
@@ -859,9 +934,27 @@ function wire(container) {
   qs('#wgManualApply', container)?.addEventListener('click', () => {
     const secs = parseMMSSorSeconds(wgInp?.value || '');
     if (secs == null) { alert(t('observer_invalid_format')); return; }
-    wrongGaitRunning = false; wrongGaitAccum = Math.max(0, Math.round(secs)); persistRunning();
+    if (wrongGaitRunning) endWrongGaitIncident();
+    const durSec = Math.max(0, Math.round(secs));
+    if (durSec > 0) { wrongGaits.push({ atSec: nowSec(), durSec }); wrongGaitAccum += durSec; }
+    persistRunning();
+    if (wgInp) wgInp.value = '';
     updateWrongGaitUI(container); wgWrap?.classList.add('hidden'); autoSave();
   });
+
+  const wgList = qs('#wgList', container);
+  if (wgList && !wgList._bound) {
+    wgList._bound = true;
+    wgList.addEventListener('click', (e) => {
+      const delBtn = e.target.closest('.btnDelWg');
+      if (!delBtn) return;
+      const i = +delBtn.dataset.i;
+      if (!wrongGaits[i] || !confirm(t('observer_remove_wrong_gait_confirm'))) return;
+      wrongGaitAccum = Math.max(0, wrongGaitAccum - wrongGaits[i].durSec);
+      wrongGaits.splice(i, 1);
+      updateWrongGaitUI(container); autoSave();
+    });
+  }
 
   qs('#btnHaltStart', container)?.addEventListener('click', () => {
     if (!currentSn || haltRunning) return;
@@ -920,7 +1013,7 @@ function wire(container) {
   btnSave?.addEventListener('click', async () => {
     if (!currentSn) return;
     if (haltRunning) { halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) }); haltRunning = false; }
-    if (wrongGaitRunning) { wrongGaitAccum += (nowSec() - wrongGaitStartTs); wrongGaitRunning = false; }
+    if (wrongGaitRunning) endWrongGaitIncident();
     updateWrongGaitUI(container); renderHalts(container); await autoSave();
   });
 }

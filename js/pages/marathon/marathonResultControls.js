@@ -17,7 +17,8 @@ export function wireMarathonResultControls({
   timingDocFor,
   startTimeFor,
   fmtClock,
-  sortState
+  sortState,
+  calculateResult
 }) {
   const btnOnB = document.getElementById('marToggleOnB');
   if (btnOnB) btnOnB.onclick = () => { toggleOnB(); render(); };
@@ -78,7 +79,8 @@ export function wireMarathonResultControls({
     buildPlacementsByClass,
     timingDocFor,
     startTimeFor,
-    fmtClock
+    fmtClock,
+    calculateResult
   });
 
   const table = document.getElementById('marathonTable');

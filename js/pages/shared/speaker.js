@@ -2,6 +2,7 @@
 // En specialanpassad vy för speaker med fokus på talarstöd (noteringar, kommande, resultat).
 
 import { getGlobalState } from '../../main.js';
+import { loadArchiveSnapshot } from './archivedResults.js';
 import { openDetails as showDressageDetailsModal } from '../../ui/dressageModal.js';
 import { showDetailsModal as showPrecisionDetailsModal } from '../../ui/precisionModal.js';
 import { getEquipages } from '../../services/equipageService.js';
@@ -100,6 +101,7 @@ let allEquipages = [];
 let startTimes = {};
 let allJudges = [];
 let mergedPrograms = {};
+let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 
 // Data-cachar (Dressyr)
 const dressageStatusMap = new Map();
@@ -236,7 +238,9 @@ function getSpeakerResultContext() {
         maratonStatusMap,
         precisionConfig,
         precisionStatusMap,
-        startTimes
+        startTimes,
+        // Archived: standings from the values it was archived with
+        archiveSnapshot
     };
 }
 
@@ -1964,16 +1968,19 @@ export async function load() {
 
     let equipagesRaw; // Define outside try/catch for use in verify
     try {
-        let startTimesData, precisionConfigRaw, programsRaw, mappingCfg, judgesRaw, maratonConfigRaw;
-        [equipagesRaw, startTimesData, precisionConfigRaw, programsRaw, mappingCfg, judgesRaw, maratonConfigRaw] = await Promise.all([
+        let startTimesData, precisionConfigRaw, programsRaw, mappingCfg, judgesRaw, maratonConfigRaw, snapshot;
+        [equipagesRaw, startTimesData, precisionConfigRaw, programsRaw, mappingCfg, judgesRaw, maratonConfigRaw, snapshot] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'startTimes').catch(() => ({})),
             getConfig(competitionId, 'precisionConfig').catch(() => ({})),
             getConfig(competitionId, 'dressagePrograms').catch(() => ({})),
             getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
             getJudges(competitionId).catch(() => []),
-            getConfig(competitionId, 'maratonConfig').catch(() => null)
+            getConfig(competitionId, 'maratonConfig').catch(() => null),
+            // An archived competition shows the results it was archived with
+            loadArchiveSnapshot(comp)
         ]);
+        archiveSnapshot = snapshot;
 
         if (maratonConfigRaw) {
             setMarathonConfig(maratonConfigRaw);
@@ -2053,6 +2060,7 @@ export function __unload() {
 
     unsubscribes.forEach(u => u());
     unsubscribes = [];
+    archiveSnapshot = null;
     currentRider = null;
     dressageStatusMap.clear();
     liveProtocolMap.clear();

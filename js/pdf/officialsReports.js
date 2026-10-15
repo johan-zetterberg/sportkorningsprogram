@@ -13,7 +13,7 @@ export async function generateOfficialsPdf(type, competition, officials, assignm
 
     let filename = 'rapport.pdf';
 
-    const sorted = [...officials].sort((a, b) => a.name.localeCompare(b.name));
+    const sorted = [...(officials || [])].sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || ''), 'sv'));
 
     if (type === 'phone') {
         doc.text(`Telefonlista - ${competition.name}`, 14, 20);

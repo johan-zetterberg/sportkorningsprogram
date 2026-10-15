@@ -628,8 +628,12 @@ window.reports_generateMarathonPdf = function () {
         obstaclesMap: marathonObsMap
     });
 
-    // Sort
+    // Sort by class first so class headers in generateMarathonListPdf do not interleave
     printableList.sort((a, b) => {
+        const clsA = a._mergedLabel || a.className || '';
+        const clsB = b._mergedLabel || b.className || '';
+        const clsCmp = clsA.localeCompare(clsB, 'sv');
+        if (clsCmp !== 0) return clsCmp;
         const pa = a.place ?? 9999;
         const pb = b.place ?? 9999;
         if (pa !== pb) return pa - pb;
@@ -754,8 +758,12 @@ window.reports_generateTotalCsv = function () {
     if (!filteredRows || !filteredRows.length) { alert('Inga resultat matchar urvalet.'); return; }
     const headers = ['Placering', 'StartNr', 'Kusk', 'Klass', 'Häst', 'Dressyr', 'Maraton', 'Precision', 'Totalt'];
     const rows = filteredRows.map((r, idx) => {
+        const placeVal = r.isEliminated || r.totalPenalty == null
+            ? ''
+            // The list position would not be the place in the class: none instead
+            : (r.plac ?? '');
         return [
-            r.isEliminated || r.totalPenalty == null ? '' : idx + 1,
+            placeVal,
             r.startNumber,
             r.driverName,
             getReportDisplayClass(r),

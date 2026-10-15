@@ -3,6 +3,8 @@ import { getCompetitionById } from './competitionService.js';
 import { getPageUnloadFunction, isStaleNavigation } from './navigationLifecycleUtils.js';
 
 let __currentPageModule = null; // spåra aktiv modul
+// The module the newest navigation loaded (see the stale-load check in navigateTo)
+let __latestLoadedModule = null;
 let __navigationId = 0;
 
 const pagePermissions = {
@@ -203,7 +205,7 @@ export async function navigateTo(hash) {
   // Viktigt: städa föregående sida innan vi laddar nästa.
   try {
     const unload = getPageUnloadFunction(__currentPageModule);
-    if (unload) unload();
+    if (unload) await unload();
   } catch (e) {
     console.warn('Kunde inte städa föregående sida:', e);
   }
@@ -224,14 +226,21 @@ export async function navigateTo(hash) {
     try {
       pageModule = await loader();
       if (isStaleNavigation(navigationId, __navigationId)) return;
+      __latestLoadedModule = pageModule;
 
       if (pageModule && typeof pageModule.load === 'function') {
         const pageElement = document.getElementById(pageId);
         await pageModule.load(pageElement);
 
         if (isStaleNavigation(navigationId, __navigationId)) {
-          const unload = getPageUnloadFunction(pageModule);
-          if (unload) unload();
+          // A newer navigation loaded the same page module (e.g. the same
+          // page with another id): unloading the shared module now would
+          // remove that page's listeners. The page itself ignores a
+          // superseded load (see maraton-input.js loadSeq).
+          if (pageModule !== __latestLoadedModule) {
+            const unload = getPageUnloadFunction(pageModule);
+            if (unload) await unload();
+          }
           return;
         }
 
@@ -245,7 +254,7 @@ export async function navigateTo(hash) {
       console.error(`Kunde inte ladda modulen för sidan '${pageKey}':`, error);
       // A load that failed halfway may already have started listeners and
       // timers; nothing else would stop them (the module never became current)
-      try { getPageUnloadFunction(pageModule)?.(); } catch (unloadError) {
+      try { await getPageUnloadFunction(pageModule)?.(); } catch (unloadError) {
         console.warn(`Kunde inte städa sidan '${pageKey}' efter laddningsfel:`, unloadError);
       }
       const pageElement = document.getElementById(pageId);

@@ -85,7 +85,7 @@ export async function renderClubs(container, competitionId, equipages = []) {
                     </div>
                 </div>
                 <div>
-                    <input type="file" id="file-${btoa(encodeURIComponent(club))}" class="hidden" accept="image/*">
+                    <input type="file" id="file-${btoa(encodeURIComponent(club))}" class="hidden" accept="image/png,image/jpeg,image/webp">
                     <button class="btn-upload px-3 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 rounded text-xs font-semibold transition-colors" 
                             data-club="${escapeHtml(club)}"
                             onclick="document.getElementById('file-${btoa(encodeURIComponent(club))}').click()">
@@ -118,9 +118,11 @@ export async function renderClubs(container, competitionId, equipages = []) {
             const btn = document.querySelector(`button[data-club="${CSS.escape(club)}"]`);
             const box = document.getElementById(`img-${id}`)?.parentElement || document.getElementById(`placeholder-${id}`)?.parentElement;
 
-            const originalText = btn.textContent;
-            btn.textContent = 'Uppladdar...';
-            btn.disabled = true;
+            const originalText = btn?.textContent || 'Ladda upp';
+            if (btn) {
+                btn.textContent = 'Uppladdar...';
+                btn.disabled = true;
+            }
 
             try {
                 // Upload
@@ -134,9 +136,13 @@ export async function renderClubs(container, competitionId, equipages = []) {
 
                 let saveFailed = false;
 
-                // Save link to Global Firestore
+                // Global admins save the link for every competition; a
+                // competition admin may only write this competition's config
+                const role = getGlobalState('currentUser')?.role;
+                const savesGlobally = role === 'admin' || role === 'superadmin';
                 try {
-                    await saveGlobalLogo(club, url);
+                    if (savesGlobally) await saveGlobalLogo(club, url);
+                    else await saveCompetitionLogo(competitionId, club, url);
                 } catch (firestoreErr) {
                     saveFailed = true;
                     console.error('FIRESTORE SAVE ERROR:', firestoreErr);
@@ -144,33 +150,36 @@ export async function renderClubs(container, competitionId, equipages = []) {
                     showAlert('Loggan uppladdad men spara länk misslyckades: ' + firestoreErr.message + ' (' + firestoreErr.code + ')', false);
                 }
 
-                // Update UI immediately (Optimistic update handled by saveCompetitionLogo -> logosService local cache, but we need to update DOM image)
-                updateClubLogo(club, url); // Ensure local cache is definitely updated for immediate use
-
-                // Refresh Image
-                const imgContainer = box;
-                imgContainer.replaceChildren();
-                const img = document.createElement('img');
-                img.src = url;
-                img.alt = `Logga för ${club}`;
-                img.className = 'max-w-full max-h-full object-contain';
-                imgContainer.appendChild(img);
-
                 if (!saveFailed) {
+                    // Update UI and local cache only when Firestore save succeeded
+                    updateClubLogo(club, url);
+
+                    const imgContainer = box;
+                    if (imgContainer) {
+                        imgContainer.replaceChildren();
+                        const img = document.createElement('img');
+                        img.src = url;
+                        img.alt = `Logga för ${club}`;
+                        img.className = 'max-w-full max-h-full object-contain';
+                        imgContainer.appendChild(img);
+                    }
+
                     const statusText = document.getElementById(`status-text-${id}`);
                     if (statusText) {
-                        statusText.textContent = 'Logga laddad (Globalt!)';
+                        statusText.textContent = savesGlobally ? 'Logga laddad (alla tävlingar)' : 'Logga laddad';
                         statusText.className = 'text-xs text-green-600 dark:text-green-400 font-bold';
                     }
-                    showAlert(`Logga för ${club} uppladdad globalt!`, true);
+                    showAlert(savesGlobally ? `Logga för ${club} uppladdad för alla tävlingar!` : `Logga för ${club} uppladdad!`, true);
                 }
 
             } catch (err) {
                 console.error(err);
                 showAlert('Fel vid uppladdning: ' + err.message, false);
             } finally {
-                btn.textContent = originalText;
-                btn.disabled = false;
+                if (btn) {
+                    btn.textContent = originalText;
+                    btn.disabled = false;
+                }
                 fileInput.value = ''; // Reset
             }
         });

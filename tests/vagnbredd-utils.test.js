@@ -8,6 +8,8 @@ import {
   parseWidthValue,
   resolveVagnRuleRow,
   getDressageRule,
+  getMarathonRule,
+  getRuleWarning,
   getCarriageCompliance,
   saveCarriageToRegistry,
   lookupSavedCarriage,
@@ -79,6 +81,35 @@ test('resolveVagnRuleRow resolves correct TR Bilaga 2 row per discipline and cat
   const rowPonyA = resolveVagnRuleRow(ponyA);
   assert.equal(rowPonyA.label, 'A-ponny enbet/tandem');
   assert.equal(getDressageRule(rowPonyA, 'Svår A-ponny').kind, 'forbidden');
+
+  const ponyByHeight = { className: 'FEI 3* Enbet Ponny', heightCm: 105 };
+  assert.equal(resolveVagnRuleRow(ponyByHeight).label, 'A-ponny enbet/tandem');
+
+  const lcHorse = { className: 'Lätt C Enbet Häst' };
+  assert.equal(getDressageRule(resolveVagnRuleRow(lcHorse), lcHorse.className).kind, 'free');
+
+  const fei3Horse = { className: 'FEI 3* Par Häst' };
+  assert.equal(getDressageRule(resolveVagnRuleRow(fei3Horse), fei3Horse.className).value, 148);
+});
+
+test('FEI classes follow FEI 937, not TR Bilaga 2', () => {
+  // CAI1* too: 138 cm for a horse single (TR Lätt A/Msv would allow 125)
+  const fei1 = { className: 'FEI 1* Enbet Häst' };
+  assert.equal(getDressageRule(resolveVagnRuleRow(fei1), fei1.className).value, 138);
+  assert.equal(getDressageRule(resolveVagnRuleRow({ className: 'CAI1* Fyrspann Häst' }), 'CAI1* Fyrspann Häst').value, 158);
+  // No FEI ban on A-ponies
+  const feiPonyA = { className: 'FEI 2* Enbet Ponny', heightCm: 105 };
+  const rule = getDressageRule(resolveVagnRuleRow(feiPonyA), feiPonyA.className);
+  assert.equal(rule.kind, 'min');
+  assert.equal(rule.value, 138);
+  // Marathon 125 cm in every FEI class
+  assert.equal(getMarathonRule(resolveVagnRuleRow(fei1), fei1.className).value, 125);
+  // FEI Children: no widths in the FEI Driving Rules, no Swedish rule either
+  assert.equal(getDressageRule(resolveVagnRuleRow({ className: 'FEI Children Ponny' }), 'FEI Children Ponny'), null);
+  // The warning names the rule it comes from
+  const narrow = getCarriageCompliance({ className: 'FEI 2* Par Häst', trackWidth: 140 }, 'dressagePrecision');
+  assert.equal(narrow.compliant, false);
+  assert.match(getRuleWarning(140, getDressageRule(resolveVagnRuleRow({ className: 'FEI 2* Par Häst' }), 'FEI 2* Par Häst'), 'Vagnen'), /FEI 937/);
 });
 
 test('getCarriageCompliance evaluates track width and flags narrow carriages', () => {

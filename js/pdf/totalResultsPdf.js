@@ -96,8 +96,10 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             lastClass = displayClass;
         }
 
-        const horseLabel = r.horseName || '';
-        const driverCell = `${r.driverName || ''}\n${horseLabel}`;
+        const horseLabel = r.horseName
+            || (Array.isArray(r.horses) ? r.horses.map((h => (typeof h === 'string' ? h : (h?.name || h?.namn || h?.horseName || '')))).filter(Boolean).join(', ') : '')
+            || '';
+        const driverCell = horseLabel ? `${r.driverName || ''}\n${horseLabel}` : `${r.driverName || ''}`;
 
         body.push([
             r.plac || '—',
@@ -133,7 +135,9 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
         margin: { left: mx, right: mx },
         didDrawCell: (data) => {
             if (data.section === 'body' && data.column.index === 4 && data.cell.raw && typeof data.cell.raw !== 'object') {
-                const rowData = rows.find(r => r.clubName === data.cell.text[0] && r.driverName === body[data.row.index][2].split('\n')[0]);
+                const rawDriverCell = body[data.row.index]?.[2];
+                const driverNameLine = typeof rawDriverCell === 'string' ? rawDriverCell.split('\n')[0] : '';
+                const rowData = rows.find(r => r.clubName === data.cell.text[0] && r.driverName === driverNameLine);
                 if (!rowData) return;
 
                 const cc = normalizeCountryCode(rowData.country || 'se');

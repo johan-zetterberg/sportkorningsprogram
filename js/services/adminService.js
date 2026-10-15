@@ -153,7 +153,11 @@ export async function migrateJudgesPrivacy(competitionId) {
 export async function deleteJudge(competitionId, judgeId) {
   return trackWrite(`Tar bort domare ${judgeId}`, (async () => {
     const judgeRef = getCompDocRef(competitionId, 'judges', judgeId);
-    await deleteDoc(judgeRef);
+    const privateRef = doc(getJudgesPrivateRef(competitionId), judgeId);
+    const batch = writeBatch(db);
+    batch.delete(judgeRef);
+    batch.delete(privateRef);
+    await batch.commit();
   })());
 }
 

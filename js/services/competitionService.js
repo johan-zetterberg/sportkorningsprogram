@@ -1,6 +1,6 @@
 import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
-import { collection, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, query, orderBy, limit, addDoc, serverTimestamp, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, query, where, orderBy, limit, addDoc, serverTimestamp, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompDocRef, getCompCollectionRef } from './firestoreService.js';
 import { auth } from '../config/firebase-config.js';
 import { getExpectedDressageJudgePositions, isDressageReadyToFinalize } from './competitionStatusService.js';
@@ -21,6 +21,8 @@ export async function createCompetition(data) {
     competitionMode,
     createdAt: serverTimestamp(),
     createdBy: user ? user.uid : null,
+    admins: [],
+    staffUids: [],
     published: false, // Default to unpublished (Draft)
     ruleSettings: {
       marathonObstaclePenaltyRate: 0.25,
@@ -70,7 +72,7 @@ export async function createCompetition(data) {
             if (snap.empty) return;
 
             const destColPath = `artifacts/${appId}/public/data/competitions/${newId}/${colName}`;
-            const batch = writeBatch(db);
+            let batch = writeBatch(db);
 
             let count = 0;
             for (const d of snap.docs) {
@@ -79,6 +81,7 @@ export async function createCompetition(data) {
               count++;
               if (count >= 490) { 
                 await batch.commit();
+                batch = writeBatch(db);
                 count = 0;
               }
             }
@@ -102,13 +105,146 @@ export async function createCompetition(data) {
   })());
 }
 
-export function listenForCompetitions(callback) {
+// As the rules decide it (getUserRole() reads the role field; superadmin also
+// the roles list): roles may hold competition roles, which give no global list
+export function isGlobalCompetitionAdmin(user) {
+  const roles = Array.isArray(user?.roles) ? user.roles : [];
+  return user?.role === 'admin' || user?.role === 'superadmin' || roles.includes('superadmin');
+}
+
+function getCachedCompetitionIdsForUser(uid) {
+  const ids = new Set();
+  try {
+    const lastId = localStorage.getItem('lastCompetitionId');
+    if (lastId) ids.add(lastId);
+    if (uid) {
+      // rememberRoles('comp|<compId>|<uid>|<email>') in main.js
+      const prefix = 'roleCache:comp|';
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key || !key.startsWith(prefix)) continue;
+        const [compId, keyUid] = key.slice(prefix.length).split('|');
+        if (!compId || keyUid !== uid) continue;
+        let roles = null;
+        try { roles = JSON.parse(localStorage.getItem(key) || 'null'); } catch { roles = null; }
+        if (Array.isArray(roles) && roles.length) ids.add(compId);
+      }
+    }
+  } catch { /* ignore storage errors */ }
+  return ids;
+}
+
+function extractCompetitionIdFromStaffDocPath(path = '') {
+  const segments = String(path || '').split('/');
+  const compIdx = segments.indexOf('competitions');
+  if (compIdx !== -1 && segments[compIdx + 1]) {
+    return segments[compIdx + 1];
+  }
+  return null;
+}
+
+/**
+ * Drafts (published: false) are readable only by their staff, so a list query
+ * must say which competitions it asks for: global admins list everything; others
+ * get the published ones plus the drafts they created, administer, or have staff roles in.
+ */
+export function listenForCompetitions(callback, max = 50, user = null) {
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions`);
-  const q = query(colRef, orderBy('createdAt', 'desc'), limit(50));
-  return onSnapshot(q, (snap) => {
-    const items = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const uid = user?.uid || null;
+  const email = typeof user?.email === 'string' ? user.email.trim().toLowerCase() : '';
+  const isGlobalAdmin = isGlobalCompetitionAdmin(user);
+  const scopedQueries = () => ({
+    published: query(colRef, where('published', '==', true), orderBy('createdAt', 'desc'), limit(max)),
+    ...(uid ? {
+      created: query(colRef, where('createdBy', '==', uid)),
+      administered: query(colRef, where('admins', 'array-contains', uid)),
+      staff: query(colRef, where('staffUids', 'array-contains', uid))
+    } : {})
+  });
+  const queries = isGlobalAdmin
+    ? { all: query(colRef, orderBy('createdAt', 'desc'), limit(max)) }
+    : scopedQueries();
+
+  const parts = {};
+  // The list is shown once every query has answered (or failed): showing the
+  // first answer alone flickered a partial list
+  const awaiting = new Set(Object.keys(queries));
+  const emit = () => {
+    if (awaiting.size) return;
+    const byId = new Map();
+    Object.values(parts).flat().forEach(item => {
+      if (item && item.id) byId.set(item.id, item);
+    });
+    const items = [...byId.values()].sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
     callback(items);
-  }, buildSnapshotErrorHandler('listenForCompetitions', callback, []));
+  };
+  const unsubs = [];
+  const docListeners = new Map();
+
+  const listenCompetitionDoc = (compId) => {
+    if (!compId || docListeners.has(compId)) return;
+    const key = `doc:${compId}`;
+    const unsub = onSnapshot(doc(colRef, compId), (snap) => {
+      parts[key] = snap.exists() ? [{ id: snap.id, ...snap.data() }] : [];
+      emit();
+    }, () => {
+      parts[key] = [];
+      emit();
+    });
+    docListeners.set(compId, unsub);
+    unsubs.push(unsub);
+  };
+
+  const listen = (key, q) => unsubs.push(onSnapshot(q, (snap) => {
+    parts[key] = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    awaiting.delete(key);
+    emit();
+  }, (err) => {
+    // The published query needs a composite index (published + createdAt);
+    // while it is still being built, list without the order (sorted above)
+    if (key === 'published' && err?.code === 'failed-precondition') {
+      listen(key, query(colRef, where('published', '==', true), limit(max)));
+      return;
+    }
+    // The whole list refused (the role in the app and in the rules differ):
+    // list what this user may see instead of nothing
+    if (key === 'all' && err?.code === 'permission-denied') {
+      awaiting.delete(key);
+      Object.entries(scopedQueries()).forEach(([k, scoped]) => { awaiting.add(k); listen(k, scoped); });
+      return;
+    }
+    // One refused or failing query must not empty the others
+    console.warn(`[listenForCompetitions:${key}]`, err?.code || err);
+    parts[key] = [];
+    awaiting.delete(key);
+    emit();
+  }));
+  Object.entries(queries).forEach(([key, q]) => listen(key, q));
+
+  if (!isGlobalAdmin && uid) {
+    getCachedCompetitionIdsForUser(uid).forEach(compId => listenCompetitionDoc(compId));
+
+    if (email) {
+      const watchStaffCollectionGroup = (groupName) => {
+        try {
+          const cgQuery = query(collectionGroup(db, groupName), where('email', '==', email));
+          unsubs.push(onSnapshot(cgQuery, (snap) => {
+            snap.docs.forEach(d => {
+              const compId = extractCompetitionIdFromStaffDocPath(d.ref.path);
+              if (compId) listenCompetitionDoc(compId);
+            });
+          }, (err) => {
+            // Needs the collection-group index on email (firestore.indexes.json)
+            console.warn(`[listenForCompetitions:${groupName}]`, err?.code || err);
+          }));
+        } catch { /* ignore */ }
+      };
+      watchStaffCollectionGroup('roleEmails');
+      watchStaffCollectionGroup('admins');
+    }
+  }
+
+  return () => unsubs.forEach(unsub => unsub());
 }
 
 export async function getCompetitionById(competitionId) {

@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildVetDatalistOptions,
   deriveVetStatusFromHorses,
+  hasVetStruckHorse,
   filterVetEquipages,
   getHorsePhaseInspection,
   getViloboxBadgeInfo,
@@ -151,5 +152,36 @@ test('getViloboxBadgeInfo derives clean status and badge styling', () => {
   };
   assert.equal(getViloboxBadgeInfo(unfitEq).status, 'unfit');
   assert.equal(getViloboxBadgeInfo(unfitEq).label, 'Startförbud B');
+
+  const uninspectedRestAreaEq = {
+    status: 'besiktigad',
+    horses: [
+      { id: '1', vetStatus: 'besiktigad', inspections: { initial: { status: 'besiktigad' } } }
+    ]
+  };
+  assert.equal(getViloboxBadgeInfo(uninspectedRestAreaEq).status, 'waiting');
+  assert.equal(getViloboxBadgeInfo(uninspectedRestAreaEq).label, 'Väntar');
 });
+
+test('deriveVetStatusFromHorses preserves secretariat scratch in initial phase and isolates non-initial phases', () => {
+  const horses = [{ name: 'A', vetStatus: 'besiktigad' }];
+  assert.equal(deriveVetStatusFromHorses(horses, 'struken', 'initial'), 'struken');
+  assert.equal(deriveVetStatusFromHorses(horses, 'besiktigad', 'harness'), 'anmäld');
+  // A withdrawn equipage stays withdrawn in the later phases too (not queued there)
+  assert.equal(deriveVetStatusFromHorses(horses, 'struken', 'restArea'), 'struken');
+});
+
+test('the vet can undo their own strike; a withdrawal by the secretariat stays', () => {
+  const struckByVet = [{ name: 'A', vetStatus: 'struken' }];
+  const approvedAgain = [{ name: 'A', vetStatus: 'besiktigad' }];
+  // The vet struck the horse (status 'struken' came from the vet), then approved it
+  assert.equal(hasVetStruckHorse(struckByVet), true);
+  assert.equal(deriveVetStatusFromHorses(approvedAgain, 'struken', 'initial', { keepWithdrawn: !hasVetStruckHorse(struckByVet) }), 'besiktigad');
+  // Partly inspected after the undo: not struck
+  assert.equal(deriveVetStatusFromHorses([{ name: 'A', vetStatus: 'besiktigad' }, { name: 'B' }], 'struken', 'initial', { keepWithdrawn: false }), 'anmäld');
+  // Withdrawn by the secretariat (no horse struck): stays withdrawn
+  assert.equal(hasVetStruckHorse(approvedAgain), false);
+  assert.equal(deriveVetStatusFromHorses(approvedAgain, 'struken', 'initial', { keepWithdrawn: !hasVetStruckHorse(approvedAgain) }), 'struken');
+});
+
 

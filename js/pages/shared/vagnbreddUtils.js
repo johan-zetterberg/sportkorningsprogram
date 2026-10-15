@@ -53,64 +53,66 @@ export function buildVagnbreddSavePayload({
 }
 
 export const RULE_FREE = { kind: 'free', label: 'Fri' };
-export const ruleMin = (value) => ({ kind: 'min', value, label: `Minst ${value} cm` });
+export const ruleMin = (value, source = 'TR') => ({ kind: 'min', value, source, label: `Minst ${value} cm` });
+// FEI 937.3 (dressage and cones) and 937.4 (marathon): the same for every CAI
+const feiMin = (value) => ruleMin(value, 'FEI 937');
 export const RULE_FORBIDDEN = { kind: 'forbidden', label: 'Ej tillåten enligt bilaga 2' };
 
 export const VAGN_RULE_ROWS = {
   horse_enbet_tandem: {
     label: 'Häst enbet/tandem',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   horse_par: {
     label: 'Häst par',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(148) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(148), fei: feiMin(148) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   horse_fyrspann: {
     label: 'Häst fyrspann',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(158) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(158), fei: feiMin(158) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_a_enbet_tandem: {
     label: 'A-ponny enbet/tandem',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: RULE_FORBIDDEN },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: RULE_FORBIDDEN, fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_bc_enbet_tandem: {
     label: 'B/C/D-ponny enbet/tandem',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_a_par: {
     label: 'A-ponny par',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_a_fyrspann: {
     label: 'A-ponny fyrspann',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_b_par: {
     label: 'B-ponny par',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_b_fyrspann: {
     label: 'B-ponny fyrspann',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_cd_par: {
     label: 'C/D-ponny par',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   },
   pony_cd_fyrspann: {
     label: 'C/D-ponny fyrspann',
-    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138) },
-    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125) }
+    dressagePrecision: { lb: RULE_FREE, laMsv: ruleMin(125), svar: ruleMin(138), fei: feiMin(138) },
+    marathon: { lb: RULE_FREE, laMsvSvar: ruleMin(125), fei: feiMin(125) }
   }
 };
 
@@ -123,12 +125,34 @@ export function normalizeText(value) {
 
 export function inferPonyCategory(equipage) {
   const horseTypes = (Array.isArray(equipage?.horses) ? equipage.horses : [])
-    .map(horse => normalizeText(horse?.type))
+    .map(horse => normalizeText(horse?.type || horse?.category))
     .filter(Boolean);
 
-  if (horseTypes.some(type => type.includes('a-ponny'))) return 'a';
-  if (horseTypes.some(type => type.includes('b-ponny'))) return 'b';
-  if (horseTypes.some(type => type.includes('c-ponny') || type.includes('d-ponny'))) return 'cd';
+  if (horseTypes.some(type => type.includes('a-ponny') || type === 'a' || type === 'ponya')) return 'a';
+  if (horseTypes.some(type => type.includes('b-ponny') || type === 'b' || type === 'ponyb')) return 'b';
+  if (horseTypes.some(type => type.includes('c-ponny') || type.includes('d-ponny') || type === 'c' || type === 'd' || type === 'ponycd')) return 'cd';
+
+  const cat = normalizeText(equipage?.category || equipage?.ponyCategory || '');
+  if (cat === 'a' || cat === 'ponya' || cat.includes('a-ponny') || cat.includes('kat a') || cat.includes('kat. a')) return 'a';
+  if (cat === 'b' || cat === 'ponyb' || cat.includes('b-ponny') || cat.includes('kat b') || cat.includes('kat. b')) return 'b';
+  if (cat === 'c' || cat === 'd' || cat === 'cd' || cat === 'ponycd' || cat.includes('c-ponny') || cat.includes('d-ponny') || cat.includes('kat c') || cat.includes('kat d')) return 'cd';
+
+  const heights = [
+    equipage?.heightCm,
+    equipage?.horseHeightCm,
+    equipage?.withersHeightCm,
+    ...(Array.isArray(equipage?.horses) ? equipage.horses.flatMap(h => [h?.heightCm, h?.withersHeightCm, h?.height]) : [])
+  ]
+    .map(v => parseFloat(String(v ?? '').replace(',', '.')))
+    .filter(n => Number.isFinite(n) && n > 0)
+    .map(n => (n < 3 ? Math.round(n * 100) : n));
+
+  if (heights.length > 0) {
+    const maxH = Math.max(...heights);
+    if (maxH <= 107) return 'a';
+    if (maxH <= 130) return 'b';
+    if (maxH <= 148) return 'cd';
+  }
 
   const cls = normalizeText(equipage?.className || '');
   if (cls.includes('a-ponny') || cls.includes('kat a') || cls.includes('kat. a')) return 'a';
@@ -144,7 +168,19 @@ export function resolveVagnRuleRow(equipage) {
   const hitch = cls.includes('fyrspann')
     ? 'fyrspann'
     : (cls.includes('par') ? 'par' : 'enbet_tandem');
-  const species = cls.includes('ponny') ? 'pony' : (cls.includes('hast') ? 'horse' : null);
+
+  const cat = normalizeText(equipage?.category || '');
+  let species = cls.includes('ponny') || cls.includes('pony')
+    ? 'pony'
+    : (cls.includes('hast') || cls.includes('horse') ? 'horse' : null);
+
+  if (!species) {
+    if (cat === 'horse' || cat.includes('hast')) {
+      species = 'horse';
+    } else if (inferPonyCategory(equipage)) {
+      species = 'pony';
+    }
+  }
   if (!species) return null;
 
   if (species === 'horse') {
@@ -176,9 +212,39 @@ export function resolveVagnRuleRow(equipage) {
 export function getLevelBucket(className) {
   const cls = normalizeText(className);
   if (!cls) return null;
-  if (cls.includes('latt b')) return 'lb';
-  if (cls.includes('latt a') || cls.includes('msv') || cls.includes('medelsvar')) return 'laMsv';
-  if (cls.includes('svar')) return 'svar';
+  // FEI classes follow FEI 937, not TR Bilaga 2. FEI Children has no widths in
+  // the FEI Driving Rules: no check (null) rather than a Swedish one.
+  if (cls.includes('children')) return null;
+  if (/\b(fei|cai)\s*[123]\s*\*/.test(cls) || /\b(fei|cai)[123]\b/.test(cls)
+    || (/\b(fei|cai)\b/.test(cls) && /junior|u25|young/.test(cls))) {
+    return 'fei';
+  }
+  if (cls.includes('latt c') || cls.includes('latt b') || /\b(lc|lb)\b/.test(cls)) return 'lb';
+  if (
+    cls.includes('latt a')
+    || /\bla\b/.test(cls)
+    || cls.includes('msv')
+    || cls.includes('medelsvar')
+    || cls.includes('fei 1*')
+    || cls.includes('cai 1*')
+    || cls.includes('cai1*')
+    || cls.includes('children')
+  ) {
+    return 'laMsv';
+  }
+  if (
+    cls.includes('svar')
+    || cls.includes('fei 2*')
+    || cls.includes('fei 3*')
+    || cls.includes('cai 2*')
+    || cls.includes('cai 3*')
+    || cls.includes('cai2*')
+    || cls.includes('cai3*')
+    || cls.includes('junior')
+    || cls.includes('u25')
+  ) {
+    return 'svar';
+  }
   return null;
 }
 
@@ -188,6 +254,7 @@ export function getDressageRule(row, className) {
   if (bucket === 'lb') return row.dressagePrecision.lb;
   if (bucket === 'laMsv') return row.dressagePrecision.laMsv;
   if (bucket === 'svar') return row.dressagePrecision.svar;
+  if (bucket === 'fei') return row.dressagePrecision.fei || null;
   return null;
 }
 
@@ -196,6 +263,7 @@ export function getMarathonRule(row, className) {
   const bucket = getLevelBucket(className);
   if (bucket === 'lb') return row.marathon.lb;
   if (bucket === 'laMsv' || bucket === 'svar') return row.marathon.laMsvSvar;
+  if (bucket === 'fei') return row.marathon.fei || null;
   return null;
 }
 
@@ -223,7 +291,7 @@ export function getRuleWarning(value, rule, label) {
   const allowedText = formatAllowedRuleValues(rule);
   if (!allowedText || matchesRule(value, rule)) return '';
 
-  return `${label} är för smal. Kravet här är ${allowedText} enligt TR.`;
+  return `${label} är för smal. Kravet här är ${allowedText} enligt ${rule.source || 'TR'}.`;
 }
 
 export function getCarriageCompliance(equipage, discipline = 'dressagePrecision') {

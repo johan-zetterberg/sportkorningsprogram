@@ -419,13 +419,16 @@ export function initAuth(callback) {
 
     onAuthStateChanged(auth, async (user) => {
         if (user) {
+            const prevUser = getGlobalState('currentUser');
+            const prevSameUser = prevUser && prevUser.uid === user.uid ? prevUser : null;
             // 1. Optimistisk uppdatering: Visa att vi är inloggade direkt (roll 'publik' tills vidare)
             setGlobalState({
                 key: 'currentUser',
                 value: {
+                    ...(prevSameUser || {}),
                     uid: user.uid,
                     email: user.email,
-                    role: 'publik' // Temporärt
+                    role: prevSameUser?.role || 'publik' // Temporärt
                 }
             });
             document.getElementById('loginModal').style.display = 'none';
@@ -434,6 +437,7 @@ export function initAuth(callback) {
 
             // 2. Hämta riktig roll asynkront med retry-logik
             let userRole = 'publik';
+            let userRolesList = null;
 
             // Permanent fallback för ägarens e-post
             await ensureRecoveryAccess(user);
@@ -444,6 +448,9 @@ export function initAuth(callback) {
                         userRole = 'superadmin';
                     } else if (tokenResult.claims.role) {
                         userRole = tokenResult.claims.role;
+                    }
+                    if (Array.isArray(tokenResult.claims.roles)) {
+                        userRolesList = tokenResult.claims.roles;
                     }
                 } catch (tokenErr) {
                     console.warn('Kunde inte läsa custom claims:', tokenErr);
@@ -457,9 +464,13 @@ export function initAuth(callback) {
                             const userDocRef = doc(db, "users", user.uid);
                             const userDoc = await getDoc(userDocRef);
                             if (userDoc.exists()) {
-                                const dbRole = userDoc.data().role;
+                                const data = userDoc.data() || {};
+                                const dbRole = data.role;
                                 if (dbRole) {
                                     userRole = dbRole;
+                                }
+                                if (Array.isArray(data.roles)) {
+                                    userRolesList = data.roles;
                                 }
                             }
                             rememberRoles(`global|${user.uid}`, userRole);
@@ -485,13 +496,17 @@ export function initAuth(callback) {
                     }
                 }
 
-            // Uppdatera state med den (förhoppningsvis) uppdaterade rollen
+            // Uppdatera state med den (förhoppningsvis) uppdaterade rollen utan att tappa tävlingsroller
+            const latestUserState = getGlobalState('currentUser');
+            const latestSameUser = latestUserState && latestUserState.uid === user.uid ? latestUserState : {};
             setGlobalState({
                 key: 'currentUser',
                 value: {
+                    ...latestSameUser,
                     uid: user.uid,
                     email: user.email,
-                    role: userRole
+                    role: userRole,
+                    ...(Array.isArray(userRolesList) ? { roles: userRolesList } : {})
                 }
             });
             updateUIVisibility();
@@ -535,14 +550,24 @@ export async function getCurrentUserRole() {
 }
 
 export async function autoClaimEquipages(user) {
-    if (!user || !user.email) return;
+    // Verification is read from the signed-in Firebase user: the portal passes
+    // the app's own user object (uid, email, roles), which has no emailVerified
+    const authUser = auth.currentUser;
+    const emailVerified = authUser && user && authUser.uid === user.uid
+        ? authUser.emailVerified === true
+        : user?.emailVerified === true;
+    if (!user || !user.email) return { claimed: 0 };
+    // Entries are matched on the email address: only a verified one may claim them
+    if (!emailVerified) return { claimed: 0, needsVerifiedEmail: true };
 
     try {
         const email = user.email.trim().toLowerCase(); // Matchning sker alltid mot gemener
 
         // 1. Hämta alla tävlingar från rätt path
+        // Published only: drafts are readable by their staff alone, and an
+        // unfiltered list query would be refused as a whole
         const compsRef = collection(db, `artifacts/${appId}/public/data/competitions`);
-        const compsSnap = await getDocs(compsRef);
+        const compsSnap = await getDocs(query(compsRef, where('published', '==', true)));
 
         let newClaims = [];
 
@@ -567,6 +592,7 @@ export async function autoClaimEquipages(user) {
                 claimedEquipages: arrayUnion(...newClaims)
             });
         }
+        return { claimed: newClaims.length };
     } catch (err) {
         console.error('Auto-claim failed:', err);
         throw err; // Kasta vidare så att registerUser ser det (om vi vill)

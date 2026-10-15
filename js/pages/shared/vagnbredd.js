@@ -194,7 +194,7 @@ function displayEquipageData(equipage) {
                 promptContainer.innerHTML = `
                     <div class="p-2.5 bg-blue-50 dark:bg-blue-900/30 rounded-lg border border-blue-200 dark:border-blue-800 flex items-center justify-between gap-3 text-xs">
                         <span class="text-blue-900 dark:text-blue-200">
-                            💡 Tidigare sparad vagn: <strong>${saved.trackWidth ? saved.trackWidth + ' cm' : ''}</strong>${saved.marathonTrackWidth ? ` / <strong>${saved.marathonTrackWidth} cm</strong> (maraton)` : ''}
+                            💡 Tidigare sparad vagn: <strong>${saved.trackWidth ? escapeHtml(String(saved.trackWidth)) + ' cm' : ''}</strong>${saved.marathonTrackWidth ? ` / <strong>${escapeHtml(String(saved.marathonTrackWidth))} cm</strong> (maraton)` : ''}
                         </span>
                         <button type="button" id="useSavedCarriageBtn" class="px-2.5 py-1 text-xs font-semibold bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors shrink-0">
                             Använd

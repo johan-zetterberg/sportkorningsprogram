@@ -893,12 +893,18 @@ export async function load() {
 }
 
 export function __unload() {
+  if (renderTimeout) {
+    clearTimeout(renderTimeout);
+    renderTimeout = null;
+  }
   unsubscribes.forEach(u => { try { u(); } catch { } });
   unsubscribes = [];
   currentRider = null;
   leaderInClass = null;
   dressageStatusMap.clear();
   liveProtocolMap.clear();
+  savedProtocolsByStart.clear();
+  judgeLiveByPos.clear();
   recentResults.length = 0;
   monitor_displayConfig = {};
   monitor_MERGE_MAP.clear();

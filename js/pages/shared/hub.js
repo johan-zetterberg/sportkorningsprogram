@@ -1,5 +1,5 @@
 import { getGlobalState, setGlobalState } from '../../main.js';
-import { createCompetition, listenForCompetitions, saveConfig } from '../../services/competitionService.js';
+import { createCompetition, listenForCompetitions, saveConfig, updateCompetition, isGlobalCompetitionAdmin } from '../../services/competitionService.js';
 import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
@@ -461,14 +461,33 @@ function safeInvalidateMapSize(mapRef = mapInstance) {
   }
 }
 
+let competitionListenerUserKey = null;
+
 function setupCompetitionListener() {
   if (competitionListenerUnsub) {
     competitionListenerUnsub();
   }
+  const user = getCurrentUser();
+  competitionListenerUserKey = [user.uid || '', user.role || '', (user.roles || []).join(',')].join('|');
   competitionListenerUnsub = listenForCompetitions((comps) => {
     _allCompetitions = Array.isArray(comps) ? comps : [];
     renderCompetitionList(_allCompetitions);
-  }, currentLimit);
+    if (isGlobalCompetitionAdmin(user)) markLegacyCompetitionsPublished(_allCompetitions);
+  }, currentLimit, user);
+}
+
+// Older competitions have no published field and counted as published. The
+// public list now asks for published == true, so a global admin's list writes
+// the field once on those (only admins see them in the list query).
+const legacyPublishMarked = new Set();
+function markLegacyCompetitionsPublished(comps) {
+  comps
+    .filter(c => c?.id && c.published === undefined && !legacyPublishMarked.has(c.id))
+    .forEach(c => {
+      legacyPublishMarked.add(c.id);
+      updateCompetition(c.id, { published: true })
+        .catch(err => console.warn('[hub] could not mark legacy competition published', c.id, err?.code || err));
+    });
 }
 
 export function initMap() {
@@ -917,6 +936,11 @@ export function load() {
   globalStateChangeHandler = (e) => {
     if (e?.detail?.key === 'currentUser') {
       refreshCreateBox();
+      // The list depends on who is signed in (drafts, global admin): listen
+      // again when the user or their role changes, e.g. once auth resolves
+      const user = getCurrentUser();
+      const listenerKey = [user.uid || '', user.role || '', (user.roles || []).join(',')].join('|');
+      if (listenerKey !== competitionListenerUserKey) setupCompetitionListener();
     }
   };
   window.addEventListener('global-state-changed', globalStateChangeHandler);

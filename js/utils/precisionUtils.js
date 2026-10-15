@@ -98,13 +98,15 @@ export function isFourInHand(eqOrClass) {
     return hitch.includes('fyrspann') || hitch.includes('four');
 }
 
+// FEI Driving Rules 2026 Art. 974.1: fixed cone widths (Children: track
+// width + 20 cm, see isStandardPortWidthClass)
 export const FEI_STANDARD_CONES_WIDTH = {
-    horse_four: 190,
-    horse_pair: 180,
+    horse_four: 185,
+    horse_pair: 170,
     horse_single: 160,
-    pony_four: 180,
+    pony_four: 160,
     pony_pair: 160,
-    pony_single: 150
+    pony_single: 160
 };
 
 export const TR_SVAR_STANDARD_CONES_WIDTH = {
@@ -196,8 +198,10 @@ export function isStandardPortWidthClass(eqOrClass, precisionConfig = {}) {
         return true;
     }
 
-    // 2) By rule: Svår klass (TR Bilaga 2 & 5) or FEI classes (FEI Art 974)
+    // 2) By rule: Svår klass (TR Bilaga 2 & 5) or FEI classes (FEI Art 974).
+    // FEI Children is the exception: track width + 20 cm clearance.
     const normCls = _norm(cls);
+    if (normCls.includes('children')) return false;
     if (normCls.includes('fei') || normCls.includes('cai') || normCls.includes('caio')) {
         return true;
     }

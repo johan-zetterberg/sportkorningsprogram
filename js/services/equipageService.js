@@ -26,8 +26,15 @@ const PRIVATE_EQUIPAGE_FIELDS = new Set([
   'administrativeFees',
   'otherFees',
   'adminComments',
-  'notes'
+  'notes',
+  // The vet's free-text notes (vetNotes_<phase> too, see isPrivateEquipageField):
+  // read by admins and the driver, not the public
+  'vetNotes'
 ]);
+
+function isPrivateEquipageField(key) {
+  return PRIVATE_EQUIPAGE_FIELDS.has(key) || String(key).startsWith('vetNotes_');
+}
 
 function normalizeDocumentId(value, label) {
   const id = String(value ?? '').trim();
@@ -99,7 +106,7 @@ function splitEquipageData(data = {}) {
   const privateData = {};
 
   Object.entries(data).forEach(([key, value]) => {
-    if (PRIVATE_EQUIPAGE_FIELDS.has(key)) {
+    if (isPrivateEquipageField(key)) {
       privateData[key] = (key === 'email' || key === 'contactEmail')
         ? String(value || '').trim().toLowerCase()
         : value;
@@ -324,10 +331,10 @@ export async function deleteEquipage(competitionId, equipageId) {
   return trackWrite(`Raderar ekipage ${equipageId}`, (async () => {
     const equipageRef = getCompDocRef(competitionId, 'equipages', String(equipageId));
     const privateRef = getPrivateEquipageDocRef(competitionId, String(equipageId));
-    await deleteDoc(equipageRef);
-    try {
-      await deleteDoc(privateRef);
-    } catch (_) { }
+    const batch = writeBatch(db);
+    batch.delete(equipageRef);
+    batch.delete(privateRef);
+    await batch.commit();
   })());
 }
 
@@ -427,11 +434,23 @@ export async function clearAllEquipages(competitionId) {
     ]);
     if (publicSnap.empty && privateSnap.empty) return 0;
 
-    const { writeBatch } = await import("https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js");
-    const batch = writeBatch(db);
-    publicSnap.forEach(d => batch.delete(d.ref));
-    privateSnap.forEach(d => batch.delete(d.ref));
-    await batch.commit();
+    // Each equipage's private doc (contact details) right before its public one.
+    // Private docs without a public one (left from earlier) come last.
+    const privateById = new Map(privateSnap.docs.map(d => [d.id, d.ref]));
+    const refs = [];
+    publicSnap.docs.forEach(d => {
+      if (privateById.has(d.id)) { refs.push(privateById.get(d.id)); privateById.delete(d.id); }
+      refs.push(d.ref);
+    });
+    refs.push(...privateById.values());
+    // The private doc always goes first: a failure between batches can leave a
+    // public equipage without its contact details, never contact details alone
+    const BATCH_LIMIT = 450;
+    for (let i = 0; i < refs.length; i += BATCH_LIMIT) {
+      const batch = writeBatch(db);
+      refs.slice(i, i + BATCH_LIMIT).forEach(ref => batch.delete(ref));
+      await batch.commit();
+    }
     return Math.max(publicSnap.size, privateSnap.size);
   })());
 }

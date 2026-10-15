@@ -8,6 +8,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { RESULT_ENGINE_VERSION } from '../core-engine/version.js';
 import { getEquipages } from './equipageService.js';
+import { getJudges } from './adminService.js';
 import { getConfig } from './competitionService.js';
 import { getAllDressageProtocols } from './dressageService.js';
 import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults, loadPauseWindows } from './marathonService.js';
@@ -34,7 +35,8 @@ async function buildArchiveRows(competitionId) {
         marathonConfig,
         precisionConfig,
         competitionMeta,
-        dressageJudgeMapping
+        dressageJudgeMapping,
+        judges
     ] = await Promise.all([
         getAllDressageProtocols(competitionId, equipages),
         getMarathonTimingData(competitionId),
@@ -44,7 +46,8 @@ async function buildArchiveRows(competitionId) {
         getConfig(competitionId, 'maratonConfig').catch(() => ({})),
         getConfig(competitionId, 'precisionConfig').catch(() => ({})),
         getConfig(competitionId, 'competitionMeta').catch(() => ({})),
-        getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
+        getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
+        getJudges(competitionId).catch(() => [])
     ]);
 
     // The official archive: pauses subtracted from stage times, as on the server
@@ -59,7 +62,8 @@ async function buildArchiveRows(competitionId) {
         precisionRows,
         marathonConfig,
         precisionConfig,
-        dressageJudgeMapping
+        dressageJudgeMapping,
+        judges
     });
 
     return {

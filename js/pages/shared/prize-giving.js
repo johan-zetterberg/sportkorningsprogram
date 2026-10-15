@@ -27,10 +27,12 @@ import { setMarathonConfig, buildMergeMap, ensureMergeDecorations } from '../../
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded } from '../../services/logosService.js';
 import {
+    applyArchivedPrizeGivingRow,
     formatPrizeGivingScore,
     getPrizeGivingStatus,
     isPrizeGivingScore
 } from './prizeGivingUtils.js';
+import { archivedNoticeHtml, loadArchiveSnapshot } from './archivedResults.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 let competitionId = null;
@@ -44,6 +46,7 @@ let activeClass = 'all';
 let activeDiscipline = 'total'; // 'total', 'dressage', 'marathon', 'precision'
 let classSettings = {};
 let loadToken = 0;
+let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 
 // Configs
 let marathonConfig = {};
@@ -65,7 +68,7 @@ export async function load(container) {
     <div class="container mx-auto p-3 sm:p-4 md:p-8">
         <div class="flex justify-between items-center mb-6">
              ${getCompetitionHeader(comp, 'Prisutdelning 🏆')}
-             <div class="text-sm text-gray-500 dark:text-gray-400 italic">Visar preliminära resultat</div>
+             <div id="prize-giving-mode" class="text-sm text-gray-500 dark:text-gray-400 italic">Visar preliminära resultat</div>
         </div>
         
         <div id="prize-giving-tabs" class="flex flex-wrap gap-2 mb-4 md:mb-6 border-b dark:border-gray-700 pb-3 md:pb-4 overflow-x-auto">
@@ -82,15 +85,24 @@ export async function load(container) {
     if (currentLoadToken !== loadToken) return;
 
     try {
-        const [eqData, mConfig, pConfig, cSettings, programMapping, judgeMapping] = await Promise.all([
+        const [eqData, mConfig, pConfig, cSettings, programMapping, judgeMapping, snapshot] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'maratonConfig'),
             getConfig(competitionId, 'precisionConfig'),
             getConfig(competitionId, 'classSettings').catch(() => ({})),
             getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
-            getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
+            getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
+            // An archived competition shows the results it was archived with
+            loadArchiveSnapshot(comp)
         ]);
         if (currentLoadToken !== loadToken) return;
+
+        archiveSnapshot = snapshot;
+        if (archiveSnapshot) {
+            const mode = document.getElementById('prize-giving-mode');
+            if (mode) mode.textContent = 'Visar arkiverat resultat';
+            document.getElementById('prize-giving-tabs')?.insertAdjacentHTML('beforebegin', archivedNoticeHtml(archiveSnapshot, 'mb-4'));
+        }
 
         equipages = eqData || [];
         marathonConfig = mConfig || {};
@@ -323,7 +335,9 @@ function setupListeners() {
             isEliminated,
             present: eq.prizeGivingPresent === true
         };
-    });
+    })
+        // Archived: the values it was archived with, also for the placings
+        .map(row => applyArchivedPrizeGivingRow(row, archiveSnapshot, activeDiscipline));
 
     // Placings (shared places on ties) from core-engine/ranking.js
     const { ranked } = assignPlaces(rows, prizeGivingRanking(activeDiscipline));
@@ -536,6 +550,7 @@ export function __unload() {
     });
     unsubscribes = [];
     competitionId = null;
+    archiveSnapshot = null;
     equipages = [];
     marathonResults.clear();
     marathonTiming.clear();

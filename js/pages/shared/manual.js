@@ -1413,7 +1413,7 @@ function getTabContentSV(tab) {
                             <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
                                 <li>Tryck <span class="bg-orange-500 text-white px-2 py-0.5 rounded font-bold">START</span> när hästen slår över i galopp (eller annan fel gångart).</li>
                                 <li>Tryck <span class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">STOPP</span> när hästen återgår till trav.</li>
-                                <li> tiden sparas automatiskt i listan nedanför.</li>
+                                <li>Varje start–stopp sparas som ett eget tillfälle i listan under knapparna. Rättat inom 5 sekunder ger inget straff, annars 1 straffpoäng per påbörjad 5-sekundersperiod (TR V 523.1). Ett felaktigt tillfälle tar du bort med papperskorgen.</li>
                             </ul>
                         </div>
 
@@ -2634,7 +2634,7 @@ function getTabContentEN(tab) {
                             <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
                                 <li>Press <span class="bg-orange-500 text-white px-2 py-0.5 rounded font-bold">START</span> when horse breaks into canter.</li>
                                 <li>Press <span class="bg-red-600 text-white px-2 py-0.5 rounded font-bold">STOP</span> when horse returns to trot.</li>
-                                <li>The time is saved automatically.</li>
+                                <li>Each start–stop is saved as one incident in the list under the buttons. Corrected within 5 seconds gives no penalty, otherwise 1 penalty per commenced 5-second period (FEI classes: 1 for the incident plus 1 per further completed 5 seconds). Remove a mistaken incident with the trash button.</li>
                             </ul>
                         </div>
 

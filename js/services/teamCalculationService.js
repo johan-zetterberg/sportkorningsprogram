@@ -49,7 +49,8 @@ function buildMemberResult(memberId, resultMap) {
     const isMarathonElim = res.marathonStatus === 'elim' || res.marathon?.eliminated === true || res.marathon?.totalPenalty === Infinity;
     const isPrecisionElim = res.precisionStatus === 'elim' || res.precision?.eliminated === true || res.precision?.totalPenalty === Infinity;
 
-    const isScratched = String(res.status || '').toLowerCase().includes('struken');
+    const statusLower = String(res.status || '').toLowerCase();
+    const isScratched = statusLower.includes('struken') || statusLower === 'withdrawn' || statusLower === 'scratched' || Boolean(res.struken || res.withdrawn);
     const isMemberEliminatedFromTeam = isScratched || (isDressageElim && isMarathonElim && isPrecisionElim);
 
     const isDressageComplete = dressagePenalty !== null || isDressageElim;
@@ -109,21 +110,21 @@ function calculateLegacyTeamResults(teams, equipageResults) {
         const members = (team.members || []).map(memberId => buildMemberResult(memberId, resultMap));
 
         // 1. DRESSAGE
-        const validDressage = members.filter(m => m.dressage !== null && !m.isDressageElim);
+        const validDressage = members.filter(m => !m.isMemberEliminatedFromTeam && m.dressage !== null && !m.isDressageElim);
         validDressage.sort((a, b) => a.dressage - b.dressage);
         const countingDressage = validDressage.slice(0, 3);
         countingDressage.forEach(m => m.isCountingDressage = true);
         const teamDressage = countingDressage.length > 0 ? Math.round(countingDressage.reduce((sum, m) => sum + m.dressage, 0) * 100) / 100 : null;
 
         // 2. MARATHON
-        const validMarathon = members.filter(m => m.marathon !== null && !m.isMarathonElim);
+        const validMarathon = members.filter(m => !m.isMemberEliminatedFromTeam && m.marathon !== null && !m.isMarathonElim);
         validMarathon.sort((a, b) => a.marathon - b.marathon);
         const countingMarathon = validMarathon.slice(0, 3);
         countingMarathon.forEach(m => m.isCountingMarathon = true);
         const teamMarathon = countingMarathon.length > 0 ? Math.round(countingMarathon.reduce((sum, m) => sum + m.marathon, 0) * 100) / 100 : null;
 
         // 3. PRECISION
-        const validPrecision = members.filter(m => m.precision !== null && !m.isPrecisionElim);
+        const validPrecision = members.filter(m => !m.isMemberEliminatedFromTeam && m.precision !== null && !m.isPrecisionElim);
         validPrecision.sort((a, b) => a.precision - b.precision);
         const countingPrecision = validPrecision.slice(0, 3);
         countingPrecision.forEach(m => m.isCountingPrecision = true);
@@ -282,7 +283,8 @@ function buildLagSmMemberResult(memberId, resultMap) {
     const dressage = getLagSmPhasePenalty(result, 'dressage');
     const marathon = getLagSmPhasePenalty(result, 'marathon');
     const precision = getLagSmPhasePenalty(result, 'precision');
-    const isScratched = String(result.status || '').toLowerCase().includes('struken');
+    const statusLower = String(result.status || '').toLowerCase();
+    const isScratched = statusLower.includes('struken') || statusLower === 'withdrawn' || statusLower === 'scratched' || Boolean(result.struken || result.withdrawn);
     const phasePenalties = [dressage.penalty, marathon.penalty, precision.penalty];
     const complete = !isScratched && phasePenalties.every(Number.isFinite);
     const currentPenalty = phasePenalties.some(Number.isFinite)
@@ -631,9 +633,19 @@ function buildFeiMemberResult(memberId, resultMap, profile) {
     };
 }
 
+const FEI_PHASE_ORDER = ['dressage', 'marathon', 'precision'];
+
+// A member counts in a phase with a score in it and in the phases before it.
+// Not "every phase anyone in the competition has started": then the first
+// marathon result anywhere emptied every team's live dressage standing.
+// Eliminated members are excluded as before, so final totals are unchanged.
 function getFeiCountingMembers(members, discipline, profile) {
+    const required = FEI_PHASE_ORDER.slice(0, FEI_PHASE_ORDER.indexOf(discipline) + 1);
+    const isEligible = (member) => !member.eliminated
+        && required.every(d => Number.isFinite(member[d]));
+
     const selectLowest = (candidates, count) => candidates
-        .filter(member => member.complete && Number.isFinite(member[discipline]))
+        .filter(isEligible)
         .sort((a, b) => a[discipline] - b[discipline])
         .slice(0, count);
 

@@ -1312,7 +1312,17 @@ function insertPause(discipline, afterStartNumber) {
  * Flyttar ett ekipage upp eller ner i listan och räknar om alla efterföljande tider.
  */
 function moveEquipage(discipline, startNumber, direction) {
-    const sortedEquipages = [...equipages].sort((a, b) => {
+    const targetEq = equipages.find(e => String(e.startNumber) === String(startNumber));
+    // Within the equipage's own class in every view: the bulk tool's class
+    // select (startorder view) made a move of another class's row do nothing,
+    // and with "all classes" retimed across classes
+    const activeClass = targetEq ? (targetEq._mergedLabel || targetEq.className || '') : '';
+
+    const pool = activeClass
+        ? equipages.filter(e => (e._mergedLabel || e.className || '') === activeClass)
+        : equipages;
+
+    const sortedEquipages = [...pool].sort((a, b) => {
         const timeA = parseDateTime(startTimes[String(a.startNumber)]?.[discipline])?.getTime() || Infinity;
         const timeB = parseDateTime(startTimes[String(b.startNumber)]?.[discipline])?.getTime() || Infinity;
         return timeA - timeB;
@@ -1669,7 +1679,7 @@ ${renderStarttiderToolbarSection({
         });
 
         pageContainer.addEventListener('change', (e) => {
-            if (e.target.type === 'datetime-local' && e.target.closest('tbody')) {
+            if (e.target.type === 'datetime-local' && e.target.closest('#startlist-container')) {
                 const [key, sn] = e.target.id.split('-');
                 const entry = startTimes[sn] ||= {};
                 entry[key] = e.target.value;
@@ -1919,15 +1929,23 @@ function listenMergeConfig(compId) {
     mergeUnsubs = [];
     if (!compId || !appId) return;
 
-    // Lyssna på ALLA möjliga config-platser
+    // Lyssna på ALLA möjliga config-platser. The latest map from each source is
+    // kept and combined in the order loadData uses (the legacy documents
+    // before display), so the result does not depend on which snapshot
+    // arrives last, and a deleted or emptied document counts too.
     const keys = ['display', 'tdbMergeGroups', 'classMergeMap', 'tdbMergeMap'];
+    const priority = ['tdbMergeGroups', 'classMergeMap', 'tdbMergeMap'];
+    const mapsBySource = new Map();
 
     keys.forEach(key => {
         const ref = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'config', key);
         const unsub = onSnapshot(ref, (snap) => {
             const data = snap.exists() ? (snap.data()?.value ?? snap.data()) : null;
-
-            starttider_MERGE_MAP = buildStarttiderMergeMap(snap.id === 'display' ? { mergeByClassNumber: data?.mergeByClassNumber || {} } : data);
+            mapsBySource.set(key, data
+                ? buildStarttiderMergeMap(key === 'display' ? { mergeByClassNumber: data?.mergeByClassNumber || {} } : data)
+                : new Map());
+            const legacy = priority.map(k => mapsBySource.get(k)).find(m => m && m.size > 0);
+            starttider_MERGE_MAP = legacy || mapsBySource.get('display') || new Map();
 
             // Märk om alla ekipage
             equipages = equipages.map(e => ({

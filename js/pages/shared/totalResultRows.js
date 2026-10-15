@@ -57,6 +57,9 @@ export function buildTotalResultRow({
     id: equipage.id,
     startNumber: equipage.startNumber,
     driverName: equipage.driverName || equipage.name || '',
+    // A horse without a name (older or imported data) must not show as [object Object]
+    horseName: equipage.horseName || (Array.isArray(equipage.horses) ? equipage.horses.map((h => (typeof h === 'string' ? h : (h?.name || h?.namn || h?.horseName || '')))).filter(Boolean).join(', ') : ''),
+    horses: Array.isArray(equipage.horses) ? equipage.horses : [],
     clubName: equipage.clubName || '',
     className: cls,
     country: equipage.country || equipage.nation || equipage.nationality || '',
@@ -69,7 +72,8 @@ export function buildTotalResultRow({
 
     dressage: {
       penalty: dressage.judgePenalty,
-      ...dressage
+      ...dressage,
+      percentAvg: dressage.percentAvg ?? dressage.percent ?? null
     },
     dressageStatus: (dressage.penalty != null || dressage.percent != null) ? 'finished' : 'missing',
     marathonStatus: (marathon.status === 'Klar' || marathon.status === 'Färdig' || marathon.status === 'Eliminerad')
@@ -85,7 +89,9 @@ export function buildTotalResultRow({
     },
     precision: {
       ...precision,
-      pen: precision.totalPenalty
+      pen: precision.totalPenalty,
+      obstPen: precision.obstPen ?? precision.obstaclePenalty ?? null,
+      timePen: precision.timePen ?? precision.timePenalty ?? null
     },
 
     totalPenalty: res.totalPenalty,
@@ -110,11 +116,18 @@ function phaseStatus(complete, hasValue, hasPartial = false) {
 }
 
 export function resolveTotalDisciplineStatuses(row = {}) {
-  const dressageStatus = row.isEliminated
+  // An eliminated equipage counts as eliminated in dressage and marathon (the
+  // team scores read these statuses: an eliminated member's dressage penalty
+  // does not count for the team)
+  const dressageElim = Boolean(row.isEliminated);
+  const marathonElim = Boolean(row.isEliminated);
+  const precisionElim = Boolean(row?.precision?.eliminated);
+
+  const dressageStatus = dressageElim
     ? 'elim'
     : phaseStatus(row.dressageComplete, row?.dressage?.penalty != null || row?.dressage?.percentAvg != null);
 
-  const marathonStatus = row.isEliminated
+  const marathonStatus = marathonElim
     ? 'elim'
     : phaseStatus(
       row.marathonComplete,
@@ -122,7 +135,7 @@ export function resolveTotalDisciplineStatuses(row = {}) {
       row?.marathon?.timePenalty != null || row?.marathon?.obstaclePenalty != null
     );
 
-  const precisionStatus = row?.precision?.eliminated
+  const precisionStatus = precisionElim
     ? 'elim'
     : phaseStatus(row.precisionComplete, row?.precision?.pen != null);
 

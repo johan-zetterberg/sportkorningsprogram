@@ -864,8 +864,7 @@ function renderDesktop() {
   });
 
   // Öppna modal på rad-klick
-  container.addEventListener('click', (e) => {
-    // ... (din modallogik är oförändrad) ...
+  container.onclick = (e) => {
     // Support both TR (desktop) and DIV/Card (mobile/teams)
     const el = e.target.closest('tbody tr, [data-start]');
     if (!el) return;
@@ -873,7 +872,7 @@ function renderDesktop() {
     const sn = el.getAttribute('data-start');
     if (!sn) return;
     openEquipageModal(String(sn), getEquipageModalCtx());
-  });
+  };
 }
 
 
@@ -1308,13 +1307,15 @@ function renderMobile() {
 
   container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${html}</div>`;
 
-  // Koppla klick-lyssnare till korten för att öppna modalen
-  container.querySelectorAll('[data-start]').forEach(card => {
-    card.addEventListener('click', () => {
-      const sn = card.getAttribute('data-start');
-      openEquipageModal(String(sn), getEquipageModalCtx()); // Använd den importerade modal-funktionen
-    });
-  });
+  // One delegated handler on the container (as the desktop view sets it): a
+  // listener per card as well opened the modal twice per tap
+  container.onclick = (e) => {
+    const card = e.target.closest('[data-start]');
+    if (!card) return;
+    if (e.target.closest('a,button,input,select,textarea,[data-no-rowclick]')) return;
+    const sn = card.getAttribute('data-start');
+    if (sn) openEquipageModal(String(sn), getEquipageModalCtx());
+  };
 
   // === Tråda tabellens huvud för sortering ===
   const head = container.querySelector('thead');
@@ -1343,37 +1344,43 @@ async function recompute() {
   const allPrograms = getPrograms();
   const activeMarathonConfig = window.marathonConfig || marathonConfig || {};
 
-  const rows = equipages
-    .filter(e => {
-      const s = String(e.status || '').toLowerCase();
-      // Exclude explicitly withdrawn/struken drivers
-      if (s.includes('struken') || s === 'withdrawn' || s === 'scratched' || e.struken || e.withdrawn) return false;
-      return true;
-    })
-    .map(e => {
-      const sn = String(e.startNumber);
+  const isWithdrawnEquipage = (e) => {
+    const s = String(e.status || '').toLowerCase();
+    return s.includes('struken') || s === 'withdrawn' || s === 'scratched' || Boolean(e.struken || e.withdrawn);
+  };
 
-      const rawProtocols = dressageMap.get(sn) || [];
-      const marDoc = marathonObstacleMap.get(sn) || {};
-      const timeDocRaw = lastSeenMarathonDurations.get(sn) || marathonTimeMap.get(sn) || {};
+  const toRow = (e) => {
+    const sn = String(e.startNumber);
+    const rawProtocols = dressageMap.get(sn) || [];
+    const marDoc = marathonObstacleMap.get(sn) || {};
+    const timeDocRaw = lastSeenMarathonDurations.get(sn) || marathonTimeMap.get(sn) || {};
+    const precDoc = precisionMap.get(sn) || {};
 
-      const precDoc = precisionMap.get(sn) || {};
-
-      return buildTotalResultRow({
-        equipage: e,
-        rawProtocols,
-        marDoc,
-        timeDocRaw,
-        precisionDoc: precDoc,
-        allPrograms,
-        judges: allCompetitionJudges,
-        marathonConfig: activeMarathonConfig,
-        precisionConfig,
-        displayConfig,
-        calculateTotalResult,
-        resolveMergeGrouping: resolveTotalMergeGrouping
-      });
+    return buildTotalResultRow({
+      equipage: e,
+      rawProtocols,
+      marDoc,
+      timeDocRaw,
+      precisionDoc: precDoc,
+      allPrograms,
+      judges: allCompetitionJudges,
+      marathonConfig: activeMarathonConfig,
+      precisionConfig,
+      displayConfig,
+      calculateTotalResult,
+      resolveMergeGrouping: resolveTotalMergeGrouping
     });
+  };
+
+  const rows = [];
+  const withdrawnRows = [];
+  equipages.forEach(e => {
+    if (isWithdrawnEquipage(e)) {
+      withdrawnRows.push(toRow(e));
+    } else {
+      rows.push(toRow(e));
+    }
+  });
 
   // Archived: the values it was archived with, also for the placings
   applyArchivedSnapshot(rows, archiveSnapshot);
@@ -1391,7 +1398,7 @@ async function recompute() {
 
   processedTeams = buildProcessedTotalTeams({
     rawTeams,
-    processedResults,
+    processedResults: withdrawnRows.length > 0 ? [...processedResults, ...withdrawnRows] : processedResults,
     teamScoringProfile: getGlobalState('currentCompetition')?.teamScoringProfile,
     calculateTeamResults
   });

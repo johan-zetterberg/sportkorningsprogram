@@ -67,14 +67,44 @@ test('archiving is refused while equipages lack a final result, unless allowed',
   assert.doesNotThrow(() => assertArchiveCanFinalize({ competitionId: 'abc', competitionExists: true, rows, allowIncomplete: true }));
 });
 
-test('the archive snapshot keeps the published values', () => {
+test('the archive snapshot keeps the published values including discipline status, placements and tie-breakers', () => {
   const snapshot = buildArchiveSnapshot([
-    { startNumber: 7, className: 'Lätt A', driverName: 'Anna', plac: 1, dressage: { penalty: 40.2 }, marathon: { totalPenalty: 70 }, precision: { totalPenalty: 3 }, totalPenalty: 113.2 }
+    {
+      startNumber: 7,
+      className: 'Lätt A',
+      driverName: 'Anna',
+      plac: 1,
+      posDress: 2,
+      posMar: 1,
+      posPrec: 1,
+      dressage: { penalty: 40.2, eliminated: false, status: 'Klar' },
+      marathon: { totalPenalty: 70, bPenalty: 65, eliminated: false, status: 'Klar' },
+      precision: { totalPenalty: 3, timeMs: 92400, eliminated: false, status: 'Klar' },
+      totalPenalty: 113.2
+    }
   ], { archivedAt: 5, archivedBy: 'u1', engineVersion: 'v' });
   assert.deepEqual(snapshot.rows[0], {
-    startNumber: '7', className: 'Lätt A', driverName: 'Anna', plac: 1,
-    dressagePenalty: 40.2, marathonPenalty: 70, precisionPenalty: 3, totalPenalty: 113.2,
-    isEliminated: false, status: null
+    startNumber: '7',
+    className: 'Lätt A',
+    driverName: 'Anna',
+    plac: 1,
+    dressagePenalty: 40.2,
+    dressagePlace: 2,
+    dressageEliminated: false,
+    dressageStatus: 'Klar',
+    marathonPenalty: 70,
+    marathonPlace: 1,
+    marathonEliminated: false,
+    marathonStatus: 'Klar',
+    marathonBPenalty: 65,
+    precisionPenalty: 3,
+    precisionPlace: 1,
+    precisionEliminated: false,
+    precisionStatus: 'Klar',
+    precisionTimeMs: 92400,
+    totalPenalty: 113.2,
+    isEliminated: false,
+    status: null
   });
   assert.equal(snapshot.engineVersion, 'v');
 });

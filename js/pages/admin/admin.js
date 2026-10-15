@@ -3,6 +3,8 @@ import { listenForEquipages } from '../../services/equipageService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { listenForOfficials } from '../../services/officialsService.js';
 import { finalizeCompetition, reopenCompetition } from '../../services/archivingService.js';
+import { getFinalizationLog } from '../../services/finalizationService.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 
@@ -190,6 +192,18 @@ function renderLayout(competition) {
                         <div id="archive-links" class="space-y-2"></div>
                     </div>
                  </div>
+
+                 <!-- Who finalized or unlocked which result -->
+                 <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md max-w-2xl mx-auto mt-6 border dark:border-gray-700">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h3 class="font-bold text-lg dark:text-white">Logg över finaliseringar</h3>
+                            <p class="text-sm text-gray-600 dark:text-gray-300">Vem som finaliserade eller låste upp ett resultat, och när.</p>
+                        </div>
+                        <button id="btnShowFinalizationLog" class="px-4 py-2 rounded-lg bg-gray-100 dark:bg-gray-700 text-gray-800 dark:text-gray-100 text-sm font-semibold hover:bg-gray-200 dark:hover:bg-gray-600">Visa logg</button>
+                    </div>
+                    <div id="finalizationLogList" class="mt-4 hidden overflow-x-auto"></div>
+                 </div>
             </div>
         </div>
     `;
@@ -376,8 +390,52 @@ function renderLayout(competition) {
     });
   }
 
+  // --- FINALIZATION LOG ---
+  const btnLog = document.getElementById('btnShowFinalizationLog');
+  const logList = document.getElementById('finalizationLogList');
+  if (btnLog && logList) {
+    btnLog.addEventListener('click', async () => {
+      btnLog.disabled = true;
+      logList.classList.remove('hidden');
+      logList.innerHTML = '<p class="text-sm text-gray-500 dark:text-gray-400">Laddar...</p>';
+      try {
+        logList.innerHTML = renderFinalizationLog(await getFinalizationLog(competition.id));
+        btnLog.textContent = 'Uppdatera';
+      } catch (err) {
+        console.error('Kunde inte läsa finaliseringsloggen', err);
+        logList.innerHTML = '<p class="text-sm text-red-600 dark:text-red-400">Loggen kunde inte läsas. Bara tävlingens administratörer kan se den.</p>';
+      } finally {
+        btnLog.disabled = false;
+      }
+    });
+  }
+
   // --- Inställningar Logic ---
   // (Moved to admin-settings.js)
+}
+
+const LOG_DISCIPLINES = { dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' };
+
+function renderFinalizationLog(entries = []) {
+  if (!entries.length) {
+    return '<p class="text-sm text-gray-500 dark:text-gray-400">Inga finaliseringar eller upplåsningar ännu.</p>';
+  }
+  const rows = entries.map((entry) => {
+    const at = entry.at?.toDate ? entry.at.toDate() : null;
+    const when = at ? at.toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'medium' }) : '—';
+    const unlocked = entry.action === 'unfinalize';
+    return `<tr class="border-t dark:border-gray-700">
+        <td class="py-1.5 pr-3 whitespace-nowrap tabular-nums">${escapeHtml(when)}</td>
+        <td class="py-1.5 pr-3">${escapeHtml(LOG_DISCIPLINES[entry.discipline] || entry.discipline || '')}</td>
+        <td class="py-1.5 pr-3 tabular-nums">#${escapeHtml(entry.startNumber)}</td>
+        <td class="py-1.5 pr-3 font-semibold ${unlocked ? 'text-amber-700 dark:text-amber-300' : 'text-green-700 dark:text-green-300'}">${unlocked ? 'Upplåst' : 'Finaliserad'}</td>
+        <td class="py-1.5">${escapeHtml(entry.byName || entry.by || '—')}</td>
+      </tr>`;
+  }).join('');
+  return `<table class="w-full text-sm text-left text-gray-800 dark:text-gray-200">
+      <thead class="text-xs uppercase text-gray-500 dark:text-gray-400"><tr><th class="pb-1 pr-3">Tid</th><th class="pb-1 pr-3">Gren</th><th class="pb-1 pr-3">Ekipage</th><th class="pb-1 pr-3">Händelse</th><th class="pb-1">Av</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
 }
 
 // --- Global Load Function ---

@@ -373,13 +373,13 @@ export const GUIDES = {
     },
     during: {
       sv: [
-        '<strong>Fel gångart (Galopp i skritt):</strong> Klicka på START vid första galoppsprånget. Klicka på STOPP när hästen skrittar igen. Sekunderna räknas ihop automatiskt.',
+        '<strong>Fel gångart (Galopp i skritt):</strong> Klicka på START vid första galoppsprånget. Klicka på STOPP när hästen skrittar igen. Varje start–stopp blir ett eget tillfälle: rättat inom 5 s ger inget straff, annars 1 straffpoäng per påbörjad 5-sekundersperiod (TR V 523.1).',
         '<strong>Otillåten halt:</strong> Klicka START när ekipaget stannar olovligen och STOPP när det rör sig framåt igen.',
         '<strong>Noteringar / Kommentarer:</strong> Skriv en kort förklaring vid behov (t.ex. "Galopp ca 15 m").',
         '<strong>Nödstopp (Global Paus):</strong> Vid allvarlig incident eller blockerat spår: Klicka på den röda knappen <strong>NÖD-PAUS</strong>. Detta fryser officiell tid för hela sträckan och larmar funktionärer omedelbart.'
       ],
       en: [
-        '<strong>Wrong gait (Canter in walk):</strong> Click START on first canter stride. Click STOP when back to walk. Seconds accumulate automatically.',
+        '<strong>Wrong gait (Canter in walk):</strong> Click START on first canter stride. Click STOP when back to walk. Each start–stop is one incident: corrected within 5 s gives no penalty, otherwise 1 penalty per commenced 5-second period.',
         '<strong>Unauthorized halt:</strong> Click START on halt and STOP when moving forward.',
         '<strong>Remarks:</strong> Type explanatory notes (e.g. "Cantered approx 15 m").',
         '<strong>Emergency pause:</strong> If track is blocked or in an emergency, hit <strong>EMERGENCY PAUSE</strong> to freeze race clocks and alert officials.'
@@ -399,7 +399,7 @@ export const GUIDES = {
       en: [
         {
           q: 'Started wrong gait timer accidentally?',
-          a: 'Click stop and remove the mistaken entry from the log list.'
+          a: 'Click stop, then remove the incident with the trash button in the wrong-gait list.'
         },
         {
           q: 'Poor cell coverage?',

@@ -15,6 +15,7 @@ import {
   getDocs,
   orderBy,
   query,
+  serverTimestamp,
   setDoc,
   updateDoc,
   where,
@@ -43,6 +44,28 @@ function rootCompPath(path = '') {
 function privateCompPath(path = '') {
   const base = `artifacts/${APP_ID}/private/data/competitions/${COMP_ID}`;
   return path ? `${base}/${path}` : base;
+}
+
+// A lock change as finalizationService writes it: the lock names a new
+// finalizationLog entry written in the same batch
+function setLoggedLock(batch, db, uid, discipline, finalized, startNo = START_NO) {
+  const logRef = doc(collection(db, rootCompPath('finalizationLog')));
+  batch.set(logRef, {
+    discipline,
+    action: finalized ? 'finalize' : 'unfinalize',
+    startNumber: String(startNo),
+    by: uid,
+    byName: null,
+    at: serverTimestamp()
+  });
+  batch.set(doc(db, rootCompPath(`${discipline}Finalization/${startNo}`)), { finalized, lastLogId: logRef.id }, { merge: true });
+  return logRef;
+}
+
+async function commitLoggedLock(db, uid, discipline, finalized) {
+  const batch = writeBatch(db);
+  setLoggedLock(batch, db, uid, discipline, finalized);
+  return batch.commit();
 }
 
 async function seedBaseCompetition() {
@@ -510,6 +533,54 @@ test('an archived competition takes no result writes at all; the admin reopens i
   await assertSucceeds(setDoc(doc(precisionDb, compPath(`precision/${START_NO}`)), { timeMs: 3 }));
 });
 
+test('a draft competition is hidden from the public but open to its staff', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-draft', 'precision', 'precision-draft@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await updateDoc(doc(db, compPath()), { published: false, createdAt: 1, admins: ['co-admin-1'] });
+    await setDoc(doc(db, compPath(`equipages/${START_NO}`)), { startNumber: Number(START_NO), driverName: 'Draft Driver' });
+    await setDoc(doc(db, compPath('startTimes/dressage')), { times: {} });
+    await setDoc(doc(db, compPath('config/maratonConfig')), { classes: {} });
+    await setDoc(doc(db, `artifacts/${APP_ID}/public/data/competitions/comp-pub`), { name: 'Published', published: true, createdAt: 2 });
+    await setDoc(doc(db, `artifacts/${APP_ID}/public/data/competitions/comp-legacy`), { name: 'Legacy', createdAt: 3 });
+  });
+  const publicDb = testEnv.unauthenticatedContext().firestore();
+  const strangerDb = testEnv.authenticatedContext('stranger-1', { email_verified: true, email: 'stranger@example.com' }).firestore();
+  const staffDb = testEnv.authenticatedContext('precision-draft', { email_verified: true, email: 'precision-draft@example.com' }).firestore();
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  const competitions = `artifacts/${APP_ID}/public/data/competitions`;
+
+  for (const db of [publicDb, strangerDb]) {
+    await assertFails(getDoc(doc(db, compPath())));
+    await assertFails(getDoc(doc(db, compPath(`equipages/${START_NO}`))));
+    await assertFails(getDocs(collection(db, compPath('equipages'))));
+    await assertFails(getDoc(doc(db, compPath('startTimes/dressage'))));
+    await assertFails(getDoc(doc(db, compPath('config/maratonConfig'))));
+    // An unfiltered list could return the draft, so it is refused as a whole
+    await assertFails(getDocs(collection(db, competitions)));
+    await assertSucceeds(getDocs(query(collection(db, competitions), where('published', '==', true))));
+    // Published and older competitions (no field) stay public
+    await assertSucceeds(getDoc(doc(db, `${competitions}/comp-pub`)));
+    await assertSucceeds(getDoc(doc(db, `${competitions}/comp-legacy`)));
+  }
+
+  for (const db of [staffDb, ownerDb]) {
+    await assertSucceeds(getDoc(doc(db, compPath())));
+    await assertSucceeds(getDoc(doc(db, compPath(`equipages/${START_NO}`))));
+    await assertSucceeds(getDocs(collection(db, compPath('equipages'))));
+    await assertSucceeds(getDoc(doc(db, compPath('startTimes/dressage'))));
+  }
+  // The creator and a co-admin list their own drafts
+  const coAdminDb = testEnv.authenticatedContext('co-admin-1', { email_verified: true, email: 'co-admin@example.com' }).firestore();
+  await assertSucceeds(getDocs(query(collection(coAdminDb, competitions), where('admins', 'array-contains', 'co-admin-1'))));
+  await assertFails(getDocs(query(collection(strangerDb, competitions), where('admins', 'array-contains', 'co-admin-1'))));
+  await assertSucceeds(getDocs(query(collection(ownerDb, competitions), where('createdBy', '==', 'owner-1'))));
+
+  // Published again: public as before
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { published: true }));
+  await assertSucceeds(getDoc(doc(publicDb, compPath(`equipages/${START_NO}`))));
+});
+
 test('archive snapshots are created by admins and never changed', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('precision-snap', 'precision', 'precision-snap@example.com');
   const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
@@ -539,14 +610,14 @@ test('finalizing writes result and lock in one batch, after which the judge is l
   const db = testEnv.authenticatedContext('precision-fin-3', { email_verified: true, email: 'precision3@example.com' }).firestore();
   await assertSucceeds(setDoc(doc(db, compPath(`precision/${START_NO}`)), { startNumber: Number(START_NO), timeMs: 100000 }));
 
-  for (const [result, lock] of [
-    [compPath(`precision/${START_NO}`), rootCompPath(`precisionFinalization/${START_NO}`)],
-    [compPath(`maraton/${START_NO}`), rootCompPath(`marathonFinalization/${START_NO}`)]
+  for (const [result, discipline] of [
+    [compPath(`precision/${START_NO}`), 'precision'],
+    [compPath(`maraton/${START_NO}`), 'marathon']
   ]) {
     const adminDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
     const batch = writeBatch(adminDb);
     batch.set(doc(adminDb, result), { finalized: true }, { merge: true });
-    batch.set(doc(adminDb, lock), { finalized: true }, { merge: true });
+    setLoggedLock(batch, adminDb, 'owner-1', discipline, true);
     await assertSucceeds(batch.commit());
   }
   await assertFails(setDoc(doc(db, compPath(`precision/${START_NO}`)), { timeMs: 1 }, { merge: true }));
@@ -566,9 +637,52 @@ test('unlocking writes lock and result in one batch; a locked result alone stays
 
   // Unlock lock and result together
   const batch = writeBatch(db);
-  batch.set(doc(db, rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: false }, { merge: true });
+  setLoggedLock(batch, db, 'precision-unlock-1', 'precision', false);
   batch.set(doc(db, compPath(`precision/${START_NO}`)), { finalized: false }, { merge: true });
   await assertSucceeds(batch.commit());
+});
+
+test('a lock change must come with its own finalizationLog entry', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-log-1', 'precision', 'precision-log@example.com');
+  const db = testEnv.authenticatedContext('precision-log-1', { email_verified: true, email: 'precision-log@example.com' }).firestore();
+  const lock = doc(db, rootCompPath(`precisionFinalization/${START_NO}`));
+
+  // Without a log entry, or naming one that is not written
+  await assertFails(setDoc(lock, { finalized: true }));
+  await assertFails(setDoc(lock, { finalized: true, lastLogId: 'missing' }));
+
+  // Logged: accepted
+  const logRef = await (async () => { const b = writeBatch(db); const r = setLoggedLock(b, db, 'precision-log-1', 'precision', true); await assertSucceeds(b.commit()); return r; })();
+
+  // Unlocking by pointing at the old (finalize) entry is refused, and so is a
+  // log entry that says the wrong action or result
+  await assertFails(setDoc(lock, { finalized: false, lastLogId: logRef.id }, { merge: true }));
+  const wrong = writeBatch(db);
+  const wrongLog = doc(collection(db, rootCompPath('finalizationLog')));
+  wrong.set(wrongLog, { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'precision-log-1', byName: null, at: serverTimestamp() });
+  wrong.set(lock, { finalized: false, lastLogId: wrongLog.id }, { merge: true });
+  await assertFails(wrong.commit());
+
+  // An optional reason is kept; anything else unknown, or an overlong reason, is refused
+  const withReason = writeBatch(db);
+  const reasonLog = doc(collection(db, rootCompPath('finalizationLog')));
+  withReason.set(reasonLog, { discipline: 'precision', action: 'unfinalize', startNumber: START_NO, by: 'precision-log-1', byName: null, reason: 'Protest godkänd', at: serverTimestamp() });
+  withReason.set(lock, { finalized: false, lastLogId: reasonLog.id }, { merge: true });
+  await assertSucceeds(withReason.commit());
+  await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'precision-log-1', byName: null, reason: 'x'.repeat(501), at: serverTimestamp() }));
+  await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'precision-log-1', byName: null, extra: 1, at: serverTimestamp() }));
+
+  // Entries cannot be forged for someone else, changed or removed
+  await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'unfinalize', startNumber: START_NO, by: 'someone-else', byName: null, at: serverTimestamp() }));
+  await assertFails(updateDoc(doc(db, rootCompPath(`finalizationLog/${logRef.id}`)), { byName: 'x' }));
+  await assertFails(deleteDoc(doc(db, rootCompPath(`finalizationLog/${logRef.id}`))));
+  await assertFails(deleteDoc(lock));
+
+  // Readable by the competition's admins only
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(ownerDb, rootCompPath(`finalizationLog/${logRef.id}`))));
+  await assertFails(getDoc(doc(db, rootCompPath(`finalizationLog/${logRef.id}`))));
+  await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), rootCompPath(`finalizationLog/${logRef.id}`))));
 });
 
 test('competition discipline roles may finalize only their matching discipline', { skip: !HAS_EMULATOR }, async () => {
@@ -576,12 +690,8 @@ test('competition discipline roles may finalize only their matching discipline',
   const ctx = testEnv.authenticatedContext('precision-finalizer-1', { email_verified: true, email: 'precision-finalizer@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, rootCompPath(`precisionFinalization/${START_NO}`)), {
-    finalized: true
-  }));
-  await assertFails(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
-    finalized: true
-  }));
+  await assertSucceeds(commitLoggedLock(db, 'precision-finalizer-1', 'precision', true));
+  await assertFails(commitLoggedLock(db, 'precision-finalizer-1', 'dressage', true));
 });
 
 test('email-scoped discipline roles may finalize via private roleEmails docs', { skip: !HAS_EMULATOR }, async () => {
@@ -589,12 +699,8 @@ test('email-scoped discipline roles may finalize via private roleEmails docs', {
   const ctx = testEnv.authenticatedContext('dressage-role-1', { email_verified: true, email: 'dressage-role@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
-    finalized: true
-  }));
-  await assertFails(setDoc(doc(db, rootCompPath(`marathonFinalization/${START_NO}`)), {
-    finalized: true
-  }));
+  await assertSucceeds(commitLoggedLock(db, 'dressage-role-1', 'dressage', true));
+  await assertFails(commitLoggedLock(db, 'dressage-role-1', 'marathon', true));
 });
 
 test('global non-admin roles may not finalize competitions without a scoped role', { skip: !HAS_EMULATOR }, async () => {
@@ -609,9 +715,7 @@ test('global non-admin roles may not finalize competitions without a scoped role
   const ctx = testEnv.authenticatedContext('global-judge-1', { email_verified: true, email: 'global-judge@example.com' });
   const db = ctx.firestore();
 
-  await assertFails(setDoc(doc(db, rootCompPath(`dressageFinalization/${START_NO}`)), {
-    finalized: true
-  }));
+  await assertFails(commitLoggedLock(db, 'global-judge-1', 'dressage', true));
 });
 
 test('dressage protocol writes are denied when the equipage is finalized', { skip: !HAS_EMULATOR }, async () => {
@@ -1011,6 +1115,61 @@ test('PIN join attempt counters are not readable or writable by clients', { skip
   const db = testEnv.authenticatedContext('pin-guesser-1', { email_verified: true, email: 'pin-guesser@example.com' }).firestore();
   await assertFails(getDoc(doc(db, `pinJoinAttempts/${COMP_ID}`)));
   await assertFails(setDoc(doc(db, `pinJoinAttempts/${COMP_ID}__pin-guesser-1`), { failures: [] }));
+});
+
+test('orphaned subcollection data without parent competition doc is not publicly readable', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, `artifacts/${APP_ID}/public/data/competitions/orphan-comp/equipages/1`), {
+      startNumber: 1,
+      driverName: 'Orphan Kusk'
+    });
+  });
+
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(anonymousDb, `artifacts/${APP_ID}/public/data/competitions/orphan-comp/equipages/1`)));
+});
+
+test('finalization locks cannot be changed on an archived competition', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('dressage-arch-1', 'dressage');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath()), { locked: true, status: 'completed' }, { merge: true });
+  });
+
+  const officialDb = testEnv.authenticatedContext('dressage-arch-1', { email_verified: true, email: 'dressage-arch-1@example.com' }).firestore();
+  const batch = writeBatch(officialDb);
+  setLoggedLock(batch, officialDb, 'dressage-arch-1', 'dressage', true, START_NO);
+  await assertFails(batch.commit());
+});
+
+test('competition admins via roleEmails can update competition settings but not ownership', { skip: !HAS_EMULATOR }, async () => {
+  await seedRoleEmail('compadmin@example.com', ['admin']);
+  const adminDb = testEnv.authenticatedContext('comp-admin-uid', { email_verified: true, email: 'compadmin@example.com' }).firestore();
+
+  await assertSucceeds(updateDoc(doc(adminDb, compPath()), { place: 'Ny tävlingsplats' }));
+  await assertFails(updateDoc(doc(adminDb, compPath()), { createdBy: 'comp-admin-uid' }));
+  await assertFails(updateDoc(doc(adminDb, compPath()), { ownerId: 'comp-admin-uid' }));
+  // Nor who administers it: adding themselves to admins[] was the first step
+  // to taking ownership (the admins[] branch had no restriction)
+  await assertFails(updateDoc(doc(adminDb, compPath()), { admins: ['comp-admin-uid'] }));
+  await assertFails(updateDoc(doc(adminDb, compPath()), { staffUids: ['comp-admin-uid'] }));
+});
+
+test('a co-admin in admins[] cannot take ownership or delete the competition', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), compPath()), { admins: ['co-admin-2'], staffUids: ['co-admin-2'] });
+  });
+  const coDb = testEnv.authenticatedContext('co-admin-2', { email_verified: true, email: 'co2@example.com' }).firestore();
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+
+  await assertSucceeds(updateDoc(doc(coDb, compPath()), { place: 'Annan plats' }));
+  await assertFails(updateDoc(doc(coDb, compPath()), { createdBy: 'co-admin-2' }));
+  await assertFails(updateDoc(doc(coDb, compPath()), { admins: ['co-admin-2', 'friend'] }));
+  await assertFails(updateDoc(doc(coDb, compPath()), { staffUids: [] }));
+  await assertFails(deleteDoc(doc(coDb, compPath())));
+  // The owner manages the lists
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { admins: [] }));
 });
 
 test('rules test environment is using the intended project id', { skip: !HAS_EMULATOR }, () => {

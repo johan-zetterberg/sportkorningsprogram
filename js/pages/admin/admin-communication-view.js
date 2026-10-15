@@ -271,7 +271,7 @@ export function renderCommunicationTabMarkup() {
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Länk till dokument</label>
                             <div class="flex flex-col sm:flex-row gap-2">
                                 <input type="url" id="docUrl" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="https://..." required>
-                                <input type="file" id="docUploadInput" class="hidden">
+                                <input type="file" id="docUploadInput" class="hidden" accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp">
                                 <button type="button" id="btnUploadDoc" class="mt-1 whitespace-nowrap w-full sm:w-auto bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md text-sm font-semibold hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-colors" title="Ladda upp fil till Storage">
                                     Ladda upp fil
                                 </button>

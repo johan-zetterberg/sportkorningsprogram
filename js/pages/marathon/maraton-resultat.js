@@ -81,6 +81,7 @@ import {
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 
 import { showDetailsModal } from '../../ui/marathonModal.js';
+import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 // ---- Cross-page X-Scroll Guard (shared) ----
 
 
@@ -132,6 +133,7 @@ function fmtClock(ts) {
 let competitionId = null;
 let isGloballyPaused = false;
 let marathonResultsLoadToken = 0;
+let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 
 // Debounce för live-snapshots så UI inte re-rendras för ofta
 const renderLiveDebounce = debounce(render, 60);
@@ -303,7 +305,7 @@ function startOrUpdateLiveTicker(sn) {
     limitsFor,
     getPauseTime,
     calculateObstacleResult,
-    calculateResult: calculateMarathonResult
+    calculateResult: marathonResultFor
   });
 }
 function startTimeFor(startNumber) {
@@ -325,6 +327,26 @@ function stageEnabled(s) {
 function timingDocFor(sn) {
   return getTimingDocFor(maraton_marathonMap, sn);
 }
+
+// The marathon result of a row; for an archived competition with the total
+// it was archived with (placings, sorting and the total column use this)
+function marathonResultFor(eq, d, timingDoc) {
+  const res = calculateMarathonResult(eq, d, timingDoc);
+  if (!archiveSnapshot) return res;
+  const archived = archivedDisciplineDetails(archiveSnapshot, eq?.startNumber, 'marathon');
+  if (!archived.found) return res;
+  const eliminated = archived.isEliminated === null ? !!res.eliminated : archived.isEliminated;
+  if (eliminated) return { ...res, totalPenalty: Infinity, eliminated: true, status: 'Eliminerad', fromArchive: true };
+  const finished = archived.penalty !== null && res.status !== 'Klar' && res.status !== 'Färdig';
+  return {
+    ...res,
+    totalPenalty: archived.penalty,
+    ...(archived.bPenalty !== null ? { bPenalty: archived.bPenalty } : {}),
+    eliminated: false,
+    ...(archived.status ? { status: archived.status } : (finished ? { status: 'Klar' } : {})),
+    fromArchive: true
+  };
+}
 function filteredSortedEquipages() {
   maraton_equipages = ensureMergeDecorations(maraton_equipages);
 
@@ -338,7 +360,7 @@ function filteredSortedEquipages() {
     viewMode: maraton_viewMode,
     marathonMap: maraton_marathonMap,
     isMarathonFinalized,
-    calculateResult: calculateMarathonResult,
+    calculateResult: marathonResultFor,
     timingDocFor,
     startTimeFor,
     placeMap: buildPlacementsByClass()
@@ -367,7 +389,7 @@ function renderTable() {
   const obstaclePlaceMap = buildObstaclePlacementsByClass({
     equipages: maraton_equipages,
     marathonMap: maraton_marathonMap,
-    calculateResult: calculateMarathonResult,
+    calculateResult: marathonResultFor,
     timingDocFor
   });
 
@@ -413,7 +435,7 @@ function renderTable() {
     list.map(e => {
       const sn = String(e.startNumber);
       const d = maraton_marathonMap.get(sn) || {};
-      const res = calculateMarathonResult(e, d, timingDocFor(sn));
+      const res = marathonResultFor(e, d, timingDocFor(sn));
       const fin = isMarathonFinalized(sn) ? 'F' : 'P';
       const run = d.running ? 'R' : 'S';
       const pen = res.totalPenalty || 0;
@@ -442,7 +464,7 @@ function renderTable() {
   lastStructuralHash = currentStructuralHash;
   const renderRow = (eq, index) => {
     const sn = String(eq.startNumber), d = maraton_marathonMap.get(sn) || {};
-    const res = calculateMarathonResult(eq, d, timingDocFor(sn));
+    const res = marathonResultFor(eq, d, timingDocFor(sn));
     const isStruken = eq.status === 'struken';
     const status = res.status;
     const isActive = status && status.includes('Påg');
@@ -584,16 +606,31 @@ function wireControls() {
     timingDocFor,
     startTimeFor,
     fmtClock,
-    sortState: maraton_sortState
+    sortState: maraton_sortState,
+    // Exports (CSV, PDF) with the same values as the page
+    calculateResult: marathonResultFor
   });
 }
 function buildPlacementsByClass() {
-  return buildMarathonPlacementsByClass({
+  const map = buildMarathonPlacementsByClass({
     equipages: maraton_equipages,
     marathonMap: maraton_marathonMap,
     timingDocFor,
-    calculateResult: calculateMarathonResult
+    calculateResult: marathonResultFor
   });
+  if (archiveSnapshot) {
+    maraton_equipages.forEach(eq => {
+      const sn = String(eq.startNumber);
+      const archived = archivedDisciplineDetails(archiveSnapshot, sn, 'marathon');
+      // Per class: a row shown in a merged group keeps the place from the
+      // frozen penalties (the archived per-class place would give 1, 1, 2…)
+      const plainClassGroup = !eq._mergedKey || eq._mergedKey === `CLS:${eq.className || 'Okänd klass'}`;
+      if (plainClassGroup && archived.found && archived.place !== null) {
+        map.set(sn, archived.place);
+      }
+    });
+  }
+  return map;
 }
 function renderMobile() {
   const cards = document.getElementById('marathonCards');
@@ -607,14 +644,14 @@ function renderMobile() {
     obstaclePlaceMap: buildObstaclePlacementsByClass({
       equipages: maraton_equipages,
       marathonMap: maraton_marathonMap,
-      calculateResult: calculateMarathonResult,
+      calculateResult: marathonResultFor,
       timingDocFor
     }),
     getObstaclePlacement,
     marathonMap: maraton_marathonMap,
     stageKeys: STAGE_KEYS,
     stageEnabled,
-    calculateResult: calculateMarathonResult,
+    calculateResult: marathonResultFor,
     timingDocFor,
     startTimeFor,
     fmtClock,
@@ -694,14 +731,17 @@ export async function load() {
   }
 
   // Load startlist & config
-  const [eqs, cfg, startTimes, initialTimingData] = await Promise.all([
+  const [eqs, cfg, startTimes, initialTimingData, snapshot] = await Promise.all([
     getEquipages(competitionId),
     getConfig(competitionId, 'maratonConfig'),
     getConfig(competitionId, 'schedule'),
     getMarathonTimingData(competitionId),
+    // An archived competition shows the results it was archived with
+    loadArchiveSnapshot(comp),
     ensureClubLogosLoaded(competitionId)
   ]);
   if (currentLoadToken !== marathonResultsLoadToken) return;
+  archiveSnapshot = snapshot;
 
 
   // maraton_marathonConfig is imported, so we cannot assign to it.
@@ -723,6 +763,11 @@ export async function load() {
 
   // Setup UI
   ensureShell();
+  const shellEl = document.getElementById('maraton-results-shell');
+  shellEl?.querySelector('[data-archived-notice]')?.remove();
+  if (archiveSnapshot) {
+    shellEl?.querySelector('#resultSettingsNotice')?.insertAdjacentHTML('beforebegin', archivedNoticeHtml(archiveSnapshot, 'mb-2 md:mb-4'));
+  }
   const search = document.getElementById('marSearchBox');
   if (search) maraton_searchQuery = search.value || '';
 
@@ -770,6 +815,7 @@ export function __unload() {
   clearMarathonLiveTickers();
   document.body.style.filter = '';
   competitionId = null;
+  archiveSnapshot = null;
   isGloballyPaused = false;
   maraton_equipages = [];
   maraton_marathonMap.clear();

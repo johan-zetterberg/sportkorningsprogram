@@ -26,8 +26,11 @@ import {
   getPortAllowanceCm,
   statusClass,
   buildOverallStanding,
-  getToBeatInfo
+  getToBeatInfo,
+  calculatePrecisionResult
 } from '../../utils/precisionUtils.js';
+import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
+import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 
 // IMPORTERA NYA MODALEN
 import { showDetailsModal, closeDetailsModal } from '../../ui/precisionModal.js';
@@ -211,6 +214,7 @@ let precision_liveUnsubscribe = null;
 let precision_MERGE_GROUPS = [];
 let precision_MERGE_MAP = new Map();
 const precision_finalizeCache = new Map();
+let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 
 // NYTT för overall standings
 let precision_dressageMap = new Map();
@@ -240,6 +244,102 @@ function getOverallEntries(equipages) {
       isElim: !!(res.dressage?.eliminated || res.marathon?.eliminated)
     };
   });
+}
+
+// The archived precision result of a start number on a calculated one:
+// { penalty, eliminated } or null when there is no archived value for it
+function archivedPrecision(sn, calcEliminated) {
+  if (!archiveSnapshot) return null;
+  const archived = archivedDisciplineDetails(archiveSnapshot, sn, 'precision');
+  if (!archived.found) return null;
+  const eliminated = archived.isEliminated === null ? !!calcEliminated : archived.isEliminated;
+  return {
+    penalty: eliminated ? Infinity : archived.penalty,
+    eliminated,
+    place: archived.place,
+    status: archived.status,
+    timeMs: archived.timeMs
+  };
+}
+
+// Placings per class; for an archived competition from the penalties it was
+// archived with (the time still breaks ties)
+function precisionPlaceMap(rows) {
+  if (!archiveSnapshot) return buildPlaceMap(rows, precision_precisionMap, precision_precisionConfig);
+  const { placeOf } = assignPlaces(rows, {
+    key: (r) => {
+      const sn = String(r.startNumber);
+      const calc = calculatePrecisionResult(precision_precisionMap.get(sn) || {}, r, precision_precisionConfig || {});
+      const archived = archivedPrecision(sn, calc.eliminated);
+      if (!archived) return precisionRankKey(calc, { requireFinished: true });
+      return precisionRankKey({
+        ...calc,
+        totalPenalty: archived.penalty,
+        ...(archived.timeMs !== null ? { timeMs: archived.timeMs } : {}),
+        eliminated: archived.eliminated,
+        running: false,
+        finalized: true
+      }, { requireFinished: true });
+    },
+    compare: comparePrecisionRank,
+    group: (r) => r._mergedKey || `CLASS:${r.className || '—'}`,
+    outField: null
+  });
+  const placeMap = new Map();
+  rows.forEach((r) => {
+    const sn = String(r.startNumber);
+    const archived = archivedPrecision(sn, false);
+    // The archived place is per class: not for a row shown in a merged group
+    // (there the place comes from the frozen penalties above)
+    const plainClassGroup = !r._mergedKey || r._mergedKey === `CLASS:${r.className || '-'}`;
+    const useArchivedPlace = plainClassGroup && archived && archived.place !== null;
+    placeMap.set(sn, useArchivedPlace ? archived.place : placeOf.get(r));
+  });
+  return placeMap;
+}
+
+// The row data of the lists; for an archived competition with the total
+// penalty it was archived with (details such as knockdowns stay as calculated)
+function precisionRowData(sn, placeMap) {
+  const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+  const archived = archivedPrecision(String(sn), data.totalPenalty === Infinity);
+  return archived
+    ? {
+      ...data,
+      totalPenalty: archived.penalty,
+      ...(archived.status ? { status: archived.status } : {}),
+      fromArchive: true
+    }
+    : data;
+}
+
+// The overall standing (dressage + marathon + precision); for an archived
+// competition from the totals it was archived with, placed as in
+// buildOverallStanding
+function overallStandingFor(entries) {
+  const standing = buildOverallStanding(entries, precision_precisionMap, precision_precisionConfig);
+  if (!archiveSnapshot) return standing;
+  const list = standing.results.map((r) => {
+    const archived = archivedDisciplinePenalty(archiveSnapshot, r.sn, 'total');
+    if (!archived.found) return r;
+    const total = archived.isEliminated ? Infinity : archived.penalty;
+    const pScore = archivedDisciplinePenalty(archiveSnapshot, r.sn, 'precision').penalty ?? 0;
+    return { ...r, total, sortTotal: total === null ? Infinity : total, pScore, isElim: archived.isEliminated };
+  });
+  const results = [...list].sort((a, b) => {
+    if (a.isElim !== b.isElim) return a.isElim ? 1 : -1;
+    if ((a.total === null) !== (b.total === null)) return a.total === null ? 1 : -1;
+    if (a.sortTotal !== b.sortTotal) return a.sortTotal - b.sortTotal;
+    return a.sn.localeCompare(b.sn, undefined, { numeric: true });
+  });
+  const map = new Map();
+  let rank = 0;
+  results.forEach((r, idx) => {
+    const ranked = !r.isElim && r.total !== null;
+    if (ranked && (idx === 0 || r.total !== results[idx - 1].total)) rank = idx + 1;
+    map.set(r.sn, { ...r, rank: ranked ? rank : null });
+  });
+  return { results, map };
 }
 
 function isPrecisionFinalized(sn) {
@@ -377,11 +477,11 @@ function renderLiveStatusPanel() {
   const currentClass = activeEq._mergedLabel || activeEq.className;
   const visibleInClass = precision_equipages.filter(e => (e._mergedLabel || e.className) === currentClass);
   const overallEntries = getOverallEntries(visibleInClass);
-  const { results, map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+  const { results, map: standingsMap } = overallStandingFor(overallEntries);
   const standings = { results, map: standingsMap };
   const myOverall = standingsMap.get(sn);
   const toBeat = getToBeatInfo(sn, standings);
-  const data = getCalculatedRowData(sn, new Map(), precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+  const data = precisionRowData(sn, new Map());
 
   container.classList.remove('hidden');
   container.innerHTML = renderPrecisionLiveStatusPanel({
@@ -433,6 +533,8 @@ function renderLayout() {
           ${getCompetitionHeader(comp, t('precision_result_list_title'))}
           ${precisionDateStr ? `<h3 class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
         </div>
+
+        ${archivedNoticeHtml(archiveSnapshot)}
 
         ${canSeeSettingsNotices() ? resultSettingsNoticeHtml({ precision: precisionSettingsIssues(precision_equipages, precision_precisionConfig) }) : ''}
 
@@ -532,7 +634,7 @@ function renderLayout() {
       const filename = `precision_resultat_${sanitizeForFilename(comp?.name || 'tavling')}_${date}.csv`;
 
       const list = filteredSortedEquipages();
-      const placeMap = buildPlaceMap(list, precision_precisionMap, precision_precisionConfig);
+      const placeMap = precisionPlaceMap(list);
 
       const headers = [
         t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'),
@@ -543,7 +645,7 @@ function renderLayout() {
 
       const rows = list.map(eq => {
         const sn = String(eq.startNumber);
-        const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+        const data = precisionRowData(sn, placeMap);
 
         const baseAllowance = getDisplayPortAllowance(data.eq.className);
         const eliminated = data.d?.eliminated || data.totalPenalty === Infinity;
@@ -606,16 +708,16 @@ function filteredSortedEquipages() {
     activeClassFilters: precision_activeClassFilters,
     precisionMap: precision_precisionMap
   });
-  const placeMap = buildPlaceMap(list, precision_precisionMap, precision_precisionConfig);
+  const placeMap = precisionPlaceMap(list);
   list = sortPrecisionEquipages(list, {
     sort: precision_sort,
     viewMode: precision_viewMode,
-    getRowData: (eq) => getCalculatedRowData(String(eq.startNumber), placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes),
+    getRowData: (eq) => precisionRowData(String(eq.startNumber), placeMap),
     getOverallValue: (eq) => {
       const currentClass = eq._mergedLabel || eq.className;
       const visibleInClass = precision_equipages.filter((candidate) => (candidate._mergedLabel || candidate.className) === currentClass);
       const overallEntries = getOverallEntries(visibleInClass);
-      const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+      const { map: standingsMap } = overallStandingFor(overallEntries);
       return standingsMap.get(String(eq.startNumber))?.total ?? Infinity;
     },
     getStartTime: (eq) => startTimeFor(eq.startNumber, precision_startTimes) || 'ZZZZ'
@@ -629,7 +731,7 @@ function renderMobile() {
   if (!container) return;
 
   const visibleEquipages = filteredSortedEquipages();
-  const placeMap = buildPlaceMap(visibleEquipages, precision_precisionMap, precision_precisionConfig);
+  const placeMap = precisionPlaceMap(visibleEquipages);
 
   // 1. Calculate starters per class for dynamic placement counts
   const classStarters = new Map();
@@ -674,7 +776,7 @@ function renderMobile() {
 
 function renderCard(eq, placeMap, classStarters = new Map()) {
   const sn = String(eq.startNumber);
-  const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+  const data = precisionRowData(sn, placeMap);
 
   return renderPrecisionResultCard({
     data,
@@ -737,11 +839,11 @@ function renderDesktop() {
   })();
 
   const visible = filteredSortedEquipages();
-  const placeMap = buildPlaceMap(visible, precision_precisionMap, precision_precisionConfig);
+  const placeMap = precisionPlaceMap(visible);
 
   // Beräkna totalställning EN GÅNG per render
   const overallEntries = getOverallEntries(visible);
-  const { map: standingsMap } = buildOverallStanding(overallEntries, precision_precisionMap, precision_precisionConfig);
+  const { map: standingsMap } = overallStandingFor(overallEntries);
   const standings = standingsMap;
 
   const headHTML = renderPrecisionTableHead({
@@ -764,7 +866,7 @@ function renderDesktop() {
 
   const renderRow = (eq, index) => {
     const sn = String(eq.startNumber);
-    const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+    const data = precisionRowData(sn, placeMap);
     const baseAllowance = getDisplayPortAllowance(data.eq.className);
     const allowanceDisplay = isNum(baseAllowance) ? `+ ${baseAllowance} cm` : '—';
     const isStruken = data.eq.status === 'struken';
@@ -1017,7 +1119,8 @@ export async function load() {
     mergeCfgC,
     marathonCfg,
     programMappingCfg,
-    judgeMappingCfg
+    judgeMappingCfg,
+    snapshot
   ] = await Promise.all([
     getPrecisionResults(competitionId).catch(() => []),
     getAllDressageProtocols(competitionId, equipagesData || []).catch(() => new Map()),
@@ -1033,8 +1136,11 @@ export async function load() {
     getConfig(competitionId, 'maratonConfig').catch(() => ({})),
     // Dressage program per class and the judges each class needs (overall standings)
     getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
-    getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
+    getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
+    // An archived competition shows the results it was archived with
+    loadArchiveSnapshot(comp)
   ]);
+  archiveSnapshot = snapshot;
 
   setCompetitionSetting(competitionId, 'klassProgramMapping', (programMappingCfg && typeof programMappingCfg === 'object') ? programMappingCfg : {});
   precision_dressageJudgeMapping = (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? judgeMappingCfg : {};
@@ -1141,6 +1247,7 @@ export function __unload() {
   // Always stop on leaving: stopTicker() keeps it while a round is running
   if (precisionTickerInterval) clearInterval(precisionTickerInterval);
   precisionTickerInterval = null;
+  archiveSnapshot = null;
   precision_equipages = [];
   precision_precisionMap.clear();
   precision_precisionConfig = {};

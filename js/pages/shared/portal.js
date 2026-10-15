@@ -73,7 +73,7 @@ function getSelfServiceRestrictionMessage(user, equipage, privateData) {
     if (!equipageEmail) {
         return 'Ekipaget saknar kopplad e-postadress för självservice. Kontakta sekretariatet om du behöver ändra deklarationen.';
     }
-    return `Du är inloggad som ${user?.email || 'okänd användare'}, men ekipaget är kopplat till ${equipage.email}. Kontakta sekretariatet om du behöver ändra deklarationen.`;
+    return `Du är inloggad som ${user?.email || 'okänd användare'}, men ekipaget är kopplat till ${equipageEmail}. Kontakta sekretariatet om du behöver ändra deklarationen.`;
 }
 
 function cleanupPortalSubscriptions() {
@@ -234,7 +234,7 @@ export function showDriverPortalHelpModal() {
     modal.querySelector('#closePortalHelpBtn')?.focus();
 }
 
-export async function load() {
+export async function load(options = {}) {
     __unload();
     const currentLoadToken = ++portalLoadToken;
 
@@ -338,7 +338,7 @@ export async function load() {
     `;
 
     // Hantera klick på tävlingskort
-    container.addEventListener('click', (e) => {
+    container.onclick = (e) => {
         const card = e.target.closest('.competition-card');
         if (card) {
             const compId = card.dataset.compId;
@@ -353,7 +353,7 @@ export async function load() {
                 renderDashboard(container, compId, startNo, userData);
             }
         }
-    });
+    };
 
     cleanupPortalSubscriptions();
 
@@ -488,7 +488,14 @@ export async function load() {
         btn.textContent = t('syncing');
         btn.disabled = true;
         try {
-            await autoClaimEquipages(user);
+            const result = await autoClaimEquipages(user);
+            if (result?.needsVerifiedEmail) {
+                // Nothing was synced: say why instead of reporting success
+                showAlert(t('sync_needs_verified_email'), false);
+                btn.textContent = origText;
+                btn.disabled = false;
+                return;
+            }
             showAlert(t('sync_success'), true);
             setTimeout(() => {
                 location.reload();
@@ -597,7 +604,7 @@ export async function load() {
 
     const currentComp = getGlobalState('currentCompetition');
 
-    if (currentComp && claims.some(c => c.competitionId === currentComp.id)) {
+    if (!options?.skipAutoOpen && currentComp && claims.some(c => c.competitionId === currentComp.id)) {
         const claim = claims.find(c => c.competitionId === currentComp.id);
         if (claim) {
             renderDashboard(container, claim.competitionId, claim.startNumber, userData);
@@ -639,8 +646,7 @@ async function renderDashboard(container, compId, startNumber, user) {
 
     document.getElementById('backToPortalBtn')?.addEventListener('click', () => {
         setGlobalState({ key: 'currentCompetition', value: null });
-        window.location.hash = '#portal';
-        location.reload();
+        load({ skipAutoOpen: true });
     });
 
     document.getElementById('portalDashboardHelpBtn')?.addEventListener('click', showDriverPortalHelpModal);
@@ -759,7 +765,9 @@ async function renderDashboard(container, compId, startNumber, user) {
         const langContainer = headerEl.querySelector('#lang-toggle-container');
         if (langContainer) {
             import('../../ui/languageToggle.js').then(mod => {
-                mod.renderLanguageToggle(langContainer);
+                // The competition's default language: on an international one
+                // the page is English until the driver chooses otherwise
+                mod.renderLanguageToggle(langContainer, compConfig?.isInternational === true);
             });
         }
 
@@ -1225,10 +1233,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                     return `<span class="px-2 py-1 rounded text-sm font-bold uppercase ${curr.c}">${curr.t}</span>`;
                 })()}
                         </div>
-                        ${eq.vetNotes ? `
+                        ${(privateEquipage?.vetNotes || eq.vetNotes) ? `
                         <div class="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-100 dark:border-red-800">
                              <div class="text-xs font-bold text-red-800 dark:text-red-400 uppercase mb-1">${t('vet_note', compConfig?.isInternational)}:</div>
-                             <p class="text-red-900 dark:text-red-200 text-sm">${escapeHtml(eq.vetNotes)}</p>
+                             <p class="text-red-900 dark:text-red-200 text-sm">${escapeHtml(privateEquipage?.vetNotes || eq.vetNotes)}</p>
                         </div>` : ''}
                          ${eq.status === 'ombesiktning' ?
                     `<p class="text-sm text-yellow-800 dark:text-yellow-400 mt-2">${t('contact_secretariat', compConfig?.isInternational)}</p>` : ''}
@@ -1247,7 +1255,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         </p>
                         ${!canSelfEdit ? `
                         <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-                            ${selfServiceRestrictionMessage}
+                            ${escapeHtml(selfServiceRestrictionMessage)}
                         </div>` : ''}
                         <div class="flex flex-col gap-2">
                             <textarea id="portalSpeakerNotes" rows="4" class="w-full rounded border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:opacity-60" placeholder="Skriv dina noteringar här..." ${canSelfEdit ? '' : 'disabled'}>${escapeHtml(eq.speakerNotes || '')}</textarea>

@@ -21,7 +21,7 @@ import {
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
-import { downloadJson } from '../../utils/sharedUtils.js';
+import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { PRECISION_KNOCKDOWN_PENALTY } from '../../core-engine/rules-ledger.js';
 import {
@@ -607,9 +607,9 @@ function updateHeaderInfo() {
 
     if (warningEl) {
         if (compliance.status === 'too_narrow') {
-            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200" title="${compliance.message}">⚠️ Vagn ${compliance.actualWidth}cm (< min ${compliance.minWidth}cm)</span>`;
+            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200" title="${escapeHtml(compliance.message || '')}">⚠️ Vagn ${escapeHtml(String(compliance.actualWidth))}cm (< min ${escapeHtml(String(compliance.minWidth))}cm)</span>`;
         } else if (compliance.status === 'forbidden') {
-            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200" title="${compliance.message}">⛔ Ej tillåten (TR Bilaga 2)</span>`;
+            warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-rose-100 text-rose-800 dark:bg-rose-900/50 dark:text-rose-200" title="${escapeHtml(compliance.message || '')}">⛔ Ej tillåten (TR Bilaga 2)</span>`;
         } else if (compliance.safetyApproved === false) {
             warningEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-amber-100 text-amber-800 dark:bg-amber-900/50 dark:text-amber-200" title="Funktionskontroll underkänd">⚠️ Ej godkänd vagnkontroll</span>`;
         } else {
@@ -630,7 +630,8 @@ function renderGates() {
 
     host.innerHTML = labels.map(label => {
         const active = knocks.has(label);
-        return `<button data-g="${label}" class="gateBtn p-1 aspect-square flex items-center justify-center rounded border text-lg ${active ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}">${label}</button>`;
+        const safeLabel = escapeHtml(String(label));
+        return `<button data-g="${safeLabel}" class="gateBtn p-1 aspect-square flex items-center justify-center rounded border text-lg ${active ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}">${safeLabel}</button>`;
     }).join('');
 
     host.querySelectorAll('.gateBtn').forEach(btn => {
@@ -761,12 +762,17 @@ function updateTimerView() {
 }
 
 
+// The start number whose clock this device started (null when it runs, if at all,
+// on another device): only that one is stopped when switching equipage
+let clockStartedHereFor = null;
+
 function startTimer() {
     // Städa upp ev. gammalt interval
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     if (isRunning) return;
 
     isRunning = true;
+    clockStartedHereFor = currentEquipage ? String(currentEquipage.startNumber) : null;
     // Viktigt: starta från "nu" – vi ska INTE baka in pausedMs i startEpoch
     startEpoch = nowMs();
 
@@ -782,6 +788,7 @@ function stopTimer() {
     // Lägg till den körda tiden till den ackumulerade
     pausedMs += (nowMs() - startEpoch);
     isRunning = false;
+    clockStartedHereFor = null;
 
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     updateTimerView();     // visa stoppad tid korrekt
@@ -800,6 +807,7 @@ function clearLocalState() {
 function stopTimerLocal() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     isRunning = false;
+    clockStartedHereFor = null;
 }
 
 function resetTimer() {
@@ -951,6 +959,18 @@ function subscribeToPrecisionDoc(startNumber) {
 }
 
 async function onEquipageSelected(eq) {
+    // A clock still running belongs to the previous equipage: stop it there
+    // (stopTimer saves running: false for the current one) before switching,
+    // or its result would stay "running" for the live views and the server.
+    // Only a clock started on this device: one running on another device (shown
+    // here from the live document) is that device's to stop
+    const previous = currentEquipage;
+    if (previous && isRunning && clockStartedHereFor === String(previous.startNumber)
+        && String(previous.startNumber) !== String(eq?.startNumber ?? '')) {
+        stopTimer();
+        showAlert(`Klockan för #${previous.startNumber} stoppades vid bytet (${partsToString(msToParts(pausedMs))}). Spara resultatet där om det ska gälla.`, 'warning');
+    }
+
     currentEquipage = eq || null;
 
     if (!currentEquipage) {
@@ -1018,7 +1038,8 @@ async function saveFinal() {
     // Without a max time for the class (configMissing) the engine gives no time
     // penalty and no total: save them empty, not as 0, and never as 'Klar'
     const timePenalty = calc.configMissing ? null : (calc.timePenalty ?? 0);
-    const totalPenalty = calc.configMissing ? null : (calc.totalPenalty ?? 0);
+    // Eliminated: no total (a 0 would be read back as a result once finalized)
+    const totalPenalty = (calc.configMissing || eliminated) ? null : (calc.totalPenalty ?? 0);
     const hasAnyData = eliminated || timeMs > 0 || knocksArray.length > 0 || extraPenaltyValue > 0 || commentValue.length > 0;
 
     const payload = {
@@ -1257,7 +1278,7 @@ export async function load() {
 
         console.error("Kunde inte ladda precisionsinmatning:", error);
         const el = document.getElementById('precisionEquipageSearchContainer');
-        if (el) el.innerHTML = `<span class="text-red-500 font-bold">${t('precision_load_error_html').replace('{error}', error.message)}</span>`;
+        if (el) el.innerHTML = `<span class="text-red-500 font-bold">${t('precision_load_error_html').replace('{error}', escapeHtml(error?.message || String(error)))}</span>`;
         // showAlert("Ett kritiskt fel uppstod vid laddning av sidan.", false);
     }
 }

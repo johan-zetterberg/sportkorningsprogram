@@ -419,11 +419,10 @@ async function printParticipantPdf(equipage) {
   const twPrec = equipage.trackWidth || equipage.trackWidthCm || '—';
   const twMar = equipage.marathonTrackWidth || equipage.trackWidthMarathon || twPrec || '—';
 
-  const addressParts = [
-    equipage.address,
-    equipage.zipCode,
-    equipage.city
-  ].filter(Boolean);
+  const rawAddr = equipage.address;
+  const addressParts = typeof rawAddr === 'object' && rawAddr !== null
+    ? [rawAddr.street, rawAddr.zip || rawAddr.zipCode, rawAddr.city].filter(Boolean)
+    : [rawAddr, equipage.zipCode, equipage.city].filter(Boolean);
   const fullAddress = addressParts.length ? addressParts.join(', ') : '—';
 
   const horses = Array.isArray(equipage.horses) ? equipage.horses : [];

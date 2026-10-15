@@ -3,16 +3,66 @@ service firebase.storage {
   match /b/{bucket}/o {
     
     function isAdmin() {
+      let userPath = /databases/(default)/documents/users/$(request.auth.uid);
       return request.auth != null && (
         request.auth.token.superadmin == true ||
         (
-          firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) && (
-            firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'superadmin'] ||
-            'superadmin' in (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.roles || []) ||
-            'admin' in (firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.roles || [])
+          firestore.exists(userPath) && (
+            firestore.get(userPath).data.get('role', '') in ['admin', 'superadmin'] ||
+            (
+              firestore.get(userPath).data.get('roles', []) != null && (
+                'superadmin' in firestore.get(userPath).data.get('roles', []) ||
+                'admin' in firestore.get(userPath).data.get('roles', [])
+              )
+            )
           )
         )
       );
+    }
+
+    function canAdminCompetitionInApp(appId, competitionId) {
+      let compPath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId);
+      let adminPath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/admins/$(request.auth.uid);
+      let email = request.auth.token.email != null ? request.auth.token.email.lower() : '';
+      let roleEmailPath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/roleEmails/$(email);
+      return firestore.exists(compPath) && (
+        firestore.get(compPath).data.get('createdBy', '') == request.auth.uid ||
+        firestore.get(compPath).data.get('ownerId', '') == request.auth.uid ||
+        (
+          firestore.get(compPath).data.get('admins', []) != null &&
+          request.auth.uid in firestore.get(compPath).data.get('admins', [])
+        ) ||
+        (
+          firestore.exists(adminPath) && (
+            firestore.get(adminPath).data.get('role', 'admin') == 'admin' ||
+            (
+              firestore.get(adminPath).data.get('roles', []) != null &&
+              'admin' in firestore.get(adminPath).data.get('roles', [])
+            )
+          )
+        ) ||
+        (
+          request.auth.token.email_verified == true &&
+          email != '' &&
+          firestore.exists(roleEmailPath) && (
+            firestore.get(roleEmailPath).data.get('role', '') == 'admin' ||
+            (
+              firestore.get(roleEmailPath).data.get('roles', []) != null &&
+              'admin' in firestore.get(roleEmailPath).data.get('roles', [])
+            )
+          )
+        )
+      );
+    }
+
+    function canAdminCompetition(competitionId) {
+      return isAdmin()
+        || (
+          request.auth != null && (
+            canAdminCompetitionInApp('drivelive', competitionId) ||
+            canAdminCompetitionInApp('combined-driving', competitionId)
+          )
+        );
     }
 
     // Uploads: a size limit, so a mistake can't fill the bucket
@@ -20,18 +70,34 @@ service firebase.storage {
       return request.resource == null || request.resource.size < maxBytes;
     }
 
+    // The files are publicly readable by link: only harmless types, never
+    // HTML, SVG or scripts (which a browser would run when the link is opened)
+    function isImageUpload() {
+      return request.resource == null
+        || request.resource.contentType.matches('image/(png|jpeg|webp)');
+    }
+    function isDocumentUpload() {
+      return request.resource == null
+        || request.resource.contentType.matches('image/(png|jpeg|webp|gif)')
+        || request.resource.contentType.matches('application/pdf')
+        || request.resource.contentType.matches('text/(plain|csv)')
+        || request.resource.contentType.matches('application/(msword|vnd[.]ms-excel|vnd[.]ms-powerpoint)')
+        || request.resource.contentType.matches('application/vnd[.]openxmlformats-officedocument[.].*')
+        || request.resource.contentType.matches('application/vnd[.]oasis[.]opendocument[.].*');
+    }
+
     // Explicit rule for competition assets
     match /competitions/{competitionId}/assets/club-logos/{allPaths=**} {
       allow get: if true;
-      allow write: if isAdmin() && isReasonableUpload(5 * 1024 * 1024);
+      allow write: if canAdminCompetition(competitionId) && isReasonableUpload(5 * 1024 * 1024) && isImageUpload();
     }
 
     // Competition documents (maps, PDFs). Read by their link only: listing
     // would reveal documents meant for drivers (the app never lists files)
     match /competitions/{competitionId}/documents/{allPaths=**} {
       allow get: if true;
-      allow list: if isAdmin();
-      allow write: if isAdmin() && isReasonableUpload(50 * 1024 * 1024);
+      allow list: if canAdminCompetition(competitionId);
+      allow write: if canAdminCompetition(competitionId) && isReasonableUpload(50 * 1024 * 1024) && isDocumentUpload();
     }
 
     // Default catch-all: deny everything outside explicitly public paths.

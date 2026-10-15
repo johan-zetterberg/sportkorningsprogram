@@ -52,6 +52,7 @@ export function assertArchiveCanFinalize({
  */
 export function buildArchiveSnapshot(rows = [], { archivedAt, archivedBy = null, engineVersion = null, allowedIncomplete = [] } = {}) {
     const num = (value) => (Number.isFinite(value) ? value : null);
+    const boolOrNull = (value) => (typeof value === 'boolean' ? value : null);
     return {
         archivedAt,
         archivedBy,
@@ -63,8 +64,19 @@ export function buildArchiveSnapshot(rows = [], { archivedAt, archivedBy = null,
             driverName: row?.driverName || '',
             plac: row?.plac ?? '',
             dressagePenalty: num(row?.dressage?.penalty),
+            dressagePlace: num(row?.posDress ?? row?.dressagePlace),
+            dressageEliminated: boolOrNull(row?.dressage?.eliminated),
+            dressageStatus: row?.dressage?.status || row?.dressageStatus || null,
             marathonPenalty: num(row?.marathon?.totalPenalty),
-            precisionPenalty: num(row?.precision?.totalPenalty),
+            marathonPlace: num(row?.posMar ?? row?.marathonPlace),
+            marathonEliminated: boolOrNull(row?.marathon?.eliminated),
+            marathonStatus: row?.marathon?.status || row?.marathonStatus || null,
+            marathonBPenalty: num(row?.marathon?.bPenalty),
+            precisionPenalty: num(row?.precision?.totalPenalty ?? row?.precision?.pen),
+            precisionPlace: num(row?.posPrec ?? row?.precisionPlace),
+            precisionEliminated: boolOrNull(row?.precision?.eliminated),
+            precisionStatus: row?.precision?.status || row?.precisionStatus || null,
+            precisionTimeMs: num(row?.precision?.timeMs),
             totalPenalty: num(row?.totalPenalty),
             isEliminated: !!row?.isEliminated,
             status: row?.status || null

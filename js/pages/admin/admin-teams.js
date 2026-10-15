@@ -288,7 +288,10 @@ function renderPool(filterText = '') {
   const ft = filterText.toLowerCase();
   const pool = currentEquipages.filter(eq => {
     if (assignedIds.has(String(eq.id))) return false;
-    const searchStr = `${eq.startNumber} ${eq.driverName} ${eq.clubName} ${eq.horses} `.toLowerCase();
+    const horseNames = Array.isArray(eq.horses)
+      ? eq.horses.map(h => h?.name || h).filter(Boolean).join(' ')
+      : (eq.horseName || '');
+    const searchStr = `${eq.startNumber} ${eq.driverName} ${eq.clubName} ${horseNames} `.toLowerCase();
     return searchStr.includes(ft);
   }); // Sort by startNumber
   pool.sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));

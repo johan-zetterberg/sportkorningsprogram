@@ -1,4 +1,4 @@
-import { saveEquipage, deleteEquipage, migrateEquipagePrivacy } from '../../services/equipageService.js';
+import { saveEquipage, deleteEquipage, clearAllEquipages, migrateEquipagePrivacy } from '../../services/equipageService.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -11,6 +11,7 @@ import { renderClassNumberMergePanel } from './adminParticipantMergePanels.js';
 import {
     generateHorseFields,
     getHorseFormData,
+    mergeFormHorse,
     populateHorseFormData,
     updateHorseNumbers
 } from './adminParticipantHorseFields.js';
@@ -25,6 +26,7 @@ let allEquipages = [];
 let allJudges = [];
 let allOfficials = [];
 let competitionId = null;
+let formPopulationDeps = {};
 
 export function getParticipantsHtml() {
     return `
@@ -260,7 +262,7 @@ function setupClearButton(competitionId) {
                 return;
             }
             showAlert(`Rensar ${allEquipages.length} ekipage...`, true);
-            const deletePromises = allEquipages.map(equipage => deleteEquipage(competitionId, equipage.id));
+            const deletePromises = [clearAllEquipages(competitionId)];
             try {
                 await Promise.all(deletePromises);
                 showAlert("Alla ekipage har tagits bort.", true);
@@ -518,7 +520,11 @@ function setupEquipageForm() {
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
         const startNumber = document.getElementById('startNumber').value;
-        const horses = getHorseFormData();
+        const existingForHorses = allEquipages.find(eq => eq.startNumber === parseInt(startNumber));
+        const existingHorses = Array.isArray(existingForHorses?.horses) ? existingForHorses.horses : [];
+        // Each horse on its own saved record (vet results, inspections, import
+        // data); a horse new to the equipage starts clean
+        const horses = getHorseFormData().map(horse => mergeFormHorse(existingHorses, horse));
         const existing = allEquipages.find(eq => eq.startNumber === parseInt(startNumber));
         const status = existing ? existing.status : 'anmäld';
 
@@ -581,15 +587,16 @@ function setupEquipageForm() {
     });
     syncParaGradeUi();
     populateClassSelect();
+    formPopulationDeps = { generateHorseFields, inferParaGradeFromClassName, isBarnClass, isParaClass, onClassChange, paraGradeSelect, populateClassSelect, populateHorseFormData, syncParaGradeUi, updateHorseNumbers };
     onClassChange({ target: classSelect });
 }
 
-function populateEquipageForm(data) {
+function populateEquipageForm(data, extra = {}) {
     populateEquipageFormFields(data, {
         inferParaGradeFromClassName,
         onClassChange,
         populateHorseFormData,
-        updateHorseNumbers
+        updateHorseNumbers, ...formPopulationDeps, ...extra
     });
 }
 

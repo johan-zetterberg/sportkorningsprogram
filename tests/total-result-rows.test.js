@@ -116,6 +116,31 @@ test('buildTotalResultRow calls total calculation with merged timing and context
     precisionConfig
   });
   assert.equal(row.totalPenalty, 14);
+  assert.equal(row.dressage.percentAvg, 65);
   assert.equal(row.precision.pen, 2);
   assert.equal(row.displayGroupLabel, 'Lätt A');
+});
+
+
+test('an eliminated row shows the elimination in dressage and marathon', () => {
+  // An older archive: isEliminated, and the live engine's precision flag false
+  const statuses = resolveTotalDisciplineStatuses({
+    isEliminated: true,
+    dressage: { penalty: 50 },
+    marathon: { totalPenalty: null },
+    precision: { eliminated: false, pen: null }
+  });
+  assert.equal(statuses.dressageStatus, 'elim');
+  assert.equal(statuses.marathonStatus, 'elim');
+
+  // Eliminated in the marathon only: dressage counts as eliminated too (the
+  // team scores do not count an eliminated member's dressage penalty)
+  const perPhase = resolveTotalDisciplineStatuses({
+    isEliminated: true,
+    dressage: { penalty: 50, eliminated: false },
+    marathon: { totalPenalty: null, eliminated: true },
+    precision: { eliminated: false }
+  });
+  assert.equal(perPhase.dressageStatus, 'elim');
+  assert.equal(perPhase.marathonStatus, 'elim');
 });

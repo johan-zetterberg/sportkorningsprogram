@@ -15,7 +15,7 @@ import { getCompetitionHeader } from '../../ui/components.js';
 import { JUDGE_MAPPING_NOTICE_ID, renderJudgeMappingNotice } from '../../ui/judgeMappingNotice.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, normalizeCountryCode, fetchFlagDataUrl } from '../../services/flagsService.js';
-import { doc, onSnapshot, setDoc, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 
 // --- NYTT: modulär modal + PDF ---
@@ -71,8 +71,11 @@ import {
 
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { finalizeDressage, unfinalizeDressage } from '../../services/finalizationService.js';
+import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 
 let processedResults = [];
+let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 let allCompetitionJudges = [];
 let sortState = { key: 'plac', dir: 'asc' };
 let rawByStart = new Map();
@@ -846,6 +849,18 @@ function processAndAggregateResults(equipages, allRawResults) {
         }
     });
 
+    // Archived: the penalty it was archived with, also for the placings
+    if (archiveSnapshot) {
+        Object.values(aggregated).forEach(eq => {
+            const archived = archivedDisciplineDetails(archiveSnapshot, eq.startNumber, 'dressage');
+            if (!archived.found) return;
+            eq.finalPenalty = archived.penalty;
+            if (archived.isEliminated !== null) eq.eliminated = archived.isEliminated;
+            if (archived.place !== null) eq.archivedPlace = archived.place;
+            eq.fromArchive = true;
+        });
+    }
+
     // STEG 4: Placering och Clear Round
     const byClass = {};
     Object.values(aggregated).forEach(eq => {
@@ -865,6 +880,12 @@ function processAndAggregateResults(equipages, allRawResults) {
         const finalRankables = rankDressageRows(eqs, {
             penaltyPicker: eq => eq.finalPenalty,
             eliminatedPicker: eq => !!eq.eliminated
+        });
+
+        eqs.forEach(eq => {
+            if (eq.fromArchive && eq.archivedPlace !== undefined) {
+                eq.plac = eq.archivedPlace;
+            }
         });
 
         if (isCR) {
@@ -1934,11 +1955,8 @@ window.__finalizeDressyr = async (compIdFromBtn, startNo) => {
         if (!compId) return alert('Ingen tävling vald.');
         if (!confirm(`Finalisera dressyrresultat för #${startNo}?`)) return;
 
-        await setDoc(dressageFinalizationDocRef(compId, startNo), {
-            finalized: true,
-            finalizedAt: Date.now(),
-            finalizedBy: (getGlobalState('currentUser')?.uid || null)
-        }, { merge: true });
+        // Through the service: the lock change and its log entry in one batch
+        await finalizeDressage(compId, startNo);
 
         // Optimistisk UI
         const cur = dressageStatusMap.get(String(startNo)) || {};
@@ -1957,11 +1975,7 @@ window.__unfinalizeDressyr = async (compIdFromBtn, startNo) => {
         if (!compId) return alert('Ingen tävling vald.');
         if (!confirm(`Ångra finalisering för #${startNo}?`)) return;
 
-        await setDoc(dressageFinalizationDocRef(compId, startNo), {
-            finalized: false,
-            unfinalizedAt: Date.now(),
-            unfinalizedBy: (getGlobalState('currentUser')?.uid || null)
-        }, { merge: true });
+        await unfinalizeDressage(compId, startNo);
 
         const cur = dressageStatusMap.get(String(startNo)) || {};
         dressageStatusMap.set(String(startNo), { ...cur, finalized: false });
@@ -2234,6 +2248,7 @@ let loadSeq = 0;
 
 export async function load() {
     const mySeq = ++loadSeq;
+    archiveSnapshot = null;
     lastStructuralHash = null;
     lastHeaderHash = null;
     initializeDressyrScrollHelpers();
@@ -2279,7 +2294,9 @@ export async function load() {
             getConfig(competitionId, 'dressyrClassConfig').catch(() => null), // Clear Round config
             // One read (a listener here was never stopped); not readable for the public
             getJudges(competitionId).catch(() => []),
-            getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({}))
+            getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+            // An archived competition shows the results it was archived with
+            loadArchiveSnapshot(competition).then(snap => { if (mySeq === loadSeq) archiveSnapshot = snap; })
         ]);
         if (mySeq !== loadSeq) return; // left or reloaded while loading
 
@@ -2357,6 +2374,7 @@ export async function load() {
       <div class="competition-page-header-shell mb-2 md:mb-8">
                 ${getCompetitionHeader(competition, t('dressage') + ' – ' + t('start_list_and_results'))}
       </div>
+      ${archivedNoticeHtml(archiveSnapshot, 'mb-2 md:mb-4')}
       <div id="${JUDGE_MAPPING_NOTICE_ID}"></div>
       <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
         
@@ -2497,6 +2515,7 @@ export function __unload() {
 
     // 5) Nollställ state
     processedResults = []; //
+    archiveSnapshot = null;
     allCompetitionJudges = []; //
     masterEquipageList = []; //
     currentJudgesPresent = []; //

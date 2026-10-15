@@ -290,7 +290,7 @@ function renderLayout(competition) {
           
           <!-- Upload Tools -->
           <div class="marathon-admin-upload-row grid grid-cols-1 sm:grid-cols-[auto_auto_1fr] items-start sm:items-center gap-2 mt-2">
-            <input type="file" id="mapImageUploadInput" accept="image/*" class="hidden">
+            <input type="file" id="mapImageUploadInput" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
             <button type="button" id="btnUploadMapImage" class="bg-blue-50 border-2 border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/40" title="Ladda upp bildfil">
                 <span>📤 Ladda upp bildfil</span>
             </button>
@@ -1077,7 +1077,7 @@ function buildMarathonValidationFromForm(container) {
         || !!trTempoMminForWithCat(row.trTemplate || className, 'A', catKey),
       hasTempoB: (Number.isFinite(manualTempoB) && manualTempoB > 0)
         || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey),
-      isLightB: normalizeClassKey(row.trTemplate || className) === 'Lätt B'
+      isLightB: ['Lätt B', 'Barnklass'].includes(normalizeClassKey(row.trTemplate || className))
     };
   });
 
@@ -1352,7 +1352,7 @@ async function setupMarathonSettings() {
           || !!trTempoMminForWithCat(row.trTemplate || className, 'A', catKey),
         hasTempoB: (Number.isFinite(manualTempoB) && manualTempoB > 0)
           || !!trTempoMminForWithCat(row.trTemplate || className, 'B', catKey),
-        isLightB: normalizeClassKey(row.trTemplate || className) === 'Lätt B'
+        isLightB: ['Lätt B', 'Barnklass'].includes(normalizeClassKey(row.trTemplate || className))
       };
     });
 
@@ -1639,11 +1639,36 @@ export async function load() {
     console.error('[MaratonAdmin] getEquipages error:', e);
   }
 
-  // Realtidslyssnare för ekipage
+  // Realtidslyssnare för ekipage. The class settings are redrawn only when
+  // what they show changes (the classes, or a class's horse/pony category),
+  // and not while a field in them has focus: then once it is left.
   if (unsubscribeEquipages) unsubscribeEquipages();
+  const settingsKey = () => {
+    const cats = buildDominantTRCategoryByClass(allEquipages);
+    return [...new Set(allEquipages.map(e => e?.className).filter(Boolean))].sort()
+      .map(cls => `${cls}:${cats?.[cls] ?? cats?.get?.(cls) ?? ''}`).join('|');
+  };
+  let lastSettingsKey = settingsKey();
+  let settingsRedrawPending = false;
+  const redrawSettingsIfIdle = async () => {
+    const settingsContainer = document.getElementById('marathon-distances-container');
+    if (settingsContainer && settingsContainer.contains(document.activeElement)) {
+      settingsRedrawPending = true;
+      return;
+    }
+    settingsRedrawPending = false;
+    lastSettingsKey = settingsKey();
+    await setupMarathonSettings();
+  };
+  const settingsContainer = document.getElementById('marathon-distances-container');
+  settingsContainer?.addEventListener('focusout', () => {
+    // After focus has moved: still inside the settings means keep waiting
+    setTimeout(() => { if (settingsRedrawPending) redrawSettingsIfIdle(); }, 0);
+  });
   unsubscribeEquipages = listenForEquipages(competitionId, async (equipages) => {
     allEquipages = Array.isArray(equipages) ? equipages : [];
-    await setupMarathonSettings();
+    if (settingsKey() !== lastSettingsKey) await redrawSettingsIfIdle();
+    renderMarathonAdminReadiness();
   });
 
   // Hinder: form + lyssnare

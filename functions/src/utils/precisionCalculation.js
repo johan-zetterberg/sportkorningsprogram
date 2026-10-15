@@ -193,13 +193,16 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     } else {
         timePenalty = storedTimePenalty;
     }
-    timePenalty = timePenalty || null;
+    const hasTimeResult = (isNum(timeMs) && timeMs > 0)
+        || (d.timePenaltyOverride === true && isNum(d.timePenalty))
+        || isNum(d.timePenalty);
+    timePenalty = (isNum(timePenalty) && (timePenalty > 0 || hasTimeResult)) ? timePenalty : null;
 
     const extraPenalty = isNum(d.extraPenalty) ? d.extraPenalty : null;
     const hasPerformance = (isNum(timeMs) && timeMs > 0)
         || (isNum(obstaclePenalty) && obstaclePenalty > 0)
         || (isNum(extraPenalty) && extraPenalty !== 0);
-    const hasValidResult = hasPerformance || finalized || eliminated || running;
+    const hasValidResult = hasPerformance || (finalized && !eliminated) || running;
     const sumParts = hasValidResult
         ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
         : null;
@@ -232,9 +235,9 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     let status = 'Ej startat';
     if (equipage?.status === 'struken') status = 'Struken';
     else if (running) status = 'Pågår';
+    else if (isInitiallyEliminated) status = 'Utesluten';
     else if (finalized || (isNum(timeMs) && timeMs > 0)) {
-        if (isInitiallyEliminated) status = 'Utesluten';
-        else status = configMissing ? 'Pågår' : 'Klar';
+        status = configMissing ? 'Pågår' : 'Klar';
     }
 
     const timeDiffFromAllowed = (isNum(timeMs) && isNum(maxSec))

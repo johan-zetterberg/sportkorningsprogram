@@ -1,4 +1,48 @@
 {
-    "indexes": [],
-    "fieldOverrides": []
+    "indexes": [
+        {
+            "collectionGroup": "competitions",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "published",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "createdAt",
+                    "order": "DESCENDING"
+                }
+            ]
+        }
+    ],
+    "fieldOverrides": [
+        {
+            "collectionGroup": "roleEmails",
+            "fieldPath": "email",
+            "indexes": [
+                {
+                    "order": "ASCENDING",
+                    "queryScope": "COLLECTION"
+                },
+                {
+                    "order": "ASCENDING",
+                    "queryScope": "COLLECTION_GROUP"
+                }
+            ]
+        },
+        {
+            "collectionGroup": "admins",
+            "fieldPath": "email",
+            "indexes": [
+                {
+                    "order": "ASCENDING",
+                    "queryScope": "COLLECTION"
+                },
+                {
+                    "order": "ASCENDING",
+                    "queryScope": "COLLECTION_GROUP"
+                }
+            ]
+        }
+    ]
 }

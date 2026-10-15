@@ -94,4 +94,10 @@ test('FEI precision order starts retired, then eliminated, then reverse combined
 
   assert.deepEqual(order.issues, []);
   assert.deepEqual(order.rows.map(row => row.id), ['retired', 'elim', 'a', 'b']);
+
+  const missingNull = buildFeiPrecisionStartOrder([
+    { id: 'a', startNumber: 1, dressagePenalty: 40, marathonPenalty: null }
+  ]);
+  assert.equal(missingNull.rows.length, 0);
+  assert.match(missingNull.issues[0], /startnummer 1/);
 });

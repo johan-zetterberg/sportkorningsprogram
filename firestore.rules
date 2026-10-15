@@ -98,26 +98,9 @@ service cloud.firestore {
         );
     }
 
-    function hasRoleInComp(appId, compId, roleName) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
-        && (
-          canAdminThisArtifactsComp(appId, compId) ||
-          hasExplicitRoleInComp(appId, compId, roleName)
-        );
-    }
-
     function canAdminThisArtifactsComp(appId, compId) {
       return canAdminThisArtifactsCompBase(appId, compId)
         || hasRoleEmailAccess(appId, compId, 'admin');
-    }
-
-    function hasRoleInCompForApp(appId, compId, roleName) {
-      return request.auth != null
-        && exists(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId))
-        && (
-          hasRoleInComp(appId, compId, roleName)
-        );
     }
 
     function canReadCompetitionStaffDocs(appId, compId) {
@@ -128,6 +111,19 @@ service cloud.firestore {
           hasExplicitRoleInComp(appId, compId, 'marathon') ||
           hasExplicitRoleInComp(appId, compId, 'precision') ||
           hasExplicitRoleInComp(appId, compId, 'speaker')
+        );
+    }
+
+    // A draft (published: false) is visible only to the competition's staff
+    // and admins; everything else is public. Competitions without the field
+    // are older ones and count as published. Missing parent competition means
+    // orphaned subcollection data and is not publicly readable.
+    function isCompetitionVisible(appId, compId) {
+      let comp = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
+      return exists(comp)
+        && (
+          get(comp).data.get('published', true) != false
+          || canReadCompetitionStaffDocs(appId, compId)
         );
     }
 
@@ -144,6 +140,7 @@ service cloud.firestore {
 
       return request.auth != null
         && exists(compPath)
+        && isCompetitionOpen(appId, compId)
         && (
           canAdminThisArtifactsComp(appId, compId) ||
           hasRoleEmailAccess(appId, compId, roleName) ||
@@ -162,7 +159,11 @@ service cloud.firestore {
     function canFinalizeCompetition(compId, roleName) {
       return request.auth != null
         && (
-          isSuperAdmin() ||
+          // Superadmins too only while the competition is open: an archived
+          // competition is reopened first, like for everyone else
+          (isSuperAdmin()
+            && isCompetitionOpen('combined-driving', compId)
+            && isCompetitionOpen('drivelive', compId)) ||
           canFinalizeCompetitionViaApp('combined-driving', compId, roleName) ||
           canFinalizeCompetitionViaApp('drivelive', compId, roleName)
         );
@@ -208,6 +209,20 @@ service cloud.firestore {
       return !exists(finPath)
         || get(finPath).data.get('finalized', false) != true
         || (existsAfter(finPath) && getAfter(finPath).data.get('finalized', false) != true);
+    }
+
+    // A finalize/unlock must name a new finalizationLog entry, written in the
+    // same batch, for this result and this change (see finalizationService)
+    function isLoggedLockChange(compId, discipline, startNo) {
+      let logId = request.resource.data.get('lastLogId', '');
+      let logPath = /databases/$(database)/documents/competitions/$(compId)/finalizationLog/$(logId);
+      let log = getAfter(logPath).data;
+      return logId is string && logId.size() > 0
+        && (resource == null || resource.data.get('lastLogId', '') != logId)
+        && existsAfter(logPath)
+        && log.discipline == discipline
+        && log.startNumber == startNo
+        && log.action == (request.resource.data.get('finalized', false) == true ? 'finalize' : 'unfinalize');
     }
 
     function isDressageResultUnlocked(compId, startNo) {
@@ -256,11 +271,6 @@ service cloud.firestore {
       return audience is map && audience.get('public', false) == true;
     }
 
-    function hasDriverAudience(data) {
-      let audience = data.get('audience', {});
-      return audience is map && audience.get('drivers', false) == true;
-    }
-
     function isLegacyPublicMessage(data) {
       return !data.keys().hasAny(['audience'])
         && data.get('targetStartNumber', '') == ''
@@ -302,19 +312,45 @@ service cloud.firestore {
     // competitions/{compId}/dressageFinalization/{startNo}
     match /competitions/{compId}/dressageFinalization/{startNo} {
       allow read: if true;
-      allow write: if canFinalizeCompetition(compId, 'dressage');
+      allow create, update: if canFinalizeCompetition(compId, 'dressage')
+        && isLoggedLockChange(compId, 'dressage', startNo);
+      allow delete: if isSuperAdmin();
     }
 
     // competitions/{compId}/precisionFinalization/{startNo}
     match /competitions/{compId}/precisionFinalization/{startNo} {
       allow read: if true;
-      allow write: if canFinalizeCompetition(compId, 'precision');
+      allow create, update: if canFinalizeCompetition(compId, 'precision')
+        && isLoggedLockChange(compId, 'precision', startNo);
+      allow delete: if isSuperAdmin();
     }
 
     // competitions/{compId}/marathonFinalization/{startNo}
     match /competitions/{compId}/marathonFinalization/{startNo} {
       allow read: if true;
-      allow write: if canFinalizeCompetition(compId, 'marathon');
+      allow create, update: if canFinalizeCompetition(compId, 'marathon')
+        && isLoggedLockChange(compId, 'marathon', startNo);
+      allow delete: if isSuperAdmin();
+    }
+
+    // Who finalized or unlocked which result and when. Written in the same
+    // batch as the lock; entries are never changed or removed, and only the
+    // competition's admins read them (the lock documents above are public).
+    match /competitions/{compId}/finalizationLog/{entryId} {
+      allow read: if request.auth != null && (isSuperAdmin()
+        || canAdminThisArtifactsComp('drivelive', compId)
+        || canAdminThisArtifactsComp('combined-driving', compId));
+      allow create: if request.resource.data.discipline in ['dressage', 'marathon', 'precision']
+        && request.resource.data.action in ['finalize', 'unfinalize']
+        && request.resource.data.by == request.auth.uid
+        && request.resource.data.at == request.time
+        && request.resource.data.startNumber is string
+        && request.resource.data.keys().hasOnly(['discipline', 'action', 'startNumber', 'by', 'byName', 'at', 'reason'])
+        // An optional reason for the change (e.g. why a result was unlocked)
+        && (request.resource.data.get('reason', null) == null
+          || (request.resource.data.reason is string && request.resource.data.reason.size() <= 500))
+        && canFinalizeCompetition(compId, request.resource.data.discipline);
+      allow update, delete: if false;
     }
 
     // ------------------------------------------------------------------------
@@ -323,7 +359,15 @@ service cloud.firestore {
     // ------------------------------------------------------------------------
 
     match /artifacts/{appId}/public/{document=**} {
-      allow read: if !isSensitiveArtifactsPublicPath(document);
+      allow read: if !isSensitiveArtifactsPublicPath(document)
+        && !string(document).matches('.*data/competitions($|/.*)');
+    }
+
+    // {sub} first: a bare {rest=**} also matches zero segments, i.e. the
+    // competition document itself
+    match /artifacts/{appId}/public/data/competitions/{compId}/{sub}/{rest=**} {
+      allow read: if !isSensitiveArtifactsPublicPath(request.path)
+        && isCompetitionVisible(appId, compId);
     }
 
     // Rot för competitions (artifacts)
@@ -335,11 +379,20 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId} {
-      allow read: if true;
-
-
-      
-
+      allow get: if resource == null
+        || resource.data.get('published', true) != false
+        || canReadCompetitionStaffDocs(appId, compId);
+      // Plain field comparisons, which a query can prove with where(): the
+      // public lists where published == true (older competitions get the
+      // field when a global admin opens the hub)
+      allow list: if resource.data.published == true
+        || (request.auth != null && (
+          isSuperAdmin()
+          || getUserRole() == 'admin'
+          || resource.data.createdBy == request.auth.uid
+          || (resource.data.get('admins', []) != null && request.auth.uid in resource.data.get('admins', []))
+          || (resource.data.get('staffUids', []) != null && request.auth.uid in resource.data.get('staffUids', []))
+        ));
 
       // create: admin/superadmin only (since new doc has no owner yet)
       allow create: if request.auth != null
@@ -348,17 +401,25 @@ service cloud.firestore {
           getUserRole() == 'admin'
         );
 
-      // UPDATE: Superadmin, Admin, or Creator/Competition Admin
+      // UPDATE: the owners (superadmin, global admin, creator, ownerId) change
+      // anything. Other competition admins (admins[], /admins/{uid},
+      // roleEmails) change the rest but not who owns or administers it: an
+      // admin adding themselves to admins[] could otherwise become owner in a
+      // second step and delete the competition. staffUids is kept by the
+      // server (joinCompetitionAsOfficial, and removed with the admin doc).
       allow update: if request.auth != null
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
-          // Safe check for createdBy using resource.data.get()
           (resource.data.get('createdBy', '') == request.auth.uid) ||
-          // Safe check for admins array
-          (resource.data.get('admins', []) != null && request.auth.uid in resource.data.get('admins', [])) ||
-          // Emergency Access: If user is listed as owner in the document data itself
-          (resource.data.get('ownerId', '') == request.auth.uid)
+          (resource.data.get('ownerId', '') == request.auth.uid) ||
+          (
+            !request.resource.data.diff(resource.data).affectedKeys().hasAny(['createdBy', 'ownerId', 'admins', 'staffUids'])
+            && (
+              (resource.data.get('admins', []) != null && request.auth.uid in resource.data.get('admins', []))
+              || canAdminThisArtifactsComp(appId, compId)
+            )
+          )
         );
 
       // DELETE
@@ -372,7 +433,7 @@ service cloud.firestore {
 
     // Precision (artifacts-komplettering – äldre regel du hade)
     match /artifacts/{appId}/public/data/competitions/{compId}/precision/{docId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -386,7 +447,7 @@ service cloud.firestore {
 
     // ---- Dressyrprotokoll (NY STRUKTUR)
     match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNumber}/protocols/{docId} {
-      allow read: if true; // (läsning täcks även av public/** ovan, men OK att vara explicit)
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -400,7 +461,7 @@ service cloud.firestore {
 
     // Status och live-data för dressyr
     match /artifacts/{appId}/public/data/competitions/{compId}/dressageStatus/{startNumber} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -412,7 +473,7 @@ service cloud.firestore {
         );
 
       match /live/{docId} {
-        allow read: if true;
+        allow read: if isCompetitionVisible(appId, compId);
         // Deleting (the competition) is an admin action, also for finalized results
         allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
         allow write: if request.auth != null
@@ -427,7 +488,7 @@ service cloud.firestore {
 
     // ---- Dressyrprotokoll (LEGACY-STRUKTUR)
     match /artifacts/{appId}/public/data/competitions/{compId}/dressageResults/{startNumber}/protocols/{docId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -441,7 +502,7 @@ service cloud.firestore {
 
     // Status för dressyr per ekipage
     match /artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/meta/{docId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -456,7 +517,7 @@ service cloud.firestore {
     // ---- Övriga “public data”-samlingar under en tävling (skriv roller/ägare) ----
 
     match /artifacts/{appId}/public/data/competitions/{compId}/equipages/{equipageId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       allow create, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -516,7 +577,7 @@ service cloud.firestore {
 
     // Teams Management
     match /artifacts/{appId}/public/data/competitions/{compId}/teams/{teamId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       allow create, update, delete: if request.auth != null
         && (
           isSuperAdmin() ||
@@ -593,7 +654,7 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
       // get only: a list query on config would include config/secrets. Admins
       // (who may read the secrets anyway) list it, e.g. to delete a competition
-      allow get: if configId != 'secrets';
+      allow get: if configId != 'secrets' && isCompetitionVisible(appId, compId);
       allow list: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write, delete: if configId != 'globalStatus' && configId != 'secrets'
         && request.auth != null
@@ -615,57 +676,6 @@ service cloud.firestore {
         );
     }
 
-    function isValidPin(appId, compId, role, pin) {
-        return pin != null && pin != '' && pin != 'null' && (
-            (role == 'admin' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode', 'null')) ||
-            (role == 'dressage' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_dressage', 'null')) ||
-            (role == 'marathon' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_marathon', 'null')) ||
-            (role == 'precision' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_precision', 'null')) ||
-            (role == 'speaker' && pin == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/config/secrets).data.get('accessCode_speaker', 'null'))
-        );
-    }
-
-    function validAdminJoinRole(role) {
-      return role in ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
-    }
-
-    function validAdminJoinPayload(appId, compId, userId) {
-      let requestedRole = request.resource.data.get('role', '');
-      let requestedRoles = request.resource.data.get('roles', []);
-      let existingRoles = resource == null
-        ? []
-        : (
-          resource.data.get('roles', []) != null
-            ? resource.data.get('roles', [])
-            : [resource.data.get('role', '')]
-        );
-
-      return request.auth != null
-        && request.auth.uid == userId
-        && validAdminJoinRole(requestedRole)
-        && isValidPin(appId, compId, requestedRole, request.resource.data.get('accessCode', ''))
-        && request.resource.data.keys().hasOnly(['accessCode', 'email', 'joinedAt', 'role', 'roles'])
-        && request.resource.data.get('email', '') == request.auth.token.email
-        && requestedRoles is list
-        && requestedRoles.hasAll([requestedRole])
-        && requestedRoles.hasOnly(['admin', 'dressage', 'marathon', 'precision', 'speaker'])
-        && (
-          !('admin' in requestedRoles) || 'admin' in existingRoles || requestedRole == 'admin'
-        )
-        && (
-          !('dressage' in requestedRoles) || 'dressage' in existingRoles || requestedRole == 'dressage'
-        )
-        && (
-          !('marathon' in requestedRoles) || 'marathon' in existingRoles || requestedRole == 'marathon'
-        )
-        && (
-          !('precision' in requestedRoles) || 'precision' in existingRoles || requestedRole == 'precision'
-        )
-        && (
-          !('speaker' in requestedRoles) || 'speaker' in existingRoles || requestedRole == 'speaker'
-        );
-    }
-
     // Administratörer som joinat med PIN-kod
     match /artifacts/{appId}/public/data/competitions/{compId}/admins/{userId} {
       allow read: if request.auth != null && (request.auth.uid == userId || canAdminThisArtifactsComp(appId, compId));
@@ -673,10 +683,27 @@ service cloud.firestore {
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
     }
 
+    // Collection-group discovery so officials can find draft competitions in Hub
+    match /{path=**}/roleEmails/{emailId} {
+      allow read: if request.auth != null
+        && hasVerifiedEmail()
+        && request.auth.token.email.lower() == resource.data.get('email', '').lower();
+    }
+
+    match /{path=**}/admins/{userId} {
+      allow read: if request.auth != null
+        && (
+          request.auth.uid == userId ||
+          request.auth.uid == resource.data.get('uid', '') ||
+          (hasVerifiedEmail() && request.auth.token.email.lower() == resource.data.get('email', '').lower())
+        );
+    }
+
     // NYTT: Meddelanden (Messages)
     match /artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId} {
-      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicMessage(resource.data), appId, compId);
-      allow list: if hasPublicAudience(resource.data)
+      allow get: if isCompetitionVisible(appId, compId)
+        && canReadAudienceScopedItem(resource.data, isLegacyPublicMessage(resource.data), appId, compId);
+      allow list: if (hasPublicAudience(resource.data) && isCompetitionVisible(appId, compId))
         || (request.auth != null && canAdminThisArtifactsComp(appId, compId));
       allow write, delete: if request.auth != null
         && (
@@ -688,8 +715,9 @@ service cloud.firestore {
 
     // NYTT: Dokument (Documents)
     match /artifacts/{appId}/public/data/competitions/{compId}/documents/{docId} {
-      allow get: if canReadAudienceScopedItem(resource.data, isLegacyPublicDocument(resource.data), appId, compId);
-      allow list: if hasPublicAudience(resource.data)
+      allow get: if isCompetitionVisible(appId, compId)
+        && canReadAudienceScopedItem(resource.data, isLegacyPublicDocument(resource.data), appId, compId);
+      allow list: if (hasPublicAudience(resource.data) && isCompetitionVisible(appId, compId))
         || (request.auth != null && canAdminThisArtifactsComp(appId, compId));
       allow write, delete: if request.auth != null
         && (
@@ -724,13 +752,13 @@ service cloud.firestore {
     // Created by an admin, never changed or removed from the app; deleting the
     // whole competition runs on the server (deleteCompetitionData)
     match /artifacts/{appId}/public/data/competitions/{compId}/archive/{snapshotId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       allow create: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow update, delete: if false;
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/computed_equipages/{equipId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
 
       allow write: if false; // Only Server (Cloud Functions) updates this
 
@@ -744,7 +772,7 @@ service cloud.firestore {
 
     // maraton hinder definitioner
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonObstacles/{obstacleId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       allow write: if request.auth != null
         && (
           canWriteResultsAs(appId, compId, 'marathon')
@@ -752,7 +780,7 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonLive/{docId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -765,7 +793,7 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maraton/{resultId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -778,7 +806,7 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maraton-timing/{equipageId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null
@@ -791,11 +819,11 @@ service cloud.firestore {
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonResults/{equipageId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/maratonResults/{equipageId}/obstacles/{obstacleId} {
-      allow read: if true;
+      allow read: if isCompetitionVisible(appId, compId);
       // Deleting (the competition) is an admin action, also for finalized results
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow write: if request.auth != null

@@ -1012,7 +1012,7 @@ export function getSettingsHtml() {
                     <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
                         Här listas de som knappat in koden ovan. Klicka på soptunnan för att dra in deras rättigheter.
                         <br>
-                        <em>Tips: Föranmälda funktionärer syns i <a href="#deltagare" class="text-blue-600 underline" onclick="document.querySelector('[data-i18n=menu_official]').click()">Personregistret</a>.</em>
+                        <em>Tips: Föranmälda funktionärer syns i <a href="#admin?tab=officials&amp;focus=view-officials" class="text-blue-600 underline">Funktionärsregistret</a>.</em>
                     </p>
                     <div class="bg-gray-50 dark:bg-gray-900 border dark:border-gray-700 rounded-md max-h-60 overflow-y-auto">
                         <ul id="pinAdminsList" class="divide-y divide-gray-200 dark:divide-gray-700">

@@ -1,6 +1,6 @@
 import { auth, db, appId } from '../js/config/firebase-config.js';
 import { onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-import { doc, setDoc, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, collection, setDoc, writeBatch, serverTimestamp, Timestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { createCompetition, updateCompetition, saveConfig } from '../js/services/competitionService.js';
 import { saveEquipage } from '../js/services/equipageService.js';
 import { saveJudge, saveOfficial } from '../js/services/adminService.js';
@@ -210,12 +210,27 @@ async function upsertLiveMarathonState(competitionId, startNumber, data) {
 }
 
 async function finalizeDressageSeed(competitionId, startNumber, user) {
-  const ref = doc(db, `competitions/${competitionId}/dressageFinalization/${String(startNumber)}`);
-  await setDoc(ref, {
+  const sn = String(startNumber);
+  const lockRef = doc(db, `competitions/${competitionId}/dressageFinalization/${sn}`);
+  const logRef = doc(collection(db, `competitions/${competitionId}/finalizationLog`));
+  const batch = writeBatch(db);
+  batch.set(logRef, {
+    discipline: 'dressage',
+    action: 'finalize',
+    startNumber: sn,
+    by: user?.uid || null,
+    byName: user?.displayName || user?.email || 'Seed Script',
+    reason: null,
+    at: serverTimestamp()
+  });
+  batch.set(lockRef, {
     finalized: true,
     finalizedAt: Date.now(),
-    finalizedBy: user?.uid || null
+    finalizedBy: user?.uid || null,
+    lastLogId: logRef.id,
+    updatedAt: serverTimestamp()
   }, { merge: true });
+  await batch.commit();
 }
 
 async function finalizeMarathonSeed(competitionId, startNumber, user) {

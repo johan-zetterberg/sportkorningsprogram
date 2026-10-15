@@ -42,6 +42,17 @@ export function placeTotalRowsWithinClass(rows = []) {
     group: groupKeyOf
   });
 
+  // The archived place is per class: only where the list is grouped by the
+  // class itself. In a merged display group it would give 1, 1, 2, 2…; the
+  // place then comes from the frozen penalties above.
+  rows.forEach((row) => {
+    const plainClassGroup = groupKeyOf(row) === `CLASS:${row.className || fallbackClass}`;
+    if (plainClassGroup && row.fromArchive && row.archivedPlac !== undefined && row.archivedPlac !== null && row.archivedPlac !== '') {
+      const numPlac = Number(row.archivedPlac);
+      if (Number.isFinite(numPlac)) row.plac = numPlac;
+    }
+  });
+
   const rankedByGroup = new Map();
   ranked.forEach((row) => {
     const g = groupKeyOf(row);
@@ -56,10 +67,13 @@ export function placeTotalRowsWithinClass(rows = []) {
     groups.get(g).push(row);
   });
 
+  // Every row not in the ranking (not only those without a place: an archived
+  // place on a row the ranking left out would otherwise drop it from the list)
+  const rankedRows = new Set(ranked);
   const output = [];
   groups.forEach((groupRows, g) => {
     const unplaced = groupRows
-      .filter((row) => row.plac == null)
+      .filter((row) => !rankedRows.has(row))
       .sort((a, b) => (a.isEliminated === b.isEliminated ? 0 : (a.isEliminated ? 1 : -1)) || (startNumberOf(a) - startNumberOf(b)));
     output.push(...(rankedByGroup.get(g) || []), ...unplaced);
   });
@@ -87,18 +101,18 @@ export function applyTotalDisciplinePlacements(rows = []) {
 
   rankDressageRows(rows, {
     penaltyPicker: row => row?.dressage?.penalty,
-    eliminatedPicker: row => !!row?.isEliminated,
+    eliminatedPicker: row => !!(row?.dressage?.eliminated || (row?.isEliminated && row?.dressage?.penalty == null)),
     groupPicker: byClass,
     outputField: 'posDress'
   });
   assignPlaces(rows, {
-    key: (row) => (row.isEliminated ? null : marathonRankKey(row.marathon, { requireFinished: false })),
+    key: (row) => ((row?.marathon?.eliminated || (row.isEliminated && row.marathon?.totalPenalty == null)) ? null : marathonRankKey(row.marathon, { requireFinished: false })),
     compare: compareMarathonRank,
     group: byClass,
     outField: 'posMar'
   });
   assignPlaces(rows, {
-    key: (row) => (row.isEliminated ? null : precisionRankKey({
+    key: (row) => ((row?.precision?.eliminated || (row.isEliminated && (row.precision?.pen ?? row.precision?.totalPenalty) == null)) ? null : precisionRankKey({
       ...row.precision,
       totalPenalty: row.precision?.pen ?? row.precision?.totalPenalty
     })),
@@ -106,6 +120,14 @@ export function applyTotalDisciplinePlacements(rows = []) {
     group: byClass,
     outField: 'posPrec'
   });
+
+  rows.forEach((row) => {
+    if (!row.fromArchive) return;
+    if (Number.isFinite(row.archivedDressagePlace)) row.posDress = row.archivedDressagePlace;
+    if (Number.isFinite(row.archivedMarathonPlace)) row.posMar = row.archivedMarathonPlace;
+    if (Number.isFinite(row.archivedPrecisionPlace)) row.posPrec = row.archivedPrecisionPlace;
+  });
+
   return rows;
 }
 

@@ -676,7 +676,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     if (eq.startTime) {
       const d = new Date(String(eq.startTime).replace(' ', 'T'));
       if (!isNaN(d)) {
-        startStr = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        startStr = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
       } else {
         startStr = String(eq.startTime).substring(11, 16) || String(eq.startTime);
       }
@@ -787,7 +787,8 @@ export async function generateDressageOfficialsPdf(equipages, startTimes, compet
     // Start Time
     const sMap = startTimes || {};
     const tEntry = sMap[String(eq.startNumber)];
-    let rawTime = tEntry ? (tEntry.dressage || tEntry) : null;
+    const rawVal = typeof tEntry === 'string' ? tEntry : (tEntry?.dressage || null);
+    const rawTime = typeof rawVal === 'string' && rawVal.trim() ? rawVal.trim() : null;
     let displayTime = '-';
     let sortVal = 99999;
 
@@ -797,7 +798,7 @@ export async function generateDressageOfficialsPdf(equipages, startTimes, compet
         // "2025-09-15T00:01" -> extract HH:MM
         const d = new Date(rawTime);
         if (!isNaN(d)) {
-          displayTime = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+          displayTime = d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
           sortVal = d.getHours() * 60 + d.getMinutes();
         } else {
           displayTime = rawTime.split('T')[1].substring(0, 5); // Fallback

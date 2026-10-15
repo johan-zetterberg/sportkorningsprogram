@@ -17,8 +17,10 @@ import {
     getHorsePhaseInspection,
     getHorseStableKey,
     getHorseVetStatus,
+    hasVetStruckHorse,
     getVetRemainingCount,
     isPulseWarning,
+    normalizeVetStatus,
     resolveVetFilteredState,
     updateHorsePhaseInspection,
     updateHorseVetStatus,
@@ -66,12 +68,13 @@ export function load() {
     attachPageHandlers();
     loadTemperatureSettings(competition);
 
+    // includePrivate: the vet's notes are kept with the private equipage data
     unsubscribe = listenForEquipages(competitionId, update => {
         allEquipages = Array.isArray(update) ? update : [];
         updatePhaseTabs();
         updateDatalist();
         processData(currentSearchTerm, { fromSnapshot: true });
-    });
+    }, { includePrivate: true });
 
     // A card refresh held back while typing runs when the field is left
     pageContainer.addEventListener('focusout', () => {
@@ -710,6 +713,15 @@ function attachCardHandlers(container, eq) {
             saveHorseClinicalField(eq, horseKey, { mucosa: select.value });
         });
     });
+    container.querySelectorAll('.vet-harness-check').forEach(input => {
+        input.addEventListener('change', () => {
+            const horseKey = input.dataset.horseKey;
+            const checkField = input.dataset.check;
+            if (horseKey && checkField) {
+                saveHorseClinicalField(eq, horseKey, { [checkField]: input.checked });
+            }
+        });
+    });
 }
 
 async function saveHorseClinicalField(eq = {}, horseKey, updateData = {}) {
@@ -748,18 +760,41 @@ async function setVetStatus(startNumber, status) {
     }
 
     const phase = currentPhase;
+    const container = document.getElementById('vet-card-container');
+    const domExtrasByHorseKey = {};
+    if (container) {
+        container.querySelectorAll('[data-horse-key]').forEach(el => {
+            const hk = el.dataset.horseKey;
+            if (!hk || domExtrasByHorseKey[hk]) return;
+            const extra = {};
+            const pulseInput = container.querySelector(`.vet-pulse-input[data-horse-key="${hk}"]`);
+            const respSelect = container.querySelector(`.vet-resp-select[data-horse-key="${hk}"]`);
+            const mucosaSelect = container.querySelector(`.vet-mucosa-select[data-horse-key="${hk}"]`);
+            const bitCheck = container.querySelector(`.vet-harness-check[data-horse-key="${hk}"][data-check="bitOk"]`);
+            const harnessCheck = container.querySelector(`.vet-harness-check[data-horse-key="${hk}"][data-check="harnessOk"]`);
+            if (pulseInput && pulseInput.value !== '') extra.pulseBpm = Number(pulseInput.value) || null;
+            if (respSelect) extra.respiration = respSelect.value;
+            if (mucosaSelect) extra.mucosa = mucosaSelect.value;
+            if (bitCheck) extra.bitOk = bitCheck.checked;
+            if (harnessCheck) extra.harnessOk = harnessCheck.checked;
+            domExtrasByHorseKey[hk] = extra;
+        });
+    }
     try {
         const local = allEquipages.find(item => String(item.startNumber) === String(startNumber)) || {};
         // Built from the latest copy of the equipage (see updateEquipageFromLatest)
         const buildPayload = (eq) => {
             const horses = Array.isArray(eq?.horses) && eq.horses.length
-                ? eq.horses.map(horse => {
+                ? eq.horses.map((horse, index) => {
+                    const hk = getHorseStableKey(horse, index);
                     const currentData = horse.inspections?.[phase] || {};
+                    const domExtra = domExtrasByHorseKey[hk] || {};
                     const nowIso = new Date().toISOString();
                     const newInspections = {
                         ...(horse.inspections || {}),
                         [phase]: {
                             ...currentData,
+                            ...domExtra,
                             status: normalizeVetStatus(status),
                             checkedAt: nowIso
                         }
@@ -776,7 +811,9 @@ async function setVetStatus(startNumber, status) {
                 })
                 : null;
 
-            const derived = horses ? deriveVetStatusFromHorses(horses, eq?.status, phase) : status;
+            const derived = horses
+                ? deriveVetStatusFromHorses(horses, eq?.status, phase, { keepWithdrawn: !hasVetStruckHorse(eq?.horses) })
+                : status;
             const payload = horses ? { horses } : {};
             if (phase === 'initial') {
                 payload.status = derived;
@@ -816,7 +853,7 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
                 status,
                 ...extraData
             });
-            const derivedStatus = deriveVetStatusFromHorses(horses, latest.status, phase);
+            const derivedStatus = deriveVetStatusFromHorses(horses, latest.status, phase, { keepWithdrawn: !hasVetStruckHorse(latest.horses) });
             // Every horse inspected in this phase: move on after the save;
             // otherwise stay on the card for the next horse
             advanceAfterOwnSave = Array.isArray(horses) && horses.length > 0

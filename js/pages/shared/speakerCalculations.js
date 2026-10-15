@@ -7,6 +7,7 @@ import { matchesDisplayClass } from './speakerHelpers.js';
 import { getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
 import { isLiveInjectionEliminated, toFiniteNumberOrNull, toFiniteNumberOrZero } from './speakerCalculationUtils.js';
 import { rankDressageRows } from '../dressage/dressageResultRanking.js';
+import { archivedDisciplinePenalty } from './archivedResults.js';
 import {
     assignPlaces,
     compareTotalRank,
@@ -226,6 +227,15 @@ export function getTotalRanking(className, currentRiderInfo, context) {
                 dPen = getSpeakerPenaltyOrNull(currentRiderInfo.disciplinePenalty);
             }
             totalEliminated = totalEliminated || isLiveInjectionEliminated(currentRiderInfo);
+        }
+
+        // Archived competition: the values it was archived with, also for the placings
+        const archiveSnapshot = context.archiveSnapshot;
+        if (archiveSnapshot && archivedDisciplinePenalty(archiveSnapshot, sn, 'total').found) {
+            dPen = archivedDisciplinePenalty(archiveSnapshot, sn, 'dressage').penalty;
+            mPen = archivedDisciplinePenalty(archiveSnapshot, sn, 'marathon').penalty;
+            pPen = archivedDisciplinePenalty(archiveSnapshot, sn, 'precision').penalty;
+            totalEliminated = archivedDisciplinePenalty(archiveSnapshot, sn, 'total').isEliminated === true;
         }
 
         const totalPenalty = totalEliminated ? null : computeTotalPenalty(dPen, mPen, pPen);

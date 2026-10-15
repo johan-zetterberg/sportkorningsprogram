@@ -364,6 +364,28 @@ export const onCompetitionRuleSettingsWrite = onDocumentWritten(
     }
 );
 
+// A removed competition official (their /admins/{uid} doc deleted) no longer
+// lists the competition: staffUids and admins[] would otherwise keep showing it,
+// drafts included, after the role was taken away
+export const onCompetitionAdminDeleted = onDocumentWritten(
+    "artifacts/{appId}/public/data/competitions/{compId}/admins/{uid}",
+    async (event) => {
+        if (event.data?.after?.exists || !event.data?.before?.exists) return;
+        const { appId, compId, uid } = event.params;
+        const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${compId}`);
+        try {
+            await compRef.update({
+                staffUids: FieldValue.arrayRemove(uid),
+                admins: FieldValue.arrayRemove(uid)
+            });
+        } catch (error) {
+            // The competition itself was deleted: nothing to clean up
+            if (error?.code === 5 || /NOT_FOUND/i.test(String(error?.message))) return;
+            throw error;
+        }
+    }
+);
+
 // 1. Dressage Changes
 export const onDressageProtocolWrite = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/protocols/{protoId}",
@@ -531,6 +553,8 @@ async function assertCanMaintainResults(request, competition, deniedMessage = 'E
     }
 
     const uid = request.auth.uid;
+    const email = String(request.auth.token?.email || '').trim().toLowerCase();
+    const emailVerified = request.auth.token?.email_verified === true;
     const competitionData = competition.data || {};
     const tokenRoles = Array.isArray(request.auth.token?.roles) ? request.auth.token.roles : [];
     const tokenIsAdmin = request.auth.token?.superadmin === true
@@ -540,13 +564,19 @@ async function assertCanMaintainResults(request, competition, deniedMessage = 'E
         || tokenRoles.includes('admin');
     const isOwner = competitionData.createdBy === uid || competitionData.ownerId === uid;
     const listedAdmin = Array.isArray(competitionData.admins) && competitionData.admins.includes(uid);
-    const [adminSnap, userSnap] = await Promise.all([
+    const [adminSnap, userSnap, roleEmailSnap] = await Promise.all([
         competition.ref.collection('admins').doc(uid).get(),
-        db.doc(`users/${uid}`).get()
+        db.doc(`users/${uid}`).get(),
+        emailVerified && email ? competition.ref.collection('roleEmails').doc(email).get() : Promise.resolve(null)
     ]);
     const adminData = adminSnap.exists ? adminSnap.data() : {};
     const adminRoles = Array.isArray(adminData.roles) ? adminData.roles : [];
-    const isCompetitionAdmin = adminData.role === 'admin' || adminRoles.includes('admin');
+    const roleEmailData = roleEmailSnap && roleEmailSnap.exists ? roleEmailSnap.data() : {};
+    const roleEmailRoles = Array.isArray(roleEmailData.roles) ? roleEmailData.roles : [];
+    const isCompetitionAdmin = adminData.role === 'admin'
+        || adminRoles.includes('admin')
+        || roleEmailData.role === 'admin'
+        || roleEmailRoles.includes('admin');
     const userData = userSnap.exists ? userSnap.data() : {};
     const userRoles = Array.isArray(userData.roles) ? userData.roles : [];
     const isGlobalAdmin = userData.role === 'admin'
@@ -562,23 +592,31 @@ async function assertCanMaintainResults(request, competition, deniedMessage = 'E
 async function buildCompetitionRecalculationPreview(competition) {
     const context = await getContext(competition.ref);
     const equipagesSnapshot = await competition.ref.collection('equipages').get();
-    const records = await Promise.all(equipagesSnapshot.docs.map(async (equipageSnapshot) => {
-        try {
-            return await calculateEquipageRecord(
-                competition.ref,
-                equipageSnapshot.id,
-                context,
-                equipageSnapshot
-            );
-        } catch (error) {
-            return {
-                startNumber: equipageSnapshot.id,
-                equipage: equipageSnapshot.data(),
-                dressageProtocols: [],
-                calculationError: String(error?.message || error)
-            };
-        }
-    }));
+    const docs = equipagesSnapshot.docs;
+    const records = [];
+    const CHUNK_SIZE = 25;
+
+    for (let i = 0; i < docs.length; i += CHUNK_SIZE) {
+        const chunk = docs.slice(i, i + CHUNK_SIZE);
+        const chunkRecords = await Promise.all(chunk.map(async (equipageSnapshot) => {
+            try {
+                return await calculateEquipageRecord(
+                    competition.ref,
+                    equipageSnapshot.id,
+                    context,
+                    equipageSnapshot
+                );
+            } catch (error) {
+                return {
+                    startNumber: equipageSnapshot.id,
+                    equipage: equipageSnapshot.data(),
+                    dressageProtocols: [],
+                    calculationError: String(error?.message || error)
+                };
+            }
+        }));
+        records.push(...chunkRecords);
+    }
     const availableRecords = records.filter(Boolean);
     const validation = buildRecalculationValidation(availableRecords, context);
 
@@ -752,7 +790,15 @@ export const joinCompetitionAsOfficial = onCall(async (request) => {
     const existingData = adminSnap.exists ? adminSnap.data() : {};
     const payload = buildCompetitionAdminJoinPayload(existingData, matchedRole, userEmail, Date.now());
 
-    await adminRef.set(payload, { merge: true });
+    // The role doc and the staff listing together, or neither. Only staffUids
+    // (lets the hub list the competition, drafts included): admin rights come
+    // from the /admins/{uid} doc, so they end when it is deleted, and admins[]
+    // stays the owners' list. update(), not set(): a competition deleted
+    // meanwhile is not recreated.
+    const batch = db.batch();
+    batch.set(adminRef, { ...payload, uid: request.auth.uid }, { merge: true });
+    batch.update(competition.ref, { staffUids: FieldValue.arrayUnion(request.auth.uid) });
+    await batch.commit();
 
     return {
         role: matchedRole,

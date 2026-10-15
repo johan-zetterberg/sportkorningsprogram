@@ -66,7 +66,7 @@ function both(equipage, marathonDoc, timingDoc) {
 
 test('marathon: wrong gait and other penalties count on both sides', () => {
   const eq = { startNumber: 1, className: 'KlassA', category: 'horse' };
-  const doc = { obstacles: [{ number: 1, timeSeconds: 20 }], otherPenalty: 10, observerLog: { wrongGaitSeconds: 5 } };
+  const doc = { obstacles: [{ number: 1, timeSeconds: 20 }], otherPenalty: 10, observerLog: { wrongGaitSeconds: 8 } }; // 8 s: 1 penalty (TR V 523.1)
   const timing = { A: { durationMs: 1200000 }, transport: { durationMs: 300000 }, B: { durationMs: 1200000 } };
   const { browser, server } = both(eq, doc, timing);
 
@@ -232,7 +232,7 @@ test('total: browser calculateTotalResult equals the stored server total', () =>
     { id: 'c', judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 7 }] },
     { id: 'general', errorPoints: 2 }
   ];
-  const marathonDoc = { obstacles: [{ number: 1, timeInSeconds: 20 }], observerLog: { wrongGaitSeconds: 10 } };
+  const marathonDoc = { obstacles: [{ number: 1, timeInSeconds: 20 }], observerLog: { wrongGaitSeconds: 11 } }; // 11 s: 2 penalties
   const timing = { start_A: T0, finish_A: T0 + min(20), A: {}, B: { durationMs: 1200000 } };
   const precisionDoc = { finalized: true, timeMs: 105000, knocks: [3] };
 

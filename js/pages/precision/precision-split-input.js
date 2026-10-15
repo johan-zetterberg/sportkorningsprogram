@@ -259,12 +259,15 @@ function loadDriverData(equipage) {
     });
 }
 
-async function autoSelectRunningDriver() {
+async function autoSelectRunningDriver(silent = false) {
     if (!competitionId) return;
+    const mySeq = loadSeq;
     try {
         const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
         const q = query(colRef, where('running', '==', true));
         const snap = await getDocs(q);
+        // Left the page (or loaded again) while the query ran: nothing to show
+        if (mySeq !== loadSeq || !competitionId) return;
 
         if (!snap.empty) {
             const firstRunning = snap.docs[0];
@@ -272,8 +275,12 @@ async function autoSelectRunningDriver() {
             if (searchableDropdown) {
                 searchableDropdown.setValue(Number(startNumber));
             }
-            showAlert(t('precision_split_autofocus').replace('{startNumber}', startNumber));
-        } else {
+            // Only when it was actually selected: a running start number not in
+            // the list left nothing selected, and every poll announced it again
+            if (currentEquipage && String(currentEquipage.startNumber) === String(startNumber)) {
+                showAlert(t('precision_split_autofocus').replace('{startNumber}', startNumber));
+            }
+        } else if (!silent) {
             showAlert(t('precision_split_no_started'), 'info');
         }
     } catch (err) {
@@ -281,7 +288,12 @@ async function autoSelectRunningDriver() {
     }
 }
 
+// Bumped by every load and unload: a load or poll still awaiting data when
+// the page was left must not register anything afterwards
+let loadSeq = 0;
+
 export async function load() {
+    const mySeq = ++loadSeq;
     const comp = getGlobalState('currentCompetition');
     const isFieldMode = comp?.competitionMode === 'field';
     competitionId = comp?.id;
@@ -294,6 +306,7 @@ export async function load() {
             getEquipages(competitionId),
             getConfig(competitionId, 'precisionConfig')
         ]);
+        if (mySeq !== loadSeq) return;
 
         precisionConfig = configData || {};
         equipages = equipagesData
@@ -317,15 +330,15 @@ export async function load() {
         );
 
         if (!isFieldMode) {
-            document.getElementById('btnAutoFind')?.addEventListener('click', autoSelectRunningDriver);
+            document.getElementById('btnAutoFind')?.addEventListener('click', () => autoSelectRunningDriver(false));
 
             // Auto-poll for running driver every 15 seconds if no driver is selected
             autoSyncInterval = setInterval(() => {
-                if (!currentEquipage) autoSelectRunningDriver();
+                if (!currentEquipage) autoSelectRunningDriver(true);
             }, 15000);
 
-            // Try once immediately
-            autoSelectRunningDriver();
+            // Try once immediately (silently if no driver is currently on course)
+            autoSelectRunningDriver(true);
         }
 
     } catch (e) {
@@ -335,6 +348,7 @@ export async function load() {
 }
 
 export function __unload() {
+    loadSeq++;
     if (currentUnsubscribe) {
         currentUnsubscribe();
         currentUnsubscribe = null;
@@ -343,4 +357,14 @@ export function __unload() {
         clearInterval(autoSyncInterval);
         autoSyncInterval = null;
     }
+    if (searchableDropdown?.destroy) {
+        try { searchableDropdown.destroy(); } catch { }
+    }
+    searchableDropdown = null;
+    currentEquipage = null;
+    currentEquipageData = null;
+    gateSplits = {};
+    equipages = [];
+    precisionConfig = {};
+    competitionId = null;
 }

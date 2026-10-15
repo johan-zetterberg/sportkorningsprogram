@@ -1,7 +1,6 @@
 export const DICTIONARY = {
     // General Header
     'startlist': { sv: 'Startlista', en: 'Start List' },
-    'results': { sv: 'Resultatlista', en: 'Results' },
     'competition': { sv: 'Tävling', en: 'Competition' },
     'date': { sv: 'Datum', en: 'Date' },
     'class': { sv: 'Klass', en: 'Class' },
@@ -9,7 +8,7 @@ export const DICTIONARY = {
 
     // Columns
     'rank': { sv: 'Plac', en: 'Rank' },
-    'startno': { sv: 'Snr', en: 'Num' },
+    'startno': { sv: 'Nr', en: 'No.' },
     'driver': { sv: 'Kusk', en: 'Driver' },
     'driver_horse': { sv: 'Kusk & Häst', en: 'Driver & Horse' },
     'club': { sv: 'Klubb', en: 'Club' }, // FEI often uses "NF" (National Federation) but Club works
@@ -17,7 +16,6 @@ export const DICTIONARY = {
     'carriage': { sv: 'Vagn', en: 'Carriage' },
 
     // Status
-    'status': { sv: 'Status', en: 'Status' },
     'eliminated': { sv: 'Utesluten', en: 'Eliminated' },
     'retired': { sv: 'Utgått', en: 'Retired' },
     'withdrawn': { sv: 'Struken', en: 'Withdrawn' },
@@ -25,7 +23,6 @@ export const DICTIONARY = {
     'in_obstacle': { sv: 'I hinder', en: 'In Obstacle' },
 
     // Scoring
-    'penalty': { sv: 'Straff', en: 'Penalties' },
     'total': { sv: 'Totalt', en: 'Total' },
     'points': { sv: 'Poäng', en: 'Points' },
     'percent': { sv: 'Procent', en: 'Percent' },
@@ -33,8 +30,6 @@ export const DICTIONARY = {
 
     // Marathon
     'section': { sv: 'Sträcka', en: 'Section' },
-    'stage': { sv: 'Etapp', en: 'Phase' }, // FEI uses "Phase" A, B etc.
-    'time': { sv: 'Tid', en: 'Time' },
     'obstacles': { sv: 'Hinder', en: 'Obstacles' },
     'finish': { sv: 'Mål', en: 'Finish' },
     'window': { sv: 'Fönster', en: 'Window' },
@@ -89,13 +84,11 @@ export const DICTIONARY = {
     'save': { sv: 'Spara', en: 'Save' },
     'cancel': { sv: 'Avbryt', en: 'Cancel' },
     'welcome': { sv: 'Välkommen', en: 'Welcome' },
-    'not_started': { sv: 'Ej startat', en: 'Not Started' },
     'started': { sv: 'Startad', en: 'Started' },
     'completed': { sv: 'Klar', en: 'Completed' },
 
     // Time Cards
     'distance': { sv: 'Distans', en: 'Distance' },
-    'tempo': { sv: 'Tempo', en: 'Speed' },
     'pace': { sv: 'Tempo', en: 'Speed' },
     'kph': { sv: 'km/h', en: 'km/h' },
     'trackwidth': { sv: 'Vagnbredd', en: 'Track Width' },
@@ -109,7 +102,6 @@ export const DICTIONARY = {
     'missing_transport_tempo': { sv: 'Transport-tempo (m/min) saknas!', en: 'Transport tempo (m/min) is missing!' },
     'marathon_stages_start_error': { sv: 'Kunde inte starta etappen.', en: 'Could not start the section.' },
     'marathon_stages_stop_error': { sv: 'Kunde inte stoppa etappen.', en: 'Could not stop the section.' },
-    'marathon_stages_reset_error': { sv: 'Kunde inte återställa etappen.', en: 'Could not reset the section.' },
     'marathon_stages_save_error': { sv: 'Kunde inte spara etappdata.', en: 'Could not save the section data.' },
     'marathon_stages_already_running': { sv: 'Etappen är redan startad. Stoppa den först om den ska startas om.', en: 'The section is already running. Stop it first to restart it.' },
     'marathon_stages_stop_without_start': { sv: 'Den här enheten har inte sett etappens start (ingen uppkoppling?). Vänta tills starten syns, eller notera måltiden och ange tiden manuellt.', en: 'This device has not seen the section start (no signal?). Wait until the start shows, or note the finish time and enter the time manually.' },
@@ -123,25 +115,16 @@ export const DICTIONARY = {
     'waiting_checked_in': { sv: 'Väntar (Incheckad)', en: 'Waiting (Checked In)' },
     'approved': { sv: 'GODKÄND', en: 'ACCEPTED' },
     'reinspection': { sv: 'OMBESIKTNING (Håll)', en: 'HOLDING BOX' },
-    'withdrawn': { sv: 'STRUKEN', en: 'WITHDRAWN' },
     'vet_note': { sv: 'Veterinärens notering', en: 'Vet Note' },
     'contact_secretariat': { sv: 'Vänligen kontakta veterinären eller sekretariatet för mer information.', en: 'Please contact the Vet or Show Office.' },
     'speaker_notes': { sv: 'Speaker-noteringar', en: 'Speaker Notes' },
     'new': { sv: 'Nyhet', en: 'New' },
     'speaker_notes_desc': { sv: 'Här kan du skriva information som speakern kan använda under dina rutter. T.ex. info om hästens härstamning, dina tidigare meriter, eller kuriosa. Detta visas direkt i speakerns dashboard.', en: 'Share interesting facts for the Speaker to use during your rounds (e.g., pedigree, past achievements, fun facts). Use English if international.' },
     'total_penalty': { sv: 'Totalt Straff', en: 'Total Penalty' },
-    'carriage': { sv: 'Vagn', en: 'Carriage' },
-    'driver': { sv: 'Kusk', en: 'Driver' },
-    'club': { sv: 'Klubb', en: 'Club' },
     'horses': { sv: 'Hästar', en: 'Horses' },
     'officials': { sv: 'Funktionärer', en: 'Officials' },
-    'startno': { sv: 'Startnummer', en: 'Start No' },
-    'class': { sv: 'Klass', en: 'Class' },
     'category': { sv: 'Kategori', en: 'Category' },
-    'date': { sv: 'Datum', en: 'Date' },
     'location': { sv: 'Tävlingsplats', en: 'Venue' },
-    'status': { sv: 'Status', en: 'Status' },
-    'penalty': { sv: 'Straff', en: 'Penalty' },
     'print_pdf': { sv: 'Skriv ut PDF', en: 'Print PDF' },
     'no_protocol': { sv: 'Inget protokoll för denna domare.', en: 'No protocol for this judge.' },
     'program_missing': { sv: 'Program saknas för denna klass.', en: 'Program missing for this class.' },
@@ -219,7 +202,6 @@ export const DICTIONARY = {
     'goal_label': { sv: 'Mål', en: 'Goal' },
     'eta_label': { sv: 'ETA', en: 'ETA' },
     'allowed_span': { sv: 'Tillåtet', en: 'Allowed' },
-    'observer_notes': { sv: 'Observatörsnoteringar', en: 'Observer Notes' },
     'wrong_gait': { sv: 'Fel gångart', en: 'Wrong Gait' },
     'halts': { sv: 'Halter', en: 'Halts' },
     'summary': { sv: 'Summering', en: 'Summary' },
@@ -231,7 +213,7 @@ export const DICTIONARY = {
 
     // Precision
     'status': { sv: 'Status', en: 'Status' },
-    'start_time': { sv: 'Starttid', en: 'Start Time' },
+    'start_time': { sv: 'Start', en: 'Start' },
     'spec_penalty': { sv: 'Straffspecifikation', en: 'Penalty Specification' },
     'obs_penalty': { sv: 'Hinderstraff', en: 'Obstacle Penalty' },
     'time_penalty': { sv: 'Tidsstraff', en: 'Time Penalty' },
@@ -257,11 +239,8 @@ export const DICTIONARY = {
     'ongoing_short': { sv: 'Pågående', en: 'Ongoing' },
     'finalized_short': { sv: 'Finaliserade', en: 'Finalized' },
     'status_not_started': { sv: 'Ej startad', en: 'Not started' },
-    'status_running': { sv: 'Pågår', en: 'Running' },
-    'status_done': { sv: 'Klar', en: 'Finished' },
     'status_finalized': { sv: 'Finaliserad', en: 'Finalized' },
     'search_startnumber_or_name': { sv: 'Startnummer eller namn', en: 'Start number or name' },
-    'no_results': { sv: 'Inga träffar', en: 'No results' },
     'field_mode': { sv: 'Fältläge', en: 'Field mode' },
     'field_mode_active': { sv: 'Fältläge aktivt', en: 'Field mode active' },
     'field_mode_secretariat_message': { sv: 'Live-monitorer är avstängda. Använd denna sekretariatssida för manuell registrering, korrigering och finalisering.', en: 'Live monitors are disabled. Use this secretariat page for manual entry, corrections, and finalization.' },
@@ -309,7 +288,6 @@ export const DICTIONARY = {
     'precision': { sv: 'Precision', en: 'Cones' },
     'ej_valt': { sv: 'Ej valt', en: 'Not selected' },
     'ar': { sv: 'år', en: 'years' },
-    'no_competition_selected': { sv: 'Ingen tävling vald. Gå tillbaka till hubben.', en: 'No competition selected. Return to hub.' },
 
     // Deltagare Specific
     'deltagarlista': { sv: 'Deltagarlista', en: 'Participant List' },
@@ -429,15 +407,10 @@ export const DICTIONARY = {
     'obstacle_lbl': { sv: 'Hinder', en: 'Obstacle' },
     'obstacle_round': { sv: 'Omg. Hinder', en: 'Obst. Round' },
     'rank_short': { sv: '#', en: '#' },
-    'startno': { sv: 'Nr', en: 'No' },
-    'driver': { sv: 'Ekipage', en: 'Driver' },
-    'club': { sv: 'Klubb', en: 'Club' },
-    'start_time': { sv: 'Start', en: 'Start' },
     'eta': { sv: 'ETA', en: 'ETA' },
     'live': { sv: 'Live', en: 'Live' },
     'penalty_obstacle_short': { sv: 'H-Straff', en: 'Obs. Pen.' },
     'penalty_other_short': { sv: 'Övr', en: 'Other' },
-    'total': { sv: 'Totalt', en: 'Total' },
     'active_merges': { sv: 'Aktiva sammanslagningar', en: 'Active Merges' },
     'filter_on_course': { sv: 'Endast pågående', en: 'Running Only' },
     'filter_finished': { sv: 'Endast klara', en: 'Finished Only' },
@@ -447,7 +420,6 @@ export const DICTIONARY = {
     'marathon_stage_a': { sv: 'Sträcka A', en: 'Stage A' },
     'marathon_stage_b': { sv: 'Sträcka B', en: 'Stage B' },
     'marathon_stage_t': { sv: 'Sträcka T', en: 'Stage T' },
-    'finalize': { sv: 'Finalisera', en: 'Finalize' },
     'search_no_match': { sv: 'Inga ekipage matchar din sökning.', en: 'No equipages match your search.' },
     'equipages_on_course': { sv: 'Ekipage på banan', en: 'Equipages on Course' },
     'marathon_start_stage_a': { sv: 'Start Etapp A', en: 'Start Phase A' },
@@ -632,8 +604,6 @@ export const DICTIONARY = {
     'marathon_stages_warning': { sv: 'VARNING!', en: 'WARNING!' },
     'marathon_stages_sync_lost': { sv: 'Synkronisering med servern har förlorats. Tider kan visas felaktigt. Ladda om sidan eller kontrollera din anslutning.', en: 'Sync with server lost. Times might be incorrect. Reload page or check connection.' },
     'marathon_stages_start_timer': { sv: 'STARTA KLOCKA', en: 'START TIMER' },
-    'marathon_stages_no_active_timers': { sv: 'Inga aktiva klockor.', en: 'No active timers.' },
-    'marathon_stages_stop': { sv: 'Stopp', en: 'Stop' },
     'marathon_stages_not_specified': { sv: 'Ej angiven', en: 'Not specified' },
     'marathon_stages_select_equipage': { sv: 'Välj ekipage', en: 'Select equipage' },
     'marathon_stages_active_timers': { sv: 'Aktiva klockor', en: 'Active Timers' },
@@ -656,8 +626,6 @@ export const DICTIONARY = {
     'marathon_stages_error_start': { sv: 'Kunde inte logga starttid för ', en: 'Could not log start time for ' },
     'marathon_stages_error_stop': { sv: 'Kunde inte logga stopptid för ', en: 'Could not log stop time for ' },
     'marathon_stages_error_manual': { sv: 'Kunde inte spara manuell tid.', en: 'Could not save manual time.' },
-    'marathon_stages_no_competition': { sv: 'Ingen tävling vald.', en: 'No competition selected.' },
-    'marathon_stages_unknown_driver': { sv: 'Okänd kusk', en: 'Unknown driver' },
     'marathon_gates_forward': { sv: 'Passerade i rätt ordning', en: 'Passed in correct order' },
     'marathon_gates_backward': { sv: 'Avdrag (ta bort)', en: 'Deduct (remove)' },
 
@@ -709,6 +677,12 @@ export const DICTIONARY = {
     'observer_notes_placeholder': { sv: 'Skriv iakttagelser...', en: 'Write observations...' },
     'observer_save_manually': { sv: 'Spara manuellt', en: 'Save manually' },
     'observer_halt_n': { sv: 'Halt {n}', en: 'Halt {n}' },
+    'sync_needs_verified_email': { sv: 'Bekräfta din e-postadress först (länken i mejlet vi skickade). Anmälningar kopplas bara till en bekräftad adress.', en: 'Please verify your email address first (the link in the email we sent). Entries are only linked to a verified address.' },
+    'observer_wrong_gait_n': { sv: 'Tillfälle {n}', en: 'Incident {n}' },
+    'observer_add_wrong_gait': { sv: 'Lägg till tillfälle', en: 'Add incident' },
+    'observer_no_wrong_gaits_yet': { sv: 'Varje start–stopp är ett tillfälle. Rättat inom 5 s ger inget straff.', en: 'Each start–stop is one incident. Corrected within 5 s gives no penalty.' },
+    'observer_remove_wrong_gait_confirm': { sv: 'Ta bort detta tillfälle?', en: 'Remove this incident?' },
+    'observer_wrong_gait_earlier': { sv: 'Tidigare registrerat (ett tillfälle)', en: 'Recorded earlier (one incident)' },
 
     // Precision Input
     'precision_no_competition': { sv: 'Ingen tävling vald.', en: 'No competition selected.' },
@@ -888,6 +862,13 @@ export const DICTIONARY = {
 
 };
 
+export function getCurrentLanguage(isInternational = false) {
+    const userPref = localStorage.getItem('user_lang_pref');
+    if (userPref === 'en' || userPref === 'sv') return userPref;
+    const compInt = isInternational || Boolean(typeof window !== 'undefined' && window.state?.currentCompetition?.isInternational);
+    return compInt ? 'en' : 'sv';
+}
+
 /**
  * Returns the translated label.
  * @param {string} key - The dictionary key.
@@ -1007,7 +988,7 @@ export function translateDressageString(text, isInternational = false) {
     if (!text) return '';
     // Determine target lang based on user pref or competition mode
     const userPref = localStorage.getItem('user_lang_pref');
-    const targetEn = (userPref === 'en') || isInternational;
+    const targetEn = userPref ? (userPref === 'en') : Boolean(isInternational);
 
     if (!targetEn) return text; // Keep Swedish if not target English
 
@@ -1046,7 +1027,7 @@ export function translateDressageString(text, isInternational = false) {
  * Toggles the global language preference and reloads the page.
  */
 export function toggleLanguage() {
-    const current = localStorage.getItem('user_lang_pref') || 'sv';
+    const current = getCurrentLanguage();
     const next = current === 'en' ? 'sv' : 'en';
     localStorage.setItem('user_lang_pref', next);
     location.reload();
@@ -1054,8 +1035,9 @@ export function toggleLanguage() {
 
 export function setLanguage(next) {
     const normalized = next === 'en' ? 'en' : 'sv';
-    const current = localStorage.getItem('user_lang_pref') || 'sv';
-    if (current === normalized) return;
+    const current = getCurrentLanguage();
+    const hasExplicitPref = localStorage.getItem('user_lang_pref') === normalized;
+    if (current === normalized && hasExplicitPref) return;
     localStorage.setItem('user_lang_pref', normalized);
     location.reload();
 }
@@ -1067,7 +1049,7 @@ export function initLanguageToggle() {
     const host = document.getElementById('langToggle');
     if (!host) return;
 
-    const current = localStorage.getItem('user_lang_pref') || 'sv';
+    const current = getCurrentLanguage();
     const isEn = current === 'en';
 
     const svFlag = `<svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-6 rounded-sm shadow-sm" viewBox="0 0 16 10" aria-hidden="true">

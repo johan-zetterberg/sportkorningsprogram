@@ -23,8 +23,12 @@ export const MARATHON_OBSTACLE_MAX_TIME_SEC = 300;
 // Penalty per knocked-down breakable element/ball in an obstacle
 export const MARATHON_KNOCKDOWN_PENALTY = 2;
 
-// Wrong gait penalty per second
-export const MARATHON_WRONG_GAIT_PENALTY_RATE = 0.2;
+// Wrong gait, per incident: corrected within the grace time, no penalty;
+// otherwise 1 penalty per period (TR V 523.1: per commenced 5 s period after
+// the grace; FEI 960.6.4: 1 for the incident plus 1 per further completed
+// 5 s period)
+export const MARATHON_WRONG_GAIT_GRACE_SEC = 5;
+export const MARATHON_WRONG_GAIT_PERIOD_SEC = 5;
 
 // Swedish pony categories by height (TR V Moment 163), cm (upper limits, inclusive)
 export const PONY_CATEGORY_MAX_HEIGHT_CM = { ponyA: 107, ponyB: 130, ponyCD: 148 };

@@ -120,6 +120,7 @@ export async function generateStartListPdf(rows, type, competition, options = {}
         columnStyles: colStyles,
         margin: { left: 40, right: 40 },
         didDrawCell: (data) => {
+            if (type === 'horselist') return;
             const clubColIdx = type === 'participants' ? 3 : 4;
 
             if (data.section === 'body' && data.column.index === clubColIdx) {
@@ -150,6 +151,8 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     });
 
     const ts = new Date().toISOString().split('T')[0];
-    const prefix = type === 'participants' ? 'deltagarlista' : `startlista_${type}`;
+    const prefix = type === 'participants'
+        ? 'deltagarlista'
+        : (type === 'horselist' ? 'hastforteckning' : `startlista_${type}`);
     doc.save(`${prefix}_${ts}.pdf`);
 }

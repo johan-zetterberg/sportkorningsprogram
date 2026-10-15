@@ -303,8 +303,12 @@ self.addEventListener('install', (event) => {
       const fresh = (u) => new Request(u, { cache: 'no-cache' });
       await cache.addAll(criticalInternalUrls.map(fresh));
 
+      // Not the heavy files (the dressage tests as PDF, the PDF reader's
+      // worker: about 10 MB): every deploy installs a new version, and they
+      // would be fetched again each time. They are cached when first used.
+      const isHeavyStatic = (url) => /\.pdf$/i.test(url) || /\/lib\/pdf\.worker/i.test(url);
       const optionalInternalUrls = Array.from(new Set(
-        discoveredModuleUrls.filter(url => !criticalInternalUrls.includes(url))
+        [...internalUrls, ...discoveredModuleUrls].filter(url => !criticalInternalUrls.includes(url) && !isHeavyStatic(url))
       ));
       const results = await Promise.allSettled(optionalInternalUrls.map(u => cache.add(fresh(u))));
       const failed = results
@@ -366,7 +370,12 @@ self.addEventListener('activate', (event) => {
       try {
         const old = await caches.open(key);
         for (const request of await old.keys()) {
-          if (new URL(request.url).origin === self.location.origin) continue;
+          const reqUrl = new URL(request.url);
+          // Own static assets (images, PDFs under /assets/) are not code: kept
+          // across versions, so a deploy does not download them all again
+          const ownAsset = reqUrl.origin === self.location.origin && reqUrl.pathname.startsWith('/assets/')
+            && /\.(png|jpe?g|webp|gif|svg|ico|pdf)$/i.test(reqUrl.pathname);
+          if (reqUrl.origin === self.location.origin && !ownAsset) continue;
           if (await current.match(request)) continue;
           const response = await old.match(request);
           // Files from Storage only when they are images (older versions also
@@ -395,18 +404,23 @@ const isCss = (req, url) => req.destination === 'style' || url.pathname.endsWith
  * The network's answer, but if it has not come within NETWORK_TIMEOUT_MS and
  * `getCached` has a copy, that copy (the network answer still updates the
  * cache through onNetwork). Without a cached copy it keeps waiting. A network
- * failure resolves to null, so the caller falls back to the cache.
+ * failure or invalid/error response resolves to null, so the caller falls back
+ * to the cache.
  */
-async function networkFirstWithTimeout(fetchPromise, getCached, onNetwork = () => { }) {
+async function networkFirstWithTimeout(fetchPromise, getCached, onNetwork = () => { }, isValidResponse = (res) => !!res && (res.ok || res.type === 'opaque')) {
   const network = fetchPromise.then(
-    (res) => { try { onNetwork(res); } catch { /* cache update only */ } return res; },
+    (res) => {
+      if (!isValidResponse(res)) return null;
+      try { onNetwork(res); } catch { /* cache update only */ }
+      return res;
+    },
     () => null
   );
   let timer;
   const timedOut = new Promise((resolve) => { timer = setTimeout(() => resolve('timeout'), NETWORK_TIMEOUT_MS); });
   const first = await Promise.race([network, timedOut]);
   clearTimeout(timer);
-  if (first !== 'timeout') return first;
+  if (first !== 'timeout' && first !== null) return first;
   const cached = await getCached();
   return cached || network;
 }
@@ -415,7 +429,6 @@ async function networkFirstWithTimeout(fetchPromise, getCached, onNetwork = () =
 // <script src> from a CDN), never 404/500 pages served as a module
 const isCacheable = (res) => !!res && (res.ok || res.type === 'opaque');
 
-// Huvudstrategi
 // Huvudstrategi
 self.addEventListener('fetch', (event) => {
   const req = event.request;
@@ -426,7 +439,9 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const getCached = () => cache.match(abs('/index.html'));
-      const net = await networkFirstWithTimeout(fetch(req), getCached);
+      // A redirect (navigations use redirect: 'manual') is a valid answer, not
+      // a reason to show the cached app
+      const net = await networkFirstWithTimeout(fetch(req), getCached, () => { }, (res) => !!res && (res.ok || res.type === 'opaqueredirect'));
       if (net) return net;
       const cached = await getCached();
       if (cached) {
@@ -448,15 +463,19 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const getCached = async () => (await cache.match(req)) || cache.match(req, { ignoreVary: true });
-      const net = await networkFirstWithTimeout(fetch(req, { cache: 'no-cache' }), getCached, (res) => {
-        const ct = res.headers.get('content-type') || '';
+      const isValidJs = (res) => {
+        if (!isCacheable(res)) return false;
+        const ct = res.headers?.get('content-type') || '';
         if (ct.includes('text/html')) {
-          console.error('[SW][JS] VARNING: nätet returnerade HTML för', url.pathname, '— cachar EJ.');
-          return;
+          console.error('[SW][JS] VARNING: nätet returnerade HTML för', url.pathname, '— cachar EJ och faller tillbaka på cache.');
+          return false;
         }
-        // Uppdatera cache i bakgrunden (aldrig 404/500-svar)
-        if (isCacheable(res)) cache.put(req, res.clone()).catch(() => { });
-      });
+        return true;
+      };
+      const net = await networkFirstWithTimeout(fetch(req, { cache: 'no-cache' }), getCached, (res) => {
+        // Uppdatera cache i bakgrunden (aldrig 404/500-svar eller HTML)
+        if (isValidJs(res)) cache.put(req, res.clone()).catch(() => { });
+      }, isValidJs);
       if (net) return net;
       // Offline (or the network failed): the cached copy (ignoreVary as a
       // fallback, for servers that send other headers)
@@ -474,9 +493,14 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const getCached = () => cache.match(req);
+      const isValidCss = (res) => {
+        if (!isCacheable(res)) return false;
+        const ct = res.headers?.get('content-type') || '';
+        return !ct.includes('text/html');
+      };
       const net = await networkFirstWithTimeout(fetch(req, { cache: 'no-cache' }), getCached, (res) => {
-        if (isCacheable(res)) cache.put(req, res.clone()).catch(() => { });
-      });
+        if (isValidCss(res)) cache.put(req, res.clone()).catch(() => { });
+      }, isValidCss);
       if (net) return net;
       const cached = await getCached();
       if (cached) return cached;
@@ -512,12 +536,22 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // 5) Annat: cache-first
+  // 5) Annat: cache-first. Own static assets (/assets/: images, the dressage
+  // test PDFs) are stored when first fetched, as they are not precached
+  // Images and PDFs only: a JSON or other data file under /assets/ may change
+  // under the same name and must not be kept across versions
+  const isOwnAsset = req.method === 'GET' && url.origin === self.location.origin && url.pathname.startsWith('/assets/')
+    && /\.(png|jpe?g|webp|gif|svg|ico|pdf)$/i.test(url.pathname);
   event.respondWith((async () => {
     const cached = await caches.match(req);
     if (cached) return cached;
     try {
-      return await fetch(req);
+      const net = await fetch(req);
+      if (isOwnAsset && net.ok && !(net.headers.get('content-type') || '').includes('text/html')) {
+        const cache = await caches.open(CACHE_NAME);
+        cache.put(req, net.clone()).catch(() => { });
+      }
+      return net;
     } catch {
       return new Response('Offline', { status: 503, statusText: 'Offline' });
     }

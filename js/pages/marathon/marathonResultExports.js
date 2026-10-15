@@ -27,7 +27,9 @@ export function setupMarathonResultExportButtons({
   buildPlacementsByClass,
   timingDocFor,
   startTimeFor,
-  fmtClock
+  fmtClock,
+  // The page's result (archived values for an archived competition)
+  calculateResult = calculateMarathonResult
 }) {
   const btnPdf = document.getElementById('marBtnExportMarathonPdf');
   if (btnPdf) {
@@ -39,7 +41,8 @@ export function setupMarathonResultExportButtons({
 
         let list = prepareMarathonResults(getEquipages() || [], getMarathonConfig(), {
           timingMap: marathonMap,
-          stateMap: marathonMap
+          stateMap: marathonMap,
+          calculateResult
         });
 
         if (search) {
@@ -85,7 +88,7 @@ export function setupMarathonResultExportButtons({
       const sn = String(eq.startNumber);
       const d = marathonMap.get(sn) || {};
       const t = timingDocFor(sn);
-      const res = calculateMarathonResult(eq, d, t);
+      const res = calculateResult(eq, d, t);
 
       const startTimeValue = startTimeFor(sn);
       const startLabel = startTimeValue ? (startTimeValue.split('T')[1] || '-') : '-';

@@ -5,7 +5,17 @@ import {
     calculateMarathonResult,
     calculatePrecisionResult
 } from './calculationService.js';
-import { assignPlaces, compareTotalRank, totalRankKey } from '../core-engine/ranking.js';
+import {
+    assignPlaces,
+    compareDressageRank,
+    compareMarathonRank,
+    comparePrecisionRank,
+    compareTotalRank,
+    dressageRankKey,
+    marathonRankKey,
+    precisionRankKey,
+    totalRankKey
+} from '../core-engine/ranking.js';
 
 function pickDefined(primaryObj, primaryKey, fallbackObj, fallbackKey) {
     if (primaryObj && Object.prototype.hasOwnProperty.call(primaryObj, primaryKey)) {
@@ -23,10 +33,29 @@ const archiveTotalKey = (row) => totalRankKey({
 
 // Placings per class (TR 533.3 / FEI 904, see core-engine/ranking.js)
 function buildPlacements(rows) {
+    const byClass = (row) => row.className || '';
     assignPlaces(rows, {
         key: archiveTotalKey,
         compare: compareTotalRank,
-        group: (row) => row.className || ''
+        group: byClass
+    });
+    assignPlaces(rows, {
+        key: (row) => dressageRankKey(row.dressage),
+        compare: compareDressageRank,
+        group: byClass,
+        outField: 'posDress'
+    });
+    assignPlaces(rows, {
+        key: (row) => marathonRankKey(row.marathon),
+        compare: compareMarathonRank,
+        group: byClass,
+        outField: 'posMar'
+    });
+    assignPlaces(rows, {
+        key: (row) => precisionRankKey(row.precision, { requireFinished: true }),
+        compare: comparePrecisionRank,
+        group: byClass,
+        outField: 'posPrec'
     });
     rows.forEach(row => {
         if (row.plac == null) row.plac = '';
@@ -82,10 +111,14 @@ export function buildArchiveRowsFromData({
         const sn = String(eq.startNumber);
         const protocols = dressageProtocols.get(sn) || [];
         const stateDoc = marathonStateMap.get(sn) || {};
+        const subObstacles = obstacleMap.get(sn) || [];
+        const resolvedObstacles = subObstacles.length > 0
+            ? subObstacles
+            : (Array.isArray(stateDoc.obstacles) ? stateDoc.obstacles : []);
         const marathonDoc = {
             ...stateDoc,
-            obstacles: obstacleMap.get(sn) || [],
-            eliminated: !!stateDoc.eliminated || (obstacleMap.get(sn) || []).some(o => o.eliminated)
+            obstacles: resolvedObstacles,
+            eliminated: !!stateDoc.eliminated || resolvedObstacles.some(o => o.eliminated)
         };
         const timingDoc = {
             ...(marathonTimingMap.get(sn) || {}),
@@ -110,27 +143,42 @@ export function buildArchiveRowsFromData({
             }
         );
 
+        const marKey = marathonRankKey(marathon, { requireFinished: false });
+
         return {
             ...eq,
             dressage: {
                 penalty: pickDefined(total.dressage, 'penalty', total, 'dressagePenalty'),
                 judgePenalty: dressage.judgePenalty,
-                eliminated: !!dressage.eliminated
+                percent: dressage.percent,
+                eliminated: !!dressage.eliminated,
+                status: dressage.eliminated
+                    ? 'Eliminerad'
+                    : (total.dressageComplete ? 'Klar' : 'Ej startad')
             },
             marathon: {
                 totalPenalty: pickDefined(total.marathon, 'totalPenalty', total, 'marathonPenalty'),
+                bPenalty: marKey ? marKey.bPenalty : null,
+                stages: marathon.stages,
+                obstaclePenaltySum: marathon.obstaclePenaltySum,
                 eliminated: !!marathon.eliminated,
                 status: marathon.status
             },
             precision: {
                 pen: pickDefined(total.precision, 'totalPenalty', total, 'precisionPenalty'),
                 totalPenalty: pickDefined(total.precision, 'totalPenalty', total, 'precisionPenalty'),
+                timeMs: precision.timeMs,
+                finalized: !!precision.finalized,
+                running: !!precision.running,
                 eliminated: !!precision.eliminated,
                 status: precision.status
             },
             totalPenalty: total.totalPenalty,
             isEliminated: total.isEliminated,
-            plac: ''
+            plac: '',
+            posDress: null,
+            posMar: null,
+            posPrec: null
         };
     });
 

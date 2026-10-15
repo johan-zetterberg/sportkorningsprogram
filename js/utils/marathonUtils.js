@@ -602,7 +602,9 @@ export function calculateMarathonPlacements(equipages) {
  * - Applicerar sammanslagningar (ensureMergeDecorations)
  * - Beräknar placeringar
  */
-export function prepareMarathonResults(equipages, config, { timingMap, stateMap, obstaclesMap }) {
+// calculateResult: the result page passes its own (an archived competition
+// gives the values it was archived with); the default calculates
+export function prepareMarathonResults(equipages, config, { timingMap, stateMap, obstaclesMap, calculateResult = calculateMarathonResult }) {
   // 1. Initiera config
   if (config) {
     setMarathonConfig(config);
@@ -640,7 +642,7 @@ export function prepareMarathonResults(equipages, config, { timingMap, stateMap,
     // This ensures manual times in 's' (maraton collection) are found by date helpers
     const mergedTiming = { ...t, ...s };
 
-    const res = calculateMarathonResult(e, mDoc, mergedTiming);
+    const res = calculateResult(e, mDoc, mergedTiming);
 
     return {
       ...e,

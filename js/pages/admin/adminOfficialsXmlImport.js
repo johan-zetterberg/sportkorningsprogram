@@ -25,7 +25,14 @@ export async function importOfficialsFromXml(xmlFile, competitionId, existingJud
 
     let judgesImported = 0;
     let officialsImported = 0;
-    const existingOfficialNames = new Set(existingOfficials.map(official => official.name));
+    const existingOfficialNames = new Set((existingOfficials || []).map(official => official.name));
+    const existingJudgeKeys = new Set(
+        (existingJudges || []).flatMap(judge => [
+            judge?.id,
+            judge?.name ? String(judge.name).replace(/\s+/g, '-').toLowerCase() : null,
+            judge?.name || null
+        ]).filter(Boolean)
+    );
 
     const roleMap = {
         event_director: 'Tävlingsledare',
@@ -39,6 +46,7 @@ export async function importOfficialsFromXml(xmlFile, competitionId, existingJud
     };
 
     const judgesMap = new Map();
+    const judgeIdByPerson = new Map();
     const officialsMap = new Map();
 
     for (const node of officialNodes) {
@@ -52,7 +60,19 @@ export async function importOfficialsFromXml(xmlFile, competitionId, existingJud
         const licenseNo = (foreignId ? licenseMap.get(foreignId) : '') || '';
 
         if (['head_judge', 'driving_dressage_judge', 'maraton_judge', 'precision_judge'].includes(kind)) {
-            const judgeId = fullName.replace(/\s+/g, '-').toLowerCase();
+            // One entry per person: by foreignId when the file has it (two judges
+            // with the same name are different people), else by name. The doc id
+            // stays the name slug as before; a second person with the same name
+            // gets the foreignId added so neither overwrites the other.
+            const nameSlug = fullName.replace(/\s+/g, '-').toLowerCase();
+            const personKey = foreignId ? `fid:${foreignId}` : `name:${nameSlug}`;
+            let judgeId = judgeIdByPerson.get(personKey);
+            if (!judgeId) {
+                judgeId = [...judgeIdByPerson.values()].includes(nameSlug) && foreignId
+                    ? `${nameSlug}-${String(foreignId).toLowerCase().replace(/[^a-z0-9]+/g, '-')}`
+                    : nameSlug;
+                judgeIdByPerson.set(personKey, judgeId);
+            }
             const newRoles = [];
 
             if (kind === 'driving_dressage_judge') newRoles.push({ discipline: 'dressage', position: '' });
@@ -99,6 +119,7 @@ export async function importOfficialsFromXml(xmlFile, competitionId, existingJud
     }
 
     for (const judge of judgesMap.values()) {
+        if (existingJudgeKeys.has(judge.id) || existingJudgeKeys.has(judge.name)) continue;
         judge.roles = normalizeJudgeRoles(judge.roles);
         judge.isOverJudge = judge.roles.some(role => role.discipline === 'overjudge');
 

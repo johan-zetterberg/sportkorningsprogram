@@ -7,8 +7,26 @@ import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/fireba
  * @param {File} file 
  * @returns {Promise<string>} Download URL
  */
+// What storage.rules accept in documents/: the files are public by link, so
+// no HTML, SVG or scripts
+const DOCUMENT_TYPE_PATTERNS = [
+    /^image\/(png|jpeg|webp|gif)$/,
+    /^application\/pdf$/,
+    /^text\/(plain|csv)$/,
+    /^application\/(msword|vnd\.ms-excel|vnd\.ms-powerpoint)$/,
+    /^application\/vnd\.openxmlformats-officedocument\./,
+    /^application\/vnd\.oasis\.opendocument\./
+];
+
+export function isAllowedDocumentType(type) {
+    return DOCUMENT_TYPE_PATTERNS.some(pattern => pattern.test(String(type || '')));
+}
+
 export async function uploadCompetitionDocument(competitionId, file) {
     if (!file) throw new Error("Ingen fil vald");
+    if (!isAllowedDocumentType(file.type)) {
+        throw new Error("Filtypen stöds inte. Använd PDF, bild (PNG/JPG/WebP/GIF), Word, Excel, PowerPoint eller text.");
+    }
 
     // Create a reference to 'competitions/<compId>/documents/<timestamp>_<filename>'
     const timestamp = Date.now();
@@ -42,6 +60,16 @@ export async function uploadClubLogo(competitionId, file, isGlobal = true) {
     if (!file) throw new Error("Ingen fil vald");
 
     if (!competitionId) throw new Error("Competition ID required for upload");
+
+    // Images only, as for the competition logo: the folder is publicly
+    // readable, so an HTML or SVG file there would be served from our domain
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+        throw new Error("Loggan måste vara PNG, JPG eller WebP.");
+    }
+    if (file.size > 2 * 1024 * 1024) {
+        throw new Error("Loggan får vara högst 2 MB.");
+    }
 
     const timestamp = Date.now();
     const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');

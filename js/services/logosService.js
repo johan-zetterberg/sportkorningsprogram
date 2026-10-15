@@ -83,10 +83,8 @@ export function getClubLogoHtml(eq, { className = 'inline-block h-5 w-auto', sty
 export async function saveGlobalLogo(clubName, url) {
   if (!clubName) return;
 
-  // 1. Update Local
-  updateClubLogo(clubName, url);
-
-  // 2. Save to Global Firestore (config/clubLogos)
+  // Save to Global Firestore (config/clubLogos); the local map is updated
+  // only once that succeeded (a refused write must not show a logo)
   const key = String(clubName).trim().toLowerCase();
   const payload = {};
   payload[key] = url;
@@ -98,6 +96,7 @@ export async function saveGlobalLogo(clubName, url) {
   // Let's assume we import setDocData.
   const { setDocData } = await import('./firestoreService.js');
   await setDocData('config', 'clubLogos', payload, true);
+  updateClubLogo(clubName, url);
 }
 
 /**
@@ -105,9 +104,6 @@ export async function saveGlobalLogo(clubName, url) {
  */
 export async function saveCompetitionLogo(competitionId, clubName, url) {
   if (!competitionId || !clubName) return;
-
-  // 1. Update Local
-  updateClubLogo(clubName, url);
 
   // 2. Save to Firestore (merge with existing)
   // We fetch existing first to be safe, or just use saveConfig with merge=true (default implementation of saveConfig usually merges fields in the doc)
@@ -128,6 +124,8 @@ export async function saveCompetitionLogo(competitionId, clubName, url) {
   payload[key] = url;
 
   await saveConfig(competitionId, 'clubLogos', payload);
+  // Local map only after the save (see saveGlobalLogo)
+  updateClubLogo(clubName, url);
 }
 
 export function setClubLogoMap(obj) { _clubLogoMap = _normalize(obj); }

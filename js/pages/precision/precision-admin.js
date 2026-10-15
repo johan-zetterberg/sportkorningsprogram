@@ -379,7 +379,7 @@ function renderLayout() {
                       
                       <!-- Upload Tools -->
                       <div class="grid grid-cols-1 sm:grid-cols-[auto_auto] gap-2 mt-2">
-                        <input type="file" id="precMapImageUploadInput" accept="image/*" class="hidden">
+                        <input type="file" id="precMapImageUploadInput" accept="image/png,image/jpeg,image/webp,image/gif" class="hidden">
                         <button type="button" id="btnUploadPrecMapImage" class="bg-blue-50 border-2 border-blue-200 text-blue-700 hover:bg-blue-100 hover:border-blue-300 px-3 py-1.5 rounded-md text-xs font-bold transition-all shadow-sm flex items-center gap-1 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300 dark:hover:bg-blue-900/40" title="Ladda upp bildfil">
                             <span>📤 Ladda upp bildfil</span>
                         </button>

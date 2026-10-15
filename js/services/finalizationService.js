@@ -1,5 +1,5 @@
 import { getCompDocRef, trackWrite } from './firestoreService.js';
-import { doc, getDoc, setDoc, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, collection, getDoc, getDocs, query, orderBy, limit, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { isStillRunning } from './secretariatPatchUtils.js';
@@ -14,26 +14,51 @@ function getUid() {
   return getGlobalState('currentUser')?.uid || null;
 }
 
+/**
+ * Sets the lock document and adds an entry to finalizationLog in the same
+ * batch. The lock only keeps the latest change; the log keeps who finalized or
+ * unlocked which result and when. The rules refuse a lock change whose
+ * lastLogId does not name a log entry written in the same batch.
+ */
+function setLock(batch, competitionId, discipline, startNumber, finalized) {
+  const user = getGlobalState('currentUser') || {};
+  const logRef = doc(collection(db, `competitions/${competitionId}/finalizationLog`));
+  batch.set(logRef, {
+    discipline,
+    action: finalized ? 'finalize' : 'unfinalize',
+    startNumber: String(startNumber),
+    by: user.uid || null,
+    byName: user.displayName || user.email || null,
+    at: serverTimestamp()
+  });
+  const lockRef = doc(db, `competitions/${competitionId}/${discipline}Finalization/${String(startNumber)}`);
+  batch.set(lockRef, finalized
+    ? { finalized: true, finalizedAt: Date.now(), finalizedBy: getUid(), lastLogId: logRef.id }
+    : { finalized: false, unfinalizedAt: Date.now(), unfinalizedBy: getUid(), lastLogId: logRef.id },
+  { merge: true });
+}
+
+/** The finalize/unlock history, newest first (admins only, see the rules) */
+export async function getFinalizationLog(competitionId, max = 300) {
+  const q = query(collection(db, `competitions/${competitionId}/finalizationLog`), orderBy('at', 'desc'), limit(max));
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+}
+
 // --- DRESSAGE ---
 export async function finalizeDressage(competitionId, startNumber) {
   return trackWrite(`Finaliserar dressyr #${startNumber}`, (async () => {
-    const ref = doc(db, `competitions/${competitionId}/dressageFinalization/${String(startNumber)}`);
-    await setDoc(ref, {
-      finalized: true,
-      finalizedAt: Date.now(),
-      finalizedBy: getUid()
-    }, { merge: true });
+    const batch = writeBatch(db);
+    setLock(batch, competitionId, 'dressage', startNumber, true);
+    await batch.commit();
   })());
 }
 
 export async function unfinalizeDressage(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering dressyr #${startNumber}`, (async () => {
-    const ref = doc(db, `competitions/${competitionId}/dressageFinalization/${String(startNumber)}`);
-    await setDoc(ref, {
-      finalized: false,
-      unfinalizedAt: Date.now(),
-      unfinalizedBy: getUid()
-    }, { merge: true });
+    const batch = writeBatch(db);
+    setLock(batch, competitionId, 'dressage', startNumber, false);
+    await batch.commit();
   })());
 }
 
@@ -55,7 +80,6 @@ export async function finalizeMarathon(competitionId, startNumber) {
 
     // Result and lock document (which activates the security rules) in one
     // batch: never finalized-but-unlocked or the other way round
-    const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
     const batch = writeBatch(db);
     batch.set(ref, {
       finalized: true,
@@ -63,11 +87,7 @@ export async function finalizeMarathon(competitionId, startNumber) {
       updatedAt: serverTimestamp(),
       finalizedBy: getUid()
     }, { merge: true });
-    batch.set(lockRef, {
-      finalized: true,
-      finalizedAt: Date.now(),
-      finalizedBy: getUid()
-    }, { merge: true });
+    setLock(batch, competitionId, 'marathon', startNumber, true);
     await batch.commit();
   })());
 }
@@ -77,14 +97,9 @@ export async function unfinalizeMarathon(competitionId, startNumber) {
     // Lock and result in one batch, like finalizing: a network error between
     // two writes left an unlocked result still marked finalized (the rules
     // accept the result write because the lock is open after the batch)
-    const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${String(startNumber)}`);
     const ref = getCompDocRef(competitionId, 'maraton', String(startNumber));
     const batch = writeBatch(db);
-    batch.set(lockRef, {
-      finalized: false,
-      unfinalizedAt: Date.now(),
-      unfinalizedBy: getUid()
-    }, { merge: true });
+    setLock(batch, competitionId, 'marathon', startNumber, false);
     batch.set(ref, {
       finalized: false,
       status: 'Pågår',
@@ -104,7 +119,6 @@ export async function finalizePrecision(competitionId, startNumber) {
 
     // Result and lock document in one batch (see finalizeMarathon).
     // prioritized: true forces sorting if needed
-    const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
     const batch = writeBatch(db);
     batch.set(ref, {
       prioritized: true,
@@ -112,11 +126,7 @@ export async function finalizePrecision(competitionId, startNumber) {
       finalizedAt: Date.now(),
       finalizedBy: getUid()
     }, { merge: true });
-    batch.set(lockRef, {
-      finalized: true,
-      finalizedAt: Date.now(),
-      finalizedBy: getUid()
-    }, { merge: true });
+    setLock(batch, competitionId, 'precision', startNumber, true);
     await batch.commit();
   })());
 }
@@ -124,14 +134,9 @@ export async function finalizePrecision(competitionId, startNumber) {
 export async function unfinalizePrecision(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering precision #${startNumber}`, (async () => {
     // Lock and result in one batch (see unfinalizeMarathon)
-    const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
     const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
     const batch = writeBatch(db);
-    batch.set(lockRef, {
-      finalized: false,
-      unfinalizedAt: Date.now(),
-      unfinalizedBy: getUid()
-    }, { merge: true });
+    setLock(batch, competitionId, 'precision', startNumber, false);
     batch.set(ref, {
       finalized: false,
       unfinalizedAt: Date.now(),

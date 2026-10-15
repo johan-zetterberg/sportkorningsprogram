@@ -234,9 +234,15 @@ export function buildFeiMarathonStartOrder({
   return { rows: orderedRows, blocks, assignments, issues: [] };
 }
 
+function toFinitePenalty(value) {
+  if (value === null || value === undefined || value === '') return NaN;
+  const num = Number(value);
+  return Number.isFinite(num) ? num : NaN;
+}
+
 export function buildFeiPrecisionStartOrder(rows = []) {
   const missingScore = rows.find(row => !row.retired && !row.eliminated && (
-    !Number.isFinite(Number(row.dressagePenalty)) || !Number.isFinite(Number(row.marathonPenalty))
+    !Number.isFinite(toFinitePenalty(row.dressagePenalty)) || !Number.isFinite(toFinitePenalty(row.marathonPenalty))
   ));
   if (missingScore) {
     return {
@@ -251,11 +257,13 @@ export function buildFeiPrecisionStartOrder(rows = []) {
     if (categoryDifference !== 0) return categoryDifference;
     if (category(a) < 2) return byStartNumber(a, b);
 
-    const totalA = Number(a.dressagePenalty) + Number(a.marathonPenalty);
-    const totalB = Number(b.dressagePenalty) + Number(b.marathonPenalty);
-    if (totalA !== totalB) return totalB - totalA;
-    if (Number(a.marathonPenalty) !== Number(b.marathonPenalty)) {
-      return Number(b.marathonPenalty) - Number(a.marathonPenalty);
+    const marA = toFinitePenalty(a.marathonPenalty);
+    const marB = toFinitePenalty(b.marathonPenalty);
+    const totalA = Math.round((toFinitePenalty(a.dressagePenalty) + marA) * 100) / 100;
+    const totalB = Math.round((toFinitePenalty(b.dressagePenalty) + marB) * 100) / 100;
+    if (Math.abs(totalA - totalB) > 0.0001) return totalB - totalA;
+    if (Math.abs(marA - marB) > 0.0001) {
+      return marB - marA;
     }
     return byStartNumber(a, b);
   });

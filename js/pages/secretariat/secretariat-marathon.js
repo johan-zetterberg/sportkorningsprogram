@@ -833,12 +833,14 @@ function wireEvents() {
   if (activeTab === 'timing') {
     rootEl.querySelector('#secretariatSearch')?.addEventListener('input', event => {
       const value = event.target.value || '';
+      const selStart = event.target.selectionStart ?? value.length;
+      const selEnd = event.target.selectionEnd ?? value.length;
       filters.search = value;
       render();
       const searchInput = rootEl.querySelector('#secretariatSearch');
       searchInput?.focus();
       try {
-        searchInput?.setSelectionRange(value.length, value.length);
+        searchInput?.setSelectionRange(selStart, selEnd);
       } catch (_) {}
     });
 
@@ -906,4 +908,5 @@ export function unload() {
   obstacleRows = [];
   selectedStartNumber = null;
   activeTab = 'timing';
+  filters = { search: '', status: 'all', className: 'all' };
 }

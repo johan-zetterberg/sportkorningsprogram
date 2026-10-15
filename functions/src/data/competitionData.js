@@ -55,7 +55,7 @@ export const competitionClasses = {
   "Internationell (FEI)": [
     "FEI Children 1*",
     "FEI Junior 2*",
-    "FEI U25 3*",
+    "FEI U25 2*",
     "FEI 1* Häst", "FEI 1* Ponny",
     "FEI 2* Enbet Häst", "FEI 2* Par Häst", "FEI 2* Enbet Ponny", "FEI 2* Par Ponny",
     "FEI 3* Enbet Häst", "FEI 3* Par Häst", "FEI 3* Fyrspann Häst",
@@ -68,6 +68,8 @@ export const competitionClasses = {
  */
 export const klassProgramMapping = {
   // Lätta klasser
+  "Lätt C Enbet Ponny": 'SvLB',
+  "Lätt C Enbet Häst": 'SvLB',
   "Lätt B Enbet Ponny": 'SvLB',
   "Lätt B Enbet Häst": 'SvLB',
   "Lätt A Enbet Ponny": 'SvLA',
@@ -91,6 +93,7 @@ export const klassProgramMapping = {
   "Svår Par Ponny": 'FEI_3star_HP2_P2_2025',
   "Svår Par Häst": 'FEI_3star_HP2_P2_2025',
   // Barnklasser
+  "Lätt C Barn Ponny": 'SvLB',
   "Lätt B Barn Ponny": 'SvLB',
   "Lätt A Barn Ponny": 'SvLA',
   // Fyrspann
@@ -99,13 +102,30 @@ export const klassProgramMapping = {
   "Svår Fyrspann Ponny": 'FEI_3star_HP4_2025',
   "Svår Fyrspann Häst": 'FEI_3star_B_HP4_2022',
 
-  // NYTT: Mappning för Paraklasser
+  // Paraklasser
   "Lätt A Para Häst": 'FEIParaG1',
   "Lätt A Para Ponny": 'FEIParaG1',
   "Msv Para Häst": 'FEIParaG2',
   "Msv Para Ponny": 'FEIParaG2',
   "Svår Para Häst": 'FEIParaG2',
-  "Svår Para Ponny": 'FEIParaG2'
+  "Svår Para Ponny": 'FEIParaG2',
+
+  // Internationell (FEI)
+  "FEI Children 1*": 'FEI_Children_2025_sv',
+  "FEI Junior 2*": 'FEI_Junior_2025',
+  "FEI U25 2*": 'FEI_2star_HP2_2024',
+  "FEI 1* Häst": 'FEI_CAI1_Para',
+  "FEI 1* Ponny": 'FEI_CAI1_Para',
+  "FEI 2* Enbet Häst": 'FEI_2star_2021',
+  "FEI 2* Par Häst": 'FEI_2star_HP2_2024',
+  "FEI 2* Enbet Ponny": 'FEI_2star_2021',
+  "FEI 2* Par Ponny": 'FEI_2star_HP2_2024',
+  "FEI 3* Enbet Häst": 'FEI3AHP1',
+  "FEI 3* Par Häst": 'FEI_3star_HP2_P2_2025',
+  "FEI 3* Fyrspann Häst": 'FEI_3star_B_HP4_2022',
+  "FEI 3* Enbet Ponny": 'FEI3AHP1',
+  "FEI 3* Par Ponny": 'FEI_3star_HP2_P2_2025',
+  "FEI 3* Fyrspann Ponny": 'FEI_3star_HP4_2025'
 };
 
 /**
@@ -160,9 +180,9 @@ export const klassTempoData = {
   "Lätt A Barn Ponny": { maraton: 220, precision: 180 },
 
   // --- FEI KLASSER (FEI 2026 Art 975.10.5 & 978.3) ---
-  "FEI Children 1*": { maraton: 230, precision: 230 },
+  "FEI Children 1*": { maraton: 230, precision: 220 }, // FEI 974.1: Children cones 220 m/min
   "FEI Junior 2*": { maraton: 240, precision: 240 },
-  "FEI U25 3*": { maraton: 250, precision: 250 },
+  "FEI U25 2*": { maraton: 250, precision: 250 },
   "FEI 1* Häst": { maraton: 240, precision: 250 }, "FEI 1* Ponny": { maraton: 230, precision: 260 },
   "FEI 2* Enbet Häst": { maraton: 250, precision: 250 }, "FEI 2* Par Häst": { maraton: 250, precision: 250 },
   "FEI 2* Enbet Ponny": { maraton: 240, precision: 260 }, "FEI 2* Par Ponny": { maraton: 240, precision: 250 },
@@ -175,7 +195,13 @@ export const klassTempoData = {
  * Definierar tillåten extra bredd på portar i precisionen.
  */
 export const standardPortAllowance = {
-  // LB (fyrspann har +10 cm per TR Bilaga 5 fotnot *)
+  // LC & LB (fyrspann har +10 cm per TR Bilaga 5 fotnot *)
+  'LC "Barn"': 45,
+  'Lätt C Barn': 45,
+  'LC Fyrspann': 45,
+  'Lätt C Fyrspann': 45,
+  'LC': 35,
+  'Lätt C': 35,
   'LB "Barn"': 45,
   'Lätt B Barn': 45,
   'LB Fyrspann': 45,
@@ -220,6 +246,10 @@ export const standardPortAllowance = {
   'Svår enbet': 20,
   'Svår par': 20,
   'Svår fyrspann': 25,
+
+  // FEI: the other FEI classes have fixed cone widths (FEI 974.1, see
+  // FEI_STANDARD_CONES_WIDTH in precisionUtils.js), not track width + allowance
+  'FEI Children': 20,
 
   // fallback
   '*': 35

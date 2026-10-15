@@ -235,10 +235,12 @@ test('getPortAllowanceCm adds +10 cm clearance for four-in-hand in LB, LA, and M
 test('getStandardPortWidth returns fixed standard cone width for Svår and FEI per TR Bilaga 2 & 5 and FEI Art 974', () => {
   // FEI classes (Art 974)
   assert.equal(isStandardPortWidthClass('FEI 3* Fyrspann Häst'), true);
-  assert.equal(getStandardPortWidth('FEI 3* Fyrspann Häst'), 190);
-  assert.equal(getStandardPortWidth('FEI 3* Par Häst'), 180);
+  assert.equal(getStandardPortWidth('FEI 3* Fyrspann Häst'), 185); // FEI 974.1
+  assert.equal(getStandardPortWidth('FEI 3* Par Häst'), 170);
   assert.equal(getStandardPortWidth('FEI 3* Enbet Häst'), 160);
-  assert.equal(getStandardPortWidth('FEI 3* Enbet Ponny'), 150);
+  assert.equal(getStandardPortWidth('FEI 3* Enbet Ponny'), 160);
+  // FEI Children: track width + 20 cm, not a fixed width
+  assert.equal(isStandardPortWidthClass('FEI Children Ponny'), false);
 
   // TR Svår klass (Bilaga 2 & 5: alltid fast)
   assert.equal(isStandardPortWidthClass('Svår Häst Enbet'), true);
@@ -260,9 +262,9 @@ test('computePortWidth respects fixed standard width in Svår/FEI and calculates
   const eqSvarNoTrack = { className: 'Svår Häst Enbet' };
   assert.equal(computePortWidth(eqSvarNoTrack), 158, 'Standard cone width returned even if carriage width not yet recorded');
 
-  // In FEI Fyrspann: 190 cm
+  // In FEI Fyrspann: 185 cm (FEI 974.1)
   const eqFei = { className: 'FEI 3* Fyrspann Häst', trackWidth: 160 };
-  assert.equal(computePortWidth(eqFei), 190);
+  assert.equal(computePortWidth(eqFei), 185);
 
   // In LB: variable width (track width 125 cm + 35 cm allowance = 160 cm)
   const eqLb = { className: 'Lätt B Häst Enbet', trackWidth: 125 };

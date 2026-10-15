@@ -7,6 +7,7 @@ import { trackWrite } from '../../services/firestoreService.js';;
 import { getStartTimes, saveMarathonObstacleResult, listenForMaratonCollection } from '../../services/marathonService.js';
 import {
   setPauseWindows,
+  pausedMsBetween,
   calculateObstacleResult,
   getObstacleMaxTime,
   getClassDrivenObstacles,
@@ -72,6 +73,7 @@ function clearLiveCommentSaveTimer() {
 // after a short pause in typing: each write wakes every spectator
 const FORM_FIELD_PUSH_DEBOUNCE_MS = 500;
 let pendingFormFields = null;
+let pendingFormTarget = null;
 let formFieldPushTimer = null;
 
 function cancelPendingFormFields() {
@@ -80,16 +82,20 @@ function cancelPendingFormFields() {
     formFieldPushTimer = null;
   }
   pendingFormFields = null;
+  pendingFormTarget = null;
 }
 
 async function flushPendingFormFields() {
   const fields = pendingFormFields;
+  const target = pendingFormTarget;
   cancelPendingFormFields();
-  if (!fields || !currentEquipage || currentObstacleNumber == null) return;
+  const eq = target?.equipage || currentEquipage;
+  const obsNo = target?.obstacleNumber ?? currentObstacleNumber;
+  if (!fields || !eq || obsNo == null) return;
   // Queued at once for this equipage, not awaited: a write resolves only when
   // the server answers, and Save or a switch must not wait for that offline
   // (Firestore keeps the order of writes)
-  pushLiveSafe(fields).catch((error) => console.error('Kunde inte skicka hinderformuläret live:', error));
+  pushLiveSafe(fields, { equipage: eq, obstacleNumber: obsNo }).catch((error) => console.error('Kunde inte skicka hinderformuläret live:', error));
 }
 
 function cancelPendingLiveCommentSave() {
@@ -166,11 +172,16 @@ function mirrorToLocal(sn, data) {
 function getElapsedMsFromState(state) {
   if (!state) return 0;
   const accumulated = state.liveObstacleTimeMs || 0;
+  // Running at another obstacle: that judge's clock, not this obstacle's time
+  if (runsAtAnotherObstacle(state, currentObstacleNumber)) return accumulated;
   if (state.running && state.liveObstacleStartAt) {
     // Klockan går: ackumulerad tid + tid sedan senaste start
     const startTime = timestampToMs(state.liveObstacleStartAt);
     const tickNow = isGloballyPaused && globalPauseStartTime > 0 ? globalPauseStartTime : Date.now();
-    const elapsedSinceStart = Math.max(0, tickNow - startTime);
+    // A global pause this device never saw (offline while it began and
+    // ended) lies inside the running segment: it must not count. A pause it
+    // did see ended the segment at its start, so nothing is taken twice.
+    const elapsedSinceStart = Math.max(0, tickNow - startTime - pausedMsBetween(startTime, tickNow));
     return accumulated + elapsedSinceStart;
   }
   // Klockan är pausad: visa bara ackumulerad tid
@@ -271,6 +282,7 @@ function listenForGlobalCompetitionPause_Obstacles() {
     const pauseLog = Array.isArray(data.pauseLog) ? data.pauseLog : [];
     const openPause = pauseLog.find(p => p && p.end == null);
 
+    setPauseWindows(pauseLog);
     isGloballyPaused = isPaused;
     globalPauseStartTime = isPaused
       ? (openPause?.start ? new Date(openPause.start).getTime() : Date.now())
@@ -419,7 +431,6 @@ function applyLiveStateToUI(data) {
     cancelPendingLiveCommentSave();
     currentLiveState = {};
     if (timerInterval) clearInterval(timerInterval);
-    document.getElementById('maratonObstacleSelect').value = '';
     document.getElementById('routeString').value = '';
     document.getElementById('maratonKnockdowns').value = '0';
     document.getElementById('maratonPenalty').value = '0';
@@ -435,45 +446,52 @@ function applyLiveStateToUI(data) {
   }
 
   currentLiveState = data; // Spara senaste läget globalt
-  currentObstacleNumber = data.currentObstacle || null;
 
-  // 1. Synka valt hinder
+  // 1. Synka valt hinder (behåll domarens valda hinder om ett redan är valt)
   const obstacleSelect = document.getElementById('maratonObstacleSelect');
-  if (obstacleSelect.value != (data.currentObstacle || '')) {
-    obstacleSelect.value = data.currentObstacle || '';
+  const selectedObsNo = Number(obstacleSelect?.value || 0) || null;
+  const obstacleNo = selectedObsNo || Number(data.currentObstacle || 0) || null;
+  currentObstacleNumber = obstacleNo;
+  if (obstacleSelect && !selectedObsNo && obstacleNo) {
+    obstacleSelect.value = String(obstacleNo);
     updateKnockdownVisibility();
     renderRouteButtonsForCurrent();
   }
-  // === NEW: Fyll på från sparad obstacles[] om live_* saknas ===
-  const obstacleNo =
-    currentObstacleNumber ||
-    Number(document.getElementById('maratonObstacleSelect')?.value || 0) || null;
 
+  // === NEW: Fyll på från sparad obstacles[] om live_* saknas eller hör till annat hinder ===
   const savedObstacle = Array.isArray(data.obstacles)
     ? data.obstacles.find(o => Number(o?.number) === Number(obstacleNo))
     : null;
+  const useLiveFields = !selectedObsNo || data.currentObstacle == null || Number(data.currentObstacle) === Number(obstacleNo);
 
-  // “Effective” fält = live_* om de finns, annars sparat hinderresultat
+  // “Effective” fält = live_* om de hör till detta hinder, annars sparat hinderresultat
   const effective = {
-    liveObstacleTimeMs: (data.liveObstacleTimeMs ?? (savedObstacle?.timeMs ?? 0)),
-    live_routeString: (data.live_routeString ?? (savedObstacle?.routeString ?? '')),
-    live_knockdowns: (data.live_knockdowns ?? (savedObstacle?.knockdowns ?? '0')),
-    live_otherPenalty: (data.live_otherPenalty ?? (savedObstacle?.otherPenalty ?? '0')),
-    live_holdTimeSec: (data.live_holdTimeSec ?? (savedObstacle?.holdTimeSec ?? '')),
-    live_comment: (data.live_comment ?? (savedObstacle?.comment ?? '')),
-    live_eliminated: (data.live_eliminated ?? !!(savedObstacle?.eliminated)),
-    live_gateSplits: (data.live_gateSplits ?? (savedObstacle?.gateSplits ?? [])),
+    liveObstacleTimeMs: ((useLiveFields ? data.liveObstacleTimeMs : null) ?? (savedObstacle?.timeMs ?? 0)),
+    live_routeString: ((useLiveFields ? data.live_routeString : null) ?? (savedObstacle?.routeString ?? '')),
+    live_knockdowns: ((useLiveFields ? data.live_knockdowns : null) ?? (savedObstacle?.knockdowns ?? '0')),
+    live_otherPenalty: ((useLiveFields ? data.live_otherPenalty : null) ?? (savedObstacle?.otherPenalty ?? '0')),
+    live_holdTimeSec: ((useLiveFields ? data.live_holdTimeSec : null) ?? (savedObstacle?.holdTimeSec ?? '')),
+    live_comment: ((useLiveFields ? data.live_comment : null) ?? (savedObstacle?.comment ?? '')),
+    live_eliminated: ((useLiveFields ? data.live_eliminated : null) ?? !!(savedObstacle?.eliminated)),
+    live_gateSplits: ((useLiveFields ? data.live_gateSplits : null) ?? (savedObstacle?.gateSplits ?? [])),
     // Typed but not yet sent wins over the server copy
     ...(pendingFormFields || {})
   };
 
-  // Se till att timern använder “effective” tid, även om liveObstacleTimeMs saknas i docet
-  currentLiveState = { ...data, ...effective, currentObstacle: data.currentObstacle || obstacleNo };
+  // Se till att timern använder “effective” tid, även om liveObstacleTimeMs saknas i docet.
+  // currentObstacle stays where the clock actually runs: with this judge's
+  // obstacle here, a clock running at another obstacle looked like our own,
+  // and Stop or Save took it over (and its time) from that judge.
+  currentLiveState = {
+    ...data,
+    ...effective,
+    currentObstacle: useLiveFields ? obstacleNo : (data.currentObstacle ?? obstacleNo)
+  };
 
 
   // 2. Synka Timern (NU ROBUST)
   if (timerInterval) clearInterval(timerInterval);
-  if (data.running && !isGloballyPaused) {
+  if (data.running && useLiveFields && !isGloballyPaused) {
     // Starta en lokal renderingsloop BARA för att uppdatera texten på skärmen
     timerInterval = setInterval(updateTimerViewMar, 90);
   }
@@ -481,7 +499,11 @@ function applyLiveStateToUI(data) {
 
   // 3. Synka alla andra formulärfält (använd "effective")
   const pendingHold = pendingHoldTimes.get(String(currentEquipage?.startNumber));
-  if (pendingHold && (!effective.live_holdTimeSec || effective.live_holdTimeSec === '0')) {
+  // Not while the judge is typing in the hold time or the comment: the value
+  // would be taken (and announced) but never reach the field. It is picked up
+  // when the field is left (see the focusout re-apply below).
+  const holdFieldBusy = ['maratonHoldTime', 'maratonComment'].includes(document.activeElement?.id);
+  if (pendingHold && !holdFieldBusy && (!effective.live_holdTimeSec || effective.live_holdTimeSec === '0')) {
     effective.live_holdTimeSec = String(pendingHold.holdTimeSec);
     const holdNote = `Väntetid: ${pendingHold.reason}`;
     effective.live_comment = effective.live_comment
@@ -492,10 +514,14 @@ function applyLiveStateToUI(data) {
     showAlert(`Väntetid (${pendingHold.holdTimeSec}s) hämtad för startnr ${currentEquipage.startNumber}!`, true);
   }
 
-  document.getElementById('routeString').value = effective.live_routeString || '';
-  document.getElementById('maratonKnockdowns').value = String(effective.live_knockdowns ?? '0');
-  document.getElementById('maratonPenalty').value = String(effective.live_otherPenalty ?? '0');
-  document.getElementById('maratonHoldTime').value = String(effective.live_holdTimeSec ?? '');
+  const routeEl = document.getElementById('routeString');
+  const kdEl = document.getElementById('maratonKnockdowns');
+  const penEl = document.getElementById('maratonPenalty');
+  const holdEl = document.getElementById('maratonHoldTime');
+  if (routeEl && document.activeElement !== routeEl) routeEl.value = effective.live_routeString || '';
+  if (kdEl && document.activeElement !== kdEl) kdEl.value = String(effective.live_knockdowns ?? '0');
+  if (penEl && document.activeElement !== penEl) penEl.value = String(effective.live_otherPenalty ?? '0');
+  if (holdEl && document.activeElement !== holdEl) holdEl.value = String(effective.live_holdTimeSec ?? '');
   if (commentInput && document.activeElement !== commentInput && pendingLiveComment == null) {
     commentInput.value = effective.live_comment || '';
   }
@@ -545,6 +571,17 @@ function resetFormLocallyForContextSwitch() {
 }
 
 
+// The last state from the server: a field that had focus kept its value then,
+// so it is applied again when the judge leaves the field
+let lastRemoteLiveData = null;
+function reapplyRemoteStateAfterEdit() {
+  setTimeout(() => {
+    if (!lastRemoteLiveData || !currentEquipage) return;
+    if (lastRemoteLiveData.startNumber !== String(currentEquipage.startNumber)) return;
+    applyLiveStateToUI(lastRemoteLiveData.data);
+  }, 0);
+}
+
 // Startar och stoppar lyssnaren
 function subscribeToMarathonDoc(startNumber) {
   if (unsubMaratonDoc) unsubMaratonDoc(); // Stäng tidigare lyssnare
@@ -558,6 +595,7 @@ function subscribeToMarathonDoc(startNumber) {
     // Pending server timestamps as estimates (not empty) until the server answers
     const data = snap.exists() ? snap.data({ serverTimestamps: 'estimate' }) : readMarathonBackup(startNumber);
     if (snap.exists() && data) mirrorToLocal(startNumber, data); // Backuppa lokalt
+    lastRemoteLiveData = { startNumber: String(startNumber), data };
     applyLiveStateToUI(data);
   }, (error) => {
     console.error("Fel vid lyssning på maratondokument:", error);
@@ -627,13 +665,15 @@ function runsAtAnotherObstacle(state, obstacleNumber) {
 }
 
 // Skyddad push (som i precision)
-async function pushLiveSafe(update) {
+async function pushLiveSafe(update, target = null) {
+  const eq = target?.equipage || currentEquipage;
+  const obsNo = target?.obstacleNumber !== undefined ? target.obstacleNumber : currentObstacleNumber;
   // Skriv bara live när ett ekipage är valt
-  if (!currentEquipage) return;
+  if (!eq) return;
   // Only an explicit Start takes over a clock running at another obstacle;
   // any other live write would stop that judge's timing
-  if (update?.running !== true && runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) {
-    console.warn(`[maraton] #${currentEquipage.startNumber} körs i hinder ${currentLiveState.currentObstacle}; live-uppdatering från hinder ${currentObstacleNumber} hoppas över.`);
+  if (update?.running !== true && runsAtAnotherObstacle(currentLiveState, obsNo)) {
+    console.warn(`[maraton] #${eq.startNumber} körs i hinder ${currentLiveState.currentObstacle}; live-uppdatering från hinder ${obsNo} hoppas över.`);
     return;
   }
 
@@ -646,16 +686,16 @@ async function pushLiveSafe(update) {
     const shouldTouchUpdatedAt = Object.keys(update || {}).some(k => touchUpdatedAtKeys.has(k));
 
     const dataToSend = {
-      startNumber: currentEquipage.startNumber,
-      className: currentEquipage.className || '',
-      currentObstacle: currentObstacleNumber,
+      startNumber: eq.startNumber,
+      className: eq.className || '',
+      currentObstacle: obsNo,
       ...update
     };
     if (shouldTouchUpdatedAt) {
       dataToSend.updatedAt = serverTimestamp();
     }
 
-    await trackWrite('Uppdaterar maraton-status', setDoc(marathonDocRef(currentEquipage.startNumber), dataToSend, { merge: true }));
+    await trackWrite('Uppdaterar maraton-status', setDoc(marathonDocRef(eq.startNumber), dataToSend, { merge: true }));
 
   } catch (e) {
     if (e.code !== 'permission-denied') {
@@ -783,6 +823,8 @@ function stopTimerMar() {
     return;
   }
   if (!currentEquipage || !currentLiveState.running) return;
+  // The clock runs at another obstacle: it is that judge's to stop
+  if (runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) return;
 
   // 1. Beräkna den slutgiltiga tiden *lokalt*
   const finalTimeMs = getElapsedMsFromState(currentLiveState);
@@ -860,6 +902,7 @@ function resetTimerMar(force = false) {
 function pushFormField(fieldName, value) {
   if (!currentEquipage || currentObstacleNumber == null) return;
   pendingFormFields = { ...(pendingFormFields || {}), [fieldName]: value };
+  pendingFormTarget = { equipage: currentEquipage, obstacleNumber: currentObstacleNumber };
   if (formFieldPushTimer) clearTimeout(formFieldPushTimer);
   formFieldPushTimer = setTimeout(() => {
     flushPendingFormFields().catch((error) => {
@@ -1495,7 +1538,11 @@ function setHoldReason(reason) {
   scheduleLiveCommentSave(commentInput.value);
 }
 
-async function setupPage() {
+// Bumped by every load and unload: a load still awaiting its data when the
+// page was left or loaded again must not register listeners afterwards
+let loadSeq = 0;
+
+async function setupPage(mySeq = loadSeq) {
   try {
     // Hämta all nödvändig data parallellt för snabbare laddning
     const [equipagesRaw, startTimesData, marathonConfig, marathonStateDocs] = await Promise.all([
@@ -1504,6 +1551,7 @@ async function setupPage() {
       getConfig(competitionId, 'maratonConfig'),
       getMarathonStateDocuments(competitionId)
     ]);
+    if (mySeq !== loadSeq) return;
     equipagesRawCache = equipagesRaw || [];
 
     marathonConfigCache = marathonConfig || {};
@@ -1527,6 +1575,7 @@ async function setupPage() {
         console.warn('WakeLock failed (expected if page hidden):', wlErr);
       }
     }
+    if (mySeq !== loadSeq) return;
 
   // NYTT: Bättre event-hantering för live-push
   boundHandlers.formInputHandler = (e) => {
@@ -1571,6 +1620,9 @@ async function setupPage() {
     }
   };
 
+  if (typeof unsubObstacles === 'function') {
+    try { unsubObstacles(); } catch { }
+  }
   unsubObstacles = listenForMarathonObstacles(competitionId, populateObstacleSelector);
   if (typeof unsubGlobalPause === 'function') {
     try { unsubGlobalPause(); } catch { }
@@ -1606,6 +1658,7 @@ async function setupPage() {
     form.addEventListener('input', boundHandlers.formInputHandler);
     form.addEventListener('click', boundHandlers.formClickHandler); // För kommentarsknappen
     form.addEventListener('focusout', boundHandlers.commentBlurHandler);
+    form.addEventListener('focusout', reapplyRemoteStateAfterEdit);
   }
 
   document.getElementById('maratonObstacleSelect')?.addEventListener('change', boundHandlers.obstacleChange);
@@ -1928,7 +1981,8 @@ function appendRouteLetter(ch) {
  */
 // RAD FÖRE (ca 1234): }
 
-export function load() {
+export async function load() {
+  const mySeq = ++loadSeq;
   const competition = getGlobalState('currentCompetition');
   const page = document.getElementById('page-maraton-input');
 
@@ -2273,7 +2327,7 @@ export function load() {
 `;
 
   // Kör init EFTER att DOM-contenten ovan finns
-  setupPage();
+  await setupPage(mySeq);
 }
 
 
@@ -2283,10 +2337,25 @@ export function load() {
 // RAD FÖRE (ca 1370): /**
 
 export function __unload() {
+  loadSeq++;
+  // Send what was typed but not sent yet (the debounce would otherwise drop it
+  // when the page is left): both writes start at once, before state is reset
+  const pendingComment = pendingLiveComment;
+  clearLiveCommentSaveTimer();
+  pendingLiveComment = null;
+  flushPendingFormFields().catch((error) => console.error('Kunde inte skicka hinderformuläret live:', error));
+  if (pendingComment != null && currentEquipage && currentObstacleNumber != null
+    && (currentLiveState?.live_comment || '') !== pendingComment) {
+    pushLiveSafe({ live_comment: pendingComment }).catch((error) => console.error('Kunde inte spara hinderkommentar live:', error));
+  }
   releaseWakeLock();
+  document.body.style.filter = '';
   try {
     // Stoppa klockan/interval
-    if (timerInterval) clearInterval(timerInterval);
+    if (timerInterval) {
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
     isRunning = false;
     inProgress = false;
 
@@ -2324,6 +2393,7 @@ export function __unload() {
       if (boundHandlers.formInputHandler) form.removeEventListener('input', boundHandlers.formInputHandler);
       if (boundHandlers.formClickHandler) form.removeEventListener('click', boundHandlers.formClickHandler);
       if (boundHandlers.commentBlurHandler) form.removeEventListener('focusout', boundHandlers.commentBlurHandler);
+      if (reapplyRemoteStateAfterEdit) form.removeEventListener('focusout', reapplyRemoteStateAfterEdit);
     }
 
     rm('maratonObstacleSelect', 'change', boundHandlers.obstacleChange);

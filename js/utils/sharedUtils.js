@@ -274,6 +274,13 @@ export function csvCell(val, delim = ';', localizeNumbers = true) {
         s = s.replace('.', ',');
     }
 
+    // Names and clubs come from public sign-up: a value starting with = + - @
+    // (or a tab/CR) is run as a formula by Excel. A leading ' keeps it text;
+    // plain numbers such as -5 or -5,25 are left alone.
+    if (/^[=+\-@\t\r]/.test(s) && !/^[-+]?\d+([.,]\d+)?$/.test(s)) {
+        s = `'${s}`;
+    }
+
     s = s.replace(/"/g, '""');
     if (s.includes(delim) || s.includes('"') || s.includes('\n')) {
         return `"${s}"`;

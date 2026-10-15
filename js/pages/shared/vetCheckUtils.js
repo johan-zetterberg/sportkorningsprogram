@@ -84,9 +84,18 @@ export function isPulseWarning(pulse) {
   return Number.isFinite(bpm) && bpm > MAX_RECOMMENDED_PULSE_BPM;
 }
 
-export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld', phase = 'initial') {
+/**
+ * keepWithdrawn: an equipage withdrawn as a whole (status 'struken', e.g. by
+ * the secretariat) stays withdrawn in every phase. The vet's own write passes
+ * false when the withdrawal was the vet's (a horse was struck): undoing it
+ * then gives the status the horses have.
+ */
+export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld', phase = 'initial', { keepWithdrawn = true } = {}) {
   const list = Array.isArray(horses) ? horses : [];
-  if (!list.length) return normalizeVetStatus(fallbackStatus);
+  const withdrawn = normalizeVetStatus(fallbackStatus) === 'struken';
+  if (withdrawn && keepWithdrawn) return 'struken';
+  const normalizedFallback = withdrawn ? 'anmäld' : normalizeVetStatus(fallbackStatus);
+  if (!list.length) return phase === 'initial' ? normalizedFallback : 'anmäld';
 
   const statuses = list.map(horse => {
     if (phase === 'initial') return getHorseVetStatus(horse);
@@ -97,7 +106,14 @@ export function deriveVetStatusFromHorses(horses = [], fallbackStatus = 'anmäld
   if (statuses.some(status => status === 'struken')) return 'struken';
   if (statuses.some(status => status === 'ombesiktning')) return 'ombesiktning';
   if (statuses.every(status => status === 'besiktigad')) return 'besiktigad';
-  return normalizeVetStatus(fallbackStatus);
+  if (statuses.some(status => status === 'incheckad')) return 'incheckad';
+  return phase === 'initial' ? normalizedFallback : 'anmäld';
+}
+
+/** Whether the vet struck a horse in the first inspection (the equipage's
+ *  'struken' then comes from the vet, not from a withdrawal) */
+export function hasVetStruckHorse(horses = []) {
+  return (Array.isArray(horses) ? horses : []).some(horse => getHorseVetStatus(horse) === 'struken');
 }
 
 export function updateHorseVetStatus(horses = [], horseKey, status) {

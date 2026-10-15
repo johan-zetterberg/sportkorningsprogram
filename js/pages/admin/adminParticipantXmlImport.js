@@ -159,6 +159,9 @@ export async function parseEqEntriesXml(file) {
                 }
 
                 const equipageStatus = resolveImportedEntryStatus(entryStatus);
+                const tdbClassLabel = (propInfo && propInfo.label) || '';
+                const tdbHorseCode = ((propInfo && propInfo.horse) || '').toUpperCase(); // 'H','P','A','B','C','D'
+                const tdbHorseText = horseTypeMap[tdbHorseCode] || '';
 
                 if (!equipagesByClass[uniqueKey]) {
                     const extractedWidths = extractTrackWidthsFromTexts([notes, riderComment, horseComment]);
@@ -178,10 +181,6 @@ export async function parseEqEntriesXml(file) {
                             }
                         }
                     }
-
-                    const tdbClassLabel = (propInfo && propInfo.label) || '';
-                    const tdbHorseCode = ((propInfo && propInfo.horse) || '').toUpperCase(); // 'H','P','A','B','C','D'
-                    const tdbHorseText = horseTypeMap[tdbHorseCode] || '';
 
                     // Matcha testnamn även när TDB-rubriken varierar med häst/ponny/anspänning.
                     const baseForMerge = normalizeTestForMerge(tdbClassLabel || className || '');
@@ -229,9 +228,9 @@ export async function parseEqEntriesXml(file) {
                     }
                     if (E.tdbClassNumber == null) {
                         E.tdbClassNumber = tdbClassNumber;
-                        E.tdbClassLabel = (propInfo && propInfo.label) || '';
-                        E.tdbHorseCode = ((propInfo && propInfo.horse) || '').toUpperCase();
-                        E.tdbHorseText = horseTypeMap[E.tdbHorseCode] || '';
+                        E.tdbClassLabel = tdbClassLabel;
+                        E.tdbHorseCode = tdbHorseCode;
+                        E.tdbHorseText = tdbHorseText;
                         if (!E.tdbOriginalXmlClassName) E.tdbOriginalXmlClassName = className || '';
                     }
                     if (equipageStatus !== 'struken') equipagesByClass[uniqueKey].status = 'anmäld';

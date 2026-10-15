@@ -10,7 +10,8 @@ import {
     MARATHON_DEFAULT_WINDOW_A_MIN,
     MARATHON_DEFAULT_WINDOW_B_MIN,
     MARATHON_OBSTACLE_MAX_TIME_SEC,
-    MARATHON_WRONG_GAIT_PENALTY_RATE,
+    MARATHON_WRONG_GAIT_GRACE_SEC,
+    MARATHON_WRONG_GAIT_PERIOD_SEC,
     MARATHON_KNOCKDOWN_PENALTY,
     MARATHON_DEFAULT_PAUSE_MIN,
     DEFAULT_TRV_TEMPOS_KMH,
@@ -44,19 +45,26 @@ export function normalizeClassKey(raw) {
     const lower = String(raw).trim().toLowerCase();
     const para = /para/.test(lower);
 
-    if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*b\b|(\b)lb\b/.test(lower)) return para ? "Lätt B Para" : "Lätt B";
+    if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*c\b|(\b)lc\b/.test(lower)) {
+        if (/barn/.test(lower)) return "Barnklass";
+        return para ? "Lätt B Para" : "Lätt B";
+    }
+    if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*b\b|(\b)lb\b/.test(lower)) {
+        if (/barn/.test(lower)) return "Barnklass";
+        return para ? "Lätt B Para" : "Lätt B";
+    }
     if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*a\b|(\b)la\b/.test(lower)) return para ? "Lätt A Para" : "Lätt A";
     if (/(^|[\d\s\.,&\;-]+)(msv|medelsv[aå]r)\b/.test(lower)) return para ? "Msv Para" : "Msv";
     if (/(^|[\d\s\.,&\;-]+)sv[aå]r\b/.test(lower)) return para ? "Svår Para" : "Svår";
 
-    // FEI / CAI
-    if (/cai\s*3/.test(lower)) return "CAI3*";
-    if (/cai\s*2/.test(lower)) return "CAI2*";
-    if (/cai\s*1/.test(lower)) return "CAI1*";
-
     if (/children|ch-/.test(lower)) return "CAI Children";
     if (/junior|j-/.test(lower)) return "CAI Junior";
     if (/u25|young/.test(lower)) return "CAI U25";
+
+    // FEI / CAI
+    if (/(?:\bcai|\bfei)\s*3/.test(lower)) return "CAI3*";
+    if (/(?:\bcai|\bfei)\s*2/.test(lower)) return "CAI2*";
+    if (/(?:\bcai|\bfei)\s*1/.test(lower)) return "CAI1*";
 
     return null;
 }
@@ -249,7 +257,10 @@ export function tlSecondsFor(equipage, rawStage, marathonConfig) {
         const catKey = detectTRCategoryFromEquipage(equipage);
         const activeRules = getActiveTempoRules(marathonConfig);
 
-        let kmh = activeRules?.[clsKey]?.[stage]?.[catKey];
+        // The children's class is driven in Lätt B (TR V 500.2): a tempo table
+        // saved before it had its own entry gives it the Lätt B tempos
+        const rulesKey = (clsKey === 'Barnklass' && !activeRules?.[clsKey]) ? 'Lätt B' : clsKey;
+        let kmh = activeRules?.[rulesKey]?.[stage]?.[catKey];
         // FEI tables often only distinguish "pony"
         if (!kmh && clsKey && clsKey.startsWith('CAI') && catKey.startsWith('pony')) {
             kmh = activeRules?.[clsKey]?.[stage]?.['pony'] || activeRules?.[clsKey]?.[stage]?.['ponyCD'];
@@ -381,11 +392,35 @@ export function getKnockdownPenaltyPerElement(marathonConfig) {
         : MARATHON_KNOCKDOWN_PENALTY;
 }
 
-export function getWrongGaitPenaltyRate(marathonConfig) {
-    const rate = Number(marathonConfig?.wrongGaitPenaltyRate);
-    return marathonConfig?.wrongGaitPenaltyRate != null && Number.isFinite(rate) && rate >= 0
-        ? rate
-        : MARATHON_WRONG_GAIT_PENALTY_RATE;
+// FEI classes follow the FEI rules, the Swedish ones TR
+export function isFeiMarathonClass(className) {
+    return /\b(FEI|CAI)(\b|\d)/i.test(String(className || ''));
+}
+
+/** Penalty for one wrong-gait incident of durationSec seconds. */
+export function wrongGaitIncidentPenalty(durationSec, { fei = false } = {}) {
+    const d = Math.max(0, Math.floor(Number(durationSec) || 0));
+    if (d <= MARATHON_WRONG_GAIT_GRACE_SEC) return 0;
+    const over = d - MARATHON_WRONG_GAIT_GRACE_SEC;
+    return fei
+        ? 1 + Math.floor(over / MARATHON_WRONG_GAIT_PERIOD_SEC)
+        : Math.ceil(over / MARATHON_WRONG_GAIT_PERIOD_SEC);
+}
+
+/**
+ * Wrong-gait penalty from the observer's log: each incident (wrongGaits,
+ * [{ atSec, durSec }]) on its own. A log from before incidents were kept has
+ * only the total (wrongGaitSeconds); it counts as one incident.
+ */
+export function wrongGaitPenaltyFromLog(observerLog, className) {
+    const fei = isFeiMarathonClass(className);
+    const incidents = Array.isArray(observerLog?.wrongGaits) ? observerLog.wrongGaits : [];
+    const incidentSec = incidents.reduce((sum, inc) => sum + Math.max(0, Number(inc?.durSec) || 0), 0);
+    // Seconds in the total that no incident accounts for (saved before
+    // incidents were kept) count as one more incident
+    const unattributedSec = Math.max(0, (Number(observerLog?.wrongGaitSeconds) || 0) - incidentSec);
+    return incidents.reduce((sum, inc) => sum + wrongGaitIncidentPenalty(inc?.durSec, { fei }), 0)
+        + wrongGaitIncidentPenalty(unattributedSec, { fei });
 }
 
 // === Obstacles & hold times ===
@@ -760,8 +795,7 @@ export function calculateMarathonResult(state) {
         && course.every(n => isObstacleDone(obsArr.find(x => obstacleNo(x) === n)));
 
     // 3. Wrong gait (observer) and other penalties
-    const wgSec = Number(d.observerLog?.wrongGaitSeconds) || 0;
-    const wgPenalty = round2(wgSec * getWrongGaitPenaltyRate(marathonConfig));
+    const wgPenalty = round2(wrongGaitPenaltyFromLog(d.observerLog, equipageClassName(eq)));
     const other = Number(d.otherPenalty ?? d.miscPenalty ?? d.others ?? d.other ?? d.penalty_other) || 0;
 
     // 4. Settings check: a driven stage without ideal time / limits (no class

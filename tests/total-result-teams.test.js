@@ -496,6 +496,33 @@ test('FEI Championship / CAIO counts the best two fully completed members in eac
   assert.equal(team.members.find(member => member.memberId === 'eq-1').isCountingMarathon, false);
 });
 
+test('FEI live: the dressage standing stays when the first marathon results come in', () => {
+  const teams = [
+    { id: 'swe', name: 'Sweden', members: ['eq-1', 'eq-2', 'eq-3'] },
+    { id: 'nor', name: 'Norway', members: ['eq-4', 'eq-5', 'eq-6'] }
+  ];
+  const rows = [
+    { id: 'eq-1', startNumber: 1, driverName: 'A', country: 'SWE', dressage: { penalty: 30 }, marathon: { totalPenalty: 60 } },
+    { id: 'eq-2', startNumber: 2, driverName: 'B', country: 'SWE', dressage: { penalty: 40 } },
+    { id: 'eq-3', startNumber: 3, driverName: 'C', country: 'SWE', dressage: { penalty: 50 } },
+    { id: 'eq-4', startNumber: 4, driverName: 'D', country: 'NOR', dressage: { penalty: 35 } },
+    { id: 'eq-5', startNumber: 5, driverName: 'E', country: 'NOR', dressage: { penalty: 45 } },
+    { id: 'eq-6', startNumber: 6, driverName: 'F', country: 'NOR', dressage: { penalty: 55 } }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'fei_championship_caio');
+  const swe = results.find(team => team.teamId === 'swe');
+  const nor = results.find(team => team.teamId === 'nor');
+
+  // One marathon result anywhere used to empty every team's dressage score
+  assert.equal(swe.dressage, 70);
+  assert.equal(nor.dressage, 80);
+  assert.equal(swe.marathon, null);
+  assert.equal(swe.preliminary?.after, 'dressage');
+  assert.equal(swe.preliminary?.rank, 1);
+  assert.equal(nor.preliminary?.rank, 2);
+});
+
 test('FEI Championship / CAIO does not replace an eliminated member with a 500 penalty', () => {
   const teams = [{ id: 'fei-standard', name: 'Sweden', members: ['eq-1', 'eq-2', 'eq-3'] }];
   const rows = [
@@ -598,4 +625,28 @@ test('FEI Para Driving Championship requires Grade I and no more than two member
   assert.equal(invalid.isInvalid, true);
   assert.match(invalid.validationIssues.join(' '), /Grade I/);
   assert.match(invalid.validationIssues.join(' '), /Högst 2 deltagare/);
+});
+
+test('FEI Championship / CAIO calculates live dressage score and preliminary standing while marathon and precision are unstarted', () => {
+  const teams = [
+    { id: 'swe', name: 'Sweden', members: ['se-1', 'se-2', 'se-3'] },
+    { id: 'den', name: 'Denmark', members: ['dk-1', 'dk-2'] }
+  ];
+  const rows = [
+    { id: 'se-1', startNumber: 1, driverName: 'SE A', country: 'SWE', dressage: { penalty: 30 }, marathon: {}, precision: {} },
+    { id: 'se-2', startNumber: 2, driverName: 'SE B', country: 'SWE', dressage: { penalty: 40 }, marathon: {}, precision: {} },
+    { id: 'se-3', startNumber: 3, driverName: 'SE C', country: 'SWE', dressage: { penalty: 50 }, marathon: {}, precision: {} },
+    { id: 'dk-1', startNumber: 4, driverName: 'DK A', country: 'DEN', dressage: { penalty: 38 }, marathon: {}, precision: {} },
+    { id: 'dk-2', startNumber: 5, driverName: 'DK B', country: 'DEN', dressage: { penalty: 42 }, marathon: {}, precision: {} }
+  ];
+
+  const results = calculateTeamResults(teams, rows, 'fei_championship_caio');
+  assert.equal(results[0].teamId, 'swe');
+  assert.equal(results[0].dressage, 70);
+  assert.equal(results[0].marathon, null);
+  assert.equal(results[0].total, null);
+  assert.deepEqual(results[0].preliminary, { rank: 1, score: 70, after: 'dressage' });
+  assert.equal(results[1].teamId, 'den');
+  assert.equal(results[1].dressage, 80);
+  assert.deepEqual(results[1].preliminary, { rank: 2, score: 80, after: 'dressage' });
 });

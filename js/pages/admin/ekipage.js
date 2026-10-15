@@ -103,6 +103,8 @@ function showEquipageDetailsModal(equipage) {
                 <span class="col-span-2 italic text-red-900 dark:text-red-200 bg-red-50 dark:bg-red-900/30 p-2 rounded border border-red-200 dark:border-red-800 text-xs">
                     ${escapeHtml(equipage.vetNotes || 'Inga noteringar.')}
                 </span>
+            </div>
+        </div>
     `;
 
     // --- 2. Block för "Alla registrerade hästar" ---
@@ -463,10 +465,20 @@ function renderList() {
             select.classList.add(select.options[select.selectedIndex].className);
         };
         updateColor(); // Kör direkt vid laddning
+        let previousStatus = select.value;
 
         select.addEventListener('change', async (event) => {
             const startNumber = event.target.dataset.startNumber;
             const newStatus = event.target.value;
+            // Withdrawing takes the equipage out of the results: a slip of the
+            // dropdown must not do that unasked (the vet page asks the same)
+            if (newStatus === 'struken' && previousStatus !== 'struken'
+                && !confirm(`Är du säker på att ekipage #${startNumber} ska strykas?`)) {
+                select.value = previousStatus;
+                updateColor();
+                return;
+            }
+            previousStatus = newStatus;
             updateColor(); // Uppdatera färg på dropdown
 
             try {

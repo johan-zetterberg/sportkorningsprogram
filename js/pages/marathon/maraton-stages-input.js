@@ -623,11 +623,13 @@ function applyDocToLocalState(sn, rawDoc) {
     });
   }
 
-  // Uppdatera currentDocData om detta ekipage är valt
-  currentDocData = data || {};
-  populateStageUI(currentStage, currentDocData);
-  updateTimerLabel(currentStage);
-  updateTabStatuses(currentDocData);
+  const isCurrentEq = currentEquipage && String(currentEquipage.startNumber) === String(sn);
+  if (isCurrentEq) {
+    currentDocData = data || {};
+    populateStageUI(currentStage, currentDocData);
+    updateTimerLabel(currentStage);
+    updateTabStatuses(currentDocData);
+  }
 
   // Synka aktiva timers lokalt per etapp
   const stages = ['warmup', 'A', 'transport', 'B'];
@@ -2057,12 +2059,7 @@ function gotoRelative(delta) {
   const nextEq = list[nextIdx];
 
   if (nextEq) {
-    // KORRIGERING: Använd dropdown-objektets inbyggda metod för att uppdatera sitt eget UI
-    if (dropdown) {
-      dropdown.setValue(nextEq.startNumber);
-    }
-    // Anropa onEquipageSelected manuellt för att ladda datan
-    onEquipageSelected(nextEq);
+    if (dropdown) { dropdown.setValue(nextEq.startNumber); } else { onEquipageSelected(nextEq); }
   }
 }
 
@@ -2204,7 +2201,9 @@ async function onEquipageSelected(eq) {
   if (currentEquipage) {
     const sn = String(currentEquipage.startNumber);
     subscribeToEquipageDoc(sn);
-    currentDocData = await readStageDoc(sn) || {};
+    const loadedDoc = await readStageDoc(sn) || {};
+    if (!currentEquipage || String(currentEquipage.startNumber) !== sn) return;
+    currentDocData = loadedDoc;
 
     ['warmup', 'A', 'transport', 'B'].forEach(stage => {
       // Använd den hydrerade `timing`-datan som skapats av `readStageDoc`

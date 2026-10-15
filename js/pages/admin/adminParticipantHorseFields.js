@@ -40,6 +40,29 @@ export function updateHorseNumbers(startNumber) {
     });
 }
 
+/**
+ * The saved horse an edited form horse is: same chip, UELN or name. Never the
+ * one in the same slot: a new horse there would inherit the old one's vet
+ * approval and inspections. The slot ids ("101 A") follow the position, so
+ * they say nothing about which horse it is.
+ */
+export function findSavedHorse(existingHorses = [], horse = {}) {
+  const norm = (value) => String(value ?? '').trim().toLowerCase();
+  const same = (a, b) => norm(a) !== '' && norm(a) === norm(b);
+  const list = Array.isArray(existingHorses) ? existingHorses : [];
+  return list.find(eh => same(eh?.chip, horse.chip))
+    || list.find(eh => same(eh?.ueln, horse.ueln))
+    || list.find(eh => same(eh?.name, horse.name))
+    || null;
+}
+
+/** The form horse on its saved record: vet results and import data kept, an empty id never overwriting the saved one */
+export function mergeFormHorse(existingHorses = [], horse = {}) {
+  const saved = findSavedHorse(existingHorses, horse);
+  if (!saved) return { ...horse };
+  return { ...saved, ...horse, id: horse.id || saved.id || '' };
+}
+
 export function getHorseFormData() {
     const result = [];
     for (let i = 1; i <= 6; i++) {
@@ -69,6 +92,8 @@ export function populateHorseFormData(horses) {
         const idx = index + 1;
         if (!document.getElementById(`horseName_${idx}`)) return;
 
+        const idField = document.getElementById(`horseId_${idx}`);
+        if (idField && horse.id) idField.value = horse.id;
         document.getElementById(`horseName_${idx}`).value = horse.name || '';
         document.getElementById(`horseType_${idx}`).value = horse.type || '';
         document.getElementById(`bornYear_${idx}`).value = horse.bornYear || '';

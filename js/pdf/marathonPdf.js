@@ -532,18 +532,21 @@ export async function generateMarathonFunctionaryPdf(equipages, marathonConfig, 
   
   y += 5;
 
-  const pauseTimeMin = marathonConfig.pauseTime || 10;
+  const safeConfig = marathonConfig || {};
+  const pauseTimeMin = safeConfig.pauseTime || 10;
   const activeEquipages = equipages.filter(e => e.status !== 'struken');
 
   const rows = activeEquipages.map(eq => {
     const sMap = startTimes || {};
     const tEntry = sMap[String(eq.startNumber)];
-    const startA_Str = tEntry ? (tEntry.marathon || tEntry) : null;
+    const rawStartA = typeof tEntry === 'string' ? tEntry : (tEntry?.marathon || tEntry?.maraton || null);
+    const startA_Str = typeof rawStartA === 'string' && rawStartA.trim() ? rawStartA.trim() : null;
     const displayStartA = startA_Str && startA_Str.includes('T')
       ? startA_Str.split('T')[1].substring(0, 5)
       : (startA_Str ? startA_Str.substring(0, 5) : '-');
 
-    let startA_Min = 0;
+    // No start time: no times derived from it (0 made up a finish at the ideal time)
+    let startA_Min = null;
     if (startA_Str) startA_Min = parseTimeStr(startA_Str);
 
     const limA = limitsFor(eq, 'A');
@@ -565,7 +568,7 @@ export async function generateMarathonFunctionaryPdf(equipages, marathonConfig, 
       startT: formatTimeStr(finishA_Min),
       finishT: formatTimeStr(finishT_Min),
       startB: formatTimeStr(startB_Min),
-      rawStartA: startA_Min || 99999
+      rawStartA: Number.isFinite(startA_Min) ? startA_Min : 99999
     };
   }).sort((a, b) => a.rawStartA - b.rawStartA);
 
@@ -613,13 +616,15 @@ export async function generateMarathonObstaclePdf(equipages, marathonConfig, sta
   
   y += 5;
 
-  const pauseTimeMin = marathonConfig.pauseTime || 10;
+  const safeConfig = marathonConfig || {};
+  const pauseTimeMin = safeConfig.pauseTime || 10;
   const activeEquipages = equipages.filter(e => e.status !== 'struken');
 
   const rows = activeEquipages.map(eq => {
     const sMap = startTimes || {};
     const tEntry = sMap[String(eq.startNumber)];
-    const startA_Str = tEntry ? (tEntry.marathon || tEntry) : null;
+    const rawStartA = typeof tEntry === 'string' ? tEntry : (tEntry?.marathon || tEntry?.maraton || null);
+    const startA_Str = typeof rawStartA === 'string' && rawStartA.trim() ? rawStartA.trim() : null;
     let startB_Str = '-';
 
     if (startA_Str) {

@@ -870,12 +870,14 @@ async function handleAction(event) {
 function wireEvents() {
   rootEl.querySelector('#secretariatSearch')?.addEventListener('input', event => {
     const value = event.target.value || '';
+    const selStart = event.target.selectionStart ?? value.length;
+    const selEnd = event.target.selectionEnd ?? value.length;
     filters.search = value;
     render();
     const searchInput = rootEl.querySelector('#secretariatSearch');
     searchInput?.focus();
     try {
-      searchInput?.setSelectionRange(value.length, value.length);
+      searchInput?.setSelectionRange(selStart, selEnd);
     } catch (_) { }
   });
 
@@ -928,4 +930,5 @@ export function unload() {
   selectedStartNumber = null;
   selectedProtocolId = 'general';
   detailData = null;
+  filters = { search: '', status: 'all', className: 'all' };
 }
