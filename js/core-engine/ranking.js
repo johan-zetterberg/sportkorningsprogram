@@ -4,7 +4,8 @@
 // Rules (TR V 2025 / FEI 2026):
 //   Dressage  – lowest penalty; equal penalties share the place.
 //   Marathon  – lowest total, then lowest B-section penalty (TR 527.1);
-//               still equal shares the place.
+//               still equal shares the place. FEI classes: equal penalties
+//               share the place (FEI Art 968.1.4), no B tie-break.
 //   Precision – lowest penalty, then fastest time (TR 530, FEI Art 977);
 //               still equal shares the place.
 //   Total     – lowest total, then marathon, then dressage
@@ -63,7 +64,11 @@ export function marathonRankKey(result, { requireFinished = true } = {}) {
     if (!isNum(result.totalPenalty)) return null;
     if (requireFinished && result.status !== 'Klar' && result.status !== 'Färdig') return null;
     // TR 527.1: on equal penalties the lowest penalties on section B win. All
-    // obstacles are on section B, so they count with B's time penalties
+    // obstacles are on section B, so they count with B's time penalties.
+    // FEI Art 968.1.4: equal penalties are placed equal, so no tie-break.
+    if (result.feiClass === true) {
+        return { penalty: result.totalPenalty, bPenalty: 0 };
+    }
     const bPenalty = isNum(result.bPenalty)
         ? result.bPenalty
         : ((Number(result.stages?.B?.timePenalty) || 0)
@@ -89,8 +94,10 @@ export function precisionRankKey(result, { requireFinished = false } = {}) {
     };
 }
 
-export function totalRankKey({ totalPenalty, isEliminated, marathonPenalty, dressagePenalty }) {
-    if (isEliminated || !isNum(totalPenalty)) return null;
+// isClearRound: a class judged clear round is not ranked (TR V 500.3), in
+// the total either
+export function totalRankKey({ totalPenalty, isEliminated, marathonPenalty, dressagePenalty, isClearRound = false }) {
+    if (isEliminated || isClearRound || !isNum(totalPenalty)) return null;
     return { penalty: totalPenalty, marathon: marathonPenalty, dressage: dressagePenalty };
 }
 

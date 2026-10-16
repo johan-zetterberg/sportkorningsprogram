@@ -5,7 +5,7 @@ service firebase.storage {
     function isAdmin() {
       let userPath = /databases/(default)/documents/users/$(request.auth.uid);
       return request.auth != null && (
-        request.auth.token.superadmin == true ||
+        request.auth.token.get('superadmin', false) == true ||
         (
           firestore.exists(userPath) && (
             firestore.get(userPath).data.get('role', '') in ['admin', 'superadmin'] ||
@@ -42,7 +42,7 @@ service firebase.storage {
           )
         ) ||
         (
-          request.auth.token.email_verified == true &&
+          request.auth.token.get('email_verified', false) == true &&
           email != '' &&
           firestore.exists(roleEmailPath) && (
             firestore.get(roleEmailPath).data.get('role', '') == 'admin' ||

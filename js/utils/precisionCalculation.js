@@ -50,6 +50,41 @@ export function getTrackLengthMeters(cls, config = {}) {
     return Number.isFinite(value) && value > 0 ? value : null;
 }
 
+/**
+ * FEI Art 975.10.5: cones speed by hitch and horse/pony (Children excepted):
+ * four-in-hand 240, pair 250, single horse 250, single pony 260 m/min. null
+ * when the class is not FEI, or the hitch or (for singles) the horse/pony
+ * category cannot be told; the class table applies then.
+ */
+export function feiConesTempoMpm(cls) {
+    const className = getClassName(cls);
+    const s = String(className || '').toLowerCase();
+    if (!/\b(fei|cai)/.test(s) || /children|\bbarn\b/.test(s)) return null;
+    if (/fyrspann|four[\s-]*in[\s-]*hand|\bfour\b/.test(s)) return 240;
+    if (/\bpar\b|\bpair\b|tvåspann/.test(s)) return 250;
+    const isSingle = /enbet|\bsingle\b/.test(s);
+    let pony = /ponny|pony/.test(s) ? true : (/häst|hast|horse/.test(s) ? false : null);
+    if (pony === null && Array.isArray(cls?.horses)) {
+        const types = cls.horses.map(h => String(h?.type || h?.category || '').toLowerCase()).filter(Boolean);
+        if (types.length && types.every(t => /ponny|pony/.test(t))) pony = true;
+        else if (types.length && types.every(t => /häst|hast|horse/.test(t))) pony = false;
+    }
+    if (pony === null && cls && typeof cls === 'object') {
+        const category = detectKnownTRCategory(cls);
+        if (category) pony = category !== 'horse';
+    }
+    if (!isSingle) {
+        // Hitch not in the name (e.g. "FEI Junior 2*"): one driven horse is a single
+        const driven = Array.isArray(cls?.horses) ? cls.horses.filter(h => h && !h.reserve && !h.isReserve).length : 0;
+        if (driven === 1 && pony !== null) return pony ? 260 : 250;
+        if (driven === 2) return 250;
+        if (driven >= 4) return 240;
+        return null;
+    }
+    if (pony === null) return null;
+    return pony ? 260 : 250;
+}
+
 export function getClassTempoMpm(cls, config = {}) {
     const byClass = config?.tempoByClass || config?.classTempo || {};
     const className = getClassName(cls);
@@ -70,6 +105,10 @@ export function getClassTempoMpm(cls, config = {}) {
         ?? courses.mPerMin
     );
     if (configured) return configured;
+
+    // FEI classes by hitch and horse/pony (FEI 975.10.5), before the class table
+    const fei = feiConesTempoMpm(cls);
+    if (fei) return fei;
 
     const keys = Object.keys(klassTempoData || {});
     const normalizedClass = norm(className);
@@ -120,7 +159,10 @@ export function computeMaxSecondsForClass(cls, config = {}) {
     const lengthMeters = getTrackLengthMeters(cls, config);
     const tempoMpm = getClassTempoMpm(cls, config);
     if (lengthMeters > 0 && tempoMpm > 0) {
-        return Math.round((lengthMeters / tempoMpm) * 60);
+        // Rounded up to a whole second (in the driver's favour); neither TR nor
+        // FEI states the rounding. The small margin keeps an exact result
+        // (600 m at 250 m/min = 144 s) from going up by float noise.
+        return Math.ceil((lengthMeters * 60) / tempoMpm - 1e-9);
     }
     return null;
 }

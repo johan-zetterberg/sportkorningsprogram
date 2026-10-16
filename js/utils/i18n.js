@@ -862,10 +862,18 @@ export const DICTIONARY = {
 
 };
 
+let competitionIsInternational = false;
+
+export function setCompetitionLanguageContext(competition = null) {
+    competitionIsInternational = Boolean(
+        competition?.meta?.isInternational ?? competition?.isInternational
+    );
+}
+
 export function getCurrentLanguage(isInternational = false) {
     const userPref = localStorage.getItem('user_lang_pref');
     if (userPref === 'en' || userPref === 'sv') return userPref;
-    const compInt = isInternational || Boolean(typeof window !== 'undefined' && window.state?.currentCompetition?.isInternational);
+    const compInt = isInternational || competitionIsInternational;
     return compInt ? 'en' : 'sv';
 }
 
@@ -886,7 +894,7 @@ export function t(key, isInternational = false) {
     if (userPref === 'sv') return entry.sv;
 
     // Priority 2: Competition Mode
-    return isInternational ? entry.en : entry.sv;
+    return (isInternational || competitionIsInternational) ? entry.en : entry.sv;
 }
 
 const DRESSAGE_TERMS = {

@@ -266,7 +266,8 @@ export async function load() {
         totalPenalty: row.totalPenalty,
         isEliminated: row.isEliminated,
         marathonPenalty: row.marathon?.totalPenalty,
-        dressagePenalty: row.dressage?.penalty
+        dressagePenalty: row.dressage?.penalty,
+        isClearRound: row.marathon?.isClearRound === true
     });
     assignPlaces(reportRows, {
         key: reportTotalKey,

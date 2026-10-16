@@ -546,6 +546,9 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
   if (currentSummary?.finalized === true) {
     throw new Error('Resultatet är finaliserat. Lås upp innan ändring.');
   }
+  if (isStillRunning(currentSummary)) {
+    throw new Error(`#${startNumber} kör hinder just nu. Vänta tills hindertiden är stoppad.`);
+  }
 
   const currentObstacles = await getMarathonObstacleResults(competitionId, startNumber);
   const current = currentObstacles.find(item => Number(item.obstacleNumber ?? item.number) === Number(obstacleNumber)) || {};

@@ -673,6 +673,12 @@ export const recalculateCompetitionResults = onCall(
         }
 
         await assertCanMaintainResults(request, competition);
+        // Archived results are immutable. Reopen first so the recalculation,
+        // the public result views and the next archive snapshot stay aligned.
+        if (isArchivedCompetition(competition.data)) {
+            throw new HttpsError('failed-precondition', 'Tävlingen är arkiverad. Öppna tävlingen igen innan resultaten räknas om.', { archived: true });
+        }
+
         const { context, records, validation } = await buildCompetitionRecalculationPreview(competition);
         if (validation.criticalErrors.length > 0) {
             throw new HttpsError('failed-precondition', 'Omräkningen blockeras av kritiska valideringsfel.', validation);
@@ -680,12 +686,6 @@ export const recalculateCompetitionResults = onCall(
         if (validation.warnings.length > 0 && request.data?.confirmedWarnings !== true) {
             throw new HttpsError('failed-precondition', 'Varningarna måste bekräftas före omräkning.', validation);
         }
-        // Recalculating an archived competition changes its published results
-        // (they no longer match the archived PDF): only when confirmed
-        if (isArchivedCompetition(competition.data) && request.data?.confirmedArchived !== true) {
-            throw new HttpsError('failed-precondition', 'Tävlingen är arkiverad. Bekräfta att de arkiverade resultaten ska räknas om.', { ...validation, archived: true });
-        }
-
         const recalculatedAt = new Date().toISOString();
         // Stored results are public: they carry only the uid. The email goes to
         // the run log, which is not publicly readable.

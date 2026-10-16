@@ -138,6 +138,7 @@ export async function navigateTo(hash) {
 
       if (competitionId) {
         const comp = await getCompetitionById(competitionId);
+        if (isStaleNavigation(navigationId, __navigationId)) return;
         if (comp) {
           setGlobalState({ key: 'currentCompetition', value: comp });
           await refreshUserCompRole();
@@ -145,6 +146,7 @@ export async function navigateTo(hash) {
           setGlobalState({ key: 'currentCompetition', value: null });
           await refreshUserCompRole();
         }
+        if (isStaleNavigation(navigationId, __navigationId)) return;
       }
     } catch (error) {
       console.warn('Kunde inte återställa tävlingskontext vid navigering:', error);

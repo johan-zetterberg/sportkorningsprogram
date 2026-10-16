@@ -251,6 +251,11 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
         })).filter(x => Number.isFinite(x.momentNo))
       };
     }
+    data.__judgesPresent = Object.entries(data.judges).map(([id, judge]) => ({
+      id,
+      name: judge.name || id,
+      position: judge.position || id
+    }));
   }
 
   if (!data) {

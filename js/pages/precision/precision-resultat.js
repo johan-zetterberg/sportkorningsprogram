@@ -291,7 +291,7 @@ function precisionPlaceMap(rows) {
     const archived = archivedPrecision(sn, false);
     // The archived place is per class: not for a row shown in a merged group
     // (there the place comes from the frozen penalties above)
-    const plainClassGroup = !r._mergedKey || r._mergedKey === `CLASS:${r.className || '-'}`;
+    const plainClassGroup = !r._mergedKey || r._mergedKey === `CLASS:${r.className || '—'}`;
     const useArchivedPlace = plainClassGroup && archived && archived.place !== null;
     placeMap.set(sn, useArchivedPlace ? archived.place : placeOf.get(r));
   });
@@ -302,11 +302,12 @@ function precisionPlaceMap(rows) {
 // penalty it was archived with (details such as knockdowns stay as calculated)
 function precisionRowData(sn, placeMap) {
   const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
-  const archived = archivedPrecision(String(sn), data.totalPenalty === Infinity);
+  const archived = archivedPrecision(String(sn), Boolean(data.eliminated));
   return archived
     ? {
       ...data,
       totalPenalty: archived.penalty,
+      eliminated: archived.eliminated,
       ...(archived.status ? { status: archived.status } : {}),
       fromArchive: true
     }

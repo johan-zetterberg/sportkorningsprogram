@@ -5,7 +5,7 @@ import { getTeams } from '../../services/teamService.js';
 import { getCompetitionById, getConfig, saveConfig } from '../../services/competitionService.js';
 import { listenForDressageProtocolsCollectionGroup, listenForDressageStatusCollection } from '../../services/dressageService.js';
 import { listenForPrecisionResults } from '../../services/precisionService.js';
-import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults } from '../../services/marathonService.js';
+import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults, loadPauseWindows } from '../../services/marathonService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
 import { listenForDressageFinalizationCollection } from '../../services/dressageService.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
@@ -44,6 +44,7 @@ import {
 } from '../../services/feiStartOrderService.js';
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
+import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 import { t } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import {
@@ -1755,7 +1756,7 @@ ${renderStarttiderToolbarSection({
 // ======= Datainhämtning & Realtidslyssnare =======
 async function loadData() {
     // === ÄNDRING: Lade till displayCfg och de gamla merge-filerna ===
-    const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy, teamsData, feiStartOrderConfig] = await Promise.all([
+    const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy, teamsData, feiStartOrderConfig, dressageProgramMapping, dressageJudgeMapping] = await Promise.all([
         // Fresh: a cached copy can be an hour old and would be saved back
         getConfig(competitionId, 'startTimes', true),
         getEquipages(competitionId),
@@ -1769,14 +1770,19 @@ async function loadData() {
         getConfig(competitionId, 'marathon').catch(() => null),
         getConfig(competitionId, 'maratonConfig').catch(() => null),
         getTeams(competitionId).catch(() => []),
-        getConfig(competitionId, 'feiStartOrder').catch(() => ({}))
+        getConfig(competitionId, 'feiStartOrder').catch(() => ({})),
+        getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+        getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
+    await loadPauseWindows(competitionId);
 
     let mergedMarathonConfig = marathonCfg || {};
     if (marathonCfgLegacy && Object.keys(marathonCfgLegacy).length > 0) {
         mergedMarathonConfig = { ...mergedMarathonConfig, ...marathonCfgLegacy };
     }
     setMarathonConfig(mergedMarathonConfig);
+    setCompetitionSetting(competitionId, 'klassProgramMapping', dressageProgramMapping || {});
+    setCompetitionSetting(competitionId, 'dressageJudgeMapping', dressageJudgeMapping || {});
 
     marathonMap.clear();
     // 1. Live status documents

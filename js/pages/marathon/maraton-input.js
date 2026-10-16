@@ -20,6 +20,10 @@ import { t } from '../../utils/i18n.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import {
+  isObstacleStateOwnedByAnotherObstacle,
+  markObstacleUpdateInProgress
+} from './marathonObstacleOwnership.js';
 
 // Firestore för live (endast det vi använder på denna sida)
 import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, collection, query, where, getDocs, limit }
@@ -659,9 +663,7 @@ function markObstacleExit(equipageId, obstacleNumber) {
 
 // All obstacle judges share one live document per equipage (maraton/{sn})
 function runsAtAnotherObstacle(state, obstacleNumber) {
-  return state?.running === true
-    && state.currentObstacle != null
-    && Number(state.currentObstacle) !== Number(obstacleNumber);
+  return isObstacleStateOwnedByAnotherObstacle(state, obstacleNumber);
 }
 
 // Skyddad push (som i precision)
@@ -670,11 +672,23 @@ async function pushLiveSafe(update, target = null) {
   const obsNo = target?.obstacleNumber !== undefined ? target.obstacleNumber : currentObstacleNumber;
   // Skriv bara live när ett ekipage är valt
   if (!eq) return;
-  // Only an explicit Start takes over a clock running at another obstacle;
-  // any other live write would stop that judge's timing
-  if (update?.running !== true && runsAtAnotherObstacle(currentLiveState, obsNo)) {
-    console.warn(`[maraton] #${eq.startNumber} körs i hinder ${currentLiveState.currentObstacle}; live-uppdatering från hinder ${obsNo} hoppas över.`);
+  const liveStateMatchesEquipage = currentLiveState?.startNumber == null
+    || String(currentLiveState.startNumber) === String(eq.startNumber);
+  if (liveStateMatchesEquipage && runsAtAnotherObstacle(currentLiveState, obsNo)) {
+    console.warn(`[maraton] #${eq.startNumber} har osparat arbete i hinder ${currentLiveState.currentObstacle}; live-uppdatering från hinder ${obsNo} hoppas över.`);
     return;
+  }
+
+  // Loading a saved result explicitly sends inProgress:false. Any later edit
+  // of its live fields turns it into unsaved work and reserves this obstacle.
+  const effectiveUpdate = markObstacleUpdateInProgress(update);
+  const marksUnsavedObstacleWork = effectiveUpdate !== update;
+  if (marksUnsavedObstacleWork && liveStateMatchesEquipage) {
+    currentLiveState = {
+      ...currentLiveState,
+      currentObstacle: obsNo,
+      inProgress: true
+    };
   }
 
   try {
@@ -683,13 +697,13 @@ async function pushLiveSafe(update, target = null) {
       'running', 'inProgress', 'currentObstacle',
       'liveObstacleStartAt', 'liveObstacleTimeMs'
     ]);
-    const shouldTouchUpdatedAt = Object.keys(update || {}).some(k => touchUpdatedAtKeys.has(k));
+    const shouldTouchUpdatedAt = Object.keys(effectiveUpdate || {}).some(k => touchUpdatedAtKeys.has(k));
 
     const dataToSend = {
       startNumber: eq.startNumber,
       className: eq.className || '',
       currentObstacle: obsNo,
-      ...update
+      ...effectiveUpdate
     };
     if (shouldTouchUpdatedAt) {
       dataToSend.updatedAt = serverTimestamp();
@@ -774,6 +788,10 @@ function startTimerMar() {
   }
   if (!currentEquipage || !currentObstacleNumber) {
     showAlert(t('marathon_select_equipage_and_obstacle'), false);
+    return;
+  }
+  if (runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) {
+    showAlert(`#${currentEquipage.startNumber} har osparat arbete i hinder ${currentLiveState.currentObstacle}. Spara eller nollställ där först.`, false);
     return;
   }
   // Already running here (a double tap): a second Start would restart the
@@ -1175,7 +1193,9 @@ async function loadExistingResult(silent = false) {
       liveDataUpdate = {
         currentObstacle: currentObstacleNumber,
         running: false,
-        inProgress: true,
+        // Merely viewing a saved result must not reserve the equipage and
+        // prevent another obstacle judge from selecting it.
+        inProgress: false,
         liveObstacleTimeMs: resultToLoad.timeMs || 0,
         liveObstacleStartAt: null, // Ensure stale start time is cleared
         live_staticStartAt: restoredStart, // Restore original start
@@ -1251,7 +1271,7 @@ async function loadExistingResult(silent = false) {
           ...currentLiveState,
           currentObstacle: currentObstacleNumber,
           running: false,
-          inProgress: true,
+          inProgress: false,
           liveObstacleTimeMs: resultToLoad.timeMs || 0,
           liveObstacleStartAt: null,
           live_routeString: resultToLoad.routeString || '',
@@ -2402,6 +2422,7 @@ export function __unload() {
     rm('btnStartMar', 'click', boundHandlers.startH);
     rm('btnStopMar', 'click', boundHandlers.stopH);
     rm('btnResetMar', 'click', boundHandlers.resetH);
+    rm('btnManualOpenMar', 'click', boundHandlers.timerClick);
     rm('liveTimerMar', 'click', boundHandlers.timerClick);
     rm('btnManualCancelMar', 'click', boundHandlers.cancelClick);
     rm('btnManualApplyMar', 'click', boundHandlers.applyClick);

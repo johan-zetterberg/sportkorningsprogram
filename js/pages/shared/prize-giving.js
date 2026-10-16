@@ -362,7 +362,7 @@ function prizeGivingRanking(discipline) {
             return { key: unlessEliminated(r => precisionRankKey(r.pCalc)), compare: comparePrecisionRank };
         default:
             return {
-                key: unlessEliminated(r => totalRankKey({ totalPenalty: r.score, marathonPenalty: r.mPen, dressagePenalty: r.dPen })),
+                key: unlessEliminated(r => totalRankKey({ totalPenalty: r.score, marathonPenalty: r.mPen, dressagePenalty: r.dPen, isClearRound: r.mRes?.isClearRound === true })),
                 compare: compareTotalRank
             };
     }

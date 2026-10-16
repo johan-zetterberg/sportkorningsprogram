@@ -17,6 +17,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
 
 import {
+  getPrograms,
   getDressagePenaltyCoeff,
   normalizeMovements,
   deduplicateAndFilterProtocols,
@@ -869,10 +870,10 @@ export async function load() {
     const base = (typeof globalDressagePrograms !== 'undefined' ? globalDressagePrograms : {});
     mergedPrograms = { ...base, ...(window.dressagePrograms || {}), ...(overrides || {}) };
 
-    setupAllListeners();
-
     setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
     setCompetitionSetting(competitionId, 'dressagePrograms', mergedPrograms);
+
+    setupAllListeners();
 
     // Remove redundant call, ensure logos loaded then trigger render
     await ensureClubLogosLoaded().catch(() => { });

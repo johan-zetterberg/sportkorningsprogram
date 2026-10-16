@@ -1154,6 +1154,7 @@ test('competition admins via roleEmails can update competition settings but not 
   // to taking ownership (the admins[] branch had no restriction)
   await assertFails(updateDoc(doc(adminDb, compPath()), { admins: ['comp-admin-uid'] }));
   await assertFails(updateDoc(doc(adminDb, compPath()), { staffUids: ['comp-admin-uid'] }));
+  await assertFails(updateDoc(doc(adminDb, compPath()), { deleting: true, deletingBy: 'comp-admin-uid' }));
 });
 
 test('a co-admin in admins[] cannot take ownership or delete the competition', { skip: !HAS_EMULATOR }, async () => {
@@ -1170,6 +1171,7 @@ test('a co-admin in admins[] cannot take ownership or delete the competition', {
   await assertFails(deleteDoc(doc(coDb, compPath())));
   // The owner manages the lists
   await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { admins: [] }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { deleting: true, deletingAt: Date.now() }));
 });
 
 test('rules test environment is using the intended project id', { skip: !HAS_EMULATOR }, () => {

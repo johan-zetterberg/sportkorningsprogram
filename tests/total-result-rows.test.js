@@ -5,6 +5,7 @@ import {
   applyTotalDisciplineStatuses,
   buildTotalCalculationContext,
   buildTotalResultRow,
+  getMarathonPenaltyBreakdown,
   resolveTotalDisciplineStatuses
 } from '../js/pages/shared/totalResultRows.js';
 
@@ -27,6 +28,25 @@ test('buildTotalCalculationContext preserves calculation dependencies', () => {
   });
 });
 
+test('getMarathonPenaltyBreakdown reads centralized stage and obstacle values', () => {
+  assert.deepEqual(getMarathonPenaltyBreakdown({
+    stages: { A: { timePenalty: 1.5 }, B: { timePenalty: 2 } },
+    obstacles: {
+      sum: 14,
+      items: [
+        { timePenalty: 5, knockdownPenalty: 2, otherPenalty: 1 },
+        { timePenalty: 4, knockDownPenalty: 1, otherPenalty: 1 }
+      ]
+    }
+  }), {
+    stageTimePenalty: 3.5,
+    obstacleTimePenalty: 9,
+    knockdownPenalty: 3,
+    otherObstaclePenalty: 2,
+    obstaclePenalty: 14
+  });
+});
+
 test('resolveTotalDisciplineStatuses detects ok, partial, missing and eliminated states', () => {
   assert.deepEqual(resolveTotalDisciplineStatuses({
     dressage: { penalty: 12 },
@@ -40,8 +60,8 @@ test('resolveTotalDisciplineStatuses detects ok, partial, missing and eliminated
 
   assert.deepEqual(resolveTotalDisciplineStatuses({
     isEliminated: true,
-    dressage: { penalty: 12 },
-    marathon: { totalPenalty: 9 },
+    dressage: { penalty: 12, eliminated: true },
+    marathon: { totalPenalty: 9, eliminated: true },
     precision: { pen: 1 }
   }), {
     dressageStatus: 'elim',
@@ -122,25 +142,23 @@ test('buildTotalResultRow calls total calculation with merged timing and context
 });
 
 
-test('an eliminated row shows the elimination in dressage and marathon', () => {
-  // An older archive: isEliminated, and the live engine's precision flag false
+test('discipline elimination only marks the affected discipline', () => {
   const statuses = resolveTotalDisciplineStatuses({
     isEliminated: true,
     dressage: { penalty: 50 },
     marathon: { totalPenalty: null },
-    precision: { eliminated: false, pen: null }
+    precision: { eliminated: true, pen: null }
   });
-  assert.equal(statuses.dressageStatus, 'elim');
-  assert.equal(statuses.marathonStatus, 'elim');
+  assert.equal(statuses.dressageStatus, 'ok');
+  assert.equal(statuses.marathonStatus, 'missing');
+  assert.equal(statuses.precisionStatus, 'elim');
 
-  // Eliminated in the marathon only: dressage counts as eliminated too (the
-  // team scores do not count an eliminated member's dressage penalty)
   const perPhase = resolveTotalDisciplineStatuses({
     isEliminated: true,
     dressage: { penalty: 50, eliminated: false },
     marathon: { totalPenalty: null, eliminated: true },
     precision: { eliminated: false }
   });
-  assert.equal(perPhase.dressageStatus, 'elim');
+  assert.equal(perPhase.dressageStatus, 'ok');
   assert.equal(perPhase.marathonStatus, 'elim');
 });

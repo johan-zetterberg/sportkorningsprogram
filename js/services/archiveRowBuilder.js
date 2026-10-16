@@ -28,7 +28,8 @@ const archiveTotalKey = (row) => totalRankKey({
     totalPenalty: row.totalPenalty,
     isEliminated: row.isEliminated,
     marathonPenalty: row.marathon?.totalPenalty,
-    dressagePenalty: row.dressage?.penalty
+    dressagePenalty: row.dressage?.penalty,
+    isClearRound: row.marathon?.isClearRound === true
 });
 
 // Placings per class (TR 533.3 / FEI 904, see core-engine/ranking.js)

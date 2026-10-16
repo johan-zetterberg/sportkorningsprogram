@@ -6,8 +6,8 @@
 //   npm run deploy -- --dry-run            checks and tests only
 //
 // Order: committed work only -> local-only assets present -> unit tests ->
-// rules tests (when rules/functions are deployed) -> smoke tests -> CSS build +
-// service-worker bump (committed) -> firebase deploy with an explicit project.
+// Firestore/Storage rule tests for their deploy targets -> smoke tests -> CSS
+// build + service-worker bump (committed) -> deploy with an explicit project.
 // Nothing is pushed to GitHub; the script reminds you instead.
 
 import { spawnSync } from 'node:child_process';
@@ -90,9 +90,19 @@ if (targets.includes('hosting')) {
 step('Unit tests');
 mustRun('npm test', 'Unit tests');
 
+if (targets.includes('hosting')) {
+  step('Service-worker cache list');
+  mustRun('npm run check:sw-cache', 'Service-worker cache check');
+}
+
 if (targets.includes('firestore') || targets.includes('functions')) {
   step('Firestore rules tests');
   mustRun('npm run test:rules', 'Rules tests');
+}
+
+if (targets.includes('storage')) {
+  step('Storage rules tests');
+  mustRun('npm run test:storage-rules', 'Storage rules tests');
 }
 
 if (!skipSmoke) {

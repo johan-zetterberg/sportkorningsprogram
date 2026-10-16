@@ -116,11 +116,17 @@ function phaseStatus(complete, hasValue, hasPartial = false) {
 }
 
 export function resolveTotalDisciplineStatuses(row = {}) {
-  // An eliminated equipage counts as eliminated in dressage and marathon (the
-  // team scores read these statuses: an eliminated member's dressage penalty
-  // does not count for the team)
-  const dressageElim = Boolean(row.isEliminated);
-  const marathonElim = Boolean(row.isEliminated);
+  // Per-discipline flags decide. A row eliminated as a whole with no flag set
+  // (an older archive snapshot) marks dressage and marathon as before, so the
+  // total's ELIM is never shown with no discipline marked. Team scores do not
+  // depend on this: an eliminated member counts in no discipline (see
+  // teamCalculationService, TR V 501.2 / FEI).
+  const anyPhaseFlag = row?.dressage?.eliminated === true
+    || row?.marathon?.eliminated === true
+    || row?.precision?.eliminated === true;
+  const legacyElim = !anyPhaseFlag && row?.isEliminated === true;
+  const dressageElim = Boolean(row?.dressage?.eliminated) || legacyElim;
+  const marathonElim = Boolean(row?.marathon?.eliminated) || legacyElim;
   const precisionElim = Boolean(row?.precision?.eliminated);
 
   const dressageStatus = dressageElim
@@ -132,7 +138,10 @@ export function resolveTotalDisciplineStatuses(row = {}) {
     : phaseStatus(
       row.marathonComplete,
       row?.marathon?.totalPenalty != null,
-      row?.marathon?.timePenalty != null || row?.marathon?.obstaclePenalty != null
+      Object.values(row?.marathon?.stages || {}).some(stage => stage?.timePenalty != null)
+        || row?.marathon?.obstacles?.sum != null
+        || row?.marathon?.timePenalty != null
+        || row?.marathon?.obstaclePenalty != null
     );
 
   const precisionStatus = precisionElim
@@ -151,4 +160,24 @@ export function applyTotalDisciplineStatuses(rows = []) {
     Object.assign(row, resolveTotalDisciplineStatuses(row));
   });
   return rows;
+}
+
+export function getMarathonPenaltyBreakdown(marathon = {}) {
+  const stageTimePenalty = Object.values(marathon.stages || {})
+    .reduce((sum, stage) => sum + (Number.isFinite(stage?.timePenalty) ? stage.timePenalty : 0), 0);
+  const obstacleItems = Array.isArray(marathon?.obstacles?.items) ? marathon.obstacles.items : [];
+  const obstacleTimePenalty = obstacleItems
+    .reduce((sum, item) => sum + (Number.isFinite(item?.timePenalty) ? item.timePenalty : 0), 0);
+  const knockdownPenalty = obstacleItems
+    .reduce((sum, item) => sum + (Number(item?.knockdownPenalty ?? item?.knockDownPenalty) || 0), 0);
+  const otherObstaclePenalty = obstacleItems
+    .reduce((sum, item) => sum + (Number(item?.otherPenalty) || 0), 0);
+
+  return {
+    stageTimePenalty,
+    obstacleTimePenalty,
+    knockdownPenalty,
+    otherObstaclePenalty,
+    obstaclePenalty: Number.isFinite(marathon?.obstacles?.sum) ? marathon.obstacles.sum : null
+  };
 }

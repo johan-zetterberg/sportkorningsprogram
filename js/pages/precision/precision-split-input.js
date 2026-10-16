@@ -86,6 +86,10 @@ function updateHeaderInfo() {
 
 async function logSplit(gateId) {
     if (!currentEquipage) return;
+    if (currentEquipageData?.finalized === true) {
+        showAlert('Resultatet är finaliserat. Lås upp det innan passager ändras.', 'error');
+        return;
+    }
     
     const now = Date.now();
     gateSplits[gateId] = now;
@@ -118,6 +122,10 @@ async function logSplit(gateId) {
 
 async function undoSplit(gateId) {
     if (!currentEquipage) return;
+    if (currentEquipageData?.finalized === true) {
+        showAlert('Resultatet är finaliserat. Lås upp det innan passager ändras.', 'error');
+        return;
+    }
     
     delete gateSplits[gateId];
     renderGates();

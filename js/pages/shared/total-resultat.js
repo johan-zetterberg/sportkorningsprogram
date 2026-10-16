@@ -30,7 +30,8 @@ import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
 import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js';
 import {
   applyTotalDisciplineStatuses,
-  buildTotalResultRow
+  buildTotalResultRow,
+  getMarathonPenaltyBreakdown
 } from './totalResultRows.js';
 import {
   applyTotalDisciplinePlacements,
@@ -74,7 +75,7 @@ import {
   limitsFor,
   setMarathonConfig
 } from '../../utils/marathonUtils.js';
-import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { getCompetitionSetting, setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 function sanitizeUrl(value) {
   const raw = String(value || '').trim();
@@ -647,17 +648,7 @@ function renderDesktop() {
     const mText = `<div class="res-val">${formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') })}</div>${mLive}${mPlacHtml}`;
     const mIco = statusIcon(r.marathonStatus || 'missing');
 
-    // const obstAgg = marathonObstacleMap.get(String(r.startNumber)) || {}; // RAW lookup removed
-    const mObsItems = r.marathon?.obstacles?.items || [];
-    const tp = Number.isFinite(r?.marathon?.timePenalty) ? r.marathon.timePenalty : null;
-
-    // Calculate sums from centralized result items
-    const sumKd = mObsItems.reduce((acc, o) => acc + (Number(o.knockDownPenalty) || 0), 0);
-    const sumOv = mObsItems.reduce((acc, o) => acc + (Number(o.otherPenalty) || 0), 0);
-
-    const kd = sumKd > 0 ? sumKd : null;
-    const ov = sumOv > 0 ? sumOv : null;
-    const hid = Number.isFinite(r?.marathon?.obstaclePenalty) ? r.marathon.obstaclePenalty : null;
+    const breakdown = getMarathonPenaltyBreakdown(r.marathon);
 
     const tRow = lastSeenMarathonDurations.get(String(r.startNumber)) || marathonTimeMap.get(String(r.startNumber)) || {};
     const cRow = (computedMap.get(String(r.startNumber)) || {}).marathon || {};
@@ -665,7 +656,8 @@ function renderDesktop() {
     const bLabel = secondsToMMSS((cRow.duration_B ?? tRow.B));
 
     const tt = `A ${aLabel || '—'} / B ${bLabel || '—'}\n` +
-      `tids ${tp != null ? tp.toFixed(2) : '—'} + kd ${kd != null ? kd.toFixed(2) : '—'} + övr ${ov != null ? ov.toFixed(2) : '—'} = ${hid != null ? hid.toFixed(2) : '—'}`;
+      `Etapptid ${breakdown.stageTimePenalty.toFixed(2)}\n` +
+      `Hinder: tid ${breakdown.obstacleTimePenalty.toFixed(2)} + rivning ${breakdown.knockdownPenalty.toFixed(2)} + övrigt ${breakdown.otherObstaclePenalty.toFixed(2)} = ${breakdown.obstaclePenalty != null ? breakdown.obstaclePenalty.toFixed(2) : '—'}`;
 
     const pIco = statusIcon(r.precisionStatus || 'missing');
     const isPrecRunning = r.precisionStatus === 'ongoing' || r.precisionStatus === 'pågår';
@@ -847,19 +839,10 @@ function renderDesktop() {
 
   // Klicksortering
   container.querySelectorAll('.sortable-header').forEach(h => {
-    // ... (din sorteringslogik är oförändrad) ...
     h.addEventListener('click', () => {
       const k = h.getAttribute('data-key');
       if (!k) return;
-      sortConfig.direction = (sortConfig.key === k && sortConfig.direction === 'asc') ? 'desc' : 'asc';
-      sortConfig.key = k;
-      const dir = sortConfig.direction === 'asc' ? 1 : -1;
-      processedResults.sort((a, b) => {
-        const va = a[k]; const vb = b[k];
-        if (typeof va === 'number' && typeof vb === 'number') return (va - vb) * dir;
-        return String(va ?? '').localeCompare(String(vb ?? ''), 'sv') * dir;
-      });
-      render(); // Anropar huvud-render() som filtrerar om
+      setSort(k);
     });
   });
 
@@ -1212,14 +1195,14 @@ function renderMobile() {
     // 1. Calculate starters per class for dynamic placement counts
     const classStarters = new Map();
     rows.forEach(r => {
-      const cls = r.className || 'Ok\\u00e4nd Klass';
+      const cls = r.className || 'Okänd Klass';
       classStarters.set(cls, (classStarters.get(cls) || 0) + 1);
     });
 
     let lastClass = null;
     rows.forEach(r => {
       const eq = equipages.find(e => String(e.startNumber) === String(r.startNumber)) || {};
-      const cls = r.className || 'Ok\\u00e4nd Klass';
+      const cls = r.className || 'Okänd Klass';
 
       // Klassrubrik om vyn är grupperad per klass
       if (viewMode === 'byclass' && r.className !== lastClass) {
@@ -1529,7 +1512,10 @@ export async function load(el) {
   renderLayout();
   // Classes without a judge mapping, marathon settings or precision max time
   // never get a total: say so
-  renderJudgeMappingNotice(equipages, window.dressageJudgeMapping);
+  renderJudgeMappingNotice(
+    equipages,
+    getCompetitionSetting('dressageJudgeMapping') || window.dressageJudgeMapping || {}
+  );
   renderResultSettingsNotice({
     marathon: marathonSettingsIssues(equipages, marathonConfig),
     precision: precisionSettingsIssues(equipages, precisionConfig)

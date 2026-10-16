@@ -1,8 +1,22 @@
-const fs = require('fs');
-const path = require('path');
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const ROOT_DIR = path.resolve(__dirname, '..');
+const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SW_PATH = path.join(ROOT_DIR, 'service-worker.js');
+
+// Only folders published by Firebase Hosting. Local-only dressage programs and
+// club logos are required by the deploy script and are included when present.
+const DIRS_TO_SCAN = [
+    'js',
+    'css',
+    'icons',
+    'img',
+    'lib',
+    'assets/config',
+    'assets/dressage',
+    'assets/logos'
+];
 
 // Mappar att skanna
 const FILES_TO_INCLUDE = [
@@ -20,6 +34,11 @@ const FILES_TO_INCLUDE = [
 
 // Externa URL:er att alltid inkludera (CDNs)
 const EXTRA_URLS = [
+    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css',
+    'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js',
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
+    'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
     'https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js',
     'https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js',
     'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js',
@@ -37,6 +56,7 @@ const IGNORE_PATTERNS = [
     /\.DS_Store/,
     /test/,
     /scripts/,
+    /^img\/maraton-course[.]png$/,
     /^assets\/rules\//, // Regeltexterna publiceras inte (se hosting.ignore i firebase.json)
     // PDF.js-byggen som inte används (och inte publiceras, se hosting.ignore)
     /^lib\/pdfjs\/build\/(pdf\.js|pdf\.min\.js|pdf\.mjs|pdf\.sandbox.*|pdf\.worker\.min\.js|pdf\.worker\.mjs)$/
@@ -46,7 +66,7 @@ function scanDir(dir, fileList = []) {
     const fullPath = path.join(ROOT_DIR, dir);
     if (!fs.existsSync(fullPath)) return fileList;
 
-    const items = fs.readdirSync(fullPath);
+    const items = fs.readdirSync(fullPath).sort((a, b) => a.localeCompare(b, 'sv'));
 
     items.forEach(item => {
         const itemPath = path.join(fullPath, item);
@@ -65,45 +85,53 @@ function scanDir(dir, fileList = []) {
     return fileList;
 }
 
-function generate() {
-    console.log('Genererar cache-lista för Service Worker...');
-
+export function buildServiceWorkerContent(swContent) {
     let allFiles = [...FILES_TO_INCLUDE.map(f => `/${f}`)];
 
     DIRS_TO_SCAN.forEach(dir => {
         scanDir(dir, allFiles);
     });
 
-    // Lägg till externa
-    allFiles = [...allFiles, ...EXTRA_URLS];
+    const localFiles = [...new Set(allFiles)].sort((a, b) => a.localeCompare(b, 'sv'));
+    allFiles = [...localFiles, ...EXTRA_URLS];
 
-    // Unika filer
-    allFiles = [...new Set(allFiles)];
-
-    console.log(`Hittade ${allFiles.length} filer att cacha (inklusive ${EXTRA_URLS.length} externa).`);
-
-    // Läs in service-worker.js
-    let swContent = fs.readFileSync(SW_PATH, 'utf8');
-
-    // Regex för att hitta urlsToCache-arrayen
-    // Vi letar efter: const urlsToCache = [ ... ];
     const regex = /const urlsToCache = \[([\s\S]*?)\];/;
-
     if (!regex.test(swContent)) {
-        console.error('Kunde inte hitta urlsToCache i service-worker.js!');
-        process.exit(1);
+        throw new Error('Kunde inte hitta urlsToCache i service-worker.js.');
     }
 
-    // Bygg ny sträng. Vi använder abs() wrappern för lokala filer om de inte är http
     const newArrayContent = allFiles.map(f => {
         if (f.startsWith('http')) return `'${f}'`;
         return `abs('${f}')`;
     }).join(',\n  ');
 
-    const newContent = swContent.replace(regex, `const urlsToCache = [\n  ${newArrayContent}\n];`);
-
-    fs.writeFileSync(SW_PATH, newContent, 'utf8');
-    console.log('service-worker.js uppdaterad!');
+    return {
+        content: swContent.replace(regex, `const urlsToCache = [\n  ${newArrayContent}\n];`),
+        fileCount: allFiles.length,
+        externalCount: EXTRA_URLS.length
+    };
 }
 
-generate();
+export function generate({ check = false } = {}) {
+    console.log('Genererar cache-lista för Service Worker...');
+    const swContent = fs.readFileSync(SW_PATH, 'utf8');
+    const generated = buildServiceWorkerContent(swContent);
+    console.log(`Hittade ${generated.fileCount} filer att cacha (inklusive ${generated.externalCount} externa).`);
+
+    if (check) {
+        if (generated.content !== swContent) {
+            console.error('Cache-listan är inaktuell. Kör npm run generate:sw-cache.');
+            return false;
+        }
+        console.log('Cache-listan är aktuell.');
+        return true;
+    }
+
+    fs.writeFileSync(SW_PATH, generated.content, 'utf8');
+    console.log('service-worker.js uppdaterad.');
+    return true;
+}
+
+if (path.resolve(process.argv[1] || '') === fileURLToPath(import.meta.url)) {
+    process.exitCode = generate({ check: process.argv.includes('--check') }) ? 0 : 1;
+}

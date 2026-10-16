@@ -289,7 +289,7 @@ test('calculateTeamResults calculates team results per discipline separately (di
   assert.equal(m4.isCounting, true);
 });
 
-test('calculateTeamResults handles partially eliminated members (eliminated in one discipline but counting in another)', () => {
+test('calculateTeamResults leaves out every result of a member eliminated in any phase (TR V 501.2)', () => {
   const teams = [{
     id: 'team-1',
     name: 'Klubb A',
@@ -308,14 +308,13 @@ test('calculateTeamResults handles partially eliminated members (eliminated in o
 
   const [team] = calculateTeamResults(teams, rows);
 
-  // Dressage: eq-1 is elim, so only eq-2 (40), eq-3 (50), eq-4 (45) count = 135
-  // Marathon: eq-1 (40) is valid and best! eq-1 (40) + eq-2 (50) + eq-3 (60) = 150
-  // Precision: eq-1 (5) is valid and best! eq-1 (5) + eq-2 (10) + eq-3 (15) = 30
-  // Total should be: 135 + 150 + 30 = 315
+  // TR V 501.2 (as FEI): an equipage eliminated in any phase counts in none,
+  // so eq-1's marathon 40 and cones 5 do not count either.
+  // Dressage 40 + 50 + 45 = 135, marathon 50 + 60 + 70 = 180, cones 10 + 15 + 20 = 45
   assert.equal(team.dressage, 135);
-  assert.equal(team.marathon, 150);
-  assert.equal(team.precision, 30);
-  assert.equal(team.total, 315);
+  assert.equal(team.marathon, 180);
+  assert.equal(team.precision, 45);
+  assert.equal(team.total, 360);
   assert.equal(team.isEliminated, false);
 });
 

@@ -41,7 +41,10 @@ export const MAX_RECOMMENDED_PULSE_BPM = 64;
 
 export function normalizeVetStatus(status) {
   const value = String(status || 'anmäld').trim().toLowerCase();
-  if (value === 'anmäld') return 'anmäld';
+  if (['withdrawn', 'scratched', 'struken'].includes(value)) return 'struken';
+  if (['reinspection', 're-inspection', 'ombesiktning'].includes(value)) return 'ombesiktning';
+  if (['approved', 'passed', 'godkänd'].includes(value)) return 'godkänd';
+  if (['registered', 'entered', 'anmäld'].includes(value)) return 'anmäld';
   return value;
 }
 

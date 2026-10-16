@@ -4,8 +4,11 @@
   "type": "module",
   "scripts": {
     "build:css": "tailwindcss -c tailwind.config.cjs -i css/tailwind.input.css -o css/tailwind.css --minify",
+    "generate:sw-cache": "node scripts/generate-sw-cache.js",
+    "check:sw-cache": "node scripts/generate-sw-cache.js --check",
     "test": "node --test tests/*.test.js",
     "test:rules": "node scripts/run-firestore-rules-tests.mjs",
+    "test:storage-rules": "node scripts/run-storage-rules-tests.mjs",
     "test:smoke": "node scripts/run-smoke-tests.mjs",
     "test:smoke:navigation": "node scripts/run-smoke-tests.mjs -g \"all main pages\"",
     "test:smoke:critical": "node scripts/run-smoke-tests.mjs -g \"critical ui\"",

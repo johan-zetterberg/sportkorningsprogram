@@ -627,7 +627,9 @@ function renderLeaderboardSidebar() {
         const isRunning = liveInjection && String(liveInjection.sn) === String(r.sn);
         const scoreClass = isRunning ? 'text-blue-600 dark:text-blue-400 animate-pulse' : 'text-gray-900 dark:text-gray-100';
         const rowBg = isRunning ? 'bg-blue-50 dark:bg-blue-900/20' : (isLeader ? 'bg-yellow-50 dark:bg-yellow-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/30');
-        const isSelected = (currentRider && String(currentRider.eq.startNumber) === String(r.sn));
+        const selectedEquipage = currentRider?.eq || currentRider;
+        const isSelected = selectedEquipage?.startNumber != null
+          && String(selectedEquipage.startNumber) === String(r.sn);
         const selectedClass = isSelected ? 'ring-2 ring-inset ring-blue-400' : '';
 
         // Note: r has { sn, name, total, tieBreakerTime } 

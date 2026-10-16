@@ -158,6 +158,7 @@ export async function renderClubs(container, competitionId, equipages = []) {
                     if (imgContainer) {
                         imgContainer.replaceChildren();
                         const img = document.createElement('img');
+                        img.id = `img-${id}`;
                         img.src = url;
                         img.alt = `Logga för ${club}`;
                         img.className = 'max-w-full max-h-full object-contain';

@@ -234,23 +234,64 @@ async function finalizeDressageSeed(competitionId, startNumber, user) {
 }
 
 async function finalizeMarathonSeed(competitionId, startNumber, user) {
-  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton/${String(startNumber)}`);
-  await setDoc(ref, {
+  const sn = String(startNumber);
+  const resultRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton/${sn}`);
+  const lockRef = doc(db, `competitions/${competitionId}/marathonFinalization/${sn}`);
+  const logRef = doc(collection(db, `competitions/${competitionId}/finalizationLog`));
+  const batch = writeBatch(db);
+  batch.set(logRef, {
+    discipline: 'marathon',
+    action: 'finalize',
+    startNumber: sn,
+    by: user?.uid || null,
+    byName: user?.displayName || user?.email || 'Seed Script',
+    at: serverTimestamp()
+  });
+  batch.set(lockRef, {
+    finalized: true,
+    finalizedAt: Date.now(),
+    finalizedBy: user?.uid || null,
+    lastLogId: logRef.id,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  batch.set(resultRef, {
     finalized: true,
     status: 'Klar',
     finalizedBy: user?.uid || null,
     updatedAt: serverTimestamp()
   }, { merge: true });
+  await batch.commit();
 }
 
 async function finalizePrecisionSeed(competitionId, startNumber, user) {
-  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${String(startNumber)}`);
-  await setDoc(ref, {
+  const sn = String(startNumber);
+  const resultRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${sn}`);
+  const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${sn}`);
+  const logRef = doc(collection(db, `competitions/${competitionId}/finalizationLog`));
+  const batch = writeBatch(db);
+  batch.set(logRef, {
+    discipline: 'precision',
+    action: 'finalize',
+    startNumber: sn,
+    by: user?.uid || null,
+    byName: user?.displayName || user?.email || 'Seed Script',
+    at: serverTimestamp()
+  });
+  batch.set(lockRef, {
+    finalized: true,
+    finalizedAt: Date.now(),
+    finalizedBy: user?.uid || null,
+    lastLogId: logRef.id,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
+  batch.set(resultRef, {
     prioritized: true,
     finalized: true,
     finalizedAt: Date.now(),
-    finalizedBy: user?.uid || null
+    finalizedBy: user?.uid || null,
+    updatedAt: serverTimestamp()
   }, { merge: true });
+  await batch.commit();
 }
 
 async function ensureAuthenticated(log) {

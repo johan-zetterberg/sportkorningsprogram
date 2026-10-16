@@ -7,8 +7,8 @@ export async function validateCompetitionResultRecalculation(competitionId) {
   return response.data;
 }
 
-export async function recalculateCompetitionResults(competitionId, confirmedWarnings = false, confirmedArchived = false) {
+export async function recalculateCompetitionResults(competitionId, confirmedWarnings = false) {
   const callable = httpsCallable(functions, 'recalculateCompetitionResults');
-  const response = await callable({ competitionId, confirmedWarnings, confirmedArchived });
+  const response = await callable({ competitionId, confirmedWarnings });
   return response.data;
 }

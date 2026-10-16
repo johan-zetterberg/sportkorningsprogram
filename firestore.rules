@@ -408,6 +408,7 @@ service cloud.firestore {
       // second step and delete the competition. staffUids is kept by the
       // server (joinCompetitionAsOfficial, and removed with the admin doc).
       allow update: if request.auth != null
+        && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['deleting', 'deletingBy', 'deletingAt'])
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||

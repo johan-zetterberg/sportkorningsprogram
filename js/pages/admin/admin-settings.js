@@ -53,16 +53,21 @@ function setupResultMaintenance(competitionId) {
             latestValidation = await validateCompetitionResultRecalculation(competitionId);
             const criticalErrors = latestValidation.criticalErrors || [];
             const warnings = latestValidation.warnings || [];
-            const isBlocked = criticalErrors.length > 0;
+            const isArchived = latestValidation.archived === true;
+            const isBlocked = criticalErrors.length > 0 || isArchived;
             status.innerHTML = `
                 <div class="rounded-md border ${isBlocked ? 'border-red-300 bg-red-50 dark:border-red-800 dark:bg-red-900/20' : 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-900/20'} p-4">
                     <p class="font-semibold ${isBlocked ? 'text-red-800 dark:text-red-200' : 'text-green-800 dark:text-green-200'}">
                         ${escapeHtml(String(latestValidation.equipageCount || 0))} ekipage kontrollerade med motor ${escapeHtml(latestValidation.engineVersion || 'okänd')}.
                     </p>
                     <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
-                        ${isBlocked ? 'Omräkningen är blockerad tills de kritiska felen är lösta.' : 'Kontrollen är klar. Omräkningen kan genomföras.'}
+                        ${criticalErrors.length > 0
+                            ? 'Omräkningen är blockerad tills de kritiska felen är lösta.'
+                            : isArchived
+                                ? 'Tävlingen måste öppnas igen innan resultaten kan räknas om.'
+                                : 'Kontrollen är klar. Omräkningen kan genomföras.'}
                     </p>
-                    ${latestValidation.archived ? '<p class="mt-1 text-sm font-semibold text-amber-700 dark:text-amber-300">Tävlingen är arkiverad: en omräkning ändrar de publicerade resultaten, som då inte längre stämmer med arkivets PDF.</p>' : ''}
+                    ${isArchived ? '<p class="mt-1 text-sm font-semibold text-amber-700 dark:text-amber-300">Öppna tävlingen igen, genomför omräkningen och arkivera därefter på nytt.</p>' : ''}
                 </div>
                 <div class="mt-4">
                     <h3 class="font-semibold text-red-700 dark:text-red-300">Kritiska fel (${criticalErrors.length})</h3>
@@ -84,11 +89,9 @@ function setupResultMaintenance(competitionId) {
     };
 
     executeButton.onclick = async () => {
-        if (!latestValidation || (latestValidation.criticalErrors || []).length > 0) return;
+        if (!latestValidation || latestValidation.archived === true || (latestValidation.criticalErrors || []).length > 0) return;
         const warningCount = (latestValidation.warnings || []).length;
-        const archived = latestValidation.archived === true;
         const confirmationText = [
-            archived ? 'Tävlingen är ARKIVERAD. En omräkning ändrar de publicerade resultaten, som då inte längre stämmer med arkivets PDF.' : '',
             warningCount > 0
                 ? `Kontrollen innehåller ${warningCount} varning(ar). Vill du ändå räkna om hela tävlingen?`
                 : 'Vill du räkna om resultaten för hela tävlingen?'
@@ -99,7 +102,7 @@ function setupResultMaintenance(competitionId) {
         validateButton.disabled = true;
         executeButton.textContent = 'Räknar om...';
         try {
-            const result = await recalculateCompetitionResults(competitionId, warningCount > 0, archived);
+            const result = await recalculateCompetitionResults(competitionId, warningCount > 0);
             status.innerHTML = `
                 <div class="rounded-md border border-green-300 bg-green-50 p-4 text-green-800 dark:border-green-800 dark:bg-green-900/20 dark:text-green-200">
                     <p class="font-semibold">${escapeHtml(String(result.recalculatedCount || 0))} ekipage räknades om.</p>

@@ -867,7 +867,8 @@ export function calculateMarathonResult(state) {
         otherPenalty: other,
         wgPenalty,
         eta: { A: etaA, B: etaB },
-        // TR tie-breakers
+        // TR tie-breakers (FEI classes have none: equal penalties share the place)
+        feiClass: isFeiMarathonClass(equipageClassName(eq)),
         obstaclePenaltySum: obsPenalty,
         obstacleTimes: obsItems.map(o => o.timeSec || 0)
     };

@@ -3,7 +3,7 @@ import { initRouter, navigateTo } from './services/navigationService.js';
 import { showAlert } from './ui/components.js';
 import { getCompetitionById, getConfig } from './services/competitionService.js';
 import { getJudges, getOfficials } from './services/adminService.js';
-import { initLanguageToggle, t } from './utils/i18n.js';
+import { initLanguageToggle, setCompetitionLanguageContext, t } from './utils/i18n.js';
 import { initTheme } from './services/themeService.js';
 import './ui/syncQueue.js'; // Registers <sync-queue>
 import { activateCompetitionSettings, installWindowSettingAccessors } from './services/competitionSettingsStore.js';
@@ -156,6 +156,9 @@ export function setGlobalState({ key, value }) {
 
     // Specifik logik för när en tävling väljs
     if (key === 'currentCompetition') {
+        setCompetitionLanguageContext(value);
+        initLanguageToggle();
+        updateNavigationTranslations();
         // A different competition: its result settings start empty (an update
         // of the same competition keeps them)
         activateCompetitionSettings(value?.id || null);

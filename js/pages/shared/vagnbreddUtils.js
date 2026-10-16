@@ -225,21 +225,11 @@ export function getLevelBucket(className) {
     || /\bla\b/.test(cls)
     || cls.includes('msv')
     || cls.includes('medelsvar')
-    || cls.includes('fei 1*')
-    || cls.includes('cai 1*')
-    || cls.includes('cai1*')
-    || cls.includes('children')
   ) {
     return 'laMsv';
   }
   if (
     cls.includes('svar')
-    || cls.includes('fei 2*')
-    || cls.includes('fei 3*')
-    || cls.includes('cai 2*')
-    || cls.includes('cai 3*')
-    || cls.includes('cai2*')
-    || cls.includes('cai3*')
     || cls.includes('junior')
     || cls.includes('u25')
   ) {

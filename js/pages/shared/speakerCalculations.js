@@ -163,7 +163,8 @@ export function rankSpeakerResultRows(results = []) {
             totalPenalty: row.totalPenalty,
             isEliminated: row.isEliminated,
             marathonPenalty: row.marathon?.totalPenalty,
-            dressagePenalty: row.dressage?.penalty
+            dressagePenalty: row.dressage?.penalty,
+            isClearRound: row.marathon?.isClearRound === true
         }),
         compare: compareTotalRank
     });
@@ -253,7 +254,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             tieBreakerTime: pTimeMs,
             isEliminated: totalEliminated,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD },
-            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0 },
+            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound: mResult.result?.isClearRound === true },
             precision: { pen: pPen, eliminated: isElimP }
         });
     });
@@ -266,7 +267,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             totalPenalty: r.marathon.totalPenalty,
             eliminated: r.marathon.eliminated,
             stages: { B: { timePenalty: r.marathon.bPenalty } },
-            obstaclePenaltySum: r.marathon.obstaclePenaltySum
+            obstaclePenaltySum: r.marathon.obstaclePenaltySum,
+            feiClass: r.marathon.feiClass
         }, { requireFinished: false }),
         compare: compareMarathonRank,
         outField: 'posMar'
