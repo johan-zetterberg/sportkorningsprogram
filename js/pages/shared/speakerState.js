@@ -1,5 +1,6 @@
 ﻿import { onSnapshot, doc, collection } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 import { db, appId } from '../../config/firebase-config.js';
+import { listenMergeSource } from '../../services/mergeConfigService.js';
 
 import { listenForDressageLiveGroup, listenForDressageStatusCollection, listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
 import { listenForConfig } from '../../services/competitionService.js';
@@ -83,13 +84,11 @@ export function setupAllListeners(context) {
     });
     unsubscribes.push(pauseSub);
 
-    // 2. Display Config
-    unsubscribes.push(listenForConfig(competitionId, 'display', (cfg) => {
-        if (cfg) {
-            buildMergeMap(cfg);
-            setAllEquipages(ensureMergeDecorations(getAllEquipages()));
-            triggerRender(true);
-        }
+    // 2. Merge groups (merged classes), as on every page
+    unsubscribes.push(listenMergeSource(competitionId, (mergeSource) => {
+        buildMergeMap(mergeSource);
+        setAllEquipages(ensureMergeDecorations(getAllEquipages()));
+        triggerRender(true);
     }));
 
     // 3. Judges

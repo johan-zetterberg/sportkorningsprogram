@@ -91,14 +91,16 @@ export function rankTotalRowsWithinClass(rows = [], valuePicker, outField, highe
       return { penalty: higherIsBetter ? -value : value };
     },
     compare: compareTotalRank,
-    group: (row) => row.className || fallbackClass,
+    group: groupKeyOf,
     outField
   });
   return rows;
 }
 
+// Discipline placings within the display group (a merged class is placed as
+// one class, as the total and the discipline pages do)
 export function applyTotalDisciplinePlacements(rows = []) {
-  const byClass = (row) => row?.className || fallbackClass;
+  const byClass = groupKeyOf;
 
   rankDressageRows(rows, {
     penaltyPicker: row => row?.dressage?.penalty,
@@ -124,6 +126,8 @@ export function applyTotalDisciplinePlacements(rows = []) {
 
   rows.forEach((row) => {
     if (!row.fromArchive) return;
+    // An archived place is per class: only where the list groups by the class
+    if (groupKeyOf(row) !== `CLASS:${row.className || fallbackClass}`) return;
     if (Number.isFinite(row.archivedDressagePlace)) row.posDress = row.archivedDressagePlace;
     if (Number.isFinite(row.archivedMarathonPlace)) row.posMar = row.archivedMarathonPlace;
     if (Number.isFinite(row.archivedPrecisionPlace)) row.posPrec = row.archivedPrecisionPlace;

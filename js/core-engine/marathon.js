@@ -45,6 +45,10 @@ export function normalizeClassKey(raw) {
     const lower = String(raw).trim().toLowerCase();
     const para = /para/.test(lower);
 
+    // The template itself ("Barnklass", chosen in the marathon admin) or a
+    // class named so: the children's class, driven in Lätt B (TR V 500.2)
+    if (/\bbarnklass\b/.test(lower)) return "Barnklass";
+
     if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*c\b|(\b)lc\b/.test(lower)) {
         if (/barn/.test(lower)) return "Barnklass";
         return para ? "Lätt B Para" : "Lätt B";

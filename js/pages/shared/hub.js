@@ -387,7 +387,8 @@ function buildTemplateMetaDefaults(template, { importFrom = null } = {}) {
   };
 
   if (importFrom) {
-    return baseMeta;
+    // Settings come from the copied competition, but never its lock
+    return { ...baseMeta, manualLockdown: false };
   }
 
   return {

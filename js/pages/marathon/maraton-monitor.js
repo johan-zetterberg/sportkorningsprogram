@@ -2,6 +2,7 @@
 // En "kontrollrums"-vy som visar alla ekipage som just nu är aktiva på maratonbanan.
 
 import { getGlobalState } from '../../main.js';
+import { loadMergeSource, mergeGroupResolver } from '../../services/mergeConfigService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { collection, onSnapshot, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -104,6 +105,8 @@ function injectMonitorStylesOnce() {
 // ---------- State ----------
 let competitionId = null;
 let allEquipages = [];
+// Class group for the live placing (a merged class is placed as one class)
+let classGroupOf = (eq) => `CLASS:${eq?.className || ''}`;
 let startTimes = {};
 const allMarathonData = new Map(); // Derived: { ...timing, ...state }
 // Bumped on every data change; result-flash cards are rebuilt only when it moves
@@ -815,7 +818,7 @@ function renderMonitor() {
     if (rankEl) {
       // Live position in the class (marathon ranking rules, unfinished included)
       const classRows = allEquipages
-        .filter(e => e.className === eq.className)
+        .filter(e => classGroupOf(e) === classGroupOf(eq))
         .map(e => {
           const d = allMarathonData.get(String(e.startNumber)) || {};
           return { startNumber: e.startNumber, result: calculateMarathonResult(e, d, d) };
@@ -941,12 +944,14 @@ export async function load() {
     });
     unsubscribes.push(unSubEquipages);
 
-    const [equipagesRaw, startTimesData, configData] = await Promise.all([
+    const [equipagesRaw, startTimesData, configData, mergeSource] = await Promise.all([
       firstEquipages,
       getConfig(competitionId, 'startTimes').catch(() => ({})),
-      getConfig(competitionId, 'maratonConfig').catch(() => null)
+      getConfig(competitionId, 'maratonConfig').catch(() => null),
+      loadMergeSource(competitionId).catch(() => null)
     ]);
     if (currentLoadToken !== loadToken) return;
+    classGroupOf = mergeGroupResolver(mergeSource);
 
     allEquipages = equipagesRaw || [];
     startTimes = startTimesData || {};

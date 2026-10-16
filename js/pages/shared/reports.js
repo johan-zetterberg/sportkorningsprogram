@@ -1,5 +1,6 @@
 
 import { getEquipages } from '../../services/equipageService.js';
+import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getDressageStatusCollection, getAllDressageProtocols } from '../../services/dressageService.js';
 import { getMarathonTimingData, getMarathonResults, getMarathonStateDocuments, loadPauseWindows } from '../../services/marathonService.js';
@@ -135,7 +136,7 @@ export async function load() {
     // Set global config for utils
     setMarathonConfig(marathonConfig);
     await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
-    buildMergeMap(marathonConfig); // [NEW] Init merge logic
+    buildMergeMap(await loadMergeSource(competitionId)); // merged classes, as on every page
 
     // --- PREPARE DATA ---
     // We need to build "reportRows" similar to how total-resultat.js does it.
@@ -261,7 +262,8 @@ export async function load() {
     // Validates and decorates with _mergedKey/_mergedLabel for marathon grouping
     reportRows = ensureMergeDecorations(reportRows);
 
-    // Total placings per class (core-engine/ranking.js), used by the total PDF and teams
+    // Total placings per class (core-engine/ranking.js), used by the total PDF and teams.
+    // A merged class is placed as one class: the PDF lists it under one heading
     const reportTotalKey = (row) => totalRankKey({
         totalPenalty: row.totalPenalty,
         isEliminated: row.isEliminated,
@@ -272,12 +274,12 @@ export async function load() {
     assignPlaces(reportRows, {
         key: reportTotalKey,
         compare: compareTotalRank,
-        group: (row) => row.className || ''
+        group: (row) => row._mergedKey || row.className || ''
     });
 
     // Sort by class, then placing; unplaced rows by start number, eliminated last
     reportRows.sort((a, b) => {
-        const c = (a.className || '').localeCompare(b.className || '');
+        const c = (a._mergedLabel || a.className || '').localeCompare(b._mergedLabel || b.className || '');
         if (c !== 0) return c;
         if (a.isEliminated && !b.isEliminated) return 1;
         if (!a.isEliminated && b.isEliminated) return -1;

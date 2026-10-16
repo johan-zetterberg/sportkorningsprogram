@@ -2,6 +2,7 @@
 // En "kontrollrums"-vy som visar alla ekipage som just nu är aktiva på dressyrbanan.
 
 import { getGlobalState } from '../../main.js';
+import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { t } from '../../utils/i18n.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
@@ -835,7 +836,8 @@ export async function load() {
 
     const cfgData = (displayCfg && typeof displayCfg === 'object') ? (displayCfg.value ?? displayCfg) : {};
     monitor_displayConfig = cfgData || {};
-    monitor_buildMergeMap(monitor_displayConfig);
+    // Merge groups from the same source as every page
+    monitor_buildMergeMap(await loadMergeSource(competitionId).catch(() => null));
 
     setCompetitionSetting(competitionId, 'dressageJudgeMapping', (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? (judgeMappingCfg.value ?? judgeMappingCfg) : {});
 

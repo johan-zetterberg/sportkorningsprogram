@@ -225,6 +225,45 @@ service cloud.firestore {
         && log.action == (request.resource.data.get('finalized', false) == true ? 'finalize' : 'unfinalize');
     }
 
+    function isLockNamingLogEntry(compId, discipline, startNo, entryId) {
+      let lockPath = /databases/$(database)/documents/competitions/$(compId)/$(discipline + 'Finalization')/$(startNo);
+      return existsAfter(lockPath)
+        && getAfter(lockPath).data.get('lastLogId', '') == entryId;
+    }
+
+    // Pause log (subtracted from every stage time): officials may only add a
+    // new open pause or close the open one, as the observer page does. Earlier
+    // pauses cannot be changed or removed (the competition's admins can).
+    function isPauseEntry(entry) {
+      return entry is map
+        && entry.keys().hasOnly(['start', 'end', 'durationSec'])
+        && entry.get('start', null) is string;
+    }
+
+    function isPauseLogAppendOrClose() {
+      let before = resource == null ? [] : resource.data.get('pauseLog', []);
+      let after = request.resource.data.get('pauseLog', []);
+      let n = before.size();
+      return after == before
+        || (
+          // A new pause
+          after.size() == n + 1
+          && (n == 0 || after[0:n] == before)
+          && isPauseEntry(after[n])
+          && after[n].get('end', null) == null
+        )
+        || (
+          // The open pause closed
+          n > 0
+          && after.size() == n
+          && (n == 1 || after[0:n - 1] == before[0:n - 1])
+          && before[n - 1].get('end', null) == null
+          && isPauseEntry(after[n - 1])
+          && after[n - 1].start == before[n - 1].start
+          && after[n - 1].get('end', null) is string
+        );
+    }
+
     function isDressageResultUnlocked(compId, startNo) {
       let finPath = /databases/$(database)/documents/competitions/$(compId)/dressageFinalization/$(startNo);
       return !exists(finPath) ? true : get(finPath).data.get('finalized', false) != true;
@@ -349,7 +388,10 @@ service cloud.firestore {
         // An optional reason for the change (e.g. why a result was unlocked)
         && (request.resource.data.get('reason', null) == null
           || (request.resource.data.reason is string && request.resource.data.reason.size() <= 500))
-        && canFinalizeCompetition(compId, request.resource.data.discipline);
+        && canFinalizeCompetition(compId, request.resource.data.discipline)
+        // Only in the batch that changes the lock and names this entry (an
+        // entry on its own would log a change that never happened)
+        && isLockNamingLogEntry(compId, request.resource.data.discipline, request.resource.data.startNumber, entryId);
       allow update, delete: if false;
     }
 
@@ -534,20 +576,19 @@ service cloud.firestore {
             && hasExplicitRoleInComp(appId, compId, 'speaker')
           ) ||
           (
-             // Drivers: declaration fields of their own entry. Not `horses`: the
-             // horse entries also hold the vet's inspection results, so horse
-             // names are saved by the updateEquipageDeclaration function
+             // Drivers: notes for the speaker and the temperatures they take.
+             // The declaration (groom, carriage, club, horses) is saved by the
+             // updateEquipageDeclaration function, which checks the lock before
+             // the start, the lengths, and keeps the vet's data on the horses
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-               ['groom', 'carriage', 'clubName', 'speakerNotes', 'horseTemperatures', 'lastUpdated', 'updatedAt']
+               ['speakerNotes', 'horseTemperatures', 'lastUpdated', 'updatedAt']
              )
              // Temperatures the driver takes (portal): a map per horse
              && (!('horseTemperatures' in request.resource.data)
                || (request.resource.data.horseTemperatures is map && request.resource.data.horseTemperatures.size() <= 12))
-             // Declaration fields follow the portal's lock (archived, or locked
-             // by the secretariat); temperatures and notes stay open. The lock
-             // before a start is checked by the portal and updateEquipageDeclaration.
-             && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['groom', 'carriage', 'clubName'])
-               || isDeclarationOpen(appId, compId))
+             && (!('speakerNotes' in request.resource.data)
+               || (request.resource.data.speakerNotes is string && request.resource.data.speakerNotes.size() <= 2000))
+             && isCompetitionOpen(appId, compId)
              && canSelfServiceEquipage(appId, compId, equipageId)
           )
         );
@@ -666,7 +707,8 @@ service cloud.firestore {
     // input) record pauses here, and the pause log is subtracted from stage times
     match /artifacts/{appId}/public/data/competitions/{compId}/config/globalStatus {
       allow write: if request.auth != null
-        && canWriteResultsAs(appId, compId, 'marathon');
+        && canWriteResultsAs(appId, compId, 'marathon')
+        && (canAdminThisArtifactsComp(appId, compId) || isPauseLogAppendOrClose());
     }
 
     // Hemliga konfigurationer (t.ex. PIN-kod)

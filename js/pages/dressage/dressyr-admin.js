@@ -6,7 +6,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
-import { replaceConfig } from '../../services/competitionService.js';
+import { replaceConfig, updateConfigEntries } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
@@ -19,6 +19,18 @@ import {
 } from './dressageAdminProgramOptions.js';
 
 let competitionId = null;
+// The stored mapping is in an old or broken shape: the first save writes it whole
+let mappingNeedsRewrite = false;
+
+// Saves the given classes of the program mapping (see updateConfigEntries)
+async function saveMappingEntries(entries) {
+  if (mappingNeedsRewrite) {
+    await replaceConfig(competitionId, 'dressyrProgramMapping', mapping);
+    mappingNeedsRewrite = false;
+    return;
+  }
+  await updateConfigEntries(competitionId, 'dressyrProgramMapping', entries);
+}
 let allEquipages = [];
 let programIndex = {};     // { key: {name, category, arena, movements:[{no,text,coeff}], ...} }
 let mapping = {}; // ClassName -> ProgramKey
@@ -818,6 +830,7 @@ function wire(root) {
   qs('#btnAutoFixMapping', root)?.addEventListener('click', async () => {
     const classes = [...new Set((allEquipages || []).map(e => (e.className || e.klass || '').trim()).filter(Boolean))];
     let changes = 0;
+    const changed = {};
     classes.forEach(cls => {
       const key = mapping[cls];
       const exists = key && isDressageProgramSelectable(mergedPrograms[key]);
@@ -826,10 +839,10 @@ function wire(root) {
           getSelectableDressageProgramKeys(mergedPrograms).map(programKey => [programKey, mergedPrograms[programKey]])
         );
         const guess = guessProgramKeyFromClass(cls, selectablePrograms);
-        if (guess) { mapping[cls] = guess; changes++; }
+        if (guess) { mapping[cls] = guess; changed[cls] = guess; changes++; }
       }
     });
-    await replaceConfig(competitionId, 'dressyrProgramMapping', mapping);
+    await saveMappingEntries(changed);
     rebuildMappingTable(root, qs('#classFilter', root)?.value || '');
     const tag = qs('#mapSaved', root);
     if (tag) { tag.textContent = `Auto-fix klart: ${changes} ändring(ar).`; setTimeout(() => tag.textContent = '', 3000); }
@@ -839,10 +852,12 @@ function wire(root) {
   qs('#btnSaveMapping', root)?.addEventListener('click', async () => {
     // läs alla program-nyckel inputs
     const inputs = root.querySelectorAll('.mapInput');
+    const shownClasses = [];
     inputs.forEach(inp => {
       const cls = inp.dataset.cls;
       const val = inp.value.trim();
       if (val) mapping[cls] = val; else delete mapping[cls];
+      shownClasses.push(cls);
     });
 
     // Inputs för CR-limit och check sparas redan i classConfig via "change/input" lyssnarna i rebuildMappingTable,
@@ -858,8 +873,10 @@ function wire(root) {
       return; // avbryt sparning
     }
     try {
-      await replaceConfig(competitionId, 'dressyrProgramMapping', mapping);
-      await replaceConfig(competitionId, 'dressyrClassConfig', classConfig); // Save CR config
+      // Only the classes on the page: other classes keep what is saved
+      await saveMappingEntries(Object.fromEntries(shownClasses.map(cls => [cls, mapping[cls]])));
+      await updateConfigEntries(competitionId, 'dressyrClassConfig', // Save CR config
+        Object.fromEntries(shownClasses.filter(cls => classConfig[cls]).map(cls => [cls, classConfig[cls]])));
       const msg = qs('#mapSaved', root);
       if (msg) { msg.textContent = 'Sparat (Program & CR).'; setTimeout(() => msg.textContent = '', 2000); }
     } catch (e) {
@@ -1000,7 +1017,8 @@ function wire(root) {
     }
 
     try {
-      await replaceConfig(competitionId, 'dressageJudgeMapping', judgeMapping);
+      // This class only: the others keep what is saved
+      await updateConfigEntries(competitionId, 'dressageJudgeMapping', { [cls]: judgeMapping[cls] });
       renderJudgeAssignmentSummary(root); // Update summary list
       const msg = qs('#judgeMapMsg', root);
       if (msg) { msg.textContent = 'Sparat.'; setTimeout(() => msg.textContent = '', 2000); }
@@ -1157,12 +1175,15 @@ export async function load() {
   // hämta mapping + ekipage
   const rawMapping = await getConfig(competitionId, 'dressyrProgramMapping') || {};
   // Hantera äldre, felaktigt kapslat format och säkerställ att vi har ett rent objekt.
+  mappingNeedsRewrite = false;
   if (rawMapping && typeof rawMapping.mapping === 'object' && Object.keys(rawMapping).length === 1) {
     mapping = rawMapping.mapping;
+    mappingNeedsRewrite = true;
   } else if (__validateMapping(rawMapping)) {
     mapping = rawMapping;
   } else {
     mapping = {}; // Fallback till tomt objekt
+    mappingNeedsRewrite = Object.keys(rawMapping || {}).length > 0;
   }
 
   allEquipages = await getEquipages(competitionId) || [];

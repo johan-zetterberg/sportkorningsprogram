@@ -1,5 +1,6 @@
-﻿import { saveEquipage } from '../../services/equipageService.js';
+﻿import { getEquipages, saveEquipage } from '../../services/equipageService.js';
 import { saveConfig } from '../../services/competitionService.js';
+import { createImportNumberResolver } from './adminParticipantImportNumbers.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -69,6 +70,8 @@ async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping
     let ok = 0;
     let fail = 0;
     const tempCounters = new Map();
+    // Without the current list the numbers could land on other drivers: stop
+    const numberFor = createImportNumberResolver(await getEquipages(compId));
 
     for (const eqa of equipagesFromFile) {
         const key = (eqa.tdbClassNumber != null)
@@ -78,6 +81,7 @@ async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping
         if (!mappedClass) continue;
 
         prepareImportedEquipage(eqa, mappedClass, key, tempCounters, options);
+        eqa.startNumber = numberFor(eqa);
 
         try {
             await saveEquipage(compId, eqa.startNumber, eqa);

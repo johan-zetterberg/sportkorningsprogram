@@ -1,4 +1,5 @@
 import { getGlobalState } from '../../main.js';
+import { listenMergeSource, pickMergeSource } from '../../services/mergeConfigService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getJudges } from '../../services/adminService.js';
 import { 
@@ -861,19 +862,20 @@ function processAndAggregateResults(equipages, allRawResults) {
         });
     }
 
-    // STEG 4: Placering och Clear Round
-    const byClass = {};
+    // STEG 4: Placering och Clear Round. Merged classes are shown and placed
+    // as one class (as on the other pages); clear round is set per class
+    const crConfig = window.dressyrClassConfig || {};
+    const byGroup = {};
     Object.values(aggregated).forEach(eq => {
-        const cls = eq.className || '_';
-        if (!byClass[cls]) byClass[cls] = [];
-        byClass[cls].push(eq);
+        const isCR = !!crConfig[eq.className || '_']?.clearRound;
+        const grp = `${isCR ? 'CR' : 'RANK'}|${isCR ? (eq.className || '_') : (eq._mergedKey || eq.className || '_')}`;
+        if (!byGroup[grp]) byGroup[grp] = [];
+        byGroup[grp].push(eq);
     });
 
-    const crConfig = window.dressyrClassConfig || {};
-
-    Object.entries(byClass).forEach(([className, eqs]) => {
-        // Check Config
-        const cfg = crConfig[className];
+    Object.values(byGroup).forEach((eqs) => {
+        // Check Config (a clear-round group holds one class)
+        const cfg = crConfig[eqs[0].className || '_'];
         const isCR = !!cfg?.clearRound;
         const limit = Number(cfg?.limit) || 0;
 
@@ -2180,37 +2182,42 @@ function listenMergeConfig(compId) {
     mergeUnsubs = [];
     if (!compId || !appId) return;
 
-    // Lyssna på ALLA möjliga config-platser
-    const keys = ['display', 'tdbMergeGroups', 'classMergeMap', 'tdbMergeMap', 'dressyrClassConfig', 'dressageJudgeMapping'];
+    const redecorateAndRecompute = () => {
+        // Märk om alla ekipage
+        masterEquipageList = masterEquipageList.map(e => ({ //
+            ...e,
+            _mergedKey: dress_resolveMergeGrouping(e).key,
+            _mergedLabel: dress_resolveMergeGrouping(e).label
+        }));
+
+        // Trigga en full omräkning och omritning
+        const fn = window.__dressageRecomputeAll;
+        if (typeof fn === 'function') queueRecompute(fn);
+        else render();
+    };
+
+    // Merge groups (merged classes), from the same source as every page: a
+    // legacy document without groups no longer clears the admin's merges
+    mergeUnsubs.push(listenMergeSource(compId, (mergeSource) => {
+        dress_buildMergeMap(mergeSource);
+        redecorateAndRecompute();
+    }));
+
+    const keys = ['dressyrClassConfig', 'dressageJudgeMapping'];
 
     keys.forEach(key => {
         const ref = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'config', key); //
         const unsub = onSnapshot(ref, (snap) => { //
             const data = snap.exists() ? (snap.data()?.value ?? snap.data()) : null;
 
-            if (key === 'display') {
-                if (data?.mergeByClassNumber) dress_buildMergeMap(data);
-                if (data?.useMergedTestForDisplay) { /* ... */ }
-            } else if (key === 'tdbMergeGroups' || key === 'classMergeMap' || key === 'tdbMergeMap') {
-                dress_buildMergeMap(data);
-            } else if (key === 'dressyrClassConfig') {
+            if (key === 'dressyrClassConfig') {
                 setCompetitionSetting(compId, 'dressyrClassConfig', data || {});
             } else if (key === 'dressageJudgeMapping') {
                 setCompetitionSetting(compId, 'dressageJudgeMapping', data || {});
                 renderJudgeMappingNotice(masterEquipageList, window.dressageJudgeMapping);
             }
 
-            // Märk om alla ekipage
-            masterEquipageList = masterEquipageList.map(e => ({ //
-                ...e,
-                _mergedKey: dress_resolveMergeGrouping(e).key,
-                _mergedLabel: dress_resolveMergeGrouping(e).label
-            }));
-
-            // Trigga en full omräkning och omritning
-            const fn = window.__dressageRecomputeAll;
-            if (typeof fn === 'function') queueRecompute(fn);
-            else render();
+            redecorateAndRecompute();
 
         }, (err) => {
             console.warn('[merge-config] snapshot error', key, err);
@@ -2332,7 +2339,7 @@ export async function load() {
         setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
 
         // === NYTT: Bygg merge-map FÖRST ===
-        dress_buildMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || displayCfg); //
+        dress_buildMergeMap(pickMergeSource({ tdbMergeGroups: mergeCfgA, classMergeMap: mergeCfgB, tdbMergeMap: mergeCfgC, display: displayCfg }));
 
         masterEquipageList = (equipages || [])
             .map(e => {

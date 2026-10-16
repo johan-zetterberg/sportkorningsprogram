@@ -1,6 +1,6 @@
 import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
-import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, query, where, orderBy, limit, addDoc, serverTimestamp, writeBatch, deleteDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, collectionGroup, doc, getDoc, getDocs, setDoc, updateDoc, onSnapshot, query, where, orderBy, limit, addDoc, serverTimestamp, writeBatch, deleteDoc, deleteField, FieldPath } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompDocRef, getCompCollectionRef } from './firestoreService.js';
 import { auth } from '../config/firebase-config.js';
 import { getExpectedDressageJudgePositions, isDressageReadyToFinalize } from './competitionStatusService.js';
@@ -57,6 +57,9 @@ export async function createCompetition(data) {
             const snap = await getDoc(srcRef);
             if (snap.exists()) {
               const cfgData = snap.data();
+              // The source's lock (set by hand or by archiving) is not a
+              // setting: the new competition starts open
+              if (cfgName === 'competitionMeta') cfgData.manualLockdown = false;
               const destRef = doc(db, `artifacts/${appId}/public/data/competitions/${newId}/config`, cfgName);
               await setDoc(destRef, cfgData); 
             }
@@ -315,6 +318,38 @@ export async function saveConfig(competitionId, configName, data) {
   return trackWrite(`Sparar config ${configName}`, (async () => {
     const configRef = getCompDocRef(competitionId, 'config', configName);
     await setDoc(configRef, data, { merge: true });
+
+    try {
+      const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;
+      localStorage.removeItem(cacheKey);
+    } catch (e) { }
+  })());
+}
+
+/**
+ * Sets (or with undefined removes) single top-level entries of a config
+ * document, e.g. one class in a per-class mapping. The rest of the document is
+ * left as it is on the server: saving from a page loaded earlier does not undo
+ * what someone else saved for other classes meanwhile.
+ */
+export async function updateConfigEntries(competitionId, configName, entries = {}) {
+  const keys = Object.keys(entries);
+  if (!keys.length) return;
+  return trackWrite(`Sparar config ${configName}`, (async () => {
+    const configRef = getCompDocRef(competitionId, 'config', configName);
+    const args = [];
+    keys.forEach((key) => {
+      args.push(new FieldPath(key), entries[key] === undefined ? deleteField() : entries[key]);
+    });
+    try {
+      await updateDoc(configRef, ...args);
+    } catch (error) {
+      if (error?.code !== 'not-found') throw error;
+      // First save: the document does not exist yet
+      const data = {};
+      keys.forEach((key) => { if (entries[key] !== undefined) data[key] = entries[key]; });
+      await setDoc(configRef, data, { merge: true });
+    }
 
     try {
       const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;

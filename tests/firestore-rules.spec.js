@@ -291,10 +291,11 @@ test('self-service equipage update is allowed for matching email and allowed fie
   const db = ctx.firestore();
 
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-1')), {
-    clubName: 'New Club',
     speakerNotes: 'Updated by driver',
     updatedAt: '2026-06-08T10:00:00Z'
   }));
+  // The club is part of the declaration, saved by updateEquipageDeclaration
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-1')), { clubName: 'New Club' }));
 });
 
 test('self-service equipage update is denied for disallowed fields even with matching email', { skip: !HAS_EMULATOR }, async () => {
@@ -422,7 +423,9 @@ test('drivers cannot write their horse entries directly (vet results live there)
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), {
     horses: [{ name: 'Ella', id: 'SE001', vetStatus: 'godkänd' }]
   }));
-  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { groom: 'Anna' }));
+  // The declaration goes through updateEquipageDeclaration (lock before the start, lengths)
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { groom: 'Anna' }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { speakerNotes: 'x'.repeat(2001) }));
   // Their horses' temperatures they may enter
   await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-horse-1')), {
     horseTemperatures: { SE001: { '2026-10-13_morning': { temperatureC: 37.8 } } }
@@ -430,7 +433,7 @@ test('drivers cannot write their horse entries directly (vet results live there)
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { horseTemperatures: 'x' }));
 });
 
-test('a locked declaration cannot be changed directly; temperatures stay open', { skip: !HAS_EMULATOR }, async () => {
+test('the declaration cannot be changed directly; temperatures stay open while locked', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     await setDoc(doc(db, compPath('equipages/eq-lock-1')), { startNumber: 6, groom: 'Bo' });
@@ -446,7 +449,7 @@ test('a locked declaration cannot be changed directly; temperatures stay open', 
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), compPath('config/competitionMeta')), { manualLockdown: false });
   });
-  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { groom: 'Anna' }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { groom: 'Anna' }));
 });
 
 test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
@@ -671,6 +674,9 @@ test('a lock change must come with its own finalizationLog entry', { skip: !HAS_
   await assertSucceeds(withReason.commit());
   await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'precision-log-1', byName: null, reason: 'x'.repeat(501), at: serverTimestamp() }));
   await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'precision-log-1', byName: null, extra: 1, at: serverTimestamp() }));
+
+  // A valid entry on its own (no lock change naming it) is refused
+  await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'precision-log-1', byName: null, at: serverTimestamp() }));
 
   // Entries cannot be forged for someone else, changed or removed
   await assertFails(setDoc(doc(collection(db, rootCompPath('finalizationLog'))), { discipline: 'precision', action: 'unfinalize', startNumber: START_NO, by: 'someone-else', byName: null, at: serverTimestamp() }));
@@ -1109,6 +1115,22 @@ test('marathon officials may record the global pause, other roles may not', { sk
   const anonymousDb = testEnv.unauthenticatedContext().firestore();
   await assertFails(setDoc(doc(anonymousDb, compPath('config/globalStatus')), pause, { merge: true }));
   await assertSucceeds(getDoc(doc(anonymousDb, compPath('config/globalStatus'))));
+
+  // The open pause may be closed, and a new one added
+  const closed = { start: '2026-10-11T10:00:00.000Z', end: '2026-10-11T10:05:00.000Z', durationSec: 300 };
+  await assertSucceeds(setDoc(doc(marathonDb, compPath('config/globalStatus')), { isPaused: false, pauseLog: [closed] }, { merge: true }));
+  const second = { start: '2026-10-11T11:00:00.000Z', end: null, durationSec: null };
+  await assertSucceeds(setDoc(doc(marathonDb, compPath('config/globalStatus')), { isPaused: true, pauseLog: [closed, second] }, { merge: true }));
+  // Earlier pauses cannot be changed, removed or added closed (they shorten every stage time)
+  await assertFails(setDoc(doc(marathonDb, compPath('config/globalStatus')), { pauseLog: [second] }, { merge: true }));
+  await assertFails(setDoc(doc(marathonDb, compPath('config/globalStatus')), { pauseLog: [{ ...closed, end: '2026-10-11T10:50:00.000Z' }, second] }, { merge: true }));
+  await assertFails(setDoc(doc(marathonDb, compPath('config/globalStatus')), { pauseLog: [closed, second, { start: '2026-10-11T12:00:00.000Z', end: '2026-10-11T13:00:00.000Z', durationSec: 3600 }] }, { merge: true }));
+  await assertFails(setDoc(doc(marathonDb, compPath('config/globalStatus')), { pauseLog: [closed, { ...second, from: 0 }] }, { merge: true }));
+  // Status text without touching the log is fine
+  await assertSucceeds(setDoc(doc(marathonDb, compPath('config/globalStatus')), { statusText: 'Paus' }, { merge: true }));
+  // The competition's admin may correct the log
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(ownerDb, compPath('config/globalStatus')), { isPaused: false, pauseLog: [closed] }, { merge: true }));
 });
 
 test('PIN join attempt counters are not readable or writable by clients', { skip: !HAS_EMULATOR }, async () => {

@@ -1,6 +1,6 @@
 import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
-import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc, collection, where, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc, collection, where, deleteField, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
@@ -422,6 +422,20 @@ export async function getComputedResultForEquipage(competitionId, equipageId) {
   const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/computed_equipages/${sn}`);
   const snap = await getDoc(ref);
   return snap.exists() ? snap.data() : null;
+}
+
+/**
+ * Whether the competition has any result (or a started dressage test).
+ * Results are stored by start number: with them left behind, the equipages of
+ * a new import would take over the old results.
+ */
+export async function competitionHasResults(competitionId) {
+  const collections = ['dressageStatus', 'maraton', 'maraton-timing', 'precision', 'computed_equipages'];
+  const hits = await Promise.all(collections.map(async (name) => {
+    const snap = await getDocs(query(getCompCollectionRef(competitionId, name), limit(1)));
+    return !snap.empty;
+  }));
+  return hits.some(Boolean);
 }
 
 export async function clearAllEquipages(competitionId) {

@@ -1,5 +1,6 @@
 // js/pages/prize-giving.js
 import { getGlobalState } from '../../main.js';
+import { listenMergeSource, loadMergeSource } from '../../services/mergeConfigService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { listenForMaratonCollection, getMarathonTimingData, listenForMarathonTimingUpdates, loadPauseWindows } from '../../services/marathonService.js';
@@ -112,8 +113,9 @@ export async function load(container) {
         setCompetitionSetting(competitionId, 'klassProgramMapping', (programMapping && typeof programMapping === 'object') ? programMapping : {});
         dressageJudgeMapping = (judgeMapping && typeof judgeMapping === 'object') ? judgeMapping : {};
 
-        // Merge logic
-        buildMergeMap(marathonConfig);
+        // Merge groups (merged classes), as on every page
+        buildMergeMap(await loadMergeSource(competitionId));
+        if (currentLoadToken !== loadToken) return;
         equipages = ensureMergeDecorations(equipages);
 
         // Push config to marathonUtils (for calculations)
@@ -243,9 +245,15 @@ function setupListeners() {
     unsubscribes.push(u3);
 
     // Marathon Config (Merge settings)
+    unsubscribes.push(listenMergeSource(competitionId, (mergeSource) => {
+        buildMergeMap(mergeSource);
+        equipages = ensureMergeDecorations(equipages);
+        renderTabs();
+        recalcAndRender();
+    }));
+
     const uConfig = listenForMarathonConfig(competitionId, (cfg) => {
         marathonConfig = cfg || {};
-        buildMergeMap(marathonConfig);
         setMarathonConfig(marathonConfig);
         // Re-decorate existing equipages with new map
         equipages = ensureMergeDecorations(equipages);
@@ -261,12 +269,22 @@ function setupListeners() {
         renderTabs();
     });
     unsubscribes.push(u4);
-}function recalcAndRender() {
+}
+
+function isWithdrawnEquipage(eq) {
+    const status = String(eq?.status || '').trim().toLowerCase();
+    return ['struken', 'withdrawn', 'scratched', 'dns', 'did-not-start'].includes(status)
+        || eq?.withdrawn === true || eq?.struken === true || eq?.scratched === true || eq?.didNotStart === true;
+}
+
+function recalcAndRender() {
     const content = document.getElementById('prize-giving-content');
     if (!content) return;
 
     // Filter equipages by active class (using merged labels)
-    const classEquipages = equipages.filter(e => (e._mergedLabel || e.className) === activeClass);
+    // A withdrawn equipage is in no prize giving (it would take a place or a
+    // rosette from those who drove)
+    const classEquipages = equipages.filter(e => (e._mergedLabel || e.className) === activeClass && !isWithdrawnEquipage(e));
 
     if (classEquipages.length === 0) {
         content.innerHTML = `<div class="text-center p-12 text-gray-400 dark:text-gray-500 text-xl">Inga ekipage i denna klass.</div>`;

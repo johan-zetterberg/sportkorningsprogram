@@ -3,7 +3,7 @@ import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionById, deleteCompetition, updateCompetition } from '../../services/competitionService.js';
 import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
 import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails, getOfficials, getJudges } from '../../services/adminService.js';
-import { getEquipages } from '../../services/equipageService.js';
+import { competitionHasResults, getEquipages } from '../../services/equipageService.js';
 import {
     recalculateCompetitionResults,
     validateCompetitionResultRecalculation
@@ -1565,6 +1565,17 @@ export async function setupSettingsLogic(competitionId) {
                 btn.innerHTML = '<span>⏳ Laddar demodata...</span>';
             }
             try {
+                // Only into an empty competition: the demo writes start numbers 1–8,
+                // judges, configs and results over a real competition's own
+                const existing = await getEquipages(competitionId);
+                if (existing.length > 0 || await competitionHasResults(competitionId)) {
+                    showAlert('Demodata kan bara laddas i en tom tävling. Den här tävlingen har redan ekipage eller resultat. Skapa en demotävling från startsidan i stället.', false);
+                    if (btn) {
+                        btn.disabled = false;
+                        btn.innerHTML = '<span>⚡ Ladda demodata</span>';
+                    }
+                    return;
+                }
                 await seedDemoCompetition({ competitionId });
                 showAlert('Demodata har laddats framgångsrikt!');
                 setTimeout(() => window.location.reload(), 1200);

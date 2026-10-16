@@ -985,7 +985,8 @@ export const submitVolunteerSignup = onCall(async (request) => {
     }
 
     const competition = await getCompetitionArtifactsDoc(competitionId);
-    if (!competition) {
+    // A draft is not public: no signups (as if it did not exist)
+    if (!competition || competition.data?.published === false) {
         throw new HttpsError('not-found', 'Tavlingen kunde inte hittas.');
     }
 

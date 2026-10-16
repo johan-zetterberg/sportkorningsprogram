@@ -1,4 +1,5 @@
 import { getEquipages } from '../../services/equipageService.js';
+import { listenMergeSource, pickMergeSource } from '../../services/mergeConfigService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
@@ -999,21 +1000,17 @@ function listenMergeConfig(compId) {
   if (Array.isArray(mergeUnsubs)) unsubscribeAll(mergeUnsubs);
   mergeUnsubs = [];
   if (!compId || !appId) return;
-  const keys = ['display', 'tdbMergeGroups', 'classMergeMap', 'tdbMergeMap'];
-  keys.forEach(key => {
-    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', compId, 'config', key);
-    const unsub = onSnapshot(ref, (snap) => {
-      const data = snap.exists() ? (snap.data()?.value ?? snap.data()) : null;
-      prec_buildMergeMap(snap.id === 'display' ? { mergeByClassNumber: data?.mergeByClassNumber || {} } : data);
-      precision_equipages = precision_equipages.map(e => ({
-        ...e,
-        _mergedKey: prec_resolveMergeGrouping(e).key,
-        _mergedLabel: prec_resolveMergeGrouping(e).label
-      }));
-      render();
-    });
-    mergeUnsubs.push(unsub);
-  });
+  // Merge groups (merged classes), from the same source as every page: a
+  // legacy document without groups no longer clears the admin's merges
+  mergeUnsubs.push(listenMergeSource(compId, (mergeSource) => {
+    prec_buildMergeMap(mergeSource);
+    precision_equipages = precision_equipages.map(e => ({
+      ...e,
+      _mergedKey: prec_resolveMergeGrouping(e).key,
+      _mergedLabel: prec_resolveMergeGrouping(e).label
+    }));
+    render();
+  }));
 }
 
 function wireEventListeners() {
@@ -1171,7 +1168,7 @@ export async function load() {
     });
   }
 
-  prec_buildMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || displayCfg);
+  prec_buildMergeMap(pickMergeSource({ tdbMergeGroups: mergeCfgA, classMergeMap: mergeCfgB, tdbMergeMap: mergeCfgC, display: displayCfg }));
   precision_equipages = precision_equipages.map(e => ({
     ...e,
     _mergedKey: prec_resolveMergeGrouping(e).key,

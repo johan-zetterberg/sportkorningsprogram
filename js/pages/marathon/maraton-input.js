@@ -357,29 +357,31 @@ function validateRouteString(routeStr, expectedGates) {
   const passedRequiredGates = new Set();
   let firstErrorFound = false;
 
+  // The route comes from the shared document (any marathon official can write
+  // it): every token is escaped before it becomes HTML
   for (const token of tokens) {
     const isUppercase = token === token.toUpperCase() && token !== token.toLowerCase();
     const ucToken = token.toUpperCase();
 
     // Om vi redan har hittat ett fel, markera resten av portarna som en del av felkörningen
     if (firstErrorFound) {
-      styledTokens.push(`<span class="text-red-600 dark:text-red-400">${token}</span>`);
+      styledTokens.push(`<span class="text-red-600 dark:text-red-400">${escapeHtml(token)}</span>`);
       continue;
     }
 
     // 1. Korrekt port i sekvensen
     if (isUppercase && ucToken === expectedGates[expectedIdx]) {
-      styledTokens.push(`<strong class="text-green-600 dark:text-green-400">${token}</strong>`);
+      styledTokens.push(`<strong class="text-green-600 dark:text-green-400">${escapeHtml(token)}</strong>`);
       passedRequiredGates.add(ucToken);
       expectedIdx++;
     }
     // 2. Tillåten passage genom en redan avklarad ("död") port
     else if (passedRequiredGates.has(ucToken)) {
-      styledTokens.push(`<span class="text-brand-lightblue dark:text-blue-300 underline">${token}</span>`); // Blå för tydlighet
+      styledTokens.push(`<span class="text-brand-lightblue dark:text-blue-300 underline">${escapeHtml(token)}</span>`); // Blå för tydlighet
     }
     // 3. Felkörning! Detta är första felet.
     else {
-      styledTokens.push(`<strong class="text-red-600 dark:text-red-400">${token}</strong>`);
+      styledTokens.push(`<strong class="text-red-600 dark:text-red-400">${escapeHtml(token)}</strong>`);
       reason = t('marathon_wrong_gate').replace('{expected}', expectedGates[expectedIdx]).replace('{actual}', token);
       firstErrorFound = true;
       // Notera: Vi sätter INTE isElimination här, då felet kan korrigeras.
@@ -1173,6 +1175,18 @@ async function loadExistingResult(silent = false) {
       return;
     }
 
+    // This obstacle's own unsaved work (a running clock, or a time stopped but
+    // not saved yet, or typed fields): keep it as it is on the document. A
+    // load (switching equipage and back, reload, a course change) must not
+    // replace it with the saved result or a reset, and needs no write.
+    const ownUnsaved = sourceData
+      && Number(sourceData.currentObstacle) === Number(currentObstacleNumber)
+      && (sourceData.running === true || sourceData.inProgress === true);
+    if (ownUnsaved) {
+      applyLiveStateToUI(sourceData);
+      return;
+    }
+
     let liveDataUpdate;
     if (resultToLoad) {
       // Om vi hittade ett sparat resultat, förbered att ladda in dess data
@@ -1339,6 +1353,14 @@ async function saveResult(e) {
   const obstacleNumber = currentObstacleNumber ?? Number(document.getElementById('maratonObstacleSelect').value || 0);
   if (!equipageId || !obstacleNumber) {
     showAlert(t('marathon_select_both'), false);
+    return;
+  }
+
+  // The live time on the document belongs to another obstacle (its clock
+  // runs, or its time is not saved yet): saving here would store that judge's
+  // time, or 0.00, as this obstacle's result
+  if (runsAtAnotherObstacle(currentLiveState, obstacleNumber)) {
+    showAlert(`#${equipageId} har en pågående eller osparad tid i hinder ${currentLiveState.currentObstacle}. Spara den där först.`, false);
     return;
   }
 

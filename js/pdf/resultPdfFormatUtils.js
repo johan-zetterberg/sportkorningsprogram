@@ -32,7 +32,8 @@ export function formatTotalDisciplinePdfPenalty(row = {}, disciplineKey) {
     });
   }
   if (disciplineKey === 'precision') {
-    return formatPdfPenalty(row.precision?.pen, {
+    // The total page's rows carry pen, the report rows the engine's totalPenalty
+    return formatPdfPenalty(row.precision?.pen ?? row.precision?.totalPenalty, {
       eliminated: row.precision?.eliminated,
       withdrawn
     });

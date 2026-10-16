@@ -2,6 +2,7 @@
 // En "speaker-vy" som visar det aktiva ekipaget i precision, samt nästa start och senaste resultat.
 
 import { getGlobalState } from '../../main.js';
+import { loadMergeSource, mergeGroupResolver } from '../../services/mergeConfigService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
@@ -24,6 +25,8 @@ import {
 // ---------- State ----------
 let competitionId = null;
 let allEquipages = [];
+// Class group for the class leader (a merged class is placed as one class)
+let classGroupOf = (eq) => `CLASS:${eq?.className || ''}`;
 let startTimes = {};
 let precisionConfig = {}; // NYTT: För att lagra config
 const allPrecisionData = new Map();
@@ -756,9 +759,9 @@ function listenForUpdates() {
     if (currentDriver) {
       const finished = [];
       for (const [sn, data] of allPrecisionData.entries()) {
-        if (!data.finalized || data.className !== currentDriver.eq.className) continue;
+        if (!data.finalized) continue;
         const eq = allEquipages.find(e => String(e.startNumber) === sn);
-        if (eq) finished.push({ startNumber: eq.startNumber, eq, result: calculatePrecisionResult(data, eq, precisionConfig) });
+        if (eq && classGroupOf(eq) === classGroupOf(currentDriver.eq)) finished.push({ startNumber: eq.startNumber, eq, result: calculatePrecisionResult(data, eq, precisionConfig) });
       }
       const leader = assignPlaces(finished, {
         key: row => precisionRankKey(row.result),
@@ -829,12 +832,14 @@ export async function load() {
     return;
   }
   try {
-    const [equipagesRaw, configRaw, startTimesData] = await Promise.all([
+    const [equipagesRaw, configRaw, startTimesData, mergeSource] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'precisionConfig').catch(() => ({})),
-      getConfig(competitionId, 'startTimes').catch(() => ({}))
+      getConfig(competitionId, 'startTimes').catch(() => ({})),
+      loadMergeSource(competitionId).catch(() => null)
     ]);
     if (currentLoadToken !== loadToken) return;
+    classGroupOf = mergeGroupResolver(mergeSource);
 
     allEquipages = equipagesRaw;
     precisionConfig = configRaw || {}; // Spara config

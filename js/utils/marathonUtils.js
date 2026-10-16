@@ -605,10 +605,12 @@ export function calculateMarathonPlacements(equipages) {
 // calculateResult: the result page passes its own (an archived competition
 // gives the values it was archived with); the default calculates
 export function prepareMarathonResults(equipages, config, { timingMap, stateMap, obstaclesMap, calculateResult = calculateMarathonResult }) {
-  // 1. Initiera config
+  // 1. Initiera config. Merge groups only from a config that has them (the
+  // marathon config has none: the page has built the map from the merge
+  // sources, see mergeConfigService)
   if (config) {
     setMarathonConfig(config);
-    buildMergeMap(config);
+    if (config.mergeByClassNumber) buildMergeMap(config);
   }
 
   // 2. Beräknad data

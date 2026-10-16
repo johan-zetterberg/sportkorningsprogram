@@ -229,9 +229,11 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
 
     // The live fields are shared by all obstacles: clear them only when they
     // belong to this obstacle, not while the equipage is timed at another one
-    const liveBelongsHere = existingData.running !== true
-      || existingData.currentObstacle == null
-      || Number(existingData.currentObstacle) === on;
+    // (a running clock or an unsaved stopped time at another obstacle is
+    // that judge's work)
+    const liveBelongsHere = existingData.currentObstacle == null
+      || Number(existingData.currentObstacle) === on
+      || (existingData.running !== true && existingData.inProgress !== true);
     return {
       entry,
       update: {
@@ -261,20 +263,8 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
     // once can't drop each other's entry. Without signal Firestore can't run
     // one, so the list is built from the copy on the device (the input page
     // listens to this document) and a plain write is queued
-    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
-      try {
-        await withTimeout(runTransaction(db, async (transaction) => {
-          const snap = await transaction.get(summaryDocRef);
-          const built = buildSummaryUpdate(snap.exists() ? snap.data() : {});
-          entry = built.entry;
-          transaction.set(summaryDocRef, built.update, { merge: true });
-        }), OBSTACLE_TRANSACTION_TIMEOUT_MS);
-        summaryWrite = Promise.resolve();
-      } catch (error) {
-        if (!isConnectionError(error)) throw error;
-      }
-    }
-    if (!summaryWrite) {
+    // The list from the copy on the device, written as a plain (queued) write
+    const writeFromDeviceCopy = async () => {
       let cached;
       try {
         const snap = await getDoc(summaryDocRef);
@@ -285,8 +275,43 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
         throw new Error(`Ekipage #${eid} finns inte sparat på enheten och nätet saknas. Försök igen när det finns täckning.`);
       }
       const built = buildSummaryUpdate(cached);
-      entry = built.entry;
-      summaryWrite = setDoc(summaryDocRef, built.update, { merge: true });
+      entry = entry || built.entry;
+      return setDoc(summaryDocRef, built.update, { merge: true });
+    };
+    if (typeof navigator === 'undefined' || navigator.onLine !== false) {
+      const transactionDone = runTransaction(db, async (transaction) => {
+        const snap = await transaction.get(summaryDocRef);
+        const built = buildSummaryUpdate(snap.exists() ? snap.data() : {});
+        entry = built.entry;
+        transaction.set(summaryDocRef, built.update, { merge: true });
+      });
+      try {
+        await withTimeout(transactionDone, OBSTACLE_TRANSACTION_TIMEOUT_MS);
+        summaryWrite = Promise.resolve();
+      } catch (error) {
+        if (!isConnectionError(error)) throw error;
+        if (error?.message === 'timeout') {
+          // Slow, not failed: the transaction may still commit. A second write
+          // of the whole list now (from a possibly stale copy) could erase a
+          // result another judge saved meanwhile, so the copy is written only
+          // if the transaction itself fails for lack of connection
+          summaryWrite = transactionDone.catch((txError) => {
+            if (!isConnectionError(txError)) throw txError;
+            return writeFromDeviceCopy();
+          });
+        }
+      }
+    }
+    if (!summaryWrite) summaryWrite = writeFromDeviceCopy();
+    if (!entry) {
+      // The obstacle doc needs the entry now: from the device copy (the
+      // transaction or the copy write above store the same values)
+      try {
+        const snap = await getDoc(summaryDocRef);
+        entry = buildSummaryUpdate(snap.exists() ? snap.data() : {}).entry;
+      } catch {
+        entry = buildSummaryUpdate({}).entry;
+      }
     }
 
     const obstacleDocRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maratonResults/${eid}/obstacles/${on}`);

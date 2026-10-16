@@ -1,4 +1,4 @@
-import { saveEquipage, deleteEquipage, clearAllEquipages, migrateEquipagePrivacy } from '../../services/equipageService.js';
+import { saveEquipage, deleteEquipage, clearAllEquipages, competitionHasResults, migrateEquipagePrivacy } from '../../services/equipageService.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -259,6 +259,18 @@ function setupClearButton(competitionId) {
         if (confirm("Är du SÄKER på att du vill ta bort ALLA ekipage? Detta kan inte ångras.")) {
             if (allEquipages.length === 0) {
                 showAlert("Listan är redan tom.", true);
+                return;
+            }
+            // Results are stored by start number: left behind, they would be
+            // shown on the equipages of the next import
+            try {
+                if (await competitionHasResults(competitionId)) {
+                    showAlert("Tävlingen har redan resultat. Ekipagen kan inte rensas, eftersom resultaten då skulle hamna på de ekipage som importeras sedan. Skapa en ny tävling, eller ta bort enskilda ekipage som saknar resultat.", false);
+                    return;
+                }
+            } catch (error) {
+                console.error("Kunde inte kontrollera resultat:", error);
+                showAlert("Kunde inte kontrollera om det finns resultat. Försök igen.", false);
                 return;
             }
             showAlert(`Rensar ${allEquipages.length} ekipage...`, true);

@@ -26,12 +26,14 @@ export function getCourseCandidates(value) {
     return [className, mergedClassName].filter(Boolean);
 }
 
-// Children's class in Lätt B ("Lätt B Barn", "LB Barn")
+// Children's class in Lätt B ("Lätt B Barn", "LB Barn"; "Lätt C Barn" is
+// driven as Lätt B, as in the marathon; "Barnklass")
 export function isLattBBarnClass(value) {
     const names = typeof value === 'string' ? [value] : getCourseCandidates(value);
     return names.some((name) => {
         const s = String(name || '').toLowerCase();
-        return /\bbarn\b/.test(s) && /(l[äa]tt\s*b\b|\blb\b)/.test(s);
+        if (/\bbarnklass\b/.test(s)) return true;
+        return /\bbarn\b/.test(s) && /(l[äa]tt\s*[bc]\b|\bl[bc]\b)/.test(s);
     });
 }
 

@@ -1,5 +1,6 @@
 // js/pages/maraton-resultat.js
 import { getGlobalState } from '../../main.js';
+import { listenMergeSource, loadMergeSource } from '../../services/mergeConfigService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { finalizeMarathon, unfinalizeMarathon } from '../../services/finalizationService.js';
 import { getConfig } from '../../services/competitionService.js';
@@ -696,17 +697,13 @@ function listenLive() {
   return unsub;
 }
 
-// Lyssnare för admin-config (merge-grupper mm)
+// Merge groups (merged classes): from the merge sources, as on every page
 function listenMergeConfig() {
   if (!competitionId) return;
-  const cfgRef = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'marathon');
-  return onSnapshot(cfgRef, (snap) => {
-    if (snap.exists()) {
-      const data = snap.data();
-      buildMergeMap(data);
-      maraton_equipages = ensureMergeDecorations(maraton_equipages); // uppdatera equipages
-      render(); // rita om
-    }
+  return listenMergeSource(competitionId, (mergeSource) => {
+    buildMergeMap(mergeSource);
+    maraton_equipages = ensureMergeDecorations(maraton_equipages); // uppdatera equipages
+    render(); // rita om
   });
 }
 
@@ -757,8 +754,9 @@ export async function load() {
   // Default sort: Place
   maraton_sortState = { key: 'place', dir: 'asc' };
 
-  // Init merge groups if config has them
-  buildMergeMap(maraton_marathonConfig);
+  // Merge groups (merged classes), as on every page
+  buildMergeMap(await loadMergeSource(competitionId));
+  if (currentLoadToken !== marathonResultsLoadToken) return;
   maraton_equipages = ensureMergeDecorations(maraton_equipages);
 
   // Setup UI
