@@ -9,7 +9,7 @@ import {
 } from '@firebase/rules-unit-testing';
 import { doc, setDoc } from 'firebase/firestore';
 
-const PROJECT_ID = process.env.GCLOUD_PROJECT || 'combined-driving';
+const PROJECT_ID = process.env.GCLOUD_PROJECT || 'demo-combined-driving';
 const APP_ID = 'drivelive';
 const COMP_ID = 'storage-comp';
 const HAS_EMULATORS = !!process.env.FIRESTORE_EMULATOR_HOST && !!process.env.FIREBASE_STORAGE_EMULATOR_HOST;

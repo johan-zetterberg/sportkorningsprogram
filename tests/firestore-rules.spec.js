@@ -23,7 +23,7 @@ import {
   writeBatch
 } from 'firebase/firestore';
 
-const PROJECT_ID = process.env.GCLOUD_PROJECT || 'combined-driving';
+const PROJECT_ID = process.env.GCLOUD_PROJECT || 'demo-combined-driving';
 const APP_ID = 'drivelive';
 const COMP_ID = 'comp-1';
 const START_NO = '101';
@@ -1270,5 +1270,6 @@ test('a co-admin in admins[] cannot take ownership or delete the competition', {
 });
 
 test('rules test environment is using the intended project id', { skip: !HAS_EMULATOR }, () => {
-  assert.equal(PROJECT_ID, 'combined-driving');
+  // A demo project (scripts/run-firestore-rules-tests.mjs): never the real one
+  assert.equal(PROJECT_ID, 'demo-combined-driving');
 });

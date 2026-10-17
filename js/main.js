@@ -20,7 +20,11 @@ const globalState = {
 };
 
 import { db, appId } from './config/firebase-config.js';
+import { installErrorReporter } from './utils/errorReporter.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+
+// Uncaught errors are reported (no personal data, see errorReportUtils.js)
+installErrorReporter({ getCompetitionId: () => getGlobalState('currentCompetition')?.id || '' });
 
 const adminRoleCache = new Map();
 const emailRoleCache = new Map();

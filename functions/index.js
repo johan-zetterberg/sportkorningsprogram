@@ -1011,6 +1011,41 @@ export const getDriverContacts = onCall(async (request) => {
     return { contacts: buildDriverContacts(officials, privateById) };
 });
 
+// Uncaught errors from the browser (js/utils/errorReporter.js), logged so they
+// show in Cloud Logging and Error Reporting. The client sends no personal data;
+// texts are shortened and e-mail addresses removed here as well. A cap per
+// instance and minute keeps a broken page from filling the logs.
+const CLIENT_ERROR_LIMIT_PER_MINUTE = 60;
+let clientErrorWindow = { start: 0, count: 0 };
+export const reportClientError = onCall((request) => {
+    const now = Date.now();
+    if (now - clientErrorWindow.start > 60000) clientErrorWindow = { start: now, count: 0 };
+    if (++clientErrorWindow.count > CLIENT_ERROR_LIMIT_PER_MINUTE) return { logged: false };
+
+    const clip = (value, max) => String(value ?? '')
+        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[e-post]')
+        .slice(0, max);
+    const d = request.data || {};
+    const entry = {
+        kind: clip(d.kind, 20),
+        page: clip(d.page, 60),
+        competitionId: clip(d.competitionId, 64),
+        appVersion: clip(d.appVersion, 20),
+        engineVersion: clip(d.engineVersion, 20),
+        signedIn: !!request.auth?.uid,
+        userAgent: clip(request.rawRequest?.headers?.['user-agent'], 200)
+    };
+    const message = clip(d.message, 500) || 'Okänt fel';
+    const stack = clip(d.stack, 4000);
+    // A JavaScript stack in the message lets Error Reporting group the errors
+    const name = clip(d.name, 60) || 'Error';
+    const text = stack && stack.includes('\n') && !stack.startsWith(name)
+        ? `${name}: ${message}\n${stack}`
+        : (stack || `${name}: ${message}`);
+    logger.error(`[klientfel ${entry.appVersion} #${entry.page}] ${text}`, entry);
+    return { logged: true };
+});
+
 export const submitVolunteerSignup = onCall(async (request) => {
     const competitionId = String(request.data?.competitionId || '').trim();
     const honeypot = String(request.data?.website || '').trim();

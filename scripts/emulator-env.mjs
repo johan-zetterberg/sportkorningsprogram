@@ -1,5 +1,5 @@
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, delimiter } from 'node:path';
 import { spawn } from 'node:child_process';
 
 // Gemensamt för skripten som startar Firebase-emulatorerna (de kräver Java).
@@ -7,10 +7,14 @@ import { spawn } from 'node:child_process';
 export const isWindows = process.platform === 'win32';
 export const firebaseCommand = isWindows ? 'firebase.cmd' : 'firebase';
 
+const javaExeName = isWindows ? 'java.exe' : 'java';
+
 function findJavaHome() {
-  if (process.env.JAVA_HOME && existsSync(join(process.env.JAVA_HOME, 'bin', 'java.exe'))) {
+  if (process.env.JAVA_HOME && existsSync(join(process.env.JAVA_HOME, 'bin', javaExeName))) {
     return process.env.JAVA_HOME;
   }
+  // Linux/macOS (e.g. GitHub Actions): Java on PATH is used as it is
+  if (!isWindows) return null;
 
   const candidates = [
     'C:\\Program Files\\Eclipse Adoptium',
@@ -63,6 +67,11 @@ export function run(command, args, env) {
 export async function getEmulatorEnv(scriptName) {
   const javaHome = findJavaHome();
 
+  if (!javaHome && !isWindows) {
+    const code = await run('java', ['-version'], process.env);
+    if (code === 0) return { ...process.env };
+  }
+
   if (!javaHome) {
     console.error('Kunde inte hitta Java-installationen automatiskt.');
     console.error(`Installera Java eller satt JAVA_HOME innan du kör ${scriptName}.`);
@@ -72,10 +81,10 @@ export async function getEmulatorEnv(scriptName) {
   const env = {
     ...process.env,
     JAVA_HOME: javaHome,
-    PATH: `${join(javaHome, 'bin')};${process.env.PATH || ''}`
+    PATH: `${join(javaHome, 'bin')}${delimiter}${process.env.PATH || ''}`
   };
 
-  const javaCheckCode = await run(isWindows ? 'java.exe' : 'java', ['-version'], env);
+  const javaCheckCode = await run(javaExeName, ['-version'], env);
 
   if (javaCheckCode !== 0) {
     console.error(`Java hittades i ${javaHome} men kunde inte startas.`);

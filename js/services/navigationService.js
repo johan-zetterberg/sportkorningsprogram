@@ -121,8 +121,8 @@ export async function navigateTo(hash) {
   const routeHash = normalizedHash.split('?')[0];
   const pageKey = routeHash.substring(1) || 'hub';
   const pageId = `page-${pageKey}`;
-  localStorage.setItem('lastPageKey', pageKey);
-
+  // Storage can be blocked (strict private mode): navigation must still work
+  try { localStorage.setItem('lastPageKey', pageKey); } catch (_) { }
   try { localStorage.setItem('lastPageId', routeHash || '#hub'); } catch (_) { }
 
   if (pageKey !== 'hub') {

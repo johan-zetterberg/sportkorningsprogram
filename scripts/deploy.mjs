@@ -120,7 +120,7 @@ if (targets.includes('hosting')) {
   mustRun('npm run build:css', 'CSS build');
   mustRun('node scripts/bump-service-worker-version.cjs', 'Service-worker bump');
   const version = fs.readFileSync(path.join(ROOT, 'service-worker.js'), 'utf8').match(/driving-app-v(\d+)/)?.[1];
-  mustRun('git add service-worker.js css/tailwind.css', 'git add');
+  mustRun('git add service-worker.js js/appVersion.js css/tailwind.css', 'git add');
   mustRun(`git commit -q -m "chore(deploy): service worker v${version}"`, 'Deploy commit');
 }
 
