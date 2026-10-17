@@ -1,4 +1,6 @@
 import { defineConfig, devices } from '@playwright/test';
+import os from 'node:os';
+import path from 'node:path';
 
 const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:5500';
 
@@ -6,6 +8,9 @@ export default defineConfig({
   testDir: './tests',
   testMatch: 'browser-smoke.spec.js',
   timeout: 120000,
+  // Videos and traces (recorded for every test) outside the project folder: a
+  // synced folder (OneDrive) uploads every file and slows the run down
+  outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || path.join(os.tmpdir(), 'drivelive-test-results'),
   expect: {
     timeout: 10000
   },
