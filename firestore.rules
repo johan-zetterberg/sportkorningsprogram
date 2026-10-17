@@ -103,6 +103,27 @@ service cloud.firestore {
         || hasRoleEmailAccess(appId, compId, 'admin');
     }
 
+    // The roles of canReadCompetitionStaffDocs from one look at the account's
+    // admins doc and roleEmails doc (no owner/global admin check: callers add
+    // canAdminThisArtifactsComp). Cheaper where the expression limit is tight.
+    function hasStaffRoleInComp(appId, compId) {
+      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+      let adminPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid);
+      let email = hasVerifiedEmail() ? request.auth.token.email.lower() : '__no_email__';
+      let rolePath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(email);
+      return request.auth != null
+        && (
+          (exists(adminPath) && (
+            get(adminPath).data.get('role', 'admin') in staffRoles
+            || (get(adminPath).data.get('roles', []) is list && get(adminPath).data.get('roles', []).hasAny(staffRoles))
+          ))
+          || (email != '__no_email__' && exists(rolePath) && (
+            get(rolePath).data.get('role', '') in staffRoles
+            || (get(rolePath).data.get('roles', []) is list && get(rolePath).data.get('roles', []).hasAny(staffRoles))
+          ))
+        );
+    }
+
     function canReadCompetitionStaffDocs(appId, compId) {
       return request.auth != null
         && (
@@ -302,7 +323,17 @@ service cloud.firestore {
         // Volunteers' contact details (phone, email, emergency contact)
         || pathStr.matches(comp + 'volunteerSignups($|/.*)')
         // Recalculation log (who ran it)
-        || pathStr.matches(comp + 'maintenanceRuns($|/.*)');
+        || pathStr.matches(comp + 'maintenanceRuns($|/.*)')
+        // Horse temperatures (health data): driver, officials and admins only
+        || pathStr.matches(comp + 'horseTemperatures($|/.*)');
+    }
+
+    // The driver's own temperature entries: only the temperature map (one
+    // entry per horse, at most 12) and its timestamp
+    function isDriverTemperatureData(data) {
+      return (!('horseTemperatures' in data)
+          || (data.horseTemperatures is map && data.horseTemperatures.size() <= 12))
+        && (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
     }
 
     function hasPublicAudience(data) {
@@ -576,22 +607,59 @@ service cloud.firestore {
             && hasExplicitRoleInComp(appId, compId, 'speaker')
           ) ||
           (
-             // Drivers: notes for the speaker and the temperatures they take.
-             // The declaration (groom, carriage, club, horses) is saved by the
-             // updateEquipageDeclaration function, which checks the lock before
-             // the start, the lengths, and keeps the vet's data on the horses
+             // Drivers: notes for the speaker. The declaration (groom,
+             // carriage, club, horses) is saved by the updateEquipageDeclaration
+             // function, which checks the lock before the start, the lengths,
+             // and keeps the vet's data on the horses. Temperatures are not
+             // public and live in horseTemperatures/{equipageId} (below)
              request.resource.data.diff(resource.data).affectedKeys().hasOnly(
-               ['speakerNotes', 'horseTemperatures', 'lastUpdated', 'updatedAt']
+               ['speakerNotes', 'lastUpdated', 'updatedAt']
              )
-             // Temperatures the driver takes (portal): a map per horse
-             && (!('horseTemperatures' in request.resource.data)
-               || (request.resource.data.horseTemperatures is map && request.resource.data.horseTemperatures.size() <= 12))
              && (!('speakerNotes' in request.resource.data)
                || (request.resource.data.speakerNotes is string && request.resource.data.speakerNotes.size() <= 2000))
              && isCompetitionOpen(appId, compId)
              && canSelfServiceEquipage(appId, compId, equipageId)
           )
         );
+    }
+
+    // Horse temperatures (doc id = start number, as equipages): health data,
+    // so not public. The competition's officials read them (the vet page is
+    // open to every official role), the driver reads and enters their own.
+    // Admins enter them for the driver (portal admin mode); the driver only
+    // while the competition is not archived (manualLockdown does not stop them:
+    // temperatures are taken during the competition)
+    // The cheap checks come first: canReadCompetitionStaffDocs asks each role
+    // in turn and, with the public-path rules above, runs past the rules'
+    // limit of 1000 evaluated expressions per request.
+    match /artifacts/{appId}/public/data/competitions/{compId}/horseTemperatures/{equipageId} {
+      allow read: if request.auth != null
+        && (
+          canSelfServiceEquipage(appId, compId, equipageId)
+          || hasStaffRoleInComp(appId, compId)
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow create: if request.auth != null
+        && (
+          (
+            canSelfServiceEquipage(appId, compId, equipageId)
+            && request.resource.data.keys().hasOnly(['horseTemperatures', 'updatedAt'])
+            && isDriverTemperatureData(request.resource.data)
+            && isCompetitionOpen(appId, compId)
+          )
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow update: if request.auth != null
+        && (
+          (
+            canSelfServiceEquipage(appId, compId, equipageId)
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['horseTemperatures', 'updatedAt'])
+            && isDriverTemperatureData(request.resource.data)
+            && isCompetitionOpen(appId, compId)
+          )
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId}/equipagePrivate/{equipageId} {

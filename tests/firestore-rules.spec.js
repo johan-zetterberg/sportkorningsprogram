@@ -11,6 +11,7 @@ import {
   collection,
   deleteDoc,
   doc,
+  FieldPath,
   getDoc,
   getDocs,
   orderBy,
@@ -426,11 +427,16 @@ test('drivers cannot write their horse entries directly (vet results live there)
   // The declaration goes through updateEquipageDeclaration (lock before the start, lengths)
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { groom: 'Anna' }));
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { speakerNotes: 'x'.repeat(2001) }));
-  // Their horses' temperatures they may enter
-  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-horse-1')), {
+  // Temperatures are not public: not on the equipage document any more
+  await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), {
     horseTemperatures: { SE001: { '2026-10-13_morning': { temperatureC: 37.8 } } }
   }));
-  await assertFails(updateDoc(doc(db, compPath('equipages/eq-horse-1')), { horseTemperatures: 'x' }));
+  // ...but in their own private document
+  await assertSucceeds(setDoc(doc(db, compPath('horseTemperatures/eq-horse-1')), {
+    horseTemperatures: { SE001: { '2026-10-13_morning': { temperatureC: 37.8 } } },
+    updatedAt: serverTimestamp()
+  }, { merge: true }));
+  await assertFails(setDoc(doc(db, compPath('horseTemperatures/eq-horse-1')), { horseTemperatures: 'x' }, { merge: true }));
 });
 
 test('the declaration cannot be changed directly; temperatures stay open while locked', { skip: !HAS_EMULATOR }, async () => {
@@ -443,13 +449,80 @@ test('the declaration cannot be changed directly; temperatures stay open while l
   const db = testEnv.authenticatedContext('lock-driver', { email_verified: true, email: 'lock-driver@example.com' }).firestore();
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { groom: 'Anna' }));
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { carriage: 'Ny vagn' }));
-  await assertSucceeds(updateDoc(doc(db, compPath('equipages/eq-lock-1')), {
+  await assertSucceeds(setDoc(doc(db, compPath('horseTemperatures/eq-lock-1')), {
     horseTemperatures: { SE002: { '2026-10-13_morning': { temperatureC: 37.6 } } }
-  }));
+  }, { merge: true }));
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), compPath('config/competitionMeta')), { manualLockdown: false });
   });
   await assertFails(updateDoc(doc(db, compPath('equipages/eq-lock-1')), { groom: 'Anna' }));
+});
+
+test('horse temperatures: owner driver, officials and admins only; the driver not once archived', { skip: !HAS_EMULATOR }, async () => {
+  const temps = { SE001: { '2026-10-13_morning': { temperatureC: 37.8 } } };
+  await seedCompetitionRole('temp-admin', 'admin', 'temp-admin@example.com');
+  await seedCompetitionRole('temp-speaker', 'speaker', 'temp-speaker@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('equipages/201')), { startNumber: 201 });
+    await setDoc(doc(db, compPath('equipagePrivate/201')), { email: 'temp-owner@example.com' });
+    await setDoc(doc(db, compPath('equipages/202')), { startNumber: 202 });
+    await setDoc(doc(db, compPath('equipagePrivate/202')), { email: 'temp-other@example.com' });
+    await setDoc(doc(db, compPath('horseTemperatures/201')), { horseTemperatures: temps });
+  });
+  const tempDoc = (db, id = '201') => doc(db, compPath(`horseTemperatures/${id}`));
+  const slotPath = (slot) => new FieldPath('horseTemperatures', 'SE001', slot);
+
+  // Public: neither anonymous nor any signed-in account
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(tempDoc(anonymousDb)));
+  await assertFails(getDocs(collection(anonymousDb, compPath('horseTemperatures'))));
+  const publicDb = testEnv.authenticatedContext('temp-public', { email_verified: true, email: 'temp-public@example.com' }).firestore();
+  await assertFails(getDoc(tempDoc(publicDb)));
+
+  // Another driver: not this equipage's temperatures
+  const otherDb = testEnv.authenticatedContext('temp-other', { email_verified: true, email: 'temp-other@example.com' }).firestore();
+  await assertFails(getDoc(tempDoc(otherDb)));
+  await assertFails(updateDoc(tempDoc(otherDb), slotPath('2026-10-13_evening'), { temperatureC: 38 }));
+  await assertFails(setDoc(tempDoc(otherDb), { horseTemperatures: temps }, { merge: true }));
+  // ...but their own (a new document)
+  await assertSucceeds(setDoc(tempDoc(otherDb, '202'), { horseTemperatures: temps, updatedAt: serverTimestamp() }, { merge: true }));
+
+  // The owner: per-slot writes and reads, not the whole collection, nothing else
+  const ownerDb = testEnv.authenticatedContext('temp-owner', { email_verified: true, email: 'temp-owner@example.com' }).firestore();
+  await assertSucceeds(updateDoc(tempDoc(ownerDb), slotPath('2026-10-13_evening'), { temperatureC: 38.1 }, 'updatedAt', serverTimestamp()));
+  const ownSnap = await assertSucceeds(getDoc(tempDoc(ownerDb)));
+  assert.equal(ownSnap.data().horseTemperatures.SE001['2026-10-13_evening'].temperatureC, 38.1);
+  await assertFails(getDocs(collection(ownerDb, compPath('horseTemperatures'))));
+  await assertFails(updateDoc(tempDoc(ownerDb), { note: 'x' }));
+  const tooMany = Object.fromEntries(Array.from({ length: 13 }, (_, i) => [`H${i}`, {}]));
+  await assertFails(updateDoc(tempDoc(ownerDb), { horseTemperatures: tooMany }));
+  await assertFails(deleteDoc(tempDoc(ownerDb)));
+
+  // Officials (the vet page is open to every official role) read, do not write
+  const speakerDb = testEnv.authenticatedContext('temp-speaker', { email_verified: true, email: 'temp-speaker@example.com' }).firestore();
+  await assertSucceeds(getDoc(tempDoc(speakerDb)));
+  await assertSucceeds(getDocs(collection(speakerDb, compPath('horseTemperatures'))));
+  await assertFails(updateDoc(tempDoc(speakerDb), slotPath('2026-10-14_morning'), { temperatureC: 37.5 }));
+  // ...also an official by role email
+  await seedRoleEmail('temp-marathon@example.com', ['marathon']);
+  const roleEmailDb = testEnv.authenticatedContext('temp-marathon', { email_verified: true, email: 'temp-marathon@example.com' }).firestore();
+  await assertSucceeds(getDocs(collection(roleEmailDb, compPath('horseTemperatures'))));
+
+  // Admins read, list and write (portal admin mode)
+  const adminDb = testEnv.authenticatedContext('temp-admin', { email_verified: true, email: 'temp-admin@example.com' }).firestore();
+  await assertSucceeds(getDoc(tempDoc(adminDb)));
+  await assertSucceeds(getDocs(collection(adminDb, compPath('horseTemperatures'))));
+  await assertSucceeds(updateDoc(tempDoc(adminDb), slotPath('2026-10-14_morning'), { temperatureC: 37.5 }));
+
+  // Archived (locked) competition: the driver reads but no longer writes
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath()), { locked: true }, { merge: true });
+  });
+  await assertSucceeds(getDoc(tempDoc(ownerDb)));
+  await assertFails(updateDoc(tempDoc(ownerDb), slotPath('2026-10-14_evening'), { temperatureC: 37.9 }));
+  await assertSucceeds(updateDoc(tempDoc(adminDb), slotPath('2026-10-14_evening'), { temperatureC: 37.9 }));
+  await assertSucceeds(deleteDoc(tempDoc(adminDb, '202')));
 });
 
 test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
@@ -1035,7 +1108,7 @@ test('volunteer signups and the recalculation log are readable only by competiti
 });
 
 test('protected competition collections cannot be listed anonymously', { skip: !HAS_EMULATOR }, async () => {
-  const protectedCollections = ['equipagePrivate', 'roleEmails', 'judges', 'officials', 'assignments', 'admins', 'auditLog', 'volunteerSignups', 'maintenanceRuns'];
+  const protectedCollections = ['equipagePrivate', 'roleEmails', 'judges', 'officials', 'assignments', 'admins', 'auditLog', 'volunteerSignups', 'maintenanceRuns', 'horseTemperatures'];
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     for (const name of protectedCollections) {

@@ -1,5 +1,5 @@
 import { getGlobalState, setGlobalState } from '../../main.js';
-import { getDoc, doc, updateDoc, deleteField, FieldPath } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { autoClaimEquipages } from '../../services/authService.js';
@@ -9,6 +9,7 @@ import { getPrecisionResultForEquipage } from '../../services/precisionService.j
 import { listenForDressageProtocols } from '../../services/dressageService.js';
 import { getDressageResultsForEquipage } from '../../services/dressageService.js';
 import { getEquipages } from '../../services/equipageService.js';
+import { getHorseTemperatures, saveHorseTemperatureChanges } from '../../services/horseTemperatureService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getMarathonObstacleResults } from '../../services/marathonService.js';
 import { renderDressageContent } from '../../ui/dressageModal.js';
@@ -43,7 +44,7 @@ import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.j
 import { getCompetitionDocuments, getCompetitionMessages, getDriverInbox, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
 import { listenForConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
-import { getOfficials } from '../../services/adminService.js';
+import { getDriverContacts, getOfficials } from '../../services/adminService.js';
 import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
@@ -718,7 +719,9 @@ async function renderDashboard(container, compId, startNumber, user) {
             documents,
             messages,
             officials,
-            judges
+            judges,
+            horseTemperatures,
+            driverContacts
         ] = await Promise.all([
             getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${compId}`)).then(d => d.data()),
             getComputedResultForEquipage(compId, startNumber),
@@ -739,17 +742,36 @@ async function renderDashboard(container, compId, startNumber, user) {
             // driver, and the officials panel is then left out. Judge positions
             // come from the protocols, names from the protocols too
             getOfficials(compId).catch(() => []),
-            getJudges(compId).catch(() => [])
+            getJudges(compId).catch(() => []),
+            // Not public: readable by the driver, officials and admins (rules)
+            getHorseTemperatures(compId, startNumber).catch(() => ({})),
+            // The contact persons the admin marked for drivers ([] when the
+            // signed-in account is not a driver in the competition)
+            getDriverContacts(compId)
         ]);
         // Left the portal (or opened another dashboard) while loading: start no listeners
         if (mySeq !== dashboardSeq) return;
 
         const allJudges = [...(judges || []), ...(officials || [])];
+        // Contact persons: from the server for a driver. Staff and admins
+        // (portal admin mode, not drivers) see the same selection from the
+        // officials they can read, so they see what the drivers see
+        const contactPersons = (driverContacts || []).length
+            ? driverContacts
+            : (officials || []).filter(o => o?.driverContact?.show === true).map(o => ({
+                name: o.name,
+                role: o.role,
+                phone: o.driverContact.phone ? (o.mobile || o.phone || '') : '',
+                email: o.driverContact.email ? (o.email || '') : ''
+            }));
         const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
         const horseTemperatureConfig = normalizeHorseTemperatureConfig(horseTemperatureConfigRaw);
         const horseTemperatureSlots = buildHorseTemperatureSlots(compConfig?.dates, horseTemperatureConfig);
 
         const eq = equipages.find(e => String(e.startNumber) === String(startNumber)) || {};
+        // From the private temperature document; any old copy on the public
+        // equipage document is ignored
+        eq.horseTemperatures = horseTemperatures || {};
         const canSelfEdit = canSelfServiceEditEquipage(user, eq, privateEquipage);
         const isAdminUser = user?.role === 'admin' || user?.role === 'superadmin';
         const canEditTemperatures = canSelfEdit || isAdminUser;
@@ -1083,26 +1105,23 @@ async function renderDashboard(container, compId, startNumber, user) {
                 button.textContent = 'Sparar...';
 
                 try {
-                    const equipageRef = doc(db, `artifacts/${appId}/public/data/competitions/${compId}/equipages/${startNumber}`);
                     // Temperatures under a horse's older key (its name, from
                     // before it had an id) move to the stable key, from the
                     // server's current copy, so stranded keys do not pile up
-                    const latest = await getDoc(equipageRef).then(s => s.data() || {}).catch(() => eq);
+                    const latestTemperatures = await getHorseTemperatures(compId, startNumber).catch(() => eq.horseTemperatures || {});
                     const skip = new Set(writes.map(w => `${w.horseKey}|${w.slotId}`));
-                    const migration = buildHorseTemperatureKeyMigration({ ...eq, horseTemperatures: latest.horseTemperatures || {} }, skip);
+                    const migration = buildHorseTemperatureKeyMigration({ ...eq, horseTemperatures: latestTemperatures }, skip);
 
-                    const pathArgs = [];
-                    migration.copies.forEach(c => pathArgs.push(new FieldPath('horseTemperatures', c.horseKey, c.slotId), c.record));
-                    writes.forEach(w => pathArgs.push(new FieldPath('horseTemperatures', w.horseKey, w.slotId), w.record || deleteField()));
-                    migration.removeKeys.forEach(key => pathArgs.push(new FieldPath('horseTemperatures', key), deleteField()));
-
-                    if (pathArgs.length) {
-                        await updateDoc(equipageRef, pathArgs[0], pathArgs[1], ...pathArgs.slice(2));
-                    }
+                    const changes = [
+                        ...migration.copies,
+                        ...writes,
+                        ...migration.removeKeys.map(key => ({ horseKey: key, record: null }))
+                    ];
+                    await saveHorseTemperatureChanges(compId, startNumber, changes);
                     // Show what is on the server now, the secretariat's values included
-                    const fresh = await getDoc(equipageRef).then(s => s.data()).catch(() => null);
+                    const fresh = await getHorseTemperatures(compId, startNumber).catch(() => null);
                     if (fresh) {
-                        eq.horseTemperatures = fresh.horseTemperatures || {};
+                        eq.horseTemperatures = fresh;
                     } else {
                         // Not readable now: show the saved slots on the local copy
                         const local = JSON.parse(JSON.stringify(eq.horseTemperatures || {}));
@@ -1114,7 +1133,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         migration.removeKeys.forEach(key => { delete local[key]; });
                         eq.horseTemperatures = local;
                     }
-                    showAlert(pathArgs.length ? 'Temperaturer sparade.' : 'Inga ändringar att spara.', true);
+                    showAlert(changes.length ? 'Temperaturer sparade.' : 'Inga ändringar att spara.', true);
                     renderInfo();
                 } catch (error) {
                     console.error('Could not save horse temperatures', error);
@@ -1221,46 +1240,22 @@ async function renderDashboard(container, compId, startNumber, user) {
                         </div>
                     </div>
 
-                    ${allJudges.length ? `
+                    ${contactPersons.length ? `
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
                         <h3 class="text-lg font-bold mb-4 border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('officials', compConfig?.isInternational)}</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            ${allJudges.map(j => {
-                    let roleStr = '';
-                    if (j.role) {
-                        roleStr = j.role;
-                    } else if (j.roles && j.roles.length) {
-                        const disciplineMap = {
-                            'dressage': 'Dressyr',
-                            'precision': 'Precision',
-                            'marathon': 'Maraton',
-                            'overjudge': 'Överdomare'
-                        };
-                        roleStr = j.roles.map(r => {
-                            const discName = disciplineMap[r.discipline] || r.discipline;
-                            if (r.discipline === 'dressage' && r.position) {
-                                return `Dressyr (${r.position})`;
-                            }
-                            return discName;
-                        }).filter(Boolean).join(', ');
-                    } else {
-                        roleStr = j.position || j.title || 'Funktionär';
-                    }
-
-                    const contactInfo = [j.email, j.phone, j.mobile, j.telephone].filter(Boolean).join(' • ');
-
-                    return `
+                            ${contactPersons.map(c => `
                                 <div class="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded border dark:border-gray-700">
                                     <div class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold shrink-0">
-                                        ${escapeHtml((j.name || 'F').charAt(0))}
+                                        ${escapeHtml((c.name || 'F').charAt(0))}
                                     </div>
                                     <div class="overflow-hidden">
-                                        <div class="font-bold text-gray-900 dark:text-white text-sm truncate" title="${escapeAttr(j.name || '')}">${escapeHtml(j.name || '')}</div>
-                                        <div class="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">${escapeHtml(roleStr)}</div>
-                                        ${contactInfo ? `<div class="text-xs text-gray-400 dark:text-gray-500 truncate" title="${escapeAttr(contactInfo)}">${escapeHtml(contactInfo)}</div>` : ''}
+                                        <div class="font-bold text-gray-900 dark:text-white text-sm truncate" title="${escapeAttr(c.name || '')}">${escapeHtml(c.name || '')}</div>
+                                        ${c.role ? `<div class="text-xs text-gray-600 dark:text-gray-400 font-medium mb-1">${escapeHtml(c.role)}</div>` : ''}
+                                        ${c.phone ? `<div class="text-xs"><a class="text-blue-600 dark:text-blue-400 hover:underline" href="tel:${escapeAttr(String(c.phone).replace(/[^\d+]/g, ''))}">${escapeHtml(c.phone)}</a></div>` : ''}
+                                        ${c.email ? `<div class="text-xs truncate"><a class="text-blue-600 dark:text-blue-400 hover:underline" href="mailto:${escapeAttr(c.email)}">${escapeHtml(c.email)}</a></div>` : ''}
                                     </div>
-                                </div>`;
-                }).join('')}
+                                </div>`).join('')}
                         </div>
                     </div>` : ''}
 

@@ -12,6 +12,7 @@ import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { buildDeclarationUpdate } from "./src/declarationUtils.js";
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
+import { buildDriverContacts } from "./src/driverContacts.js";
 import {
     equipageWriteAffectsResults,
     marathonWriteAffectsResults,
@@ -977,6 +978,37 @@ export const getDriverInbox = onCall(async (request) => {
         .filter(isDocumentForDriver)
         .map(toPlainTimestamps);
     return { startNumbers, messages, documents };
+});
+
+// The competition's contact persons for drivers: the officials the admin
+// marked, with the contact details chosen for each. Officials and their
+// private details are not readable by drivers; a driver of the competition
+// (verified email matched to an equipage, as for getDriverInbox) gets this.
+export const getDriverContacts = onCall(async (request) => {
+    if (!request.auth?.uid) {
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    }
+    const authEmail = String(request.auth.token?.email || '').trim().toLowerCase();
+    if (!authEmail || request.auth.token?.email_verified !== true) {
+        throw new HttpsError('permission-denied', 'Bekräfta din e-postadress för att se kontaktpersonerna.');
+    }
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltig tävling.');
+    }
+    const comp = await getCompetitionArtifactsDoc(competitionId);
+    if (!comp) throw new HttpsError('not-found', 'Tävlingen finns inte.');
+
+    const ownSnap = await comp.ref.collection('equipagePrivate').where('email', '==', authEmail).limit(1).get();
+    if (ownSnap.empty) {
+        throw new HttpsError('permission-denied', 'Inget ekipage i tävlingen är kopplat till din e-postadress.');
+    }
+
+    const officialsSnap = await comp.ref.collection('officials').where('driverContact.show', '==', true).get();
+    const officials = officialsSnap.docs.map(d => ({ id: d.id, data: d.data() }));
+    const privateDocs = await Promise.all(officials.map(o => comp.ref.collection('officialsPrivate').doc(o.id).get()));
+    const privateById = new Map(privateDocs.filter(d => d.exists).map(d => [d.id, d.data()]));
+    return { contacts: buildDriverContacts(officials, privateById) };
 });
 
 export const submitVolunteerSignup = onCall(async (request) => {

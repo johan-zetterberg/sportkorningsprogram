@@ -149,6 +149,23 @@ export function unloadOfficialsTab() {
     delete window.exportOverviewCsv;
 }
 
+// "Contact person for drivers" (shown in the driver portal by getDriverContacts)
+function getDriverContact(container) {
+    const show = !!container.querySelector('#newOffDriverContact')?.checked;
+    return {
+        show,
+        phone: show && !!container.querySelector('#newOffDriverContactPhone')?.checked,
+        email: show && !!container.querySelector('#newOffDriverContactEmail')?.checked
+    };
+}
+
+function setDriverContact(container, value) {
+    const set = (id, on) => { const el = container.querySelector(id); if (el) el.checked = !!on; };
+    set('#newOffDriverContact', value?.show);
+    set('#newOffDriverContactPhone', value?.show && value?.phone);
+    set('#newOffDriverContactEmail', value?.show && value?.email);
+}
+
 export function renderOfficialsTab(container, competition) {
     if (!container || !competition?.id) return;
     activeOfficialsContainer = container;
@@ -465,6 +482,15 @@ function renderPeopleView(_officials = officials, competition = {}) {
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="speaker" class="rounded"> Speaker</label>
                             </div>
                             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Styr vilka sidor personen får komma åt. Kan vara tomt för funktionärer utan inloggningsbehörighet.</p>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold uppercase text-gray-600 dark:text-gray-300 mb-1">Kontaktperson för kuskar</label>
+                            <div class="flex flex-wrap gap-3 rounded border dark:border-gray-600 bg-white dark:bg-gray-800 p-3 text-sm dark:text-gray-200">
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" id="newOffDriverContact" class="rounded"> Visa för kuskarna i förarportalen</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" id="newOffDriverContactPhone" class="rounded"> med telefon</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" id="newOffDriverContactEmail" class="rounded"> med e-post</label>
+                            </div>
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Bara inloggade kuskar med ett ekipage i tävlingen ser namn, titel och de uppgifter du kryssar i. Övriga funktionärer visas inte för kuskarna.</p>
                         </div>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <input type="text" id="newOffRole" placeholder="Titel / Visningsroll (t.ex. Domarordförande)" class="p-2 border rounded dark:bg-gray-600 dark:border-gray-500 dark:text-white dark:placeholder-gray-400">
@@ -1120,6 +1146,7 @@ function bindContentEvents(container, competition) {
             container.querySelector('#newOffNotes').value = '';
             container.querySelector('#newOffRole').value = '';
             setSelectedSystemRoles(container, []);
+            setDriverContact(container, null);
             form.classList.add('hidden');
         };
     }
@@ -1146,6 +1173,7 @@ function bindContentEvents(container, competition) {
             icePhone: container.querySelector('#newOffIcePhone').value,
             diet: container.querySelector('#newOffDiet').value,
             shirtSize: container.querySelector('#newOffShirt').value,
+            driverContact: getDriverContact(container),
         };
 
         if (signupId) {
@@ -1169,6 +1197,7 @@ function bindContentEvents(container, competition) {
         container.querySelector('#newOffIcePhone').value = '';
         container.querySelector('#newOffDiet').value = '';
         container.querySelector('#newOffShirt').value = '';
+        setDriverContact(container, null);
 
         container.querySelector('#editOfficialId').value = '';
         container.querySelector('#linkSignupId').value = '';
@@ -1195,6 +1224,7 @@ function bindContentEvents(container, competition) {
                 container.querySelector('#newOffIcePhone').value = person.icePhone || '';
                 container.querySelector('#newOffDiet').value = person.diet || '';
                 container.querySelector('#newOffShirt').value = person.shirtSize || '';
+                setDriverContact(container, person.driverContact);
 
                 container.querySelector('#formTitle').textContent = 'Redigera Funktionär';
                 container.querySelector('#btnSaveNewOfficial').textContent = 'Uppdatera';

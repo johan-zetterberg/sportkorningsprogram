@@ -334,6 +334,9 @@ export async function deleteEquipage(competitionId, equipageId) {
     const batch = writeBatch(db);
     batch.delete(equipageRef);
     batch.delete(privateRef);
+    // Its horse temperatures (private collection, same id): a new equipage
+    // with the start number would otherwise see them
+    batch.delete(getCompDocRef(competitionId, 'horseTemperatures', String(equipageId)));
     await batch.commit();
   })());
 }
@@ -442,20 +445,26 @@ export async function clearAllEquipages(competitionId) {
   return trackWrite(`Rensar alla ekipage`, (async () => {
     const publicRef = getCompCollectionRef(competitionId, 'equipages');
     const privateRef = getPrivateEquipageCollectionRef(competitionId);
-    const [publicSnap, privateSnap] = await Promise.all([
+    const temperatureRef = getCompCollectionRef(competitionId, 'horseTemperatures');
+    const [publicSnap, privateSnap, temperatureSnap] = await Promise.all([
       getDocs(publicRef),
-      getDocs(privateRef)
+      getDocs(privateRef),
+      getDocs(temperatureRef)
     ]);
-    if (publicSnap.empty && privateSnap.empty) return 0;
+    if (publicSnap.empty && privateSnap.empty && temperatureSnap.empty) return 0;
 
-    // Each equipage's private doc (contact details) right before its public one.
-    // Private docs without a public one (left from earlier) come last.
+    // Each equipage's private docs (contact details, horse temperatures) right
+    // before its public one. Private docs without a public one (left from
+    // earlier) come last.
     const privateById = new Map(privateSnap.docs.map(d => [d.id, d.ref]));
+    const temperatureById = new Map(temperatureSnap.docs.map(d => [d.id, d.ref]));
     const refs = [];
     publicSnap.docs.forEach(d => {
+      if (temperatureById.has(d.id)) { refs.push(temperatureById.get(d.id)); temperatureById.delete(d.id); }
       if (privateById.has(d.id)) { refs.push(privateById.get(d.id)); privateById.delete(d.id); }
       refs.push(d.ref);
     });
+    refs.push(...temperatureById.values());
     refs.push(...privateById.values());
     // The private doc always goes first: a failure between batches can leave a
     // public equipage without its contact details, never contact details alone

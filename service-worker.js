@@ -346,6 +346,7 @@ const urlsToCache = [
   abs('/js/services/finalizationService.js'),
   abs('/js/services/firestoreService.js'),
   abs('/js/services/flagsService.js'),
+  abs('/js/services/horseTemperatureService.js'),
   abs('/js/services/listenerErrorUtils.js'),
   abs('/js/services/logosService.js'),
   abs('/js/services/marathonService.js'),

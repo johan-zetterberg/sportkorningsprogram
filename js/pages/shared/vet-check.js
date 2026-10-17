@@ -1,5 +1,6 @@
 import { getGlobalState } from '../../main.js';
 import { listenForEquipages, saveEquipage, updateEquipageFromLatest } from '../../services/equipageService.js';
+import { listenForHorseTemperatures } from '../../services/horseTemperatureService.js';
 import { getCompetitionById, getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -32,6 +33,10 @@ let competitionId = null;
 let allEquipages = [];
 let filteredEquipages = [];
 let unsubscribe = null;
+let unsubscribeTemperatures = null;
+// Start number -> temperature map, from the private horseTemperatures collection
+let temperaturesByStartNumber = new Map();
+let rawEquipages = [];
 let currentIndex = 0;
 let currentSearchTerm = '';
 let currentPhase = 'initial'; // 'initial' | 'harness' | 'restArea' | 'final'
@@ -70,11 +75,22 @@ export function load() {
 
     // includePrivate: the vet's notes are kept with the private equipage data
     unsubscribe = listenForEquipages(competitionId, update => {
-        allEquipages = Array.isArray(update) ? update : [];
+        rawEquipages = Array.isArray(update) ? update : [];
+        mergeTemperatures();
         updatePhaseTabs();
         updateDatalist();
         processData(currentSearchTerm, { fromSnapshot: true });
     }, { includePrivate: true });
+
+    // Temperatures are not on the public equipage document: merged in by
+    // start number (any old copy there is replaced, not shown)
+    unsubscribeTemperatures = listenForHorseTemperatures(competitionId, byStartNumber => {
+        temperaturesByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
+        mergeTemperatures();
+        updateQueueDisplay();
+        if (isTypingInCard()) cardRefreshPending = true;
+        else renderCard();
+    });
 
     // A card refresh held back while typing runs when the field is left
     pageContainer.addEventListener('focusout', () => {
@@ -87,9 +103,22 @@ export function load() {
     });
 }
 
+// Each equipage with its temperature map. Objects in allEquipages are updated
+// in place: filteredEquipages and the local copies saves build on point to them
+function mergeTemperatures() {
+    rawEquipages.forEach(eq => {
+        eq.horseTemperatures = temperaturesByStartNumber.get(String(eq.startNumber ?? eq.id)) || {};
+    });
+    allEquipages = rawEquipages;
+}
+
 export function __unload() {
     if (unsubscribe) unsubscribe();
     unsubscribe = null;
+    if (unsubscribeTemperatures) unsubscribeTemperatures();
+    unsubscribeTemperatures = null;
+    temperaturesByStartNumber = new Map();
+    rawEquipages = [];
     competitionId = null;
     allEquipages = [];
     filteredEquipages = [];

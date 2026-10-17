@@ -228,7 +228,7 @@ export function buildHorseTemperatureChanges(shownEquipage = {}, rows = [], meta
                 horseKey: stableKey,
                 horseName: row.horseName || '',
                 updatedAt: meta.now || new Date().toISOString(),
-                // The account id only: the equipage is public and the email is private
+                // The account id only: officials read the log, the email is private
                 updatedBy: meta.uid || ''
             }
         });

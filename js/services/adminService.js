@@ -423,3 +423,20 @@ export async function joinCompetitionAsAdmin(competitionId, pinCode, user) {
     throw new Error(message || "Kunde inte ansluta funktionarsrollen just nu.");
   }
 }
+
+/**
+ * The competition's contact persons for drivers (marked by the admin), with the
+ * contact details chosen for each. Only for a driver whose verified email is
+ * on an equipage in the competition; [] otherwise.
+ */
+export async function getDriverContacts(competitionId) {
+  if (!competitionId) return [];
+  try {
+    const callable = httpsCallable(functions, 'getDriverContacts');
+    const response = await callable({ competitionId });
+    return Array.isArray(response.data?.contacts) ? response.data.contacts : [];
+  } catch (error) {
+    console.warn('[adminService] getDriverContacts:', error?.code || error);
+    return [];
+  }
+}
