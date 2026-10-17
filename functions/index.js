@@ -13,6 +13,7 @@ import { buildDeclarationUpdate } from "./src/declarationUtils.js";
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
+import { EXPORT_FORMAT, EXPORT_FORMAT_VERSION, collectDocuments } from "./src/competitionExport.js";
 import {
     equipageWriteAffectsResults,
     marathonWriteAffectsResults,
@@ -526,6 +527,62 @@ export const deleteCompetitionData = onCall({ timeoutSeconds: 540, memory: '512M
     await tombstoneRef.set({ status: 'done', finishedAt: Date.now(), storageFilesDeleted }, { merge: true });
     logger.info('Tävling raderad', { competitionId, appId, by: request.auth.uid, storageFilesDeleted });
     return { deleted: true, storageFilesDeleted };
+});
+
+// A complete copy of a competition (all its documents, private ones too) for
+// the owner or a full admin to download: a protection against deleting the
+// wrong competition. Files in Storage are listed by name, not included.
+export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' }, async (request) => {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
+    }
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+    await assertCanMaintainResults(request, competition, 'Endast tävlingens ägare eller en full administratör får exportera tävlingen.');
+
+    const appId = competition.appId;
+    let documents = [];
+    try {
+        for (const path of [
+            `artifacts/${appId}/public/data/competitions/${competitionId}`,
+            `artifacts/${appId}/private/data/competitions/${competitionId}`,
+            `competitions/${competitionId}`
+        ]) {
+            await collectDocuments(db.doc(path), { out: documents });
+        }
+    } catch (error) {
+        logger.error('Export av tävling misslyckades', { competitionId, error: String(error?.message || error) });
+        throw new HttpsError('resource-exhausted', 'Tävlingen är för stor att exportera på det här sättet.');
+    }
+
+    let storageFiles = [];
+    try {
+        const [files] = await getStorage().bucket().getFiles({ prefix: `competitions/${competitionId}/` });
+        storageFiles = files.map(file => file.name);
+    } catch (error) {
+        logger.warn('Kunde inte lista tävlingens filer', { competitionId, error: String(error?.message || error) });
+    }
+
+    const exportData = {
+        format: EXPORT_FORMAT,
+        formatVersion: EXPORT_FORMAT_VERSION,
+        competitionId,
+        appId,
+        name: competition.data?.name || '',
+        exportedAt: new Date().toISOString(),
+        exportedBy: request.auth.uid,
+        engineVersion: RESULT_ENGINE_VERSION,
+        documentCount: documents.length,
+        documents,
+        storageFiles
+    };
+    // A callable answer has a size limit: well above a normal competition
+    if (JSON.stringify(exportData).length > 25 * 1024 * 1024) {
+        throw new HttpsError('resource-exhausted', 'Tävlingen är för stor att exportera på det här sättet.');
+    }
+    logger.info('Tävling exporterad', { competitionId, by: request.auth.uid, documents: documents.length });
+    return exportData;
 });
 
 // Owner (createdBy/ownerId) or a global admin; a competition admin role

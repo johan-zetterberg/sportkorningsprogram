@@ -860,6 +860,32 @@ test('input and result pages fit a phone screen without sideways scrolling @mobi
   expect(browserErrors).toEqual([]);
 });
 
+
+test('a competition can be downloaded as a complete backup file', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  await page.goto('/index.html#admin?tab=settings');
+  const button = page.locator('#btnExportComp');
+  await expect(button).toBeVisible({ timeout: 60000 });
+  const downloadPromise = page.waitForEvent('download', { timeout: 120000 });
+  await button.click();
+  const download = await downloadPromise;
+  expect(download.suggestedFilename()).toMatch(/^sakerhetskopia_.*\.json$/);
+  const backup = JSON.parse(readFileSync(await download.path(), 'utf8'));
+  expect(backup.format).toBe('drivelive-competition-export');
+  expect(backup.competitionId).toBe(competitionId);
+  expect(backup.documentCount).toBe(backup.documents.length);
+  const paths = backup.documents.map(d => d.path);
+  // The competition itself, its equipages, and the
+  // dressage protocols (stored below parents without data)
+  expect(paths).toContain(`artifacts/${backup.appId}/public/data/competitions/${competitionId}`);
+  expect(paths.some(p => p.includes('/equipages/'))).toBe(true);
+  // Private parts (contact details) are included too
+  expect(paths.some(p => /\/(equipagePrivate|officialsPrivate|judgesPrivate)\//.test(p))).toBe(true);
+  expect(paths.some(p => /\/dressage\/[^/]+\/protocols\//.test(p))).toBe(true);
+  await expect(page.locator('#exportCompStatus')).toContainText('dokument');
+});
+
 async function useFirebaseEmulators(page) {
   await page.addInitScript(() => {
     window.__USE_FIREBASE_EMULATORS__ = true;

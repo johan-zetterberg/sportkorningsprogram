@@ -509,3 +509,24 @@ export async function getCompetitionStatistics(competitionId) {
     precision: precisionPending
   };
 }
+
+/**
+ * Downloads a complete copy of the competition as a JSON file (exportCompetition:
+ * every document, private ones too). Returns the number of documents.
+ */
+export async function downloadCompetitionExport(competitionId, competitionName = '') {
+  const callable = httpsCallable(functions, 'exportCompetition', { timeout: 300000 });
+  const { data } = await callable({ competitionId });
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const safeName = String(competitionName || competitionId).replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60);
+  const date = new Date().toISOString().slice(0, 10);
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `sakerhetskopia_${safeName}_${date}.json`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  return data?.documentCount ?? 0;
+}
