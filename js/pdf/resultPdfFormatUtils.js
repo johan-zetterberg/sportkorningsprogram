@@ -14,11 +14,14 @@ export function formatPdfPenalty(value, {
 
 export function isWithdrawnStatus(value) {
   const normalized = String(value || '').toLowerCase();
-  return normalized.includes('struken') || normalized.includes('withdrawn');
+  return normalized.includes('struken') || normalized.includes('withdrawn') || normalized.includes('scratched');
 }
 
+// A result row withdrawn by its status or the archive's isWithdrawn
+const isWithdrawnRow = (row = {}) => row.isWithdrawn === true || isWithdrawnStatus(row.status);
+
 export function formatTotalDisciplinePdfPenalty(row = {}, disciplineKey) {
-  const withdrawn = isWithdrawnStatus(row.status);
+  const withdrawn = isWithdrawnRow(row);
   if (disciplineKey === 'dressage') {
     return formatPdfPenalty(row.dressage?.penalty, {
       eliminated: row.dressage?.eliminated,
@@ -45,7 +48,7 @@ export function formatTotalPdfPenalty(row = {}, isInternational = false) {
   const eliminatedLabel = isInternational ? 'ELIM' : 'ELIM';
   return formatPdfPenalty(row.totalPenalty, {
     eliminated: row.isEliminated,
-    withdrawn: isWithdrawnStatus(row.status),
+    withdrawn: isWithdrawnRow(row),
     eliminatedLabel
   });
 }

@@ -27,6 +27,7 @@ import {
   getPortAllowanceCm,
   statusClass,
   buildOverallStanding,
+  buildOverallStandingPerGroup,
   getToBeatInfo,
   calculatePrecisionResult,
   isPrecisionClearRound
@@ -42,7 +43,7 @@ import {
   groupPrecisionEquipagesForDisplay,
   resolvePrecisionMergeGrouping
 } from './precisionResultMerge.js';
-import { filterPrecisionEquipages } from './precisionResultFilters.js';
+import { competingPrecisionEquipages, filterPrecisionEquipages } from './precisionResultFilters.js';
 import { sortPrecisionEquipages } from './precisionResultSort.js';
 import { buildPrecisionLiveTick } from './precisionResultLive.js';
 import {
@@ -318,10 +319,25 @@ function precisionRowData(sn, placeMap) {
     : data;
 }
 
-// The overall standing (dressage + marathon + precision); for an archived
-// competition from the totals it was archived with, placed as in
-// buildOverallStanding
+// The places of the whole competing field per class/merged group: a search
+// or filter only changes the rows shown (screen, CSV, PDF), never the places
+function fieldPlaceMap() {
+  return precisionPlaceMap(competingPrecisionEquipages(precision_equipages));
+}
+
+// The overall standing of the whole competing field, placed per class/merged group
+function fieldOverallStandings() {
+  return overallStandingFor(getOverallEntries(competingPrecisionEquipages(precision_equipages))).map;
+}
+
+// The overall standing (dressage + marathon + precision) per class/merged
+// group; for an archived competition from the totals it was archived with
 function overallStandingFor(entries) {
+  return buildOverallStandingPerGroup(entries, overallStandingForGroup);
+}
+
+// One class/merged group, placed as in buildOverallStanding
+function overallStandingForGroup(entries) {
   const standing = buildOverallStanding(entries, precision_precisionMap, precision_precisionConfig);
   if (!archiveSnapshot) return standing;
   const list = standing.results.map((r) => {
@@ -482,8 +498,9 @@ function renderLiveStatusPanel() {
 
   const sn = String(activeEq.startNumber);
   const currentClass = activeEq._mergedLabel || activeEq.className;
-  const visibleInClass = precision_equipages.filter(e => (e._mergedLabel || e.className) === currentClass);
-  const overallEntries = getOverallEntries(visibleInClass);
+  const competingInClass = competingPrecisionEquipages(precision_equipages)
+    .filter(e => (e._mergedLabel || e.className) === currentClass);
+  const overallEntries = getOverallEntries(competingInClass);
   const { results, map: standingsMap } = overallStandingFor(overallEntries);
   const standings = { results, map: standingsMap };
   const myOverall = standingsMap.get(sn);
@@ -624,7 +641,8 @@ function renderLayout() {
           precision_precisionMap,
           precision_precisionConfig,
           precision_startTimes,
-          freshComp
+          freshComp,
+          { placeMap: fieldPlaceMap() }
         );
       } catch (err) {
         console.error('PDF Export Error:', err);
@@ -641,7 +659,7 @@ function renderLayout() {
       const filename = `precision_resultat_${sanitizeForFilename(comp?.name || 'tavling')}_${date}.csv`;
 
       const list = filteredSortedEquipages();
-      const placeMap = precisionPlaceMap(list);
+      const placeMap = fieldPlaceMap();
 
       const headers = [
         t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'),
@@ -715,16 +733,14 @@ function filteredSortedEquipages() {
     activeClassFilters: precision_activeClassFilters,
     precisionMap: precision_precisionMap
   });
-  const placeMap = precisionPlaceMap(list);
+  const placeMap = fieldPlaceMap();
+  let standingsMap = null;
   list = sortPrecisionEquipages(list, {
     sort: precision_sort,
     viewMode: precision_viewMode,
     getRowData: (eq) => precisionRowData(String(eq.startNumber), placeMap),
     getOverallValue: (eq) => {
-      const currentClass = eq._mergedLabel || eq.className;
-      const visibleInClass = precision_equipages.filter((candidate) => (candidate._mergedLabel || candidate.className) === currentClass);
-      const overallEntries = getOverallEntries(visibleInClass);
-      const { map: standingsMap } = overallStandingFor(overallEntries);
+      if (!standingsMap) standingsMap = fieldOverallStandings();
       return standingsMap.get(String(eq.startNumber))?.total ?? Infinity;
     },
     getStartTime: (eq) => startTimeFor(eq.startNumber, precision_startTimes) || 'ZZZZ'
@@ -738,11 +754,11 @@ function renderMobile() {
   if (!container) return;
 
   const visibleEquipages = filteredSortedEquipages();
-  const placeMap = precisionPlaceMap(visibleEquipages);
+  const placeMap = fieldPlaceMap();
 
-  // 1. Calculate starters per class for dynamic placement counts
+  // 1. Calculate starters per class for dynamic placement counts (whole field)
   const classStarters = new Map();
-  visibleEquipages.forEach(eq => {
+  competingPrecisionEquipages(precision_equipages).forEach(eq => {
     const cls = eq._mergedLabel || eq.className || 'Ok\u00e4nd Klass';
     classStarters.set(cls, (classStarters.get(cls) || 0) + 1);
   });
@@ -846,12 +862,10 @@ function renderDesktop() {
   })();
 
   const visible = filteredSortedEquipages();
-  const placeMap = precisionPlaceMap(visible);
+  const placeMap = fieldPlaceMap();
 
-  // Beräkna totalställning EN GÅNG per render
-  const overallEntries = getOverallEntries(visible);
-  const { map: standingsMap } = overallStandingFor(overallEntries);
-  const standings = standingsMap;
+  // Beräkna totalställning EN GÅNG per render (whole field, per class)
+  const standings = fieldOverallStandings();
 
   const headHTML = renderPrecisionTableHead({
     rank: t('rank'),

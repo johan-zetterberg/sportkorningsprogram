@@ -17,6 +17,7 @@ import { getMarathonTimingData, getMarathonStateDocuments, getMarathonResults, l
 import { getPrecisionResults } from './precisionService.js';
 import { generateTotalResultsPdf } from '../pdf/totalResultsPdf.js';
 import { buildArchiveRowsFromData } from './archiveRowBuilder.js';
+import { pickMergeSource } from './mergeConfigService.js';
 import {
     assertArchiveCanFinalize,
     buildArchiveCompetition,
@@ -25,6 +26,9 @@ import {
     buildFinalizeCompetitionPatch,
     buildReopenCompetitionPatch
 } from './archivingUtils.js';
+
+// The config documents a merge of classes may be saved in (mergeConfigService)
+const MERGE_SOURCE_KEYS = ['tdbMergeGroups', 'classMergeMap', 'tdbMergeMap', 'display'];
 
 async function buildArchiveRows(competitionId) {
     const equipages = await getEquipages(competitionId);
@@ -41,7 +45,8 @@ async function buildArchiveRows(competitionId) {
         programOverrides,
         programMapping,
         judges,
-        dressyrClassConfig
+        dressyrClassConfig,
+        ...mergeSources
     ] = await Promise.all([
         getAllDressageProtocols(competitionId, equipages),
         getMarathonTimingData(competitionId),
@@ -59,8 +64,11 @@ async function buildArchiveRows(competitionId) {
         getConfig(competitionId, 'dressyrProgramMapping', true),
         getJudges(competitionId).catch(() => []),
         // Clear round per class (TR V 509.3): no placings in the archive
-        getConfig(competitionId, 'dressyrClassConfig', true).catch(() => ({}))
+        getConfig(competitionId, 'dressyrClassConfig', true).catch(() => ({})),
+        // Merged classes are placed as one class, as on the live result pages
+        ...MERGE_SOURCE_KEYS.map(key => getConfig(competitionId, key, true).catch(() => null))
     ]);
+    const mergeSource = pickMergeSource(Object.fromEntries(MERGE_SOURCE_KEYS.map((key, i) => [key, mergeSources[i]])));
 
     // The official archive: pauses subtracted from stage times, as on the server
     await loadPauseWindows(competitionId);
@@ -79,7 +87,8 @@ async function buildArchiveRows(competitionId) {
         allPrograms: { ...dressagePrograms, ...(programOverrides || {}) },
         dressageJudgeMapping,
         judges,
-        dressyrClassConfig
+        dressyrClassConfig,
+        mergeSource
     });
 
     return {

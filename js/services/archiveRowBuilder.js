@@ -16,6 +16,8 @@ import {
     precisionRankKey,
     totalRankKey
 } from '../core-engine/ranking.js';
+import { isWithdrawnEquipage } from '../utils/sharedUtils.js';
+import { buildPrecisionMergeState, resolvePrecisionMergeGrouping } from '../pages/precision/precisionResultMerge.js';
 
 function pickDefined(primaryObj, primaryKey, fallbackObj, fallbackKey) {
     if (primaryObj && Object.prototype.hasOwnProperty.call(primaryObj, primaryKey)) {
@@ -31,38 +33,44 @@ const isClearRoundRow = (row) => row.isClearRound === true
     || row.marathon?.isClearRound === true
     || row.precision?.isClearRound === true;
 
-const archiveTotalKey = (row) => totalRankKey({
+// A withdrawn (struken) or clear round row gets no place at all
+const isUnplacedRow = (row) => row.isWithdrawn === true || isClearRoundRow(row);
+
+const archiveTotalKey = (row) => (row.isWithdrawn === true ? null : totalRankKey({
     totalPenalty: row.totalPenalty,
     isEliminated: row.isEliminated,
     marathonPenalty: row.marathon?.totalPenalty,
     dressagePenalty: row.dressage?.penalty,
     isClearRound: isClearRoundRow(row)
-});
+}));
 
-// Placings per class (TR 533.3 / FEI 904, see core-engine/ranking.js)
+// The class group a row is placed in: its merged class (as the live result
+// pages, from the merge config and useMergedTestForDisplay) or its own class
+const archiveGroupOf = (row) => row._mergedKey || `CLASS:${row.className || '-'}`;
+
+// Placings per merged class (TR 533.3 / FEI 904, see core-engine/ranking.js)
 function buildPlacements(rows) {
-    const byClass = (row) => row.className || '';
     assignPlaces(rows, {
         key: archiveTotalKey,
         compare: compareTotalRank,
-        group: byClass
+        group: archiveGroupOf
     });
     assignPlaces(rows, {
-        key: (row) => (isClearRoundRow(row) ? null : dressageRankKey(row.dressage)),
+        key: (row) => (isUnplacedRow(row) ? null : dressageRankKey(row.dressage)),
         compare: compareDressageRank,
-        group: byClass,
+        group: archiveGroupOf,
         outField: 'posDress'
     });
     assignPlaces(rows, {
-        key: (row) => (isClearRoundRow(row) ? null : marathonRankKey(row.marathon)),
+        key: (row) => (isUnplacedRow(row) ? null : marathonRankKey(row.marathon)),
         compare: compareMarathonRank,
-        group: byClass,
+        group: archiveGroupOf,
         outField: 'posMar'
     });
     assignPlaces(rows, {
-        key: (row) => (isClearRoundRow(row) ? null : precisionRankKey(row.precision, { requireFinished: true })),
+        key: (row) => (isUnplacedRow(row) ? null : precisionRankKey(row.precision, { requireFinished: true })),
         compare: comparePrecisionRank,
-        group: byClass,
+        group: archiveGroupOf,
         outField: 'posPrec'
     });
     rows.forEach(row => {
@@ -72,9 +80,11 @@ function buildPlacements(rows) {
 
 function sortRowsForPdf(rows) {
     rows.sort((a, b) => {
-        const byClass = String(a.className || '').localeCompare(String(b.className || ''));
+        const byClass = String(a._mergedLabel || a.className || '').localeCompare(String(b._mergedLabel || b.className || ''));
         if (byClass !== 0) return byClass;
 
+        // Withdrawn last, after the eliminated
+        if (a.isWithdrawn !== b.isWithdrawn) return a.isWithdrawn ? 1 : -1;
         if (a.isEliminated && !b.isEliminated) return 1;
         if (!a.isEliminated && b.isEliminated) return -1;
 
@@ -99,8 +109,11 @@ export function buildArchiveRowsFromData({
     allPrograms = dressagePrograms,
     judges = [],
     dressageJudgeMapping = {},
-    dressyrClassConfig = null
+    dressyrClassConfig = null,
+    mergeSource = null
 } = {}) {
+    // mergeSource: pickMergeSource of the competition (mergeConfigService)
+    const mergeMap = buildPrecisionMergeState(mergeSource).map;
     const normalizedMarathonConfig = marathonConfig?.value || marathonConfig || {};
     const normalizedPrecisionConfig = precisionConfig?.value || precisionConfig || {};
     const normalizedPrograms = allPrograms?.value || allPrograms || dressagePrograms;
@@ -158,9 +171,15 @@ export function buildArchiveRowsFromData({
         const marathonRes = total.marathon || marathon;
 
         const marKey = marathonRankKey(marathonRes, { requireFinished: false });
+        const group = resolvePrecisionMergeGrouping(eq, mergeMap);
+        const withdrawn = isWithdrawnEquipage(eq);
 
         return {
             ...eq,
+            _mergedKey: group.key,
+            _mergedLabel: group.label,
+            // Withdrawn (struken): no place in the total or any phase
+            isWithdrawn: withdrawn,
             dressage: {
                 penalty: pickDefined(total.dressage, 'penalty', total, 'dressagePenalty'),
                 judgePenalty: dressage.judgePenalty,
@@ -169,7 +188,7 @@ export function buildArchiveRowsFromData({
                 isClearRound,
                 status: dressage.eliminated
                     ? 'Eliminerad'
-                    : (total.dressageComplete ? 'Klar' : 'Ej startad')
+                    : (total.dressageComplete ? 'Klar' : (withdrawn ? 'Struken' : 'Ej startad'))
             },
             marathon: {
                 totalPenalty: pickDefined(total.marathon, 'totalPenalty', total, 'marathonPenalty'),

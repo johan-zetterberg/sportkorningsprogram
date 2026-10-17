@@ -1,7 +1,7 @@
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { calculateMarathonResult, getMarathonEngineConfig } from '../../utils/marathonUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
-import { computeTotalPenalty } from '../../utils/sharedUtils.js';
+import { computeTotalPenalty, isWithdrawnEquipage } from '../../utils/sharedUtils.js';
 import { getSpeakerDisciplineResult } from './speakerResults.js';
 import { matchesDisplayClass } from './speakerHelpers.js';
 import { getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
@@ -33,6 +33,7 @@ export function getLeaderToBeat(className, discipline, context) {
 
     allEquipages.forEach(eq => {
         if (!matchesDisplayClass(eq, className)) return;
+        if (isWithdrawnEquipage(eq)) return; // withdrawn: no result to beat
         const sn = String(eq.startNumber);
 
         let score = null;
@@ -160,9 +161,14 @@ function phasesDone(row) {
 
 const compareStanding = (a, b) => (b.phases - a.phases) || compareTotalRank(a, b);
 
+// Label of a withdrawn (struken) row in place of a place
+export const SPEAKER_WITHDRAWN_LABEL = 'Struken';
+
 export function rankSpeakerResultRows(results = []) {
     results.forEach(row => { row.phasesDone = phasesDone(row); });
     results.sort((a, b) => {
+        // Withdrawn last, after the eliminated
+        if (!!a.isWithdrawn !== !!b.isWithdrawn) return a.isWithdrawn ? 1 : -1;
         if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
         return compareStanding(
             { phases: a.phasesDone, penalty: a.totalPenalty, marathon: a.marathon?.totalPenalty, dressage: a.dressage?.penalty },
@@ -172,6 +178,7 @@ export function rankSpeakerResultRows(results = []) {
 
     assignPlaces(results, {
         key: (row) => {
+            if (row.isWithdrawn) return null;
             const key = totalRankKey({
                 totalPenalty: row.totalPenalty,
                 isEliminated: row.isEliminated,
@@ -184,18 +191,19 @@ export function rankSpeakerResultRows(results = []) {
         compare: compareStanding
     });
 
-    const leader = results.find(row => !row.isEliminated && Number.isFinite(row.totalPenalty));
+    const leader = results.find(row => !row.isWithdrawn && !row.isEliminated && Number.isFinite(row.totalPenalty));
     results.forEach((row) => {
-        if (row.isEliminated) row.plac = 'ELIM';
-        row.diffFromLeader = (leader && row.plac !== 'ELIM' && Number.isFinite(row.totalPenalty))
+        if (row.isWithdrawn) row.plac = SPEAKER_WITHDRAWN_LABEL;
+        else if (row.isEliminated) row.plac = 'ELIM';
+        row.diffFromLeader = (leader && !row.isWithdrawn && row.plac !== 'ELIM' && Number.isFinite(row.totalPenalty))
             ? row.totalPenalty - leader.totalPenalty
             : null;
     });
 
     results.forEach(row => { row.posDress = null; });
     rankDressageRows(results, {
-        // Clear round: no place in any phase (TR V 509.3)
-        penaltyPicker: row => ((row.isClearRound === true || row.marathon?.isClearRound === true) ? null : row.dressage?.penalty),
+        // Clear round or withdrawn: no place in any phase (TR V 509.3)
+        penaltyPicker: row => ((row.isWithdrawn || row.isClearRound === true || row.marathon?.isClearRound === true) ? null : row.dressage?.penalty),
         eliminatedPicker: row => !!row.dressage?.eliminated,
         groupPicker: () => 'speaker',
         outputField: 'posDress'
@@ -215,6 +223,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         if (!matchesDisplayClass(e, targetClass)) return;
 
         const sn = String(e.startNumber);
+        // Withdrawn (struken): listed as withdrawn, no total and no place
+        const isWithdrawn = isWithdrawnEquipage(e);
 
         const dResult = getSpeakerDisciplineResult(e, 'dressyr', context);
         const mResult = getSpeakerDisciplineResult(e, 'maraton', context);
@@ -255,7 +265,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             totalEliminated = archivedDisciplinePenalty(archiveSnapshot, sn, 'total').isEliminated === true;
         }
 
-        const totalPenalty = totalEliminated ? null : computeTotalPenalty(dPen, mPen, pPen);
+        if (isWithdrawn) totalEliminated = false;
+        const totalPenalty = (totalEliminated || isWithdrawn) ? null : computeTotalPenalty(dPen, mPen, pPen);
         // Clear round is set for the whole class (marathon or dressage admin):
         // no place in the total or any phase (TR V 509.3)
         const isClearRound = mResult.result?.isClearRound === true
@@ -276,6 +287,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             totalPenalty: totalPenalty,
             tieBreakerTime: pTimeMs,
             isEliminated: totalEliminated,
+            isWithdrawn,
             isClearRound,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD, isClearRound },
             marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound },
@@ -287,24 +299,24 @@ export function getTotalRanking(className, currentRiderInfo, context) {
 
     // Discipline positions (live: an unfinished marathon also gets a position)
     assignPlaces(results, {
-        key: (r) => marathonRankKey({
+        key: (r) => (r.isWithdrawn ? null : marathonRankKey({
             totalPenalty: r.marathon.totalPenalty,
             eliminated: r.marathon.eliminated,
             stages: { B: { timePenalty: r.marathon.bPenalty } },
             obstaclePenaltySum: r.marathon.obstaclePenaltySum,
             feiClass: r.marathon.feiClass,
             isClearRound: r.marathon.isClearRound
-        }, { requireFinished: false }),
+        }, { requireFinished: false })),
         compare: compareMarathonRank,
         outField: 'posMar'
     });
     assignPlaces(results, {
-        key: (r) => precisionRankKey({
+        key: (r) => (r.isWithdrawn ? null : precisionRankKey({
             totalPenalty: r.precision.pen,
             eliminated: r.precision.eliminated,
             timeMs: r.tieBreakerTime,
             isClearRound: r.precision.isClearRound
-        }),
+        })),
         compare: comparePrecisionRank,
         outField: 'posPrec'
     });

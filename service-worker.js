@@ -200,6 +200,7 @@ const urlsToCache = [
   abs('/js/pages/admin/adminParticipantHorseFields.js'),
   abs('/js/pages/admin/adminParticipantImportForm.js'),
   abs('/js/pages/admin/adminParticipantImportFormUtils.js'),
+  abs('/js/pages/admin/adminParticipantImportMerge.js'),
   abs('/js/pages/admin/adminParticipantImportNumbers.js'),
   abs('/js/pages/admin/adminParticipantJudges.js'),
   abs('/js/pages/admin/adminParticipantMergePanels.js'),

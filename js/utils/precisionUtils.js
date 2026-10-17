@@ -490,6 +490,28 @@ export function buildOverallStanding(entries, precisionMap, config) {
 }
 
 /**
+ * The overall standing placed per class/merged group (as buildPlaceMap):
+ * standingOf(entries) places one group, e.g. buildOverallStanding.
+ * Returns { results, map } over all groups.
+ */
+export function buildOverallStandingPerGroup(entries, standingOf) {
+    const groups = new Map();
+    (entries || []).forEach((entry) => {
+        const key = entry?.eq?._mergedKey || `CLASS:${entry?.eq?.className || '—'}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(entry);
+    });
+    const results = [];
+    const map = new Map();
+    groups.forEach((list) => {
+        const standing = standingOf(list);
+        results.push(...standing.results);
+        standing.map.forEach((value, sn) => map.set(sn, value));
+    });
+    return { results, map };
+}
+
+/**
  * Calculates what score is needed to reach a certain rank or beat the person above.
  */
 export function getToBeatInfo(sn, standings) {

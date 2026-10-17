@@ -13,6 +13,7 @@ import {
     downloadCsv,
     escapeHtml,
     isPrivileged,
+    isWithdrawnEquipage,
     resolveCurrentCompId
 } from '../../utils/sharedUtils.js';
 import {
@@ -33,7 +34,6 @@ import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeD
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { calculateDressageResult, calculateTotalResult } from '../../services/calculationService.js';
-import { rankDressageRows } from '../dressage/dressageResultRanking.js';
 import { assignPlaces, compareTotalRank, totalRankKey } from '../../core-engine/ranking.js';
 import {
     buildDressageCsvExport,
@@ -43,7 +43,8 @@ import {
     formatReportCsvPercent,
     getReportClassOptions,
     getReportDisplayClass,
-    getReportHorseNames
+    getReportHorseNames,
+    rankDressageRowsForReportPdf
 } from './reportsExportUtils.js';
 
 // Global strings for CSV
@@ -264,13 +265,14 @@ export async function load() {
 
     // Total placings per class (core-engine/ranking.js), used by the total PDF and teams.
     // A merged class is placed as one class: the PDF lists it under one heading
-    const reportTotalKey = (row) => totalRankKey({
+    // Withdrawn: no place
+    const reportTotalKey = (row) => (isWithdrawnEquipage(row) ? null : totalRankKey({
         totalPenalty: row.totalPenalty,
         isEliminated: row.isEliminated,
         marathonPenalty: row.marathon?.totalPenalty,
         dressagePenalty: row.dressage?.penalty,
         isClearRound: row.marathon?.isClearRound === true
-    });
+    }));
     assignPlaces(reportRows, {
         key: reportTotalKey,
         compare: compareTotalRank,
@@ -511,14 +513,9 @@ function sortRowsForDressageReportPdf(rows = []) {
     });
 }
 
+// Withdrawn and clear round rows get no place (rankDressageRowsForReportPdf)
 function applyDressagePlacementsForReportPdf(rows = []) {
-    const rankedRows = rows.map(row => ({ ...row }));
-    rankDressageRows(rankedRows, {
-        penaltyPicker: row => row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty,
-        eliminatedPicker: row => !!(row.eliminated || row.dressage?.eliminated || row.results?.dressage?.eliminated),
-        groupPicker: row => getReportDisplayClass(row) || row.className || ''
-    });
-    return rankedRows;
+    return rankDressageRowsForReportPdf(rows);
 }
 
 window.reports_generateStartListPdf = function (type) {

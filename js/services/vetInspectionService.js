@@ -1,4 +1,4 @@
-import { getDoc, onSnapshot, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getDoc, getDocs, onSnapshot, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
@@ -23,6 +23,14 @@ export function listenForVetInspections(competitionId, callback) {
         snapshot.docs.forEach(item => byStartNumber.set(String(item.id), item.data()?.horses || {}));
         callback(byStartNumber);
     }, buildSnapshotErrorHandler('listenForVetInspections', callback, new Map()));
+}
+
+/** All clinical findings once, by start number (vet and admins only) */
+export async function getVetInspections(competitionId) {
+    const snapshot = await getDocs(getCompCollectionRef(competitionId, INSPECTIONS));
+    const byStartNumber = new Map();
+    snapshot.docs.forEach(item => byStartNumber.set(String(item.id), item.data()?.horses || {}));
+    return byStartNumber;
 }
 
 /** One equipage's clinical findings (e.g. for its driver), {} when none */

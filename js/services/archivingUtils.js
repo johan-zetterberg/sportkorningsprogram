@@ -5,7 +5,7 @@ export function buildArchiveCompetition(compData = {}, competitionMeta = {}) {
     };
 }
 
-const isWithdrawnRow = (row) => /struken|withdrawn|scratched/i.test(String(row?.status || ''));
+const isWithdrawnRow = (row) => row?.isWithdrawn === true || /struken|withdrawn|scratched/i.test(String(row?.status || ''));
 
 /**
  * Start numbers of equipages without a final result: no total, not

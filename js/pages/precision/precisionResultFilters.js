@@ -9,6 +9,12 @@ export function isWithdrawnPrecisionEquipage(equipage) {
     || !!equipage?.withdrawn;
 }
 
+// The competing field (all but withdrawn): places are set over it per class,
+// so a search or filter only changes what is shown, never the places
+export function competingPrecisionEquipages(equipages = []) {
+  return (equipages || []).filter((equipage) => !isWithdrawnPrecisionEquipage(equipage));
+}
+
 export function matchesPrecisionSearch(equipage, searchText = '') {
   const query = normalizedText(searchText).trim();
   if (!query) return true;

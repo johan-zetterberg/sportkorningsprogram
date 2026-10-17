@@ -328,6 +328,17 @@ export function downloadJson(filename, obj) {
 // --- Scoring Utils ---
 
 /**
+ * Whether an equipage is withdrawn (struken): status 'struken', 'withdrawn'
+ * or 'scratched', or one of those flags. A withdrawn equipage gets no place
+ * and is shown as withdrawn, not eliminated.
+ */
+export function isWithdrawnEquipage(equipage) {
+    if (!equipage || typeof equipage !== 'object') return false;
+    if (equipage.struken === true || equipage.withdrawn === true || equipage.scratched === true) return true;
+    return /struken|withdrawn|scratched/i.test(String(equipage.status || ''));
+}
+
+/**
  * Calculates the total competition penalty.
  * @param {number|null} dressagePen - Dressage penalty.
  * @param {number|null} marathonPen - Marathon penalty.

@@ -1,6 +1,8 @@
 ﻿import { getEquipages, saveEquipage } from '../../services/equipageService.js';
 import { saveConfig } from '../../services/competitionService.js';
+import { getVetInspections } from '../../services/vetInspectionService.js';
 import { createImportNumberResolver } from './adminParticipantImportNumbers.js';
+import { buildImportMerge, summarizeImportPlan } from './adminParticipantImportMerge.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -11,7 +13,7 @@ import {
 } from './adminParticipantClassUtils.js';
 import { parseEqEntriesXml } from './adminParticipantXmlImport.js';
 import { importOfficialsFromXml } from './adminOfficialsXmlImport.js';
-import { buildClassMappingHtml, buildXmlClassItems } from './adminParticipantImportFormUtils.js';
+import { buildClassMappingHtml, buildXmlClassItems, escapeAdminImportHtml } from './adminParticipantImportFormUtils.js';
 
 function renderClassMappingUi(progress, uniqueXmlClasses, appClassList) {
     progress.innerHTML = buildClassMappingHtml(uniqueXmlClasses, appClassList);
@@ -66,13 +68,23 @@ function prepareImportedEquipage(eqa, mappedClass, key, tempCounters, options = 
     }
 }
 
-async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping, progress, options = {}) {
-    let ok = 0;
-    let fail = 0;
+// What the import would do to each entry, before anything is written
+async function planImportedEquipages(compId, equipagesFromFile, userClassMapping, options = {}) {
     const tempCounters = new Map();
-    // Without the current list the numbers could land on other drivers: stop
-    const numberFor = createImportNumberResolver(await getEquipages(compId));
+    // Without the current list (payment is private) the numbers could land on
+    // other drivers and stored data be overwritten: stop
+    const existingList = await getEquipages(compId, { includePrivate: true });
+    const existingById = new Map(existingList.map(eq => [String(eq.startNumber ?? eq.id), eq]));
+    const numberFor = createImportNumberResolver(existingList);
+    let clinical = new Map();
+    try {
+        clinical = await getVetInspections(compId);
+    } catch (err) {
+        // The public vet results on the equipage still protect the horses
+        console.warn('Kunde inte läsa veterinärens fynd', err);
+    }
 
+    const plan = [];
     for (const eqa of equipagesFromFile) {
         const key = (eqa.tdbClassNumber != null)
             ? `NUM:${eqa.tdbClassNumber}`
@@ -82,18 +94,60 @@ async function saveImportedEquipages(compId, equipagesFromFile, userClassMapping
 
         prepareImportedEquipage(eqa, mappedClass, key, tempCounters, options);
         eqa.startNumber = numberFor(eqa);
+        const sn = String(eqa.startNumber);
+        const existing = existingById.get(sn) || null;
+        const merge = buildImportMerge(existing, eqa, { clinicalByHorse: clinical.get(sn) || {} });
+        plan.push({ ...merge, startNumber: eqa.startNumber, driverName: eqa.driverName });
+    }
+    return plan;
+}
 
+async function writeImportPlan(compId, plan, progress) {
+    let ok = 0;
+    let fail = 0;
+    const toWrite = plan.filter(item => Object.keys(item.patch).length);
+    for (const item of toWrite) {
         try {
-            await saveEquipage(compId, eqa.startNumber, eqa);
+            // Partial update (merge): fields not in the patch are kept
+            await saveEquipage(compId, item.startNumber, item.patch);
             ok++;
         } catch (err) {
-            console.warn('Kunde inte spara ekipage', eqa, err);
+            console.warn('Kunde inte spara ekipage', item, err);
             fail++;
         }
-        progress.textContent = `Sparar ekipage... (${ok} av ${equipagesFromFile.length} klara)`;
+        progress.textContent = `Sparar ekipage... (${ok} av ${toWrite.length} klara)`;
     }
-
     return { ok, fail };
+}
+
+function describeConflict(conflict) {
+    const who = `#${conflict.startNumber} ${conflict.driverName || ''}`.trim();
+    if (conflict.type === 'class') {
+        return `${who}: klass behålls "${conflict.existing}" (filen: "${conflict.imported}")`;
+    }
+    if (conflict.type === 'status') {
+        return `${who}: status behålls "${conflict.existing}" (filen: "${conflict.imported}")`;
+    }
+    const horses = [...new Set([...(conflict.horses || []), ...(conflict.keptKeys || [])])].join(', ');
+    const keyNote = conflict.keptKeys?.length ? ' (id/chip/namn behålls så att resultaten följer med)' : '';
+    return `${who}: häst med veterinärresultat behålls: ${horses}${keyNote}`;
+}
+
+function buildImportSummaryHtml(summary, { done = false } = {}) {
+    const counts = `${summary.new} nya, ${summary.updated} uppdaterade, ${summary.unchanged} oförändrade`;
+    const conflictItems = summary.conflicts
+        .map(conflict => `<li>${escapeAdminImportHtml(describeConflict(conflict))}</li>`)
+        .join('');
+    const conflictsHtml = conflictItems
+        ? `<p class="mt-2 font-semibold dark:text-gray-200">Behållet från appen (${summary.conflicts.length}):</p>
+        <ul class="list-disc ml-5 text-xs max-h-64 overflow-y-auto">${conflictItems}</ul>`
+        : '';
+    const title = done ? 'Importen är sparad' : 'Steg 3: Kontrollera innan import';
+    const note = done
+        ? ''
+        : '<p class="text-xs text-gray-600 dark:text-gray-400 mt-1">Befintliga ekipage uppdateras bara med anmälningsuppgifter (namn, klubb, kontakt, hästar). Status, betalning, veterinärresultat och ändringar gjorda i appen behålls.</p>';
+    return `<h3 class="font-semibold mb-1 dark:text-gray-200">${title}</h3>
+        <p class="text-sm dark:text-gray-200">${escapeAdminImportHtml(counts)}</p>${note}${conflictsHtml}`;
 }
 
 export function setupParticipantImportForm({ competitionId, getJudges, getOfficials }) {
@@ -134,16 +188,45 @@ export function setupParticipantImportForm({ competitionId, getJudges, getOffici
                 const userClassMapping = readUserClassMapping(uniqueXmlClasses);
                 const mergePerTest = !!document.getElementById('eqXmlMergePerTestChk')?.checked;
 
-                progress.innerHTML = 'Sparar importerad data...';
-                const { ok, fail } = await saveImportedEquipages(competitionId, equipagesFromFile, userClassMapping, progress, { mergePerTest });
+                try {
+                    progress.innerHTML = 'Jämför med befintliga ekipage...';
+                    const plan = await planImportedEquipages(competitionId, equipagesFromFile, userClassMapping, { mergePerTest });
+                    const summary = summarizeImportPlan(plan);
 
-                progress.textContent += ' | Importerar funktionärer...';
-                const stats = await importOfficialsFromXml(file, competitionId, getJudges(), getOfficials());
-                const mergeMessage = mergePerTest ? ' Testnivå-visning sparad för importerade ekipage.' : '';
-                const message = `Import klar: ${ok} ekipage, ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${mergeMessage}${fail ? ` ${fail} ekipage misslyckades.` : ''}`;
-                showAlert(message);
-                progress.textContent = message;
-                form.reset();
+                    // Shown before anything is written: the admin confirms
+                    progress.innerHTML = `${buildImportSummaryHtml(summary)}
+        <div class="mt-3 flex gap-2">
+          <button id="eqXmlConfirmImport" class="flex-1 bg-emerald-600 text-white py-2 px-4 rounded-lg hover:bg-emerald-700">Spara import</button>
+          <button id="eqXmlCancelImport" class="flex-1 bg-gray-200 dark:bg-gray-700 dark:text-gray-200 py-2 px-4 rounded-lg">Avbryt</button>
+        </div>`;
+                    document.getElementById('eqXmlCancelImport').onclick = () => {
+                        progress.textContent = 'Importen avbröts. Inget sparades.';
+                        form.reset();
+                    };
+                    document.getElementById('eqXmlConfirmImport').onclick = async () => {
+                        try {
+                            progress.innerHTML = 'Sparar importerad data...';
+                            const { fail } = await writeImportPlan(competitionId, plan, progress);
+
+                            progress.textContent += ' | Importerar funktionärer...';
+                            const stats = await importOfficialsFromXml(file, competitionId, getJudges(), getOfficials());
+                            const mergeMessage = mergePerTest ? ' Testnivå-visning sparad för nya ekipage.' : '';
+                            const message = `Import klar: ${summary.new} nya och ${summary.updated} uppdaterade ekipage (${summary.unchanged} oförändrade), ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${mergeMessage}${fail ? ` ${fail} ekipage misslyckades.` : ''}`;
+                            showAlert(message);
+                            progress.innerHTML = `${buildImportSummaryHtml(summary, { done: true })}
+        <p class="mt-2 text-sm dark:text-gray-200">${escapeAdminImportHtml(message)}</p>`;
+                            form.reset();
+                        } catch (err) {
+                            console.error(err);
+                            showAlert(`Fel vid import: ${err.message || err}`, false);
+                            progress.textContent = `Fel vid import: ${err.message || err}`;
+                        }
+                    };
+                } catch (err) {
+                    console.error(err);
+                    showAlert(`Fel vid import: ${err.message || err}`, false);
+                    progress.textContent = `Fel vid import: ${err.message || err}`;
+                }
             };
         } catch (err) {
             console.error(err);

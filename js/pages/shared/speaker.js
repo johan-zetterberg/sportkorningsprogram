@@ -23,7 +23,7 @@ import { openEquipageModal } from '../../ui/equipage-modal.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
-import { escapeHtml, jsStringAttr, msToLabel } from '../../utils/sharedUtils.js';
+import { escapeHtml, isWithdrawnEquipage, jsStringAttr, msToLabel } from '../../utils/sharedUtils.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
 
@@ -638,13 +638,13 @@ function renderLeaderboardSidebar() {
 
         return `
         <div onclick="window.showRiderDetails(${jsStringAttr(r.sn)})" class="grid grid-cols-6 items-center p-2 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
-            <div class="col-span-1 font-bold text-gray-500 dark:text-gray-400 text-xs">${rank}.</div>
+            <div class="col-span-1 font-bold text-gray-500 dark:text-gray-400 text-xs">${r.isWithdrawn ? '–' : `${rank}.`}</div>
             <div class="col-span-3 min-w-0 pr-1">
                 <div class="font-bold text-gray-800 dark:text-gray-200 text-sm truncate leading-tight">${escapeHtml(r.name || '')}</div>
                 <div class="text-[10px] text-gray-400 dark:text-gray-500 truncate">${escapeHtml(club)}</div>
             </div>
             <div class="col-span-2 text-right">
-                <div class="tabular-nums tracking-wide font-bold text-sm ${scoreClass}">${r.total === Infinity ? 'UT' : (Number.isFinite(r.total) ? r.total.toFixed(1) : '—')}</div>
+                <div class="tabular-nums tracking-wide font-bold text-sm ${scoreClass}">${r.isWithdrawn ? 'Struken' : (r.total === Infinity ? 'UT' : (Number.isFinite(r.total) ? r.total.toFixed(1) : '—'))}</div>
                 ${diffHtml}
             </div>
         </div>`;
@@ -919,7 +919,9 @@ function renderCurrentRiderCard() {
 
     const totalRanking = getTotalRanking(eq.className, liveInjection, getSpeakerCalculationContext());
     const myTotalRankIndex = totalRanking.findIndex(r => String(r.sn) === String(eq.startNumber));
-    const myTotalRank = myTotalRankIndex !== -1 ? myTotalRankIndex + 1 : '-';
+    // Withdrawn: shown as withdrawn, not with a rank
+    const myTotalRank = myTotalRankIndex === -1 ? '-'
+        : (totalRanking[myTotalRankIndex].isWithdrawn ? 'Struken' : myTotalRankIndex + 1);
     // Find my total score
     const myTotalScore = myTotalRankIndex !== -1 ? totalRanking[myTotalRankIndex].total : null;
 
@@ -1403,7 +1405,8 @@ function renderCurrentRiderCard() {
         }
 
         // Compute Top 3 for this class (Precision only)
-        const classRows = allEquipages.filter(e => matchesDisplayClass(e, eq._mergedLabel || eq.mergedTestLabel || eq.className)).map(e => {
+        // Withdrawn equipages get no precision place
+        const classRows = allEquipages.filter(e => matchesDisplayClass(e, eq._mergedLabel || eq.mergedTestLabel || eq.className) && !isWithdrawnEquipage(e)).map(e => {
             const sn = String(e.startNumber);
             const pSt = precisionStatusMap.get(sn);
 

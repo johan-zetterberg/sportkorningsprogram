@@ -15,7 +15,7 @@ import {
 } from '../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
 import { getProgramMaxScore } from '../core-engine/dressage.js';
-import { isPrivileged } from '../utils/sharedUtils.js';
+import { isPrivileged, isWithdrawnEquipage } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
@@ -523,7 +523,8 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
       ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : displaySum.toFixed(1)],
       ['Snittprocent (alla domare):', data.eliminated ? 'ELIM' : fmtPct(avgPercent)],
       ['Felkörningspoäng:', (Number(data.errorPoints) || 0).toFixed(1)],
-      [{ content: `Slutgiltigt straff (Plac. ${data.plac || '–'}):`, styles: { fontStyle: 'bold' } }, { content: data.eliminated ? 'ELIM' : fmtNum(finalPenalty), styles: { fontStyle: 'bold' } }]
+      // Withdrawn: no place, shown as Struken (not ELIM)
+      [{ content: `Slutgiltigt straff (Plac. ${isWithdrawnEquipage(data) ? 'Struken' : (data.plac || '–')}):`, styles: { fontStyle: 'bold' } }, { content: isWithdrawnEquipage(data) ? 'Struken' : (data.eliminated ? 'ELIM' : fmtNum(finalPenalty)), styles: { fontStyle: 'bold' } }]
     ];
     pdf.autoTable({ startY: y, theme: 'plain', body: summary });
   }
@@ -546,7 +547,8 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     : `DRESSYR – RESULTATLISTA: ${currentClass || ''}`;
 
   let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40);
-  const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
+  // Withdrawn (status or flag): not in the result list and no place
+  const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status) && !isWithdrawnEquipage(eq));
 
   const allJudges = collectDressageJudges(printableEquipages, judgesList);
   const activePositions = [...new Set(allJudges.map(j => normalizeJudgePosition(j.position)).filter(Boolean))];

@@ -196,7 +196,9 @@ function getJudgesList(config) {
   return [];
 }
 
-export async function generatePrecisionListPdf(equipages, precisionMap, config, startTimes, competition) {
+// options.placeMap: places set over the whole field when equipages is a
+// filtered list (a search must not change the places)
+export async function generatePrecisionListPdf(equipages, precisionMap, config, startTimes, competition, options = {}) {
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('Kunde inte ladda PDF-biblioteket.'); return; }
@@ -252,7 +254,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
 
   const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
   // Calculate placements on the same printable set, so withdrawn rows do not affect places.
-  const placeMap = buildPlaceMap(printableEquipages, precisionMap, config);
+  const placeMap = options.placeMap || buildPlaceMap(printableEquipages, precisionMap, config);
 
   const body = printableEquipages.map(eq => {
     const sn = String(eq.startNumber);

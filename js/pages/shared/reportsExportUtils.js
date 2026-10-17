@@ -2,6 +2,8 @@ import {
   formatMarathonExternalOtherPenalty,
   formatMarathonPenaltyExportValue
 } from '../../utils/marathonExportUtils.js';
+import { isWithdrawnEquipage } from '../../utils/sharedUtils.js';
+import { rankDressageRows } from '../dressage/dressageResultRanking.js';
 
 const DRESSAGE_JUDGE_POSITION_ORDER = {
   C: 0,
@@ -17,6 +19,24 @@ const DRESSAGE_JUDGE_POSITION_ORDER = {
 
 export function getReportDisplayClass(row = {}) {
   return row._mergedLabel || row.mergedTestLabel || row.className || '';
+}
+
+/**
+ * Dressage placings for the report PDF, per shown class. A withdrawn
+ * (struken) row and a clear round class (TR V 509.3) get no place.
+ * Returns copies of the rows with plac set.
+ */
+export function rankDressageRowsForReportPdf(rows = []) {
+  const rankedRows = rows.map(row => ({ ...row }));
+  rankDressageRows(rankedRows, {
+    penaltyPicker: (row) => ((isWithdrawnEquipage(row)
+      || row.isClearRound === true || row.dressage?.isClearRound === true || row.marathon?.isClearRound === true)
+      ? null
+      : (row.finalPenalty ?? row.dressage?.penalty ?? row.dressage?.totalPenalty)),
+    eliminatedPicker: row => !!(row.eliminated || row.dressage?.eliminated || row.results?.dressage?.eliminated),
+    groupPicker: row => getReportDisplayClass(row) || row.className || ''
+  });
+  return rankedRows;
 }
 
 export function getReportClassOptions(rows = []) {

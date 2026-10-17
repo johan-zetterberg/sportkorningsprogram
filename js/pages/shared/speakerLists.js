@@ -12,7 +12,7 @@ import {
     calculateClassObstacleStats,
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
-import { escapeHtml, jsStringAttr } from '../../utils/sharedUtils.js';
+import { escapeHtml, isWithdrawnEquipage, jsStringAttr } from '../../utils/sharedUtils.js';
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import {
     assignPlaces,
@@ -35,6 +35,7 @@ export function renderTop3List(className, discipline, ctx) {
     if (discipline === 'dressyr') {
         allEquipages.forEach(eq => {
             if (!matchesDisplayClass(eq, className)) return;
+            if (isWithdrawnEquipage(eq)) return; // withdrawn: no place
             const sn = String(eq.startNumber);
             const result = getSpeakerDisciplineResult(eq, 'dressyr', ctx);
             const pen = result.penalty;
@@ -56,6 +57,7 @@ export function renderTop3List(className, discipline, ctx) {
         const isMarathon = discipline === 'maraton';
         allEquipages.forEach(eq => {
             if (!matchesDisplayClass(eq, className)) return;
+            if (isWithdrawnEquipage(eq)) return; // withdrawn: no place
             const sn = String(eq.startNumber);
             const result = getSpeakerDisciplineResult(eq, discipline, ctx);
             if (result.penalty != null) {
