@@ -28,7 +28,8 @@ import {
   statusClass,
   buildOverallStanding,
   getToBeatInfo,
-  calculatePrecisionResult
+  calculatePrecisionResult,
+  isPrecisionClearRound
 } from '../../utils/precisionUtils.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
@@ -294,7 +295,9 @@ function precisionPlaceMap(rows) {
     // (there the place comes from the frozen penalties above)
     const plainClassGroup = !r._mergedKey || r._mergedKey === `CLASS:${r.className || '—'}`;
     const useArchivedPlace = plainClassGroup && archived && archived.place !== null;
-    placeMap.set(sn, useArchivedPlace ? archived.place : placeOf.get(r));
+    // Clear round (TR V 509.3): no place, also not an archived one
+    const clearRound = isPrecisionClearRound(r);
+    placeMap.set(sn, clearRound ? null : (useArchivedPlace ? archived.place : placeOf.get(r)));
   });
   return placeMap;
 }
@@ -330,6 +333,7 @@ function overallStandingFor(entries) {
   });
   const results = [...list].sort((a, b) => {
     if (a.isElim !== b.isElim) return a.isElim ? 1 : -1;
+    if (!!a.isClearRound !== !!b.isClearRound) return a.isClearRound ? 1 : -1;
     if ((a.total === null) !== (b.total === null)) return a.total === null ? 1 : -1;
     if (a.sortTotal !== b.sortTotal) return a.sortTotal - b.sortTotal;
     return a.sn.localeCompare(b.sn, undefined, { numeric: true });
@@ -337,7 +341,8 @@ function overallStandingFor(entries) {
   const map = new Map();
   let rank = 0;
   results.forEach((r, idx) => {
-    const ranked = !r.isElim && r.total !== null;
+    // Clear round: no place (TR V 509.3)
+    const ranked = !r.isElim && !r.isClearRound && r.total !== null;
     if (ranked && (idx === 0 || r.total !== results[idx - 1].total)) rank = idx + 1;
     map.set(r.sn, { ...r, rank: ranked ? rank : null });
   });

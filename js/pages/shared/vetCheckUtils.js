@@ -39,6 +39,49 @@ export const VET_PHASES = {
 
 export const MAX_RECOMMENDED_PULSE_BPM = 64;
 
+// Clinical findings (health data): kept in the private vetInspections/{startNumber}
+// document (vet, admins and the driver), never on the public equipage. The public
+// equipage only carries each phase's result in vetInspection_<phase>:
+// { status, updatedAt, horses: { [horseKey]: { status, checkedAt } } }
+export const VET_CLINICAL_FIELDS = ['pulseBpm', 'respiration', 'mucosa', 'bitOk', 'harnessOk'];
+
+export function vetPhaseField(phase = 'initial') {
+  return `vetInspection_${phase}`;
+}
+
+/**
+ * The equipage's horses with the vet results put back on them, as the vet
+ * page and the reports read them (horse.inspections[phase], horse.vetStatus):
+ * the public per-phase results, plus the clinical findings when given
+ * ({ [horseKey]: { [phase]: findings } }, from vetInspections). Results stored
+ * on the horses themselves (older data) are kept underneath.
+ */
+export function applyVetResultsToHorses(equipage = {}, clinicalByHorse = {}) {
+  const horses = Array.isArray(equipage?.horses) ? equipage.horses : [];
+  return horses.map((horse, index) => {
+    if (!horse || typeof horse !== 'object') return horse;
+    const key = getHorseStableKey(horse, index);
+    let inspections = horse.inspections && typeof horse.inspections === 'object' ? horse.inspections : null;
+    Object.keys(VET_PHASES).forEach(phase => {
+      const result = equipage[vetPhaseField(phase)]?.horses?.[key];
+      const clinical = clinicalByHorse?.[key]?.[phase];
+      if (!result && !clinical) return;
+      inspections = {
+        ...(inspections || {}),
+        [phase]: { ...(inspections?.[phase] || {}), ...(clinical || {}), ...(result || {}) }
+      };
+    });
+    if (!inspections || inspections === horse.inspections) return horse;
+    const updated = { ...horse, inspections };
+    const initial = equipage[vetPhaseField('initial')]?.horses?.[key];
+    if (initial?.status) {
+      updated.vetStatus = normalizeVetStatus(initial.status);
+      updated.vetCheckedAt = initial.checkedAt || horse.vetCheckedAt || null;
+    }
+    return updated;
+  });
+}
+
 export function normalizeVetStatus(status) {
   const value = String(status || 'anmäld').trim().toLowerCase();
   if (['withdrawn', 'scratched', 'struken'].includes(value)) return 'struken';
@@ -169,6 +212,37 @@ export function updateHorsePhaseInspection(horses = [], horseKey, phase = 'initi
   });
 }
 
+/**
+ * The public fields of a vet decision: `status` for the horses `horseKeys`
+ * (all horses when null) in `phase`, built from the equipage as stored. Returns
+ * { payload, horses, derived }: payload holds only what the vet may write on
+ * the equipage (vetInspection_<phase>, status in the first inspection,
+ * vetUnfitStageB), horses the horses with the new results (for the page).
+ */
+export function buildVetStatusUpdate(equipage = {}, phase = 'initial', { status, horseKeys = null, nowIso = new Date().toISOString() } = {}) {
+  const field = vetPhaseField(phase);
+  const normalized = normalizeVetStatus(status);
+  const before = applyVetResultsToHorses(equipage);
+  const keys = Array.isArray(horseKeys)
+    ? horseKeys.map(String)
+    : before.map((horse, index) => getHorseStableKey(horse, index));
+  const previous = equipage?.[field] && typeof equipage[field] === 'object' ? equipage[field] : {};
+  const horseResults = { ...(previous.horses || {}) };
+  keys.forEach(key => { horseResults[key] = { status: normalized, checkedAt: nowIso }; });
+
+  const horses = applyVetResultsToHorses({ ...equipage, [field]: { ...previous, horses: horseResults } });
+  const derived = before.length
+    ? deriveVetStatusFromHorses(horses, equipage?.status, phase, { keepWithdrawn: !hasVetStruckHorse(before) })
+    : normalized;
+
+  const payload = {
+    [field]: { ...previous, horses: horseResults, status: derived, updatedAt: nowIso }
+  };
+  if (phase === 'initial') payload.status = derived;
+  else if (phase === 'restArea' && derived === 'struken') payload.vetUnfitStageB = true;
+  return { payload, horses, derived };
+}
+
 export function sortVetEquipages(equipages = [], phase = 'initial') {
   return [...(equipages || [])].sort((a, b) => {
     const statusA = deriveVetStatusFromHorses(a?.horses, a?.status, phase);
@@ -236,9 +310,10 @@ export function resolveVetFilteredState(equipages = [], searchTerm = '', phase =
   };
 }
 
-export function getViloboxBadgeInfo(equipage = {}) {
-  const horses = Array.isArray(equipage.horses) ? equipage.horses : [];
-  const status = deriveVetStatusFromHorses(horses, equipage.status, 'restArea');
+export function getViloboxBadgeInfo(equipage) {
+  // The public results only: other pages do not see the clinical findings
+  const horses = applyVetResultsToHorses(equipage || {});
+  const status = deriveVetStatusFromHorses(horses, equipage?.status, 'restArea');
   if (status === 'besiktigad') {
     return { status: 'approved', label: 'Godkänd för B', colorClass: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
   }

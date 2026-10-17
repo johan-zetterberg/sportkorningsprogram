@@ -1,5 +1,5 @@
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
-import { calculateMarathonResult } from '../../utils/marathonUtils.js';
+import { calculateMarathonResult, getMarathonEngineConfig } from '../../utils/marathonUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
 import { computeTotalPenalty } from '../../utils/sharedUtils.js';
 import { getSpeakerDisciplineResult } from './speakerResults.js';
@@ -15,7 +15,8 @@ import {
     comparePrecisionRank,
     totalRankKey,
     marathonRankKey,
-    precisionRankKey
+    precisionRankKey,
+    isClearRoundClass
 } from '../../core-engine/ranking.js';
 
 export function getLeaderToBeat(className, discipline, context) {
@@ -176,7 +177,7 @@ export function rankSpeakerResultRows(results = []) {
                 isEliminated: row.isEliminated,
                 marathonPenalty: row.marathon?.totalPenalty,
                 dressagePenalty: row.dressage?.penalty,
-                isClearRound: row.marathon?.isClearRound === true
+                isClearRound: row.isClearRound === true || row.marathon?.isClearRound === true
             });
             return key ? { ...key, phases: row.phasesDone } : null;
         },
@@ -193,7 +194,8 @@ export function rankSpeakerResultRows(results = []) {
 
     results.forEach(row => { row.posDress = null; });
     rankDressageRows(results, {
-        penaltyPicker: row => row.dressage?.penalty,
+        // Clear round: no place in any phase (TR V 509.3)
+        penaltyPicker: row => ((row.isClearRound === true || row.marathon?.isClearRound === true) ? null : row.dressage?.penalty),
         eliminatedPicker: row => !!row.dressage?.eliminated,
         groupPicker: () => 'speaker',
         outputField: 'posDress'
@@ -254,6 +256,13 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         }
 
         const totalPenalty = totalEliminated ? null : computeTotalPenalty(dPen, mPen, pPen);
+        // Clear round is set for the whole class (marathon or dressage admin):
+        // no place in the total or any phase (TR V 509.3)
+        const isClearRound = mResult.result?.isClearRound === true
+            || isClearRoundClass(e.className, {
+                marathonConfig: context.marathonConfig || getMarathonEngineConfig().marathonConfig,
+                dressyrClassConfig: context.dressyrClassConfig || getMarathonEngineConfig().dressyrClassConfig
+            });
 
         results.push({
             startNumber: e.startNumber,
@@ -267,9 +276,10 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             totalPenalty: totalPenalty,
             tieBreakerTime: pTimeMs,
             isEliminated: totalEliminated,
-            dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD },
-            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound: mResult.result?.isClearRound === true },
-            precision: { pen: pPen, eliminated: isElimP }
+            isClearRound,
+            dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD, isClearRound },
+            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound },
+            precision: { pen: pPen, eliminated: isElimP, isClearRound }
         });
     });
 
@@ -282,7 +292,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             eliminated: r.marathon.eliminated,
             stages: { B: { timePenalty: r.marathon.bPenalty } },
             obstaclePenaltySum: r.marathon.obstaclePenaltySum,
-            feiClass: r.marathon.feiClass
+            feiClass: r.marathon.feiClass,
+            isClearRound: r.marathon.isClearRound
         }, { requireFinished: false }),
         compare: compareMarathonRank,
         outField: 'posMar'
@@ -291,7 +302,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         key: (r) => precisionRankKey({
             totalPenalty: r.precision.pen,
             eliminated: r.precision.eliminated,
-            timeMs: r.tieBreakerTime
+            timeMs: r.tieBreakerTime,
+            isClearRound: r.precision.isClearRound
         }),
         compare: comparePrecisionRank,
         outField: 'posPrec'

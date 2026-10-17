@@ -1,11 +1,13 @@
-const OFFICIAL_JOIN_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+// 'vet' is a limited role: the vet inspection page and the vet's private data
+const OFFICIAL_JOIN_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
 
 const SECRET_FIELD_BY_ROLE = {
   admin: 'accessCode',
   dressage: 'accessCode_dressage',
   marathon: 'accessCode_marathon',
   precision: 'accessCode_precision',
-  speaker: 'accessCode_speaker'
+  speaker: 'accessCode_speaker',
+  vet: 'accessCode_vet'
 };
 
 export function normalizeJoinEmail(email) {

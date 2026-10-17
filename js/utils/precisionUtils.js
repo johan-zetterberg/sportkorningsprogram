@@ -2,7 +2,7 @@
 // Samlad hjälplogik för precision – används av både resultatvyn och PDF:en.
 
 // (Borttagen import från calculationService)
-import { klassTempoData, standardPortAllowance } from '../data/competitionData.js';
+import { klassTempoData, standardPortAllowance, matchClassTableKey } from '../data/competitionData.js';
 import { getFlagHtml } from '../services/flagsService.js';
 import {
     isNum,
@@ -24,7 +24,8 @@ import {
     getMergedClassName,
     getCourseCandidates
 } from './precisionCalculation.js';
-import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../core-engine/ranking.js';
+import { assignPlaces, comparePrecisionRank, precisionRankKey, isClearRoundClass } from '../core-engine/ranking.js';
+import { getMarathonEngineConfig } from './marathonUtils.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../core-engine/rules-ledger.js';
 
 function getBrowserGlobalState(key) {
@@ -122,32 +123,17 @@ function resolveStandardPortAllowanceInternal(className) {
     if (!className) {
         return isNum(standardPortAllowance['*']) ? standardPortAllowance['*'] : null;
     }
-    const normalizedClassName = _norm(className);
     const keys = Object.keys(standardPortAllowance || {}).filter((k) => k !== '*');
 
-    // 1) exakt normaliserad match
-    const exactKey = keys.find((key) => _norm(key) === normalizedClassName);
-    if (exactKey && isNum(standardPortAllowance[exactKey])) {
-        return standardPortAllowance[exactKey];
+    // Same words, else longest key the name starts with, else longest key in
+    // the name, whole words only: "Barnklass" is Lätt B Barn (45 cm, TR V
+    // Bilaga 5), never "LA" found inside the word
+    const key = matchClassTableKey(className, keys);
+    if (key && isNum(standardPortAllowance[key])) {
+        return standardPortAllowance[key];
     }
 
-    // 2) längsta nyckel som är prefix till klassnamnet
-    const prefixKey = keys
-        .filter((key) => normalizedClassName.startsWith(_norm(key)))
-        .sort((a, b) => _norm(b).length - _norm(a).length)[0];
-    if (prefixKey && isNum(standardPortAllowance[prefixKey])) {
-        return standardPortAllowance[prefixKey];
-    }
-
-    // 3) längsta nyckel som förekommer någonstans i klassnamnet
-    const containsKey = keys
-        .filter((key) => normalizedClassName.includes(_norm(key)))
-        .sort((a, b) => _norm(b).length - _norm(a).length)[0];
-    if (containsKey && isNum(standardPortAllowance[containsKey])) {
-        return standardPortAllowance[containsKey];
-    }
-
-    // 4) fallback
+    // fallback
     return isNum(standardPortAllowance['*']) ? standardPortAllowance['*'] : null;
 }
 
@@ -293,7 +279,24 @@ export function startTimeFor(startNumber, startTimes) {
  */
 export function calculatePrecisionResult(data, equipage, config = {}, options = {}) {
     const comp = getBrowserGlobalState('currentCompetition');
-    return _calculatePrecisionResult(data, equipage, config, { currentCompetition: comp, ...options });
+    return _calculatePrecisionResult(data, equipage, config, {
+        currentCompetition: comp,
+        isClearRound: isPrecisionClearRound(equipage, options),
+        ...options
+    });
+}
+
+/**
+ * Clear round is set for the whole class (TR V 509.3) in the marathon or the
+ * dressage admin (isClearRoundClass): no precision placing. options may pass
+ * { marathonConfig, dressyrClassConfig }; else this session's settings.
+ */
+export function isPrecisionClearRound(equipage, options = {}) {
+    const session = getMarathonEngineConfig();
+    return isClearRoundClass(equipage?.className, {
+        marathonConfig: options.marathonConfig || session.marathonConfig,
+        dressyrClassConfig: options.dressyrClassConfig || session.dressyrClassConfig
+    });
 }
 
 /**
@@ -302,7 +305,11 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
  */
 export function calculatePrecisionLiveResult(data, equipage, config = {}, nowMs = Date.now(), options = {}) {
     const comp = getBrowserGlobalState('currentCompetition');
-    return _calculatePrecisionLiveResult(data, equipage, config, { currentCompetition: comp, ...options }, nowMs);
+    return _calculatePrecisionLiveResult(data, equipage, config, {
+        currentCompetition: comp,
+        isClearRound: isPrecisionClearRound(equipage, options),
+        ...options
+    }, nowMs);
 }
 
 export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes) {
@@ -456,12 +463,16 @@ export function buildOverallStanding(entries, precisionMap, config) {
             total,
             sortTotal: total === null ? Infinity : total,
             pScore,
-            isElim
+            isElim,
+            // Clear round: no place in the total (TR V 509.3)
+            isClearRound: pData.isClearRound === true
         };
     });
 
     const results = [...list].sort((a, b) => {
         if (a.isElim !== b.isElim) return a.isElim ? 1 : -1;
+        // Clear round rows have no place: after the placed ones
+        if (a.isClearRound !== b.isClearRound) return a.isClearRound ? 1 : -1;
         if ((a.total === null) !== (b.total === null)) return a.total === null ? 1 : -1;
         if (a.sortTotal !== b.sortTotal) return a.sortTotal - b.sortTotal;
         return a.sn.localeCompare(b.sn, undefined, { numeric: true });
@@ -471,7 +482,7 @@ export function buildOverallStanding(entries, precisionMap, config) {
     const map = new Map();
     let rank = 0;
     results.forEach((r, idx) => {
-        const ranked = !r.isElim && r.total !== null;
+        const ranked = !r.isElim && !r.isClearRound && r.total !== null;
         if (ranked && (idx === 0 || r.total !== results[idx - 1].total)) rank = idx + 1;
         map.set(r.sn, { ...r, rank: ranked ? rank : null });
     });

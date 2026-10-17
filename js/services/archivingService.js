@@ -40,7 +40,8 @@ async function buildArchiveRows(competitionId) {
         dressageJudgeMapping,
         programOverrides,
         programMapping,
-        judges
+        judges,
+        dressyrClassConfig
     ] = await Promise.all([
         getAllDressageProtocols(competitionId, equipages),
         getMarathonTimingData(competitionId),
@@ -56,7 +57,9 @@ async function buildArchiveRows(competitionId) {
         getConfig(competitionId, 'dressageJudgeMapping', true),
         getConfig(competitionId, 'dressagePrograms', true),
         getConfig(competitionId, 'dressyrProgramMapping', true),
-        getJudges(competitionId).catch(() => [])
+        getJudges(competitionId).catch(() => []),
+        // Clear round per class (TR V 509.3): no placings in the archive
+        getConfig(competitionId, 'dressyrClassConfig', true).catch(() => ({}))
     ]);
 
     // The official archive: pauses subtracted from stage times, as on the server
@@ -75,7 +78,8 @@ async function buildArchiveRows(competitionId) {
         precisionConfig,
         allPrograms: { ...dressagePrograms, ...(programOverrides || {}) },
         dressageJudgeMapping,
-        judges
+        judges,
+        dressyrClassConfig
     });
 
     return {

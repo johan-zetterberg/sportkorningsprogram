@@ -11,6 +11,7 @@ const ROLE_HIERARCHY = {
   marathon: ['marathon', 'funktionar', 'publik'],
   precision: ['precision', 'funktionar', 'publik'],
   speaker: ['speaker', 'funktionar', 'publik'],
+  vet: ['vet', 'publik'],
   domare: ['domare', 'funktionar', 'publik'],
   funktionar: ['funktionar', 'publik'],
   publik: ['publik']
@@ -39,14 +40,14 @@ const ROUTE_PERMISSIONS = {
   'precision-results': ['publik', 'funktionar', 'domare', 'admin'],
   'precision-admin': ['admin'],
   'dressyr-monitor': ['publik', 'funktionar', 'domare', 'admin'],
-  vagnbredd: ['funktionar', 'domare', 'admin'],
+  vagnbredd: ['precision', 'domare', 'admin'],
   'total-resultat': ['publik', 'funktionar', 'domare', 'admin'],
   portal: ['publik', 'funktionar', 'domare', 'admin'],
   'competition-center': ['publik', 'funktionar', 'domare', 'admin'],
   speaker: ['speaker', 'domare', 'admin'],
   'prize-giving': ['speaker', 'funktionar', 'domare', 'admin'],
   reports: ['funktionar', 'domare', 'admin'],
-  'vet-check': ['funktionar', 'domare', 'admin'],
+  'vet-check': ['vet', 'admin'],
   manual: ['publik', 'funktionar', 'domare', 'admin'],
   official: ['funktionar', 'domare', 'admin']
 };

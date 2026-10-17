@@ -66,7 +66,11 @@ function getJudgeMapping(explicit) {
  * @returns {Object} Comprehensive result object.
  */
 export function calculateDressageResult(equipage, protocols, validJudges = [], programsOverride = null) {
+    const { marathonConfig, dressyrClassConfig } = getMarathonEngineConfig();
     const state = buildCompetitionState(equipage, protocols, null, null, null, {
+        // Clear round of the class (isClearRoundClass): no dressage placing
+        marathonConfig,
+        dressyrClassConfig,
         allPrograms: programsOverride || getPrograms(),
         dressageProgramMapping: getProgramMapping(),
         dressageJudgeMapping: getJudgeMapping(),
@@ -148,6 +152,8 @@ export function calculateTotalResult(equipage, dressageProtocols, marathonData, 
         precisionData,
         {
             ...marathonInputs,
+            // Clear round per class (dressage admin); an explicitly passed config wins
+            dressyrClassConfig: context.dressyrClassConfig || marathonInputs.dressyrClassConfig || null,
             allPrograms: context.allPrograms || getPrograms(),
             dressageProgramMapping: getProgramMapping(),
             dressageJudgeMapping: getJudgeMapping(context.dressageJudgeMapping),

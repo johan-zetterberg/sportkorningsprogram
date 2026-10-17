@@ -34,14 +34,18 @@ const pagePermissions = {
   'page-dressyr-monitor': ['publik', 'funktionar', 'domare', 'admin'],
   'page-dressyr-admin': ['admin'],
   'page-maraton-admin': ['admin'],
-  'page-vagnbredd': ['funktionar', 'domare', 'admin'],
+  // Carriage width decides the cone width in precision: measured by the
+  // precision officials (and the technical delegate / ground jury), not by
+  // every official. The rules let the precision role write only these fields
+  'page-vagnbredd': ['precision', 'domare', 'admin'],
   'page-total-resultat': ['publik', 'funktionar', 'domare', 'admin'],
   'page-portal': ['publik', 'funktionar', 'domare', 'admin'], // Tillåt publik, men sidan kollar inloggningsstatus
   'page-competition-center': ['publik', 'funktionar', 'domare', 'admin'],
   'page-speaker': ['speaker', 'domare', 'admin'],
   'page-prize-giving': ['speaker', 'funktionar', 'domare', 'admin'],
   'page-reports': ['funktionar', 'domare', 'admin'],
-  'page-vet-check': ['funktionar', 'domare', 'admin'],
+  // Clinical data (vetInspections, vetNotes): the vet and admins only
+  'page-vet-check': ['vet', 'admin'],
   'page-manual': ['publik', 'funktionar', 'domare', 'admin'],
   'page-official': ['funktionar', 'domare', 'admin'],
 };
@@ -167,6 +171,8 @@ export async function navigateTo(hash) {
       'marathon': ['marathon', 'funktionar', 'publik'],
       'precision': ['precision', 'funktionar', 'publik'],
       'speaker': ['speaker', 'funktionar', 'publik'],
+      // Limited: the vet page and public pages, not the general official pages
+      'vet': ['vet', 'publik'],
       'publik': ['publik']
   };
 

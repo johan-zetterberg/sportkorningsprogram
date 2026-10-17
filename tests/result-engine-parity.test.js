@@ -95,14 +95,16 @@ test('marathon: obstacle time stored as timeInSeconds (maraton-input)', () => {
   assert.equal(server.obstacles.sum, 10);
 });
 
-test('marathon: fixed time on A gives the same ideal time and no penalty for exceeding it', () => {
+test('marathon: a warm-up (fixed time on A) is penalised as section A on both sides (TR V 522.1, FEI 963.5)', () => {
   const eq = { startNumber: 4, className: 'FastA', category: 'horse' };
   const timing = { A: { durationMs: min(21) } };
   const { browser, server } = both(eq, { obstacles: [] }, timing);
 
   assert.equal(browser.stages.A.limits.ideal, 1200);
   assert.equal(server.stages.A.limits.ideal, 1200);
-  assert.equal(server.stages.A.timePenalty, 0);
+  // 60 s over the 20 min Time Allowed x 0.25
+  assert.equal(server.stages.A.timePenalty, 15);
+  assert.equal(browser.stages.A.timePenalty, 15);
   assert.deepEqual(server.stages.A.limits, browser.stages.A.limits);
 });
 

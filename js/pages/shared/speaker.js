@@ -1334,8 +1334,7 @@ function renderCurrentRiderCard() {
                     ${(() => {
                         const vb = active.task?.viloboxInfo;
                         if (!vb && active.task?.key !== 'wait_b') return '';
-                        const pulse = eq.horses?.[0]?.phases?.restArea?.pulseBpm || eq.horses?.[0]?.inspections?.restArea?.pulseBpm;
-                        const pulseWarn = pulse && Number(pulse) > 64;
+                        // Only the vet's decision: the pulse is clinical data (vetInspections, vet only)
                         let bgCls = 'bg-blue-100/60 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-900 dark:text-blue-200';
                         if (vb?.status === 'approved') bgCls = 'bg-emerald-100/70 dark:bg-emerald-900/40 border-emerald-300 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200';
                         else if (vb?.status === 'unfit') bgCls = 'bg-rose-100/80 dark:bg-rose-900/50 border-rose-300 dark:border-rose-800 text-rose-900 dark:text-rose-200 font-bold';
@@ -1347,7 +1346,6 @@ function renderCurrentRiderCard() {
                                 <span class="text-sm">🩺</span>
                                 <span class="font-bold truncate">Vilobox: ${escapeHtml(vb?.label || '10 min vila (TR Mom 526)')}</span>
                             </div>
-                            ${pulse ? `<span class="tabular-nums font-extrabold ${pulseWarn ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300'}">${escapeHtml(pulse)} bpm${pulseWarn ? ' ⚠️' : ''}</span>` : ''}
                         </div>`;
                     })()}
                 </div>

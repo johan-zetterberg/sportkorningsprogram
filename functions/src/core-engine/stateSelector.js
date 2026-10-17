@@ -35,8 +35,15 @@ export function buildEquipageState(equipageDoc) {
         eliminated: !!equipageDoc.eliminated,
         errorPoints: Number(equipageDoc.errorPoints) || 0,
         heightCm: toHeight(equipageDoc.heightCm) || toHeight(equipageDoc.horseHeightCm) || toHeight(equipageDoc.withersHeightCm),
+        // Type/category and reserve decide the FEI cones speed (FEI 975.10.5:
+        // single pony 260, single horse 250; a reserve is not driven)
         horses: Array.isArray(equipageDoc.horses)
-            ? equipageDoc.horses.map(h => ({ heightCm: horseHeight(h) }))
+            ? equipageDoc.horses.map(h => ({
+                heightCm: horseHeight(h),
+                type: h?.type || null,
+                category: h?.category || null,
+                reserve: h?.reserve === true || h?.isReserve === true
+            }))
             : [],
         testKey: equipageDoc.testKey || equipageDoc.programKey || null,
         // Merged classes (precision course lookup)
@@ -66,6 +73,9 @@ export function buildCompetitionState(equipageDoc, dressageProtocols, marathonDo
             dressageJudgeMapping: config.dressageJudgeMapping || {},
             judges: config.judges || [],
             marathonConfig: config.marathonConfig || {},
+            // config/dressyrClassConfig: its clearRound makes the class clear
+            // round in all phases (isClearRoundClass)
+            dressyrClassConfig: config.dressyrClassConfig || null,
             precisionConfig: config.precisionConfig || {},
             ruleSettings: config.ruleSettings || null,
             pauseWindows: Array.isArray(config.pauseWindows) ? config.pauseWindows : [],

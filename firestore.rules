@@ -107,7 +107,7 @@ service cloud.firestore {
     // admins doc and roleEmails doc (no owner/global admin check: callers add
     // canAdminThisArtifactsComp). Cheaper where the expression limit is tight.
     function hasStaffRoleInComp(appId, compId) {
-      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
       let adminPath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/admins/$(request.auth.uid);
       let email = hasVerifiedEmail() ? request.auth.token.email.lower() : '__no_email__';
       let rolePath = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/roleEmails/$(email);
@@ -127,11 +127,12 @@ service cloud.firestore {
     function canReadCompetitionStaffDocs(appId, compId) {
       return request.auth != null
         && (
-          canAdminThisArtifactsComp(appId, compId) ||
-          hasExplicitRoleInComp(appId, compId, 'dressage') ||
-          hasExplicitRoleInComp(appId, compId, 'marathon') ||
-          hasExplicitRoleInComp(appId, compId, 'precision') ||
-          hasExplicitRoleInComp(appId, compId, 'speaker')
+          // Every competition role (the vet too, a limited role that writes
+          // only the vet data) from one look at the admins and roleEmails
+          // docs: asking each role in turn ran past the rules' limit of 1000
+          // evaluated expressions on a draft competition
+          hasStaffRoleInComp(appId, compId) ||
+          canAdminThisArtifactsComp(appId, compId)
         );
     }
 
@@ -325,7 +326,37 @@ service cloud.firestore {
         // Recalculation log (who ran it)
         || pathStr.matches(comp + 'maintenanceRuns($|/.*)')
         // Horse temperatures (health data): driver, officials and admins only
-        || pathStr.matches(comp + 'horseTemperatures($|/.*)');
+        || pathStr.matches(comp + 'horseTemperatures($|/.*)')
+        // The vet's clinical findings (vet, admins, the driver) and notes (vet, admins)
+        || pathStr.matches(comp + 'vetInspections($|/.*)')
+        || pathStr.matches(comp + 'vetNotes($|/.*)');
+    }
+
+    // The vet's result for one phase on the public equipage (when changed):
+    // { status, updatedAt, horses: { [horseKey]: { status, checkedAt } } }.
+    // The clinical findings belong in vetInspections, not here.
+    function isVetPhaseResultUpdate(field) {
+      let after = request.resource.data;
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny([field])
+        || !(field in after)
+        || (after[field] is map
+          && after[field].keys().hasOnly(['status', 'updatedAt', 'horses'])
+          && after[field].get('horses', {}) is map
+          && after[field].get('horses', {}).size() <= 12);
+    }
+
+    function isVetEquipageUpdate() {
+      let affected = request.resource.data.diff(resource.data).affectedKeys();
+      return affected.hasOnly(['status', 'vetInspection_initial', 'vetInspection_harness',
+          'vetInspection_restArea', 'vetInspection_final', 'vetUnfitStageB', 'lastUpdated', 'updatedAt'])
+        // The status the vet gives in the first inspection, nothing else
+        && (!affected.hasAny(['status'])
+          || request.resource.data.status in ['anmäld', 'incheckad', 'besiktigad', 'ombesiktning', 'struken'])
+        && (!affected.hasAny(['vetUnfitStageB']) || request.resource.data.vetUnfitStageB is bool)
+        && isVetPhaseResultUpdate('vetInspection_initial')
+        && isVetPhaseResultUpdate('vetInspection_harness')
+        && isVetPhaseResultUpdate('vetInspection_restArea')
+        && isVetPhaseResultUpdate('vetInspection_final');
     }
 
     // The driver's own temperature entries: only the temperature map (one
@@ -607,6 +638,22 @@ service cloud.firestore {
             && hasExplicitRoleInComp(appId, compId, 'speaker')
           ) ||
           (
+            // The vet: each phase's result and the status from the first
+            // inspection (isVetEquipageUpdate). The clinical findings and
+            // notes are private (vetInspections, vetNotes)
+            isVetEquipageUpdate()
+            && isCompetitionOpen(appId, compId)
+            && hasExplicitRoleInComp(appId, compId, 'vet')
+          ) ||
+          (
+            // Precision officials measure the carriages (vagnbredd page): the
+            // widths decide the cone width, and the safety check with them
+            request.resource.data.diff(resource.data).affectedKeys().hasOnly(
+              ['trackWidth', 'marathonTrackWidth', 'safetyCheck', 'lastUpdated', 'updatedAt'])
+            && isCompetitionOpen(appId, compId)
+            && hasExplicitRoleInComp(appId, compId, 'precision')
+          ) ||
+          (
              // Drivers: notes for the speaker. The declaration (groom,
              // carriage, club, horses) is saved by the updateEquipageDeclaration
              // function, which checks the lock before the start, the lengths,
@@ -624,8 +671,8 @@ service cloud.firestore {
     }
 
     // Horse temperatures (doc id = start number, as equipages): health data,
-    // so not public. The competition's officials read them (the vet page is
-    // open to every official role), the driver reads and enters their own.
+    // so not public. The competition's officials read them (hasStaffRoleInComp,
+    // the vet included), the driver reads and enters their own.
     // Admins enter them for the driver (portal admin mode); the driver only
     // while the competition is not archived (manualLockdown does not stop them:
     // temperatures are taken during the competition)
@@ -657,6 +704,49 @@ service cloud.firestore {
             && isDriverTemperatureData(request.resource.data)
             && isCompetitionOpen(appId, compId)
           )
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
+    }
+
+    // The vet's clinical findings per equipage (doc id = start number):
+    // { horses: { [horseKey]: { [phase]: { pulseBpm, respiration, mucosa,
+    // bitOk, harnessOk, checkedAt } } }, updatedAt }. Health data: the vet and
+    // admins read and write it, the driver reads their own (verified email on
+    // equipagePrivate, as horseTemperatures). Other officials and the public
+    // see only the result on the equipage (vetInspection_<phase>).
+    match /artifacts/{appId}/public/data/competitions/{compId}/vetInspections/{equipageId} {
+      allow read: if request.auth != null
+        && (
+          canSelfServiceEquipage(appId, compId, equipageId)
+          || hasExplicitRoleInComp(appId, compId, 'vet')
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow create, update: if request.auth != null
+        && request.resource.data.keys().hasOnly(['horses', 'updatedAt'])
+        && request.resource.data.get('horses', {}) is map
+        && request.resource.data.get('horses', {}).size() <= 12
+        && (
+          (hasExplicitRoleInComp(appId, compId, 'vet') && isCompetitionOpen(appId, compId))
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
+    }
+
+    // The vet's own notes per equipage and phase: the vet and admins only
+    // (not the driver, not other officials)
+    match /artifacts/{appId}/public/data/competitions/{compId}/vetNotes/{equipageId} {
+      allow read: if request.auth != null
+        && (
+          hasExplicitRoleInComp(appId, compId, 'vet')
+          || canAdminThisArtifactsComp(appId, compId)
+        );
+      allow create, update: if request.auth != null
+        && request.resource.data.keys().hasOnly(['notes', 'updatedAt'])
+        && request.resource.data.get('notes', {}) is map
+        && request.resource.data.get('notes', {}).keys().hasOnly(['initial', 'harness', 'restArea', 'final'])
+        && (
+          (hasExplicitRoleInComp(appId, compId, 'vet') && isCompetitionOpen(appId, compId))
           || canAdminThisArtifactsComp(appId, compId)
         );
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);

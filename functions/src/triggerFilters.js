@@ -9,7 +9,11 @@ import { stableJson } from './resultRecalculationUtils.js';
 // Equipage fields the result engine does not read
 const EQUIPAGE_NON_RESULT_FIELDS = new Set([
     'speakerNotes', 'horseTemperatures', 'groom', 'carriage', 'clubName',
-    'clubLogo', 'lastUpdated', 'updatedAt'
+    'clubLogo', 'lastUpdated', 'updatedAt',
+    // The vet's per-phase results (the equipage status, which the vet also
+    // sets in the first inspection, does count)
+    'vetInspection_initial', 'vetInspection_harness', 'vetInspection_restArea', 'vetInspection_final',
+    'vetUnfitStageB'
 ]);
 
 // Live state of the marathon obstacle input on maraton/{sn}. The engine reads

@@ -289,7 +289,7 @@ test('calculateTeamResults calculates team results per discipline separately (di
   assert.equal(m4.isCounting, true);
 });
 
-test('calculateTeamResults leaves out every result of a member eliminated in any phase (TR V 501.2)', () => {
+test('calculateTeamResults leaves out every result of a member eliminated in any phase (TR V 510.2)', () => {
   const teams = [{
     id: 'team-1',
     name: 'Klubb A',
@@ -308,7 +308,7 @@ test('calculateTeamResults leaves out every result of a member eliminated in any
 
   const [team] = calculateTeamResults(teams, rows);
 
-  // TR V 501.2 (as FEI): an equipage eliminated in any phase counts in none,
+  // TR V 510.2 (as FEI): an equipage eliminated in any phase counts in none,
   // so eq-1's marathon 40 and cones 5 do not count either.
   // Dressage 40 + 50 + 45 = 135, marathon 50 + 60 + 70 = 180, cones 10 + 15 + 20 = 45
   assert.equal(team.dressage, 135);

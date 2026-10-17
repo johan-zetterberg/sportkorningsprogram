@@ -51,7 +51,7 @@ function buildMemberResult(memberId, resultMap) {
 
     const statusLower = String(res.status || '').toLowerCase();
     const isScratched = statusLower.includes('struken') || statusLower === 'withdrawn' || statusLower === 'scratched' || Boolean(res.struken || res.withdrawn);
-    // TR V 501.2 (as FEI): an equipage's results count for the team only if
+    // TR V 510.2 (as FEI): an equipage's results count for the team only if
     // it completed the competition without elimination in any phase, so an
     // elimination anywhere takes all of the member's results out
     const isMemberEliminatedFromTeam = isScratched || res.isEliminated === true

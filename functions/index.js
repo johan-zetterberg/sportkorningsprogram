@@ -9,7 +9,7 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
-import { buildDeclarationUpdate } from "./src/declarationUtils.js";
+import { buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUtils.js";
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
@@ -118,14 +118,15 @@ function buildVolunteerSignupPayload(raw = {}) {
 // `read` lets a transaction do the reads (see writeIfSettingsUnchanged).
 async function getContext(compRef, read = (ref) => ref.get()) {
     const configRef = (id) => compRef.collection('config').doc(id);
-    const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, judgeMappingSnap, statusSnap] = await Promise.all([
+    const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, judgeMappingSnap, statusSnap, dressClassSnap] = await Promise.all([
         read(compRef),
         read(configRef('maratonConfig')),
         read(configRef('precisionConfig')),
         read(configRef('dressagePrograms')),
         read(configRef('dressyrProgramMapping')),
         read(configRef('dressageJudgeMapping')),
-        read(configRef('globalStatus'))
+        read(configRef('globalStatus')),
+        read(configRef('dressyrClassConfig'))
     ]);
     const data = (snap) => (snap.exists ? snap.data() : null);
     const pauseLog = statusSnap.exists ? statusSnap.data()?.pauseLog : null;
@@ -143,7 +144,8 @@ async function getContext(compRef, read = (ref) => ref.get()) {
                 precisionConfig: data(precCfgSn),
                 dressagePrograms: data(programsSnap),
                 dressyrProgramMapping: data(mappingSnap),
-                dressageJudgeMapping: data(judgeMappingSnap)
+                dressageJudgeMapping: data(judgeMappingSnap),
+                dressyrClassConfig: data(dressClassSnap)
             }
         }),
         allPrograms: {
@@ -154,6 +156,8 @@ async function getContext(compRef, read = (ref) => ref.get()) {
         dressageJudgeMapping: judgeMappingSnap.exists ? judgeMappingSnap.data() : {},
         judges: [],
         marathonConfig: marCfgSn.exists ? marCfgSn.data() : {},
+        // Its clearRound makes the class clear round in every phase
+        dressyrClassConfig: data(dressClassSnap),
         precisionConfig: precCfgSn.exists ? precCfgSn.data() : {},
         ruleSettings: compSnap.exists ? (compSnap.data()?.ruleSettings || null) : null,
         pauseWindows: Array.isArray(pauseLog) ? pauseLog : []
@@ -927,9 +931,10 @@ export const ensureOwnerSuperadminAccess = onCall(async (request) => {
 });
 
 // A driver's declaration from the portal. Drivers may not write `horses`
-// directly (the rules forbid it): the horse entries also hold the vet's
-// inspection results, so here only names and ids are taken from the driver and
-// everything else on a horse is kept (declarationUtils).
+// directly (the rules forbid it): the horse entries hold the secretariat's data
+// and the vet's results are tied to each horse's key, so here only names and
+// ids are taken from the driver and everything else on a horse is kept
+// (declarationUtils).
 export const updateEquipageDeclaration = onCall(async (request) => {
     if (!request.auth?.uid) {
         throw new HttpsError('unauthenticated', 'Inloggning krävs.');
@@ -979,7 +984,9 @@ export const updateEquipageDeclaration = onCall(async (request) => {
         if (!snap.exists) throw new HttpsError('not-found', 'Ekipaget finns inte.');
         let update;
         try {
-            update = buildDeclarationUpdate(request.data || {}, snap.data()?.horses);
+            // The vet's results are per horse key on the equipage: inspected
+            // horses keep their name and id
+            update = buildDeclarationUpdate(request.data || {}, snap.data()?.horses, inspectedHorseKeys(snap.data()));
         } catch (error) {
             throw new HttpsError('failed-precondition', error.message);
         }

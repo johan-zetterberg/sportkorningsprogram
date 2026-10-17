@@ -168,7 +168,7 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
     let stageLabel = stageKey === 'transport' ? t('transport') : t('stage') + ' ' + stageKey;
 
     // Detect Warm-up (Fixed Time A)
-    if (stageKey === 'A' && limits && limits.ideal > 0 && limits.max === limits.ideal && limits.min === 0) {
+    if (stageKey === 'A' && !!(limits && limits.isFixedTime)) {
       stageLabel = 'Warm-up';
     }
 
@@ -349,7 +349,7 @@ export function renderTimeCard(container, eq, marathonData, obstaclePlacementMap
     // Check Warmup fix
     if (key === 'A') {
       const lim = limitsFor(eq, 'A');
-      if (lim && lim.ideal > 0 && lim.max === lim.ideal && lim.min === 0) {
+      if (!!(lim && lim.isFixedTime)) {
         name = 'Warm-up';
       }
     }

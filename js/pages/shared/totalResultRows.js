@@ -120,7 +120,7 @@ export function resolveTotalDisciplineStatuses(row = {}) {
   // (an older archive snapshot) marks dressage and marathon as before, so the
   // total's ELIM is never shown with no discipline marked. Team scores do not
   // depend on this: an eliminated member counts in no discipline (see
-  // teamCalculationService, TR V 501.2 / FEI).
+  // teamCalculationService, TR V 510.2 / FEI).
   const anyPhaseFlag = row?.dressage?.eliminated === true
     || row?.marathon?.eliminated === true
     || row?.precision?.eliminated === true;

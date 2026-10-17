@@ -10,6 +10,12 @@
 //               still equal shares the place.
 //   Total     – lowest total, then marathon, then dressage
 //               (TR 533.3, FEI Art 904); still equal shares the place.
+//   Clear round – the class is not ranked in any phase or in the total
+//               (TR V 509.3); results carry isClearRound (isClearRoundClass).
+
+import { isClearRoundClass } from './marathon.js';
+
+export { isClearRoundClass };
 
 export const RANK_TOLERANCE = 1e-6;
 
@@ -49,7 +55,7 @@ export function compareTotalRank(a, b) {
 // --- Rank keys from engine results (null = cannot be placed) ---
 
 export function dressageRankKey(result) {
-    if (!result || result.eliminated || !isNum(result.penalty)) return null;
+    if (!result || result.eliminated || result.isClearRound === true || !isNum(result.penalty)) return null;
     return { penalty: result.penalty };
 }
 
@@ -86,7 +92,7 @@ export function marathonRankKey(result, { requireFinished = true } = {}) {
  *        still on the course gets no place
  */
 export function precisionRankKey(result, { requireFinished = false } = {}) {
-    if (!result || result.eliminated || !isNum(result.totalPenalty)) return null;
+    if (!result || result.eliminated || result.isClearRound === true || !isNum(result.totalPenalty)) return null;
     if (requireFinished && (result.running || !(result.finalized || result.status === 'Klar'))) return null;
     return {
         penalty: result.totalPenalty,
@@ -94,8 +100,9 @@ export function precisionRankKey(result, { requireFinished = false } = {}) {
     };
 }
 
-// isClearRound: a class judged clear round is not ranked (TR V 500.3), in
-// the total either
+// isClearRound: a class judged clear round is not ranked (TR V 509.3), in
+// the total either (dressageRankKey/precisionRankKey/marathonRankKey also
+// return null for a result with isClearRound)
 export function totalRankKey({ totalPenalty, isEliminated, marathonPenalty, dressagePenalty, isClearRound = false }) {
     if (isEliminated || isClearRound || !isNum(totalPenalty)) return null;
     return { penalty: totalPenalty, marathon: marathonPenalty, dressage: dressagePenalty };

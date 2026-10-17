@@ -90,10 +90,25 @@ function getElapsedMs() {
     return pausedMs;
 }
 
-function digitsToMs(d) {
-    const s = (d || "").replace(/\D/g, '').slice(0, 6).padEnd(6, '0');
-    const mm = +s.slice(0, 2), ss = +s.slice(2, 4), cs = +s.slice(4, 6);
-    return (mm * 60 + ss) * 1000 + cs * 10;
+// A typed time ("mmsscc" or "mm:ss,cc") → ms, or null when it is empty, zero
+// or not a time (seconds ≥ 60), as on the marathon pages: empty input was
+// stored as 0.00 and "0175" as 1:75
+function parseManualTimeMs(raw) {
+    const s = String(raw ?? '').trim();
+    if (!s) return null;
+    let mm, ss, cs;
+    const sep = s.match(/^(\d{1,2})[:.](\d{1,2})(?:[,.](\d{1,2}))?$/);
+    if (sep) {
+        mm = +sep[1]; ss = +sep[2]; cs = sep[3] ? +sep[3].padEnd(2, '0') : 0;
+    } else if (/^\d{1,6}$/.test(s)) {
+        const d = s.padEnd(6, '0');
+        mm = +d.slice(0, 2); ss = +d.slice(2, 4); cs = +d.slice(4, 6);
+    } else {
+        return null;
+    }
+    if (ss >= 60) return null;
+    const ms = (mm * 60 + ss) * 1000 + cs * 10;
+    return ms > 0 ? ms : null;
 }
 
 function precisionBackupKey(sn) {
@@ -1266,11 +1281,21 @@ export async function load() {
         document.getElementById('liveTimer').addEventListener('click', () => manualEditor.classList.remove('hidden'));
         document.getElementById('btnManualCancel').addEventListener('click', () => manualEditor.classList.add('hidden'));
         document.getElementById('btnManualApply').addEventListener('click', () => {
+            const digitsEl = document.getElementById('manualTimeDigits');
+            const ms = parseManualTimeMs(digitsEl?.value);
+            if (ms == null) {
+                showAlert('Ogiltig tid. Ange mmsscc (sekunder under 60).', false);
+                digitsEl?.focus();
+                return;
+            }
+            // A running clock is the judge's live time: replaced only on purpose
+            if (isRunning && !confirm(`Klockan går. Stoppa den och ersätt tiden med ${partsToString(msToParts(ms))}?`)) return;
             // Stop first, then set the time: stopTimer() would add the time
             // the clock ran to the time just typed
             stopTimerLocal();
             startEpoch = 0;
-            pausedMs = digitsToMs(document.getElementById('manualTimeDigits').value);
+            pausedMs = ms;
+            if (digitsEl) digitsEl.value = '';
             updateTimerView();   // visar tiden
             pushImmediateState(); // <-- meddela resultatvyn den nya stoppade tiden
             manualEditor.classList.add('hidden');

@@ -606,7 +606,7 @@ export async function load(options = {}) {
 
             try {
                 const joinedRole = await joinCompetitionAsAdmin(compId, pin, user);
-                const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: 'Precision', speaker: 'Speaker' };
+                const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: 'Precision', speaker: 'Speaker', vet: 'Veterinär' };
                 const roleStr = roleLabels[joinedRole] || joinedRole;
                 showAlert(`Rättigheter beviljade (${roleStr})! Synkroniserar...`, true);
                 modal.remove();
@@ -1286,11 +1286,6 @@ async function renderDashboard(container, compId, startNumber, user) {
                     return `<span class="px-2 py-1 rounded text-sm font-bold uppercase ${curr.c}">${curr.t}</span>`;
                 })()}
                         </div>
-                        ${(privateEquipage?.vetNotes || eq.vetNotes) ? `
-                        <div class="mt-3 p-3 bg-red-50 dark:bg-red-900/20 rounded border border-red-100 dark:border-red-800">
-                             <div class="text-xs font-bold text-red-800 dark:text-red-400 uppercase mb-1">${t('vet_note', compConfig?.isInternational)}:</div>
-                             <p class="text-red-900 dark:text-red-200 text-sm">${escapeHtml(privateEquipage?.vetNotes || eq.vetNotes)}</p>
-                        </div>` : ''}
                          ${eq.status === 'ombesiktning' ?
                     `<p class="text-sm text-yellow-800 dark:text-yellow-400 mt-2">${t('contact_secretariat', compConfig?.isInternational)}</p>` : ''}
                     </div>

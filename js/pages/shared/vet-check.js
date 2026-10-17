@@ -1,6 +1,7 @@
 import { getGlobalState } from '../../main.js';
-import { listenForEquipages, saveEquipage, updateEquipageFromLatest } from '../../services/equipageService.js';
+import { listenForEquipages, updateEquipageFromLatest } from '../../services/equipageService.js';
 import { listenForHorseTemperatures } from '../../services/horseTemperatureService.js';
+import { listenForVetInspections, listenForVetNotes, saveVetClinicalFindings, saveVetNote as saveVetNoteDoc } from '../../services/vetInspectionService.js';
 import { getCompetitionById, getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -13,18 +14,15 @@ import {
     summarizeHorseTemperatures
 } from './horseTemperatureUtils.js';
 import {
+    applyVetResultsToHorses,
     buildVetDatalistOptions,
+    buildVetStatusUpdate,
     deriveVetStatusFromHorses,
     getHorsePhaseInspection,
     getHorseStableKey,
-    getHorseVetStatus,
-    hasVetStruckHorse,
     getVetRemainingCount,
     isPulseWarning,
-    normalizeVetStatus,
     resolveVetFilteredState,
-    updateHorsePhaseInspection,
-    updateHorseVetStatus,
     VET_PHASES,
     MAX_RECOMMENDED_PULSE_BPM
 } from './vetCheckUtils.js';
@@ -34,8 +32,14 @@ let allEquipages = [];
 let filteredEquipages = [];
 let unsubscribe = null;
 let unsubscribeTemperatures = null;
+let unsubscribeClinical = null;
+let unsubscribeNotes = null;
 // Start number -> temperature map, from the private horseTemperatures collection
 let temperaturesByStartNumber = new Map();
+// Start number -> clinical findings / notes, from the private vetInspections
+// and vetNotes collections (not on the public equipage document)
+let clinicalByStartNumber = new Map();
+let notesByStartNumber = new Map();
 let rawEquipages = [];
 let currentIndex = 0;
 let currentSearchTerm = '';
@@ -73,23 +77,29 @@ export function load() {
     attachPageHandlers();
     loadTemperatureSettings(competition);
 
-    // includePrivate: the vet's notes are kept with the private equipage data
+    // The public equipages only: the vet's notes and findings are in their own
+    // collections (the vet does not read the drivers' contact details)
     unsubscribe = listenForEquipages(competitionId, update => {
         rawEquipages = Array.isArray(update) ? update : [];
-        mergeTemperatures();
+        mergePrivateData();
         updatePhaseTabs();
         updateDatalist();
         processData(currentSearchTerm, { fromSnapshot: true });
-    }, { includePrivate: true });
+    });
 
     // Temperatures are not on the public equipage document: merged in by
     // start number (any old copy there is replaced, not shown)
     unsubscribeTemperatures = listenForHorseTemperatures(competitionId, byStartNumber => {
         temperaturesByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
-        mergeTemperatures();
-        updateQueueDisplay();
-        if (isTypingInCard()) cardRefreshPending = true;
-        else renderCard();
+        refreshAfterPrivateUpdate();
+    });
+    unsubscribeClinical = listenForVetInspections(competitionId, byStartNumber => {
+        clinicalByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
+        refreshAfterPrivateUpdate();
+    });
+    unsubscribeNotes = listenForVetNotes(competitionId, byStartNumber => {
+        notesByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
+        refreshAfterPrivateUpdate();
     });
 
     // A card refresh held back while typing runs when the field is left
@@ -103,13 +113,31 @@ export function load() {
     });
 }
 
-// Each equipage with its temperature map. Objects in allEquipages are updated
-// in place: filteredEquipages and the local copies saves build on point to them
-function mergeTemperatures() {
+// Each equipage with its temperature map, notes, and its horses with the vet
+// results (public per-phase results + private findings). Objects in
+// allEquipages are updated in place: filteredEquipages and the local copies
+// saves build on point to them. The horses as stored stay in _storedHorses.
+function mergePrivateData() {
     rawEquipages.forEach(eq => {
-        eq.horseTemperatures = temperaturesByStartNumber.get(String(eq.startNumber ?? eq.id)) || {};
+        const sn = String(eq.startNumber ?? eq.id);
+        if (!eq._storedHorses) eq._storedHorses = Array.isArray(eq.horses) ? eq.horses : [];
+        eq.horses = applyVetResultsToHorses({ ...eq, horses: eq._storedHorses }, clinicalByStartNumber.get(sn) || {});
+        eq.horseTemperatures = temperaturesByStartNumber.get(sn) || {};
+        eq.vetNotesByPhase = notesByStartNumber.get(sn) || {};
+        // For the PDF list
+        eq.vetNote = Object.keys(VET_PHASES)
+            .map(phase => eq.vetNotesByPhase[phase] ? `${VET_PHASES[phase].shortLabel}: ${eq.vetNotesByPhase[phase]}` : '')
+            .filter(Boolean)
+            .join('; ');
     });
     allEquipages = rawEquipages;
+}
+
+function refreshAfterPrivateUpdate() {
+    mergePrivateData();
+    updateQueueDisplay();
+    if (isTypingInCard()) cardRefreshPending = true;
+    else renderCard();
 }
 
 export function __unload() {
@@ -117,7 +145,13 @@ export function __unload() {
     unsubscribe = null;
     if (unsubscribeTemperatures) unsubscribeTemperatures();
     unsubscribeTemperatures = null;
+    if (unsubscribeClinical) unsubscribeClinical();
+    unsubscribeClinical = null;
+    if (unsubscribeNotes) unsubscribeNotes();
+    unsubscribeNotes = null;
     temperaturesByStartNumber = new Map();
+    clinicalByStartNumber = new Map();
+    notesByStartNumber = new Map();
     rawEquipages = [];
     competitionId = null;
     allEquipages = [];
@@ -595,8 +629,7 @@ function renderVetCard(eq = {}) {
     const isProcessable = ['anmäld', 'incheckad', 'ombesiktning'].includes(status);
     const cardOpacity = !isProcessable ? 'opacity-70' : '';
 
-    const phaseNoteKey = `vetNotes_${currentPhase}`;
-    const phaseNoteVal = eq[phaseNoteKey] || (currentPhase === 'initial' ? eq.vetNotes : '') || '';
+    const phaseNoteVal = eq.vetNotesByPhase?.[currentPhase] || '';
 
     // Action button labels per phase
     let approvedBtnLabel = 'GODKÄND';
@@ -763,7 +796,10 @@ function latestLocalEquipage(startNumber, fallback = {}) {
 // the queued write resolves later), so a following save made before the
 // listener reports the first builds on it instead of overwriting it
 function applySavedToLocal(local, saved) {
-    if (local && saved && typeof saved === 'object') Object.assign(local, saved);
+    if (local && saved && typeof saved === 'object') {
+        Object.assign(local, saved);
+        mergePrivateData();
+    }
 }
 
 function buildOnLocal(local, build) {
@@ -774,24 +810,26 @@ function buildOnLocal(local, build) {
     };
 }
 
+// The equipage as stored (public fields, horses without the merged findings),
+// for building a save offline from the device's copy
+function storedCopy(local = {}) {
+    return { ...local, horses: local._storedHorses || local.horses || [] };
+}
+
+// Clinical findings go to the private vetInspections document only
 async function saveHorseClinicalField(eq = {}, horseKey, updateData = {}) {
-    if (!competitionId || !eq.startNumber) return;
-    const phase = currentPhase;
+    if (!competitionId || !eq.startNumber || !horseKey) return;
     try {
-        const local = latestLocalEquipage(eq.startNumber, eq);
-        // Built from the latest copy: another vet may have saved another horse
-        await updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => ({
-            horses: updateHorsePhaseInspection(latest.horses, horseKey, phase, updateData)
-        })), local);
+        await saveVetClinicalFindings(competitionId, eq.startNumber, [{ horseKey, phase: currentPhase, fields: updateData }]);
     } catch (err) {
         console.warn('Failed to save horse clinical data:', err);
+        showAlert('Kunde inte spara undersökningsvärdet', false);
     }
 }
 
 async function saveVetNote(startNumber, note, saveBtn) {
     try {
-        const noteKey = currentPhase === 'initial' ? 'vetNotes' : `vetNotes_${currentPhase}`;
-        await saveEquipage(competitionId, startNumber, { [noteKey]: note });
+        await saveVetNoteDoc(competitionId, startNumber, currentPhase, note);
         saveBtn.textContent = 'KLART!';
         setTimeout(() => {
             saveBtn.textContent = 'SPARA';
@@ -833,55 +871,20 @@ async function setVetStatus(startNumber, status) {
     }
     try {
         const local = latestLocalEquipage(startNumber);
+        // The findings on the card to the private document, the decision to
+        // the public equipage
+        const findings = Object.entries(domExtrasByHorseKey)
+            .map(([horseKey, fields]) => ({ horseKey, phase, fields }));
         // Built from the latest copy of the equipage (see updateEquipageFromLatest)
-        const buildPayload = (eq) => {
-            const horses = Array.isArray(eq?.horses) && eq.horses.length
-                ? eq.horses.map((horse, index) => {
-                    const hk = getHorseStableKey(horse, index);
-                    const currentData = horse.inspections?.[phase] || {};
-                    const domExtra = domExtrasByHorseKey[hk] || {};
-                    const nowIso = new Date().toISOString();
-                    const newInspections = {
-                        ...(horse.inspections || {}),
-                        [phase]: {
-                            ...currentData,
-                            ...domExtra,
-                            status: normalizeVetStatus(status),
-                            checkedAt: nowIso
-                        }
-                    };
-                    const updated = {
-                        ...horse,
-                        inspections: newInspections
-                    };
-                    if (phase === 'initial') {
-                        updated.vetStatus = normalizeVetStatus(status);
-                        updated.vetCheckedAt = nowIso;
-                    }
-                    return updated;
-                })
-                : null;
-
-            const derived = horses
-                ? deriveVetStatusFromHorses(horses, eq?.status, phase, { keepWithdrawn: !hasVetStruckHorse(eq?.horses) })
-                : status;
-            const payload = horses ? { horses } : {};
-            if (phase === 'initial') {
-                payload.status = derived;
-            } else if (phase === 'restArea' && status === 'struken') {
-                payload.vetUnfitStageB = true;
-            }
-
-            payload[`vetInspection_${phase}`] = {
-                status: derived,
-                updatedAt: new Date().toISOString()
-            };
-            return payload;
-        };
+        const buildPayload = (eq) => buildVetStatusUpdate(eq, phase, { status }).payload;
 
         // Done with this equipage: the next snapshot moves on in the queue
         advanceAfterOwnSave = true;
-        await updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), local);
+        // Side by side: offline each waits for its own write to be queued
+        await Promise.all([
+            saveVetClinicalFindings(competitionId, startNumber, findings),
+            updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), storedCopy(local))
+        ]);
         showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet update failed', error);
@@ -899,31 +902,19 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
     const phase = currentPhase;
     try {
         const local = latestLocalEquipage(eq.startNumber, eq);
-        // Built from the latest copy: another vet may have saved another horse
-        await updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => {
-            const horses = updateHorsePhaseInspection(latest.horses, horseKey, phase, {
-                status,
-                ...extraData
-            });
-            const derivedStatus = deriveVetStatusFromHorses(horses, latest.status, phase, { keepWithdrawn: !hasVetStruckHorse(latest.horses) });
-            // Every horse inspected in this phase: move on after the save;
-            // otherwise stay on the card for the next horse
-            advanceAfterOwnSave = Array.isArray(horses) && horses.length > 0
-                && horses.every(horse => !!horse?.inspections?.[phase]?.status);
-            const payload = {
-                horses,
-                [`vetInspection_${phase}`]: {
-                    status: derivedStatus,
-                    updatedAt: new Date().toISOString()
-                }
-            };
-            if (phase === 'initial') {
-                payload.status = derivedStatus;
-            } else if (phase === 'restArea' && derivedStatus === 'struken') {
-                payload.vetUnfitStageB = true;
-            }
-            return payload;
-        }), local);
+        // Findings to the private document, the decision to the public equipage
+        await Promise.all([
+            saveVetClinicalFindings(competitionId, eq.startNumber, [{ horseKey, phase, fields: extraData }]),
+            // Built from the latest copy: another vet may have saved another horse
+            updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => {
+                const { payload, horses } = buildVetStatusUpdate(latest, phase, { status, horseKeys: [horseKey] });
+                // Every horse inspected in this phase: move on after the save;
+                // otherwise stay on the card for the next horse
+                advanceAfterOwnSave = horses.length > 0
+                    && horses.every(horse => !!horse?.inspections?.[phase]?.status);
+                return payload;
+            }), storedCopy(local))
+        ]);
         showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet horse update failed', error);

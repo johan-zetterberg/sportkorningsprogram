@@ -181,7 +181,9 @@ export const klassTempoData = {
 
   // --- FEI KLASSER (FEI 2026 Art 975.10.5 & 978.3) ---
   "FEI Children 1*": { maraton: 230, precision: 220 }, // FEI 974.1: Children cones 220 m/min
-  "FEI Junior 2*": { maraton: 240, precision: 240 },
+  // Hitch and horse/pony unknown: 250, the FEI 975.10.5 speed of pairs and
+  // horse singles (240 is four-in-hand only, 260 single ponies)
+  "FEI Junior 2*": { maraton: 240, precision: 250 },
   "FEI U25 2*": { maraton: 250, precision: 250 },
   "FEI 1* Häst": { maraton: 240, precision: 250 }, "FEI 1* Ponny": { maraton: 230, precision: 260 },
   "FEI 2* Enbet Häst": { maraton: 250, precision: 250 }, "FEI 2* Par Häst": { maraton: 250, precision: 250 },
@@ -255,32 +257,58 @@ export const standardPortAllowance = {
   '*': 35
 };
 
+// A class name as words: "LB "Barn"" -> ['lb', 'barn']. The children's class
+// ("Barnklass", "Barnklass Ponny", "Lätt B Barnklass") is driven in Lätt B
+// (TR V 509.2): "barnklass" counts as "barn", and without a level Lätt B
+// Abbreviations as the words they stand for, so "LB Barn" and "Lätt B Barn" match alike
+const WORD_ALIASES = {
+  barnklass: ['barn'], lb: ['lätt', 'b'], la: ['lätt', 'a'], lc: ['lätt', 'c'], latt: ['lätt'],
+  medelsvår: ['msv'], medelsvar: ['msv'], svar: ['svår']
+};
+const LEVEL_WORDS = new Set(['lätt', 'msv', 'svår', 'fei', 'cai']);
+export function classNameWords(name) {
+  const words = String(name ?? '')
+    .replace(/^[\d\s\.,&\;-]+/, '')
+    .toLowerCase()
+    .split(/[^a-z0-9åäö]+/)
+    .filter(Boolean)
+    .flatMap(w => WORD_ALIASES[w] || [w]);
+  if (words.includes('barn') && !words.some(w => LEVEL_WORDS.has(w))) return ['lätt', 'b', ...words];
+  return words;
+}
+
+const startsWithWords = (words, prefix) => prefix.length > 0 && prefix.length <= words.length
+  && prefix.every((w, i) => words[i] === w);
+const containsWords = (words, part) => {
+  for (let i = 0; i + part.length <= words.length; i++) {
+    if (startsWithWords(words.slice(i), part)) return true;
+  }
+  return false;
+};
+
+/**
+ * The table key (TR Bilaga 5 tables) a class name belongs to: the same words,
+ * else the longest key the name starts with, else the longest key found in
+ * the name. Keys match whole words only, so a short key ("LA") never matches
+ * inside a word ("Barnklass").
+ */
+export function matchClassTableKey(className, keys = []) {
+  const words = classNameWords(className);
+  if (!words.length) return null;
+  const table = keys.map(k => ({ k, w: classNameWords(k) })).filter(x => x.w.length > 0);
+  const same = table.find(x => x.w.length === words.length && startsWithWords(words, x.w));
+  if (same) return same.k;
+  const longest = (list) => list.sort((a, b) => b.w.length - a.w.length)[0]?.k || null;
+  return longest(table.filter(x => startsWithWords(words, x.w)))
+    || longest(table.filter(x => containsWords(words, x.w)));
+}
+
 // Centralt hjälpmedel: matcha ett faktiskt klassnamn mot TR-tabellen
 export function resolveStandardPortAllowance(className) {
   if (!className) return standardPortAllowance['*'] || 35;
-
-  const normalize = (str) =>
-    String(str).replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
-
-  const normalized = normalize(className);
   const keys = Object.keys(standardPortAllowance).filter(k => k !== '*');
-
-  // 1) exakt normaliserad match (ovanligt men billigt)
-  const exact = keys.find(k => normalize(k) === normalized);
-  if (exact) return standardPortAllowance[exact];
-
-  // 2) TR-nyckel är prefix till klassnamnet (vanligaste fallet)
-  const prefix = keys
-    .filter(k => normalized.startsWith(normalize(k)))
-    .sort((a, b) => normalize(b).length - normalize(a).length)[0];
-  if (prefix) return standardPortAllowance[prefix];
-
-  // 3) TR-nyckel finns någonstans i namnet (t.ex. "Msv Para", "Svår enbet")
-  const contains = keys
-    .filter(k => normalized.includes(normalize(k)))
-    .sort((a, b) => normalize(b).length - normalize(a).length)[0];
-  if (contains) return standardPortAllowance[contains];
-
-  // 4) Fallback om inget vettigt hittas
+  const key = matchClassTableKey(className, keys);
+  if (key) return standardPortAllowance[key];
+  // Fallback om inget vettigt hittas
   return standardPortAllowance['*'] || 35;
 }

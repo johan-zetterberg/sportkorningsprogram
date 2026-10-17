@@ -525,6 +525,144 @@ test('horse temperatures: owner driver, officials and admins only; the driver no
   await assertSucceeds(deleteDoc(tempDoc(adminDb, '202')));
 });
 
+test('vet role: writes the vet results on the equipage, clinical findings and notes in private docs', { skip: !HAS_EMULATOR }, async () => {
+  const findings = { SE001: { restArea: { pulseBpm: 60, respiration: 'normal', mucosa: 'ok', checkedAt: '2026-10-14T10:00:00Z' } } };
+  await seedCompetitionRole('vet-1', 'vet', 'vet-1@example.com');
+  await seedCompetitionRole('vet-admin', 'admin', 'vet-admin@example.com');
+  await seedCompetitionRole('vet-speaker', 'speaker', 'vet-speaker@example.com');
+  await seedCompetitionRole('vet-marathon', 'marathon', 'vet-marathon@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('equipages/301')), {
+      startNumber: 301, driverName: 'Vera', status: 'anmäld', horses: [{ name: 'Ella', id: 'SE001' }]
+    });
+    await setDoc(doc(db, compPath('equipagePrivate/301')), { email: 'vet-owner@example.com' });
+    await setDoc(doc(db, compPath('equipages/302')), { startNumber: 302 });
+    await setDoc(doc(db, compPath('equipagePrivate/302')), { email: 'vet-other@example.com' });
+    await setDoc(doc(db, compPath('vetInspections/301')), { horses: findings });
+    await setDoc(doc(db, compPath('vetNotes/301')), { notes: { initial: 'Lätt hälta vä bak' } });
+  });
+  const eqDoc = (db) => doc(db, compPath('equipages/301'));
+  const findingsDoc = (db, id = '301') => doc(db, compPath(`vetInspections/${id}`));
+  const notesDoc = (db, id = '301') => doc(db, compPath(`vetNotes/${id}`));
+  const result = {
+    status: 'besiktigad',
+    updatedAt: '2026-10-14T09:00:00Z',
+    horses: { SE001: { status: 'besiktigad', checkedAt: '2026-10-14T09:00:00Z' } }
+  };
+
+  // The vet: the public result and status, and the private documents
+  const vetDb = testEnv.authenticatedContext('vet-1', { email_verified: true, email: 'vet-1@example.com' }).firestore();
+  await assertSucceeds(setDoc(eqDoc(vetDb), { vetInspection_initial: result, status: 'besiktigad' }, { merge: true }));
+  await assertSucceeds(setDoc(eqDoc(vetDb), {
+    vetInspection_restArea: { ...result, status: 'struken' }, vetUnfitStageB: true
+  }, { merge: true }));
+  await assertSucceeds(getDoc(findingsDoc(vetDb)));
+  await assertSucceeds(getDocs(collection(vetDb, compPath('vetInspections'))));
+  await assertSucceeds(setDoc(findingsDoc(vetDb), {
+    horses: { SE001: { final: { status: 'besiktigad', checkedAt: 'x' } } }, updatedAt: serverTimestamp()
+  }, { merge: true }));
+  await assertSucceeds(setDoc(findingsDoc(vetDb, '302'), { horses: findings, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(getDocs(collection(vetDb, compPath('vetNotes'))));
+  await assertSucceeds(setDoc(notesDoc(vetDb), { notes: { restArea: 'Puls ok efter 10 min' }, updatedAt: serverTimestamp() }, { merge: true }));
+  // ...but nothing else on the equipage, no other status, no clinical data on it
+  await assertFails(updateDoc(eqDoc(vetDb), { driverName: 'Edited' }));
+  await assertFails(updateDoc(eqDoc(vetDb), { horses: [{ name: 'Annan', id: 'SE001' }] }));
+  await assertFails(updateDoc(eqDoc(vetDb), { status: 'reserv' }));
+  await assertFails(updateDoc(eqDoc(vetDb), { vetInspection_final: { ...result, pulseBpm: 60 } }));
+  await assertFails(updateDoc(eqDoc(vetDb), { trackWidth: 140 }));
+  await assertFails(setDoc(notesDoc(vetDb), { notes: { other: 'x' } }, { merge: true }));
+  await assertFails(setDoc(findingsDoc(vetDb), { email: 'x@example.com' }, { merge: true }));
+  // A limited role: no admin data (contact details, PINs), no temperature writes
+  await assertFails(getDoc(doc(vetDb, compPath('equipagePrivate/301'))));
+  await assertFails(getDoc(doc(vetDb, compPath('config/secrets'))));
+  await assertSucceeds(getDocs(collection(vetDb, compPath('horseTemperatures'))));
+  await assertFails(setDoc(doc(vetDb, compPath('horseTemperatures/301')), { horseTemperatures: {} }, { merge: true }));
+  await assertFails(setDoc(doc(vetDb, compPath('precision/301')), { totalPenalty: 0 }));
+  await assertFails(deleteDoc(findingsDoc(vetDb)));
+
+  // Other officials: neither the findings nor the notes, no vet writes
+  for (const uid of ['vet-speaker', 'vet-marathon']) {
+    const db = testEnv.authenticatedContext(uid, { email_verified: true, email: `${uid}@example.com` }).firestore();
+    await assertFails(getDoc(findingsDoc(db)));
+    await assertFails(getDoc(notesDoc(db)));
+    await assertFails(setDoc(findingsDoc(db), { horses: findings }, { merge: true }));
+    await assertFails(setDoc(notesDoc(db), { notes: { initial: 'x' } }, { merge: true }));
+    await assertFails(setDoc(eqDoc(db), { vetInspection_initial: result, status: 'struken' }, { merge: true }));
+  }
+
+  // The public: the result on the equipage, never the findings or notes
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  const publicEq = await assertSucceeds(getDoc(eqDoc(anonymousDb)));
+  assert.equal(publicEq.data().vetInspection_initial.horses.SE001.status, 'besiktigad');
+  assert.equal(publicEq.data().pulseBpm, undefined);
+  await assertFails(getDoc(findingsDoc(anonymousDb)));
+  await assertFails(getDocs(collection(anonymousDb, compPath('vetInspections'))));
+  await assertFails(getDoc(notesDoc(anonymousDb)));
+  await assertFails(getDocs(collection(anonymousDb, compPath('vetNotes'))));
+  const publicDb = testEnv.authenticatedContext('vet-public', { email_verified: true, email: 'vet-public@example.com' }).firestore();
+  await assertFails(getDoc(findingsDoc(publicDb)));
+
+  // The driver: reads their own findings (not others', not the list, not the
+  // notes) and writes nothing of the vet's
+  const ownerDb = testEnv.authenticatedContext('vet-owner', { email_verified: true, email: 'vet-owner@example.com' }).firestore();
+  const own = await assertSucceeds(getDoc(findingsDoc(ownerDb)));
+  assert.equal(own.data().horses.SE001.restArea.pulseBpm, 60);
+  await assertFails(getDoc(findingsDoc(ownerDb, '302')));
+  await assertFails(getDocs(collection(ownerDb, compPath('vetInspections'))));
+  await assertFails(getDoc(notesDoc(ownerDb)));
+  await assertFails(setDoc(findingsDoc(ownerDb), { horses: findings }, { merge: true }));
+  await assertFails(setDoc(eqDoc(ownerDb), { vetInspection_initial: { ...result, status: 'ombesiktning' }, status: 'ombesiktning' }, { merge: true }));
+  const unverifiedDb = testEnv.authenticatedContext('vet-owner-2', { email_verified: false, email: 'vet-owner@example.com' }).firestore();
+  await assertFails(getDoc(findingsDoc(unverifiedDb)));
+
+  // Admins: everything, deletes included
+  const adminDb = testEnv.authenticatedContext('vet-admin', { email_verified: true, email: 'vet-admin@example.com' }).firestore();
+  await assertSucceeds(getDocs(collection(adminDb, compPath('vetInspections'))));
+  await assertSucceeds(getDoc(notesDoc(adminDb)));
+  await assertSucceeds(setDoc(notesDoc(adminDb), { notes: { initial: 'Admin' } }, { merge: true }));
+  await assertSucceeds(deleteDoc(findingsDoc(adminDb, '302')));
+
+  // Archived: the vet no longer writes
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath()), { locked: true }, { merge: true });
+  });
+  await assertFails(setDoc(findingsDoc(vetDb), { horses: findings }, { merge: true }));
+  await assertFails(setDoc(eqDoc(vetDb), { status: 'ombesiktning' }, { merge: true }));
+  await assertSucceeds(getDoc(findingsDoc(vetDb)));
+});
+
+test('vet role by role email and in a draft competition', { skip: !HAS_EMULATOR }, async () => {
+  await seedRoleEmail('vet-mail@example.com', ['vet']);
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath()), { published: false }, { merge: true });
+    await setDoc(doc(db, compPath('equipages/401')), { startNumber: 401, status: 'anmäld' });
+  });
+  const vetDb = testEnv.authenticatedContext('vet-mail', { email_verified: true, email: 'vet-mail@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(vetDb, compPath('equipages/401'))));
+  await assertSucceeds(setDoc(doc(vetDb, compPath('equipages/401')), { status: 'ombesiktning' }, { merge: true }));
+  await assertSucceeds(setDoc(doc(vetDb, compPath('vetNotes/401')), { notes: { initial: 'Ombesiktning kl 16' } }, { merge: true }));
+  // An unverified address does not get the role
+  const unverifiedDb = testEnv.authenticatedContext('vet-mail-2', { email_verified: false, email: 'vet-mail@example.com' }).firestore();
+  await assertFails(getDoc(doc(unverifiedDb, compPath('vetNotes/401'))));
+});
+
+test('precision officials record carriage widths, nothing else on the equipage', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('width-precision', 'precision', 'width-precision@example.com');
+  await seedCompetitionRole('width-speaker', 'speaker', 'width-speaker@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('equipages/501')), { startNumber: 501, driverName: 'Wilma' });
+  });
+  const widths = { trackWidth: 140, marathonTrackWidth: 128, safetyCheck: { approved: true, comment: '' } };
+  const precisionDb = testEnv.authenticatedContext('width-precision', { email_verified: true, email: 'width-precision@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(precisionDb, compPath('equipages/501')), widths, { merge: true }));
+  await assertFails(updateDoc(doc(precisionDb, compPath('equipages/501')), { driverName: 'X' }));
+  await assertFails(updateDoc(doc(precisionDb, compPath('equipages/501')), { status: 'struken' }));
+  const speakerDb = testEnv.authenticatedContext('width-speaker', { email_verified: true, email: 'width-speaker@example.com' }).firestore();
+  await assertFails(setDoc(doc(speakerDb, compPath('equipages/501')), { ...widths, trackWidth: 150 }, { merge: true }));
+});
+
 test('private equipage data is not public but readable by owner and admin', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
@@ -1108,7 +1246,7 @@ test('volunteer signups and the recalculation log are readable only by competiti
 });
 
 test('protected competition collections cannot be listed anonymously', { skip: !HAS_EMULATOR }, async () => {
-  const protectedCollections = ['equipagePrivate', 'roleEmails', 'judges', 'officials', 'assignments', 'admins', 'auditLog', 'volunteerSignups', 'maintenanceRuns', 'horseTemperatures'];
+  const protectedCollections = ['equipagePrivate', 'roleEmails', 'judges', 'officials', 'assignments', 'admins', 'auditLog', 'volunteerSignups', 'maintenanceRuns', 'horseTemperatures', 'vetInspections', 'vetNotes'];
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();
     for (const name of protectedCollections) {

@@ -251,6 +251,9 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
           live_knockdowns: '0',
           live_otherPenalty: '0',
           live_holdTimeSec: '',
+          // Else the next obstacle's form shows this one's comment and Eliminated
+          live_comment: '',
+          live_eliminated: false,
           live_gateSplits: []
         } : {})
       }

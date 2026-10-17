@@ -13,6 +13,8 @@ export function calculateTotalResult(state) {
     const elimM = !!ma.eliminated;
     const elimP = !!pr.eliminated;
     const isEliminated = elimD || elimM || elimP;
+    // Clear round: the class is not ranked, in any phase or the total (TR V 509.3)
+    const isClearRound = dr.isClearRound === true || ma.isClearRound === true || pr.isClearRound === true;
 
     let elimReason = null;
     if (elimD) elimReason = 'ELIM (DR)';
@@ -40,6 +42,7 @@ export function calculateTotalResult(state) {
         isEliminated,
         elimReason,
         isOngoing,
+        isClearRound,
         dressageComplete,
         marathonComplete,
         precisionComplete,

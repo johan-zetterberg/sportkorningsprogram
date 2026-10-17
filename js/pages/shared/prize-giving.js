@@ -54,6 +54,7 @@ let archiveSnapshot = null; // archive/{id} of an archived competition (archived
 let marathonConfig = {};
 let precisionConfig = {};
 let dressageJudgeMapping = {};
+let dressyrClassConfig = {}; // clear round per class (isClearRoundClass)
 
 export async function load(container) {
     __unload();
@@ -87,7 +88,7 @@ export async function load(container) {
     if (currentLoadToken !== loadToken) return;
 
     try {
-        const [eqData, mConfig, pConfig, cSettings, programMapping, judgeMapping, snapshot] = await Promise.all([
+        const [eqData, mConfig, pConfig, cSettings, programMapping, judgeMapping, snapshot, dClassCfg] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'maratonConfig'),
             getConfig(competitionId, 'precisionConfig'),
@@ -95,7 +96,9 @@ export async function load(container) {
             getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
             getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
             // An archived competition shows the results it was archived with
-            loadArchiveSnapshot(comp)
+            loadArchiveSnapshot(comp),
+            // Clear round set in the dressage admin (applies to every phase)
+            getConfig(competitionId, 'dressyrClassConfig').catch(() => ({}))
         ]);
         if (currentLoadToken !== loadToken) return;
 
@@ -110,6 +113,7 @@ export async function load(container) {
         marathonConfig = mConfig || {};
         precisionConfig = pConfig || {};
         classSettings = cSettings || {};
+        dressyrClassConfig = (dClassCfg && typeof dClassCfg === 'object') ? dClassCfg : {};
         // Dressage program per class and the judges each class needs (result engine)
         setCompetitionSetting(competitionId, 'klassProgramMapping', (programMapping && typeof programMapping === 'object') ? programMapping : {});
         dressageJudgeMapping = (judgeMapping && typeof judgeMapping === 'object') ? judgeMapping : {};
@@ -310,7 +314,8 @@ function recalcAndRender() {
             judges: window.currentJudgesPresent || [],
             marathonConfig,
             precisionConfig,
-            dressageJudgeMapping
+            dressageJudgeMapping,
+            dressyrClassConfig
         });
         const dRes = res.dressage;
         const mRes = res.marathon;
@@ -350,6 +355,7 @@ function recalcAndRender() {
             ...eq,
             dPen, mPen, pPen,
             mRes, pCalc,
+            isClearRound: res.isClearRound === true,
             score: displayScore,
             isEliminated,
             present: eq.prizeGivingPresent === true
@@ -371,7 +377,9 @@ function recalcAndRender() {
 }
 
 function prizeGivingRanking(discipline) {
-    const unlessEliminated = (fn) => (row) => (row.isEliminated || !isPrizeGivingScore(row.score)) ? null : fn(row);
+    // Clear round is set for the whole class (TR V 509.3): no place in any
+    // phase or the total; all who drove get a rosette instead
+    const unlessEliminated = (fn) => (row) => (row.isEliminated || row.isClearRound || !isPrizeGivingScore(row.score)) ? null : fn(row);
     switch (discipline) {
         case 'dressage':
             return { key: unlessEliminated(r => dressageRankKey({ penalty: r.dPen })), compare: compareDressageRank };
@@ -381,7 +389,7 @@ function prizeGivingRanking(discipline) {
             return { key: unlessEliminated(r => precisionRankKey(r.pCalc)), compare: comparePrecisionRank };
         default:
             return {
-                key: unlessEliminated(r => totalRankKey({ totalPenalty: r.score, marathonPenalty: r.mPen, dressagePenalty: r.dPen, isClearRound: r.mRes?.isClearRound === true })),
+                key: unlessEliminated(r => totalRankKey({ totalPenalty: r.score, marathonPenalty: r.mPen, dressagePenalty: r.dPen, isClearRound: r.isClearRound === true })),
                 compare: compareTotalRank
             };
     }
@@ -580,4 +588,5 @@ export function __unload() {
     classSettings = {};
     marathonConfig = {};
     precisionConfig = {};
+    dressyrClassConfig = {};
 }

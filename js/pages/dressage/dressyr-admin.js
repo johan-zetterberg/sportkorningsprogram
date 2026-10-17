@@ -11,6 +11,7 @@ import { listenForJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { getCompetitionHeader } from '../../ui/components.js';
+import { isClearRoundClass, getClassSettings, getClassSettingsKey } from '../../core-engine/marathon.js';
 import {
   formatDressageProgramOptionLabel,
   getDressageProgramTrNumber,
@@ -40,7 +41,35 @@ let judgeMapping = {}; // ClassName -> { C: judgeId, ... }
 let allJudges = [];        // Från admin-poolen
 let dressageRules = {}; // { error1: 5, error2: 10, ... }
 let classConfig = {}; // ClassName -> { clearRound: bool, limit: number }
+// maratonConfig: clear round is one setting for the whole class (TR V 509.3),
+// stored per phase; turning it on/off here also sets the marathon's
+let marathonConfigForCR = {};
 let judgeListenerUnsub = null;
+
+const crTouched = new Set(); // classes whose clear round was changed on this page
+
+// Clear round for the class in any phase (dressage or marathon setting, as
+// the result engine reads it); a box changed here shows its new state
+function isClassClearRound(cls) {
+  if (crTouched.has(cls)) return classConfig[cls]?.clearRound === true;
+  return isClearRoundClass(cls, { marathonConfig: marathonConfigForCR, dressyrClassConfig: classConfig });
+}
+
+// The marathon entries to change so the marathon follows this page's clear
+// round per class; only classes the marathon admin set up under the same
+// name (an entry shared by several classes, e.g. "Lätt B", is left alone)
+function marathonClearRoundEntries(classes) {
+  const entries = {};
+  const same = (a, b) => String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+  classes.forEach((cls) => {
+    if (typeof classConfig[cls]?.clearRound !== 'boolean') return;
+    const key = getClassSettingsKey(cls, marathonConfigForCR);
+    if (key == null || !same(key, cls)) return;
+    const current = getClassSettings(cls, marathonConfigForCR)?.clearRound === true;
+    if (current !== classConfig[cls].clearRound) entries[key] = { clearRound: classConfig[cls].clearRound };
+  });
+  return entries;
+}
 
 const DRESSAGE_DEFAULT_ERROR_1 = 5;
 const DRESSAGE_DEFAULT_ERROR_2 = 10;
@@ -722,11 +751,11 @@ function rebuildMappingTable(root, filter = '') {
             <div class="dressage-admin-cr-row flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 text-sm bg-gray-50 p-2 rounded dark:bg-gray-700/50">
               <label class="flex items-center gap-1 cursor-pointer dark:text-gray-300">
                 <input type="checkbox" class="cr-check rounded border-gray-300 text-brand-darkblue dark:bg-gray-700 dark:border-gray-600" 
-                       data-cls="${esc(cls)}" 
-                       ${(classConfig[cls]?.clearRound) ? 'checked' : ''}>
-                <span>Clear Round</span>
+                       data-cls="${esc(cls)}"
+                       ${isClassClearRound(cls) ? 'checked' : ''}>
+                <span>Clear Round <span class="text-xs text-gray-500 dark:text-gray-400">(gäller hela klassen: dressyr, maraton och precision, ingen placering)</span></span>
               </label>
-              ${(classConfig[cls]?.clearRound) ? `
+              ${isClassClearRound(cls) ? `
                 <div class="cr-limit-wrap flex items-center gap-1 sm:ml-auto">
                    <span class="text-gray-600 text-xs dark:text-gray-400">Gräns:</span>
                    <input type="number" class="cr-limit w-16 px-1 py-0.5 border rounded text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
@@ -759,6 +788,7 @@ function rebuildMappingTable(root, filter = '') {
       const c = e.target.dataset.cls;
       if (!classConfig[c]) classConfig[c] = {};
       classConfig[c].clearRound = e.target.checked;
+      crTouched.add(c);
       // Re-render immediately to show/hide limit input
       rebuildMappingTable(root, filter);
     });
@@ -877,6 +907,16 @@ function wire(root) {
       await saveMappingEntries(Object.fromEntries(shownClasses.map(cls => [cls, mapping[cls]])));
       await updateConfigEntries(competitionId, 'dressyrClassConfig', // Save CR config
         Object.fromEntries(shownClasses.filter(cls => classConfig[cls]).map(cls => [cls, classConfig[cls]])));
+      // Clear round applies to every phase: the marathon's setting follows
+      // (saveConfig merges, so only clearRound of these classes changes)
+      const marathonEntries = marathonClearRoundEntries(shownClasses);
+      if (Object.keys(marathonEntries).length > 0) {
+        await saveConfig(competitionId, 'maratonConfig', { marathonClassData: marathonEntries });
+        Object.entries(marathonEntries).forEach(([key, value]) => {
+          const data = marathonConfigForCR.marathonClassData || (marathonConfigForCR.marathonClassData = {});
+          data[key] = { ...(data[key] || {}), ...value };
+        });
+      }
       const msg = qs('#mapSaved', root);
       if (msg) { msg.textContent = 'Sparat (Program & CR).'; setTimeout(() => msg.textContent = '', 2000); }
     } catch (e) {
@@ -1191,6 +1231,8 @@ export async function load() {
   judgeMapping = await getConfig(competitionId, 'dressageJudgeMapping') || {};
   dressageRules = await getConfig(competitionId, 'dressageRules') || {};
   classConfig = await getConfig(competitionId, 'dressyrClassConfig') || {}; // Load class config
+  marathonConfigForCR = await getConfig(competitionId, 'maratonConfig').catch(() => ({})) || {};
+  crTouched.clear();
 
   // Listen for judges (global pool)
   if (judgeListenerUnsub) judgeListenerUnsub();

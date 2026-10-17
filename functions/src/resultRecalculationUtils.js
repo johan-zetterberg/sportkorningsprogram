@@ -27,7 +27,8 @@ export const RESULT_CONFIG_DOCS = [
     'precisionConfig',
     'dressagePrograms',
     'dressyrProgramMapping',
-    'dressageJudgeMapping'
+    'dressageJudgeMapping',
+    'dressyrClassConfig'
 ];
 
 // JSON with sorted keys, so field order cannot make equal data look changed

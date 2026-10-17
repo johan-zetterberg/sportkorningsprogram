@@ -42,6 +42,7 @@ import {
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
 import { mergeDressageProtocols } from './dressageResultBuilder.js';
 import { rankDressageRows } from './dressageResultRanking.js';
+import { isClearRoundClass } from '../../core-engine/ranking.js';
 import { setupDressageResultExportButtons } from './dressageResultExports.js';
 import {
     clearGlobalScrollLocks,
@@ -102,6 +103,7 @@ window.__dressyrKeydownHandler = window.__dressyrKeydownHandler || null;
 
 // === NYTT: State-variabler för sammanslagning ===
 let dressage_displayConfig = {};
+let dressage_marathonConfig = {}; // its clear round per class applies to dressage too
 let dressage_activeClassFilters = new Set();
 let dressage_MERGE_GROUPS = [];
 let dressage_MERGE_MAP = new Map();
@@ -867,10 +869,16 @@ function processAndAggregateResults(equipages, allRawResults) {
 
     // STEG 4: Placering och Clear Round. Merged classes are shown and placed
     // as one class (as on the other pages); clear round is set per class
+    // Clear round is set for the whole class, in the dressage or the marathon
+    // admin (TR V 509.3, isClearRoundClass): no placing in any phase
     const crConfig = window.dressyrClassConfig || {};
+    const isClassClearRound = (className) => isClearRoundClass(className, {
+        marathonConfig: dressage_marathonConfig,
+        dressyrClassConfig: crConfig
+    });
     const byGroup = {};
     Object.values(aggregated).forEach(eq => {
-        const isCR = !!crConfig[eq.className || '_']?.clearRound;
+        const isCR = isClassClearRound(eq.className);
         const grp = `${isCR ? 'CR' : 'RANK'}|${isCR ? (eq.className || '_') : (eq._mergedKey || eq.className || '_')}`;
         if (!byGroup[grp]) byGroup[grp] = [];
         byGroup[grp].push(eq);
@@ -879,8 +887,9 @@ function processAndAggregateResults(equipages, allRawResults) {
     Object.values(byGroup).forEach((eqs) => {
         // Check Config (a clear-round group holds one class)
         const cfg = crConfig[eqs[0].className || '_'];
-        const isCR = !!cfg?.clearRound;
-        const limit = Number(cfg?.limit) || 0;
+        const isCR = isClassClearRound(eqs[0].className);
+        // Unsaved limit: the 60 % the dressage admin shows as default
+        const limit = (cfg?.limit === undefined || cfg?.limit === null || cfg?.limit === '') ? 60 : (Number(cfg.limit) || 0);
 
         const finalRankables = rankDressageRows(eqs, {
             penaltyPicker: eq => eq.finalPenalty,
@@ -2302,7 +2311,8 @@ export async function load() {
             mergeCfgC,
             dClassCfg,
             judges,
-            mappingCfg
+            mappingCfg,
+            marathonCfg
         ] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'startTimes').catch(() => null),
@@ -2315,6 +2325,8 @@ export async function load() {
             // One read (a listener here was never stopped); not readable for the public
             getJudges(competitionId).catch(() => []),
             getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+            // Clear round set in the marathon admin applies to dressage too
+            getConfig(competitionId, 'maratonConfig').catch(() => ({})),
             // An archived competition shows the results it was archived with
             loadArchiveSnapshot(competition).then(snap => { if (mySeq === loadSeq) archiveSnapshot = snap; })
         ]);
@@ -2348,6 +2360,7 @@ export async function load() {
 
         allCompetitionJudges = judges || []; //
         dressage_displayConfig = displayCfg || {};
+        dressage_marathonConfig = marathonCfg?.value || marathonCfg || {};
         setCompetitionSetting(competitionId, 'dressyrClassConfig', dClassCfg || {});
         setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
 
@@ -2548,6 +2561,7 @@ export function __unload() {
     sortState = { key: 'plac', dir: 'asc' }; //
 
     dressage_displayConfig = {}; //
+    dressage_marathonConfig = {};
     dressage_activeClassFilters.clear(); //
     dressage_MERGE_GROUPS = []; //
     dressage_MERGE_MAP.clear(); //

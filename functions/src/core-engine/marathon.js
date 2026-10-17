@@ -46,7 +46,7 @@ export function normalizeClassKey(raw) {
     const para = /para/.test(lower);
 
     // The template itself ("Barnklass", chosen in the marathon admin) or a
-    // class named so: the children's class, driven in Lätt B (TR V 500.2)
+    // class named so: the children's class, driven in Lätt B (TR V 509.2)
     if (/\bbarnklass\b/.test(lower)) return "Barnklass";
 
     if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*c\b|(\b)lc\b/.test(lower)) {
@@ -184,26 +184,35 @@ export function detectTRCategory(categoryString) {
     return normalizeTRCategoryKey(categoryString) || 'horse';
 }
 
-// Finds class settings even when the class name is longer than the config key
-export function getClassSettings(className, marathonConfig) {
+// The marathonClassData key of a class, even when the class name is longer
+// than the config key; null when none
+export function getClassSettingsKey(className, marathonConfig) {
     if (!marathonConfig || !className) return null;
     const dataMap = marathonConfig.marathonClassData || marathonConfig.maratonClassData;
     if (!dataMap) return null;
 
-    if (dataMap[className]) return dataMap[className];
+    if (dataMap[className]) return className;
     if (typeof className !== 'string') return null;
 
     const clean = (s) => s.trim().toLowerCase().replace(/\u00a0/g, ' ');
     const normClass = clean(className);
     const key = Object.keys(dataMap).find(k => normClass.startsWith(clean(k)));
-    if (key) return dataMap[key];
+    if (key) return key;
 
     const normClassName = normalizeClassKey(className);
     if (normClassName) {
         const normKeyMatch = Object.keys(dataMap).find(k => normalizeClassKey(k) === normClassName);
-        if (normKeyMatch) return dataMap[normKeyMatch];
+        if (normKeyMatch) return normKeyMatch;
     }
     return null;
+}
+
+// Finds class settings even when the class name is longer than the config key
+export function getClassSettings(className, marathonConfig) {
+    const key = getClassSettingsKey(className, marathonConfig);
+    if (key == null) return null;
+    const dataMap = marathonConfig.marathonClassData || marathonConfig.maratonClassData;
+    return dataMap[key] || null;
 }
 
 function equipageClassName(equipage) {
@@ -261,7 +270,7 @@ export function tlSecondsFor(equipage, rawStage, marathonConfig) {
         const catKey = detectTRCategoryFromEquipage(equipage);
         const activeRules = getActiveTempoRules(marathonConfig);
 
-        // The children's class is driven in Lätt B (TR V 500.2): a tempo table
+        // The children's class is driven in Lätt B (TR V 509.2): a tempo table
         // saved before it had its own entry gives it the Lätt B tempos
         const rulesKey = (clsKey === 'Barnklass' && !activeRules?.[clsKey]) ? 'Lätt B' : clsKey;
         let kmh = activeRules?.[rulesKey]?.[stage]?.[catKey];
@@ -285,12 +294,15 @@ export function limitsFor(equipage, rawStage, marathonConfig) {
     const classData = getClassSettings(equipageClassName(equipage), marathonConfig) || {};
 
     if (stage === 'A') {
+        // A warm-up (fixedTimeA) is judged as section A: TR V 522.1 "jämställs
+        // med A-sträckan … Samma regler gäller"; FEI 963.2.3/2.5/5: minimum
+        // time = Time Allowed - 2 min, Time Limit = Time Allowed + 20 %, 0.25
+        // per second under the minimum or over the Time Allowed
         const timeLimit = Math.round(idealSec * MARATHON_TIME_LIMIT_FACTOR_A);
-        if (Number(classData.fixedTimeA) > 0) {
-            return { ideal: idealSec, min: 0, max: idealSec, timeLimit, isFixedTime: true };
-        }
         const win = classData.windowA ?? MARATHON_DEFAULT_WINDOW_A_MIN;
-        return { ideal: idealSec, min: Math.max(0, idealSec - win * 60), max: idealSec, timeLimit };
+        const lim = { ideal: idealSec, min: Math.max(0, idealSec - win * 60), max: idealSec, timeLimit };
+        if (Number(classData.fixedTimeA) > 0) lim.isFixedTime = true;
+        return lim;
     }
     if (stage === 'B') {
         const win = classData.windowB ?? MARATHON_DEFAULT_WINDOW_B_MIN;
@@ -333,8 +345,8 @@ export function stagePenaltyFromMs(ms, equipage, stage, marathonConfig) {
     let diff = 0;
     if (sec < lim.min) {
         diff = lim.min - sec;
-    } else if (sec > lim.max && !lim.isFixedTime) {
-        // A fixed-time (warm-up) stage gives no penalty for exceeding max
+    } else if (sec > lim.max) {
+        // Also on a warm-up (FEI 963.5.1: section A, Controlled Warm-Up and B)
         diff = sec - lim.max;
     }
     if (diff <= 0) return { points: 0, elim: false };
@@ -385,8 +397,32 @@ export function getClassCourse(className, marathonConfig) {
     return all.length > 0 ? all : null;
 }
 
-export function isMarathonClearRound(equipage, marathonConfig) {
-    return getClassSettings(equipage?.className, marathonConfig)?.clearRound === true;
+// The dressage admin's class entry (config/dressyrClassConfig), by class name
+function dressageClassConfigFor(className, dressyrClassConfig) {
+    if (!dressyrClassConfig || typeof dressyrClassConfig !== 'object' || !className) return null;
+    if (dressyrClassConfig[className]) return dressyrClassConfig[className];
+    const clean = (s) => String(s).trim().toLowerCase().replace(/\u00a0/g, ' ');
+    const key = Object.keys(dressyrClassConfig).find(k => clean(k) === clean(className));
+    return key ? dressyrClassConfig[key] : null;
+}
+
+/**
+ * Clear round is judged for the whole class (TR V 509.3: "Vid bedömning clear
+ * round rangordnas inte ekipagen"; dressage, marathon and precision): no
+ * placings in any phase or in the total. The setting is stored per phase
+ * (dressyrClassConfig[cls].clearRound, maratonConfig.marathonClassData[cls]
+ * .clearRound); either one makes the class clear round in all phases.
+ * @param {string} className
+ * @param {object} configs - { marathonConfig, dressyrClassConfig }
+ */
+export function isClearRoundClass(className, { marathonConfig = null, dressyrClassConfig = null } = {}) {
+    if (!className) return false;
+    if (getClassSettings(className, marathonConfig)?.clearRound === true) return true;
+    return dressageClassConfigFor(className, dressyrClassConfig)?.clearRound === true;
+}
+
+export function isMarathonClearRound(equipage, marathonConfig, dressyrClassConfig = null) {
+    return isClearRoundClass(equipage?.className, { marathonConfig, dressyrClassConfig });
 }
 
 export function getKnockdownPenaltyPerElement(marathonConfig) {
@@ -489,9 +525,10 @@ export function obstacleValues(o) {
  * @param {object} o - obstacle (timeSec/timeSeconds/timeInSeconds…, knockdownPenalty, otherPenalty)
  * @param {object} [opts] - { knockdowns } converts a knockdown count to points
  */
-export function calculateObstacleResult(o, equipage, marathonConfig, ruleSettings = null, { knockdowns = null } = {}) {
+export function calculateObstacleResult(o, equipage, marathonConfig, ruleSettings = null, { knockdowns = null, dressyrClassConfig = null } = {}) {
     const { timeSec, penalty: storedPenalty } = obstacleValues(o);
-    const isClearRound = isMarathonClearRound(equipage, marathonConfig);
+    // TR V 509.3 / 526.1: in clear round the time in obstacles gives no penalty
+    const isClearRound = isMarathonClearRound(equipage, marathonConfig, dressyrClassConfig);
     const coeff = getObstacleCoefficient(equipage?.className, marathonConfig, ruleSettings);
 
     const knockdownPenalty = Number.isFinite(Number(knockdowns)) && knockdowns != null
@@ -766,7 +803,8 @@ export function calculateMarathonResult(state) {
     // 2. Obstacles
     const obsCoeff = getObstacleCoefficient(eq.className, marathonConfig, config.ruleSettings);
     const drivenObs = getClassDrivenObstacles(eq.className, marathonConfig);
-    const isClearRound = isMarathonClearRound(eq, marathonConfig);
+    const dressyrClassConfig = config.dressyrClassConfig || null;
+    const isClearRound = isMarathonClearRound(eq, marathonConfig, dressyrClassConfig);
 
     // Obstacle results carry `number` (input page) or `obstacleNumber` (subcollection)
     const obstacleNo = (o) => Number(o?.number ?? o?.obstacleNumber ?? o?.id);
@@ -781,7 +819,7 @@ export function calculateMarathonResult(state) {
     const obsItems = [];
 
     for (const o of obsArr) {
-        const item = calculateObstacleResult(o, eq, marathonConfig, config.ruleSettings);
+        const item = calculateObstacleResult(o, eq, marathonConfig, config.ruleSettings, { dressyrClassConfig });
         if (item.eliminated) obsElim = true;
 
         if (Number.isFinite(item.timeSec)) {

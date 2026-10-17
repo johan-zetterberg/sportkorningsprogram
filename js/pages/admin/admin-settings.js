@@ -1006,6 +1006,13 @@ export function getSettingsHtml() {
                                 <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="speaker">Ny</button>
                             </div>
                         </div>
+                        <div class="flex items-center justify-between">
+                            <span class="font-medium dark:text-gray-200">Veterinär:</span>
+                            <div class="flex items-center gap-2">
+                                <span id="pinCode_vet" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="vet">Ny</button>
+                            </div>
+                        </div>
                     </div>
                 </div>
 
@@ -1438,7 +1445,7 @@ export async function setupSettingsLogic(competitionId) {
                 return newPin;
             };
 
-            const roles = ['admin', 'dressage', 'marathon', 'precision', 'speaker'];
+            const roles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
             
             if (!secretData) {
                 secretData = {};
@@ -1523,7 +1530,7 @@ export async function setupSettingsLogic(competitionId) {
                     <li class="p-3 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
                         <div>
                             <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">${escapeHtml(a.email || 'Okänd användare')} ${
-                                (a.roles || [a.role || 'admin']).map(r => `<span class="text-xs ml-2 px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300">${escapeHtml(r)}</span>`).join('')
+                                (a.roles || [a.role || 'admin']).map(r => `<span class="text-xs ml-2 px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300">${escapeHtml(r === 'vet' ? 'veterinär' : r)}</span>`).join('')
                             }</p>
                             <p class="text-xs text-gray-500 dark:text-gray-400">Anslöt: ${dateStr}</p>
                         </div>

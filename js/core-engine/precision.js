@@ -6,6 +6,7 @@ import {
     calculatePrecisionTimePenalty,
     computeMaxSecondsForClass
 } from '../utils/precisionCalculation.js';
+import { isClearRoundClass } from './marathon.js';
 
 export {
     calculatePrecisionTimePenalty,
@@ -14,10 +15,15 @@ export {
 
 export function calculatePrecisionResult(state) {
     const { equipage, precision, config } = state || {};
+    // Clear round applies to the whole class (TR V 509.3): no precision placing
+    const isClearRound = isClearRoundClass(equipage?.className, {
+        marathonConfig: config?.marathonConfig,
+        dressyrClassConfig: config?.dressyrClassConfig
+    });
     return calculatePrecisionResultFromData(
         precision?.resultDoc || {},
         equipage,
         config?.precisionConfig || {},
-        { currentCompetition: config?.ruleSettings ? { ruleSettings: config.ruleSettings } : null }
+        { currentCompetition: config?.ruleSettings ? { ruleSettings: config.ruleSettings } : null, isClearRound }
     );
 }

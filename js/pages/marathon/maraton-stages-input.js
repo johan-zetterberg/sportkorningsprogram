@@ -17,6 +17,7 @@ import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
 // Stage start and stop may be stamped on different phones: use the server's clock
 import { serverNow, setServerClockHold, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
+import { stageDrivenMsAtRestart, stageStopDurationMs } from './marathonObstacleOwnership.js';
 
 // --- Wrapper functions for marathonUtils ---
 
@@ -24,7 +25,7 @@ function normalizeStageForEquipage(eq, stage) {
   if (!eq) return stage;
   if (stage === 'warmup') {
     const limA = limitsFor(eq, 'A');
-    const isFTA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+    const isFTA = !!(limA && limA.isFixedTime);
     if (isFTA) return 'A';
   }
   return stage;
@@ -77,11 +78,11 @@ function computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs = 0) {
 
   const { points, elim } = stagePenaltyFromMs(effectiveMs, eq, st);
 
-  // Seconds outside the window, as the engine counts them (no upper limit on a fixed-time A)
+  // Seconds outside the window, as the engine counts them (a warm-up too: FEI 963.5.1)
   let secondsOut = 0;
   const s = effectiveMs / 1000;
   if (s < lim.min) secondsOut = lim.min - s;
-  else if (s > lim.max && !lim.isFixedTime) secondsOut = s - lim.max;
+  else if (s > lim.max) secondsOut = s - lim.max;
 
   return {
     secondsOut: secondsOut > 0 ? secondsOut : null,
@@ -773,7 +774,7 @@ function mirrorToLocal(sn, data) {
 function stopGlobalTickerIfIdle() {
   updateServerClockHold();
   const limA = currentEquipage ? limitsFor(currentEquipage, 'A') : null;
-  const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+  const isFixedTimeA = !!(limA && limA.isFixedTime);
   const bStarted = currentDocData?.timing?.['B']?.startClock;
   const isViewingETA = isFixedTimeA && ['A', 'warmup', 'B'].includes(currentStage) && !bStarted;
 
@@ -882,7 +883,7 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
   if (etaBox && etaEl) {
     const eq = resolveEquipage(equipageSnOrObj);
     const limA = eq ? limitsFor(eq, 'A') : null;
-    const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+    const isFixedTimeA = !!(limA && limA.isFixedTime);
 
     // Show on A/Warmup ALWAYS if FixedTime. Show on B ONLY if B hasn't started yet.
     const isStageB = stage === 'B';
@@ -906,14 +907,16 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
         const pauseTimeMs = getPauseTime() * 60 * 1000;
         let totalElapsedMs = 0;
 
+        // Server time throughout: the pause log and the clocks are stamped in it
+        const etaNow = serverNow();
         if (isWarmupFinished && warmupDoc.stopClock) {
           // Har gått i mål på A, vilar nu.
           const stopMs = tsToMillis(warmupDoc.stopClock);
           const durA = Number.isFinite(warmupDoc.durationMs)
             ? warmupDoc.durationMs
-            : (stopMs - tsToMillis(warmupDoc.startClock) - pausedMsSince(tsToMillis(warmupDoc.startClock)));
+            : (stopMs - tsToMillis(warmupDoc.startClock) - pausedMsBetween(tsToMillis(warmupDoc.startClock), stopMs, etaNow));
 
-          const activeRestTime = (serverNow() - stopMs) - pausedMsSince(stopMs);
+          const activeRestTime = (etaNow - stopMs) - pausedMsSince(stopMs, etaNow);
           totalElapsedMs = durA + activeRestTime;
         } else {
           // A pågår fortfarande (eller är pausad)
@@ -926,7 +929,7 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
           } else if (warmupDoc.startClock && !warmupDoc.stopClock) {
             const startMs = tsToMillis(warmupDoc.startClock);
             const durA = warmupDoc.durationMs || 0;
-            totalElapsedMs = durA + (serverNow() - startMs) - pausedMsSince(startMs);
+            totalElapsedMs = durA + (etaNow - startMs) - pausedMsSince(startMs, etaNow);
           } else {
             totalElapsedMs = warmupDoc.durationMs || 0;
           }
@@ -1463,66 +1466,6 @@ function addOrUpdateActiveCard(sn, stage) {
 function removeActiveCard(key) {
   document.querySelector(`[data-active="${key}"]`)?.remove();
 }
-function attachActiveTimersManualEditDelegate() {
-  const host = document.getElementById('activeTimers');
-  if (!host || host._manualClickPatched) return;
-  host._manualClickPatched = true;
-
-  host.addEventListener('click', async (ev) => {
-    const timerSpan = ev.target.closest('.timer');
-    if (!timerSpan) return;
-
-    const card = ev.target.closest('[data-active]');
-    const key = card?.getAttribute('data-active'); // "sn|stage"
-    if (!key) return;
-    const [sn, stage] = key.split('|');
-
-    // Se till att currentEquipage pekar på rätt ekipage
-    if (!currentEquipage || String(currentEquipage.startNumber) !== sn) {
-      const eq = equipages.find(e => String(e.startNumber) === sn);
-      if (!eq) return;
-      currentEquipage = eq;
-      // läs in dokumentet så UI uppdateras
-      await onEquipageSelected(eq);
-    }
-
-    const raw = prompt('Manuell tid för den här etappen (mmsscc):');
-    if (raw == null) return;
-    const ms = parseManualTimeMs(raw);
-    if (ms == null) {
-      showAlert('Ogiltig tid. Ange mmsscc eller mm:ss,cc (sekunder under 60).', false);
-      return;
-    }
-
-    const tKey = `${sn}|${stage}`;
-    let t = activeTimers.get(tKey);
-    if (t?.isRunning && !confirm(`Etappen tas tid på just nu. Stoppa klockan och ersätt tiden med ${msToLabel(ms)}?`)) return;
-    if (!t) { t = { isRunning: false, startEpoch: 0, pausedMs: 0 }; activeTimers.set(tKey, t); }
-    if (t.interval) clearInterval(t.interval);
-    t.isRunning = false; t.startEpoch = 0; t.pausedMs = ms;
-
-    paintTimer(tKey, ms);
-
-    const now = serverNow();
-    // manualDuration: start/stop are derived from the typed time, which already
-    // excludes any global pause (the engine must not subtract it again)
-    const payload = {
-      durationMs: ms,
-      startClock: new Date(now - ms).toISOString(),
-      stopClock: new Date(now).toISOString(),
-      runningSince: null,
-      manualDuration: true,
-    };
-    try {
-      const equipage = currentEquipage;
-      await saveStageSnapshot(stage, payload);
-      if (currentEquipage === equipage) mergeStagePayloadIntoCurrentDoc(stage, payload);
-    } catch (err) {
-      console.error(err);
-      showAlert(t('marathon_stages_manual_time_error'));
-    }
-  });
-}
 // === Global: manuell editor via klick på timern (mmsscc eller mm:ss,cc) ===
 function bindManualEditor(stage) {
   // Ensure manual UI is hidden initially
@@ -1595,8 +1538,13 @@ function bindManualEditor(stage) {
     };
 
     try {
-      await saveStageSnapshot(stage, payload);
+      // Queued without signal, not awaited until the server answers: the
+      // popup stayed open offline and the judge typed the time again
+      const saveResult = await awaitWriteOrQueue(saveStageSnapshot(stage, payload), {
+        onLateError: () => showAlert(t('marathon_stages_manual_time_error'), false)
+      });
       close();
+      if (saveResult === 'queued') showAlert(`Tiden sparades.${queuedNotice(saveResult)}`, 'offline');
       if (!currentEquipage || !isLatestStageAction(key, seq)) return;
       mergeStagePayloadIntoCurrentDoc(stage, payload);
       updateTimerLabel(stage);
@@ -1752,7 +1700,7 @@ function updateTabVisibility(eq) {
   const warmupTab = document.querySelector('[data-stage="warmup"]');
   const stageATab = document.querySelector('[data-stage="A"]');
   const limA = eq ? limitsFor(eq, 'A') : null;
-  const isFixedTimeA = limA && limA.ideal > 0 && limA.max === limA.ideal && limA.min === 0;
+  const isFixedTimeA = !!(limA && limA.isFixedTime);
 
   if (warmupTab) warmupTab.classList.toggle('hidden', !!isFixedTimeA);
   if (stageATab) stageATab.classList.remove('hidden');
@@ -1791,11 +1739,19 @@ async function startStage(stage) {
   }
   const existingDuration = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
   const startClock = stageData.startClock || new Date(now).toISOString();
+  // A restart keeps the time so far as driven time (manual flag): the engine
+  // would otherwise take off pauses while the stage stood stopped, and a
+  // typed time would lose its flag (see stageDrivenMsAtRestart)
+  const restarting = existingDuration > 0;
+  const startDuration = restarting
+    ? stageDrivenMsAtRestart(stageData, (a, b) => pausedMsBetween(a, b, now))
+    : existingDuration;
 
   activeTimers.set(key, {
     isRunning: true,
     startEpoch: now,
-    pausedMs: existingDuration
+    pausedMs: startDuration,
+    driven: restarting
   });
   lastLocalStop.delete(key);
   const seq = nextStageAction(key);
@@ -1805,7 +1761,8 @@ async function startStage(stage) {
   const payload = {
     startClock,
     stopClock: null,
-    durationMs: existingDuration,
+    durationMs: startDuration,
+    manualDuration: restarting,
     runningSince: new Date(now).toISOString(),
     commentStart: document.getElementById(`commentStart-${stage}`)?.value?.trim() || '',
     runningStage: actualStage
@@ -1832,12 +1789,15 @@ async function stopStage(stage) {
   const docRunningSince = !stageData.stopClock && (stageData.runningSince || (!savedMs && stageData.startClock))
     ? Date.parse(stageData.runningSince || stageData.startClock)
     : NaN;
+  // A restarted stage keeps driven time: this segment's pauses come off here
+  const driven = timerState?.driven === true || stageData.manualDuration === true;
+  const segmentPauses = (a, b) => pausedMsBetween(a, b, now);
   let durationMs;
   if (timerState?.isRunning) {
-    durationMs = timerState.pausedMs + (now - timerState.startEpoch);
+    durationMs = stageStopDurationMs({ savedMs: timerState.pausedMs, runningSinceMs: timerState.startEpoch, nowMs: now, driven }, segmentPauses);
   } else if (Number.isFinite(docRunningSince)) {
     // Started on another device: the time from its start
-    durationMs = savedMs + (now - docRunningSince);
+    durationMs = stageStopDurationMs({ savedMs, runningSinceMs: docRunningSince, nowMs: now, driven }, segmentPauses);
   } else {
     // This device has not seen the stage start (no signal at the finish):
     // a stop now would save 0 seconds over the real start
@@ -1854,6 +1814,7 @@ async function stopStage(stage) {
     startClock: stageData.startClock || new Date(now - durationMs).toISOString(),
     stopClock: new Date(now).toISOString(),
     durationMs,
+    manualDuration: driven,
     runningSince: null,
     commentStop: document.getElementById(`commentStop-${stage}`)?.value?.trim() || '',
     runningStage: null
@@ -1939,7 +1900,11 @@ async function editClock(stage, kind) {
     : { stopClock: iso };
 
   const equipage = currentEquipage;
-  await saveStageSnapshot(stage, payload);
+  // Queued without signal (see saveStageDetails), not awaited to the server
+  const saveResult = await awaitWriteOrQueue(saveStageSnapshot(stage, payload, equipage), {
+    onLateError: () => showAlert('Kunde inte uppdatera klockslaget (nekades av servern).', false)
+  });
+  if (saveResult === 'queued') showAlert(`Klockslaget sparades.${queuedNotice(saveResult)}`, 'offline');
   if (currentEquipage !== equipage) return;
   mergeStagePayloadIntoCurrentDoc(stage, payload);
   populateStageUI(stage, currentDocData);
@@ -2200,8 +2165,14 @@ function wireEventListeners() {
         if (!key) return;
         const [sn, stage] = key.split('|');
         const eq = equipages.find(e => String(e.startNumber) === sn);
-        if (eq) await onEquipageSelected(eq);
-        await stopStage(stage);
+        // As the panel's Stop: a failure is shown, not an unhandled rejection
+        try {
+          if (eq) await onEquipageSelected(eq);
+          await stopStage(stage);
+        } catch (error) {
+          console.error(error);
+          showAlert(t('marathon_stages_stop_error'), false);
+        }
         return;
       }
 

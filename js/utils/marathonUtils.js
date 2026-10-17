@@ -13,7 +13,7 @@ import {
 } from '../core-engine/marathon.js';
 import { buildCompetitionState } from '../core-engine/stateSelector.js';
 import { assignPlaces, compareMarathonRank, marathonRankKey } from '../core-engine/ranking.js';
-import { onCompetitionSettingsReset } from '../services/competitionSettingsStore.js';
+import { onCompetitionSettingsReset, getCompetitionSetting } from '../services/competitionSettingsStore.js';
 
 import {
   PENALTY_RATE,
@@ -171,8 +171,9 @@ export function pausedMsSince(ts, nowMs = Date.now()) {
   return core.pausedMsSince(ts, _pauseWindows, nowMs);
 }
 
-export function pausedMsBetween(a, b) {
-  return core.pausedMsBetween(a, b, _pauseWindows, Date.now());
+// nowMs closes a pause still open: pages stamped in server time pass serverNow()
+export function pausedMsBetween(a, b, nowMs = Date.now()) {
+  return core.pausedMsBetween(a, b, _pauseWindows, nowMs);
 }
 
 // === Formatting & time helpers ===
@@ -213,6 +214,8 @@ export function toTimeLabel(v) {
 export function getMarathonEngineConfig() {
   return {
     marathonConfig: maraton_marathonConfig,
+    // Clear round set in the dressage admin applies to the class's marathon too (TR V 509.3)
+    dressyrClassConfig: getCompetitionSetting('dressyrClassConfig') || null,
     pauseWindows: _pauseWindows,
     ruleSettings: getRuleSettings(),
     nowMs: Date.now()

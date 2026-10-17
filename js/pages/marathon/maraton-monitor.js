@@ -1151,7 +1151,7 @@ function evaluateActiveState(sn, data) {
 
   } else if (hasActiveStageA) {
     const limitsA = limitsFor(eq, 'A');
-    const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
+    const isFixedTimeA = !!(limitsA && limitsA.isFixedTime);
     task = { name: isFixedTimeA ? 'Warm-up' : 'Etapp A', type: 'stage', key: 'A' };
     startTime = startA;
 

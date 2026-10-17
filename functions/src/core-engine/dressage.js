@@ -1,6 +1,7 @@
 // js/core-engine/dressage.js
 import { DRESSAGE_COEFFICIENTS_BY_CODE, round2 } from './rules-ledger.js';
 import { dressagePrograms as BUILT_IN_PROGRAMS } from '../data/dressagePrograms.js';
+import { isClearRoundClass } from './marathon.js';
 
 function explicitPenaltyCoeff(p) {
     const raw = p?.penaltyCoeff ?? p?.penaltyFactor ?? p?.coeffPenalty;
@@ -408,6 +409,11 @@ export function calculateDressageResult(state) {
 
     const allPrograms = config.allPrograms || {};
     const rawProtocols = dressage?.protocols || [];
+    // Clear round applies to the whole class (TR V 509.3): no dressage placing
+    const isClearRound = isClearRoundClass(equipage.className, {
+        marathonConfig: config.marathonConfig,
+        dressyrClassConfig: config.dressyrClassConfig
+    });
     // Judges the class is assigned (dressageJudgeMapping). With a mapping only
     // their protocols count, one per position; this also makes the server
     // (which has no judge list) count the same protocols as the browser
@@ -449,7 +455,8 @@ export function calculateDressageResult(state) {
             expectedJudgePositions,
             missingJudgePositions,
             judgeMappingMissing,
-            judgesComplete
+            judgesComplete,
+            isClearRound
         };
     }
 
@@ -485,6 +492,7 @@ export function calculateDressageResult(state) {
         missingJudgePositions,
         judgeMappingMissing,
         judgesComplete,
+        isClearRound,
         pointsNow,
         // TR tie-break
         generalImpressionsSum: result ? result.generalImpressionsSum : null

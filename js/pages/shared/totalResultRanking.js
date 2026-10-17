@@ -16,13 +16,22 @@ const round2 = (value) => Math.round((value + Number.EPSILON) * 100) / 100;
 const groupKeyOf = (row) => row.displayGroupKey || `CLASS:${row.className || fallbackClass}`;
 const startNumberOf = (row) => Number(row.startNumber) || 0;
 
+// Clear round is set for the whole class (TR V 509.3, isClearRoundClass): any
+// phase saying so leaves the row without a place in the total and every phase
+export function isClearRoundRow(row) {
+  return row?.isClearRound === true
+    || row?.dressage?.isClearRound === true
+    || row?.marathon?.isClearRound === true
+    || row?.precision?.isClearRound === true;
+}
+
 function totalRowRankKey(row) {
   return totalRankKey({
     totalPenalty: row.totalPenalty,
     isEliminated: row.isEliminated,
     marathonPenalty: row.marathon?.totalPenalty,
     dressagePenalty: row.dressage?.penalty,
-    isClearRound: row.marathon?.isClearRound === true
+    isClearRound: isClearRoundRow(row)
   });
 }
 
@@ -103,19 +112,19 @@ export function applyTotalDisciplinePlacements(rows = []) {
   const byClass = groupKeyOf;
 
   rankDressageRows(rows, {
-    penaltyPicker: row => row?.dressage?.penalty,
+    penaltyPicker: row => (isClearRoundRow(row) ? null : row?.dressage?.penalty),
     eliminatedPicker: row => !!(row?.dressage?.eliminated || (row?.isEliminated && row?.dressage?.penalty == null)),
     groupPicker: byClass,
     outputField: 'posDress'
   });
   assignPlaces(rows, {
-    key: (row) => ((row?.marathon?.eliminated || (row.isEliminated && row.marathon?.totalPenalty == null)) ? null : marathonRankKey(row.marathon, { requireFinished: false })),
+    key: (row) => ((isClearRoundRow(row) || row?.marathon?.eliminated || (row.isEliminated && row.marathon?.totalPenalty == null)) ? null : marathonRankKey(row.marathon, { requireFinished: false })),
     compare: compareMarathonRank,
     group: byClass,
     outField: 'posMar'
   });
   assignPlaces(rows, {
-    key: (row) => ((row?.precision?.eliminated || (row.isEliminated && (row.precision?.pen ?? row.precision?.totalPenalty) == null)) ? null : precisionRankKey({
+    key: (row) => ((isClearRoundRow(row) || row?.precision?.eliminated || (row.isEliminated && (row.precision?.pen ?? row.precision?.totalPenalty) == null)) ? null : precisionRankKey({
       ...row.precision,
       totalPenalty: row.precision?.pen ?? row.precision?.totalPenalty
     })),

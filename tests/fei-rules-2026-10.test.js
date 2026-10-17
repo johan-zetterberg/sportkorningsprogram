@@ -37,7 +37,7 @@ test('Time Allowed is rounded up to a whole second', () => {
   assert.equal(max(650, 180), 217); // 216.67 s
 });
 
-test('a clear round class gets no total placing (TR V 500.3)', async () => {
+test('a clear round class gets no total placing (TR V 509.3)', async () => {
   const { totalRankKey } = await import('../js/core-engine/ranking.js');
   assert.equal(totalRankKey({ totalPenalty: 40, marathonPenalty: 0, dressagePenalty: 40, isClearRound: true }), null);
   assert.deepEqual(totalRankKey({ totalPenalty: 40, marathonPenalty: 0, dressagePenalty: 40 }), { penalty: 40, marathon: 0, dressage: 40 });

@@ -1168,7 +1168,12 @@ async function setupMarathonSettings() {
   }
 
   const classData = existingConfig.marathonClassData || {};
-
+  // Clear round is one setting for the whole class (TR V 509.3), stored per
+  // phase: a class set in the dressage admin shows as clear round here, and
+  // saving here makes the dressage setting follow
+  let dressageClassConfig = await getConfig(competitionId, 'dressyrClassConfig').catch(() => ({})) || {};
+  const classClearRound = (cn, data) => data.clearRound === true
+    || dressageClassConfig[cn]?.clearRound === true;
 
   const pauseEl = pageRoot.querySelector('#pauseTime');
   if (pauseEl) pauseEl.value = existingConfig.pauseTime ?? '10';
@@ -1275,10 +1280,10 @@ async function setupMarathonSettings() {
         <div class="mt-4 pt-4 border-t dark:border-gray-600">
             <div class="flex flex-col gap-4">
                 <label class="flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50/60 p-3 dark:border-emerald-800 dark:bg-emerald-950/20">
-                    <input type="checkbox" data-class-name="${escapeAttr(cn)}" data-field="clearRound" class="marathon-class-input mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" ${data.clearRound === true ? 'checked' : ''}>
+                    <input type="checkbox" data-class-name="${escapeAttr(cn)}" data-field="clearRound" class="marathon-class-input mt-0.5 h-4 w-4 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500" ${classClearRound(cn, data) ? 'checked' : ''}>
                     <span>
                         <span class="block text-sm font-semibold text-gray-800 dark:text-gray-100">Lätt B Clear Round</span>
-                        <span class="block text-xs text-gray-600 dark:text-gray-400">Ingen rangordning. Godkänd kräver 0 maratonstraff; hindertid ger inget straff upp till 5 minuter per hinder.</span>
+                        <span class="block text-xs text-gray-600 dark:text-gray-400">Gäller hela klassen: ingen placering i dressyr, maraton, precision eller totalt (TR V 509.3). Godkänd kräver 0 maratonstraff; hindertid ger inget straff upp till 5 minuter per hinder.</span>
                     </span>
                 </label>
                 <div class="min-w-0">
@@ -1392,6 +1397,20 @@ async function setupMarathonSettings() {
     };
     try {
       await saveConfig(competitionId, 'maratonConfig', newConfig);
+      // Clear round applies to every phase: the dressage setting follows
+      // (saveConfig merges, so the class's limit/placedCount stay)
+      const dressageEntries = {};
+      Object.entries(newClassData).forEach(([cls, row]) => {
+        if ((dressageClassConfig[cls]?.clearRound === true) !== (row.clearRound === true)) {
+          dressageEntries[cls] = { clearRound: row.clearRound === true };
+        }
+      });
+      if (Object.keys(dressageEntries).length > 0) {
+        await saveConfig(competitionId, 'dressyrClassConfig', dressageEntries);
+        Object.entries(dressageEntries).forEach(([cls, value]) => {
+          dressageClassConfig = { ...dressageClassConfig, [cls]: { ...(dressageClassConfig[cls] || {}), ...value } };
+        });
+      }
       showAlert('Maratoninställningar har sparats!');
 
     } catch (err) {

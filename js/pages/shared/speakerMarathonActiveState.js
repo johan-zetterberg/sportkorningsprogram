@@ -122,7 +122,7 @@ export function buildSpeakerMarathonActiveEntry(sn, eq, data, options = {}) {
 
         if (!flashFound) {
             const limitsA = getLimitsFor(eq, 'A');
-            const isFixedTimeA = limitsA && limitsA.ideal > 0 && limitsA.max === limitsA.ideal && limitsA.min === 0;
+            const isFixedTimeA = !!(limitsA && limitsA.isFixedTime);
             const stages = [
                 { key: 'A', name: isFixedTimeA ? 'Warm-up' : 'Etapp A' },
                 { key: 'B', name: 'Etapp B' },

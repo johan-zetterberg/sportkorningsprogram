@@ -1,4 +1,4 @@
-import { MAX_RECOMMENDED_PULSE_BPM } from '../pages/shared/vetCheckUtils.js';
+import { MAX_RECOMMENDED_PULSE_BPM, applyVetResultsToHorses } from '../pages/shared/vetCheckUtils.js';
 
 export function formatVetInspectionStatus(status, empty = '[   ]') {
     if (!status) return empty;
@@ -16,8 +16,10 @@ export function buildVetCheckPdfRows(equipages = []) {
     const sorted = [...equipages].sort((a, b) => Number(a.startNumber || 0) - Number(b.startNumber || 0));
 
     sorted.forEach(eq => {
+        // The public per-phase results put on the horses (the vet page passes
+        // horses that already carry its private findings too)
         const horses = Array.isArray(eq.horses) && eq.horses.length > 0
-            ? eq.horses
+            ? applyVetResultsToHorses(eq)
             : [{ name: eq.horseName || eq.horse || '—', type: eq.category || '' }];
 
         horses.forEach((h, hIdx) => {

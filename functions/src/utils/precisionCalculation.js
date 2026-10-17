@@ -1,4 +1,4 @@
-import { klassTempoData } from '../data/competitionData.js';
+import { klassTempoData, matchClassTableKey, classNameWords } from '../data/competitionData.js';
 import {
     PRECISION_TIME_PENALTY_RATE,
     PRECISION_KNOCKDOWN_PENALTY,
@@ -53,21 +53,27 @@ export function getTrackLengthMeters(cls, config = {}) {
 }
 
 /**
- * FEI Art 975.10.5: cones speed by hitch and horse/pony (Children excepted):
- * four-in-hand 240, pair 250, single horse 250, single pony 260 m/min. null
- * when the class is not FEI, or the hitch or (for singles) the horse/pony
- * category cannot be told; the class table applies then.
+ * FEI Art 975.10.5: cones speed by hitch and horse/pony (Children and Para
+ * excepted): four-in-hand 240, pair 250, single horse 250, single pony 260
+ * m/min. Para (FEI Annex 8.14): 230 for horses and ponies. null when the
+ * class is not FEI, or the hitch or (for singles) the horse/pony category
+ * cannot be told; the class table applies then.
  */
+export const FEI_PARA_CONES_TEMPO_MPM = 230;
 export function feiConesTempoMpm(cls) {
     const className = getClassName(cls);
     const s = String(className || '').toLowerCase();
     if (!/\b(fei|cai)/.test(s) || /children|\bbarn\b/.test(s)) return null;
-    if (/fyrspann|four[\s-]*in[\s-]*hand|\bfour\b/.test(s)) return 240;
-    if (/\bpar\b|\bpair\b|tvåspann/.test(s)) return 250;
-    const isSingle = /enbet|\bsingle\b/.test(s);
+    if (/\bpara\b|cai-?p\b/.test(s) || cls?.isPara === true) return FEI_PARA_CONES_TEMPO_MPM;
+    // The hitch from the class name, else from the equipage's hitch/division
+    const hitch = `${s} ${String(cls?.hitch || '').toLowerCase()} ${String(cls?.division || '').toLowerCase()}`;
+    if (/fyrspann|four[\s-]*in[\s-]*hand|\bfour\b/.test(hitch)) return 240;
+    if (/\bpar\b|\bpairs?\b|tvåspann/.test(hitch)) return 250;
+    const isSingle = /enbet|\bsingles?\b/.test(hitch);
     let pony = /ponny|pony/.test(s) ? true : (/häst|hast|horse/.test(s) ? false : null);
-    if (pony === null && Array.isArray(cls?.horses)) {
-        const types = cls.horses.map(h => String(h?.type || h?.category || '').toLowerCase()).filter(Boolean);
+    const drivenHorses = Array.isArray(cls?.horses) ? cls.horses.filter(h => h && !h.reserve && !h.isReserve) : [];
+    if (pony === null && drivenHorses.length) {
+        const types = drivenHorses.map(h => String(h?.type || h?.category || '').toLowerCase()).filter(Boolean);
         if (types.length && types.every(t => /ponny|pony/.test(t))) pony = true;
         else if (types.length && types.every(t => /häst|hast|horse/.test(t))) pony = false;
     }
@@ -77,7 +83,7 @@ export function feiConesTempoMpm(cls) {
     }
     if (!isSingle) {
         // Hitch not in the name (e.g. "FEI Junior 2*"): one driven horse is a single
-        const driven = Array.isArray(cls?.horses) ? cls.horses.filter(h => h && !h.reserve && !h.isReserve).length : 0;
+        const driven = drivenHorses.length;
         if (driven === 1 && pony !== null) return pony ? 260 : 250;
         if (driven === 2) return 250;
         if (driven >= 4) return 240;
@@ -113,19 +119,17 @@ export function getClassTempoMpm(cls, config = {}) {
     if (fei) return fei;
 
     const keys = Object.keys(klassTempoData || {});
-    const normalizedClass = norm(className);
-    let key = keys.find((candidate) => norm(candidate) === normalizedClass);
-    if (!key) {
-        key = keys
-            .filter((candidate) => normalizedClass.startsWith(norm(candidate)))
-            .sort((a, b) => norm(b).length - norm(a).length)[0];
-    }
-    if (!key) {
-        key = keys
-            .filter((candidate) => normalizedClass.includes(norm(candidate)))
-            .sort((a, b) => norm(b).length - norm(a).length)[0];
-    }
+    // Whole words only (see matchClassTableKey): "Barnklass" is Lätt B Barn
+    const key = matchClassTableKey(className, keys);
     if (key && klassTempoData[key]?.precision) return klassTempoData[key].precision;
+    // A name the table only has longer keys for ("Barnklass" -> "Lätt B Barn
+    // Ponny"): their tempo when they all agree (TR V Bilaga 5: LB "Barn" 100)
+    const words = classNameWords(className);
+    const longer = keys.filter((candidate) => {
+        const w = classNameWords(candidate);
+        return words.length > 0 && w.length > words.length && words.every((x, i) => w[i] === x);
+    }).map((candidate) => klassTempoData[candidate]?.precision).filter(Boolean);
+    if (longer.length > 0 && longer.every((v) => v === longer[0])) return longer[0];
 
     // A tempo the admin set for the merged class applies to all in it
     const mergedTempo = tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
@@ -139,11 +143,7 @@ export function getClassTempoMpm(cls, config = {}) {
         ? detectKnownTRCategory(cls)
         : null;
     if (category) {
-        const withCategory = norm(`${className} ${category === 'horse' ? 'Häst' : 'Ponny'}`);
-        const byCategory = keys.find((candidate) => norm(candidate) === withCategory)
-            || keys
-                .filter((candidate) => withCategory.startsWith(norm(candidate)))
-                .sort((a, b) => norm(b).length - norm(a).length)[0];
+        const byCategory = matchClassTableKey(`${className} ${category === 'horse' ? 'Häst' : 'Ponny'}`, keys);
         if (byCategory && klassTempoData[byCategory]?.precision) return klassTempoData[byCategory].precision;
     }
 
@@ -302,6 +302,8 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         timePenaltyRate: rate,
         timePenaltyOverride: d.timePenaltyOverride === true,
         configMissing, // no max time for the class: totalPenalty withheld
+        // Clear round class (TR V 509.3, isClearRoundClass): the caller knows the configs
+        isClearRound: options.isClearRound === true,
         knocks: knocksArr,
         knockDownTimes: d.knockDownTimes || {},
         knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / knockdownPenalty) : 0),

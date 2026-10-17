@@ -46,7 +46,9 @@ const SYSTEM_ROLE_LABELS = {
     dressage: 'Dressyr',
     marathon: 'Maraton',
     precision: 'Precision',
-    speaker: 'Speaker'
+    speaker: 'Speaker',
+    // Limited role: the vet inspection page and its private data only
+    vet: 'Veterinär'
 };
 const SYSTEM_ROLE_KEYS = Object.keys(SYSTEM_ROLE_LABELS);
 
@@ -480,6 +482,7 @@ function renderPeopleView(_officials = officials, competition = {}) {
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="marathon" class="rounded"> Maraton</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="precision" class="rounded"> Precision</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="speaker" class="rounded"> Speaker</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="vet" class="rounded"> Veterinär</label>
                             </div>
                             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Styr vilka sidor personen får komma åt. Kan vara tomt för funktionärer utan inloggningsbehörighet.</p>
                         </div>

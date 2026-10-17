@@ -24,12 +24,19 @@ function pickDefined(primaryObj, primaryKey, fallbackObj, fallbackKey) {
     return fallbackObj ? fallbackObj[fallbackKey] : undefined;
 }
 
+// Clear round is set for the whole class (TR V 509.3): no place in the total
+// or any phase (the phase rank keys read isClearRound on each phase)
+const isClearRoundRow = (row) => row.isClearRound === true
+    || row.dressage?.isClearRound === true
+    || row.marathon?.isClearRound === true
+    || row.precision?.isClearRound === true;
+
 const archiveTotalKey = (row) => totalRankKey({
     totalPenalty: row.totalPenalty,
     isEliminated: row.isEliminated,
     marathonPenalty: row.marathon?.totalPenalty,
     dressagePenalty: row.dressage?.penalty,
-    isClearRound: row.marathon?.isClearRound === true
+    isClearRound: isClearRoundRow(row)
 });
 
 // Placings per class (TR 533.3 / FEI 904, see core-engine/ranking.js)
@@ -41,19 +48,19 @@ function buildPlacements(rows) {
         group: byClass
     });
     assignPlaces(rows, {
-        key: (row) => dressageRankKey(row.dressage),
+        key: (row) => (isClearRoundRow(row) ? null : dressageRankKey(row.dressage)),
         compare: compareDressageRank,
         group: byClass,
         outField: 'posDress'
     });
     assignPlaces(rows, {
-        key: (row) => marathonRankKey(row.marathon),
+        key: (row) => (isClearRoundRow(row) ? null : marathonRankKey(row.marathon)),
         compare: compareMarathonRank,
         group: byClass,
         outField: 'posMar'
     });
     assignPlaces(rows, {
-        key: (row) => precisionRankKey(row.precision, { requireFinished: true }),
+        key: (row) => (isClearRoundRow(row) ? null : precisionRankKey(row.precision, { requireFinished: true })),
         compare: comparePrecisionRank,
         group: byClass,
         outField: 'posPrec'
@@ -91,7 +98,8 @@ export function buildArchiveRowsFromData({
     precisionConfig = {},
     allPrograms = dressagePrograms,
     judges = [],
-    dressageJudgeMapping = {}
+    dressageJudgeMapping = {},
+    dressyrClassConfig = null
 } = {}) {
     const normalizedMarathonConfig = marathonConfig?.value || marathonConfig || {};
     const normalizedPrecisionConfig = precisionConfig?.value || precisionConfig || {};
@@ -140,11 +148,16 @@ export function buildArchiveRowsFromData({
                 dressageJudgeMapping: dressageJudgeMapping?.value || dressageJudgeMapping || {},
                 allPrograms: normalizedPrograms,
                 marathonConfig: normalizedMarathonConfig,
-                precisionConfig: normalizedPrecisionConfig
+                precisionConfig: normalizedPrecisionConfig,
+                dressyrClassConfig: dressyrClassConfig?.value || dressyrClassConfig || null
             }
         );
+        const isClearRound = total.isClearRound === true || marathon.isClearRound === true;
+        // The total's marathon was calculated with every clear round setting
+        // (dressyrClassConfig too): obstacle time free in clear round (TR V 526.1)
+        const marathonRes = total.marathon || marathon;
 
-        const marKey = marathonRankKey(marathon, { requireFinished: false });
+        const marKey = marathonRankKey(marathonRes, { requireFinished: false });
 
         return {
             ...eq,
@@ -153,6 +166,7 @@ export function buildArchiveRowsFromData({
                 judgePenalty: dressage.judgePenalty,
                 percent: dressage.percent,
                 eliminated: !!dressage.eliminated,
+                isClearRound,
                 status: dressage.eliminated
                     ? 'Eliminerad'
                     : (total.dressageComplete ? 'Klar' : 'Ej startad')
@@ -160,10 +174,14 @@ export function buildArchiveRowsFromData({
             marathon: {
                 totalPenalty: pickDefined(total.marathon, 'totalPenalty', total, 'marathonPenalty'),
                 bPenalty: marKey ? marKey.bPenalty : null,
-                stages: marathon.stages,
-                obstaclePenaltySum: marathon.obstaclePenaltySum,
-                eliminated: !!marathon.eliminated,
-                status: marathon.status
+                stages: marathonRes.stages,
+                obstaclePenaltySum: marathonRes.obstaclePenaltySum,
+                eliminated: !!marathonRes.eliminated,
+                status: marathonRes.status,
+                // FEI 968.1.4: no B tie-break; TR V 509.3: clear round, no place
+                feiClass: marathonRes.feiClass === true,
+                isClearRound,
+                clearRoundApproved: marathonRes.clearRoundApproved === true
             },
             precision: {
                 pen: pickDefined(total.precision, 'totalPenalty', total, 'precisionPenalty'),
@@ -172,10 +190,12 @@ export function buildArchiveRowsFromData({
                 finalized: !!precision.finalized,
                 running: !!precision.running,
                 eliminated: !!precision.eliminated,
+                isClearRound,
                 status: precision.status
             },
             totalPenalty: total.totalPenalty,
             isEliminated: total.isEliminated,
+            isClearRound,
             plac: '',
             posDress: null,
             posMar: null,

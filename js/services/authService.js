@@ -177,6 +177,8 @@ export function updateUIVisibility() {
             'marathon': ['marathon', 'funktionar', 'publik'],
             'precision': ['precision', 'funktionar', 'publik'],
             'speaker': ['speaker', 'funktionar', 'publik'],
+            // Limited: the vet page and public pages (as in navigationService)
+            'vet': ['vet', 'publik'],
             'publik': ['publik']
         };
         

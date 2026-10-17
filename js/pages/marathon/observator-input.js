@@ -55,6 +55,25 @@ function globalStatusDocRef() {
   return doc(db, 'artifacts', appId, 'public', 'data', 'competitions', cid, 'config', 'globalStatus');
 }
 
+// As saveMarathonObstacleResult: a transaction on weak signal can hang for long
+const PAUSE_TRANSACTION_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise.finally(() => clearTimeout(timer)),
+    new Promise((_, reject) => {
+      timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'deadline-exceeded' })), ms);
+    })
+  ]);
+}
+
+// No (usable) connection, as opposed to a refusal such as permission-denied
+function isConnectionError(error) {
+  return ['unavailable', 'deadline-exceeded', 'failed-precondition'].includes(error?.code)
+    || /offline|network/i.test(String(error?.message || ''));
+}
+
 // Funktioner för att pausa och återuppta.
 // Pausloggen dras av från etapptiderna, så den uppdateras i en transaktion:
 // två observatörer som trycker samtidigt kan inte skriva över varandra, och
@@ -87,28 +106,63 @@ async function setGlobalPause(isPaused) {
       updatedAt: serverTimestamp()
     });
 
+    // Transaktioner kräver nät. Offline: köa skrivningen som tidigare
+    // (läser senast kända status), så att pausen inte går förlorad.
+    const writeFromDeviceCopy = async () => {
+      const docSnap = await getDoc(statusRef);
+      const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
+      if (!pauseLog) return 'saved';
+      // Not awaited until the server answers: the observer gets feedback now
+      return awaitWriteOrQueue(setDoc(statusRef, statusDoc(pauseLog), { merge: true }), {
+        onLateError: () => showAlert(t('observer_pause_error'), false)
+      });
+    };
+
     let queued = false;
-    try {
-      await runTransaction(db, async (tx) => {
+    let slowSignal = false;
+    if (navigator.onLine === false) {
+      queued = (await writeFromDeviceCopy()) === 'queued';
+    } else {
+      const transactionDone = runTransaction(db, async (tx) => {
         const docSnap = await tx.get(statusRef);
         const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
         if (pauseLog) tx.set(statusRef, statusDoc(pauseLog), { merge: true });
       });
-    } catch (e) {
-      // Transaktioner kräver nät. Offline: köa skrivningen som tidigare
-      // (läser senast kända status), så att pausen inte går förlorad.
-      if (e?.code !== 'unavailable' && navigator.onLine !== false) throw e;
-      const docSnap = await getDoc(statusRef);
-      const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
-      // Not awaited until the server answers: the observer gets feedback now
-      if (pauseLog) {
-        const result = await awaitWriteOrQueue(setDoc(statusRef, statusDoc(pauseLog), { merge: true }), {
-          onLateError: () => showAlert(t('observer_pause_error'), false)
-        });
-        queued = result === 'queued';
+      try {
+        await withTimeout(transactionDone, PAUSE_TRANSACTION_TIMEOUT_MS);
+      } catch (e) {
+        if (!isConnectionError(e)) throw e;
+        if (e?.message === 'timeout') {
+          // Weak signal: the transaction is slow, not failed, and may still
+          // commit. The observer is told now (the pause button no longer
+          // hangs); the log is written from the device copy only if the
+          // transaction itself fails for lack of connection, since a second
+          // write of the whole log could erase another observer's entry
+          slowSignal = true;
+          transactionDone.catch(async (txError) => {
+            if (!isConnectionError(txError)) {
+              console.error('Kunde inte ändra paus-status:', txError);
+              showAlert(t('observer_pause_error'), false);
+              return;
+            }
+            try {
+              await writeFromDeviceCopy();
+            } catch (copyError) {
+              console.error('Kunde inte ändra paus-status:', copyError);
+              showAlert(t('observer_pause_error'), false);
+            }
+          });
+        } else {
+          queued = (await writeFromDeviceCopy()) === 'queued';
+        }
       }
     }
 
+    if (slowSignal) {
+      // Not on the device yet (a transaction is applied only when it commits)
+      showAlert(`${statusText} (svag täckning – skickas så snart förbindelsen räcker; kontrollera att pausknappen växlar)`, 'offline');
+      return;
+    }
     showAlert(`${statusText}${queuedNotice(queued ? 'queued' : 'saved')}`, queued ? 'offline' : true);
   } catch (e) {
     console.error("Kunde inte ändra paus-status:", e);

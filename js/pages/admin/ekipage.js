@@ -2,11 +2,16 @@ import { getGlobalState } from '../../main.js';
 import { pickEditedFields } from '../../services/secretariatPatchUtils.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { saveEquipage } from '../../services/equipageService.js';
+import { listenForVetNotes, saveVetNote } from '../../services/vetInspectionService.js';
+import { applyVetResultsToHorses, VET_PHASES } from '../shared/vetCheckUtils.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let competitionId = null;
 let unsubscribeEquipages = null;
+let unsubscribeVetNotes = null;
+// Start number -> the vet's notes per phase (vetNotes collection: vet and admins only)
+let vetNotesByStartNumber = new Map();
 
 let allEquipages = []; // En cachad lista över alla ekipage
 let searchTerm = '';
@@ -38,6 +43,19 @@ function renderHorseVetStatusBadge(horse = {}) {
     return `<span class="inline-flex items-center px-2 py-0.5 rounded border text-[11px] font-semibold ${conf.cls}">${conf.label}</span>`;
 }
 
+function getVetNotes(equipage = {}) {
+    return vetNotesByStartNumber.get(String(equipage.startNumber ?? equipage.id)) || {};
+}
+
+// All phases' notes, e.g. "Förbesiktning: ...; Vilobox: ..."
+function formatVetNotes(equipage = {}) {
+    const notes = getVetNotes(equipage);
+    return Object.keys(VET_PHASES)
+        .filter(phase => notes[phase])
+        .map(phase => `${VET_PHASES[phase].shortLabel}: ${notes[phase]}`)
+        .join('; ');
+}
+
 function escapeAttr(value) {
     return escapeHtml(value);
 }
@@ -58,7 +76,8 @@ function showEquipageDetailsModal(equipage) {
     modalTabs.style.display = 'none'; // Vi använder inte flikar här
     modalContent.innerHTML = '';
 
-    const allHorses = equipage.horses || [];
+    // With the vet's public results per horse (vetInspection_<phase>)
+    const allHorses = applyVetResultsToHorses(equipage);
     const cls = (equipage.className || '').toLowerCase();
 
     // Bestäm om detta är ett ekipage som KAN byta hästar
@@ -101,7 +120,7 @@ function showEquipageDetailsModal(equipage) {
                 </span>
                 <span class="font-medium text-red-700 dark:text-red-300 col-span-2 mt-2">Veterinärnotering:</span>
                 <span class="col-span-2 italic text-red-900 dark:text-red-200 bg-red-50 dark:bg-red-900/30 p-2 rounded border border-red-200 dark:border-red-800 text-xs">
-                    ${escapeHtml(equipage.vetNotes || 'Inga noteringar.')}
+                    ${escapeHtml(formatVetNotes(equipage) || 'Inga noteringar.')}
                 </span>
             </div>
         </div>
@@ -201,8 +220,8 @@ function renderEditInfoView(equipage, modalContent) {
                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Information som visas för speakern (meriter, kuriosa etc).</p>
             </div>
             <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Veterinärnotering</label>
-                <textarea id="editVetNotes" rows="2" class="mt-1 block w-full rounded-md border-red-300 dark:border-red-800 shadow-sm p-2 border bg-red-50 dark:bg-red-900/30 dark:text-red-100">${escapeHtml(equipage.vetNotes || '')}</textarea>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Veterinärnotering (förbesiktning)</label>
+                <textarea id="editVetNotes" rows="2" class="mt-1 block w-full rounded-md border-red-300 dark:border-red-800 shadow-sm p-2 border bg-red-50 dark:bg-red-900/30 dark:text-red-100">${escapeHtml(getVetNotes(equipage).initial || '')}</textarea>
             </div>
         </div>
         <div class="flex flex-col-reverse sm:flex-row gap-3 sm:gap-4 mt-6">
@@ -215,6 +234,7 @@ function renderEditInfoView(equipage, modalContent) {
 
     document.getElementById('cancelInfoBtn').addEventListener('click', () => showEquipageDetailsModal(equipage));
 
+    const vetNoteBefore = String(getVetNotes(equipage).initial || '').trim();
     document.getElementById('saveInfoBtn').addEventListener('click', async () => {
         const formData = {
             driverName: document.getElementById('editDriverName').value.trim(),
@@ -222,14 +242,24 @@ function renderEditInfoView(equipage, modalContent) {
             clubName: document.getElementById('editClubName').value.trim(),
             className: document.getElementById('editClassName').value.trim(),
             speakerNotes: document.getElementById('editSpeakerNotes').value.trim(),
-            vetNotes: document.getElementById('editVetNotes').value.trim(),
         };
         // Only what was changed here: the vet or speaker may have written a
         // newer note since this dialog opened
         const newData = pickEditedFields(formData, {
             ...equipage,
             email: String(equipage.email || '').trim().toLowerCase()
-        }, Object.keys(formData), { driverName: '', email: '', clubName: '', className: '', speakerNotes: '', vetNotes: '' });
+        }, Object.keys(formData), { driverName: '', email: '', clubName: '', className: '', speakerNotes: '' });
+        // The vet's note is in its own document (vetNotes), saved only if changed here
+        const vetNote = document.getElementById('editVetNotes').value.trim();
+        if (vetNote !== vetNoteBefore) {
+            try {
+                await saveVetNote(competitionId, equipage.startNumber, 'initial', vetNote);
+            } catch (err) {
+                console.error('Kunde inte spara veterinärnoteringen:', err);
+                showAlert('Fel vid sparning av veterinärnoteringen.', false);
+                return;
+            }
+        }
         if (Object.keys(newData).length === 0) {
             showEquipageDetailsModal(equipage);
             return;
@@ -570,6 +600,9 @@ export function load() {
         allEquipages = equipages;
         renderList();
     }, { includePrivate: true });
+    unsubscribeVetNotes = listenForVetNotes(competitionId, (byStartNumber) => {
+        vetNotesByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
+    });
 
     // --- NYA EVENT-LYSSNARE ---
     const searchInput = document.getElementById('equipageSearchInput');
@@ -600,6 +633,9 @@ export function __unload() {
     }
 
     unsubscribeEquipages = null;
+    try { unsubscribeVetNotes?.(); } catch (_) { }
+    unsubscribeVetNotes = null;
+    vetNotesByStartNumber = new Map();
     competitionId = null;
     allEquipages = [];
     searchTerm = '';
