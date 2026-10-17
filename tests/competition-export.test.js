@@ -13,6 +13,14 @@ test('Firestore types are written so a restore can recreate them', () => {
     list: [{ __type: 'timestamp', ms: 10000 }, 1, 'x'],
     nested: { n: null }
   });
+  // Stored Infinity/NaN (e.g. an eliminated total) cannot be written as JSON
+  assert.deepEqual(toExportValue({ total: Infinity, low: -Infinity, bad: NaN, ok: 1.5 }), {
+    total: { __type: 'number', value: 'Infinity' },
+    low: { __type: 'number', value: '-Infinity' },
+    bad: { __type: 'number', value: 'NaN' },
+    ok: 1.5
+  });
+  assert.doesNotThrow(() => JSON.stringify(toExportValue({ total: Infinity })));
 });
 
 // A tiny in-memory stand-in for the Admin SDK's document references

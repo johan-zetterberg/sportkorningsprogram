@@ -2,13 +2,15 @@
 // document under the competition's public tree, its private tree and the
 // finalization tree, as { path, data }. Firestore types are written so a
 // restore can recreate them: { __type: 'timestamp', ms }, { __type:
-// 'geopoint', lat, lng }, { __type: 'ref', path }.
+// 'geopoint', lat, lng }, { __type: 'ref', path }, and numbers JSON cannot
+// hold (a stored Infinity penalty) as { __type: 'number', value: 'Infinity' }.
 
 export const EXPORT_FORMAT = 'drivelive-competition-export';
 export const EXPORT_FORMAT_VERSION = 1;
 
 export function toExportValue(value) {
     if (value === null || value === undefined) return value ?? null;
+    if (typeof value === 'number' && !Number.isFinite(value)) return { __type: 'number', value: String(value) };
     if (Array.isArray(value)) return value.map(toExportValue);
     if (typeof value !== 'object') return value;
     if (typeof value.toMillis === 'function' && typeof value.seconds === 'number') {
