@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { readFileSync } from 'node:fs';
 
 const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@demo.se';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
@@ -506,7 +507,7 @@ test('public center explicit competition id overrides previous selection', async
   await expect(page.locator('#page-competition-center')).not.toContainText('Smoke explicit second competition');
 });
 
-test('all main pages navigate without browser errors', async ({ page }) => {
+test('all main pages navigate without browser errors @mobile', async ({ page }) => {
   test.setTimeout(300000);
   await forceLogin(page);
   const smokeRoles = await getSmokeRoles(page);
@@ -699,7 +700,7 @@ function parseStageTimerMs(value) {
   return (Number(match[1]) * 60_000) + (Number(match[2]) * 1_000) + (Number(match[3]) * 10);
 }
 
-test('critical ui interactions open and close without browser errors', async ({ page }) => {
+test('critical ui interactions open and close without browser errors @mobile', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
 
@@ -715,7 +716,8 @@ test('critical ui interactions open and close without browser errors', async ({ 
 
   await page.goto('/index.html#maraton-results');
   await expect(page.locator('#page-maraton-results')).toContainText(/Seeder Kusk|Kusk/);
-  await page.locator('#page-maraton-results tr[data-sn]').first().click();
+  // A table row on a computer, a card on a phone
+  await page.locator('#page-maraton-results [data-sn]:visible').first().click();
   await expect(page.locator('#marathonDetailsModal.visible')).toBeVisible();
   await page.locator('#toggleTimeCardBtn').click();
   await page.locator('#closeMarathonModalBtn').click();
@@ -723,7 +725,7 @@ test('critical ui interactions open and close without browser errors', async ({ 
 
   await page.goto('/index.html#precision-results');
   await expect(page.locator('#page-precision-results')).toContainText(/Seeder Kusk|Kusk/);
-  await page.locator('#page-precision-results tr[data-sn]').first().click();
+  await page.locator('#page-precision-results [data-sn]:visible').first().click();
   await expect(page.locator('#precisionDetailsModal.visible')).toBeVisible();
   await page.locator('#closePrecModalBtn').click();
   await expect(page.locator('#precisionDetailsModal.visible')).toHaveCount(0);
@@ -750,6 +752,114 @@ test('critical ui interactions open and close without browser errors', async ({ 
 
 // Testerna skriver data (seedade tävlingar m.m.) och får aldrig köras mot produktion.
 // Kör dem med `npm run test:smoke`, som startar Firebase-emulatorerna.
+
+// The PDF reports officials print: each is downloaded, then read with the
+// app's own PDF reader (pdf.js) to check pages, headings and content
+const PDF_REPORTS = [
+  { call: 'reports_generateStartListPdf(\'dressage\')', names: true, headings: [/DRESSYR – STARTLISTA/, /Kusk \/ Häst/, /Klass/] },
+  { call: 'reports_generateStartListPdf(\'marathon\')', names: true, headings: [/MARATON – STARTLISTA/, /Kusk \/ Häst/] },
+  { call: 'reports_generateStartListPdf(\'precision\')', names: true, headings: [/PRECISION – STARTLISTA/, /Kusk \/ Häst/] },
+  { call: 'reports_generateDressagePdf()', names: true, headings: [/DRESSYR – RESULTATLISTA/, /Plac/, /%/, /Straff/] },
+  { call: 'reports_generateDressageOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA DRESSYR/, /Program/] },
+  { call: 'reports_generateMarathonPdf()', names: true, headings: [/RESULTAT/, /Straff A/, /Straff B/, /Totalt/] },
+  { call: 'reports_generateMarathonFunctionaryPdf()', headings: [/FUNKTIONÄRSLISTA MARATON \(TIDER\)/, /Start A/, /Mål A/] },
+  { call: 'reports_generateMarathonObstaclePdf()', headings: [/FUNKTIONÄRSLISTA MARATON \(HINDER\)/, /Vagnbredd/] },
+  { call: 'reports_generatePrecisionPdf()', names: true, headings: [/PRECISION – RESULTATLISTA/, /Hinder/, /Tidfel/, /Totalt/] },
+  { call: 'reports_generatePrecisionOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA – PRECISION/, /Maxtid/] },
+  { call: 'reports_generatePrecisionCourseSetupPdf()', headings: [/BANA & PORTAR/, /Maxtid/] },
+  { call: 'reports_generateTotalPdf()', names: true, headings: [/RESULTAT/, /Plac/, /Dressyr/, /Maraton/, /Precision/, /Totalt/] },
+  // Only when the competition has teams (the seeded one has none)
+  { call: 'reports_generateTeamPdf()', optional: true },
+  { call: 'reports_generateVetCheckPdf()', names: true, headings: [/VETERINÄRBESIKTNING/, /Häst/] }
+];
+
+test('PDF reports are generated with pages, headings and the equipages', async ({ page }) => {
+  test.setTimeout(420000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+  page.on('dialog', dialog => dialog.accept().catch(() => { }));
+
+  const driverNames = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    return (await getEquipages(competitionId)).map(e => String(e.driverName || '').trim()).filter(Boolean);
+  }, competitionId);
+  expect(driverNames.length).toBeGreaterThan(0);
+
+  await page.goto('/index.html#reports');
+  await expect(page.locator('button[onclick="window.reports_generateTotalPdf()"]')).toBeVisible({ timeout: 60000 });
+  await page.waitForTimeout(2000); // the page's results are computed after load
+
+  const results = {};
+  for (const report of PDF_REPORTS) {
+    const button = page.locator(`button[onclick="window.${report.call}"]`);
+    if (await button.count() === 0) { results[report.call] = { missing: !report.optional, skipped: true }; continue; }
+    const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
+    await button.first().click();
+    const download = await downloadPromise;
+    const bytes = readFileSync(await download.path());
+    const parsed = await page.evaluate(async (b64) => {
+      const pdfjs = await import('/lib/pdfjs/build/pdf.min.mjs');
+      pdfjs.GlobalWorkerOptions.workerSrc = '/lib/pdfjs/build/pdf.worker.min.mjs';
+      const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+      const doc = await pdfjs.getDocument({ data }).promise;
+      let text = '';
+      for (let i = 1; i <= doc.numPages; i++) {
+        const content = await (await doc.getPage(i)).getTextContent();
+        text += content.items.map(item => item.str).join(' ') + '\n';
+      }
+      return { pages: doc.numPages, text };
+    }, bytes.toString('base64'));
+    results[report.call] = { file: download.suggestedFilename(), header: bytes.subarray(0, 5).toString('latin1'), ...parsed };
+    if (process.env.PDF_TEST_DUMP) console.log(`\n=== ${report.call} (${parsed.pages} p) ${download.suggestedFilename()}\n${parsed.text.slice(0, 400)}`);
+  }
+
+  for (const report of PDF_REPORTS) {
+    const result = results[report.call];
+    if (result.skipped && !result.missing) continue;
+    expect(result.missing, `${report.call}: button missing`).toBeUndefined();
+    expect(result.header, `${report.call}: not a PDF`).toBe('%PDF-');
+    expect(result.pages, `${report.call}: no pages`).toBeGreaterThan(0);
+    expect(result.text.trim().length, `${report.call}: empty`).toBeGreaterThan(40);
+    // Missing data printed as code values
+    expect(result.text, `${report.call}: prints undefined`).not.toMatch(/\bundefined\b/);
+    expect(result.text, `${report.call}: prints NaN`).not.toMatch(/\bNaN\b/);
+    expect(result.text, `${report.call}: prints [object Object]`).not.toContain('[object Object]');
+    for (const heading of report.headings || []) {
+      expect(result.text, `${report.call}: heading ${heading}`).toMatch(heading);
+    }
+    if (report.names) {
+      expect(driverNames.some(name => result.text.includes(name)), `${report.call}: no equipage listed`).toBe(true);
+    }
+  }
+  expect(browserErrors).toEqual([]);
+});
+
+// Judges enter results on phones, and drivers and spectators read the results
+// there: no page may need sideways scrolling (tables scroll inside their own box)
+test('input and result pages fit a phone screen without sideways scrolling @mobile-only', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+
+  const routes = ['hub', 'deltagare', 'starttider', 'dressyr-input', 'maraton-input', 'maraton-stages',
+    'observator-input', 'precision-input', 'precision-split-input', 'vet-check',
+    'dressyr-results', 'maraton-results', 'precision-results', 'total-resultat', 'competition-center', 'portal'];
+  const overflowing = [];
+  for (const route of routes) {
+    await page.goto(`/index.html#${route}`);
+    await page.waitForTimeout(2000);
+    const widths = await page.evaluate(() => ({
+      page: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
+      viewport: window.innerWidth
+    }));
+    if (widths.page > widths.viewport + 1) overflowing.push(`#${route}: ${widths.page}px > ${widths.viewport}px`);
+  }
+  expect(overflowing).toEqual([]);
+  expect(browserErrors).toEqual([]);
+});
+
 async function useFirebaseEmulators(page) {
   await page.addInitScript(() => {
     window.__USE_FIREBASE_EMULATORS__ = true;
