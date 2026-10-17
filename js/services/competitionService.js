@@ -527,6 +527,7 @@ export async function downloadCompetitionExport(competitionId, competitionName =
   document.body.appendChild(link);
   link.click();
   link.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10000);
+  // Freed late: a slow device may still be saving the file
+  setTimeout(() => URL.revokeObjectURL(url), 120000);
   return data?.documentCount ?? 0;
 }
