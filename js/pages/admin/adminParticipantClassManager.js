@@ -1,4 +1,5 @@
 import { saveEquipage } from '../../services/equipageService.js';
+import { renameConfigMapKeys } from '../../services/competitionService.js';
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 
@@ -53,6 +54,21 @@ function getRenameChanges(container, rows) {
     return changes;
 }
 
+// Settings stored per class name: they follow the class to its new name
+// (left behind, the class would have no marathon times, dressage program,
+// judges or precision course)
+const CLASS_KEYED_SETTINGS = [
+    ['dressyrProgramMapping', []],
+    ['dressageJudgeMapping', []],
+    ['dressyrClassConfig', []],
+    ['classSettings', []],
+    ['maratonConfig', ['marathonClassData']],
+    ['maratonConfig', ['maratonClassData']],
+    ['precisionConfig', ['courses']],
+    ['precisionConfig', ['portAllowanceByClass']],
+    ['precisionConfig', ['standardPortWidthByClass']]
+];
+
 async function saveClassRenames(competitionId, equipages, changes) {
     let totalUpdated = 0;
     const updates = [];
@@ -61,12 +77,16 @@ async function saveClassRenames(competitionId, equipages, changes) {
     for (const eq of (equipages || [])) {
         if (!renameMap.has(eq.className)) continue;
 
-        const updatedData = { ...eq, className: renameMap.get(eq.className) };
-        updates.push(saveEquipage(competitionId, eq.startNumber, updatedData));
+        // Only the class name: a whole copy of the equipage from the list
+        // would put back older horses, vet results or status
+        updates.push(saveEquipage(competitionId, eq.startNumber, { className: renameMap.get(eq.className) }));
         totalUpdated++;
     }
 
     await Promise.all(updates);
+    for (const [configName, parentPath] of CLASS_KEYED_SETTINGS) {
+        await renameConfigMapKeys(competitionId, configName, parentPath, changes);
+    }
     return totalUpdated;
 }
 

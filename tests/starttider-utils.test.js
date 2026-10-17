@@ -719,3 +719,23 @@ test('findDriverStartConflicts identifies starts for same driver closer than 30 
   assert.equal(conflicts[0].diffMinutes, 20);
 });
 
+
+test('moving or reordering a start keeps the pauses in the list', () => {
+  const startTimes = {
+    1: { dressage: '2026-05-25T09:00' },
+    2: { dressage: '2026-05-25T09:10' },
+    3: { dressage: '2026-05-25T10:30' }, // after a lunch break
+    4: { dressage: '2026-05-26T09:00' }  // day 2
+  };
+  const rows = [1, 2, 3, 4].map(startNumber => ({ startNumber }));
+  const moved = moveStartTimeRow(startTimes, rows, { discipline: 'dressage', startNumber: 3, direction: 'up', intervalMin: 10 });
+  assert.equal(startTimes[3].dressage, '2026-05-25T09:10');
+  assert.equal(startTimes[2].dressage, '2026-05-25T10:30');
+  assert.equal(startTimes[4].dressage, '2026-05-26T09:00');
+
+  reorderStartTimeRow(startTimes, moved.sortedRows, { discipline: 'dressage', droppedStartNumber: 4, targetStartNumber: 1, intervalMin: 10 });
+  assert.equal(startTimes[4].dressage, '2026-05-25T09:00');
+  assert.equal(startTimes[1].dressage, '2026-05-25T09:10');
+  assert.equal(startTimes[3].dressage, '2026-05-25T10:30');
+  assert.equal(startTimes[2].dressage, '2026-05-26T09:00');
+});

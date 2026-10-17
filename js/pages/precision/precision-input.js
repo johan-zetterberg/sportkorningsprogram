@@ -35,6 +35,7 @@ import {
 } from '../../utils/precisionUtils.js';
 import { getCarriageCompliance } from '../shared/vagnbreddUtils.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import { serverNow, setServerClockHold, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -62,7 +63,9 @@ let currentLoadId = 0;
 
 // ---------- Helpers (tid) ----------
 const pad2 = (n) => String(n).padStart(2, '0');
-const nowMs = () => Date.now();
+// Server time: liveStartEpoch is shared, and the clock may be stopped on
+// another device than the one that started it
+const nowMs = () => serverNow();
 
 function secondsToMMSS(seconds) {
     if (isNaN(seconds) || seconds < 0) return "--:--";
@@ -773,6 +776,8 @@ function startTimer() {
 
     isRunning = true;
     clockStartedHereFor = currentEquipage ? String(currentEquipage.startNumber) : null;
+    // A new offset measurement mid-run would shift start against stop
+    setServerClockHold(true);
     // Viktigt: starta från "nu" – vi ska INTE baka in pausedMs i startEpoch
     startEpoch = nowMs();
 
@@ -789,6 +794,7 @@ function stopTimer() {
     pausedMs += (nowMs() - startEpoch);
     isRunning = false;
     clockStartedHereFor = null;
+    setServerClockHold(false);
 
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     updateTimerView();     // visa stoppad tid korrekt
@@ -808,6 +814,7 @@ function stopTimerLocal() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     isRunning = false;
     clockStartedHereFor = null;
+    setServerClockHold(false);
 }
 
 function resetTimer() {
@@ -1133,6 +1140,7 @@ export async function load() {
     }
 
     renderLayout();
+    startServerClockSync();
 
     try {
         // Wrapper för timeout
@@ -1285,6 +1293,7 @@ export async function load() {
 
 export function __unload() {
   releaseWakeLock();
+    stopServerClockSync();
     // Avsluta ev. pågående prenumeration
     if (currentUnsubscribe) {
         try { currentUnsubscribe(); } catch (e) { }

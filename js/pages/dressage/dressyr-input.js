@@ -28,6 +28,15 @@ import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { awaitWriteOrQueue, WRITE_ACK_TIMEOUT_MS } from '../../utils/offlineWrite.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import { serverNow } from '../../utils/serverClock.js';
+import {
+  dressageDraftKey,
+  readDressageDraft,
+  writeDressageDraft,
+  clearDressageDraft,
+  isEmptyDressageDraft,
+  shouldRestoreDressageDraft
+} from './dressageDraft.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 let competitionId = null;
@@ -123,6 +132,84 @@ function mirrorToLocal(sn, data) {
   } catch (e) {
     console.warn('Could not mirror to localStorage', e);
   }
+}
+
+// Local draft of the protocol being entered (written on every change, cleared
+// after Save): field mode writes nothing until Save
+function currentDraftKey() {
+  const sn = equipageSearchDropdown?.getValue?.();
+  if (!sn || !activeDressageJudge) return null;
+  return dressageDraftKey(competitionId, sn, activeDressageJudge);
+}
+
+// The draft key whose protocol has finished loading into the form: while a
+// load is pending the form is cleared, and storing that would wipe the draft
+let draftReadyKey = null;
+
+function saveDraftNow() {
+  try {
+    const key = currentDraftKey();
+    if (!key || key !== draftReadyKey || !currentDressageTest) return;
+    const draft = {
+      ts: serverNow(),
+      startNumber: String(equipageSearchDropdown.getValue()),
+      judgeId: activeDressageJudge.id,
+      judgePosition: activeDressageJudge._pos || '',
+      testKey: currentDressageTestKey || document.getElementById('testSelector')?.value || '',
+      eliminated: !!document.getElementById('dressageEliminated')?.checked,
+      movements: Array.from(document.querySelectorAll('#protocolBody .movement-card')).map((card, index) => ({
+        momentNo: currentDressageTest.movements[index]?.no,
+        score: card.querySelector('.score-input')?.value || '',
+        comment: card.querySelector('.comment-input')?.value || ''
+      })),
+      generalDirty: generalDataDirty,
+      errorPoints: document.getElementById('errorPointsInput')?.value ?? '0',
+      errorComment: document.getElementById('errorCommentInput')?.value || ''
+    };
+    if (isEmptyDressageDraft(draft)) clearDressageDraft(key);
+    else writeDressageDraft(key, draft);
+  } catch (e) {
+    console.warn('Could not keep dressage draft', e);
+  }
+}
+
+/** Puts a newer unsaved draft back into the form; true when one was restored */
+function restoreDraftIfNewer(startNumber, judgeId, savedProtocol) {
+  const judge = allJudges.find(j => String(j.id) === String(judgeId)) || activeDressageJudge;
+  const key = dressageDraftKey(competitionId, startNumber, judge);
+  const draft = readDressageDraft(key);
+  if (!shouldRestoreDressageDraft(draft, savedProtocol, judgeId)) return false;
+
+  const testSelector = document.getElementById('testSelector');
+  if (draft.testKey && getPrograms()[draft.testKey] && testSelector && (testSelector.value !== draft.testKey || !currentDressageTest)) {
+    programmaticChange = true;
+    restoreSelection(testSelector, draft.testKey);
+    renderProtocol(draft.testKey);
+    manualTestOverride = true;
+    programmaticChange = false;
+  }
+  if (!currentDressageTest) return false;
+
+  document.getElementById('dressageEliminated').checked = !!draft.eliminated;
+  const movements = Array.isArray(draft.movements) ? draft.movements : [];
+  document.querySelectorAll('#protocolBody .movement-card').forEach((card, index) => {
+    const no = currentDressageTest.movements[index]?.no;
+    const md = movements.find(m => m.momentNo === no) || movements[index];
+    if (!md) return;
+    const scoreEl = card.querySelector('.score-input');
+    const commentEl = card.querySelector('.comment-input');
+    if (scoreEl) scoreEl.value = md.score ?? '';
+    if (commentEl) {
+      commentEl.value = md.comment || '';
+      card.querySelector('.comment-toggle-btn')?.classList.toggle('has-comment', commentEl.value.trim() !== '');
+    }
+  });
+  if (draft.generalDirty) {
+    document.getElementById('errorPointsInput').value = draft.errorPoints ?? 0;
+    document.getElementById('errorCommentInput').value = draft.errorComment || '';
+    generalDataDirty = true;
+  }
+  return true;
 }
 
 // 1) Hjälpfunktioner för debounce & retry
@@ -311,6 +398,7 @@ let protocolLoadSeq = 0;
 async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
   const allowTestChange = opts.allowTestChange !== false; // default = true
   const mySeq = ++protocolLoadSeq;
+  draftReadyKey = null;
   clearForm();
   if (!startNumber || !judgeId || !competitionId) return;
 
@@ -374,6 +462,9 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
       if (!allowTestChange && currentSelectorValue && testKey !== currentSelectorValue) {
         // Avbryt populering för att undvika att "Lätt A"-siffror hamnar i "Svår B"-protokollet
         console.warn(`Saved protocol is for ${testKey} but view is ${currentSelectorValue}. Skipping population.`);
+        if (restoreDraftIfNewer(startNumber, judgeId, protocolData)) {
+          showAlert('Osparade poäng för protokollet återställdes från enheten.', true);
+        }
         calculateTotals();
         return;
       }
@@ -409,8 +500,11 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
     if (protocolData || generalData) {
       mirrorToLocal(startNumber, { protocol: protocolData, general: generalData });
     }
+    const draftRestored = restoreDraftIfNewer(startNumber, judgeId, protocolData);
     calculateTotals();
-    if (fetchFailed && (protocolData || generalData)) {
+    if (draftRestored) {
+      showAlert('Osparade poäng för protokollet återställdes från enheten.', true);
+    } else if (fetchFailed && (protocolData || generalData)) {
       showAlert('Visar lokal backup för valt dressyrprotokoll.', true);
     } else if (fetchFailed) {
       showAlert(t('alert_protocol_load_error'), false);
@@ -418,6 +512,11 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
   } catch (error) {
     console.error("Kunde inte ladda befintligt protokoll:", error);
     showAlert(t('alert_protocol_load_error'), false);
+  } finally {
+    if (mySeq === protocolLoadSeq) {
+      const judge = allJudges.find(j => String(j.id) === String(judgeId)) || activeDressageJudge;
+      draftReadyKey = dressageDraftKey(competitionId, startNumber, judge);
+    }
   }
 }
 
@@ -899,6 +998,10 @@ async function saveProtocol() {
       onLateError: () => showAlert(`#${startNumber}: ${t('alert_protocol_save_error')}`, false)
     });
 
+    // Saved or queued in Firestore's offline store (with the backup above):
+    // the draft is no longer needed
+    clearDressageDraft(dressageDraftKey(competitionId, startNumber, judge));
+
     if (result === 'queued') {
       showAlert(t('alert_protocol_queued').replace('{startNumber}', startNumber), 'offline');
     } else {
@@ -1027,6 +1130,7 @@ function setupEventListeners() {
       // 2. Kör befintlig logik. Lämnat fält skickar direkt, så den väntande
       // skrivningen från inmatningen behövs inte
       calculateTotals();
+      saveDraftNow();
       if (!isFieldModeEnabled()) {
         clearTimeout(liveUpdateTimer);
         updateLiveStatus(event.target);
@@ -1036,6 +1140,7 @@ function setupEventListeners() {
 
   const handleGenericInput = () => {
     calculateTotals();
+    saveDraftNow();
     if (isFieldModeEnabled()) return;
     clearTimeout(liveUpdateTimer);
     liveUpdateTimer = setTimeout(() => {
@@ -1053,6 +1158,7 @@ function setupEventListeners() {
     if (target.classList.contains('score-input')) {
       // Uppdatera totals live
       calculateTotals();
+      saveDraftNow();
       if (isFieldModeEnabled()) return;
       // Debounce:a live-skrivning. Domaren går oftast vidare med Enter, och
       // då skickar focusout direkt; detta täcker ett fält som blir kvar
@@ -1080,6 +1186,7 @@ function setupEventListeners() {
   }
   document.getElementById('errorCommentInput')?.addEventListener('input', () => {
     generalDataDirty = true;
+    saveDraftNow();
   });
   if (eliminatedCheckbox) eliminatedCheckbox.addEventListener('change', handleGenericInput);
 
@@ -1776,6 +1883,8 @@ let inputLoadSeq = 0;
 
 export function __unload() {
   releaseWakeLock();
+  // Last chance for a draft change not yet stored (e.g. a field still focused)
+  saveDraftNow();
   inputLoadSeq++;
   // Städar dressyr-input...
   if (window.__dressageInputUnsub) {

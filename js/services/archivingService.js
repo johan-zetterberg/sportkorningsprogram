@@ -1,4 +1,6 @@
 import { db, appId, auth } from '../config/firebase-config.js';
+import { setCompetitionSetting } from './competitionSettingsStore.js';
+import { dressagePrograms } from '../data/dressagePrograms.js';
 import {
     doc,
     serverTimestamp,
@@ -36,6 +38,8 @@ async function buildArchiveRows(competitionId) {
         precisionConfig,
         competitionMeta,
         dressageJudgeMapping,
+        programOverrides,
+        programMapping,
         judges
     ] = await Promise.all([
         getAllDressageProtocols(competitionId, equipages),
@@ -43,15 +47,22 @@ async function buildArchiveRows(competitionId) {
         getMarathonStateDocuments(competitionId),
         getMarathonResults(competitionId),
         getPrecisionResults(competitionId),
-        getConfig(competitionId, 'maratonConfig').catch(() => ({})),
-        getConfig(competitionId, 'precisionConfig').catch(() => ({})),
-        getConfig(competitionId, 'competitionMeta').catch(() => ({})),
-        getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
+        // The official archive: the settings as on the server now, not the
+        // device's copy (kept up to an hour), and the same inputs as the
+        // server's results (the competition's own programs and class mapping)
+        getConfig(competitionId, 'maratonConfig', true),
+        getConfig(competitionId, 'precisionConfig', true),
+        getConfig(competitionId, 'competitionMeta', true),
+        getConfig(competitionId, 'dressageJudgeMapping', true),
+        getConfig(competitionId, 'dressagePrograms', true),
+        getConfig(competitionId, 'dressyrProgramMapping', true),
         getJudges(competitionId).catch(() => [])
     ]);
 
     // The official archive: pauses subtracted from stage times, as on the server
     await loadPauseWindows(competitionId);
+    setCompetitionSetting(competitionId, 'klassProgramMapping',
+        (programMapping && typeof programMapping === 'object') ? programMapping : {});
 
     const rows = buildArchiveRowsFromData({
         equipages,
@@ -62,6 +73,7 @@ async function buildArchiveRows(competitionId) {
         precisionRows,
         marathonConfig,
         precisionConfig,
+        allPrograms: { ...dressagePrograms, ...(programOverrides || {}) },
         dressageJudgeMapping,
         judges
     });

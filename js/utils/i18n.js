@@ -380,6 +380,8 @@ export const DICTIONARY = {
     'status_waiting': { sv: 'Väntar', en: 'Waiting' },
     'status_eliminated': { sv: 'Utesluten', en: 'Eliminated' },
     'no_competition_selected': { sv: 'Ingen tävling vald. Gå tillbaka till hubben.', en: 'No competition selected. Return to hub.' },
+    'archived_result_notice': { sv: 'Arkiverat resultat{date}: placeringar och poäng visas som när tävlingen avslutades.', en: 'Archived result{date}: placings and scores are shown as they were when the competition ended.' },
+    'showing_archived_result': { sv: 'Visar arkiverat resultat', en: 'Showing archived result' },
 
     // Marathon Monitor & Results
     'marathon_monitor_title': { sv: 'Maraton – Live Monitor', en: 'Marathon – Live Monitor' },

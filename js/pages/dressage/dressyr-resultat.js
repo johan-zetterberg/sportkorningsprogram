@@ -629,6 +629,9 @@ function processAndAggregateResults(equipages, allRawResults) {
     equipages.forEach(eq => {
         if (isWithdrawnOrExcluded(eq.status, eq)) return;
         aggregated[eq.startNumber] = { ...eq, judges: {}, __eq: eq };
+        // Eliminated or retired (by the secretariat): listed without a place,
+        // as on the total page, so the others' places stay the same
+        if (isEliminatedStatus(eq.status, eq)) aggregated[eq.startNumber].statusEliminated = true;
     });
 
     // STEG 2: Bearbeta resultat
@@ -881,7 +884,7 @@ function processAndAggregateResults(equipages, allRawResults) {
 
         const finalRankables = rankDressageRows(eqs, {
             penaltyPicker: eq => eq.finalPenalty,
-            eliminatedPicker: eq => !!eq.eliminated
+            eliminatedPicker: eq => !!eq.eliminated || !!eq.statusEliminated
         });
 
         eqs.forEach(eq => {
@@ -2237,16 +2240,26 @@ function getStartNumber(e) {
     return null;
 }
 
+// Withdrawn (did not start): not in the dressage list at all, as on the total page
 function isWithdrawnOrExcluded(state, eq) {
     const toStr = v => String(v || '').toLowerCase();
-    const bad = new Set(['withdrawn', 'scratched', 'did-not-start', 'dns', 'retired', 'eliminated', 'excluded', 'ute', 'struken', 'strukit']);
+    const bad = new Set(['withdrawn', 'scratched', 'did-not-start', 'dns', 'struken', 'strukit']);
     if (bad.has(toStr(state))) return true;
 
-    const flags = [eq?.withdrawn, eq?.scratched, eq?.struken, eq?.didNotStart, eq?.dns, eq?.eliminated, eq?.excluded, eq?.retired];
+    const flags = [eq?.withdrawn, eq?.scratched, eq?.struken, eq?.didNotStart, eq?.dns];
     if (flags.some(v => v === true)) return true;
 
     const text = [eq?.status, eq?.eqStatus, eq?.dressageStatus, eq?.result, eq?.outcome, eq?.statusText, eq?.reason].map(toStr);
     return text.some(s => bad.has(s));
+}
+
+// Eliminated, retired or excluded: listed, but without a place
+function isEliminatedStatus(state, eq) {
+    const toStr = v => String(v || '').toLowerCase();
+    const elim = new Set(['retired', 'eliminated', 'excluded', 'ute']);
+    if (elim.has(toStr(state))) return true;
+    if ([eq?.eliminated, eq?.excluded, eq?.retired].some(v => v === true)) return true;
+    return [eq?.status, eq?.eqStatus, eq?.dressageStatus, eq?.result, eq?.outcome, eq?.statusText].map(toStr).some(s => elim.has(s));
 }
 
 // Bumped by load and __unload: a load still awaiting data when the page is left

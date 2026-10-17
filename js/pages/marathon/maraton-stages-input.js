@@ -379,6 +379,26 @@ function digitsToMs(d) {
   return (mm * 60 + ss) * 1000 + cs * 10;
 }
 
+// A typed stage time ("mmsscc" or "mm:ss,cc") → ms, or null when it is empty,
+// zero or not a time (seconds ≥ 60): such input must never be saved as 0
+function parseManualTimeMs(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  let mm, ss, cs;
+  const sep = s.match(/^(\d{1,3})[:.](\d{1,2})(?:[,.](\d{1,2}))?$/);
+  if (sep) {
+    mm = +sep[1]; ss = +sep[2]; cs = sep[3] ? +sep[3].padEnd(2, '0') : 0;
+  } else if (/^\d{1,6}$/.test(s)) {
+    const d = s.padEnd(6, '0');
+    mm = +d.slice(0, 2); ss = +d.slice(2, 4); cs = +d.slice(4, 6);
+  } else {
+    return null;
+  }
+  if (ss >= 60) return null;
+  const ms = (mm * 60 + ss) * 1000 + cs * 10;
+  return ms > 0 ? ms : null;
+}
+
 function secToMMSS(sec) {
   const s = Math.max(0, Math.round(sec || 0));
   const mm = Math.floor(s / 60);
@@ -466,11 +486,12 @@ function makeStageTimingFromFlat(doc, stage) {
   const stopClock = doc[`finish_${key}`] ?? doc[`finish_${flat}`] ?? null;
   const durationMs = doc[`duration_${flat}_ms`] ?? null;
   const runningSince = doc[`runningSince_${flat}`] ?? null;
+  const manualDuration = doc[`manualDuration_${flat}`] === true;
 
   const commentStart = doc[`commentStart_${flat}`] ?? '';
   const commentStop = doc[`commentStop_${flat}`] ?? '';
 
-  const base = { startClock, stopClock, durationMs, runningSince, commentStart, commentStop };
+  const base = { startClock, stopClock, durationMs, runningSince, manualDuration, commentStart, commentStop };
 
   if (stage === 'B') {
     const bitCheckOk = (typeof doc.bettOk !== 'undefined' ? doc.bettOk : doc.bitCheckOk);
@@ -546,6 +567,11 @@ async function saveStageSnapshot(stage, payload, equipage = currentEquipage) {
   }
   if ('durationMs' in payload) {
     flat[`duration_${flatPrefix}_ms`] = payload.durationMs;
+  }
+  if ('durationMs' in payload) {
+    // A typed duration is the driven time (the engine subtracts no pauses);
+    // a timed start, stop or reset makes the stage wall time again
+    flat[`manualDuration_${flatPrefix}`] = payload.manualDuration === true;
   }
   if ('runningSince' in payload) {
     flat[`runningSince_${flatPrefix}`] = payload.runningSince;
@@ -1397,7 +1423,7 @@ function updateTimerLabel(stage) {
     // Saved as wall time: show it without the global pauses, as it is scored
     const startMs = Date.parse(st.startClock);
     const stopMs = Date.parse(st.stopClock);
-    const shownMs = Number.isFinite(startMs) && Number.isFinite(stopMs)
+    const shownMs = Number.isFinite(startMs) && Number.isFinite(stopMs) && st.manualDuration !== true
       ? Math.max(0, savedDurationMs - pausedMsBetween(startMs, stopMs))
       : savedDurationMs;
     host.textContent = msToLabel(shownMs);
@@ -1461,11 +1487,16 @@ function attachActiveTimersManualEditDelegate() {
     }
 
     const raw = prompt('Manuell tid för den här etappen (mmsscc):');
-    if (!raw) return;
-    const ms = digitsToMs(raw);
+    if (raw == null) return;
+    const ms = parseManualTimeMs(raw);
+    if (ms == null) {
+      showAlert('Ogiltig tid. Ange mmsscc eller mm:ss,cc (sekunder under 60).', false);
+      return;
+    }
 
     const tKey = `${sn}|${stage}`;
     let t = activeTimers.get(tKey);
+    if (t?.isRunning && !confirm(`Etappen tas tid på just nu. Stoppa klockan och ersätt tiden med ${msToLabel(ms)}?`)) return;
     if (!t) { t = { isRunning: false, startEpoch: 0, pausedMs: 0 }; activeTimers.set(tKey, t); }
     if (t.interval) clearInterval(t.interval);
     t.isRunning = false; t.startEpoch = 0; t.pausedMs = ms;
@@ -1473,11 +1504,14 @@ function attachActiveTimersManualEditDelegate() {
     paintTimer(tKey, ms);
 
     const now = serverNow();
+    // manualDuration: start/stop are derived from the typed time, which already
+    // excludes any global pause (the engine must not subtract it again)
     const payload = {
       durationMs: ms,
       startClock: new Date(now - ms).toISOString(),
       stopClock: new Date(now).toISOString(),
       runningSince: null,
+      manualDuration: true,
     };
     try {
       const equipage = currentEquipage;
@@ -1518,10 +1552,24 @@ function bindManualEditor(stage) {
   okBtn.addEventListener('click', async () => {
     if (!currentEquipage) return;
 
-    const ms = digitsToMs(inputEl.value);
+    // Empty or invalid input is refused: it used to be saved as 0 and wiped
+    // the stage's running or finished time
+    const ms = parseManualTimeMs(inputEl.value);
+    if (ms == null) {
+      showAlert('Ogiltig tid. Ange mmsscc eller mm:ss,cc (sekunder under 60).', false);
+      inputEl.focus();
+      return;
+    }
     const actualStage = normalizeStageForEquipage(currentEquipage, stage);
     const key = `${currentEquipage.startNumber}|${actualStage}`;
     let timerState = activeTimers.get(key);
+
+    const savedStage = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
+    if (timerState?.isRunning || (savedStage.startClock && !savedStage.stopClock)) {
+      if (!confirm(`Etappen tas tid på just nu. Stoppa klockan och ersätt tiden med ${msToLabel(ms)}?`)) return;
+    } else if (savedStage.stopClock) {
+      if (!confirm(`Etappen har redan en tid. Ersätt den med ${msToLabel(ms)}?`)) return;
+    }
 
     if (!timerState) {
       timerState = { isRunning: false, startEpoch: 0, pausedMs: 0 };
@@ -1541,7 +1589,9 @@ function bindManualEditor(stage) {
       startClock: new Date(now - ms).toISOString(),
       stopClock: new Date(now).toISOString(),
       runningSince: null,
-      runningStage: null
+      runningStage: null,
+      // Typed time excludes global pauses already (see the engine)
+      manualDuration: true
     };
 
     try {
@@ -1605,6 +1655,9 @@ function mergeStagePayloadIntoCurrentDoc(stage, payload = {}) {
     ...(currentDocData.timing[stage] || {}),
     ...payload
   };
+  if ('durationMs' in payload) {
+    currentDocData.timing[stage].manualDuration = payload.manualDuration === true;
+  }
 
   if ('runningStage' in payload) {
     currentDocData.runningStage = payload.runningStage;

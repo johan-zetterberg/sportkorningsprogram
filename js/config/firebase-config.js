@@ -47,9 +47,13 @@ if (usingEmulators) {
   globalThis.__FIREBASE_EMULATORS_ACTIVE__ = true;
 }
 
-// Slå på offline-persistens (multi-tab om möjligt, annars single-tab)
+// Slå på offline-persistens (multi-tab om möjligt, annars single-tab).
+// Whether it worked is kept for the input pages (offlineWrite.js): without it
+// a write made without signal lives only in memory and is lost on reload
+globalThis.__FIRESTORE_OFFLINE_STORAGE__ = false;
 try {
   await enableMultiTabIndexedDbPersistence(db);
+  globalThis.__FIRESTORE_OFFLINE_STORAGE__ = true;
 } catch (err) {
   if (err.code === 'failed-precondition' || err.code === 'unimplemented') {
     console.warn('Firestore persistence failed/not possible:', err.code);
@@ -60,6 +64,7 @@ try {
     console.warn('Fallback single-tab persistence due to:', err);
     try {
       await enableIndexedDbPersistence(db);
+      globalThis.__FIRESTORE_OFFLINE_STORAGE__ = true;
     } catch (err2) {
       console.warn('Firestore persistence DISABLED:', err2?.code || err2);
     }

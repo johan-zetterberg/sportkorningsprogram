@@ -1125,7 +1125,7 @@ function renderCurrentRiderCard() {
             <div class="text-center p-2 bg-gray-50 dark:bg-gray-700 rounded-lg shadow-sm border border-gray-100 dark:border-gray-600 h-full flex flex-col justify-center">
                 <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 font-bold mb-0">Trend vs Ledare (${escapeHtml(leaderName)})</div>
                 <div class="text-2xl font-black ${gapColor} leading-tight">${gapSign}${gap.toFixed(2)} %</div>
-                <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0">Ledare: ${leader.percent ? leader.percent.toFixed(2) : '-'}%</div>
+                <div class="text-[10px] text-gray-400 dark:text-gray-500 mt-0">Ledare: ${Number.isFinite(Number(leader.percent)) && Number(leader.percent) ? Number(leader.percent).toFixed(2) : '-'}%</div>
             </div> `;
         } else if (!leader) {
             trendHtml = `
@@ -1347,7 +1347,7 @@ function renderCurrentRiderCard() {
                                 <span class="text-sm">🩺</span>
                                 <span class="font-bold truncate">Vilobox: ${escapeHtml(vb?.label || '10 min vila (TR Mom 526)')}</span>
                             </div>
-                            ${pulse ? `<span class="tabular-nums font-extrabold ${pulseWarn ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300'}">${pulse} bpm${pulseWarn ? ' ⚠️' : ''}</span>` : ''}
+                            ${pulse ? `<span class="tabular-nums font-extrabold ${pulseWarn ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-700 dark:text-emerald-300'}">${escapeHtml(pulse)} bpm${pulseWarn ? ' ⚠️' : ''}</span>` : ''}
                         </div>`;
                     })()}
                 </div>
@@ -1568,7 +1568,7 @@ function renderCurrentRiderCard() {
                 <div class="bg-white dark:bg-gray-800 p-3 sm:p-4 rounded-xl border border-gray-200 dark:border-gray-700 shadow-sm flex flex-col items-center">
                     <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">Dressyr</div>
                     <div class="text-3xl font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(dPen)}</div>
-                    <div class="text-[10px] text-gray-400">${dSt?.finalPercent ? dSt.finalPercent.toFixed(1) + '%' : ''}</div>
+                    <div class="text-[10px] text-gray-400">${Number.isFinite(Number(dSt?.finalPercent)) && Number(dSt?.finalPercent) ? Number(dSt.finalPercent).toFixed(1) + '%' : ''}</div>
                 </div>
                 
                 <!-- Marathon Score -->

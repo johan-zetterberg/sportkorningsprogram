@@ -65,6 +65,17 @@ export function ruleSettingsChanged(before = null, after = null) {
     return stableJson(before?.ruleSettings) !== stableJson(after?.ruleSettings);
 }
 
+const isArchivedCompetition = (comp) => comp?.locked === true || comp?.status === 'completed';
+
+/**
+ * An archived competition opened again: settings changed while it was archived
+ * were not applied to the stored results (automatic runs skip archived
+ * competitions), so they are recalculated now.
+ */
+export function competitionReopened(before = null, after = null) {
+    return !!before && !!after && isArchivedCompetition(before) && !isArchivedCompetition(after);
+}
+
 /**
  * Fingerprint of everything a change of which triggers a full recalculation:
  * the result config documents, the rule settings and the pause log. A run whose

@@ -805,7 +805,8 @@ window.reports_generateTeamCsv = function () {
     const rows = [];
 
     processedTeams.forEach(t => {
-        const rank = t.rank || (t.isEliminated ? 'ELIM' : '-');
+        // As the team PDF: an eliminated team has no rank
+        const rank = t.isEliminated ? 'ELIM' : (t.rank || '-');
         const teamTotal = formatReportCsvPenalty(t.total, { eliminated: t.isEliminated, empty: '-' });
 
         // 1. Team Header Row (Optional, maybe just fill all member rows with team data)
@@ -818,9 +819,10 @@ window.reports_generateTeamCsv = function () {
                 teamTotal,
                 m.name,
                 m.startNumber,
-                formatReportCsvPenalty(m.dressage, { eliminated: m.eliminated, empty: '-' }),
-                formatReportCsvPenalty(m.marathon, { eliminated: m.eliminated, empty: '-' }),
-                formatReportCsvPenalty(m.precision, { eliminated: m.eliminated, empty: '-' }),
+                // ELIM only in the discipline the member was eliminated in (as the team PDF)
+                formatReportCsvPenalty(m.dressage, { eliminated: !!m.isDressageElim, empty: '-' }),
+                formatReportCsvPenalty(m.marathon, { eliminated: !!m.isMarathonElim, empty: '-' }),
+                formatReportCsvPenalty(m.precision, { eliminated: !!m.isPrecisionElim, empty: '-' }),
                 formatReportCsvPenalty(m.penalty, { eliminated: m.eliminated, empty: '-' }),
                 m.isCounting ? 'Ja' : 'Nej' // "Struken" score
             ]);

@@ -5,7 +5,7 @@
 //  - Liten "Skriv ut / PDF"-knapp (window.print()) i headern
 
 import { getGlobalState } from '../../main.js';
-import { applyArchivedSnapshot, loadArchiveSnapshot } from './archivedResults.js';
+import { applyArchivedSnapshot, archivedNoticeText, loadArchiveSnapshot } from './archivedResults.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
@@ -702,7 +702,7 @@ function renderDesktop() {
         <span>${escapeHtml(eq.clubName || '')}</span>
       </div>`;
 
-    return `<tr class="${rowCls}" data-start="${r.startNumber}">
+    return `<tr class="${rowCls}" data-start="${escapeHtml(r.startNumber)}">
       <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm font-semibold">${r.isEliminated ? `<span class="text-red-600 font-semibold">${escapeHtml(r.elimReason || 'ELIM')}</span>`
         : (r.plac ?? '')
       }</td>
@@ -1239,13 +1239,13 @@ function renderMobile() {
 
       // Skapa kortet
       html += `
-        <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer ${placBg}" data-start="${r.startNumber}" role="button" tabindex="0">
+        <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer ${placBg}" data-start="${escapeHtml(r.startNumber)}" role="button" tabindex="0">
           <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 ${isPlaced ? '' : 'bg-gray-50 dark:bg-gray-800/50'}">
             
             <!-- Left: Name & Flags -->
             <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${r.startNumber}</span> 
+                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${escapeHtml(r.startNumber)}</span> 
                  <span class="truncate">${escapeHtml(r.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">
@@ -1433,7 +1433,12 @@ function attachListeners() {
 
 
 
+// Bumped by load and __unload: a load still awaiting data when the page is left
+// (or loaded again) must not start its listeners afterwards
+let totalLoadSeq = 0;
+
 export async function load(el) {
+  const mySeq = ++totalLoadSeq;
 
   // Lyssnare för att hantera rotation/resize (växla mellan kort/tabell)
   if (totalResultsResizeHandler) {
@@ -1505,6 +1510,7 @@ export async function load(el) {
   } catch (err) {
     console.error('Fel vid hämtning av data i init:', err);
   }
+  if (mySeq !== totalLoadSeq) return; // left or reloaded while loading
 
   // 2. Rita upp sidans struktur
   initializeScrollSync(window.location.pathname);
@@ -1522,12 +1528,13 @@ export async function load(el) {
   });
 
   // An archived competition shows the results it was archived with
-  archiveSnapshot = await loadArchiveSnapshot(comp);
+  const snapshot = await loadArchiveSnapshot(comp);
+  if (mySeq !== totalLoadSeq) return;
+  archiveSnapshot = snapshot;
   if (archiveSnapshot && el) {
     const notice = document.createElement('div');
     notice.className = 'mx-auto max-w-5xl mb-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-sm dark:bg-amber-900/20 dark:border-amber-700 dark:text-amber-200';
-    const archivedAt = Number(archiveSnapshot.archivedAt);
-    notice.textContent = `Arkiverat resultat${Number.isFinite(archivedAt) ? ` (${new Date(archivedAt).toLocaleDateString('sv-SE')})` : ''}: placeringar och poäng visas som när tävlingen avslutades.`;
+    notice.textContent = archivedNoticeText(archiveSnapshot);
     el.prepend(notice);
   }
 
@@ -1577,6 +1584,7 @@ function getDurationSec(row, section) {
 }
 
 export function __unload() {
+  totalLoadSeq++;
   archiveSnapshot = null;
   if (totalResultsResizeHandler) {
     try { window.removeEventListener('resize', totalResultsResizeHandler); } catch { }

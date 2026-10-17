@@ -181,7 +181,7 @@ export async function getMarathonResults(competitionId) {
   return out;
 }
 
-export async function saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, data) {
+export async function saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, data, options = {}) {
   if (!competitionId) throw new Error("saveMarathonObstacleResult: competitionId saknas");
   if (equipageId == null) throw new Error("saveMarathonObstacleResult: equipageId saknas");
   if (obstacleNumber == null) throw new Error("saveMarathonObstacleResult: obstacleNumber saknas");
@@ -243,6 +243,7 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
           currentObstacle: null,
           running: false,
           inProgress: false,
+          pausedByGlobalPause: false,
           liveObstacleTimeMs: 0,
           liveObstacleStartAt: null,
           live_staticStartAt: null,
@@ -321,7 +322,9 @@ export async function saveMarathonObstacleResult(competitionId, equipageId, obst
       updatedAt: serverTimestamp()
     }, { merge: true });
 
-    const status = await awaitWriteOrQueue(Promise.all([summaryWrite, obstacleWrite]));
+    // A save queued offline that the server refuses later (e.g. the result was
+    // finalized meanwhile) is reported to the caller, who has moved on
+    const status = await awaitWriteOrQueue(Promise.all([summaryWrite, obstacleWrite]), { onLateError: options?.onLateError });
     return { ok: true, path: summaryDocRef.path, status };
   })());
 }

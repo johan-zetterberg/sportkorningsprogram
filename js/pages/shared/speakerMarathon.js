@@ -119,7 +119,7 @@ export function renderSectorAnalysis(context) {
                             const match = keys.find(k => cls.trim().toLowerCase().startsWith(k.trim().toLowerCase()));
 
                             if (!match) {
-                                reasons.push(`DEBUG: Klass "${cls}" matchar inte någon nyckel i konfig. (Finns: ${keys.slice(0, 3).join(', ')}...)`);
+                                reasons.push(`DEBUG: Klass "${escapeHtml(cls)}" matchar inte någon nyckel i konfig. (Finns: ${keys.slice(0, 3).map(k => escapeHtml(k)).join(', ')}...)`);
                             } else {
                                 const cData = cfg[match];
                                 const flatDist = cData[`distance${s}`] || cData[`distance${s.toUpperCase()}`];
@@ -128,9 +128,9 @@ export function renderSectorAnalysis(context) {
                                 const hasDist = (flatDist > 0 || nestDist > 0 || nestDistUpper > 0);
 
                                 if (!hasDist) {
-                                    reasons.push(`DEBUG: Klass "${cls}" (matchar "${match}") saknar DISTANS för ${s}. Gå till Inställningar.`);
+                                    reasons.push(`DEBUG: Klass "${escapeHtml(cls)}" (matchar "${escapeHtml(match)}") saknar DISTANS för ${s}. Gå till Inställningar.`);
                                 } else {
-                                    reasons.push(`DEBUG: Okänt fel på gränsvärden för "${cls}" (${s}).`);
+                                    reasons.push(`DEBUG: Okänt fel på gränsvärden för "${escapeHtml(cls)}" (${s}).`);
                                 }
                             }
                         }

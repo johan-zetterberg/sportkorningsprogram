@@ -543,7 +543,7 @@ function renderTemperatureReport(eq = {}) {
                                                     <td class="py-1 pr-2 whitespace-nowrap">${escapeHtml(slot.date)}</td>
                                                     <td class="py-1 pr-2 whitespace-nowrap">${escapeHtml(slot.periodLabel)}</td>
                                                     <td class="py-1 pr-2 font-bold whitespace-nowrap">${formatTemperatureValue(value)}</td>
-                                                    <td class="py-1 text-gray-400 whitespace-nowrap">${escapeHtml(record?.takenAt ? record.takenAt.replace('T', ' ') : '')}</td>
+                                                    <td class="py-1 text-gray-400 whitespace-nowrap">${escapeHtml(record?.takenAt ? String(record.takenAt).replace('T', ' ') : '')}</td>
                                                 </tr>
                                             `;
                                         }).join('')}
@@ -683,7 +683,7 @@ function attachCardHandlers(container, eq) {
             const horseKey = btn.dataset.horseKey;
             const pulseVal = btn.dataset.pulse;
             const cardEl = btn.closest('.horse-id-grid');
-            const pulseInput = cardEl?.querySelector(`.vet-pulse-input[data-horse-key="${horseKey}"]`);
+            const pulseInput = cardEl?.querySelector(`.vet-pulse-input[data-horse-key="${CSS.escape(String(horseKey))}"]`);
             if (pulseInput) {
                 pulseInput.value = pulseVal;
                 pulseInput.dispatchEvent(new Event('change'));
@@ -724,14 +724,36 @@ function attachCardHandlers(container, eq) {
     });
 }
 
+// The listener's latest copy of the equipage, not the one a card captured when
+// rendered: offline, saves are built from it and must see each other
+function latestLocalEquipage(startNumber, fallback = {}) {
+    return allEquipages.find(item => String(item.startNumber) === String(startNumber)) || fallback || {};
+}
+
+// A save's fields go into the local copy as soon as they are built (offline
+// the queued write resolves later), so a following save made before the
+// listener reports the first builds on it instead of overwriting it
+function applySavedToLocal(local, saved) {
+    if (local && saved && typeof saved === 'object') Object.assign(local, saved);
+}
+
+function buildOnLocal(local, build) {
+    return (latest) => {
+        const payload = build(latest);
+        applySavedToLocal(local, payload);
+        return payload;
+    };
+}
+
 async function saveHorseClinicalField(eq = {}, horseKey, updateData = {}) {
     if (!competitionId || !eq.startNumber) return;
     const phase = currentPhase;
     try {
+        const local = latestLocalEquipage(eq.startNumber, eq);
         // Built from the latest copy: another vet may have saved another horse
-        await updateEquipageFromLatest(competitionId, eq.startNumber, (latest) => ({
+        await updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => ({
             horses: updateHorsePhaseInspection(latest.horses, horseKey, phase, updateData)
-        }), eq);
+        })), local);
     } catch (err) {
         console.warn('Failed to save horse clinical data:', err);
     }
@@ -767,11 +789,11 @@ async function setVetStatus(startNumber, status) {
             const hk = el.dataset.horseKey;
             if (!hk || domExtrasByHorseKey[hk]) return;
             const extra = {};
-            const pulseInput = container.querySelector(`.vet-pulse-input[data-horse-key="${hk}"]`);
-            const respSelect = container.querySelector(`.vet-resp-select[data-horse-key="${hk}"]`);
-            const mucosaSelect = container.querySelector(`.vet-mucosa-select[data-horse-key="${hk}"]`);
-            const bitCheck = container.querySelector(`.vet-harness-check[data-horse-key="${hk}"][data-check="bitOk"]`);
-            const harnessCheck = container.querySelector(`.vet-harness-check[data-horse-key="${hk}"][data-check="harnessOk"]`);
+            const pulseInput = container.querySelector(`.vet-pulse-input[data-horse-key="${CSS.escape(String(hk))}"]`);
+            const respSelect = container.querySelector(`.vet-resp-select[data-horse-key="${CSS.escape(String(hk))}"]`);
+            const mucosaSelect = container.querySelector(`.vet-mucosa-select[data-horse-key="${CSS.escape(String(hk))}"]`);
+            const bitCheck = container.querySelector(`.vet-harness-check[data-horse-key="${CSS.escape(String(hk))}"][data-check="bitOk"]`);
+            const harnessCheck = container.querySelector(`.vet-harness-check[data-horse-key="${CSS.escape(String(hk))}"][data-check="harnessOk"]`);
             if (pulseInput && pulseInput.value !== '') extra.pulseBpm = Number(pulseInput.value) || null;
             if (respSelect) extra.respiration = respSelect.value;
             if (mucosaSelect) extra.mucosa = mucosaSelect.value;
@@ -781,7 +803,7 @@ async function setVetStatus(startNumber, status) {
         });
     }
     try {
-        const local = allEquipages.find(item => String(item.startNumber) === String(startNumber)) || {};
+        const local = latestLocalEquipage(startNumber);
         // Built from the latest copy of the equipage (see updateEquipageFromLatest)
         const buildPayload = (eq) => {
             const horses = Array.isArray(eq?.horses) && eq.horses.length
@@ -830,7 +852,7 @@ async function setVetStatus(startNumber, status) {
 
         // Done with this equipage: the next snapshot moves on in the queue
         advanceAfterOwnSave = true;
-        await updateEquipageFromLatest(competitionId, startNumber, buildPayload, local);
+        await updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), local);
         showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet update failed', error);
@@ -847,8 +869,9 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
 
     const phase = currentPhase;
     try {
+        const local = latestLocalEquipage(eq.startNumber, eq);
         // Built from the latest copy: another vet may have saved another horse
-        await updateEquipageFromLatest(competitionId, eq.startNumber, (latest) => {
+        await updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => {
             const horses = updateHorsePhaseInspection(latest.horses, horseKey, phase, {
                 status,
                 ...extraData
@@ -871,7 +894,7 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
                 payload.vetUnfitStageB = true;
             }
             return payload;
-        }, eq);
+        }), local);
         showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet horse update failed', error);

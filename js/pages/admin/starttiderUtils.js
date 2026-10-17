@@ -691,6 +691,25 @@ export function recalculateStartTimesFrom(startTimes = {}, sortedRows = [], {
     return { startTimes, changedCount, error: null };
 }
 
+// After a move the equipages between the two positions take over the existing
+// start times in their new order. The times themselves stay, so a lunch break or
+// a day break in the list stays where it was (retiming at the bulk interval
+// removed them). Returns false when a time in the range is missing.
+function reassignTimeSlots(startTimes, oldRows, newRows, discipline, fromIndex, toIndex) {
+    const slots = [];
+    for (let i = fromIndex; i <= toIndex; i++) {
+        const time = startTimes[String(oldRows[i].startNumber)]?.[discipline];
+        if (!time) return false;
+        slots.push(time);
+    }
+    for (let i = fromIndex; i <= toIndex; i++) {
+        const sn = String(newRows[i].startNumber);
+        startTimes[sn] ||= {};
+        startTimes[sn][discipline] = slots[i - fromIndex];
+    }
+    return true;
+}
+
 export function moveStartTimeRow(startTimes = {}, sortedRows = [], {
     discipline,
     startNumber,
@@ -711,6 +730,10 @@ export function moveStartTimeRow(startTimes = {}, sortedRows = [], {
     const preservedTime = startTimes[snAtTopIndex]?.[discipline];
 
     [nextRows[currentIndex], nextRows[newIndex]] = [nextRows[newIndex], nextRows[currentIndex]];
+
+    if (reassignTimeSlots(startTimes, sortedRows, nextRows, discipline, topIndex, Math.max(currentIndex, newIndex))) {
+        return { startTimes, sortedRows: nextRows, changedCount: 2, error: null };
+    }
 
     if (preservedTime) {
         const newSnAtTopIndex = String(nextRows[topIndex].startNumber);
@@ -739,6 +762,11 @@ export function reorderStartTimeRow(startTimes = {}, sortedRows = [], {
 
     const item = nextRows.splice(fromIndex, 1)[0];
     nextRows.splice(toIndex, 0, item);
+
+    const lastIndex = Math.max(fromIndex, toIndex);
+    if (reassignTimeSlots(startTimes, sortedRows, nextRows, discipline, recalcIndex, lastIndex)) {
+        return { startTimes, sortedRows: nextRows, changedCount: lastIndex - recalcIndex + 1, error: null };
+    }
 
     if (preservedTime) {
         const newSnAtRecalcIndex = String(nextRows[recalcIndex].startNumber);

@@ -812,7 +812,12 @@ function setupAllListeners() {
 }
 
 // ================= Entry/Exit =================
+// Bumped by load and __unload: a load still awaiting data when the page is left
+// must not start its listeners afterwards
+let monitorLoadSeq = 0;
+
 export async function load() {
+  const mySeq = ++monitorLoadSeq;
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id;
   const root = document.getElementById('page-dressyr-monitor');
@@ -833,11 +838,14 @@ export async function load() {
       getConfig(competitionId, 'display').catch(() => ({})),
       getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
+    if (mySeq !== monitorLoadSeq) return; // left or reloaded while loading
 
     const cfgData = (displayCfg && typeof displayCfg === 'object') ? (displayCfg.value ?? displayCfg) : {};
     monitor_displayConfig = cfgData || {};
     // Merge groups from the same source as every page
-    monitor_buildMergeMap(await loadMergeSource(competitionId).catch(() => null));
+    const mergeSource = await loadMergeSource(competitionId).catch(() => null);
+    if (mySeq !== monitorLoadSeq) return;
+    monitor_buildMergeMap(mergeSource);
 
     setCompetitionSetting(competitionId, 'dressageJudgeMapping', (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? (judgeMappingCfg.value ?? judgeMappingCfg) : {});
 
@@ -896,6 +904,7 @@ export async function load() {
 }
 
 export function __unload() {
+  monitorLoadSeq++;
   if (renderTimeout) {
     clearTimeout(renderTimeout);
     renderTimeout = null;

@@ -36,7 +36,8 @@ import {
     buildServerCompetitionState,
     configChangeAffectsResults,
     resultSettingsFingerprint,
-    ruleSettingsChanged
+    ruleSettingsChanged,
+    competitionReopened
 } from "./src/resultRecalculationUtils.js";
 import {
     buildCompetitionAdminJoinPayload,
@@ -359,7 +360,12 @@ export const onCompetitionRuleSettingsWrite = onDocumentWritten(
         const { appId, compId } = event.params;
         const before = event.data?.before?.exists ? event.data.before.data() : null;
         const after = event.data?.after?.exists ? event.data.after.data() : null;
-        if (!after || !ruleSettingsChanged(before, after)) return;
+        if (!after) return;
+        if (competitionReopened(before, after)) {
+            await recalculateWholeCompetition(appId, compId, 'reopened');
+            return;
+        }
+        if (!ruleSettingsChanged(before, after)) return;
         await recalculateWholeCompetition(appId, compId, 'config-change:ruleSettings');
     }
 );

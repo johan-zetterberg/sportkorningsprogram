@@ -16,6 +16,7 @@ import {
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
+import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 
 let competitionId = null;
 let equipages = [];
@@ -24,6 +25,9 @@ let currentEquipage = null;
 let searchableDropdown = null;
 let gateSplits = {};
 let currentEquipageData = null;
+// False until the selected equipage's first snapshot: taps before that would
+// act on nothing known (or on the previous equipage's data)
+let currentDataLoaded = false;
 let currentUnsubscribe = null;
 let autoSyncInterval = null;
 
@@ -85,17 +89,20 @@ function updateHeaderInfo() {
 }
 
 async function logSplit(gateId) {
-    if (!currentEquipage) return;
+    if (!currentEquipage || !currentDataLoaded) return;
     if (currentEquipageData?.finalized === true) {
         showAlert('Resultatet är finaliserat. Lås upp det innan passager ändras.', 'error');
         return;
     }
-    
-    const now = Date.now();
+
+    // Server time: the main precision clock on another device compares with it
+    const now = serverNow();
     gateSplits[gateId] = now;
     renderGates();
 
-    const updates = { gateSplits: gateSplits };
+    // Only the tapped gate (merged into the map): a stale local map must not
+    // overwrite gates logged elsewhere
+    const updates = { gateSplits: { [gateId]: now } };
 
     if (gateId === 'start') {
         updates.running = true;
@@ -121,7 +128,7 @@ async function logSplit(gateId) {
 }
 
 async function undoSplit(gateId) {
-    if (!currentEquipage) return;
+    if (!currentEquipage || !currentDataLoaded) return;
     if (currentEquipageData?.finalized === true) {
         showAlert('Resultatet är finaliserat. Lås upp det innan passager ändras.', 'error');
         return;
@@ -159,6 +166,11 @@ function renderGates() {
 
     if (!currentEquipage) {
         container.innerHTML = `<p class="text-center text-gray-500 text-sm">${t('precision_split_select_to_log')}</p>`;
+        return;
+    }
+
+    if (!currentDataLoaded) {
+        container.innerHTML = '<p class="text-center text-gray-500 text-sm">Laddar…</p>';
         return;
     }
 
@@ -250,10 +262,21 @@ function loadDriverData(equipage) {
         currentUnsubscribe = null;
     }
 
+    // The previous equipage's state must not be written into or checked
+    // against the new one while its snapshot is on the way
+    gateSplits = {};
+    currentEquipageData = null;
+    currentDataLoaded = false;
+    renderGates();
+
     if (!equipage) return;
 
-    const docRef = precisionDocRef(equipage.startNumber);
+    const startNumber = String(equipage.startNumber);
+    const docRef = precisionDocRef(startNumber);
     currentUnsubscribe = onSnapshot(docRef, (docSnap) => {
+        // A late snapshot for an equipage no longer selected
+        if (!currentEquipage || String(currentEquipage.startNumber) !== startNumber) return;
+        currentDataLoaded = true;
         if (docSnap.exists()) {
             const data = docSnap.data();
             currentEquipageData = data;
@@ -264,6 +287,8 @@ function loadDriverData(equipage) {
             gateSplits = {};
             renderGates();
         }
+    }, (err) => {
+        console.warn('Split listener failed:', err?.message || err);
     });
 }
 
@@ -308,6 +333,7 @@ export async function load() {
     if (!competitionId) return;
 
     renderLayout();
+    startServerClockSync();
 
     try {
         const [equipagesData, configData] = await Promise.all([
@@ -357,6 +383,7 @@ export async function load() {
 
 export function __unload() {
     loadSeq++;
+    stopServerClockSync();
     if (currentUnsubscribe) {
         currentUnsubscribe();
         currentUnsubscribe = null;
@@ -371,6 +398,7 @@ export function __unload() {
     searchableDropdown = null;
     currentEquipage = null;
     currentEquipageData = null;
+    currentDataLoaded = false;
     gateSplits = {};
     equipages = [];
     precisionConfig = {};

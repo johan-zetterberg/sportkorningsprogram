@@ -1,5 +1,5 @@
 import { getGlobalState, setGlobalState } from '../../main.js';
-import { getDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { getDoc, doc, updateDoc, deleteField, FieldPath } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { autoClaimEquipages } from '../../services/authService.js';
@@ -29,6 +29,8 @@ import {
     sortPortalItemsByTimestampDesc
 } from './portalDataUtils.js';
 import {
+    buildHorseTemperatureChanges,
+    buildHorseTemperatureKeyMigration,
     buildHorseTemperatureSlots,
     getHorseTemperatureRecord,
     getTemperatureHorses,
@@ -346,9 +348,11 @@ export async function load(options = {}) {
             const startNo = card.dataset.startNo;
 
             if (compId) {
+                // The start number too: with two equipages in one competition
+                // the portal reopens the one that was chosen
                 setGlobalState({
                     key: 'currentCompetition',
-                    value: { id: compId, name: compName }
+                    value: { id: compId, name: compName, portalStartNumber: startNo }
                 });
                 renderDashboard(container, compId, startNo, userData);
             }
@@ -365,9 +369,28 @@ export async function load(options = {}) {
 
     if (msgContainer) {
         const uniqueCompIds = [...new Set(claims.map(c => c.competitionId))];
+        // A driver may have several equipages in one competition: a message
+        // is theirs if it is for any of their start numbers there
+        const startNumbersByComp = new Map();
+        claims.forEach(c => {
+            if (!startNumbersByComp.has(c.competitionId)) startNumbersByComp.set(c.competitionId, []);
+            startNumbersByComp.get(c.competitionId).push(String(c.startNumber ?? '').trim());
+        });
+        const isForMe = (m, cid) => (startNumbersByComp.get(cid) || []).some(sn => isMessageVisibleToDriver(m, sn));
         const allMessagesMap = new Map(); // compId -> msgs[]
         const knownMsgIds = new Set();
         let isFirstLoad = true;
+
+        // Each competition document once (name, and whether it is archived)
+        const compDocCache = new Map();
+        const getCompDoc = (cid) => {
+            if (!compDocCache.has(cid)) {
+                compDocCache.set(cid, getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${cid}`))
+                    .then(d => d.data() || null)
+                    .catch(() => null));
+            }
+            return compDocCache.get(cid);
+        };
 
         // Helper to re-render all messages from all competitions
         const renderAllMessages = async () => {
@@ -377,12 +400,12 @@ export async function load(options = {}) {
             for (const cid of uniqueCompIds) {
                 const msgs = allMessagesMap.get(cid) || [];
                 const claim = claims.find(c => c.competitionId === cid);
-                const compName = claim?.competitionName || (await getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${cid}`)).then(d => d.data()?.name)).catch(() => '') || cid;
+                const compName = claim?.competitionName || (await getCompDoc(cid))?.name || cid;
                 if (currentLoadToken !== portalLoadToken) return;
 
                 // Filter for this user
                 const relevant = msgs
-                    .filter(m => isMessageVisibleToDriver(m, claim.startNumber))
+                    .filter(m => isForMe(m, cid))
                     .map(m => ({ ...m, _compName: compName, _compId: cid }));
 
                 allMsgs = allMsgs.concat(relevant);
@@ -432,6 +455,7 @@ export async function load(options = {}) {
             }).join('');
         };
 
+        const pollers = new Map(); // compId -> poll()
         uniqueCompIds.forEach(cid => {
             // Driver-only messages come from the server (getDriverInbox; the
             // rules no longer let any account list them), checked every minute.
@@ -456,8 +480,7 @@ export async function load(options = {}) {
                 if (!isFirstLoad && !isInitial) {
                     msgs.forEach(m => {
                         // Check if new and relevant
-                        const claim = claims.find(c => c.competitionId === cid);
-                        const isRelevant = isMessageVisibleToDriver(m, claim.startNumber);
+                        const isRelevant = isForMe(m, cid);
 
                         if (isRelevant && !knownMsgIds.has(m.id)) {
                             // Toast!
@@ -469,10 +492,30 @@ export async function load(options = {}) {
                 msgs.forEach(m => knownMsgIds.add(m.id));
                 renderAllMessages();
             };
-            poll();
-            const timer = setInterval(poll, 60000);
-            unsubs.push(() => clearInterval(timer));
+            pollers.set(cid, poll);
         });
+
+        // Each competition is read once; only those still running are checked
+        // again every minute, and not while the page is hidden (a callable call
+        // per competition and minute otherwise, archived ones included)
+        const isArchived = (comp) => comp?.locked === true || comp?.status === 'completed';
+        const livePollers = [];
+        Promise.all(uniqueCompIds.map(async (cid) => {
+            await pollers.get(cid)();
+            if (!isArchived(await getCompDoc(cid))) livePollers.push(pollers.get(cid));
+        })).catch(err => console.warn('Portal message poll failed:', err));
+
+        const pollLive = () => {
+            if (currentLoadToken !== portalLoadToken) return;
+            if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return;
+            livePollers.forEach(poll => poll().catch(err => console.warn('Portal message poll failed:', err)));
+        };
+        const timer = setInterval(pollLive, 60000);
+        unsubs.push(() => clearInterval(timer));
+        // Back on the page: check at once instead of waiting for the next minute
+        const onVisibility = () => { if (document.visibilityState === 'visible') pollLive(); };
+        document.addEventListener('visibilitychange', onVisibility);
+        unsubs.push(() => document.removeEventListener('visibilitychange', onVisibility));
 
         messageUnsub = () => unsubs.forEach(u => {
             try { if (typeof u === 'function') u(); } catch (err) { console.warn('Portal message cleanup failed:', err); }
@@ -605,7 +648,9 @@ export async function load(options = {}) {
     const currentComp = getGlobalState('currentCompetition');
 
     if (!options?.skipAutoOpen && currentComp && claims.some(c => c.competitionId === currentComp.id)) {
-        const claim = claims.find(c => c.competitionId === currentComp.id);
+        const compClaims = claims.filter(c => c.competitionId === currentComp.id);
+        const claim = compClaims.find(c => String(c.startNumber) === String(currentComp.portalStartNumber ?? ''))
+            || compClaims[0];
         if (claim) {
             renderDashboard(container, claim.competitionId, claim.startNumber, userData);
             return;
@@ -690,6 +735,9 @@ async function renderDashboard(container, compId, startNumber, user) {
             ensureClubLogosLoaded(),
             inboxPromise.then(inbox => inbox ? (inbox.documents || []) : getCompetitionDocuments(compId).catch(() => [])),
             inboxPromise.then(inbox => inbox ? (inbox.messages || []) : getCompetitionMessages(compId).catch(() => [])),
+            // Readable only by the competition's staff (rules): empty for a
+            // driver, and the officials panel is then left out. Judge positions
+            // come from the protocols, names from the protocols too
             getOfficials(compId).catch(() => []),
             getJudges(compId).catch(() => [])
         ]);
@@ -1007,42 +1055,22 @@ async function renderDashboard(container, compId, startNumber, user) {
                     return;
                 }
 
-                const rows = Array.from(document.querySelectorAll('.horse-temp-row'));
-                const nextTemperatures = JSON.parse(JSON.stringify(eq.horseTemperatures || {}));
-                const errors = [];
-                const now = new Date().toISOString();
-
-                rows.forEach(row => {
-                    const horseKey = row.dataset.horseKey;
-                    const slotId = row.dataset.slotId;
-                    if (!horseKey || !slotId) return;
-
-                    const valueRaw = row.querySelector('.horse-temp-value')?.value.trim() || '';
-                    const takenAt = row.querySelector('.horse-temp-taken-at')?.value || row.dataset.defaultTakenAt || '';
-                    nextTemperatures[horseKey] ||= {};
-
-                    if (!valueRaw) {
-                        nextTemperatures[horseKey][slotId] = null;
-                        return;
-                    }
-
-                    const temperature = normalizeHorseTemperatureValue(valueRaw);
-                    if (temperature === null || temperature < 35 || temperature > 42.5) {
-                        errors.push(`${row.dataset.horseName || 'Häst'} ${row.dataset.slotLabel || ''}: ange en temperatur mellan 35,0 och 42,5.`);
-                        return;
-                    }
-
-                    nextTemperatures[horseKey][slotId] = {
-                        temperatureC: temperature,
-                        takenAt,
-                        slotId,
-                        slotLabel: row.dataset.slotLabel || slotId,
-                        horseKey,
-                        horseName: row.dataset.horseName || '',
-                        updatedAt: now,
-                        // The account id only: the equipage is public and the email is private
-                        updatedBy: user?.uid || ''
-                    };
+                // Only the slots the user changed compared with what was shown
+                // are written, each by its own field path: a value the
+                // secretariat saved in another slot since the page opened stays
+                const keysByStableKey = new Map(getTemperatureHorses(eq).map(h => [h._temperatureKey, h._temperatureKeys]));
+                const rows = Array.from(document.querySelectorAll('.horse-temp-row')).map(row => ({
+                    horseKeys: keysByStableKey.get(row.dataset.horseKey) || [row.dataset.horseKey],
+                    slotId: row.dataset.slotId,
+                    value: row.querySelector('.horse-temp-value')?.value || '',
+                    takenAt: row.querySelector('.horse-temp-taken-at')?.value || '',
+                    defaultTakenAt: row.dataset.defaultTakenAt || '',
+                    horseName: row.dataset.horseName || '',
+                    slotLabel: row.dataset.slotLabel || ''
+                }));
+                const { writes, errors } = buildHorseTemperatureChanges(eq, rows, {
+                    now: new Date().toISOString(),
+                    uid: user?.uid || ''
                 });
 
                 if (errors.length) {
@@ -1055,9 +1083,38 @@ async function renderDashboard(container, compId, startNumber, user) {
                 button.textContent = 'Sparar...';
 
                 try {
-                    await saveEquipage(compId, startNumber, { horseTemperatures: nextTemperatures });
-                    eq.horseTemperatures = nextTemperatures;
-                    showAlert('Temperaturer sparade.', true);
+                    const equipageRef = doc(db, `artifacts/${appId}/public/data/competitions/${compId}/equipages/${startNumber}`);
+                    // Temperatures under a horse's older key (its name, from
+                    // before it had an id) move to the stable key, from the
+                    // server's current copy, so stranded keys do not pile up
+                    const latest = await getDoc(equipageRef).then(s => s.data() || {}).catch(() => eq);
+                    const skip = new Set(writes.map(w => `${w.horseKey}|${w.slotId}`));
+                    const migration = buildHorseTemperatureKeyMigration({ ...eq, horseTemperatures: latest.horseTemperatures || {} }, skip);
+
+                    const pathArgs = [];
+                    migration.copies.forEach(c => pathArgs.push(new FieldPath('horseTemperatures', c.horseKey, c.slotId), c.record));
+                    writes.forEach(w => pathArgs.push(new FieldPath('horseTemperatures', w.horseKey, w.slotId), w.record || deleteField()));
+                    migration.removeKeys.forEach(key => pathArgs.push(new FieldPath('horseTemperatures', key), deleteField()));
+
+                    if (pathArgs.length) {
+                        await updateDoc(equipageRef, pathArgs[0], pathArgs[1], ...pathArgs.slice(2));
+                    }
+                    // Show what is on the server now, the secretariat's values included
+                    const fresh = await getDoc(equipageRef).then(s => s.data()).catch(() => null);
+                    if (fresh) {
+                        eq.horseTemperatures = fresh.horseTemperatures || {};
+                    } else {
+                        // Not readable now: show the saved slots on the local copy
+                        const local = JSON.parse(JSON.stringify(eq.horseTemperatures || {}));
+                        [...migration.copies, ...writes].forEach(w => {
+                            local[w.horseKey] ||= {};
+                            if (w.record) local[w.horseKey][w.slotId] = w.record;
+                            else delete local[w.horseKey][w.slotId];
+                        });
+                        migration.removeKeys.forEach(key => { delete local[key]; });
+                        eq.horseTemperatures = local;
+                    }
+                    showAlert(pathArgs.length ? 'Temperaturer sparade.' : 'Inga ändringar att spara.', true);
                     renderInfo();
                 } catch (error) {
                     console.error('Could not save horse temperatures', error);
@@ -1164,10 +1221,11 @@ async function renderDashboard(container, compId, startNumber, user) {
                         </div>
                     </div>
 
+                    ${allJudges.length ? `
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
                         <h3 class="text-lg font-bold mb-4 border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('officials', compConfig?.isInternational)}</h3>
                         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                            ${allJudges.length ? allJudges.map(j => {
+                            ${allJudges.map(j => {
                     let roleStr = '';
                     if (j.role) {
                         roleStr = j.role;
@@ -1194,7 +1252,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                     return `
                                 <div class="flex items-start gap-3 p-3 bg-gray-50 dark:bg-gray-700/50 rounded border dark:border-gray-700">
                                     <div class="w-10 h-10 rounded-full bg-blue-100 dark:bg-blue-900 flex items-center justify-center text-blue-700 dark:text-blue-300 font-bold shrink-0">
-                                        ${(j.name || 'F').charAt(0)}
+                                        ${escapeHtml((j.name || 'F').charAt(0))}
                                     </div>
                                     <div class="overflow-hidden">
                                         <div class="font-bold text-gray-900 dark:text-white text-sm truncate" title="${escapeAttr(j.name || '')}">${escapeHtml(j.name || '')}</div>
@@ -1202,9 +1260,9 @@ async function renderDashboard(container, compId, startNumber, user) {
                                         ${contactInfo ? `<div class="text-xs text-gray-400 dark:text-gray-500 truncate" title="${escapeAttr(contactInfo)}">${escapeHtml(contactInfo)}</div>` : ''}
                                     </div>
                                 </div>`;
-                }).join('') : `<div class="text-gray-500 italic">${t('no_officials_listed', compConfig?.isInternational)}</div>`}
+                }).join('')}
                         </div>
-                    </div>
+                    </div>` : ''}
 
 
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2 border-l-4 ${(() => {
@@ -1497,7 +1555,9 @@ async function renderDashboard(container, compId, startNumber, user) {
                     }
 
                     // Robust Position extraction
-                    let safePos = (p.position || p.judgePos || '').toUpperCase();
+                    // The protocol carries the position (judgePosition, saved by
+                    // the dressage input): drivers cannot read the judge list
+                    let safePos = (p.position || p.judgePosition || p.judgePos || '').toUpperCase();
                     if (!safePos || safePos === '?') {
                         if (foundJ) {
                             if (foundJ.position) safePos = foundJ.position;

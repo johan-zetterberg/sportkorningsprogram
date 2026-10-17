@@ -3,12 +3,21 @@ import assert from 'node:assert/strict';
 
 import {
   buildRecalculationValidation,
+  competitionReopened,
   configChangeAffectsResults,
   resolveRecalculationProgramKey,
   resultSettingsFingerprint,
   ruleSettingsChanged
 } from '../functions/src/resultRecalculationUtils.js';
 import { findProgramKey } from '../functions/src/core-engine/dressage.js';
+
+test('reopening an archived competition recalculates it; other writes do not', () => {
+  assert.equal(competitionReopened({ locked: true, status: 'completed' }, { locked: false, status: 'active' }), true);
+  assert.equal(competitionReopened({ locked: true }, { locked: false }), true);
+  assert.equal(competitionReopened({ locked: false }, { locked: false, name: 'x' }), false);
+  assert.equal(competitionReopened({ locked: false }, { locked: true }), false);
+  assert.equal(competitionReopened(null, { locked: false }), false);
+});
 
 const context = {
   allPrograms: {

@@ -153,8 +153,9 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
                 const base = resolveTestLevelMergeForClass(equipage.className || equipage.tdbClassLabel || '');
                 if (!base.label) continue;
 
+                // Only the changed fields: a whole copy from the list would put
+                // back older horses, vet results or status written meanwhile
                 const patch = {
-                    ...equipage,
                     useMergedTestForDisplay: true,
                     mergedTestKey: base.key,
                     mergedTestLabel: base.label
@@ -167,7 +168,7 @@ export async function renderClassNumberMergePanel(equipages, options = {}) {
                 if (alreadyApplied) continue;
 
                 Object.assign(equipage, patch);
-                await saveEquipage(currentCompetitionId, patch.startNumber, patch);
+                await saveEquipage(currentCompetitionId, equipage.startNumber, patch);
                 updated++;
             }
 
@@ -261,7 +262,8 @@ async function applyMergeForClassNumbers(nums, label, groupKey, on) {
         if (equipage?.tdbClassNumber == null) continue;
         if (!set.has(Number(equipage.tdbClassNumber))) continue;
 
-        const patch = { ...equipage, useMergedTestForDisplay: Boolean(on) };
+        // Only the changed fields (see above)
+        const patch = { useMergedTestForDisplay: Boolean(on) };
         if (on) {
             const sortedNums = nums.slice().sort((a, b) => a - b);
             patch.mergedTestKey = groupKey || `TDBGROUP:${sortedNums.join('+')}`;
@@ -270,7 +272,7 @@ async function applyMergeForClassNumbers(nums, label, groupKey, on) {
 
         try {
             Object.assign(equipage, patch);
-            await saveEquipage(currentCompetitionId, patch.startNumber, patch);
+            await saveEquipage(currentCompetitionId, equipage.startNumber, patch);
         } catch (error) {
             console.warn('Kunde inte spara ekipage', equipage, error);
         }

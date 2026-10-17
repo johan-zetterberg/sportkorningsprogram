@@ -1075,7 +1075,7 @@ function renderJudgeAssignment(root, className) {
     });
 
     sorted.forEach(j => {
-      html += `<option value="${j.id}">${esc(j.name)} ${j.isOverJudge ? '(ÖD)' : ''} [${getPrimaryDressagePosition(j) || '-'}]</option>`;
+      html += `<option value="${esc(j.id)}">${esc(j.name)} ${j.isOverJudge ? '(ÖD)' : ''} [${esc(getPrimaryDressagePosition(j) || '-')}]</option>`;
     });
     return html;
   };

@@ -1,5 +1,6 @@
 // js/pages/prize-giving.js
 import { getGlobalState } from '../../main.js';
+import { t } from '../../utils/i18n.js';
 import { listenMergeSource, loadMergeSource } from '../../services/mergeConfigService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { getEquipages } from '../../services/equipageService.js';
@@ -101,7 +102,7 @@ export async function load(container) {
         archiveSnapshot = snapshot;
         if (archiveSnapshot) {
             const mode = document.getElementById('prize-giving-mode');
-            if (mode) mode.textContent = 'Visar arkiverat resultat';
+            if (mode) mode.textContent = t('showing_archived_result');
             document.getElementById('prize-giving-tabs')?.insertAdjacentHTML('beforebegin', archivedNoticeHtml(archiveSnapshot, 'mb-4'));
         }
 

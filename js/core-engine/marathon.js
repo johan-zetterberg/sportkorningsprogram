@@ -600,6 +600,18 @@ export function stageDurationMsSaved(t, s) {
     return Number.isFinite(v) ? Number(v) : null;
 }
 
+// A duration typed in by hand on the stage page is already the driven time:
+// global pauses must not be subtracted from it (its start/stop are only
+// derived from the moment it was typed)
+export function stageManualDuration(t, s) {
+    if (!t) return false;
+    const upper = String(s).toUpperCase();
+    const flat = (s === 'transport') ? 'transfer' : s;
+    return t?.[`manualDuration_${flat}`] === true
+        || t?.[`manualDuration_${upper}`] === true
+        || t?.timing?.[s]?.manualDuration === true;
+}
+
 // maraton-timing.duration_A/B: the secretariat writes milliseconds, older data
 // (and the seed script) seconds. A driven stage lasts minutes, so a value of at
 // least 36 000 is milliseconds (36 s as ms; 10 h as seconds) and below is seconds.
@@ -704,7 +716,9 @@ export function calculateMarathonResult(state) {
         if (start && !stop && (since.known ? since.ms !== null : !Number.isFinite(savedDuration))) running = true;
 
         let ms = null;
-        if (start && stop) {
+        if (start && stop && Number.isFinite(savedDuration) && stageManualDuration(t, s)) {
+            ms = savedDuration;
+        } else if (start && stop) {
             ms = (Number.isFinite(savedDuration) ? savedDuration : (stop - start))
                 - pausedMsBetween(start, stop, pauseWindows, nowMs);
         } else if (start && nowMs !== null && since.known && since.ms === null) {

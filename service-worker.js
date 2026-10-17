@@ -199,6 +199,7 @@ const urlsToCache = [
   abs('/js/pages/admin/adminParticipantHorseFields.js'),
   abs('/js/pages/admin/adminParticipantImportForm.js'),
   abs('/js/pages/admin/adminParticipantImportFormUtils.js'),
+  abs('/js/pages/admin/adminParticipantImportNumbers.js'),
   abs('/js/pages/admin/adminParticipantJudges.js'),
   abs('/js/pages/admin/adminParticipantMergePanels.js'),
   abs('/js/pages/admin/adminParticipantMergeUtils.js'),
@@ -211,6 +212,7 @@ const urlsToCache = [
   abs('/js/pages/admin/starttider.js'),
   abs('/js/pages/admin/starttiderUtils.js'),
   abs('/js/pages/dressage/dressageAdminProgramOptions.js'),
+  abs('/js/pages/dressage/dressageDraft.js'),
   abs('/js/pages/dressage/dressageMonitorFormatUtils.js'),
   abs('/js/pages/dressage/dressageResultBridge.js'),
   abs('/js/pages/dressage/dressageResultBuilder.js'),
@@ -347,6 +349,7 @@ const urlsToCache = [
   abs('/js/services/listenerErrorUtils.js'),
   abs('/js/services/logosService.js'),
   abs('/js/services/marathonService.js'),
+  abs('/js/services/mergeConfigService.js'),
   abs('/js/services/navigationLifecycleUtils.js'),
   abs('/js/services/navigationService.js'),
   abs('/js/services/officialPrivacyUtils.js'),
@@ -470,6 +473,14 @@ self.addEventListener('install', (event) => {
       if (failed.length > 0) {
         console.warn(`[SW] ${failed.length} optional internal files could not be precached.`);
         failed.forEach(item => console.warn(`    -> Skipping: ${item.url}`, item.result.reason));
+        // The app's own code must be complete: this version serves its modules
+        // from its own cache, and the old version's cache is deleted when it
+        // takes over. With a module missing (weak signal during the update) the
+        // install fails, the old version stays, and the update is tried again later
+        const missingCode = failed.filter(item => /\/js\/.*\.m?js$/i.test(new URL(item.url, self.location.href).pathname));
+        if (missingCode.length > 0) {
+          throw new Error(`[SW] ${missingCode.length} app modules missing, update postponed`);
+        }
       } else {
         console.log('[SW] Interna filer cachade OK.');
       }
@@ -504,8 +515,15 @@ self.addEventListener('install', (event) => {
       console.log('[SW] Alla externa filer cachade (inklusive Tailwind).');
     }
 
-    await self.skipWaiting();
+    // No skipWaiting here: an open page keeps the version it started with (its
+    // later imports come from that version's cache). The new version takes
+    // over when the user presses "Ladda om" (SKIP_WAITING below) or when every
+    // tab of the app has been closed.
   })());
+});
+
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
 });
 
 
@@ -549,6 +567,7 @@ self.addEventListener('activate', (event) => {
 });
 
 // Små hjälpare
+const IS_LOCAL_DEV = ['localhost', '127.0.0.1'].includes(self.location.hostname);
 const isJs = (req, url) => req.destination === 'script' || url.pathname.endsWith('.js') || url.pathname.endsWith('.mjs');
 const isCss = (req, url) => req.destination === 'style' || url.pathname.endsWith('.css');
 
@@ -615,6 +634,15 @@ self.addEventListener('fetch', (event) => {
     event.respondWith((async () => {
       const cache = await caches.open(CACHE_NAME);
       const getCached = async () => (await cache.match(req)) || cache.match(req, { ignoreVary: true });
+      // The app's own modules: from this version's cache, which install filled
+      // completely. A page then runs one version only, also for the modules it
+      // imports later. A new deploy brings a new version (see install).
+      // Local development keeps the network first, to see code changes at once.
+      const ownModule = url.origin === self.location.origin && url.pathname.includes('/js/') && !IS_LOCAL_DEV;
+      if (ownModule) {
+        const cached = await getCached();
+        if (cached) return cached;
+      }
       const isValidJs = (res) => {
         if (!isCacheable(res)) return false;
         const ct = res.headers?.get('content-type') || '';

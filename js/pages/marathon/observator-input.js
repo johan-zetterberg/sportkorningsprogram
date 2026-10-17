@@ -10,7 +10,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
-import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
+import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { isFeiMarathonClass, wrongGaitIncidentPenalty } from '../../core-engine/marathon.js';
@@ -87,6 +87,7 @@ async function setGlobalPause(isPaused) {
       updatedAt: serverTimestamp()
     });
 
+    let queued = false;
     try {
       await runTransaction(db, async (tx) => {
         const docSnap = await tx.get(statusRef);
@@ -99,10 +100,16 @@ async function setGlobalPause(isPaused) {
       if (e?.code !== 'unavailable' && navigator.onLine !== false) throw e;
       const docSnap = await getDoc(statusRef);
       const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
-      if (pauseLog) await setDoc(statusRef, statusDoc(pauseLog), { merge: true });
+      // Not awaited until the server answers: the observer gets feedback now
+      if (pauseLog) {
+        const result = await awaitWriteOrQueue(setDoc(statusRef, statusDoc(pauseLog), { merge: true }), {
+          onLateError: () => showAlert(t('observer_pause_error'), false)
+        });
+        queued = result === 'queued';
+      }
     }
 
-    showAlert(statusText);
+    showAlert(`${statusText}${queuedNotice(queued ? 'queued' : 'saved')}`, queued ? 'offline' : true);
   } catch (e) {
     console.error("Kunde inte ändra paus-status:", e);
     showAlert(t('observer_pause_error'), false);
@@ -372,7 +379,9 @@ async function onEquipageSelected(sn, container) {
     if (wrongGaitRunning) endWrongGaitIncident();
     const previousLog = { wrongGaitSeconds: wrongGaitAccum, wrongGaits: [...wrongGaits], halts: [...halts], notes: qs('#notesField', container)?.value ?? notes };
     try { localStorage.removeItem(runningKey(previousSn)); } catch (_) { }
-    awaitWriteOrQueue(writeObserverLog(previousSn, previousLog)).catch((e) => {
+    awaitWriteOrQueue(writeObserverLog(previousSn, previousLog), {
+      onLateError: () => showAlert(`#${previousSn}: observatörsloggen nekades av servern när den skickades.`, false)
+    }).catch((e) => {
       console.error('Kunde inte spara observatörslogg vid byte:', e);
       showAlert(`#${previousSn}: observatörsloggen kunde inte sparas.`, false);
     });
@@ -838,15 +847,19 @@ function wire(container) {
 
     if (notesStatus) notesStatus.textContent = t('observer_saving');
 
+    const sn = currentSn;
     try {
       // Without signal the write is kept on the device; say so instead of
-      // showing "Sparar…" until the network returns
-      const result = await awaitWriteOrQueue(writeObserverLog(currentSn, {
+      // showing "Sparar…" until the network returns. A queued write the server
+      // refuses later (e.g. the result was finalized) is reported then.
+      const result = await awaitWriteOrQueue(writeObserverLog(sn, {
         wrongGaitSeconds: wrongGaitAccum,
         wrongGaits,
         halts,
         notes: notesEl ? notesEl.value : notes
-      }));
+      }), {
+        onLateError: () => showAlert(`#${sn}: observatörsloggen nekades av servern när den skickades – resultatet kan vara låst. Kontakta sekretariatet.`, false)
+      });
       const savedText = result === 'queued' ? 'Sparat på enheten – skickas när nätet är tillbaka' : t('observer_saved_check');
       if (msg) {
         msg.textContent = savedText;
@@ -1012,8 +1025,11 @@ function wire(container) {
 
   btnSave?.addEventListener('click', async () => {
     if (!currentSn) return;
-    if (haltRunning) { halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) }); haltRunning = false; }
+    if (haltRunning) { halts.push({ atSec: haltStartTs, durSec: Math.max(0, nowSec() - haltStartTs) }); haltRunning = false; haltStartTs = 0; }
     if (wrongGaitRunning) endWrongGaitIncident();
+    // The ended timers are dropped from the device too: reopening the equipage
+    // would otherwise resume them from the old start and add them twice
+    persistRunning();
     updateWrongGaitUI(container); renderHalts(container); await autoSave();
   });
 }

@@ -19,6 +19,7 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
+import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import {
   isObstacleStateOwnedByAnotherObstacle,
@@ -135,7 +136,8 @@ function scheduleLiveCommentSave(value) {
 }
 
 const pad2 = (n) => String(n).padStart(2, '0');
-const nowMs = () => Date.now();
+// Server time: the global pause log is stamped in it, so clock stamps must be too
+const nowMs = () => serverNow();
 function timestampToMs(value) {
   if (!value) return 0;
   if (typeof value?.toMillis === 'function') return value.toMillis();
@@ -181,7 +183,7 @@ function getElapsedMsFromState(state) {
   if (state.running && state.liveObstacleStartAt) {
     // Klockan går: ackumulerad tid + tid sedan senaste start
     const startTime = timestampToMs(state.liveObstacleStartAt);
-    const tickNow = isGloballyPaused && globalPauseStartTime > 0 ? globalPauseStartTime : Date.now();
+    const tickNow = isGloballyPaused && globalPauseStartTime > 0 ? globalPauseStartTime : nowMs();
     // A global pause this device never saw (offline while it began and
     // ended) lies inside the running segment: it must not count. A pause it
     // did see ended the segment at its start, so nothing is taken twice.
@@ -229,6 +231,25 @@ function digitsToMs(d) {
   const s = (d || "").replace(/\D/g, '').slice(0, 6).padEnd(6, '0');
   const mm = +s.slice(0, 2), ss = +s.slice(2, 4), cs = +s.slice(4, 6);
   return (mm * 60 + ss) * 1000 + cs * 10;
+}
+// A typed time ("mmsscc" or "mm:ss,cc") → ms, or null when it is empty, zero
+// or not a time (seconds ≥ 60)
+function parseManualTimeMs(raw) {
+  const s = String(raw ?? '').trim();
+  if (!s) return null;
+  let mm, ss, cs;
+  const sep = s.match(/^(\d{1,2})[:.](\d{1,2})(?:[,.](\d{1,2}))?$/);
+  if (sep) {
+    mm = +sep[1]; ss = +sep[2]; cs = sep[3] ? +sep[3].padEnd(2, '0') : 0;
+  } else if (/^\d{1,6}$/.test(s)) {
+    const d = s.padEnd(6, '0');
+    mm = +d.slice(0, 2); ss = +d.slice(2, 4); cs = +d.slice(4, 6);
+  } else {
+    return null;
+  }
+  if (ss >= 60) return null;
+  const ms = (mm * 60 + ss) * 1000 + cs * 10;
+  return ms > 0 ? ms : null;
 }
 
 // NY FUNKTION FÖR ATT HANTERA GLOBAL PAUS
@@ -289,9 +310,15 @@ function listenForGlobalCompetitionPause_Obstacles() {
     setPauseWindows(pauseLog);
     isGloballyPaused = isPaused;
     globalPauseStartTime = isPaused
-      ? (openPause?.start ? new Date(openPause.start).getTime() : Date.now())
+      ? (openPause?.start ? new Date(openPause.start).getTime() : nowMs())
       : 0;
     syncGlobalPauseUiState();
+
+    // Only the obstacle whose clock it is pauses and resumes it: another
+    // device viewing the equipage (another obstacle, or none chosen) would
+    // otherwise take the clock over and the real judge's Stop did nothing
+    const ownsClock = currentObstacleNumber != null
+      && Number(currentLiveState?.currentObstacle) === Number(currentObstacleNumber);
 
     if (isPaused && !lastPauseState) {
       // TÄVLINGEN PAUSAS NU
@@ -300,42 +327,51 @@ function listenForGlobalCompetitionPause_Obstacles() {
       timerInterval = null;
 
       // Pausa den pågående mätningen i Firestore
-      if (currentLiveState.running) {
+      if (currentLiveState.running && ownsClock) {
         const pausedTime = getElapsedMsFromState(currentLiveState);
         currentLiveState = {
           ...currentLiveState,
           running: false,
           liveObstacleTimeMs: pausedTime,
-          liveObstacleStartAt: null
+          liveObstacleStartAt: null,
+          pausedByGlobalPause: true
         };
         updateTimerViewMar();
         pushLiveSafe({
           running: false, // Markera som pausad
           liveObstacleTimeMs: pausedTime, // Spara ackumulerad tid
-          liveObstacleStartAt: null
+          liveObstacleStartAt: null,
+          // Tells a clock stopped by the pause from one the judge stopped
+          pausedByGlobalPause: true
         });
       } else {
         updateTimerViewMar();
       }
       document.body.style.filter = 'grayscale(80%)';
 
-    } else if (!isPaused && lastPauseState) {
-      // TÄVLINGEN ÅTERUPPTAS NU
+    } else if (!isPaused) {
+      // TÄVLINGEN ÅTERUPPTAS NU (or this device opened after the pause ended)
 
-      // Återuppta mätningen i Firestore
-      if (!currentLiveState.running && currentLiveState.inProgress) {
-        // Stamped on the device like Start: a server timestamp reads as empty
-        // until the server answers, and the clock stood still until then
-        const resumedAt = Timestamp.fromMillis(Date.now());
-        currentLiveState = { ...currentLiveState, running: true, liveObstacleStartAt: resumedAt };
+      // Återuppta mätningen i Firestore: only a clock the pause stopped, not a
+      // time the judge stopped before the pause and has not saved yet
+      if (!currentLiveState.running && currentLiveState.inProgress
+        && currentLiveState.pausedByGlobalPause === true && ownsClock) {
+        // Resumed from the moment the pause ended (from the log), not when this
+        // snapshot arrived: every device at the obstacle writes the same stamp.
+        // Not a server timestamp: it reads as empty until the server answers.
+        const lastClosed = [...pauseLog].reverse().find(p => p && p.end != null);
+        const pauseEndMs = lastClosed ? new Date(lastClosed.end).getTime() : NaN;
+        const resumedAt = Timestamp.fromMillis(Number.isFinite(pauseEndMs) ? pauseEndMs : nowMs());
+        currentLiveState = { ...currentLiveState, running: true, liveObstacleStartAt: resumedAt, pausedByGlobalPause: false };
         pushLiveSafe({
           running: true,
-          liveObstacleStartAt: resumedAt
+          liveObstacleStartAt: resumedAt,
+          pausedByGlobalPause: false
         });
         if (!timerInterval) timerInterval = setInterval(updateTimerViewMar, 90);
         updateTimerViewMar();
       }
-      document.body.style.filter = '';
+      if (lastPauseState) document.body.style.filter = '';
     }
     lastPauseState = isPaused;
   });
@@ -714,11 +750,19 @@ async function pushLiveSafe(update, target = null) {
     await trackWrite('Uppdaterar maraton-status', setDoc(marathonDocRef(eq.startNumber), dataToSend, { merge: true }));
 
   } catch (e) {
-    if (e.code !== 'permission-denied') {
+    if (e.code === 'permission-denied') {
+      // The result is finalized (locked): what the judge enters is not stored.
+      // Once per equipage, since every keystroke and tick ends up here
+      if (lockedNoticeShownFor !== String(eq.startNumber)) {
+        lockedNoticeShownFor = String(eq.startNumber);
+        showAlert(`#${eq.startNumber}: resultatet är låst (slutfört) och ändringar sparas inte. Kontakta sekretariatet.`, false);
+      }
+    } else {
       console.error('Ett oväntat fel inträffade vid live-push till maraton:', e);
     }
   }
 }
+let lockedNoticeShownFor = null;
 
 function updateHeaderInfoMar() {
   const setTextAll = (selector, text) => {
@@ -803,13 +847,12 @@ function startTimerMar() {
   }
 
   const accumulatedMs = currentLiveState.liveObstacleTimeMs || 0;
-  const nowMs = Date.now();
 
   // *** VIRTUELL STARTTID ***
   // För att stödja återupptagning (resume) och samtidigt hålla Monitorn enkel:
   // Vi fejkar att vi startade tidigare (nu - ackumulerad tid).
   // Då blir "elapsed = now - start" korrekt direkt.
-  const virtualStartMs = nowMs - accumulatedMs;
+  const virtualStartMs = nowMs() - accumulatedMs;
   const localStartTimestamp = Timestamp.fromMillis(virtualStartMs);
 
   // --- OPTIMISTISK UPPDATERING ---
@@ -832,7 +875,8 @@ function startTimerMar() {
     currentObstacle: currentObstacleNumber,
     liveObstacleStartAt: localStartTimestamp,
     live_staticStartAt: localStartTimestamp, // Uppdatera även denna så att Monitorn ser det som en jämn start
-    liveObstacleTimeMs: 0 // Nollställ ackumulerad tid i databasen också
+    liveObstacleTimeMs: 0, // Nollställ ackumulerad tid i databasen också
+    pausedByGlobalPause: false
   });
   markObstacleEntered(currentEquipage.startNumber, currentObstacleNumber);
 }
@@ -887,6 +931,7 @@ function resetTimerMar(force = false) {
     const serverUpdatePayload = {
       running: false,
       inProgress: false,
+      pausedByGlobalPause: false,
       liveObstacleTimeMs: 0,
       liveObstacleStartAt: null,
       live_staticStartAt: null,
@@ -934,6 +979,10 @@ function pushFormField(fieldName, value) {
 async function onMarathonEquipageSelected(equipage) {
   await flushPendingLiveComment();
   currentEquipage = equipage || null;
+  // The previous equipage's typed time must not be applied to this one
+  const manualDigits = document.getElementById('manualTimeDigitsMar');
+  if (manualDigits) manualDigits.value = '';
+  document.getElementById('manualTimeEditorMar')?.classList.add('hidden');
 
   // Stäng gammal lyssnare
   if (unsubMaratonDoc) unsubMaratonDoc();
@@ -1416,7 +1465,9 @@ async function saveResult(e) {
   obstacleSaveInFlight = true;
   const equipageAtSave = currentEquipage;
   try {
-    const saved = await saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, resultData);
+    const saved = await saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, resultData, {
+      onLateError: () => showAlert(`Hinderresultatet för #${equipageId} (hinder ${obstacleNumber}) nekades av servern när det skickades – resultatet kan vara låst. Kontakta sekretariatet.`, false)
+    });
 
     if (saved?.status === 'queued') {
       showAlert(t('marathon_result_queued').replace('{obstacleNumber}', obstacleNumber), 'offline');
@@ -1670,6 +1721,7 @@ async function setupPage(mySeq = loadSeq) {
     try { unsubGlobalPause(); } catch { }
   }
   unsubGlobalPause = listenForGlobalCompetitionPause_Obstacles();
+  startServerClockSync();
   syncGlobalPauseUiState();
 
   // Koppla alla knappar och event
@@ -1860,8 +1912,26 @@ function applyManualTime() {
     showAlert('Tävlingen är globalt pausad. Manuell hindertid kan inte ändras förrän pausen är hävd.', false);
     return;
   }
-  const digits = (document.getElementById('manualTimeDigitsMar')?.value || '');
-  pausedMs = digitsToMs(digits);
+  if (!currentEquipage || !currentObstacleNumber) {
+    showAlert(t('marathon_select_equipage_and_obstacle'), false);
+    return;
+  }
+  const digitsEl = document.getElementById('manualTimeDigitsMar');
+  // Empty or invalid input is refused: it used to be stored as 0.00
+  const ms = parseManualTimeMs(digitsEl?.value);
+  if (ms == null) {
+    showAlert('Ogiltig tid. Ange mmsscc (sekunder under 60).', false);
+    digitsEl?.focus();
+    return;
+  }
+  if (runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) {
+    showAlert(`#${currentEquipage.startNumber} har osparat arbete i hinder ${currentLiveState.currentObstacle}. Spara eller nollställ där först.`, false);
+    return;
+  }
+  if (currentLiveState.running === true
+    && !confirm(`Klockan går. Stoppa den och ersätt tiden med ${partsToString(msToParts(ms))}?`)) return;
+  pausedMs = ms;
+  if (digitsEl) digitsEl.value = '';
   isRunning = false;
   inProgress = true;
 
@@ -2391,6 +2461,7 @@ export function __unload() {
     pushLiveSafe({ live_comment: pendingComment }).catch((error) => console.error('Kunde inte spara hinderkommentar live:', error));
   }
   releaseWakeLock();
+  stopServerClockSync();
   document.body.style.filter = '';
   try {
     // Stoppa klockan/interval

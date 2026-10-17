@@ -283,6 +283,15 @@ export async function deleteCompetition(competitionId) {
   return result?.data || { deleted: true };
 }
 
+// The device copy of a config (getConfig keeps it up to an hour). Cleared
+// before a write, so a read while the write is not yet confirmed (offline)
+// gets the new value from Firestore's own cache
+function clearConfigCache(competitionId, configName) {
+  try {
+    localStorage.removeItem(`${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`);
+  } catch (e) { }
+}
+
 export async function getConfig(competitionId, configName, forceRefresh = false) {
   if (!competitionId || !configName) return {};
 
@@ -316,13 +325,9 @@ export async function getConfig(competitionId, configName, forceRefresh = false)
 
 export async function saveConfig(competitionId, configName, data) {
   return trackWrite(`Sparar config ${configName}`, (async () => {
+    clearConfigCache(competitionId, configName);
     const configRef = getCompDocRef(competitionId, 'config', configName);
     await setDoc(configRef, data, { merge: true });
-
-    try {
-      const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;
-      localStorage.removeItem(cacheKey);
-    } catch (e) { }
   })());
 }
 
@@ -336,6 +341,7 @@ export async function updateConfigEntries(competitionId, configName, entries = {
   const keys = Object.keys(entries);
   if (!keys.length) return;
   return trackWrite(`Sparar config ${configName}`, (async () => {
+    clearConfigCache(competitionId, configName);
     const configRef = getCompDocRef(competitionId, 'config', configName);
     const args = [];
     keys.forEach((key) => {
@@ -350,23 +356,39 @@ export async function updateConfigEntries(competitionId, configName, entries = {
       keys.forEach((key) => { if (entries[key] !== undefined) data[key] = entries[key]; });
       await setDoc(configRef, data, { merge: true });
     }
-
-    try {
-      const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;
-      localStorage.removeItem(cacheKey);
-    } catch (e) { }
   })());
+}
+
+/**
+ * Renames keys of a map in a config document (e.g. a class's entry after the
+ * class is renamed), read fresh from the server. parentPath is the map's field
+ * path ([] for the document itself). A new name that already has an entry is
+ * left as it is. Returns the number of keys moved.
+ */
+export async function renameConfigMapKeys(competitionId, configName, parentPath, renames = []) {
+  const data = await getConfig(competitionId, configName, true);
+  const map = parentPath.reduce((node, key) => (node && typeof node === 'object' ? node[key] : undefined), data);
+  if (!map || typeof map !== 'object') return 0;
+  const args = [];
+  let moved = 0;
+  renames.forEach(({ oldName, newName }) => {
+    if (!(oldName in map) || (newName in map)) return;
+    args.push(new FieldPath(...parentPath, newName), map[oldName]);
+    args.push(new FieldPath(...parentPath, oldName), deleteField());
+    moved++;
+  });
+  if (!args.length) return 0;
+  clearConfigCache(competitionId, configName);
+  await trackWrite(`Flyttar klassinställningar i ${configName}`,
+    updateDoc(getCompDocRef(competitionId, 'config', configName), ...args));
+  return moved;
 }
 
 export async function replaceConfig(competitionId, configName, data) {
   return trackWrite(`Ersätter config ${configName}`, (async () => {
+    clearConfigCache(competitionId, configName);
     const configRef = getCompDocRef(competitionId, 'config', configName);
     await setDoc(configRef, data || {});
-
-    try {
-      const cacheKey = `${CONFIG_CACHE_PREFIX}${competitionId}:${configName}`;
-      localStorage.removeItem(cacheKey);
-    } catch (e) { }
   })());
 }
 

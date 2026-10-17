@@ -1,3 +1,4 @@
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
 // An archived competition shows the results it was archived with: the result
 // pages recalculate from raw data, so a later change of the calculation rules
 // would otherwise alter results that were already published as final.
@@ -146,7 +147,15 @@ export function archivedDisciplineDetails(snapshot, startNumber, discipline) {
 /** The notice an archived result page shows above its results */
 export function archivedNoticeText(snapshot) {
     const archivedAt = Number(snapshot?.archivedAt);
-    return `Arkiverat resultat${Number.isFinite(archivedAt) && archivedAt > 0 ? ` (${new Date(archivedAt).toLocaleDateString('sv-SE')})` : ''}: placeringar och poäng visas som när tävlingen avslutades.`;
+    // The page's language (Swedish where it cannot be read, e.g. without storage)
+    let lang = 'sv';
+    try { lang = getCurrentLanguage(); } catch { }
+    const date = Number.isFinite(archivedAt) && archivedAt > 0
+        ? ` (${new Date(archivedAt).toLocaleDateString(lang === 'en' ? 'en-GB' : 'sv-SE')})`
+        : '';
+    let template = 'Arkiverat resultat{date}: placeringar och poäng visas som när tävlingen avslutades.';
+    try { template = t('archived_result_notice'); } catch { }
+    return template.replace('{date}', date);
 }
 
 /** The same notice as markup (amber box, as on the total results), '' without a snapshot */

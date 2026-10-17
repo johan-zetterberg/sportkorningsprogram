@@ -149,24 +149,38 @@ export function calculateLiveInjection(eq, context) {
 
 // Speaker standings use the (possibly partial) running total; placing rules
 // come from core-engine/ranking.js
+// Disciplines with a result: the live standings are "after N disciplines",
+// so an equipage with only dressage done cannot lead those with two (missing
+// disciplines would otherwise count as 0)
+function phasesDone(row) {
+    return [row.dressage?.penalty, row.marathon?.totalPenalty, row.precision?.pen]
+        .filter(v => v !== null && v !== undefined && Number.isFinite(Number(v))).length;
+}
+
+const compareStanding = (a, b) => (b.phases - a.phases) || compareTotalRank(a, b);
+
 export function rankSpeakerResultRows(results = []) {
+    results.forEach(row => { row.phasesDone = phasesDone(row); });
     results.sort((a, b) => {
         if (a.isEliminated !== b.isEliminated) return a.isEliminated ? 1 : -1;
-        return compareTotalRank(
-            { penalty: a.totalPenalty, marathon: a.marathon?.totalPenalty, dressage: a.dressage?.penalty },
-            { penalty: b.totalPenalty, marathon: b.marathon?.totalPenalty, dressage: b.dressage?.penalty }
+        return compareStanding(
+            { phases: a.phasesDone, penalty: a.totalPenalty, marathon: a.marathon?.totalPenalty, dressage: a.dressage?.penalty },
+            { phases: b.phasesDone, penalty: b.totalPenalty, marathon: b.marathon?.totalPenalty, dressage: b.dressage?.penalty }
         ) || ((Number(a.startNumber) || 0) - (Number(b.startNumber) || 0));
     });
 
     assignPlaces(results, {
-        key: (row) => totalRankKey({
-            totalPenalty: row.totalPenalty,
-            isEliminated: row.isEliminated,
-            marathonPenalty: row.marathon?.totalPenalty,
-            dressagePenalty: row.dressage?.penalty,
-            isClearRound: row.marathon?.isClearRound === true
-        }),
-        compare: compareTotalRank
+        key: (row) => {
+            const key = totalRankKey({
+                totalPenalty: row.totalPenalty,
+                isEliminated: row.isEliminated,
+                marathonPenalty: row.marathon?.totalPenalty,
+                dressagePenalty: row.dressage?.penalty,
+                isClearRound: row.marathon?.isClearRound === true
+            });
+            return key ? { ...key, phases: row.phasesDone } : null;
+        },
+        compare: compareStanding
     });
 
     const leader = results.find(row => !row.isEliminated && Number.isFinite(row.totalPenalty));

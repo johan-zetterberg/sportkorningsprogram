@@ -38,7 +38,19 @@ export async function awaitWriteOrQueue(writePromise, { timeoutMs = WRITE_ACK_TI
     }
 }
 
+/**
+ * Whether the device keeps queued writes over a reload (Firestore's offline
+ * storage could be turned on; not in some private browsing modes or with full
+ * storage). Unknown counts as yes.
+ */
+export function deviceKeepsQueuedWrites() {
+    return globalThis.__FIRESTORE_OFFLINE_STORAGE__ !== false;
+}
+
 /** Short user text for a result of awaitWriteOrQueue */
 export function queuedNotice(result) {
-    return result === 'queued' ? ' (sparat på enheten – skickas när nätet är tillbaka)' : '';
+    if (result !== 'queued') return '';
+    return deviceKeepsQueuedWrites()
+        ? ' (sparat på enheten – skickas när nätet är tillbaka)'
+        : ' (INTE sparat på enheten: ladda inte om och stäng inte sidan förrän nätet är tillbaka)';
 }

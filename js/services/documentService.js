@@ -40,13 +40,14 @@ export function isMessageVisibleToPublic(message) {
   return audience.public === true;
 }
 
+// As getDriverInbox on the server (functions/src/driverInbox.js): a message
+// for everyone (public) reaches the drivers too, even when it is not marked
+// for drivers; a targeted one only the drivers it names
 export function isMessageVisibleToDriver(message, startNumber) {
   const audience = getMessageAudience(message);
-  if (!audience.drivers) return false;
-
   const targets = getMessageTargetStartNumbers(message);
-  if (!targets.length) return true;
-  return targets.includes(String(startNumber).trim());
+  if (targets.length) return audience.drivers && targets.includes(String(startNumber).trim());
+  return audience.public || audience.drivers;
 }
 
 export function getDocumentAudience(document) {
@@ -69,9 +70,10 @@ export function isDocumentVisibleToPublic(document) {
   return audience.public === true;
 }
 
+// Public documents are for drivers too (as on the server)
 export function isDocumentVisibleToDriver(document) {
   const audience = getDocumentAudience(document);
-  return audience.drivers === true;
+  return audience.public === true || audience.drivers === true;
 }
 
 function timestampMillis(value) {

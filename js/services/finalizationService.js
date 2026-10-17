@@ -64,10 +64,15 @@ export async function unfinalizeDressage(competitionId, startNumber) {
 
 // A result still being timed must not be locked: the judge's next write would
 // be refused and the official result would be the half-finished one
-async function assertNotRunning(ref, startNumber) {
+async function assertNotRunning(ref, startNumber, { obstacleWork = false } = {}) {
   const snap = await getDoc(ref);
-  if (isStillRunning(snap.exists() ? snap.data() : {})) {
+  const data = snap.exists() ? snap.data() : {};
+  if (isStillRunning(data)) {
     throw new Error(`#${startNumber} kör just nu. Vänta tills tiden är stoppad innan du finaliserar.`);
+  }
+  // Marathon: an obstacle time stopped but not saved yet is still being judged
+  if (obstacleWork && data.inProgress === true && data.currentObstacle != null) {
+    throw new Error(`#${startNumber} har en osparad hindertid i hinder ${data.currentObstacle}. Vänta tills hinderdomaren har sparat innan du finaliserar.`);
   }
 }
 
@@ -76,7 +81,7 @@ export async function finalizeMarathon(competitionId, startNumber) {
   return trackWrite(`Finaliserar maraton #${startNumber}`, (async () => {
     // Marathon sets status directly on the live document
     const ref = getCompDocRef(competitionId, 'maraton', String(startNumber));
-    await assertNotRunning(ref, startNumber);
+    await assertNotRunning(ref, startNumber, { obstacleWork: true });
 
     // Result and lock document (which activates the security rules) in one
     // batch: never finalized-but-unlocked or the other way round
