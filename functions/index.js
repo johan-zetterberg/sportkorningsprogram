@@ -13,7 +13,8 @@ import { buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUti
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
-import { EXPORT_FORMAT, EXPORT_FORMAT_VERSION, collectDocuments } from "./src/competitionExport.js";
+import { EXPORT_FORMAT, EXPORT_FORMAT_VERSION, collectDocuments, redactExportDocuments } from "./src/competitionExport.js";
+import { scrubClientPage, scrubClientText } from "./src/clientErrorReport.js";
 import {
     equipageWriteAffectsResults,
     marathonWriteAffectsResults,
@@ -36,10 +37,12 @@ import { dressagePrograms } from "./src/data/dressagePrograms.js";
 import {
     buildRecalculationValidation,
     buildServerCompetitionState,
+    chunkStartNumbers,
     configChangeAffectsResults,
     resultSettingsFingerprint,
     ruleSettingsChanged,
-    competitionReopened
+    competitionReopened,
+    stageResultRecalculation
 } from "./src/resultRecalculationUtils.js";
 import {
     buildCompetitionAdminJoinPayload,
@@ -115,7 +118,7 @@ function buildVolunteerSignupPayload(raw = {}) {
 
 // Load every configurable dependency used by the shared result engine.
 // These are the same inputs the browser feeds to buildCompetitionState.
-// `read` lets a transaction do the reads (see writeIfSettingsUnchanged).
+// `read` lets a transaction do the reads (see writeLatestResults).
 async function getContext(compRef, read = (ref) => ref.get()) {
     const configRef = (id) => compRef.collection('config').doc(id);
     const [compSnap, marCfgSn, precCfgSn, programsSnap, mappingSnap, judgeMappingSnap, statusSnap, dressClassSnap] = await Promise.all([
@@ -179,7 +182,9 @@ function toStoredResult(result) {
     };
 }
 
-async function calculateEquipageRecord(compRef, startNumber, context, equipageSnapshot = null) {
+// The documents one equipage's result is calculated from. `read` lets a
+// transaction do the reads (see writeLatestResults).
+async function readEquipageInputs(compRef, startNumber, read = (ref) => ref.get(), equipageSnapshot = null) {
     const eqKey = String(startNumber);
     const eqDocRef = compRef.collection('equipages').doc(eqKey);
     const dressColRef = compRef.collection('dressage').doc(eqKey).collection('protocols');
@@ -188,13 +193,21 @@ async function calculateEquipageRecord(compRef, startNumber, context, equipageSn
     const precDocRef = compRef.collection('precision').doc(eqKey);
 
     const [eqSnap, dressSnap, marSnap, timingSnap, precSnap] = await Promise.all([
-        equipageSnapshot ? Promise.resolve(equipageSnapshot) : eqDocRef.get(),
-        dressColRef.get(),
-        marDocRef.get(),
-        timingDocRef.get(),
-        precDocRef.get()
+        equipageSnapshot ? Promise.resolve(equipageSnapshot) : read(eqDocRef),
+        read(dressColRef),
+        read(marDocRef),
+        read(timingDocRef),
+        read(precDocRef)
     ]);
+    return { eqKey, eqSnap, dressSnap, marSnap, timingSnap, precSnap };
+}
 
+async function calculateEquipageRecord(compRef, startNumber, context, equipageSnapshot = null) {
+    const inputs = await readEquipageInputs(compRef, startNumber, undefined, equipageSnapshot);
+    return buildEquipageRecord(inputs, context);
+}
+
+function buildEquipageRecord({ eqKey, eqSnap, dressSnap, marSnap, timingSnap, precSnap }, context) {
     if (!eqSnap.exists) {
         return null;
     }
@@ -223,15 +236,11 @@ async function calculateEquipageRecord(compRef, startNumber, context, equipageSn
 
 async function recalculateEquipage(appId, competitionId, startNumber) {
     const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
-    const context = await getContext(compRef);
-    if (context.competitionGone || context.archived) return;
-    const record = await calculateEquipageRecord(compRef, startNumber, context);
-    if (!record) return;
-
-    const recalculatedAt = new Date().toISOString();
-    await writeIfSettingsUnchanged(compRef, context.settingsFingerprint, [record], {
+    // Read, calculated and written in one transaction (deleted, archived and
+    // missing equipages are skipped there)
+    await writeLatestResults(compRef, [String(startNumber)], {
         engineVersion: RESULT_ENGINE_VERSION,
-        recalculatedAt,
+        recalculatedAt: new Date().toISOString(),
         triggerType: 'automatic'
     }, { skipUnchanged: true });
 }
@@ -254,58 +263,59 @@ function storedResultWriteOptions(doc) {
     return { mergeFields: Object.keys(doc) };
 }
 
-// Most writes a transaction may hold, leaving room for the settings reads
-const MAX_TRANSACTION_WRITES = 450;
+// Equipages per transaction: ~8 reads each plus the settings; short
+// transactions hold their read locks on the inputs briefly
+const EQUIPAGES_PER_TRANSACTION = 25;
 
 /**
- * Writes the results only if the settings they were calculated with are still
- * current. The settings are re-read in the same transaction as the writes, so
- * a settings change cannot slip in between. When they changed, nothing is
- * written: the change triggered a full recalculation with the newer settings,
- * and an older run finishing last must not overwrite it. Returns whether the
- * results were written.
+ * Recalculates and writes the stored results of the given equipages. Each
+ * transaction reads the settings and the equipages' inputs, calculates and
+ * writes, so a concurrent change to any input or setting retries it: a run
+ * that read older data can no longer overwrite a newer result. With
+ * `settingsFingerprint`, nothing more is written once the settings differ from
+ * the validated ones (the change triggers a full recalculation itself). Large
+ * competitions are written in several transactions, so a run stopped half-way
+ * leaves the rest to that newer recalculation. Returns whether all was written.
  */
-async function writeIfSettingsUnchanged(compRef, settingsFingerprint, records, audit, { skipUnchanged = false } = {}) {
-    const target = (record) => compRef.collection('computed_equipages').doc(record.startNumber);
-
-    if (records.length <= MAX_TRANSACTION_WRITES) {
-        const written = await db.runTransaction(async (tx) => {
-            const current = await getContext(compRef, (ref) => tx.get(ref));
-            if (current.competitionGone) return false;
-            if (current.settingsFingerprint !== settingsFingerprint) return false;
-            // Automatic runs leave an equal stored result alone: rewriting it
-            // would only change updatedAt and wake every listener
-            const existing = skipUnchanged
-                ? await Promise.all(records.map((record) => tx.get(target(record))))
-                : [];
-            records.forEach((record, index) => {
-                const doc = storedResultDoc(record, audit);
-                const stored = existing[index]?.exists ? existing[index].data() : null;
-                if (skipUnchanged && storedResultUnchanged(stored, doc, audit.engineVersion)) return;
-                tx.set(target(record), doc, storedResultWriteOptions(doc));
-            });
-            return true;
-        });
-        if (!written) logger.info('Inställningarna ändrades under beräkningen; en nyare omräkning skriver resultaten.', { competition: compRef.id, triggerType: audit.triggerType });
-        return written;
+async function writeLatestResults(compRef, startNumbers, audit, { settingsFingerprint = null, skipUnchanged = false } = {}) {
+    const target = (startNumber) => compRef.collection('computed_equipages').doc(String(startNumber));
+    let failure = null;
+    let skipped = null;
+    for (const chunk of chunkStartNumbers(startNumbers, EQUIPAGES_PER_TRANSACTION)) {
+        try {
+            const outcome = await db.runTransaction((tx) => stageResultRecalculation({
+                read: (ref) => tx.get(ref),
+                write: (ref, doc) => tx.set(ref, doc, storedResultWriteOptions(doc)),
+                startNumbers: chunk,
+                loadContext: (read) => getContext(compRef, read),
+                loadInputs: (startNumber, read) => readEquipageInputs(compRef, startNumber, read),
+                calculate: buildEquipageRecord,
+                targetRef: target,
+                buildDoc: (record) => storedResultDoc(record, audit),
+                // Automatic runs leave an equal stored result alone: rewriting it
+                // would only change updatedAt and wake every listener
+                isUnchanged: skipUnchanged
+                    ? (stored, doc) => storedResultUnchanged(stored, doc, audit.engineVersion)
+                    : null,
+                settingsFingerprint,
+                // One broken equipage must not keep the others stale
+                onCalculateError: (startNumber, error) => logger.error(`Omräkning av #${startNumber} misslyckades`, { competition: compRef.id, error: String(error?.message || error) })
+            }));
+            if (!outcome.written) {
+                skipped = outcome.reason;
+                break;
+            }
+        } catch (error) {
+            // The other groups are still written; the failure is reported after
+            logger.error('Omräkningen kunde inte skrivas', { competition: compRef.id, triggerType: audit.triggerType, error: String(error?.message || error) });
+            failure = failure || error;
+        }
     }
-
-    // Larger competitions: check, then write in batches (a small window remains)
-    const current = await getContext(compRef);
-    if (current.competitionGone) return false;
-    if (current.settingsFingerprint !== settingsFingerprint) {
+    if (failure) throw failure;
+    if (skipped === 'settings-changed') {
         logger.info('Inställningarna ändrades under beräkningen; en nyare omräkning skriver resultaten.', { competition: compRef.id, triggerType: audit.triggerType });
-        return false;
     }
-    for (let offset = 0; offset < records.length; offset += 400) {
-        const batch = db.batch();
-        records.slice(offset, offset + 400).forEach((record) => {
-            const doc = storedResultDoc(record, audit);
-            batch.set(target(record), doc, storedResultWriteOptions(doc));
-        });
-        await batch.commit();
-    }
-    return true;
+    return skipped === null;
 }
 
 // Every equipage of the competition, after a change to settings all results depend on
@@ -321,24 +331,10 @@ async function recalculateWholeCompetition(appId, competitionId, triggerType) {
         logger.info('Arkiverad tävling: automatisk omräkning hoppas över.', { competition: competitionId, triggerType });
         return;
     }
-    const context = await getContext(compRef);
-    const equipagesSnapshot = await compRef.collection('equipages').get();
-    const records = [];
-    // A few equipages at a time: in series a large competition takes seconds
-    const docs = equipagesSnapshot.docs;
-    for (let offset = 0; offset < docs.length; offset += 10) {
-        const chunk = await Promise.all(docs.slice(offset, offset + 10).map(async (equipageSnapshot) => {
-            try {
-                return await calculateEquipageRecord(compRef, equipageSnapshot.id, context, equipageSnapshot);
-            } catch (error) {
-                // One broken equipage must not keep the others stale
-                logger.error(`Omräkning av #${equipageSnapshot.id} misslyckades`, { competitionId, error: String(error?.message || error) });
-                return null;
-            }
-        }));
-        chunk.forEach((record) => { if (record) records.push(record); });
-    }
-    await writeIfSettingsUnchanged(compRef, context.settingsFingerprint, records, {
+    // Only the start numbers (no fields): each transaction reads the inputs
+    // and the current settings itself, so no settings check is needed here
+    const equipagesSnapshot = await compRef.collection('equipages').select().get();
+    await writeLatestResults(compRef, equipagesSnapshot.docs.map((doc) => doc.id), {
         engineVersion: RESULT_ENGINE_VERSION,
         recalculatedAt: new Date().toISOString(),
         triggerType
@@ -536,8 +532,11 @@ export const deleteCompetitionData = onCall({ timeoutSeconds: 540, memory: '512M
 // A complete copy of a competition (all its documents, private ones too) for
 // the owner or a full admin to download: a protection against deleting the
 // wrong competition. Files in Storage are listed by name, not included.
+// Access PINs are never included; personal identity numbers only when the
+// admin asks for them (includePersonalNumbers).
 export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' }, async (request) => {
     const competitionId = String(request.data?.competitionId || '').trim();
+    const includePersonalNumbers = request.data?.includePersonalNumbers === true;
     if (!isValidCompetitionId(competitionId)) {
         throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
     }
@@ -559,6 +558,8 @@ export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' 
         logger.error('Export av tävling misslyckades', { competitionId, error: String(error?.message || error) });
         throw new HttpsError('resource-exhausted', 'Tävlingen är för stor att exportera på det här sättet.');
     }
+    const { documents: keptDocuments, redacted } = redactExportDocuments(documents, { includePersonalNumbers });
+    documents = keptDocuments;
 
     let storageFiles = [];
     try {
@@ -578,6 +579,9 @@ export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' 
         exportedBy: request.auth.uid,
         engineVersion: RESULT_ENGINE_VERSION,
         documentCount: documents.length,
+        includesPersonalNumbers: includePersonalNumbers,
+        // What was left out: { path, reason } or { path, field, reason }
+        redacted,
         documents,
         storageFiles
     };
@@ -585,7 +589,7 @@ export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' 
     if (JSON.stringify(exportData).length > 25 * 1024 * 1024) {
         throw new HttpsError('resource-exhausted', 'Tävlingen är för stor att exportera på det här sättet.');
     }
-    logger.info('Tävling exporterad', { competitionId, by: request.auth.uid, documents: documents.length });
+    logger.info('Tävling exporterad', { competitionId, by: request.auth.uid, documents: documents.length, redacted: redacted.length, includePersonalNumbers });
     return exportData;
 });
 
@@ -764,7 +768,9 @@ export const recalculateCompetitionResults = onCall(
             triggerType: 'manual-full-competition'
         };
 
-        const written = await writeIfSettingsUnchanged(competition.ref, context.settingsFingerprint, records, audit);
+        // Recalculated from the latest inputs as written; stops if the
+        // settings differ from the validated ones
+        const written = await writeLatestResults(competition.ref, records.map((record) => record.startNumber), audit, { settingsFingerprint: context.settingsFingerprint });
         if (!written) {
             throw new HttpsError('aborted', 'Inställningarna ändrades under omräkningen. Resultaten räknas om automatiskt med de nya inställningarna; kör kontrollen igen om en stund.');
         }
@@ -1077,22 +1083,21 @@ export const getDriverContacts = onCall(async (request) => {
 
 // Uncaught errors from the browser (js/utils/errorReporter.js), logged so they
 // show in Cloud Logging and Error Reporting. The client sends no personal data;
-// texts are shortened and e-mail addresses removed here as well. A cap per
-// instance and minute keeps a broken page from filling the logs.
+// texts are shortened, e-mail addresses and URL query strings/fragments removed
+// here as well (src/clientErrorReport.js). A cap per instance and minute, and
+// few instances, keep a broken page from filling the logs.
 const CLIENT_ERROR_LIMIT_PER_MINUTE = 60;
 let clientErrorWindow = { start: 0, count: 0 };
-export const reportClientError = onCall((request) => {
+export const reportClientError = onCall({ maxInstances: 2 }, (request) => {
     const now = Date.now();
     if (now - clientErrorWindow.start > 60000) clientErrorWindow = { start: now, count: 0 };
     if (++clientErrorWindow.count > CLIENT_ERROR_LIMIT_PER_MINUTE) return { logged: false };
 
-    const clip = (value, max) => String(value ?? '')
-        .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, '[e-post]')
-        .slice(0, max);
+    const clip = scrubClientText;
     const d = request.data || {};
     const entry = {
         kind: clip(d.kind, 20),
-        page: clip(d.page, 60),
+        page: scrubClientPage(d.page, 60),
         competitionId: clip(d.competitionId, 64),
         appVersion: clip(d.appVersion, 20),
         engineVersion: clip(d.engineVersion, 20),

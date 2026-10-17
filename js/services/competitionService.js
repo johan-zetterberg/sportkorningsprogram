@@ -512,11 +512,12 @@ export async function getCompetitionStatistics(competitionId) {
 
 /**
  * Downloads a complete copy of the competition as a JSON file (exportCompetition:
- * every document, private ones too). Returns the number of documents.
+ * every document, private ones too, but no access PINs; personal identity
+ * numbers only with includePersonalNumbers). Returns the number of documents.
  */
-export async function downloadCompetitionExport(competitionId, competitionName = '') {
+export async function downloadCompetitionExport(competitionId, competitionName = '', { includePersonalNumbers = false } = {}) {
   const callable = httpsCallable(functions, 'exportCompetition', { timeout: 300000 });
-  const { data } = await callable({ competitionId });
+  const { data } = await callable({ competitionId, includePersonalNumbers: includePersonalNumbers === true });
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
   const safeName = String(competitionName || competitionId).replace(/[^\p{L}\p{N}_-]+/gu, '_').slice(0, 60);
   const date = new Date().toISOString().slice(0, 10);

@@ -6,7 +6,7 @@
  */
 
 import { db, appId } from '../config/firebase-config.js';
-import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { createCompetition, saveConfig } from './competitionService.js';
 import { saveEquipage } from './equipageService.js';
 import { setDressageStatus, saveDressageJudgeProtocol } from './dressageService.js';
@@ -54,6 +54,13 @@ export async function seedDemoCompetition(options = {}) {
   // 4. Spara ekipage
   for (const eq of dataset.equipages) {
     await saveEquipage(compId, eq.startNumber, eq);
+  }
+  // The vet's findings and notes: private documents, not on the equipage
+  for (const v of dataset.vetInspections || []) {
+    await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${compId}/vetInspections/${v.startNumber}`), { horses: v.horses, updatedAt: serverTimestamp() });
+  }
+  for (const v of dataset.vetNotes || []) {
+    await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${compId}/vetNotes/${v.startNumber}`), { notes: v.notes, updatedAt: serverTimestamp() });
   }
 
   // 5. Spara dressyrprotokoll / status

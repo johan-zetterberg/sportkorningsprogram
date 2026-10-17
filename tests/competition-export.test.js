@@ -1,6 +1,55 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectDocuments, toExportValue } from '../functions/src/competitionExport.js';
+import { collectDocuments, redactExportDocuments, toExportValue } from '../functions/src/competitionExport.js';
+
+const C = 'artifacts/app/public/data/competitions/c1';
+const exportDocs = () => [
+  { path: C, data: { name: 'Tävling', accessCode: '12345678', createdBy: 'u1' } },
+  { path: `${C}/config/secrets`, data: { accessCode: '12345678', accessCode_vet: '87654321' } },
+  { path: `${C}/config/general`, data: { pinned: true, dressageJudges: 2 } },
+  { path: `${C}/equipagePrivate/5`, data: { email: 'anna@x.se', ssn: '19800101-1234', personnummer: '198001011234' } },
+  { path: `${C}/equipages/5`, data: { driverName: 'Anna', driverSSN: '19800101-1234', horses: [{ name: 'Blixt', PIN: '1' }] } },
+  { path: `${C}/archive/s1`, data: { rows: [{ startNumber: 5, ssn: 'x', at: { __type: 'timestamp', ms: 1 } }], settings: { accessCode_dressage: '1' } } },
+  { path: `${C}/officialsPrivate/o1`, data: { phone: '070', personalNumber: 'y', password: 'p', token: 't' } }
+];
+
+test('the export never contains access PINs, and says what was left out', () => {
+  const { documents, redacted } = redactExportDocuments(exportDocs(), { includePersonalNumbers: true });
+  const json = JSON.stringify(documents);
+  assert.equal(json.includes('12345678'), false);
+  assert.equal(json.includes('87654321'), false);
+  assert.equal(documents.some(d => d.path.endsWith('/config/secrets')), false);
+  assert.deepEqual(redacted.filter(r => r.reason === 'secret'), [
+    { path: C, field: 'accessCode', reason: 'secret' },
+    { path: `${C}/config/secrets`, reason: 'secret' },
+    { path: `${C}/equipages/5`, field: 'horses[0].PIN', reason: 'secret' },
+    { path: `${C}/archive/s1`, field: 'settings.accessCode_dressage', reason: 'secret' },
+    { path: `${C}/officialsPrivate/o1`, field: 'password', reason: 'secret' },
+    { path: `${C}/officialsPrivate/o1`, field: 'token', reason: 'secret' }
+  ]);
+  // Fields that only look alike are kept, and so is everything else
+  assert.equal(documents.find(d => d.path.endsWith('/config/general')).data.pinned, true);
+  assert.deepEqual(documents.find(d => d.path.endsWith('/equipagePrivate/5')).data,
+    { email: 'anna@x.se', ssn: '19800101-1234', personnummer: '198001011234' });
+  assert.deepEqual(documents.find(d => d.path.endsWith('/archive/s1')).data.rows[0].at, { __type: 'timestamp', ms: 1 });
+});
+
+test('personal identity numbers are left out unless the admin asks for them', () => {
+  for (const options of [undefined, {}, { includePersonalNumbers: 'yes' }]) {
+    const { documents, redacted } = redactExportDocuments(exportDocs(), options);
+    const json = JSON.stringify(documents);
+    assert.equal(json.includes('19800101'), false);
+    assert.equal(/"(ssn|personnummer|driverSSN|personalNumber)"/.test(json), false);
+    assert.deepEqual(redacted.filter(r => r.reason === 'personalNumber').map(r => `${r.path.slice(C.length)}#${r.field}`), [
+      '/equipagePrivate/5#ssn',
+      '/equipagePrivate/5#personnummer',
+      '/equipages/5#driverSSN',
+      '/archive/s1#rows[0].ssn',
+      '/officialsPrivate/o1#personalNumber'
+    ]);
+    assert.equal(documents.find(d => d.path.endsWith('/equipagePrivate/5')).data.email, 'anna@x.se');
+  }
+});
 
 test('Firestore types are written so a restore can recreate them', () => {
   const timestamp = { seconds: 10, nanoseconds: 0, toMillis: () => 10000 };

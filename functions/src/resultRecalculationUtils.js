@@ -91,6 +91,83 @@ export function resultSettingsFingerprint({ competition = null, configs = {}, gl
     });
 }
 
+/**
+ * One transaction attempt of a result recalculation. The settings and every
+ * input are read through `read` (tx.get) and the results staged with `write`
+ * (tx.set) in the same attempt, so a concurrent change to any of them makes
+ * Firestore retry it: the stored result always reflects the latest data, and
+ * an older run finishing last can no longer overwrite a newer result.
+ *
+ * - loadContext(read): the result settings (getContext)
+ * - loadInputs(startNumber, read): the equipage's input documents
+ * - calculate(inputs, context): the record, or null when the equipage is gone
+ * - buildDoc(record): the stored result document
+ * - isUnchanged(stored, doc): with it, an equal stored result is left alone
+ * - settingsFingerprint: when given, nothing is written if the settings
+ *   changed since (a manual run writes only what was validated)
+ * - onCalculateError(startNumber, error): with it, one equipage the engine
+ *   cannot calculate is skipped instead of failing the others
+ *
+ * Returns { written: true, count } or { written: false, reason }.
+ */
+export async function stageResultRecalculation({
+    read,
+    write,
+    startNumbers = [],
+    loadContext,
+    loadInputs,
+    calculate,
+    targetRef,
+    buildDoc,
+    isUnchanged = null,
+    settingsFingerprint = null,
+    onCalculateError = null
+}) {
+    const context = await loadContext(read);
+    if (context.competitionGone) return { written: false, reason: 'competition-gone' };
+    // Archived: stored results stay as archived (an admin reopens first)
+    if (context.archived) return { written: false, reason: 'archived' };
+    if (settingsFingerprint !== null && context.settingsFingerprint !== settingsFingerprint) {
+        return { written: false, reason: 'settings-changed' };
+    }
+    // Every read before the first write, as a transaction requires
+    const entries = await Promise.all(startNumbers.map(async (startNumber) => {
+        const [inputs, stored] = await Promise.all([
+            loadInputs(startNumber, read),
+            isUnchanged ? read(targetRef(startNumber)) : null
+        ]);
+        return { startNumber, inputs, stored };
+    }));
+    let count = 0;
+    for (const { startNumber, inputs, stored } of entries) {
+        let record;
+        try {
+            record = calculate(inputs, context);
+        } catch (error) {
+            if (!onCalculateError) throw error;
+            onCalculateError(startNumber, error);
+            continue;
+        }
+        if (!record) continue;
+        const doc = buildDoc(record);
+        if (isUnchanged && isUnchanged(stored?.exists ? stored.data() : null, doc)) continue;
+        write(targetRef(startNumber), doc);
+        count += 1;
+    }
+    return { written: true, count };
+}
+
+// Start numbers split into groups, one transaction each: a short transaction
+// holds its read locks briefly and is rarely retried
+export function chunkStartNumbers(startNumbers = [], size = 25) {
+    const step = Math.max(1, Math.floor(size) || 1);
+    const chunks = [];
+    for (let offset = 0; offset < startNumbers.length; offset += step) {
+        chunks.push(startNumbers.slice(offset, offset + step));
+    }
+    return chunks;
+}
+
 function normalizeStartNumber(value) {
     return String(value ?? '').trim();
 }

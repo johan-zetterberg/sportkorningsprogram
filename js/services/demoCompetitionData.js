@@ -10,6 +10,41 @@ import { TEAM_SCORING_PROFILE_IDS } from './teamRuleProfiles.js';
 import { dressagePrograms } from '../data/dressagePrograms.js';
 import { computeFinalFromSaved } from '../core-engine/dressage.js';
 import { round2 } from '../core-engine/rules-ledger.js';
+import { buildVetStatusUpdate, VET_PHASES } from '../pages/shared/vetCheckUtils.js';
+
+/**
+ * Moves each demo horse's `vet` ({ [phase]: { status, checkedAt, notes,
+ * ...findings } }) off the horse: the decisions onto the equipage
+ * (buildVetStatusUpdate, as the vet page), the findings and notes into
+ * { vetInspections: [{ startNumber, horses }], vetNotes: [{ startNumber, notes }] }.
+ */
+export function applyDemoVetResults(equipages = [], nowIso = new Date().toISOString()) {
+  const vetInspections = [];
+  const vetNotes = [];
+  equipages.forEach(eq => {
+    const specs = (eq.horses || []).map(horse => horse?.vet || {});
+    eq.horses = (eq.horses || []).map(({ vet, ...horse }) => horse);
+    const clinical = {};
+    const notes = {};
+    Object.keys(VET_PHASES).forEach(phase => {
+      eq.horses.forEach((horse, index) => {
+        const result = specs[index][phase];
+        if (!result?.status) return;
+        const { status, checkedAt = nowIso, notes: note, ...findings } = result;
+        const { payload } = buildVetStatusUpdate(eq, phase, { status, horseKeys: [String(horse.id)], nowIso: checkedAt });
+        Object.assign(eq, payload);
+        if (Object.keys(findings).length) {
+          clinical[horse.id] ||= {};
+          clinical[horse.id][phase] = { ...findings, checkedAt };
+        }
+        if (note) notes[phase] = notes[phase] ? `${notes[phase]}; ${horse.name}: ${note}` : note;
+      });
+    });
+    if (Object.keys(clinical).length) vetInspections.push({ startNumber: eq.startNumber, horses: clinical });
+    if (Object.keys(notes).length) vetNotes.push({ startNumber: eq.startNumber, notes });
+  });
+  return { vetInspections, vetNotes };
+}
 
 export function generateDemoMovementsForProgram(program, baseScore = 7.0, judgeOffset = 0) {
   if (!program || !Array.isArray(program.movements)) return [];
@@ -176,10 +211,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           name: 'Thunder',
           type: 'Häst',
           chipNumber: '752098100123456',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad', checkedAt: '2026-05-15T08:00:00Z', notes: 'UA' },
             harness: { status: 'besiktigad', checkedAt: '2026-05-16T09:00:00Z', notes: 'Godkänd sele' },
-            restArea: { status: 'besiktigad', pulse: 56, respiration: 28, checkedAt: '2026-05-16T11:45:00Z', notes: 'Pigg och alert' },
+            restArea: { status: 'besiktigad', pulseBpm: 56, respiration: 'normal', mucosa: 'ok', checkedAt: '2026-05-16T11:45:00Z', notes: 'Pigg och alert' },
             final: { status: 'besiktigad', checkedAt: '2026-05-17T08:00:00Z', notes: 'UA' }
           }
         }
@@ -203,10 +238,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h2a',
           name: 'Star 1',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 60 },
+            restArea: { status: 'besiktigad', pulseBpm: 60 },
             final: { status: 'besiktigad' }
           }
         },
@@ -214,10 +249,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h2b',
           name: 'Star 2',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 58 },
+            restArea: { status: 'besiktigad', pulseBpm: 58 },
             final: { status: 'besiktigad' }
           }
         },
@@ -225,10 +260,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h2c',
           name: 'Star 3',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 62 },
+            restArea: { status: 'besiktigad', pulseBpm: 62 },
             final: { status: 'besiktigad' }
           }
         },
@@ -236,10 +271,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h2d',
           name: 'Star 4',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 60 },
+            restArea: { status: 'besiktigad', pulseBpm: 60 },
             final: { status: 'besiktigad' }
           }
         }
@@ -263,13 +298,13 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h3',
           name: 'Ponnyblixten',
           type: 'Ponny',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
             restArea: {
               status: 'ombesiktning',
-              pulse: 68,
-              respiration: 34,
+              pulseBpm: 68,
+              respiration: 'elevated',
               notes: 'Puls 68 bpm (>64 bpm gräns). Ombesiktning om 10 minuter.'
             }
           }
@@ -293,20 +328,20 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h4a',
           name: 'Castor',
           type: 'Ponny',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 54 }
+            restArea: { status: 'besiktigad', pulseBpm: 54 }
           }
         },
         {
           id: 'h4b',
           name: 'Pollux',
           type: 'Ponny',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 58 }
+            restArea: { status: 'besiktigad', pulseBpm: 58 }
           }
         }
       ]
@@ -327,10 +362,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h5',
           name: 'Dunder',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 52 },
+            restArea: { status: 'besiktigad', pulseBpm: 52 },
             final: { status: 'besiktigad' }
           }
         }
@@ -354,10 +389,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h6',
           name: 'Eagle',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 55 },
+            restArea: { status: 'besiktigad', pulseBpm: 55 },
             final: { status: 'besiktigad' }
           }
         }
@@ -379,10 +414,10 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h7',
           name: 'Firefox',
           type: 'Häst',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 58 },
+            restArea: { status: 'besiktigad', pulseBpm: 58 },
             final: { status: 'besiktigad' }
           }
         }
@@ -404,16 +439,21 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
           id: 'h8',
           name: 'Gullviva',
           type: 'Ponny',
-          inspections: {
+          vet: {
             initial: { status: 'besiktigad' },
             harness: { status: 'besiktigad' },
-            restArea: { status: 'besiktigad', pulse: 50 },
+            restArea: { status: 'besiktigad', pulseBpm: 50 },
             final: { status: 'besiktigad' }
           }
         }
       ]
     }
   ];
+
+  // The vet's results as the vet page saves them: the decision per phase on
+  // the public equipage (vetInspection_<phase>), the clinical findings and
+  // notes in the private vetInspections / vetNotes documents
+  const { vetInspections, vetNotes } = applyDemoVetResults(equipages, new Date(now).toISOString());
 
   // Base score targets for each startNumber to produce realistic driver ratings
   const baseScoresByStart = {
@@ -726,6 +766,8 @@ export function buildDemoCompetitionDataset(customOverrides = {}) {
     judges,
     obstacles,
     equipages,
+    vetInspections,
+    vetNotes,
     judgeProtocols,
     dressageScores,
     marathonRecords,

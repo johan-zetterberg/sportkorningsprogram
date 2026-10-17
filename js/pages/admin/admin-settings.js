@@ -1067,21 +1067,27 @@ export function getSettingsHtml() {
             <div id="resultRecalculationStatus" class="mt-4" aria-live="polite"></div>
         </div>
 
+        <!-- BACKUP: same users as the server check (owner or full admin) -->
+        <div id="backupSection" class="md:col-span-2 mt-12 p-6 rounded-xl shadow-md bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700" style="display:none;">
+            <h2 class="text-2xl font-bold text-gray-800 dark:text-gray-100 mb-1">Säkerhetskopia</h2>
+            <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">
+                Laddar ner hela tävlingen som en fil: inställningar, ekipage, funktionärer, resultat och loggar.
+                Filen innehåller personuppgifter (kontaktuppgifter) och ska förvaras säkert. PIN-koder ingår aldrig.
+                Uppladdade filer (dokument, logotyper) ingår inte, bara deras namn.
+            </p>
+            <label class="flex items-center gap-2 mb-3 text-sm text-gray-700 dark:text-gray-200">
+                <input type="checkbox" id="exportIncludePersonalNumbers" class="rounded">
+                Ta med personnummer
+            </label>
+            <button id="btnExportComp" type="button" class="px-4 py-2 bg-gray-700 text-white font-semibold rounded hover:bg-gray-800 shadow-sm transition-colors">
+                Ladda ner säkerhetskopia
+            </button>
+            <span id="exportCompStatus" class="ml-3 text-sm text-gray-600 dark:text-gray-300" aria-live="polite"></span>
+        </div>
+
         <!-- DANGER ZONE -->
         <div id="dangerZone" class="md:col-span-2 mt-12 bg-red-50 dark:bg-red-900/10 p-6 rounded-xl shadow-md border border-red-200 dark:border-red-900" style="display:none;">
             <h2 class="text-2xl font-bold text-red-800 dark:text-red-400 mb-4 border-b border-red-200 dark:border-red-800 pb-2">Danger Zone</h2>
-            <div class="mb-6 p-4 rounded-lg bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700">
-                <h3 class="font-bold text-gray-800 dark:text-gray-100 mb-1">Säkerhetskopia</h3>
-                <p class="text-sm text-gray-600 dark:text-gray-300 mb-3">
-                    Laddar ner hela tävlingen som en fil: inställningar, ekipage, funktionärer, resultat och loggar.
-                    Filen innehåller personuppgifter (kontaktuppgifter) och ska förvaras säkert. Uppladdade filer
-                    (dokument, logotyper) ingår inte, bara deras namn.
-                </p>
-                <button id="btnExportComp" type="button" class="px-4 py-2 bg-gray-700 text-white font-semibold rounded hover:bg-gray-800 shadow-sm transition-colors">
-                    Ladda ner säkerhetskopia
-                </button>
-                <span id="exportCompStatus" class="ml-3 text-sm text-gray-600 dark:text-gray-300" aria-live="polite"></span>
-            </div>
             <p class="text-sm text-red-700 dark:text-red-300 mb-6 font-medium">
                 Här kan du radera hela tävlingen permanent.
                 Detta tar bort <strong>allt</strong>: inställningar, resultat, anmälda ekipage, funktionärer och loggar.
@@ -1095,6 +1101,18 @@ export function getSettingsHtml() {
 
     </div>
   `;
+}
+
+// Mirrors assertCanMaintainResults (functions/index.js): owner, listed or
+// joined competition admin, or a global admin
+function canMaintainCompetition(user, comp) {
+    if (!user?.uid) return false;
+    const roles = Array.isArray(user.roles) ? user.roles : [];
+    if (user.superadmin === true || user.role === 'admin' || user.role === 'superadmin'
+        || roles.includes('admin') || roles.includes('superadmin')) return true;
+    if (comp && (comp.createdBy === user.uid || comp.ownerId === user.uid)) return true;
+    if (Array.isArray(comp?.admins) && comp.admins.includes(user.uid)) return true;
+    return Array.isArray(user.compRoles) && user.compRoles.includes('admin');
 }
 
 export async function setupSettingsLogic(competitionId) {
@@ -1608,29 +1626,35 @@ export async function setupSettingsLogic(competitionId) {
             }
         });
 
+        const runExport = async () => {
+            const btn = document.getElementById('btnExportComp');
+            const status = document.getElementById('exportCompStatus');
+            const includePersonalNumbers = document.getElementById('exportIncludePersonalNumbers')?.checked === true;
+            if (btn) btn.disabled = true;
+            if (status) status.textContent = 'Hämtar tävlingen…';
+            try {
+                const count = await downloadCompetitionExport(competitionId, comp?.name, { includePersonalNumbers });
+                if (status) status.textContent = `Klar: ${count} dokument sparade i filen.`;
+                return true;
+            } catch (err) {
+                console.error('Export misslyckades:', err);
+                if (status) status.textContent = '';
+                alert('Kunde inte skapa säkerhetskopian: ' + (err?.message || err));
+                return false;
+            } finally {
+                if (btn) btn.disabled = false;
+            }
+        };
+        // Backup: shown to whom exportCompetition allows (assertCanMaintainResults)
+        if (canMaintainCompetition(currentUser, comp)) {
+            const backup = document.getElementById('backupSection');
+            if (backup) backup.style.display = 'block';
+            document.getElementById('btnExportComp')?.addEventListener('click', runExport);
+        }
+
         if (isAllowed) {
             const dz = document.getElementById('dangerZone');
             if (dz) dz.style.display = 'block';
-
-            const runExport = async () => {
-                const btn = document.getElementById('btnExportComp');
-                const status = document.getElementById('exportCompStatus');
-                if (btn) btn.disabled = true;
-                if (status) status.textContent = 'Hämtar tävlingen…';
-                try {
-                    const count = await downloadCompetitionExport(competitionId, comp?.name);
-                    if (status) status.textContent = `Klar: ${count} dokument sparade i filen.`;
-                    return true;
-                } catch (err) {
-                    console.error('Export misslyckades:', err);
-                    if (status) status.textContent = '';
-                    alert('Kunde inte skapa säkerhetskopian: ' + (err?.message || err));
-                    return false;
-                } finally {
-                    if (btn) btn.disabled = false;
-                }
-            };
-            document.getElementById('btnExportComp')?.addEventListener('click', runExport);
 
             document.getElementById('btnDeleteComp')?.addEventListener('click', async () => {
                 // Deleting cannot be undone: offer a copy first

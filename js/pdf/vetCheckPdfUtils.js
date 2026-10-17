@@ -1,4 +1,25 @@
-import { MAX_RECOMMENDED_PULSE_BPM, applyVetResultsToHorses } from '../pages/shared/vetCheckUtils.js';
+import { MAX_RECOMMENDED_PULSE_BPM, VET_PHASES, applyVetResultsToHorses } from '../pages/shared/vetCheckUtils.js';
+
+/**
+ * The equipages with the vet's private data for the PDF (admins and the vet):
+ * clinical findings onto the horses, the notes of all phases as vetNote.
+ * Maps by start number, as from getVetInspections / getVetNotes.
+ */
+export function mergeVetPrivateData(equipages = [], clinicalByStartNumber = new Map(), notesByStartNumber = new Map()) {
+    return (equipages || []).map(eq => {
+        const sn = String(eq?.startNumber ?? eq?.id);
+        const notes = notesByStartNumber?.get?.(sn) || {};
+        const vetNote = Object.keys(VET_PHASES)
+            .map(phase => notes[phase] ? `${VET_PHASES[phase].shortLabel}: ${notes[phase]}` : '')
+            .filter(Boolean)
+            .join('; ');
+        return {
+            ...eq,
+            horses: applyVetResultsToHorses(eq, clinicalByStartNumber?.get?.(sn) || {}),
+            ...(vetNote ? { vetNote } : {})
+        };
+    });
+}
 
 export function formatVetInspectionStatus(status, empty = '[   ]') {
     if (!status) return empty;

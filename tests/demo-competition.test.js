@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import { buildDemoCompetitionDataset } from '../js/services/demoCompetitionData.js';
 import { getCarriageCompliance } from '../js/pages/shared/vagnbreddUtils.js';
-import { getViloboxBadgeInfo } from '../js/pages/shared/vetCheckUtils.js';
+import { getViloboxBadgeInfo, VET_CLINICAL_FIELDS } from '../js/pages/shared/vetCheckUtils.js';
 import { calculateTeamResults } from '../js/services/teamCalculationService.js';
 import { getTeamScoringProfile } from '../js/services/teamRuleProfiles.js';
 import { calculateDressageResult } from '../js/services/calculationService.js';
@@ -38,17 +38,25 @@ test('buildDemoCompetitionDataset includes veterinary inspection and vilobox pul
   const eq1 = data.equipages.find(e => e.startNumber === 1);
   const eq3 = data.equipages.find(e => e.startNumber === 3);
 
-  const horse1 = eq1.horses[0];
-  assert.equal(horse1.inspections.initial.status, 'besiktigad');
-  assert.equal(horse1.inspections.restArea.pulse, 56);
+  // Public results on the equipage, as the vet page saves them
+  assert.equal(eq1.vetInspection_initial.horses.h1.status, 'besiktigad');
+  assert.equal(eq1.status, 'besiktigad');
   const badge1 = getViloboxBadgeInfo(eq1);
   assert.equal(badge1.status, 'approved');
 
-  const horse3 = eq3.horses[0];
-  assert.equal(horse3.inspections.restArea.status, 'ombesiktning');
-  assert.equal(horse3.inspections.restArea.pulse, 68);
+  assert.equal(eq3.vetInspection_restArea.horses.h3.status, 'ombesiktning');
   const badge3 = getViloboxBadgeInfo(eq3);
   assert.equal(badge3.status, 'hold');
+
+  // The pulse and notes are private (vetInspections / vetNotes), never on the equipage
+  const clinical = sn => data.vetInspections.find(v => v.startNumber === sn).horses;
+  assert.equal(clinical(1).h1.restArea.pulseBpm, 56);
+  assert.equal(clinical(3).h3.restArea.pulseBpm, 68);
+  assert.match(data.vetNotes.find(v => v.startNumber === 3).notes.restArea, /Puls 68/);
+  const publicJson = JSON.stringify(data.equipages);
+  for (const field of [...VET_CLINICAL_FIELDS, 'pulse', 'inspections', 'notes', '"vet"']) {
+    assert.equal(publicJson.includes(field), false, field);
+  }
 });
 
 test('buildDemoCompetitionDataset includes carriage compliance per TR Bilaga 2', () => {

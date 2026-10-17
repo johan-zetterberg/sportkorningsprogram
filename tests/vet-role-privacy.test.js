@@ -7,7 +7,7 @@ import {
   getViloboxBadgeInfo,
   VET_CLINICAL_FIELDS
 } from '../js/pages/shared/vetCheckUtils.js';
-import { buildVetCheckPdfRows } from '../js/pdf/vetCheckPdfUtils.js';
+import { buildVetCheckPdfRows, mergeVetPrivateData } from '../js/pdf/vetCheckPdfUtils.js';
 import { inspectedHorseKeys, mergeDeclaredHorses } from '../functions/src/declarationUtils.js';
 import { normalizeJoinRoles, resolveJoinRoleForPin } from '../functions/src/adminJoin.js';
 import { equipageWriteAffectsResults } from '../functions/src/triggerFilters.js';
@@ -89,6 +89,16 @@ test('the vet PDF shows public results for any official, the pulse only with the
 
   const withFindings = { ...eq, horses: applyVetResultsToHorses(eq, { SE001: { restArea: { pulseBpm: 56 } } }) };
   assert.match(buildVetCheckPdfRows([withFindings])[0][6], /56 bpm/);
+
+  // The reports page for an admin: findings and notes read once and merged
+  const merged = mergeVetPrivateData([eq],
+    new Map([['7', { SE001: { restArea: { pulseBpm: 70 } } }]]),
+    new Map([['7', { initial: 'Halt vä fram', restArea: 'Trött' }]]));
+  const [adminRow] = buildVetCheckPdfRows(merged);
+  assert.match(adminRow[6], /70 bpm \(!\)/);
+  assert.equal(adminRow[8], 'Förbesiktning: Halt vä fram; Vilobox: Trött');
+  // Without private data the merge changes nothing that is shown
+  assert.deepEqual(buildVetCheckPdfRows(mergeVetPrivateData([eq])), buildVetCheckPdfRows([eq]));
 });
 
 test('a horse with a vet result on the equipage keeps its name and key in the declaration', () => {

@@ -71,6 +71,14 @@ export function listenForVetNotes(competitionId, callback) {
     }, buildSnapshotErrorHandler('listenForVetNotes', callback, new Map()));
 }
 
+/** All vet notes once, by start number (vet and admins only) */
+export async function getVetNotes(competitionId) {
+    const snapshot = await getDocs(getCompCollectionRef(competitionId, NOTES));
+    const byStartNumber = new Map();
+    snapshot.docs.forEach(item => byStartNumber.set(String(item.id), item.data()?.notes || {}));
+    return byStartNumber;
+}
+
 /** Saves the vet's note for one phase. Resolves 'saved' or 'queued'. */
 export async function saveVetNote(competitionId, startNumber, phase, text) {
     const note = String(text ?? '').slice(0, 4000);

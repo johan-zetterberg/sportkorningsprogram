@@ -3,12 +3,19 @@
 // shortened; the page is the route only.
 
 const EMAIL_RE = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+// scheme://host/path, then ?query and/or #fragment up to whitespace, ')' or
+// the end; a stack frame's :line:column after it is kept. The server does the
+// same (functions/src/clientErrorReport.js)
+const URL_PARAMS_RE = /([a-z][a-z0-9+.-]*:\/\/[^\s?#)]+)[?#][^\s)]*?(:\d+:\d+)?(?=[\s)]|$)/gi;
+
+/** URLs without query strings or fragments (tokens, search text) */
+export function stripUrlParams(value) {
+    return String(value ?? '').replace(URL_PARAMS_RE, (_, url, position = '') => url + position);
+}
 
 export function scrubText(value, max) {
-    return String(value ?? '')
+    return stripUrlParams(value)
         .replace(EMAIL_RE, '[e-post]')
-        // URLs: no query strings or fragments (tokens, search text)
-        .replace(/(https?:\/\/[^\s?#)]+)[?#][^\s)]*/g, '$1')
         .slice(0, max);
 }
 

@@ -29,6 +29,8 @@ import { generatePrecisionListPdf, generatePrecisionOfficialsPdf, generatePrecis
 import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
 import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js'; // [NEW]
 import { generateVetCheckPdf } from '../../pdf/vetCheckPdf.js';
+import { mergeVetPrivateData } from '../../pdf/vetCheckPdfUtils.js';
+import { getVetInspections, getVetNotes } from '../../services/vetInspectionService.js';
 
 import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeDecorations, prepareMarathonResults } from '../../utils/marathonUtils.js';
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
@@ -832,10 +834,24 @@ window.reports_generateTeamCsv = function () {
     downloadCsv(`lagresultat_${competitionId}.csv`, headers, rows);
 }
 
-window.reports_generateVetCheckPdf = function () {
+window.reports_generateVetCheckPdf = async function () {
     if (!equipages || !equipages.length) {
         alert('Inga ekipage tillgängliga.');
         return;
     }
-    generateVetCheckPdf(equipages, getGlobalState('currentCompetition'));
+    // Admins also get the vet's findings and notes (vetInspections, vetNotes:
+    // vet and admins only); other officials the public results
+    let list = equipages;
+    const user = getGlobalState('currentUser') || {};
+    const isAdmin = ['admin', 'superadmin'].includes(user.role)
+        || (Array.isArray(user.compRoles) && user.compRoles.includes('admin'));
+    if (isAdmin && competitionId) {
+        try {
+            const [clinical, notes] = await Promise.all([getVetInspections(competitionId), getVetNotes(competitionId)]);
+            list = mergeVetPrivateData(equipages, clinical, notes);
+        } catch (err) {
+            console.warn('Kunde inte läsa veterinärens fynd:', err);
+        }
+    }
+    generateVetCheckPdf(list, getGlobalState('currentCompetition'));
 };
