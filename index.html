@@ -522,50 +522,8 @@
     else window.addEventListener('load', configureLeafletIcons, { once: true });
   </script>
 
-  <script>
-    if ('serviceWorker' in navigator) {
-      // A new version is installed and waits: this page keeps running the
-      // version it started with until the user reloads (a judge may be entering
-      // a result), then the new version takes over and the page reloads once
-      let reloadRequested = false;
-      navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (reloadRequested) location.reload();
-      });
-      const showUpdateNotice = (registration) => {
-        if (!navigator.serviceWorker.controller || document.getElementById('appUpdateNotice')) return;
-        const bar = document.createElement('div');
-        bar.id = 'appUpdateNotice';
-        bar.setAttribute('role', 'status');
-        bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom, 0px));z-index:10000;max-width:calc(100% - 24px);display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;background:#1e3a5f;color:#fff;font:14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3)';
-        bar.innerHTML = '<span>En ny version av appen finns. Ladda om när det passar.</span>'
-          + '<button type="button" style="flex-shrink:0;padding:6px 12px;border-radius:8px;background:#f5c542;color:#1e3a5f;font-weight:700;border:0">Ladda om</button>';
-        bar.querySelector('button').addEventListener('click', () => {
-          const waiting = registration.waiting;
-          if (!waiting) { location.reload(); return; }
-          reloadRequested = true;
-          waiting.postMessage({ type: 'SKIP_WAITING' });
-        });
-        document.body.appendChild(bar);
-      };
-      window.addEventListener('load', () => {
-        // Vi kör enbart service-worker.js (som är mer omfattande)
-        navigator.serviceWorker.register('./service-worker.js', { scope: './' })
-          .then(registration => {
-            console.log('ServiceWorker (DriveLive) registrerad:', registration.scope);
-            if (registration.waiting) showUpdateNotice(registration);
-            registration.addEventListener('updatefound', () => {
-              const worker = registration.installing;
-              worker?.addEventListener('statechange', () => {
-                if (worker.state === 'installed') showUpdateNotice(registration);
-              });
-            });
-          })
-          .catch(error => {
-            console.warn('ServiceWorker-registrering misslyckades:', error);
-          });
-      });
-    }
-  </script>
+  <!-- Service worker and new versions (on its own: updates are found even if the app fails to start) -->
+  <script type="module" src="js/appUpdate.js"></script>
 
   <sync-queue></sync-queue>
 </body>

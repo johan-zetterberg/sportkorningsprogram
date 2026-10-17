@@ -21,6 +21,7 @@ import {
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { PRECISION_KNOCKDOWN_PENALTY } from '../../core-engine/rules-ledger.js';
@@ -1345,3 +1346,6 @@ export function __unload() {
     equipages = [];
     searchableDropdown = null;
 }
+
+// A new version of the app asks before reloading while the clock runs
+registerUnsavedWork('precision-input', () => isRunning);

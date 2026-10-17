@@ -3,6 +3,7 @@ import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import {
   deriveDressageStatus,
   escapeHtml,
@@ -932,3 +933,6 @@ export function unload() {
   detailData = null;
   filters = { search: '', status: 'all', className: 'all' };
 }
+
+// A new version of the app asks before reloading while a protocol has unsaved changes
+registerUnsavedWork('secretariat-dressage', () => isCurrentDetailDirty());

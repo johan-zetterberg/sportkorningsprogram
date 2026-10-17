@@ -23,6 +23,7 @@ import {
 } from './dressageAdminProgramOptions.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
@@ -1898,3 +1899,6 @@ export function __unload() {
   }
   equipageSearchDropdown = null;
 }
+
+// A new version of the app asks before reloading while a protocol is being entered (draft not saved)
+registerUnsavedWork('dressyr-input', () => { const key = currentDraftKey(); return !!key && !!readDressageDraft(key); });

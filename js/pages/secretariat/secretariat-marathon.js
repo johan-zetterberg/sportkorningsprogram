@@ -1,6 +1,7 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import {
   clearRowDirty,
   deriveMarathonStatus,
@@ -910,3 +911,6 @@ export function unload() {
   activeTab = 'timing';
   filters = { search: '', status: 'all', className: 'all' };
 }
+
+// A new version of the app asks before reloading while there are unsaved changes
+registerUnsavedWork('secretariat-marathon', () => hasTimingDrafts() || hasObstacleDrafts());

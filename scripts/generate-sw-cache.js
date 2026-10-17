@@ -5,18 +5,20 @@ import { fileURLToPath } from 'node:url';
 const ROOT_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SW_PATH = path.join(ROOT_DIR, 'service-worker.js');
 
-// Only folders published by Firebase Hosting. Local-only dressage programs and
-// club logos are required by the deploy script and are included when present.
+// Only folders published by Firebase Hosting
 const DIRS_TO_SCAN = [
     'js',
     'css',
     'icons',
     'img',
     'lib',
-    'assets/config',
-    'assets/dressage',
-    'assets/logos'
+    'assets/config'
 ];
+
+// Kept outside git and only on the deploy computer (see LOCAL_ONLY_ASSET_DIRS
+// in scripts/deploy.mjs): never listed, so the list is the same with or
+// without them (CI has none). The service worker stores them at runtime.
+export const LOCAL_ONLY_ASSET_DIRS = ['assets/logos', 'assets/dressage'];
 
 // Mappar att skanna
 const FILES_TO_INCLUDE = [
@@ -62,6 +64,13 @@ const IGNORE_PATTERNS = [
     /^lib\/pdfjs\/build\/(pdf\.js|pdf\.min\.js|pdf\.mjs|pdf\.sandbox.*|pdf\.worker\.min\.js|pdf\.worker\.mjs)$/
 ];
 
+/** Whether a file or folder (path relative to the project, with /) may be precached */
+export function isPrecachePath(relativePath) {
+    const p = String(relativePath || '').replace(/\\/g, '/').replace(/^\/+/, '');
+    if (LOCAL_ONLY_ASSET_DIRS.some(dir => p === dir || p.startsWith(`${dir}/`))) return false;
+    return !IGNORE_PATTERNS.some(regex => regex.test(p));
+}
+
 function scanDir(dir, fileList = []) {
     const fullPath = path.join(ROOT_DIR, dir);
     if (!fs.existsSync(fullPath)) return fileList;
@@ -72,7 +81,7 @@ function scanDir(dir, fileList = []) {
         const itemPath = path.join(fullPath, item);
         const relativePath = path.relative(ROOT_DIR, itemPath).replace(/\\/g, '/');
 
-        if (IGNORE_PATTERNS.some(regex => regex.test(relativePath))) return;
+        if (!isPrecachePath(relativePath)) return;
 
         if (fs.statSync(itemPath).isDirectory()) {
             scanDir(relativePath, fileList);

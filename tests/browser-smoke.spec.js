@@ -385,6 +385,25 @@ test('after an update the app starts without signal and opens pages not visited 
   });
   expect(precached).toEqual({ precisionInput: true, stagesInput: true, manual: true, firestoreSdk: true, appSdk: true });
 
+  // The worker runs the page's version and knows which version this tab runs
+  // (it keeps that cache while the tab is open); the first install taking
+  // over the page is not a new version (no reload, no prompt)
+  const versions = await page.evaluate(async () => {
+    const { APP_VERSION } = await import('/js/appVersion.js');
+    const worker = await new Promise((resolve) => {
+      const channel = new MessageChannel();
+      channel.port1.onmessage = (event) => resolve(event.data?.version);
+      navigator.serviceWorker.controller.postMessage({ type: 'CLIENT_VERSION', version: APP_VERSION }, [channel.port2]);
+    });
+    return { page: APP_VERSION, worker };
+  });
+  expect(versions.worker).toBe(versions.page);
+  await expect.poll(() => page.evaluate(async () => {
+    const res = await (await caches.open('app-sw-clients')).match('/__sw-clients.json');
+    return res ? Object.values(await res.json()) : [];
+  })).toContain(versions.page);
+  await expect(page.locator('#appUpdateNotice')).toHaveCount(0);
+
   await context.setOffline(true);
   await page.reload();
   await expect(page.locator('#page-hub')).toHaveClass(/active/, { timeout: 30000 });

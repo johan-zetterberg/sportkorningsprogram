@@ -12,6 +12,7 @@ import {
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { isFeiMarathonClass, wrongGaitIncidentPenalty } from '../../core-engine/marathon.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
@@ -1172,3 +1173,6 @@ export function __unload() {
   halts = [];
   notes = "";
 }
+
+// A new version of the app asks before reloading while a wrong-gait or halt clock runs
+registerUnsavedWork('observator-input', () => wrongGaitRunning || haltRunning);

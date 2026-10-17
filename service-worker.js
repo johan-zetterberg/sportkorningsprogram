@@ -5,6 +5,14 @@ const CACHE_NAME = 'driving-app-v79'; // Bump version to force cache clear
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
 const abs = (p) => (SCOPE_PATH === '/' ? p : (SCOPE_PATH + (p.startsWith('/') ? p : '/' + p)));
 const LOCAL_JS_SCOPE = SCOPE_PATH === '/' ? '/js/' : `${SCOPE_PATH}/js/`;
+
+// This version's name ('v79'), the APP_VERSION of js/appVersion.js
+const CACHE_PREFIX = 'driving-app-';
+const SW_VERSION = CACHE_NAME.slice(CACHE_PREFIX.length);
+// Which version each open tab runs (client id -> 'v79'), kept over restarts of
+// the worker: a tab that has not reloaded yet keeps its version's cache
+const CLIENTS_META_CACHE = 'app-sw-clients';
+const CLIENTS_META_KEY = abs('/__sw-clients.json');
 // Static imports and plain import('...') calls: the pages are loaded with
 // import() from navigationService, and must be cached for an offline start
 const MODULE_IMPORT_PATTERN = /\bimport\s*(?:\(\s*|(?:[\w*\s{},]+)\s+from\s+)?['"]([^'"]+\.(?:js|mjs))['"]/g;
@@ -14,7 +22,8 @@ const MODULE_IMPORT_PATTERN = /\bimport\s*(?:\(\s*|(?:[\w*\s{},]+)\s+from\s+)?['
 // the field would look frozen
 const NETWORK_TIMEOUT_MS = 3000;
 const MODULE_GRAPH_ENTRY_POINTS = [
-  abs('/js/main.js')
+  abs('/js/main.js'),
+  abs('/js/appUpdate.js')
 ];
 
 function toCacheUrl(url) {
@@ -79,85 +88,6 @@ const urlsToCache = [
   abs('/android-chrome-512x512.png'),
   abs('/apple-touch-icon.png'),
   abs('/assets/config/club-logos.json'),
-  abs('/assets/dressage/05 TR V 2025 Sportkörning.md'),
-  abs('/assets/dressage/05 TR V 2025 Sportkörning.pdf'),
-  abs('/assets/dressage/501_Sv_l-tt_nr1_inomhus.md'),
-  abs('/assets/dressage/501_Sv_l-tt_nr1_inomhus.pdf'),
-  abs('/assets/dressage/503-_Svenskt_l-tt_nr_2_-ridhus-.md'),
-  abs('/assets/dressage/503-_Svenskt_l-tt_nr_2_-ridhus-.pdf'),
-  abs('/assets/dressage/505-_Svenskt_Msv_nr_1_-ridhus-.md'),
-  abs('/assets/dressage/505-_Svenskt_Msv_nr_1_-ridhus-.pdf'),
-  abs('/assets/dressage/507-_Svenskt_sv-rt_nr_1_-ridhus-.md'),
-  abs('/assets/dressage/507-_Svenskt_sv-rt_nr_1_-ridhus-.pdf'),
-  abs('/assets/dressage/509. FU FEI Dressage Test nr 4 (Test PE A).md'),
-  abs('/assets/dressage/509. FU FEI Dressage Test nr 4 (Test PE A).pdf'),
-  abs('/assets/dressage/510. JYD FEI Dressage Test 4A (Test J_YD).md'),
-  abs('/assets/dressage/510. JYD FEI Dressage Test 4A (Test J_YD).pdf'),
-  abs('/assets/dressage/518. FEI Dressage Senior 3 B HP4 40x100 20240209.md'),
-  abs('/assets/dressage/518. FEI Dressage Senior 3 B HP4 40x100 20240209.pdf'),
-  abs('/assets/dressage/518. FEI Dressage Senior 3 B HP4 40x80 20240315.md'),
-  abs('/assets/dressage/518. FEI Dressage Senior 3 B HP4 40x80 20240315.pdf'),
-  abs('/assets/dressage/522. Svenskt Lätt B (2020)  40x80m.md'),
-  abs('/assets/dressage/522. Svenskt Lätt B (2020)  40x80m.pdf'),
-  abs('/assets/dressage/523. Svenskt Lätt A (2020)  40x80m.md'),
-  abs('/assets/dressage/523. Svenskt Lätt A (2020)  40x80m.pdf'),
-  abs('/assets/dressage/524. Svenskt Msv  nr 3 (2020)  40x80m.md'),
-  abs('/assets/dressage/524. Svenskt Msv  nr 3 (2020)  40x80m.pdf'),
-  abs('/assets/dressage/527.FEI_Senior_Test__CAI2_HP2_HP4_80x40_2022.md'),
-  abs('/assets/dressage/527.FEI_Senior_Test__CAI2_HP2_HP4_80x40_2022.pdf'),
-  abs('/assets/dressage/528.FEI_Senior_Test_CAI3_HP2_P4_80x40_2023.vers.16 juli 2023.md'),
-  abs('/assets/dressage/528.FEI_Senior_Test_CAI3_HP2_P4_80x40_2023.vers.16 juli 2023.pdf'),
-  abs('/assets/dressage/529. FEI_Test__CAI1_and_Para_2022.md'),
-  abs('/assets/dressage/529. FEI_Test__CAI1_and_Para_2022.pdf'),
-  abs('/assets/dressage/530. Medelsvårt nr 4. 20250122.md'),
-  abs('/assets/dressage/530. Medelsvårt nr 4. 20250122.pdf'),
-  abs('/assets/dressage/531. Junior Test 2025.doc.md'),
-  abs('/assets/dressage/531. Junior Test 2025.doc.pdf'),
-  abs('/assets/dressage/532. Test 3 H2-P2. 2025.md'),
-  abs('/assets/dressage/532. Test 3 H2-P2. 2025.pdf'),
-  abs('/assets/dressage/533. Children Test 2025.md'),
-  abs('/assets/dressage/533. Children Test 2025.pdf'),
-  abs('/assets/dressage/534. Test 3 H4-P4.md'),
-  abs('/assets/dressage/534. Test 3 H4-P4.pdf'),
-  abs('/assets/dressage/CAI1&CPEAI_21.12.2023.md'),
-  abs('/assets/dressage/CAI1&CPEAI_21.12.2023.pdf'),
-  abs('/assets/dressage/CAI2HP2_05.04.md'),
-  abs('/assets/dressage/CAI2HP2_05.04.pdf'),
-  abs('/assets/dressage/CAI2HP4_05.04.md'),
-  abs('/assets/dressage/CAI2HP4_05.04.pdf'),
-  abs('/assets/dressage/CAI3HP2_FINAL_0.md'),
-  abs('/assets/dressage/CAI3HP2_FINAL_0.pdf'),
-  abs('/assets/dressage/CAI3HP4_05.04.md'),
-  abs('/assets/dressage/CAI3HP4_05.04.pdf'),
-  abs('/assets/dressage/Children Test_FINAL.md'),
-  abs('/assets/dressage/Children Test_FINAL.pdf'),
-  abs('/assets/dressage/Dressyrprogram översikt.md'),
-  abs('/assets/dressage/Dressyrprogram översikt.pdf'),
-  abs('/assets/dressage/Junior Test_FINAL.md'),
-  abs('/assets/dressage/Junior Test_FINAL.pdf'),
-  abs('/assets/logos/Anebyortens_Ridklubb.png'),
-  abs('/assets/logos/asbopk.png'),
-  abs('/assets/logos/Blekinge_korsallskap.png'),
-  abs('/assets/logos/Flyings_logo.svg'),
-  abs('/assets/logos/Krika_HS.png'),
-  abs('/assets/logos/KS_Nordhallaningarna.jpg'),
-  abs('/assets/logos/KS_Nordhallaningarna.png'),
-  abs('/assets/logos/Laholms_RF.svg'),
-  abs('/assets/logos/Lenhovda_hastsportklubb.png'),
-  abs('/assets/logos/markaryd_RF.png'),
-  abs('/assets/logos/morrums_rf.png'),
-  abs('/assets/logos/Naas_HS.png'),
-  abs('/assets/logos/ostra_goinge_RF.png'),
-  abs('/assets/logos/sigtuna.webp'),
-  abs('/assets/logos/Skogsborgs.jpg'),
-  abs('/assets/logos/SKS_logo.svg'),
-  abs('/assets/logos/SRF_logo_white.svg'),
-  abs('/assets/logos/SRF.png'),
-  abs('/assets/logos/Suderbys_ridklubb_2.png'),
-  abs('/assets/logos/Suderbys_ridklubb.png'),
-  abs('/assets/logos/TIR_K_k.jpg'),
-  abs('/assets/logos/Trolleholms_RF.png'),
-  abs('/assets/logos/vfk-logotype-sv.svg'),
   abs('/css/style.css'),
   abs('/css/tailwind.css'),
   abs('/css/tailwind.input.css'),
@@ -168,6 +98,7 @@ const urlsToCache = [
   abs('/icons/DriveLive_512.png'),
   abs('/img/marathon-course-new.png'),
   abs('/index.html'),
+  abs('/js/appUpdate.js'),
   abs('/js/appVersion.js'),
   abs('/js/config/firebase-config.js'),
   abs('/js/core-engine/calculation.js'),
@@ -382,6 +313,7 @@ const urlsToCache = [
   abs('/js/ui/resultSettingsNotice.js'),
   abs('/js/ui/scrollHelper.js'),
   abs('/js/ui/syncQueue.js'),
+  abs('/js/utils/appUpdateLogic.js'),
   abs('/js/utils/competitionLogo.js'),
   abs('/js/utils/dressageUtils.js'),
   abs('/js/utils/errorReporter.js'),
@@ -396,6 +328,7 @@ const urlsToCache = [
   abs('/js/utils/serverClock.js'),
   abs('/js/utils/sharedUtils.js'),
   abs('/js/utils/simulator.js'),
+  abs('/js/utils/unsavedWork.js'),
   abs('/js/utils/wakeLock.js'),
   abs('/lib/jspdf.plugin.autotable.min.js'),
   abs('/lib/jspdf.umd.min.js'),
@@ -521,6 +454,21 @@ self.addEventListener('install', (event) => {
       console.log('[SW] Alla externa filer cachade (inklusive Tailwind).');
     }
 
+    // 3. Logos (local-only assets, not in urlsToCache): the PDFs need them
+    // without signal. Best effort, a copy from an older version first
+    try {
+      const logoMap = await (await cache.match(abs('/assets/config/club-logos.json')))?.json();
+      const logoUrls = [...new Set(['/assets/logos/SRF.png', ...Object.values(logoMap || {})]
+        .filter(u => typeof u === 'string' && u.startsWith('/assets/')))].map(u => abs(u));
+      await Promise.allSettled(logoUrls.map(async (u) => {
+        if (await cache.match(u)) return;
+        const old = await caches.match(u);
+        await (old ? cache.put(u, old) : cache.add(u));
+      }));
+    } catch (error) {
+      console.warn('[SW] Logotyper kunde inte förhämtas:', error);
+    }
+
     // No skipWaiting here: an open page keeps the version it started with (its
     // later imports come from that version's cache). The new version takes
     // over when the user presses "Ladda om" (SKIP_WAITING below) or when every
@@ -528,8 +476,82 @@ self.addEventListener('install', (event) => {
   })());
 });
 
+// --- The version each open tab runs (see js/appUpdate.js) ---
+let clientVersionsMemo = null;
+let clientVersionsQueue = Promise.resolve();
+
+async function readClientVersions() {
+  if (clientVersionsMemo) return clientVersionsMemo;
+  try {
+    const res = await (await caches.open(CLIENTS_META_CACHE)).match(CLIENTS_META_KEY);
+    clientVersionsMemo = res ? await res.json() : {};
+  } catch {
+    clientVersionsMemo = {};
+  }
+  return clientVersionsMemo;
+}
+
+async function writeClientVersions(map) {
+  clientVersionsMemo = map;
+  const cache = await caches.open(CLIENTS_META_CACHE);
+  await cache.put(CLIENTS_META_KEY, new Response(JSON.stringify(map), { headers: { 'content-type': 'application/json' } }));
+}
+
+// One change at a time (two tabs starting together must not lose an entry)
+function updateClientVersions(change) {
+  clientVersionsQueue = clientVersionsQueue
+    .then(async () => writeClientVersions(await change({ ...(await readClientVersions()) })))
+    .catch((error) => console.warn('[SW] Flikversioner kunde inte sparas:', error));
+  return clientVersionsQueue;
+}
+
+/**
+ * Deletes the caches of versions no open tab runs any more (and forgets
+ * closed tabs). A tab that did not reload when a new version took over (it had
+ * unsaved work) keeps its version's cache until it reloads or is closed.
+ */
+async function deleteUnusedCaches() {
+  let inUse = new Set();
+  await updateClientVersions(async (map) => {
+    const open = new Set((await self.clients.matchAll({ type: 'window', includeUncontrolled: true })).map(c => c.id));
+    const kept = Object.fromEntries(Object.entries(map).filter(([id]) => open.has(id)));
+    inUse = new Set(Object.values(kept));
+    return kept;
+  });
+  const keys = await caches.keys();
+  const unused = keys.filter(k => k !== CACHE_NAME && k !== CLIENTS_META_CACHE
+    && !(k.startsWith(CACHE_PREFIX) && inUse.has(k.slice(CACHE_PREFIX.length))));
+  await Promise.all(unused.map(k => caches.delete(k)));
+}
+
+/** The cache of the version the requesting tab runs, when it is an older one still kept; else this version's */
+async function cacheForClient(clientId) {
+  if (clientId) {
+    const version = (await readClientVersions())[clientId];
+    const name = CACHE_PREFIX + version;
+    if (version && version !== SW_VERSION && await caches.has(name)) return caches.open(name);
+  }
+  return caches.open(CACHE_NAME);
+}
+
 self.addEventListener('message', (event) => {
-  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  const type = event.data?.type;
+  if (type === 'SKIP_WAITING') self.skipWaiting();
+  // A page says which version it runs and gets this worker's version back
+  if (type === 'CLIENT_VERSION') {
+    event.ports?.[0]?.postMessage({ type: 'SW_VERSION', version: SW_VERSION });
+    const clientId = event.source?.id;
+    const version = String(event.data.version || '');
+    if (!clientId || !/^v\d+$/.test(version)) return;
+    event.waitUntil((async () => {
+      await updateClientVersions((map) => ({ ...map, [clientId]: version }));
+      // A reloaded tab may have been the last one on an older version
+      // (only the running version cleans up, never one waiting next to it)
+      const reg = self.registration;
+      const isRunning = self.serviceWorker ? self.serviceWorker.state === 'activated' : (!!reg.active && !reg.waiting && !reg.installing);
+      if (isRunning) await deleteUnusedCaches();
+    })());
+  }
 });
 
 
@@ -542,7 +564,7 @@ self.addEventListener('activate', (event) => {
     // app's own files are not carried over, old and new modules must not mix
     const keys = await caches.keys();
     const current = await caches.open(CACHE_NAME);
-    for (const key of keys.filter(k => k !== CACHE_NAME)) {
+    for (const key of keys.filter(k => k !== CACHE_NAME && k !== CLIENTS_META_CACHE)) {
       try {
         const old = await caches.open(key);
         for (const request of await old.keys()) {
@@ -564,7 +586,10 @@ self.addEventListener('activate', (event) => {
         console.warn('[SW] Kunde inte flytta över från gammal cache:', key, error);
       }
     }
-    await Promise.all(keys.filter(k => k !== CACHE_NAME).map(k => caches.delete(k)));
+    // Old versions' caches go, except one an open tab still runs: it reloads on
+    // the switch, or (with unsaved work) asks the user to, and meanwhile gets
+    // its own files (cacheForClient); deleted when it has reloaded or closed
+    await deleteUnusedCaches();
 
     // Tvinga omedelbar kontroll över alla flikar
     await self.clients.claim();
@@ -645,8 +670,11 @@ self.addEventListener('fetch', (event) => {
       // imports later. A new deploy brings a new version (see install).
       // Local development keeps the network first, to see code changes at once.
       const ownModule = url.origin === self.location.origin && url.pathname.includes('/js/') && !IS_LOCAL_DEV;
+      // A tab still on an older version (it did not reload yet) gets that
+      // version's modules, never new ones next to its old ones
       if (ownModule) {
-        const cached = await getCached();
+        const own = await cacheForClient(event.clientId);
+        const cached = (await own.match(req)) || (await own.match(req, { ignoreVary: true })) || await getCached();
         if (cached) return cached;
       }
       const isValidJs = (res) => {
@@ -729,7 +757,9 @@ self.addEventListener('fetch', (event) => {
   const isOwnAsset = req.method === 'GET' && url.origin === self.location.origin && url.pathname.startsWith('/assets/')
     && /\.(png|jpe?g|webp|gif|svg|ico|pdf)$/i.test(url.pathname);
   event.respondWith((async () => {
-    const cached = await caches.match(req);
+    // The tab's own version first (an older cache still kept must not serve
+    // its copy of e.g. a config file to a tab on the new version)
+    const cached = (await (await cacheForClient(event.clientId)).match(req)) || await caches.match(req);
     if (cached) return cached;
     try {
       const net = await fetch(req);

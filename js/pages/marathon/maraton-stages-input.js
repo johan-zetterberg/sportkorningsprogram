@@ -8,6 +8,7 @@ import { getMarathonStateDocuments } from '../../services/marathonService.js';
 import { listenForMaratonCollection } from '../../services/marathonService.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
@@ -2452,3 +2453,6 @@ export function __unload() {
   listeningStartNumber = null;
 }
 
+
+// A new version of the app asks before reloading while a stage clock runs
+registerUnsavedWork('maraton-stages-input', () => [...activeTimers.values()].some(timer => timer?.isRunning));

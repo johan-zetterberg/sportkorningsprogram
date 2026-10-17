@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildServiceWorkerContent } from '../scripts/generate-sw-cache.js';
+import { buildServiceWorkerContent, isPrecachePath, LOCAL_ONLY_ASSET_DIRS } from '../scripts/generate-sw-cache.js';
 
 test('service-worker cache generation is deterministic and includes published entry points', () => {
   const source = "const urlsToCache = [\n  abs('/old.js')\n];\nconst marker = true;\n";
@@ -14,6 +14,21 @@ test('service-worker cache generation is deterministic and includes published en
   assert.match(first.content, /abs\('\/css\/tailwind[.]css'\)/);
   assert.doesNotMatch(first.content, /img\/maraton-course[.]png/);
   assert.match(first.content, /const marker = true/);
+});
+
+test('local-only assets are never precached, so the list is the same without them (CI)', () => {
+  const { content } = buildServiceWorkerContent("const urlsToCache = [\n];\n");
+  assert.doesNotMatch(content, /assets\/(logos|dressage)\//);
+  assert.match(content, /abs\('\/assets\/config\/club-logos[.]json'\)/);
+
+  assert.deepEqual(LOCAL_ONLY_ASSET_DIRS, ['assets/logos', 'assets/dressage']);
+  assert.equal(isPrecachePath('assets/logos/SRF.png'), false);
+  assert.equal(isPrecachePath('/assets/dressage/501.pdf'), false);
+  assert.equal(isPrecachePath('assets\\logos'), false);
+  assert.equal(isPrecachePath('assets/logos-other/x.png'), true);
+  assert.equal(isPrecachePath('js/main.js'), true);
+  assert.equal(isPrecachePath('js/main.js.map'), false);
+  assert.equal(isPrecachePath('assets/rules/x.pdf'), false);
 });
 
 test('service-worker cache generation rejects a file without a cache array', () => {

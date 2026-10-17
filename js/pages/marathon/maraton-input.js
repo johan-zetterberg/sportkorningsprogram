@@ -17,6 +17,7 @@ import {
 } from '../../utils/marathonUtils.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
@@ -2631,3 +2632,6 @@ function resetModuleSelectionState() {
   globalPauseStatusKnown = false;
   lastPauseLog = [];
 }
+
+// A new version of the app asks before reloading while the obstacle clock runs
+registerUnsavedWork('maraton-input', () => isRunning);
