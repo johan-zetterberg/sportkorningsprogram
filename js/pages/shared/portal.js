@@ -11,6 +11,7 @@ import { getDressageResultsForEquipage } from '../../services/dressageService.js
 import { getEquipages } from '../../services/equipageService.js';
 import { getHorseTemperatures, saveHorseTemperatureChanges } from '../../services/horseTemperatureService.js';
 import { getConfig } from '../../services/competitionService.js';
+import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { getMarathonObstacleResults } from '../../services/marathonService.js';
 import { renderDressageContent } from '../../ui/dressageModal.js';
 import { renderMarathonContent, renderTimeCard } from '../../ui/marathonModal.js';
@@ -713,7 +714,7 @@ async function renderDashboard(container, compId, startNumber, user) {
             precisionResult,
             startTimes,
             horseTemperatureConfigRaw,
-            dressyrProgramMapping,
+            programSettings,
             dressageProtocols,
             _clubLogos,
             documents,
@@ -733,7 +734,8 @@ async function renderDashboard(container, compId, startNumber, user) {
             getPrecisionResultForEquipage(compId, startNumber).catch(() => null),
             getConfig(compId, 'startTimes').catch(() => ({ times: {} })),
             getConfig(compId, 'horseTemperature').catch(() => ({})),
-            getConfig(compId, 'dressyrProgramMapping').catch(() => ({})),
+            // The competition's own dressage programs and class mapping, as the result engine
+            loadDressageProgramSettings(compId),
             getDressageResultsForEquipage(compId, startNumber).catch(() => []),
             ensureClubLogosLoaded(),
             inboxPromise.then(inbox => inbox ? (inbox.documents || []) : getCompetitionDocuments(compId).catch(() => [])),
@@ -777,13 +779,12 @@ async function renderDashboard(container, compId, startNumber, user) {
         const canEditTemperatures = canSelfEdit || isAdminUser;
         const selfServiceRestrictionMessage = canSelfEdit ? '' : getSelfServiceRestrictionMessage(user, eq, privateEquipage);
         const r = computedRes || {};
-        const allPrograms = getPrograms();
-        const programKey = dressyrProgramMapping[eq.className] || guessProgramKeyFromClass(eq.className, allPrograms);
+        const allPrograms = programSettings.programs;
+        const programKey = programSettings.mapping[eq.className] || guessProgramKeyFromClass(eq.className, allPrograms);
 
         let calculatedDressagePenalty = null;
         const computedDressagePenalty = r.dressagePenalty ?? r.dressage?.totalPenalty ?? r.dressage?.penalty;
         if (computedDressagePenalty == null && dressageProtocols?.length) {
-            const allPrograms = getPrograms();
             const result = calculateDressageResult(eq, dressageProtocols, allJudges, allPrograms);
             if (result && result.penalty != null) {
                 calculatedDressagePenalty = result.penalty;

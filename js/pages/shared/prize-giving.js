@@ -35,7 +35,7 @@ import {
     isPrizeGivingScore
 } from './prizeGivingUtils.js';
 import { archivedNoticeHtml, loadArchiveSnapshot } from './archivedResults.js';
-import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 let competitionId = null;
 let equipages = [];
@@ -88,12 +88,13 @@ export async function load(container) {
     if (currentLoadToken !== loadToken) return;
 
     try {
-        const [eqData, mConfig, pConfig, cSettings, programMapping, judgeMapping, snapshot, dClassCfg] = await Promise.all([
+        const [eqData, mConfig, pConfig, cSettings, , judgeMapping, snapshot, dClassCfg] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'maratonConfig'),
             getConfig(competitionId, 'precisionConfig'),
             getConfig(competitionId, 'classSettings').catch(() => ({})),
-            getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+            // The competition's own dressage programs and class mapping, as the result engine
+            loadDressageProgramSettings(competitionId),
             getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
             // An archived competition shows the results it was archived with
             loadArchiveSnapshot(comp),
@@ -114,8 +115,7 @@ export async function load(container) {
         precisionConfig = pConfig || {};
         classSettings = cSettings || {};
         dressyrClassConfig = (dClassCfg && typeof dClassCfg === 'object') ? dClassCfg : {};
-        // Dressage program per class and the judges each class needs (result engine)
-        setCompetitionSetting(competitionId, 'klassProgramMapping', (programMapping && typeof programMapping === 'object') ? programMapping : {});
+        // The judges each class needs (result engine)
         dressageJudgeMapping = (judgeMapping && typeof judgeMapping === 'object') ? judgeMapping : {};
 
         // Merge groups (merged classes), as on every page
@@ -266,6 +266,9 @@ function setupListeners() {
         recalcAndRender();
     });
     unsubscribes.push(uConfig);
+
+    // The competition's own dressage programs and class mapping
+    unsubscribes.push(listenDressageProgramSettings(competitionId, () => recalcAndRender()));
 
     // Equipages (Live sync for presence checkboxes)
     const u4 = listenForEquipages(competitionId, (data) => {

@@ -4,6 +4,7 @@ import { listenMergeSource } from '../../services/mergeConfigService.js';
 
 import { listenForDressageLiveGroup, listenForDressageStatusCollection, listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
 import { listenForConfig } from '../../services/competitionService.js';
+import { listenDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { listenForJudges } from '../../services/adminService.js';
 
 import { getPrograms, deduplicateAndFilterProtocols, normJudgeId } from '../../utils/dressageUtils.js';
@@ -39,6 +40,7 @@ export function setupAllListeners(context) {
         setAllJudges,
         setStartTimes,
         setPrecisionConfig,
+        setMergedPrograms,
         setGloballyPaused,
         setPauseStartTime,
         getCurrentDiscipline,
@@ -111,6 +113,12 @@ export function setupAllListeners(context) {
     unsubscribes.push(listenForConfig(competitionId, 'startTimes', (data) => {
         setStartTimes((data?.times) || (data?.value?.times) || {});
         triggerRender();
+    }));
+
+    // 4b. The competition's own dressage programs and class mapping
+    unsubscribes.push(listenDressageProgramSettings(competitionId, ({ programs }) => {
+        if (typeof setMergedPrograms === 'function') setMergedPrograms(programs);
+        triggerRender(true);
     }));
 
     // 5. Dressage Listeners

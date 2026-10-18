@@ -3,6 +3,7 @@ import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { buildStartListPdfBody } from './startListPdfRows.js';
+import { resolvePdfLanguage } from './pdfCompetitionUtils.js';
 
 /**
  * Generates a start list PDF.
@@ -39,28 +40,18 @@ export async function generateStartListPdf(rows, type, competition, options = {}
     ];
     await Promise.all(assetPromises);
 
-    // 2. HEADER
-    const isInt = !!competition?.meta?.isInternational;
+    // 2. HEADER (English for international competitions)
+    const { isInt } = await resolvePdfLanguage(competition);
 
     // Grey Bar Title
-    let disciplineTitle = t('startlist', isInt).toUpperCase();
-
-    if (type === 'dressage') disciplineTitle = `DRESSAGE - ${t('startlist', isInt).toUpperCase()}`;
-    else if (type === 'marathon') disciplineTitle = `MARATHON - ${t('startlist', isInt).toUpperCase()}`;
-    else if (type === 'precision') disciplineTitle = `CONES - ${t('startlist', isInt).toUpperCase()}`;
-    else if (type === 'participants') disciplineTitle = t('startlist', isInt).toUpperCase();
-    else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA';
-
-    // Override for Swedish if not Int
-    if (!isInt) {
-        if (type === 'dressage') disciplineTitle = 'DRESSYR – STARTLISTA';
-        else if (type === 'marathon') disciplineTitle = 'MARATON – STARTLISTA';
-        else if (type === 'precision') disciplineTitle = 'PRECISION – STARTLISTA';
-        else if (type === 'horselist') disciplineTitle = 'HÄSTLISTA';
-    }
+    let disciplineTitle = t('pdf_startlist_title', isInt);
+    if (type === 'dressage') disciplineTitle = t('pdf_startlist_dressage', isInt);
+    else if (type === 'marathon') disciplineTitle = t('pdf_startlist_marathon', isInt);
+    else if (type === 'precision') disciplineTitle = t('pdf_startlist_precision', isInt);
+    else if (type === 'horselist') disciplineTitle = t('pdf_horselist_title', isInt);
 
     if (options.title) disciplineTitle += `: ${options.title}`;
-    else if (type !== 'participants' && type !== 'horselist') disciplineTitle += ': Alla';
+    else if (type !== 'participants' && type !== 'horselist') disciplineTitle += `: ${t('pdf_all', isInt)}`;
 
     y = drawStandardHeader(doc, competition, disciplineTitle, srfLogo, 30, 40);
     y += 10; // Extra spacing after header
@@ -95,7 +86,10 @@ export async function generateStartListPdf(rows, type, competition, options = {}
             3: { cellWidth: 180, cellPadding: { top: 3, bottom: 3, left: 35, right: 3 } } // Land/Klubb
         };
     } else if (type === 'horselist') {
-        headers = [['Häst', 'Ras', 'Kön', 'Ålder', 'Kat', 'Härstamning', 'Ägare', 'Kusk']];
+        headers = [[
+            t('horse', isInt), t('ras', isInt), t('kon', isInt), t('alder', isInt),
+            t('pdf_category_short', isInt), t('harstamning', isInt), t('agare', isInt), t('kusk', isInt)
+        ]];
         colStyles = {
             0: { cellWidth: 90, fontStyle: 'bold' }, // Häst
             1: { cellWidth: 60 }, // Ras
@@ -108,7 +102,11 @@ export async function generateStartListPdf(rows, type, competition, options = {}
         };
     }
 
-    const { body, rowSources } = buildStartListPdfBody(rows, type, options);
+    const { body, rowSources } = buildStartListPdfBody(rows, type, {
+        ...options,
+        unknownClassLabel: t('pdf_unknown_class', isInt),
+        startsLabel: t('pdf_starts', isInt)
+    });
 
     doc.autoTable({
         startY: y,

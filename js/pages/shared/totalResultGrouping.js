@@ -8,16 +8,31 @@ export function resolveTotalMergeGrouping(equipage, mergeConfig) {
     };
   }
 
-  const groupsByClassNumber = mergeConfig?.mergeByClassNumber || {};
-  const tdbClassNumber = equipage?.tdbClassNumber != null ? Number(equipage.tdbClassNumber) : null;
+  // Any shape pickMergeSource returns (mergeConfigService): display's
+  // { mergeByClassNumber: { key: { label, members } } }, a legacy document
+  // with the groups at the top level, or [[1, 2], [5, 6]]
+  const source = mergeConfig?.value ?? mergeConfig;
+  const groups = source?.mergeByClassNumber ?? source;
+  const rawNumber = equipage?.tdbClassNumber;
+  const tdbClassNumber = (rawNumber != null && rawNumber !== '') ? Number(rawNumber) : NaN;
 
-  if (tdbClassNumber != null) {
-    for (const [groupKey, group] of Object.entries(groupsByClassNumber)) {
-      if (Array.isArray(group?.members) && group.members.includes(tdbClassNumber)) {
-        return {
-          key: String(groupKey),
-          label: String(group?.label || equipage?.tdbClassLabel || equipage?.className || 'Sammanslagen klass')
-        };
+  if (Number.isFinite(tdbClassNumber) && groups && typeof groups === 'object') {
+    if (Array.isArray(groups)) {
+      for (const members of groups) {
+        const nums = (Array.isArray(members) ? members : []).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        if (nums.includes(tdbClassNumber)) {
+          return { key: `TDBGROUP:${nums.join('+')}`, label: `Sammanslagen: TDB #${nums.join('/')}` };
+        }
+      }
+    } else {
+      for (const [groupKey, group] of Object.entries(groups)) {
+        const members = Array.isArray(group?.members) ? group.members.map(Number) : [];
+        if (members.includes(tdbClassNumber)) {
+          return {
+            key: String(groupKey),
+            label: String(group?.label || equipage?.tdbClassLabel || equipage?.className || 'Sammanslagen klass')
+          };
+        }
       }
     }
   }

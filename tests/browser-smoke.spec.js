@@ -775,11 +775,14 @@ test('critical ui interactions open and close without browser errors @mobile', a
 
 // The PDF reports officials print: each is downloaded, then read with the
 // app's own PDF reader (pdf.js) to check pages, headings and content
+// Seeded driver (scripts/seed-competition.js, SEED_UNICODE_DRIVER_NAME) with
+// letters outside WinAnsi: printed right only with the embedded Unicode font
+const UNICODE_DRIVER_NAME = 'Łukasz Řehoř Őrsi';
 const PDF_REPORTS = [
-  { call: 'reports_generateStartListPdf(\'dressage\')', names: true, headings: [/DRESSYR – STARTLISTA/, /Kusk \/ Häst/, /Klass/] },
+  { call: 'reports_generateStartListPdf(\'dressage\')', names: true, unicodeName: true, headings: [/DRESSYR – STARTLISTA/, /Kusk \/ Häst/, /Klass/] },
   { call: 'reports_generateStartListPdf(\'marathon\')', names: true, headings: [/MARATON – STARTLISTA/, /Kusk \/ Häst/] },
   { call: 'reports_generateStartListPdf(\'precision\')', names: true, headings: [/PRECISION – STARTLISTA/, /Kusk \/ Häst/] },
-  { call: 'reports_generateDressagePdf()', names: true, headings: [/DRESSYR – RESULTATLISTA/, /Plac/, /%/, /Straff/] },
+  { call: 'reports_generateDressagePdf()', names: true, unicodeName: true, headings: [/DRESSYR – RESULTATLISTA/, /Plac/, /%/, /Straff/] },
   { call: 'reports_generateDressageOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA DRESSYR/, /Program/] },
   { call: 'reports_generateMarathonPdf()', names: true, headings: [/RESULTAT/, /Straff A/, /Straff B/, /Totalt/] },
   { call: 'reports_generateMarathonFunctionaryPdf()', headings: [/FUNKTIONÄRSLISTA MARATON \(TIDER\)/, /Start A/, /Mål A/] },
@@ -787,7 +790,7 @@ const PDF_REPORTS = [
   { call: 'reports_generatePrecisionPdf()', names: true, headings: [/PRECISION – RESULTATLISTA/, /Hinder/, /Tidfel/, /Totalt/] },
   { call: 'reports_generatePrecisionOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA – PRECISION/, /Maxtid/] },
   { call: 'reports_generatePrecisionCourseSetupPdf()', headings: [/BANA & PORTAR/, /Maxtid/] },
-  { call: 'reports_generateTotalPdf()', names: true, headings: [/RESULTAT/, /Plac/, /Dressyr/, /Maraton/, /Precision/, /Totalt/] },
+  { call: 'reports_generateTotalPdf()', names: true, unicodeName: true, headings: [/RESULTAT/, /Plac/, /Dressyr/, /Maraton/, /Precision/, /Totalt/] },
   // Only when the competition has teams (the seeded one has none)
   { call: 'reports_generateTeamPdf()', optional: true },
   { call: 'reports_generateVetCheckPdf()', names: true, headings: [/VETERINÄRBESIKTNING/, /Häst/] }
@@ -805,6 +808,7 @@ test('PDF reports are generated with pages, headings and the equipages', async (
     return (await getEquipages(competitionId)).map(e => String(e.driverName || '').trim()).filter(Boolean);
   }, competitionId);
   expect(driverNames.length).toBeGreaterThan(0);
+  expect(driverNames, 'the seed has the Unicode driver').toContain(UNICODE_DRIVER_NAME);
 
   await page.goto('/index.html#reports');
   await expect(page.locator('button[onclick="window.reports_generateTotalPdf()"]')).toBeVisible({ timeout: 60000 });
@@ -812,26 +816,7 @@ test('PDF reports are generated with pages, headings and the equipages', async (
 
   const results = {};
   for (const report of PDF_REPORTS) {
-    const button = page.locator(`button[onclick="window.${report.call}"]`);
-    if (await button.count() === 0) { results[report.call] = { missing: !report.optional, skipped: true }; continue; }
-    const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
-    await button.first().click();
-    const download = await downloadPromise;
-    const bytes = readFileSync(await download.path());
-    const parsed = await page.evaluate(async (b64) => {
-      const pdfjs = await import('/lib/pdfjs/build/pdf.min.mjs');
-      pdfjs.GlobalWorkerOptions.workerSrc = '/lib/pdfjs/build/pdf.worker.min.mjs';
-      const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
-      const doc = await pdfjs.getDocument({ data }).promise;
-      let text = '';
-      for (let i = 1; i <= doc.numPages; i++) {
-        const content = await (await doc.getPage(i)).getTextContent();
-        text += content.items.map(item => item.str).join(' ') + '\n';
-      }
-      return { pages: doc.numPages, text };
-    }, bytes.toString('base64'));
-    results[report.call] = { file: download.suggestedFilename(), header: bytes.subarray(0, 5).toString('latin1'), ...parsed };
-    if (process.env.PDF_TEST_DUMP) console.log(`\n=== ${report.call} (${parsed.pages} p) ${download.suggestedFilename()}\n${parsed.text.slice(0, 400)}`);
+    results[report.call] = await downloadReportPdf(page, report);
   }
 
   for (const report of PDF_REPORTS) {
@@ -851,9 +836,64 @@ test('PDF reports are generated with pages, headings and the equipages', async (
     if (report.names) {
       expect(driverNames.some(name => result.text.includes(name)), `${report.call}: no equipage listed`).toBe(true);
     }
+    if (report.unicodeName) {
+      expect(result.text, `${report.call}: Unicode name garbled`).toContain(UNICODE_DRIVER_NAME);
+    }
+  }
+
+  // An international (FEI) competition: the result and start lists in English
+  await page.evaluate(async (competitionId) => {
+    const { saveConfig } = await import('../js/services/competitionService.js');
+    await saveConfig(competitionId, 'competitionMeta', { isInternational: true });
+  }, competitionId);
+  await page.reload();
+  await expect(page.locator('button[onclick="window.reports_generateTotalPdf()"]')).toBeVisible({ timeout: 60000 });
+  await page.waitForTimeout(2000);
+  for (const report of INTERNATIONAL_PDF_REPORTS) {
+    const result = await downloadReportPdf(page, report);
+    expect(result.missing, `${report.call} (FEI): button missing`).toBeUndefined();
+    for (const heading of report.headings) {
+      expect(result.text, `${report.call} (FEI): heading ${heading}`).toMatch(heading);
+    }
+    for (const swedish of report.notSwedish) {
+      expect(result.text, `${report.call} (FEI): Swedish ${swedish}`).not.toMatch(swedish);
+    }
+    expect(result.text, `${report.call} (FEI): Unicode name garbled`).toContain(UNICODE_DRIVER_NAME);
   }
   expect(browserErrors).toEqual([]);
 });
+
+const INTERNATIONAL_PDF_REPORTS = [
+  { call: 'reports_generateStartListPdf(\'dressage\')', headings: [/DRESSAGE – START LIST/, /Driver \/ Horse/, /Class/], notSwedish: [/STARTLISTA/, /Kusk \/ Häst/] },
+  { call: 'reports_generateDressagePdf()', headings: [/DRESSAGE – RESULT LIST/, /Rank/, /Penalty/], notSwedish: [/RESULTATLISTA/, /Kusk \/ Häst/, /Straff/] },
+  { call: 'reports_generateMarathonPdf()', headings: [/MARATHON – RESULTS/, /Pen A/, /Total/], notSwedish: [/Straff/, /Totalt/] },
+  { call: 'reports_generatePrecisionPdf()', headings: [/CONES – RESULT LIST/, /Obstacles/, /Time pen\./], notSwedish: [/RESULTATLISTA/, /Tidfel/, /Totalt/] },
+  { call: 'reports_generateTotalPdf()', headings: [/RESULTS/, /Rank/, /Dressage/, /Marathon/, /Cones/, /Total/], notSwedish: [/Dressyr/, /Maraton/, /Totalt/] }
+];
+
+// Clicks a report button, then reads the downloaded PDF with the app's pdf.js
+async function downloadReportPdf(page, report) {
+  const button = page.locator(`button[onclick="window.${report.call}"]`);
+  if (await button.count() === 0) return { missing: !report.optional, skipped: true };
+  const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
+  await button.first().click();
+  const download = await downloadPromise;
+  const bytes = readFileSync(await download.path());
+  const parsed = await page.evaluate(async (b64) => {
+    const pdfjs = await import('/lib/pdfjs/build/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = '/lib/pdfjs/build/pdf.worker.min.mjs';
+    const data = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const doc = await pdfjs.getDocument({ data }).promise;
+    let text = '';
+    for (let i = 1; i <= doc.numPages; i++) {
+      const content = await (await doc.getPage(i)).getTextContent();
+      text += content.items.map(item => item.str).join(' ') + '\n';
+    }
+    return { pages: doc.numPages, text };
+  }, bytes.toString('base64'));
+  if (process.env.PDF_TEST_DUMP) console.log(`\n=== ${report.call} (${parsed.pages} p) ${download.suggestedFilename()}\n${parsed.text.slice(0, 400)}`);
+  return { file: download.suggestedFilename(), header: bytes.subarray(0, 5).toString('latin1'), ...parsed };
+}
 
 // Judges enter results on phones, and drivers and spectators read the results
 // there: no page may need sideways scrolling (tables scroll inside their own box)

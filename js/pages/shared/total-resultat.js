@@ -23,7 +23,9 @@ import { JUDGE_MAPPING_NOTICE_ID, renderJudgeMappingNotice } from '../../ui/judg
 import { RESULT_SETTINGS_NOTICE_ID, marathonSettingsIssues, precisionSettingsIssues, renderResultSettingsNotice } from '../../ui/resultSettingsNotice.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
-import { dressagePrograms } from '../../data/dressagePrograms.js';
+import { getPrograms } from '../../utils/dressageUtils.js';
+import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
+import { listenMergeSource, loadMergeSource } from '../../services/mergeConfigService.js';
 import { openEquipageModal } from '../../ui/equipage-modal.js';
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
@@ -84,15 +86,6 @@ function sanitizeUrl(value) {
   return '';
 }
 
-// ---- Dressyr-hjälp (matchar dressyr-resultat.js) ----
-// Hämta programlistan: tävlingsspecifika overrides på window, annars globala importen (om den finns)
-function getPrograms() {
-  const w = (typeof window !== 'undefined' ? window.dressagePrograms : null);
-  if (w && Object.keys(w).length) return w;
-  // om du har importerat dressagePrograms någon annanstans kan du returnera det här
-  return (typeof dressagePrograms !== 'undefined' ? dressagePrograms : {});
-}
-
 // ======= Modulstat =======
 let competitionId = null;
 let equipages = [];
@@ -129,6 +122,7 @@ let showOnlyOngoing = false;
 
 // === Visningskonfig (sammanslagning per TDB-klassnummer) ===
 let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
+// Merged classes from mergeConfigService (display or a legacy document), as on every page
 let displayConfig = null;   // { mergeByClassNumber: { "<grpKey>": { label, members:[<tdb#>,...] }, ... } }
 
 // === Export: håll alltid den visade listan (efter filter + sort) ===
@@ -1428,6 +1422,15 @@ function attachListeners() {
     rawTeams = teams;
     requestRecompute();
   }));
+
+  // 7. The competition's own dressage programs and class mapping (as the result engine)
+  unsub.push(listenDressageProgramSettings(competitionId, () => requestRecompute()));
+
+  // 8. Merged classes, from the same source as every page
+  unsub.push(listenMergeSource(competitionId, (mergeSource) => {
+    displayConfig = mergeSource;
+    requestRecompute();
+  }));
 }
 
 
@@ -1460,13 +1463,15 @@ export async function load(el) {
   // 1. Ladda nödvändig grunddata
   // 1. Ladda nödvändig grunddata
   try {
-    const [eqList, marCfg, maratonCfgLegacy, preCfg, dispCfg, dressMapCfg, compMeta, judgeMapCfg] = await Promise.all([
+    const [eqList, marCfg, maratonCfgLegacy, preCfg, mergeSource, , compMeta, judgeMapCfg] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'marathon'),
       getConfig(competitionId, 'maratonConfig'), // [FIX] Fetch config used by maraton-resultat.js
       getConfig(competitionId, 'precisionConfig'),
-      getConfig(competitionId, 'display'),
-      getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+      // Merged classes: display or a legacy document (mergeConfigService)
+      loadMergeSource(competitionId).catch(() => null),
+      // The competition's own programs and class mapping, stored for the result engine
+      loadDressageProgramSettings(competitionId),
       getConfig(competitionId, 'competitionMeta').catch(() => ({})),
       getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
       ensureClubLogosLoaded(competitionId)
@@ -1475,7 +1480,6 @@ export async function load(el) {
     const cfg = {
       marathon: marCfg,
       precision: preCfg,
-      display: dispCfg,
       meta: compMeta
     };
 
@@ -1491,11 +1495,8 @@ export async function load(el) {
     setMarathonConfig(marathonConfig);
     await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
     precisionConfig = cfg.precision || {};
-    // Försök läsa in displayConfig om det finns sparat i config
-    displayConfig = cfg.display || null;
+    displayConfig = mergeSource || null;
 
-    // Configure dressage mapping globally (like dressyr-monitor.js)
-    setCompetitionSetting(competitionId, 'klassProgramMapping', (dressMapCfg && typeof dressMapCfg === 'object') ? dressMapCfg : {});
     // Judges each class expects: a total needs all of their protocols
     setCompetitionSetting(competitionId, 'dressageJudgeMapping', (judgeMapCfg && typeof judgeMapCfg === 'object') ? judgeMapCfg : {});
 

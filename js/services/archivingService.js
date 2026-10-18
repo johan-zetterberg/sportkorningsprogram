@@ -1,6 +1,6 @@
 import { db, appId, auth } from '../config/firebase-config.js';
 import { setCompetitionSetting } from './competitionSettingsStore.js';
-import { dressagePrograms } from '../data/dressagePrograms.js';
+import { mergeCompetitionPrograms } from '../utils/dressageUtils.js';
 import {
     doc,
     serverTimestamp,
@@ -84,7 +84,7 @@ async function buildArchiveRows(competitionId) {
         precisionRows,
         marathonConfig,
         precisionConfig,
-        allPrograms: { ...dressagePrograms, ...(programOverrides || {}) },
+        allPrograms: mergeCompetitionPrograms(programOverrides),
         dressageJudgeMapping,
         judges,
         dressyrClassConfig,

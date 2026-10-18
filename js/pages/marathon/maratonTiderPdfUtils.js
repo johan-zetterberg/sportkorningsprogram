@@ -15,9 +15,10 @@ export function findMarathonPdfSection(sections, stage) {
   return (sections || []).find(section => normalizeMarathonPdfStage(section.title) === wanted) || null;
 }
 
-export function getMarathonPdfBaseStyles() {
+// font: the document's font (the shared Unicode font when it is loaded)
+export function getMarathonPdfBaseStyles(font = 'helvetica') {
   return {
-    font: 'helvetica',
+    font,
     headFontSize: 12,
     bodyFontSize: 11,
     timeFontSize: 12,

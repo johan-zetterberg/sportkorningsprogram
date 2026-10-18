@@ -11,6 +11,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl } from '../../utils/competitionLogo.js';
 import { resolvePdfCompetition } from '../../pdf/pdfCompetitionUtils.js';
 import { loadPdfLibs } from '../../pdf/pdfBase.js';
+import { getPdfFontName } from '../../pdf/pdfFonts.js';
 import {
   buildStageTimingRows,
   calculateTransportTiming,
@@ -749,7 +750,7 @@ async function generateMarathonPdfFromCurrent() {
   const mx = 40; // vänster/höger marginal
 
   // Standardstilar
-  const base = getMarathonPdfBaseStyles();
+  const base = getMarathonPdfBaseStyles(getPdfFontName(pdf));
 
   // Header-ritare enligt din önskade layout:
   // SRF-logga uppe till höger, till vänster: Namn (störst),

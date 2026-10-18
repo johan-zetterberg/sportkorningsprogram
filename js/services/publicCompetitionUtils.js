@@ -23,12 +23,23 @@ export function formatPublicTimeWindow(entries) {
 export function buildPublicMergeMap(...configs) {
   const mergeMap = new Map();
 
-  configs.filter(Boolean).forEach((raw) => {
+  configs.filter(Boolean).forEach((config) => {
+    const raw = config?.value ?? config;
     const source = raw?.mergeByClassNumber && typeof raw.mergeByClassNumber === 'object'
       ? raw.mergeByClassNumber
       : raw;
 
-    if (!source || typeof source !== 'object' || Array.isArray(source)) return;
+    // Legacy array shape [[1, 2], [5, 6]] (tdbMergeGroups), keyed as on the result pages
+    if (Array.isArray(source)) {
+      source.forEach((group) => {
+        const members = toArray(group).map(Number).filter(Number.isFinite).sort((a, b) => a - b);
+        if (!members.length) return;
+        const entry = { key: `TDBGROUP:${members.join('+')}`, label: `Sammanslagen: TDB #${members.join('/')}` };
+        members.forEach((member) => mergeMap.set(member, entry));
+      });
+      return;
+    }
+    if (!source || typeof source !== 'object') return;
 
     Object.entries(source).forEach(([groupKey, info]) => {
       const members = toArray(info?.members)

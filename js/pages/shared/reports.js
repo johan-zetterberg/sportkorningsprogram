@@ -2,6 +2,7 @@
 import { getEquipages } from '../../services/equipageService.js';
 import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { getConfig } from '../../services/competitionService.js';
+import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { getDressageStatusCollection, getAllDressageProtocols } from '../../services/dressageService.js';
 import { getMarathonTimingData, getMarathonResults, getMarathonStateDocuments, loadPauseWindows } from '../../services/marathonService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
@@ -118,7 +119,9 @@ export async function load() {
         safeReportFetch('tävlingsmetadata', () => getConfig(competitionId, 'competitionMeta'), {}),
         safeReportFetch('lag', () => getTeams(competitionId), []),
         safeReportFetch('dressyrprotokoll', () => getAllDressageProtocols(competitionId, eqs), () => new Map()),
-        safeReportFetch('domarfördelning', () => getConfig(competitionId, 'dressageJudgeMapping'), {})
+        safeReportFetch('domarfördelning', () => getConfig(competitionId, 'dressageJudgeMapping'), {}),
+        // The competition's own dressage programs and class mapping, as the result engine
+        loadDressageProgramSettings(competitionId)
     ]);
 
     equipages = eqs;

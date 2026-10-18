@@ -44,6 +44,8 @@ export async function createCompetition(data) {
           'precisionConfig',
           'display',
           'dressyrProgramMapping',
+          // The competition's own programs: the copied mapping may point to them
+          'dressagePrograms',
           'dressyrClassConfig',
           'dressageJudgeMapping',
           'horseTemperature',

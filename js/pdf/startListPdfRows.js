@@ -57,7 +57,7 @@ export function buildStartListPdfBody(rows = [], type, options = {}) {
     }
 
     if (options.viewMode === 'byclass' || options.viewMode === 'class') {
-      const currentClass = getPdfDisplayClass(rowData) || 'Okänd klass';
+      const currentClass = getPdfDisplayClass(rowData) || options.unknownClassLabel || 'Okänd klass';
       if (currentClass !== lastClass) {
         body.push([
           {
@@ -77,7 +77,7 @@ export function buildStartListPdfBody(rows = [], type, options = {}) {
     }
 
     tableRow.push(rowData.startNumber || '');
-    const multiStartBadge = rowData.hasMultipleStarts ? ` (${rowData.driverStartCount || 2} starter)` : '';
+    const multiStartBadge = rowData.hasMultipleStarts ? ` (${rowData.driverStartCount || 2} ${options.startsLabel || 'starter'})` : '';
     tableRow.push(`${rowData.driverName || ''}${multiStartBadge}\n${horseLabelForPdf(rowData)}`);
     tableRow.push(getPdfDisplayClass(rowData));
     tableRow.push(rowData.clubName || '');

@@ -4,6 +4,7 @@ import { getPublicCompetitionDocuments, getPublicCompetitionMessages, isMessageV
 import { getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildPublicClassSummary, buildPublicMergeMap } from './publicCompetitionUtils.js';
+import { pickMergeSource } from './mergeConfigService.js';
 
 function toArray(value) {
   return Array.isArray(value) ? value : [];
@@ -93,7 +94,8 @@ export async function getPublicCompetitionViewModel(competition) {
   ]);
 
   const startTimes = startTimesCfg?.times || {};
-  const mergeMap = buildPublicMergeMap(displayConfig, tdbMergeGroups, classMergeMap, tdbMergeMap);
+  // One merge source, picked as on every result page (mergeConfigService)
+  const mergeMap = buildPublicMergeMap(pickMergeSource({ display: displayConfig, tdbMergeGroups, classMergeMap, tdbMergeMap }));
   const classSummary = shouldLoadClassSummary ? buildPublicClassSummary({
     equipages,
     startTimes,

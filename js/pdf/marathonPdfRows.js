@@ -1,3 +1,30 @@
+import { formatPdfPenalty } from './resultPdfFormatUtils.js';
+
+/**
+ * The protocol's summary row (obstacles, A, B, stages, other, total) from the
+ * result engine. Not started, withdrawn or missing class settings leave the
+ * totals null/undefined: printed as —, the withdrawn label or ELIM, never a
+ * crash on toFixed.
+ */
+export function buildMarathonSummaryRow(res = {}, { withdrawn = false, withdrawnLabel = 'STR' } = {}) {
+  const result = res || {};
+  const stages = result.stages || {};
+  const cell = (value, eliminated = false) => formatPdfPenalty(value, { eliminated, withdrawn, withdrawnLabel });
+  const penA = stages.A?.timePenalty;
+  const penB = stages.B?.timePenalty;
+  const hasStagePenalty = Number.isFinite(penA) || Number.isFinite(penB);
+  const stagesEliminated = penA === Infinity || penB === Infinity;
+  const stageSum = hasStagePenalty ? (Number.isFinite(penA) ? penA : 0) + (Number.isFinite(penB) ? penB : 0) : null;
+  return [
+    cell(result.obstacles?.sum, !!result.obstacles?.eliminated),
+    cell(penA),
+    cell(penB),
+    cell(stageSum, stagesEliminated),
+    cell(result.otherPenalty),
+    cell(result.totalPenalty, !!result.eliminated)
+  ];
+}
+
 function timestampToMs(value) {
   if (!value) return null;
   if (typeof value === 'number' && Number.isFinite(value)) return value;

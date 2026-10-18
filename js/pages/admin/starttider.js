@@ -45,6 +45,8 @@ import {
 import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
+import { pickMergeSource } from '../../services/mergeConfigService.js';
 import { t } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import {
@@ -1756,7 +1758,7 @@ ${renderStarttiderToolbarSection({
 // ======= Datainhämtning & Realtidslyssnare =======
 async function loadData() {
     // === ÄNDRING: Lade till displayCfg och de gamla merge-filerna ===
-    const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy, teamsData, feiStartOrderConfig, dressageProgramMapping, dressageJudgeMapping] = await Promise.all([
+    const [cfgDoc, equipagesData, marathonDocs, timingDocs, resultsDocs, displayCfg, mergeCfgA, mergeCfgB, mergeCfgC, marathonCfg, marathonCfgLegacy, teamsData, feiStartOrderConfig, , dressageJudgeMapping] = await Promise.all([
         // Fresh: a cached copy can be an hour old and would be saved back
         getConfig(competitionId, 'startTimes', true),
         getEquipages(competitionId),
@@ -1771,7 +1773,8 @@ async function loadData() {
         getConfig(competitionId, 'maratonConfig').catch(() => null),
         getTeams(competitionId).catch(() => []),
         getConfig(competitionId, 'feiStartOrder').catch(() => ({})),
-        getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+        // The competition's own dressage programs and class mapping, as the result engine
+        loadDressageProgramSettings(competitionId),
         getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
     await loadPauseWindows(competitionId);
@@ -1781,7 +1784,6 @@ async function loadData() {
         mergedMarathonConfig = { ...mergedMarathonConfig, ...marathonCfgLegacy };
     }
     setMarathonConfig(mergedMarathonConfig);
-    setCompetitionSetting(competitionId, 'klassProgramMapping', dressageProgramMapping || {});
     setCompetitionSetting(competitionId, 'dressageJudgeMapping', dressageJudgeMapping || {});
 
     marathonMap.clear();
@@ -1830,7 +1832,8 @@ async function loadData() {
     // === ÄNDRING: Bygg merge-map FÖRST ===
     const cfgData = (displayCfg && displayCfg.exists()) ? (displayCfg.data()?.value ?? displayCfg.data()) : {};
     starttider_displayConfig = cfgData || {};
-    starttider_MERGE_MAP = buildStarttiderMergeMap(mergeCfgA || mergeCfgB || mergeCfgC || starttider_displayConfig);
+    // A missing document reads as {}: pick the source as every page does (mergeConfigService)
+    starttider_MERGE_MAP = buildStarttiderMergeMap(pickMergeSource({ tdbMergeGroups: mergeCfgA, classMergeMap: mergeCfgB, tdbMergeMap: mergeCfgC, display: starttider_displayConfig }));
 
     // === ÄNDRING: Dekorera ekipage-listan ===
     equipages = (equipagesData || [])

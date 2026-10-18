@@ -3,6 +3,7 @@
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+import { loadPdfFontData, installPdfFont } from './pdfFonts.js';
 
 function loadScriptTag(src) {
   return new Promise((resolve, reject) => {
@@ -23,6 +24,15 @@ function loadScriptTag(src) {
 }
 
 export async function loadPdfLibs() {
+  await loadPdfScripts();
+  // Unicode font for every document made after this (helvetica if it fails)
+  const jsPDF = typeof window !== 'undefined' ? window.jspdf?.jsPDF : null;
+  if (!jsPDF) return;
+  const fontData = await loadPdfFontData();
+  if (fontData) installPdfFont(jsPDF, fontData);
+}
+
+async function loadPdfScripts() {
   if (typeof window !== 'undefined' && window.jspdf && window.jspdf.jsPDF) return;
 
   // 1. Försök ladda lokalt för fullt offline-stöd

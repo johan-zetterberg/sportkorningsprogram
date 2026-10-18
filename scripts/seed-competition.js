@@ -98,6 +98,8 @@ function getProgramForClass(className, category = 'horse', forcePair = false) {
   return CLASS_DEFS[className]?.testKey || Object.keys(dressagePrograms)[0];
 }
 
+export const SEED_UNICODE_DRIVER_NAME = 'Łukasz Řehoř Őrsi';
+
 function createEquipage(sn, className, driverName, horseName, profile, options = {}) {
   const category = options.category || 'horse';
   return {
@@ -123,7 +125,8 @@ function getBaseProfiles() {
     createEquipage(6, 'Msv', 'Seeder Kusk 6', 'Fenix', 'marathon_finalized', { category: 'pair', forcePair: true }),
     createEquipage(7, 'Latt B', 'Seeder Kusk 7', 'Gloria', 'precision_finalized'),
     createEquipage(8, 'Latt B', 'Seeder Kusk 8', 'Hero', 'precision_running'),
-    createEquipage(9, 'Msv', 'Seeder Kusk 9', 'Indra', 'all_complete')
+    // Letters outside WinAnsi: the PDFs must print them (Unicode font)
+    createEquipage(9, 'Msv', SEED_UNICODE_DRIVER_NAME, 'Indra', 'all_complete')
   ];
 }
 

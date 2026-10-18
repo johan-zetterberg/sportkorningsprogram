@@ -18,8 +18,9 @@ import {
 import { calculateMarathonResult } from '../services/calculationService.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
-import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
-import { buildMarathonHoldDeductionRows, formatMarathonStageTimeLabel } from './marathonPdfRows.js';
+import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
+import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
+import { buildMarathonHoldDeductionRows, buildMarathonSummaryRow, formatMarathonStageTimeLabel } from './marathonPdfRows.js';
 import { formatMarathonExternalOtherPenalty, formatMarathonPenaltyExportValue } from '../utils/marathonExportUtils.js';
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
@@ -95,7 +96,7 @@ export async function printMarathonPdf(eq, d, competition) {
   let y = 40;
 
   const tVals = d || {};
-  const obstacles = getObstacleArray(d);
+  const obstacles = getObstacleArray(tVals);
 
   // 1. LOGGOR & HEADER
   const cc = normalizeCountryCode(eq?.country || eq?.nation || eq?.nationality) || 'se';
@@ -126,35 +127,25 @@ export async function printMarathonPdf(eq, d, competition) {
   if (horses && horses !== '—') { pdf.text(`${horses}`, mx, y); y += 12; }
   pdf.text(`${eq._mergedLabel || eq.className || ''}${eq.clubName ? ' • ' + eq.clubName : ''}`, mx, y); y += 14;
 
-  const hasStart = stageStartTS(tVals, 'A') || stageStartTS(tVals, 'T') || stageStartTS(tVals, 'B');
-  const status = hasStart ? t('started', isInternational) : t('not_started', isInternational);
-  pdf.text(`${t('status', isInternational)}: ${status}`, mx, y);
-  y += 10;
-
   if (!pdf.autoTable) { alert('AutoTable saknas.'); return; }
   const headStyle = { fillColor: [243, 244, 246], textColor: [55, 65, 81] };
 
   // 2. TABELL: SUMMERING
-  const res = calculateMarathonResult(eq, d, d);
+  const res = calculateMarathonResult(eq, tVals, tVals) || {};
+  const resStages = res.stages || {};
+  const withdrawn = isWithdrawnStatus(eq?.status) || isWithdrawnStatus(res.status);
 
-  const sumObsPen = res.obstacles.sum;
-  const obsElim = res.obstacles.eliminated;
-  const stagePenA = res.stages.A.timePenalty;
-  const stagePenB = res.stages.B.timePenalty;
-  const sumStagePen = (res.stages.A.timePenalty || 0) + (res.stages.B.timePenalty || 0);
-  const otherPen = res.otherPenalty;
-  const totalPen = res.totalPenalty;
+  const hasStart = stageStartTS(tVals, 'A') || stageStartTS(tVals, 'T') || stageStartTS(tVals, 'B');
+  let status = hasStart ? t('started', isInternational) : t('not_started', isInternational);
+  if (withdrawn) status = t('withdrawn', isInternational);
+  else if (res.eliminated) status = t('eliminated', isInternational);
+  pdf.text(`${t('status', isInternational)}: ${status}`, mx, y);
+  y += 10;
 
   pdf.autoTable({
     head: [[t('obstacles', isInternational) + ' ' + t('total', isInternational), 'A', 'B', t('section', isInternational) + ' ' + t('total', isInternational), t('other', isInternational), t('total', isInternational)]],
-    body: [[
-      (obsElim ? 'ELIM' : sumObsPen.toFixed(2)),
-      (stagePenA === Infinity ? 'ELIM' : (Number.isFinite(stagePenA) ? stagePenA.toFixed(2) : '—')),
-      (stagePenB === Infinity ? 'ELIM' : (Number.isFinite(stagePenB) ? stagePenB.toFixed(2) : '—')),
-      (sumStagePen === Infinity ? 'ELIM' : (Number.isFinite(sumStagePen) ? sumStagePen.toFixed(2) : '—')),
-      otherPen.toFixed(2),
-      (totalPen === Infinity ? 'ELIM' : totalPen.toFixed(2)),
-    ]],
+    // Null totals (not started, withdrawn, missing settings) print —, STR/WD or ELIM
+    body: [buildMarathonSummaryRow(res, { withdrawn, withdrawnLabel: t('pdf_withdrawn_short', isInternational) })],
     startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 },
     headStyles: headStyle
   });
@@ -168,7 +159,7 @@ export async function printMarathonPdf(eq, d, competition) {
     const start = stageStartTS(tVals, stage);
     const stop = stageStopTS(tVals, stage);
     const durMs = stageDurationMsSaved(tVals, stage);
-    const calculatedStage = res?.stages?.[stage] || {};
+    const calculatedStage = resStages[stage] || {};
     const displayDurMs = Number.isFinite(calculatedStage.durationMs) ? calculatedStage.durationMs : durMs;
     const pen = {
       points: calculatedStage.timePenalty,
@@ -194,23 +185,23 @@ export async function printMarathonPdf(eq, d, competition) {
         timeLabel,
         allowed,
         Number.isFinite(delta) ? `${delta > 0 ? '+' : ''}${delta} s` : '—',
-        pen.elim ? 'ELIM' : (Number.isFinite(pen.points) ? pen.points.toFixed(2) : '—')
+        formatPdfPenalty(pen.points, { eliminated: pen.elim })
       ]);
     }
   }
 
   if (stageRowsTimes.length) {
-    pdf.autoTable({ head: [[t('stage', isInternational), 'Start', t('finish', isInternational), t('time', isInternational), 'Tillåten tid', 'Avvikelse', t('penalty', isInternational)]], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
+    pdf.autoTable({ head: [[t('stage', isInternational), t('start', isInternational), t('finish', isInternational), t('time', isInternational), t('pdf_allowed_time', isInternational), t('pdf_deviation', isInternational), t('penalty', isInternational)]], body: stageRowsTimes, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
     y = pdf.lastAutoTable.finalY + 12;
   }
 
-  const obstacleTimes = d.obstacleTimes || {};
+  const obstacleTimes = tVals.obstacleTimes || {};
   const holdDeductionRows = buildMarathonHoldDeductionRows(obstacles, obstacleTimes, toTimeLabel);
   if (holdDeductionRows.length) {
     pdf.autoTable({
-      head: [['Uppehållsavdrag', 'Tidpunkt in / ut', 'Avdrag på B', 'Orsak / kommentar']],
+      head: [[t('pdf_hold_deduction', isInternational), t('pdf_time_in_out', isInternational), t('pdf_deduction_on_b', isInternational), t('pdf_reason_comment', isInternational)]],
       body: holdDeductionRows.map(row => [
-        `Hinder ${row.obstacleNumber}`,
+        `${t('obstacle', isInternational)} ${row.obstacleNumber}`,
         row.timeLabel,
         `-${row.holdTimeSec}s`,
         row.reason
@@ -224,7 +215,7 @@ export async function printMarathonPdf(eq, d, competition) {
   }
 
   // 4. TABELL: OBSERVATÖR
-  const obsLog = d.observerLog || {};
+  const obsLog = tVals.observerLog || {};
   const wrongGaitSec = Math.max(0, Math.round(Number(obsLog.wrongGaitSeconds || 0)));
   const halts = Array.isArray(obsLog.halts) ? obsLog.halts : [];
   const totalHaltSec = halts.reduce((acc, h) => acc + Math.max(0, Math.round(Number(h?.durSec || 0))), 0);
@@ -233,7 +224,7 @@ export async function printMarathonPdf(eq, d, competition) {
 
   if (wrongGaitSec > 0 || totalHaltSec > 0 || obsNotes) {
     pdf.autoTable({
-      head: [['Fel gångart (s)', 'Halter (antal)', 'Stopptid (Σ)', 'Anteckning']],
+      head: [[t('pdf_wrong_gait_s', isInternational), t('pdf_halts_count', isInternational), t('pdf_stop_time_sum', isInternational), t('pdf_note', isInternational)]],
       body: [[String(wrongGaitSec), String(halts.length), formatSec(totalHaltSec), obsNotes || '']],
       startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4, cellWidth: 'auto' },
       headStyles: headStyle
@@ -241,7 +232,7 @@ export async function printMarathonPdf(eq, d, competition) {
     y = pdf.lastAutoTable.finalY + (haltRows.length ? 10 : 12);
 
     if (haltRows.length) {
-      pdf.autoTable({ head: [['#', 'Klockslag', 'Varaktighet']], body: haltRows, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
+      pdf.autoTable({ head: [['#', t('pdf_clock_time', isInternational), t('pdf_duration', isInternational)]], body: haltRows, startY: y, theme: 'grid', styles: { fontSize: 9, cellPadding: 4 }, headStyles: headStyle });
       y = pdf.lastAutoTable.finalY + 12;
     }
   }
@@ -311,8 +302,8 @@ export async function printMarathonPdf(eq, d, competition) {
     pdf.autoTable({
       startY: y,
       head: hasRoute
-        ? [[t('obstacles', isInternational), t('time', isInternational), t('penalty', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Väg', 'Komm.']]
-        : [[t('obstacles', isInternational), t('time', isInternational), t('penalty', isInternational), t('knockdown', isInternational), t('other', isInternational), 'Start / ' + t('finish', isInternational), 'Komm.']],
+        ? [[t('obstacles', isInternational), t('time', isInternational), t('penalty', isInternational), t('knockdown', isInternational), t('other', isInternational), t('start', isInternational) + ' / ' + t('finish', isInternational), t('route_label', isInternational), t('pdf_comment_short', isInternational)]]
+        : [[t('obstacles', isInternational), t('time', isInternational), t('penalty', isInternational), t('knockdown', isInternational), t('other', isInternational), t('start', isInternational) + ' / ' + t('finish', isInternational), t('pdf_comment_short', isInternational)]],
 
       body: hasRoute
         ? rowsObs
@@ -334,7 +325,8 @@ export async function printMarathonPdf(eq, d, competition) {
 }
 
 export async function generateMarathonListPdf(equipages, competition) {
-  const isInternational = competition?.meta?.isInternational || false;
+  // English for international competitions (flag in config/competitionMeta)
+  const { isInt: isInternational } = await resolvePdfLanguage(competition);
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
   if (!jsPDF) { alert('PDF-bibliotek kunde inte laddas.'); return; }
@@ -343,7 +335,7 @@ export async function generateMarathonListPdf(equipages, competition) {
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const srfLogo = await loadStandardHeaderLogos(competition);
-  const title = `MARATHON – ${t('results', isInternational).toUpperCase()}`;
+  const title = t('pdf_marathon_results_title', isInternational);
   let y = drawStandardHeader(doc, competition, title, srfLogo, 30, 40);
 
   // -- DYNAMIC COLUMNS --
@@ -363,14 +355,15 @@ export async function generateMarathonListPdf(equipages, competition) {
     t('driver', isInternational) + ' / ' + t('horse', isInternational),
     t('class', isInternational),
     t('club', isInternational) + ' / NF',
-    (isInternational ? 'Pen A' : 'Straff A'),
-    (isInternational ? 'Pen T' : 'Straff T'),
-    (isInternational ? 'Pen B' : 'Straff B')
+    t('pdf_penalty_a', isInternational),
+    t('pdf_penalty_t', isInternational),
+    t('pdf_penalty_b', isInternational)
   ];
+  const obstacleShort = t('pdf_obstacle_short', isInternational);
   for (let i = 1; i <= maxObstacles; i++) {
-    headerRow.push(`H${i}`);
+    headerRow.push(`${obstacleShort}${i}`);
   }
-  headerRow.push('H-' + t('total', isInternational).substring(0, 1));
+  headerRow.push(t('pdf_obstacles_total_short', isInternational));
   headerRow.push(t('other', isInternational));
   headerRow.push(t('total', isInternational));
 
@@ -428,7 +421,7 @@ export async function generateMarathonListPdf(equipages, competition) {
     const row = [
       eq.place || '–',
       eq.startNumber || '',
-      { content: `${eq.driverName}\n${horseText}`, styles: { fontSize: 8 } },
+      { content: `${eq.driverName || ''}\n${horseText}`, styles: { fontSize: 8 } },
       eq.className || '',
       eq.clubName || '',
       formatStagePenalty(mRes.stages?.A),
@@ -438,13 +431,8 @@ export async function generateMarathonListPdf(equipages, competition) {
 
     for (let i = 1; i <= maxObstacles; i++) {
       const oData = obsItems.find(o => Number(o.number || o.obstacleNumber || o.nr || o.hinderNr) === i);
-      if (oData?.eliminated) {
-        row.push('ELIM');
-      } else if (oData?.penalty != null) {
-        row.push(oData.penalty.toFixed(2));
-      } else {
-        row.push('—');
-      }
+      // Null-safe: an obstacle without a penalty (or one stored as text) never throws
+      row.push(formatPdfPenalty(oData?.penalty, { eliminated: !!oData?.eliminated }));
     }
 
     const hasDrivenObstacles = obsItems.some(o => o.penalty != null || o.timeSec != null || o.eliminated);
@@ -452,7 +440,7 @@ export async function generateMarathonListPdf(equipages, competition) {
       ? formatMarathonPenaltyExportValue(mRes.obstacles?.sum, { equipage: eq, marathonResult: mRes })
       : '—';
     const totalVal = mRes.isClearRound && !mRes.eliminated && mRes.totalPenalty != null
-      ? (mRes.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+      ? t(mRes.clearRoundApproved ? 'pdf_clear_round_approved' : 'pdf_clear_round_not_approved', isInternational)
       : ((hasDrivenObstacles || mRes.stages?.B?.durationMs != null || mRes.eliminated)
           ? formatMarathonPenaltyExportValue(mRes.totalPenalty, { equipage: eq, marathonResult: mRes })
           : '—');
@@ -479,7 +467,7 @@ export async function generateMarathonListPdf(equipages, competition) {
     styles: { fontSize: 8, cellPadding: 3 },
     headStyles: { fillColor: [220, 220, 220], textColor: 20 },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 25 },
+      0: { halign: 'center', cellWidth: 30 }, // fits "Rank" too
       1: { halign: 'center', cellWidth: 25 },
       2: { cellWidth: 100 },
       4: { cellWidth: 120, cellPadding: { top: 3, bottom: 3, left: 35, right: 3 } }, // Land/Klubb

@@ -39,6 +39,7 @@ import {
   shouldRestoreDressageDraft
 } from './dressageDraft.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 let competitionId = null;
 let currentDressageTest = null;
@@ -1782,8 +1783,8 @@ export function load() {
         loaded = await Promise.all([
           getEquipages(competitionId),
           getConfig(competitionId, 'startTimes'),
-          getConfig(competitionId, 'dressyrProgramMapping'),
-          getConfig(competitionId, 'dressagePrograms'),
+          // The competition's own dressage programs and class mapping, as the result engine
+          loadDressageProgramSettings(competitionId),
           getConfig(competitionId, 'dressageJudgeMapping'),
           getConfig(competitionId, 'dressageRules'),
           getDressageStatusCollection(competitionId)
@@ -1793,18 +1794,10 @@ export function load() {
       }
       // Left (or reloaded) the page meanwhile: start no listeners
       if (myLoad !== inputLoadSeq) return;
-      const [equipages, startTimes, mappingCfg, overrides, judgeMapCfg, rulesCfg, statusDocs] = loaded;
+      const [equipages, startTimes, , judgeMapCfg, rulesCfg, statusDocs] = loaded;
 
-      // Gör mapping + ev. overrides tillgängliga globalt
-      const rawMap = (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {};
-      setCompetitionSetting(competitionId, 'klassProgramMapping', (rawMap && typeof rawMap.mapping === 'object') ? rawMap.mapping : rawMap);
       setCompetitionSetting(competitionId, 'dressageJudgeMapping', judgeMapCfg || {});
       window.dressageRules = rulesCfg || {};
-
-      if (overrides && typeof overrides === 'object' && Object.keys(overrides).length) {
-        const base = getPrograms();
-        setCompetitionSetting(competitionId, 'dressagePrograms', { ...base, ...(window.dressagePrograms || {}), ...overrides });
-      }
 
       // Bygg selecterna när allt finns
       populateSelectors();

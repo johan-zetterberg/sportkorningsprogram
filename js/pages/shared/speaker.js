@@ -25,7 +25,7 @@ import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosServ
 import { getFlagHtml } from '../../services/flagsService.js';
 import { escapeHtml, isWithdrawnEquipage, jsStringAttr, msToLabel } from '../../utils/sharedUtils.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
-import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
+import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 import {
     stageDurationMsSaved,
@@ -41,7 +41,6 @@ import {
     calculateClassSplitStats,
     maraton_marathonConfig
 } from '../../utils/marathonUtils.js';
-import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 
 const escapeAttr = (value) => escapeHtml(value ?? '');
 
@@ -288,6 +287,7 @@ function getSpeakerStateContext() {
         setAllJudges: value => { allJudges = value || []; },
         setStartTimes: value => { startTimes = value || {}; },
         setPrecisionConfig: value => { precisionConfig = value || {}; },
+        setMergedPrograms: value => { mergedPrograms = value || {}; },
         setGloballyPaused: value => { isGloballyPaused = value === true; },
         setPauseStartTime: value => { pauseStartTime = value || 0; },
         getCurrentDiscipline: () => currentDiscipline,
@@ -1971,13 +1971,13 @@ export async function load() {
 
     let equipagesRaw; // Define outside try/catch for use in verify
     try {
-        let startTimesData, precisionConfigRaw, programsRaw, mappingCfg, judgesRaw, maratonConfigRaw, snapshot;
-        [equipagesRaw, startTimesData, precisionConfigRaw, programsRaw, mappingCfg, judgesRaw, maratonConfigRaw, snapshot] = await Promise.all([
+        let startTimesData, precisionConfigRaw, programSettings, judgesRaw, maratonConfigRaw, snapshot;
+        [equipagesRaw, startTimesData, precisionConfigRaw, programSettings, judgesRaw, maratonConfigRaw, snapshot] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'startTimes').catch(() => ({})),
             getConfig(competitionId, 'precisionConfig').catch(() => ({})),
-            getConfig(competitionId, 'dressagePrograms').catch(() => ({})),
-            getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+            // The competition's own dressage programs and class mapping, as the result engine
+            loadDressageProgramSettings(competitionId),
             getJudges(competitionId).catch(() => []),
             getConfig(competitionId, 'maratonConfig').catch(() => null),
             // An archived competition shows the results it was archived with
@@ -1997,12 +1997,7 @@ export async function load() {
         }));
 
         precisionConfig = precisionConfigRaw || {};
-        const base = (typeof globalDressagePrograms !== 'undefined' ? globalDressagePrograms : {});
-        mergedPrograms = { ...base, ...(window.dressagePrograms || {}), ...(programsRaw || {}) };
-
-        // Expose for helpers if needed
-        setCompetitionSetting(competitionId, 'klassProgramMapping', mappingCfg || {});
-        setCompetitionSetting(competitionId, 'dressagePrograms', mergedPrograms);
+        mergedPrograms = programSettings.programs;
 
         allEquipages = (equipagesRaw || [])
             .filter(e => e && e.startNumber != null)

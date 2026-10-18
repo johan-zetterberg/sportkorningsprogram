@@ -11,7 +11,7 @@ import {
   listenForDressageProtocolsCollectionGroup
 } from '../../services/dressageService.js';
 import { getConfig } from '../../services/competitionService.js';
-import { dressagePrograms } from '../../data/dressagePrograms.js';
+import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { JUDGE_MAPPING_NOTICE_ID, renderJudgeMappingNotice } from '../../ui/judgeMappingNotice.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
@@ -2215,6 +2215,9 @@ function listenMergeConfig(compId) {
         redecorateAndRecompute();
     }));
 
+    // The competition's own dressage programs and class mapping
+    mergeUnsubs.push(listenDressageProgramSettings(compId, () => redecorateAndRecompute()));
+
     const keys = ['dressyrClassConfig', 'dressageJudgeMapping'];
 
     keys.forEach(key => {
@@ -2296,27 +2299,23 @@ export async function load() {
     const competitionId = competition.id;
 
     try {
-        // Reset global programs to prevent pollution from other pages (e.g. speaker view with partial config)
-        // This allows us to load the clean static/config data fresh.
-        setCompetitionSetting(competitionId, 'dressagePrograms', null);
-
         // === STEG 1: Hämta all grunddata ===
         const [
             equipages,
             startCfg,
-            progOverrides,
+            ,
             displayCfg,
             mergeCfgA,
             mergeCfgB,
             mergeCfgC,
             dClassCfg,
             judges,
-            mappingCfg,
             marathonCfg
         ] = await Promise.all([
             getEquipages(competitionId),
             getConfig(competitionId, 'startTimes').catch(() => null),
-            getConfig(competitionId, 'dressagePrograms').catch(() => null),
+            // The competition's own dressage programs and class mapping, as the result engine
+            loadDressageProgramSettings(competitionId),
             getConfig(competitionId, 'display').catch(() => ({})),
             getConfig(competitionId, 'tdbMergeGroups').catch(() => null), // <-- NY
             getConfig(competitionId, 'classMergeMap').catch(() => null),  // <-- NY
@@ -2324,7 +2323,6 @@ export async function load() {
             getConfig(competitionId, 'dressyrClassConfig').catch(() => null), // Clear Round config
             // One read (a listener here was never stopped); not readable for the public
             getJudges(competitionId).catch(() => []),
-            getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
             // Clear round set in the marathon admin applies to dressage too
             getConfig(competitionId, 'maratonConfig').catch(() => ({})),
             // An archived competition shows the results it was archived with
@@ -2333,36 +2331,14 @@ export async function load() {
         if (mySeq !== loadSeq) return; // left or reloaded while loading
 
         // === STEG 2: Bearbeta grunddata ===
-        // === STEG 2: Bearbeta grunddata ===
-        // Safe merge of programs to avoid wiping out movements if override is partial
-        const basePrograms = { ...dressagePrograms }; // Start with static
-        const mergedProgs = { ...basePrograms };
-
-        if (progOverrides && typeof progOverrides === 'object') {
-            Object.keys(progOverrides).forEach(key => {
-                const ovr = progOverrides[key];
-                const base = basePrograms[key];
-                if (base && ovr) {
-                    // If override lacks movements, keep base movements
-                    if ((!ovr.movements || !ovr.movements.length) && (base.movements && base.movements.length)) {
-                        ovr.movements = base.movements;
-                    }
-                }
-                mergedProgs[key] = ovr;
-            });
-        }
-
-        // Explicitly set window property for dressageUtils to find it
-        setCompetitionSetting(competitionId, 'dressagePrograms', mergedProgs);
-        // Also mutate the local import just in case, though window.dressagePrograms takes precedence in 'getPrograms()'
-        Object.assign(dressagePrograms, mergedProgs);
+        // Programs and class mapping are stored by loadDressageProgramSettings
+        // (the built-in list itself is never changed: it is shared by every competition)
         window.startTimes = (startCfg?.times) || (startCfg?.value?.times) || {};
 
         allCompetitionJudges = judges || []; //
         dressage_displayConfig = displayCfg || {};
         dressage_marathonConfig = marathonCfg?.value || marathonCfg || {};
         setCompetitionSetting(competitionId, 'dressyrClassConfig', dClassCfg || {});
-        setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
 
         // === NYTT: Bygg merge-map FÖRST ===
         dress_buildMergeMap(pickMergeSource({ tdbMergeGroups: mergeCfgA, classMergeMap: mergeCfgB, tdbMergeMap: mergeCfgC, display: displayCfg }));

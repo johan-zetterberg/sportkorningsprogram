@@ -15,6 +15,25 @@ import { escapeHtml } from './sharedUtils.js';
 export { normJudgeId, getProtocolProgramKey, resolveDressageProgramKey, findProgramKey } from '../core-engine/dressage.js';
 
 /**
+ * The programs the result engine uses for a competition: the built-in ones
+ * with the competition's own (config/dressagePrograms) on top, merged as the
+ * Cloud Function's getContext does. Never changes the built-in list.
+ */
+export function mergeCompetitionPrograms(ownPrograms, builtIn = _programs) {
+  const own = (ownPrograms && typeof ownPrograms === 'object' && !Array.isArray(ownPrograms)) ? ownPrograms : {};
+  return { ...(builtIn || {}), ...own };
+}
+
+/**
+ * config/dressyrProgramMapping is stored flat or under .mapping (as the
+ * engine's resolveDressageProgramKey reads it): class name -> program key
+ */
+export function normalizeProgramMapping(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return (raw.mapping && typeof raw.mapping === 'object') ? raw.mapping : raw;
+}
+
+/**
  * Dressyrprogrammen: den aktiva tävlingens (inbyggda + egna, se
  * competitionSettingsStore) eller de inbyggda.
  */

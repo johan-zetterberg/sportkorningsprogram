@@ -37,6 +37,7 @@ import {
 
 import { setupDressageModalOnce, openDetails as openDetailsModal } from '../../ui/dressageModal.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 // ================= State =================
 let competitionId = null;
@@ -809,6 +810,12 @@ function setupAllListeners() {
     triggerRender();
   });
   unsubscribes.push(unProtoGroup);
+
+  // The competition's own dressage programs and class mapping
+  unsubscribes.push(listenDressageProgramSettings(competitionId, ({ programs }) => {
+    mergedPrograms = programs;
+    triggerRender();
+  }));
 }
 
 // ================= Entry/Exit =================
@@ -830,11 +837,11 @@ export async function load() {
   try {
     setupDressageModalOnce(); // Ensure modal CSS/HTML is present
 
-    const [equipagesRaw, startTimesData, mappingCfg, overrides, displayCfg, judgeMappingCfg] = await Promise.all([
+    const [equipagesRaw, startTimesData, programSettings, displayCfg, judgeMappingCfg] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'startTimes').catch(() => ({})),
-      getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
-      getConfig(competitionId, 'dressagePrograms').catch(() => ({})),
+      // The competition's own dressage programs and class mapping, as the result engine
+      loadDressageProgramSettings(competitionId),
       getConfig(competitionId, 'display').catch(() => ({})),
       getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({}))
     ]);
@@ -877,11 +884,7 @@ export async function load() {
     const stVal = startTimesData?.value ?? startTimesData;
     startTimes = stVal?.times ?? stVal ?? {};
 
-    const base = (typeof globalDressagePrograms !== 'undefined' ? globalDressagePrograms : {});
-    mergedPrograms = { ...base, ...(window.dressagePrograms || {}), ...(overrides || {}) };
-
-    setCompetitionSetting(competitionId, 'klassProgramMapping', (mappingCfg && typeof mappingCfg === 'object') ? mappingCfg : {});
-    setCompetitionSetting(competitionId, 'dressagePrograms', mergedPrograms);
+    mergedPrograms = programSettings.programs;
 
     setupAllListeners();
 

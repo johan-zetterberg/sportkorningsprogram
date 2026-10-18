@@ -19,7 +19,7 @@ import { isPrivileged, isWithdrawnEquipage } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
-import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
@@ -339,7 +339,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
       [{ content: 'Domare:', styles: { fontStyle: 'bold' } }, `${judge.position} – ${judge.name}`],
       [{ content: 'Datum:', styles: { fontStyle: 'bold' } }, today],
       [{ content: 'Program:', styles: { fontStyle: 'bold' } }, `${effectiveProgram.name || ''} (Maxpoäng: ${maxScore})`],
-      [{ content: 'Straffpoängskoefficient:', styles: { fontStyle: 'bold' } }, penaltyCoeff.toFixed(2)],
+      [{ content: 'Straffpoängskoefficient:', styles: { fontStyle: 'bold' } }, formatPdfPenalty(penaltyCoeff)],
     ];
     pdf.autoTable({ startY: y, body: headerInfo, theme: 'plain', styles: { fontSize: 9, cellPadding: 2 }, columnStyles: { 0: { cellWidth: 140 } } });
     y = pdf.lastAutoTable.finalY + 15;
@@ -473,7 +473,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
       [{ content: 'Sammanställning:', styles: { fontStyle: 'bold' } }, `Totalt för ${judgesWithProtocols.length} domare`],
       [{ content: 'Datum:', styles: { fontStyle: 'bold' } }, today],
       [{ content: 'Program:', styles: { fontStyle: 'bold' } }, `${effectiveProgram.name || ''} (Maxpoäng: ${maxScore})`],
-      [{ content: 'Straffpoängskoefficient:', styles: { fontStyle: 'bold' } }, penaltyCoeff.toFixed(2)]
+      [{ content: 'Straffpoängskoefficient:', styles: { fontStyle: 'bold' } }, formatPdfPenalty(penaltyCoeff)]
     ];
     pdf.autoTable({ startY: y, body: totalHeaderInfo, theme: 'plain', styles: { fontSize: 9, cellPadding: 2 }, columnStyles: { 0: { cellWidth: 140 } } });
     y = pdf.lastAutoTable.finalY + 15;
@@ -520,7 +520,7 @@ export async function generateDressagePdf(startNumber, processedResultsRef, opts
     const displaySum = firstFinite(finalRes?.points, data.finalPoints, data.totalPoints, sum) || 0;
 
     const summary = [
-      ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : displaySum.toFixed(1)],
+      ['Sammanräknad totalpoäng:', data.eliminated ? 'ELIM' : formatPdfPenalty(displaySum, { decimals: 1 })],
       ['Snittprocent (alla domare):', data.eliminated ? 'ELIM' : fmtPct(avgPercent)],
       ['Felkörningspoäng:', (Number(data.errorPoints) || 0).toFixed(1)],
       // Withdrawn: no place, shown as Struken (not ELIM)
@@ -541,10 +541,11 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   const pageWidth = doc.internal.pageSize.getWidth();
 
   const srfLogo = await loadStandardHeaderLogos(competition);
-  const isInt = !!competition?.meta?.isInternational;
-  const titleStr = isInt
-    ? `DRESSAGE - ${t('results', true).toUpperCase()}: ${currentClass || ''}`
-    : `DRESSYR – RESULTATLISTA: ${currentClass || ''}`;
+  // English for international competitions (flag in config/competitionMeta)
+  const { isInt } = await resolvePdfLanguage(competition);
+  // The page's "all classes" filter value is Swedish
+  const classTitle = (currentClass === 'Alla klasser' || !currentClass) ? t('all_classes', isInt) : currentClass;
+  const titleStr = `${t('pdf_dressage_results_title', isInt)}: ${classTitle}`;
 
   let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40);
   // Withdrawn (status or flag): not in the result list and no place
@@ -573,7 +574,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   });
 
   if (judgesStr) {
-    const textLines = doc.splitTextToSize(`Domare: ${judgesStr}`, pageWidth - 80); // Margin 40 on each side
+    const textLines = doc.splitTextToSize(`${t('pdf_judges', isInt)}: ${judgesStr}`, pageWidth - 80); // Margin 40 on each side
     doc.text(textLines, 40, y);
     y += (textLines.length * 12) + 3; // Advance Y based on number of lines
   }
@@ -629,7 +630,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
 
   const head = [headerRow];
   const colStyles = {
-    0: { cellWidth: 25 },
+    0: { cellWidth: 30 }, // fits "Rank" too
     1: { cellWidth: 25 },
     2: { minCellWidth: 100 }, // Driver / Horse - auto width
     3: { minCellWidth: 80 },  // Klass - auto width
@@ -665,7 +666,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
 
     if (includeClassSeparators && classLabel !== lastBodyClassLabel) {
       body.push([{
-        content: `Klass: ${classLabel || 'Okänd klass'}`,
+        content: `${t('class', isInt)}: ${classLabel || t('pdf_unknown_class', isInt)}`,
         colSpan: headerRow.length,
         styles: {
           fillColor: [238, 238, 238],
@@ -692,7 +693,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     const row = [
       eq.plac || '–',
       eq.startNumber || '',
-      `${eq.driverName}\n${getMomentHorseLabel(eq)}`,
+      `${eq.driverName || ''}\n${getMomentHorseLabel(eq)}`,
       eq._mergedLabel || eq.className || '',
       eq.clubName || '',
       startStr
@@ -724,6 +725,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     row.push(formatPdfPenalty(penalty, {
       eliminated: isElim,
       withdrawn: isWithdrawnStatus(eq.status),
+      withdrawnLabel: t('pdf_withdrawn_short', isInt),
       empty: ''
     }));
 
@@ -838,7 +840,7 @@ export async function generateDressageOfficialsPdf(equipages, startTimes, compet
     return {
       time: displayTime,
       startNo: eq.startNumber,
-      driver: eq.driverName,
+      driver: eq.driverName || '',
       club: eq.clubName || '',
       class: eq._mergedLabel || eq.className,
       program: progName,

@@ -6,6 +6,7 @@ import { t } from '../utils/i18n.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { formatTotalDisciplinePdfPenalty, formatTotalPdfPenalty } from './resultPdfFormatUtils.js';
 import { resolveTotalResultsJsPdf } from './totalResultsPdfUtils.js';
+import { resolvePdfLanguage } from './pdfCompetitionUtils.js';
 
 function formatPrecisionTimePdfLabel(timeMs, eliminated = false) {
     if (eliminated) return 'ELIM';
@@ -50,14 +51,14 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     ];
     await Promise.all(assetPromises);
 
-    // 2. HEADER
-    const isInt = !!competition?.meta?.isInternational;
+    // 2. HEADER (English for international competitions)
+    const { isInt, isEn } = await resolvePdfLanguage(competition);
     y = drawStandardHeader(doc, competition, t('results', isInt).toUpperCase(), srfLogo, 30, mx);
 
     // 3. OFFICIALS (Optional)
     if (options.officials) {
         doc.setFontSize(8).setFont(undefined, 'italic');
-        const lines = doc.splitTextToSize(`Funktionärer: ${options.officials.replace(/<[^>]*>/g, ' ')}`, pageWidth - 2 * mx);
+        const lines = doc.splitTextToSize(`${t('officials', isInt)}: ${options.officials.replace(/<[^>]*>/g, ' ')}`, pageWidth - 2 * mx);
         doc.text(lines, mx, y);
         y += (lines.length * 10) + 10;
     } else {
@@ -71,24 +72,18 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
         `${t('driver', isInt)} / ${t('horse', isInt)}`,
         t('class', isInt),
         t('club', isInt),
-        'Dressage',
-        'Marathon',
-        'Cones',
+        t('dressyr', isInt),
+        t('maraton', isInt),
+        t('precision', isInt),
         t('total', isInt)
     ]];
-
-    if (!isInt) {
-        headers[0][5] = 'Dressyr';
-        headers[0][6] = 'Maraton';
-        headers[0][7] = 'Precision';
-        headers[0][8] = 'Totalt';
-    }
+    const penaltyLabels = { withdrawnLabel: t('pdf_withdrawn_short', isInt) };
 
     const body = [];
     let lastClass = null;
 
     rows.forEach(r => {
-        const displayClass = r._mergedLabel || r.className || 'Okänd klass';
+        const displayClass = r._mergedLabel || r.className || t('pdf_unknown_class', isInt);
         if (options.viewMode === 'byclass' && displayClass !== lastClass) {
             body.push([
                 { content: displayClass, colSpan: 9, styles: { fillColor: [243, 244, 246], fontStyle: 'bold', fontSize: 10 } }
@@ -107,10 +102,10 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
             driverCell,
             displayClass,
             r.clubName || '',
-            formatTotalDisciplinePdfPenalty(r, 'dressage'),
-            formatTotalDisciplinePdfPenalty(r, 'marathon'),
-            `${formatTotalDisciplinePdfPenalty(r, 'precision')}${formatPrecisionTimePdfLabel(r?.precision?.timeMs, r?.precision?.eliminated) ? `\n${formatPrecisionTimePdfLabel(r?.precision?.timeMs, r?.precision?.eliminated)}` : ''}`,
-            { content: formatTotalPdfPenalty(r, isInt), styles: { fontStyle: 'bold' } }
+            formatTotalDisciplinePdfPenalty(r, 'dressage', penaltyLabels),
+            formatTotalDisciplinePdfPenalty(r, 'marathon', penaltyLabels),
+            `${formatTotalDisciplinePdfPenalty(r, 'precision', penaltyLabels)}${formatPrecisionTimePdfLabel(r?.precision?.timeMs, r?.precision?.eliminated) ? `\n${formatPrecisionTimePdfLabel(r?.precision?.timeMs, r?.precision?.eliminated)}` : ''}`,
+            { content: formatTotalPdfPenalty(r, isEn), styles: { fontStyle: 'bold' } }
         ]);
     });
 

@@ -860,23 +860,83 @@ export const DICTIONARY = {
     'elim': { sv: 'Elim.', en: 'Elim.' },
     'view_legend': { sv: 'Visa teckenförklaring', en: 'View legend' },
     'legend_short': { sv: 'Teckenförklaring', en: 'Legend' },
-    'unknown_driver': { sv: 'Okänd kusk', en: 'Unknown driver' }
+    'unknown_driver': { sv: 'Okänd kusk', en: 'Unknown driver' },
+
+    // PDF reports (English for international competitions)
+    'pdf_unknown_class': { sv: 'Okänd klass', en: 'Unknown class' },
+    'pdf_all': { sv: 'Alla', en: 'All' },
+    'pdf_starts': { sv: 'starter', en: 'starts' },
+    'pdf_judges': { sv: 'Domare', en: 'Judges' },
+    'pdf_withdrawn_short': { sv: 'STR', en: 'WD' },
+    'pdf_category_short': { sv: 'Kat', en: 'Cat.' },
+    'pdf_country_club': { sv: 'Land/Klubb', en: 'NF/Club' },
+    'pdf_startlist_title': { sv: 'STARTLISTA', en: 'START LIST' },
+    'pdf_startlist_dressage': { sv: 'DRESSYR – STARTLISTA', en: 'DRESSAGE – START LIST' },
+    'pdf_startlist_marathon': { sv: 'MARATON – STARTLISTA', en: 'MARATHON – START LIST' },
+    'pdf_startlist_precision': { sv: 'PRECISION – STARTLISTA', en: 'CONES – START LIST' },
+    'pdf_horselist_title': { sv: 'HÄSTLISTA', en: 'HORSE LIST' },
+    'pdf_dressage_results_title': { sv: 'DRESSYR – RESULTATLISTA', en: 'DRESSAGE – RESULT LIST' },
+    'pdf_marathon_results_title': { sv: 'MARATHON – RESULTAT', en: 'MARATHON – RESULTS' },
+    'pdf_precision_results_title': { sv: 'PRECISION – RESULTATLISTA', en: 'CONES – RESULT LIST' },
+    'pdf_penalty_a': { sv: 'Straff A', en: 'Pen A' },
+    'pdf_penalty_t': { sv: 'Straff T', en: 'Pen T' },
+    'pdf_penalty_b': { sv: 'Straff B', en: 'Pen B' },
+    'pdf_obstacle_short': { sv: 'H', en: 'O' },
+    'pdf_obstacles_total_short': { sv: 'H-T', en: 'O-T' },
+    'pdf_clear_round_approved': { sv: 'Godkänd', en: 'Approved' },
+    'pdf_clear_round_not_approved': { sv: 'Ej godkänd', en: 'Not approved' },
+    'pdf_allowed_time': { sv: 'Tillåten tid', en: 'Time allowed' },
+    'pdf_deviation': { sv: 'Avvikelse', en: 'Deviation' },
+    'pdf_hold_deduction': { sv: 'Uppehållsavdrag', en: 'Hold deduction' },
+    'pdf_time_in_out': { sv: 'Tidpunkt in / ut', en: 'Time in / out' },
+    'pdf_deduction_on_b': { sv: 'Avdrag på B', en: 'Deducted from B' },
+    'pdf_reason_comment': { sv: 'Orsak / kommentar', en: 'Reason / remark' },
+    'pdf_wrong_gait_s': { sv: 'Fel gångart (s)', en: 'Wrong gait (s)' },
+    'pdf_halts_count': { sv: 'Halter (antal)', en: 'Halts (count)' },
+    'pdf_stop_time_sum': { sv: 'Stopptid (Σ)', en: 'Stop time (Σ)' },
+    'pdf_note': { sv: 'Anteckning', en: 'Note' },
+    'pdf_clock_time': { sv: 'Klockslag', en: 'Clock time' },
+    'pdf_duration': { sv: 'Varaktighet', en: 'Duration' },
+    'pdf_comment_short': { sv: 'Komm.', en: 'Rem.' },
+    'pdf_time_seconds': { sv: 'Tid / s', en: 'Time / s' },
+    'pdf_time_faults': { sv: 'Tidfel', en: 'Time pen.' }
 
 };
 
 let competitionIsInternational = false;
 
+/** Whether a competition is international (FEI): competitionMeta's flag */
+export function isInternationalCompetition(competition = null) {
+    return Boolean(competition?.meta?.isInternational ?? competition?.isInternational);
+}
+
+/** The language to show: the user's own choice wins, then the competition's mode */
+export function chooseLanguage(userPref, isInternational = false) {
+    if (userPref === 'en' || userPref === 'sv') return userPref;
+    return isInternational ? 'en' : 'sv';
+}
+
+function readUserLanguagePref() {
+    try {
+        return typeof localStorage === 'undefined' ? null : localStorage.getItem('user_lang_pref');
+    } catch (_) {
+        return null;
+    }
+}
+
 export function setCompetitionLanguageContext(competition = null) {
-    competitionIsInternational = Boolean(
-        competition?.meta?.isInternational ?? competition?.isInternational
-    );
+    competitionIsInternational = isInternationalCompetition(competition);
 }
 
 export function getCurrentLanguage(isInternational = false) {
-    const userPref = localStorage.getItem('user_lang_pref');
-    if (userPref === 'en' || userPref === 'sv') return userPref;
-    const compInt = isInternational || competitionIsInternational;
-    return compInt ? 'en' : 'sv';
+    return chooseLanguage(readUserLanguagePref(), isInternational || competitionIsInternational);
+}
+
+/** A dictionary label in a given language ('sv' | 'en'); the key if it is missing */
+export function translateTo(key, lang = 'sv') {
+    const entry = DICTIONARY[String(key).toLowerCase()];
+    if (!entry) return key;
+    return lang === 'en' ? entry.en : entry.sv;
 }
 
 /**
@@ -886,17 +946,8 @@ export function getCurrentLanguage(isInternational = false) {
  * @returns {string} The translated string or the key if missing.
  */
 export function t(key, isInternational = false) {
-    const normKey = String(key).toLowerCase();
-    const entry = DICTIONARY[normKey];
-    if (!entry) return key; // Fallback to key if not found
-
-    // Priority 1: User Preference (if set in localStorage)
-    const userPref = localStorage.getItem('user_lang_pref');
-    if (userPref === 'en') return entry.en;
-    if (userPref === 'sv') return entry.sv;
-
-    // Priority 2: Competition Mode
-    return (isInternational || competitionIsInternational) ? entry.en : entry.sv;
+    // User preference first, then the competition's mode (getCurrentLanguage)
+    return translateTo(key, getCurrentLanguage(isInternational));
 }
 
 const DRESSAGE_TERMS = {

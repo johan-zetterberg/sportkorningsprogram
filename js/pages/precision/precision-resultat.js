@@ -87,7 +87,7 @@ import {
   downloadCsv,
   sanitizeForFilename
 } from '../../utils/sharedUtils.js';
-import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 const renderLiveDebounce = debounce(render, 60);
 
@@ -1030,6 +1030,8 @@ function listenMergeConfig(compId) {
     }));
     render();
   }));
+  // The competition's own dressage programs (overall standings)
+  mergeUnsubs.push(listenDressageProgramSettings(compId, () => render()));
 }
 
 function wireEventListeners() {
@@ -1135,7 +1137,7 @@ export async function load() {
     mergeCfgB,
     mergeCfgC,
     marathonCfg,
-    programMappingCfg,
+    ,
     judgeMappingCfg,
     snapshot
   ] = await Promise.all([
@@ -1151,15 +1153,15 @@ export async function load() {
     getConfig(competitionId, 'tdbMergeMap').catch(() => null),
     // Marathon stage times are penalised from the class settings (overall standings)
     getConfig(competitionId, 'maratonConfig').catch(() => ({})),
-    // Dressage program per class and the judges each class needs (overall standings)
-    getConfig(competitionId, 'dressyrProgramMapping').catch(() => ({})),
+    // The competition's own dressage programs, class mapping and the judges
+    // each class needs (overall standings), as the result engine
+    loadDressageProgramSettings(competitionId),
     getConfig(competitionId, 'dressageJudgeMapping').catch(() => ({})),
     // An archived competition shows the results it was archived with
     loadArchiveSnapshot(comp)
   ]);
   archiveSnapshot = snapshot;
 
-  setCompetitionSetting(competitionId, 'klassProgramMapping', (programMappingCfg && typeof programMappingCfg === 'object') ? programMappingCfg : {});
   precision_dressageJudgeMapping = (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? judgeMappingCfg : {};
 
   setMarathonConfig(marathonCfg?.value || marathonCfg || {});

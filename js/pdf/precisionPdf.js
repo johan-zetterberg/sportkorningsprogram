@@ -5,7 +5,8 @@ import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
 import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
-import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
+import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
+import { t } from '../utils/i18n.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 
@@ -235,7 +236,9 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   }
   await Promise.all(promises);
 
-  let y = drawStandardHeader(doc, competition, "PRECISION – RESULTATLISTA", srfLogo, 30, 40);
+  // English for international competitions (flag in config/competitionMeta)
+  const { isInt } = await resolvePdfLanguage(competition);
+  let y = drawStandardHeader(doc, competition, t('pdf_precision_results_title', isInt), srfLogo, 30, 40);
 
   // Officials / Judges (Below grey bar, Left aligned)
   y += 35;
@@ -243,14 +246,18 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
   if (judges.length > 0) {
     doc.setFontSize(9);
     doc.setFont(undefined, 'normal');
-    doc.text(`Domare: ${judges.join(', ')}`, 40, y);
+    doc.text(`${t('pdf_judges', isInt)}: ${judges.join(', ')}`, 40, y);
     y += 15;
   }
 
   doc.setFont(undefined, 'normal'); // Reset font for table
 
   // UPDATED HEADER with START column
-  const head = [['Plac', '#', 'Kusk / Häst', 'Klass', 'Land/Klubb', 'Start', 'Tid / s', 'Hinder', 'Tidfel', 'Totalt']];
+  const head = [[
+    t('rank', isInt), '#', `${t('driver', isInt)} / ${t('horse', isInt)}`, t('class', isInt),
+    t('pdf_country_club', isInt), t('start', isInt), t('pdf_time_seconds', isInt),
+    t('obstacles', isInt), t('pdf_time_faults', isInt), t('total', isInt)
+  ]];
 
   const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
   // Calculate placements on the same printable set, so withdrawn rows do not affect places.
@@ -264,11 +271,11 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
     return [
       row.place || '–',
       eq.startNumber,
-      `${eq.driverName}\n${horseLabel(eq)}`,
-      eq._mergedLabel || eq.className,
+      `${eq.driverName || ''}\n${horseLabel(eq)}`,
+      eq._mergedLabel || eq.className || '',
       eq.clubName || '',
       row.startT || '–', // Start time column
-      `${row.display.timeLabel}\n${formatPrecisionPdfTimeSeconds(row.d?.timeMs)}`,
+      `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.d?.timeMs)}`,
       formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
       formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
       { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } }
@@ -383,7 +390,7 @@ export async function generatePrecisionOfficialsPdf(equipages, precisionConfig, 
     return [
       stdStart,
       eq.startNumber,
-      `${eq.driverName}\n${eq.clubName || ''}`,
+      `${eq.driverName || ''}\n${eq.clubName || ''}`,
       cat,
       trackW ? `${trackW} cm` : '-',
       allowLabel,
