@@ -90,6 +90,24 @@ if (targets.includes('hosting')) {
 step('Unit tests');
 mustRun('npm test', 'Unit tests');
 
+// The same gate as GitHub Actions (.github/workflows/tests.yml): local
+// commits can be deployed before they are pushed
+step('Result engine copy in functions matches js/core-engine');
+mustRun('node scripts/copy-core-engine.js', 'Engine copy');
+if (run('git diff --exit-code --quiet -- functions/src/core-engine') !== 0) {
+  fail('functions/src/core-engine differed from js/core-engine (now copied) — commit the copy first. Nothing was deployed.');
+}
+
+if (targets.includes('functions')) {
+  step('Lint Cloud Functions');
+  mustRun('npm --prefix functions run lint', 'Functions lint');
+}
+
+step('Translation keys');
+const i18n = run('node scripts/audit_i18n.cjs', { capture: true });
+console.log(i18n.out);
+if (i18n.code !== 0 || !i18n.out.includes('All i18n keys')) fail('Translation keys are missing — nothing was deployed.');
+
 if (targets.includes('hosting')) {
   step('Service-worker cache list');
   mustRun('npm run check:sw-cache', 'Service-worker cache check');

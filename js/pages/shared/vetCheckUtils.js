@@ -162,54 +162,233 @@ export function hasVetStruckHorse(horses = []) {
   return (Array.isArray(horses) ? horses : []).some(horse => getHorseVetStatus(horse) === 'struken');
 }
 
-export function updateHorseVetStatus(horses = [], horseKey, status) {
-  const key = String(horseKey || '');
-  return (Array.isArray(horses) ? horses : []).map((horse, index) => {
-    if (getHorseStableKey(horse, index) !== key) return horse;
-    const nowIso = new Date().toISOString();
-    return {
-      ...horse,
-      vetStatus: normalizeVetStatus(status),
-      vetCheckedAt: nowIso,
-      inspections: {
-        ...(horse.inspections || {}),
-        initial: {
-          ...(horse.inspections?.initial || {}),
-          status: normalizeVetStatus(status),
-          checkedAt: nowIso
-        }
-      }
-    };
-  });
+// --- Older vet data on the public equipage ---------------------------------
+// Before the private collections, temperatures (horseTemperatures), clinical
+// findings (horses[].inspections[phase] / horses[].phases[phase]: pulse or
+// pulseBpm, respiration, mucosa, bitOk, harnessOk, notes) and notes
+// (vetNotes, vetNotes_<phase>, vetNote, horses[].vetNote) were stored on the
+// public equipage document.
+
+// Fields of a phase result that stay on the public horse
+const PUBLIC_INSPECTION_FIELDS = ['status', 'checkedAt'];
+const LEGACY_INSPECTION_CONTAINERS = ['inspections', 'phases'];
+const MAX_VET_NOTE_LENGTH = 4000;
+
+/** Older vet note fields on the equipage (public, or private on equipagePrivate) */
+export function isLegacyVetNoteField(key) {
+  const name = String(key);
+  return name === 'vetNotes' || name === 'vetNote' || name.startsWith('vetNotes_');
 }
 
-export function updateHorsePhaseInspection(horses = [], horseKey, phase = 'initial', updateData = {}) {
-  const key = String(horseKey || '');
-  return (Array.isArray(horses) ? horses : []).map((horse, index) => {
-    if (getHorseStableKey(horse, index) !== key) return horse;
-    const nowIso = new Date().toISOString();
-    const currentPhaseData = horse.inspections?.[phase] || {};
-    const newPhaseData = {
-      ...currentPhaseData,
-      ...updateData,
-      checkedAt: nowIso
-    };
-    if (updateData.status) {
-      newPhaseData.status = normalizeVetStatus(updateData.status);
-    }
-    const updatedHorse = {
-      ...horse,
-      inspections: {
-        ...(horse.inspections || {}),
-        [phase]: newPhaseData
-      }
-    };
-    if (phase === 'initial' && updateData.status) {
-      updatedHorse.vetStatus = normalizeVetStatus(updateData.status);
-      updatedHorse.vetCheckedAt = nowIso;
-    }
-    return updatedHorse;
+const isPlainObject = (value) => !!value && typeof value === 'object' && !Array.isArray(value);
+const hasValue = (value) => value !== undefined && value !== null && value !== '';
+
+// { [phase]: text } from one older note field
+function legacyNotesFromField(key, value) {
+  const out = {};
+  if (isPlainObject(value)) {
+    Object.entries(value).forEach(([phase, text]) => {
+      if (VET_PHASES[phase] && typeof text === 'string' && text.trim()) out[phase] = text.trim();
+    });
+    return out;
+  }
+  if (typeof value !== 'string' || !value.trim()) return out;
+  const phase = key.startsWith('vetNotes_') ? key.slice('vetNotes_'.length) : 'initial';
+  if (VET_PHASES[phase]) out[phase] = value.trim();
+  return out;
+}
+
+function addNote(target, phase, text) {
+  if (!VET_PHASES[phase] || !text) return;
+  target[phase] = target[phase] ? `${target[phase]}; ${text}` : text;
+}
+
+// The clinical findings of one older phase entry, in the vetInspections shape
+function legacyClinicalFindings(entry = {}) {
+  const findings = {};
+  VET_CLINICAL_FIELDS.forEach(field => {
+    if (hasValue(entry[field])) findings[field] = entry[field];
   });
+  if (!hasValue(findings.pulseBpm) && hasValue(entry.pulse)) {
+    const bpm = Number(entry.pulse);
+    findings.pulseBpm = Number.isFinite(bpm) ? bpm : entry.pulse;
+  }
+  if (!Object.keys(findings).length) return null;
+  if (entry.checkedAt) findings.checkedAt = entry.checkedAt;
+  return findings;
+}
+
+const scrubTemperatureRecord = (record) => (
+  isPlainObject(record) && String(record.updatedBy || '').includes('@') ? { ...record, updatedBy: '' } : record
+);
+
+/**
+ * What moving an equipage's older vet data off the public document takes,
+ * given the private documents as stored (`temperatures`: horseTemperatures map
+ * of horseTemperatures/{sn}, `inspections`: horses map of vetInspections/{sn},
+ * `notes`: notes map of vetNotes/{sn}, `privateEquipage`: equipagePrivate/{sn}).
+ * A value already in a private document wins over the older public one.
+ * Returns null when there is nothing to move (also after a migration), else
+ * { publicSet, publicDeletes, privateEquipageDeletes, temperatures,
+ * inspections, notes }: the public fields to set and to delete, the
+ * equipagePrivate fields to delete, and what to merge into the private
+ * documents (null when nothing).
+ */
+export function planLegacyVetDataMigration({
+  equipage = {},
+  privateEquipage = {},
+  temperatures = {},
+  inspections = {},
+  notes = {}
+} = {}, { nowIso = new Date().toISOString() } = {}) {
+  const data = isPlainObject(equipage) ? equipage : {};
+  const privateData = isPlainObject(privateEquipage) ? privateEquipage : {};
+  const storedTemperatures = isPlainObject(temperatures) ? temperatures : {};
+  const storedInspections = isPlainObject(inspections) ? inspections : {};
+  const storedNotes = isPlainObject(notes) ? notes : {};
+
+  const publicSet = {};
+  const publicDeletes = [];
+  const privateEquipageDeletes = [];
+  const temperatureAdds = {};
+  const inspectionAdds = {};
+  const legacyNotes = {};
+
+  // Temperatures: { [horseKey]: { [slotId]: record } } (oldest: the record
+  // directly under the horse key)
+  if ('horseTemperatures' in data) {
+    publicDeletes.push('horseTemperatures');
+    const legacy = isPlainObject(data.horseTemperatures) ? data.horseTemperatures : {};
+    Object.entries(legacy).forEach(([horseKey, slots]) => {
+      if (!isPlainObject(slots)) return;
+      const stored = storedTemperatures[horseKey];
+      const isRecord = 'temperatureC' in slots || 'updatedBy' in slots;
+      if (isRecord && !slots.slotId) {
+        // No slot to put it under: kept as it was, unless the horse has private ones
+        if (stored === undefined) temperatureAdds[horseKey] = scrubTemperatureRecord(slots);
+        return;
+      }
+      const entries = isRecord ? [[String(slots.slotId), slots]] : Object.entries(slots);
+      entries.forEach(([slotId, record]) => {
+        if (!isPlainObject(record)) return;
+        if (isPlainObject(stored) && stored[slotId] !== undefined) return; // the private one wins
+        if (stored !== undefined && !isPlainObject(stored)) return;
+        temperatureAdds[horseKey] ||= {};
+        temperatureAdds[horseKey][slotId] = scrubTemperatureRecord(record);
+      });
+    });
+  }
+
+  // Notes on the equipage (public, and older ones kept on equipagePrivate)
+  Object.entries(data).forEach(([key, value]) => {
+    if (!isLegacyVetNoteField(key)) return;
+    publicDeletes.push(key);
+    Object.entries(legacyNotesFromField(key, value)).forEach(([phase, text]) => addNote(legacyNotes, phase, text));
+  });
+  Object.entries(privateData).forEach(([key, value]) => {
+    if (!isLegacyVetNoteField(key)) return;
+    privateEquipageDeletes.push(key);
+    Object.entries(legacyNotesFromField(key, value)).forEach(([phase, text]) => addNote(legacyNotes, phase, text));
+  });
+
+  // Horses: clinical findings and notes out, the public result stays
+  const sourceHorses = Array.isArray(data.horses) ? data.horses : null;
+  let horsesChanged = false;
+  const phaseResults = {};
+  const horses = sourceHorses?.map((horse, index) => {
+    if (!isPlainObject(horse)) return horse;
+    const key = getHorseStableKey(horse, index);
+    const label = String(horse.name || horse.horseName || key);
+    let updated = horse;
+
+    if ('vetNote' in horse) {
+      updated = { ...updated };
+      delete updated.vetNote;
+      if (typeof horse.vetNote === 'string' && horse.vetNote.trim()) addNote(legacyNotes, 'initial', `${label}: ${horse.vetNote.trim()}`);
+    }
+
+    LEGACY_INSPECTION_CONTAINERS.forEach(container => {
+      const phases = horse[container];
+      if (!isPlainObject(phases)) return;
+      const cleaned = {};
+      let containerChanged = false;
+      Object.entries(phases).forEach(([phase, entry]) => {
+        if (!isPlainObject(entry)) { cleaned[phase] = entry; return; }
+        const publicEntry = {};
+        PUBLIC_INSPECTION_FIELDS.forEach(field => { if (entry[field] !== undefined) publicEntry[field] = entry[field]; });
+        if (Object.keys(entry).some(field => !PUBLIC_INSPECTION_FIELDS.includes(field))) containerChanged = true;
+        cleaned[phase] = publicEntry;
+        if (!VET_PHASES[phase]) return;
+
+        const findings = legacyClinicalFindings(entry);
+        const storedPhase = storedInspections[key]?.[phase];
+        if (findings && !storedPhase && !inspectionAdds[key]?.[phase]) {
+          inspectionAdds[key] ||= {};
+          inspectionAdds[key][phase] = findings;
+        }
+        if (typeof entry.notes === 'string' && entry.notes.trim()) addNote(legacyNotes, phase, `${label}: ${entry.notes.trim()}`);
+        if (entry.status && !phaseResults[phase]?.[key]) {
+          phaseResults[phase] ||= {};
+          phaseResults[phase][key] = { status: normalizeVetStatus(entry.status), checkedAt: entry.checkedAt || null };
+        }
+      });
+      if (containerChanged) {
+        if (updated === horse) updated = { ...horse };
+        updated[container] = cleaned;
+      }
+    });
+
+    // The first inspection's result straight on the horse (oldest data)
+    if (horse.vetStatus && !phaseResults.initial?.[key]) {
+      phaseResults.initial ||= {};
+      phaseResults.initial[key] = { status: normalizeVetStatus(horse.vetStatus), checkedAt: horse.vetCheckedAt || null };
+    }
+
+    if (updated !== horse) horsesChanged = true;
+    return updated;
+  });
+  if (horsesChanged) publicSet.horses = horses;
+
+  // Each phase's public result (vetInspection_<phase>) for horses that have
+  // one only on the horse entry
+  Object.entries(phaseResults).forEach(([phase, byHorse]) => {
+    const field = vetPhaseField(phase);
+    const previous = isPlainObject(data[field]) ? data[field] : null;
+    const previousHorses = isPlainObject(previous?.horses) ? previous.horses : {};
+    const missing = Object.entries(byHorse).filter(([key]) => !previousHorses[key]);
+    if (!missing.length) return;
+    const horseResults = { ...previousHorses, ...Object.fromEntries(missing) };
+    const derived = deriveVetStatusFromHorses(
+      applyVetResultsToHorses({ ...data, horses: horses || [], [field]: { horses: horseResults } }),
+      data.status,
+      phase
+    );
+    publicSet[field] = {
+      ...(previous || {}),
+      horses: horseResults,
+      status: previous?.status || derived,
+      updatedAt: previous?.updatedAt || nowIso
+    };
+  });
+
+  // Notes: a phase that already has a private note keeps it
+  const noteAdds = {};
+  Object.entries(legacyNotes).forEach(([phase, text]) => {
+    if (String(storedNotes[phase] || '').trim()) return;
+    noteAdds[phase] = text.slice(0, MAX_VET_NOTE_LENGTH);
+  });
+
+  const nothing = !publicDeletes.length && !privateEquipageDeletes.length && !Object.keys(publicSet).length
+    && !Object.keys(temperatureAdds).length && !Object.keys(inspectionAdds).length && !Object.keys(noteAdds).length;
+  if (nothing) return null;
+  return {
+    publicSet,
+    publicDeletes,
+    privateEquipageDeletes,
+    temperatures: Object.keys(temperatureAdds).length ? temperatureAdds : null,
+    inspections: Object.keys(inspectionAdds).length ? inspectionAdds : null,
+    notes: Object.keys(noteAdds).length ? noteAdds : null
+  };
 }
 
 /**

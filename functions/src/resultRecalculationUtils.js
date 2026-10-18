@@ -101,6 +101,8 @@ export function resultSettingsFingerprint({ competition = null, configs = {}, gl
  * - loadContext(read): the result settings (getContext)
  * - loadInputs(startNumber, read): the equipage's input documents
  * - calculate(inputs, context): the record, or null when the equipage is gone
+ * - remove(ref): with it, the stored result of an equipage that is gone is
+ *   deleted (tx.delete) in the same attempt, so no orphan result stays
  * - buildDoc(record): the stored result document
  * - isUnchanged(stored, doc): with it, an equal stored result is left alone
  * - settingsFingerprint: when given, nothing is written if the settings
@@ -108,11 +110,13 @@ export function resultSettingsFingerprint({ competition = null, configs = {}, gl
  * - onCalculateError(startNumber, error): with it, one equipage the engine
  *   cannot calculate is skipped instead of failing the others
  *
- * Returns { written: true, count } or { written: false, reason }.
+ * Returns { written: true, count } (count: results written or deleted) or
+ * { written: false, reason }.
  */
 export async function stageResultRecalculation({
     read,
     write,
+    remove = null,
     startNumbers = [],
     loadContext,
     loadInputs,
@@ -148,7 +152,15 @@ export async function stageResultRecalculation({
             onCalculateError(startNumber, error);
             continue;
         }
-        if (!record) continue;
+        if (!record) {
+            // The equipage is gone: its stored result goes too (archived and
+            // deleted competitions returned above and keep theirs)
+            if (!remove) continue;
+            if (isUnchanged && !stored?.exists) continue; // nothing stored
+            remove(targetRef(startNumber));
+            count += 1;
+            continue;
+        }
         const doc = buildDoc(record);
         if (isUnchanged && isUnchanged(stored?.exists ? stored.data() : null, doc)) continue;
         write(targetRef(startNumber), doc);

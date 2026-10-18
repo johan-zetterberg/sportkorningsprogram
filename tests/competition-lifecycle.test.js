@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { getCarriageCompliance } from '../js/pages/shared/vagnbreddUtils.js';
 import {
   isPulseWarning,
-  updateHorsePhaseInspection,
+  buildVetStatusUpdate,
   getViloboxBadgeInfo
 } from '../js/pages/shared/vetCheckUtils.js';
 import {
@@ -107,37 +107,25 @@ test('Competition Lifecycle End-to-End: full 3-day competition workflow', async 
   // 3. Veterinärbesiktning (TR Mom 526 & FEI Art 948)
   // -------------------------------------------------------------
   await t.test('3. Veterinary phases and vilobox pulse checks', () => {
-    // Förbesiktning
-    const updatedHorsesInitial = updateHorsePhaseInspection(equipages[0].horses, 'h1', 'initial', {
-      status: 'besiktigad',
-      notes: 'Rör sig rent i skritt och trav'
-    });
-    const eq1WithVet = { ...equipages[0], horses: updatedHorsesInitial };
-    assert.equal(eq1WithVet.horses[0].inspections.initial.status, 'besiktigad');
+    // Förbesiktning (the public result, vetInspection_initial)
+    const initial = buildVetStatusUpdate(equipages[0], 'initial', { status: 'besiktigad', horseKeys: ['h1'] });
+    const eq1WithVet = { ...equipages[0], ...initial.payload };
+    assert.equal(initial.horses[0].inspections.initial.status, 'besiktigad');
+    assert.equal(eq1WithVet.status, 'besiktigad');
 
     // Vilobox (10-minuterspaus)
     // Eq 1: Puls 56 bpm -> Godkänd (<= 64 bpm)
     assert.equal(isPulseWarning(56), false);
-    const updatedHorsesRest = updateHorsePhaseInspection(eq1WithVet.horses, 'h1', 'restArea', {
-      status: 'besiktigad',
-      pulse: 56,
-      respiration: 'Normal',
-      mucosa: 'Normal/rosa'
-    });
-    const eq1WithRest = { ...eq1WithVet, horses: updatedHorsesRest };
-    const badge1 = getViloboxBadgeInfo(eq1WithRest);
+    const rest = buildVetStatusUpdate(eq1WithVet, 'restArea', { status: 'besiktigad', horseKeys: ['h1'] });
+    const badge1 = getViloboxBadgeInfo({ ...eq1WithVet, ...rest.payload });
     assert.equal(badge1.status, 'approved');
     assert.match(badge1.label, /Godkänd/);
 
     // Eq 4: Puls 72 bpm -> Varning (>64 bpm) och startförbud
     assert.equal(isPulseWarning(72), true);
-    const updatedHorsesUnfit = updateHorsePhaseInspection(equipages[3].horses, 'h4', 'restArea', {
-      status: 'struken',
-      pulse: 72,
-      notes: 'För hög vilopuls'
-    });
-    const eq4WithVet = { ...equipages[3], horses: updatedHorsesUnfit };
-    const badge4 = getViloboxBadgeInfo(eq4WithVet);
+    const unfit = buildVetStatusUpdate(equipages[3], 'restArea', { status: 'struken', horseKeys: ['h4'] });
+    assert.equal(unfit.payload.vetUnfitStageB, true);
+    const badge4 = getViloboxBadgeInfo({ ...equipages[3], ...unfit.payload });
     assert.equal(badge4.status, 'unfit');
     assert.match(badge4.label, /Startförbud B/);
   });

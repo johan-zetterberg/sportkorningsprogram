@@ -30,6 +30,7 @@ firebase emulators:start --only auth,firestore,functions,storage --project demo-
 |---|---|
 | `npm test` | Enhetstester (resultatmotor, regler, hjälpfunktioner) |
 | `npm run test:rules` | Firestore-reglerna mot emulatorn |
+| `npm run test:restore` | Säkerhetskopia av en tävling: export, radering och återställning mot emulatorn |
 | `npm run test:smoke` | Webbläsartester (Playwright) mot emulatorerna; startar egna om inga körs |
 | `node scripts/audit_i18n.cjs` | Letar översättningsnycklar som används men saknas i `js/utils/i18n.js` |
 
@@ -45,6 +46,32 @@ npm run deploy -- --dry-run                 # bara kontroller och tester
 ```
 
 `scripts/deploy.mjs` kräver att allt är incheckat och att de lokala filerna i `assets/logos` och `assets/dressage` finns. Sedan kör det enhetstester, regeltester (för firestore/functions) och smoke-tester (hoppa över med `--skip-smoke`), bygger CSS, höjer service worker-versionen (en egen commit) och driftsätter till `combined-driving`.
+
+## 💾 Återställa en tävling från säkerhetskopia
+
+Säkerhetskopian är JSON-filen som tävlingens ägare eller en full administratör laddar ner under Admin > Inställningar (molnfunktionen `exportCompetition`). Den läses tillbaka med `scripts/restore-competition.mjs` (Admin SDK från `functions/node_modules`, så kör `npm --prefix functions install` först).
+
+1. **Prova mot emulatorn** (ingen risk):
+   ```bash
+   firebase emulators:start --only firestore --project demo-combined-driving
+   # i ett annat fönster (PowerShell: $env:FIRESTORE_EMULATOR_HOST = "127.0.0.1:8080")
+   FIRESTORE_EMULATOR_HOST=127.0.0.1:8080 node scripts/restore-competition.mjs backup.json --project demo-combined-driving
+   ```
+2. **Logga in mot produktionen** med ett servicekonto (`GOOGLE_APPLICATION_CREDENTIALS=<nyckel.json>`) eller `gcloud auth application-default login`, och se till att `FIRESTORE_EMULATOR_HOST` *inte* är satt.
+3. **Torrkör**: `node scripts/restore-competition.mjs backup.json --project combined-driving --dry-run` visar vad som skulle skrivas och om tävlingen redan finns. Inget skrivs.
+4. **Återställ**: `node scripts/restore-competition.mjs backup.json --project combined-driving --yes-production`.
+   - Finns tävlingen redan vägrar skriptet. `--overwrite` skriver över dokumenten i kopian (dokument som bara finns i databasen lämnas orörda och listas).
+   - `--as-new-id <nyttId>` återställer en kopia bredvid originalet: alla sökvägar, `competitionId`-fält, dokumentreferenser och tävlingens `id` skrivs om. Byt sedan namn på kopian i appen.
+5. **Efteråt** (skriptet skriver ut detta som varningar):
+   - **PIN-koder** finns aldrig i kopian (`config/secrets`, `accessCode_*`): sätt nya PIN-koder för tävlingen.
+   - **Personnummer** finns bara med om de valdes vid exporten.
+   - **Filer i Storage** (`competitions/{id}/...`) listas bara med namn och återställs inte.
+   - **Inloggningskonton** (Firebase Auth) och `users/{uid}` ingår inte.
+   - Molnfunktionerna räknar om resultaten när dokumenten skrivs.
+
+Skriptet vägrar utan `--project` och skriver till `combined-driving` bara med `--yes-production`. Hela kedjan (export, radering, återställning, kopia med nytt ID) testas mot emulatorn med `npm run test:restore`.
+
+> **Säkerhetskopiera också de lokala filerna:** `assets/logos/` och `assets/dressage/` finns inte i git (se nedan) och ingår inte i tävlingens säkerhetskopia. Spara dem separat.
 
 ## ☁️ Online och offline
 

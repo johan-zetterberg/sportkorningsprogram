@@ -1,6 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { collectDocuments, redactExportDocuments, toExportValue } from '../functions/src/competitionExport.js';
+import {
+  collectDocuments,
+  fromExportValue,
+  redactExportDocuments,
+  restoreWarnings,
+  rewriteCompetitionId,
+  toExportValue
+} from '../functions/src/competitionExport.js';
 
 const C = 'artifacts/app/public/data/competitions/c1';
 const exportDocs = () => [
@@ -108,4 +115,109 @@ test('a runaway export stops', async () => {
   const many = { 'c/1': {} };
   for (let i = 0; i < 20; i++) many[`c/1/x/${i}`] = { i };
   await assert.rejects(collectDocuments(fakeTree(many)('c/1'), { maxDocuments: 5 }));
+});
+
+// Stand-ins for the Admin SDK types, shaped as toExportValue recognises them
+class FakeTimestamp {
+  constructor(ms) { this.ms = ms; }
+  get seconds() { return Math.floor(this.ms / 1000); }
+  toMillis() { return this.ms; }
+}
+class FakeGeoPoint {
+  constructor(lat, lng) { this._lat = lat; this._lng = lng; }
+  get latitude() { return this._lat; }
+  get longitude() { return this._lng; }
+}
+const fakeRef = (path) => ({ path, collection: () => null, firestore: {} });
+const factories = {
+  timestamp: ms => new FakeTimestamp(ms),
+  geopoint: (lat, lng) => new FakeGeoPoint(lat, lng),
+  ref: fakeRef,
+  bytes: base64 => Buffer.from(base64, 'base64')
+};
+
+test('a restore recreates every exported type, also nested in arrays and maps', () => {
+  const exported = toExportValue({
+    at: new FakeTimestamp(1760000000123),
+    where: new FakeGeoPoint(55.7, 13.2),
+    link: fakeRef('artifacts/app/public/data/competitions/c1/equipages/5'),
+    blob: Buffer.from([0, 1, 2, 250, 255]),
+    total: Infinity,
+    low: -Infinity,
+    bad: NaN,
+    plain: { s: 'x', n: 0, b: false, nil: null, list: [] },
+    deep: [[new FakeTimestamp(5), { at: new FakeTimestamp(6), arr: [Infinity, { g: new FakeGeoPoint(1, 2) }] }]]
+  });
+  assert.deepEqual(exported.blob, { __type: 'bytes', base64: 'AAEC+v8=' });
+  // As it travels: through JSON
+  const restored = fromExportValue(JSON.parse(JSON.stringify(exported)), factories);
+  assert.ok(restored.at instanceof FakeTimestamp);
+  assert.equal(restored.at.toMillis(), 1760000000123);
+  assert.ok(restored.where instanceof FakeGeoPoint);
+  assert.equal(restored.link.path, 'artifacts/app/public/data/competitions/c1/equipages/5');
+  assert.deepEqual([...restored.blob], [0, 1, 2, 250, 255]);
+  assert.equal(restored.total, Infinity);
+  assert.equal(restored.low, -Infinity);
+  assert.ok(Number.isNaN(restored.bad));
+  assert.deepEqual(restored.plain, { s: 'x', n: 0, b: false, nil: null, list: [] });
+  assert.equal(restored.deep[0][0].toMillis(), 5);
+  assert.equal(restored.deep[0][1].at.toMillis(), 6);
+  assert.equal(restored.deep[0][1].arr[0], Infinity);
+  assert.ok(restored.deep[0][1].arr[1].g instanceof FakeGeoPoint);
+  // And back again gives the same export
+  assert.deepEqual(toExportValue(restored), exported);
+});
+
+test('a restore stops on values it does not understand, before anything is written', () => {
+  assert.throws(() => fromExportValue({ x: { __type: 'timestamp', ms: 'soon' } }, factories));
+  assert.throws(() => fromExportValue({ x: { __type: 'vector', values: [1] } }, factories));
+  assert.throws(() => fromExportValue({ x: { __type: 'number', value: '12' } }, factories));
+  assert.throws(() => fromExportValue({ at: { __type: 'timestamp', ms: 1 } }, {}), /timestamp/);
+  assert.deepEqual(fromExportValue({ a: [1, 'b', null, { c: true }] }), { a: [1, 'b', null, { c: true }] });
+});
+
+test('a copy under a new id moves every path and competition id, and nothing else', () => {
+  const P = 'artifacts/app/public/data/competitions/c1';
+  const docs = [
+    { path: P, data: { id: 'c1', name: 'Tävling', competitionId: 'c1', logo: 'competitions/c1/logo.png' } },
+    // An equipage, a judge and a class that happen to share the id
+    { path: `${P}/equipages/c1`, data: { id: 'c1', startNumber: 'c1', judgeId: 'c1', note: 'c1 kör först' } },
+    { path: `${P}/dressage/5/protocols/c1`, data: { judgeId: 'c1', at: { __type: 'timestamp', ms: 1 } } },
+    { path: `${P}/archive/a1`, data: { rows: [{ compId: 'c1', ref: { __type: 'ref', path: `${P}/equipages/5` } }] } },
+    { path: 'artifacts/app/private/data/competitions/c1/equipagePrivate/5', data: { email: 'a@x.se' } },
+    { path: 'competitions/c1/dressageFinalization/5', data: { competitionId: 'c1', by: 'u1' } },
+    { path: 'artifacts/app/public/data/competitions/c10/x/1', data: { competitionId: 'c10', p: 'competitions/c10/a' } }
+  ];
+  const before = JSON.stringify(docs);
+  const { documents, fieldsChanged } = rewriteCompetitionId(docs, 'c1', 'c1-copy');
+  assert.equal(JSON.stringify(docs), before, 'the input is left as it was');
+  const Q = 'artifacts/app/public/data/competitions/c1-copy';
+  assert.deepEqual(documents.map(d => d.path), [
+    Q,
+    `${Q}/equipages/c1`,
+    `${Q}/dressage/5/protocols/c1`,
+    `${Q}/archive/a1`,
+    'artifacts/app/private/data/competitions/c1-copy/equipagePrivate/5',
+    'competitions/c1-copy/dressageFinalization/5',
+    'artifacts/app/public/data/competitions/c10/x/1'
+  ]);
+  assert.deepEqual(documents[0].data, { id: 'c1-copy', name: 'Tävling', competitionId: 'c1-copy', logo: 'competitions/c1-copy/logo.png' });
+  assert.deepEqual(documents[1].data, docs[1].data);
+  assert.deepEqual(documents[2].data, docs[2].data);
+  assert.deepEqual(documents[3].data.rows[0], { compId: 'c1-copy', ref: { __type: 'ref', path: `${Q}/equipages/5` } });
+  assert.deepEqual(documents[5].data, { competitionId: 'c1-copy', by: 'u1' });
+  assert.deepEqual(documents[6].data, docs[6].data);
+  assert.equal(fieldsChanged, 6);
+});
+
+test('a restore says what it cannot bring back', () => {
+  const { redacted } = redactExportDocuments(exportDocs());
+  const warnings = restoreWarnings({ redacted, includesPersonalNumbers: false, storageFiles: ['competitions/c1/a.pdf'] });
+  assert.match(warnings.join('\n'), /PIN-koder/);
+  assert.match(warnings.join('\n'), /Personnummer/);
+  assert.match(warnings.join('\n'), /competitions\/c1\/a\.pdf/);
+  assert.match(warnings.join('\n'), /Firebase Auth/);
+  const withNumbers = restoreWarnings({ redacted: redactExportDocuments(exportDocs(), { includePersonalNumbers: true }).redacted, storageFiles: [] });
+  assert.equal(withNumbers.some(w => /Personnummer/.test(w)), false);
+  assert.equal(withNumbers.some(w => /Storage/.test(w)), false);
 });

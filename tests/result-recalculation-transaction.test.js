@@ -13,6 +13,7 @@ function createFakeDb(initial = {}) {
     return { exists: !!doc, data: () => (doc ? structuredClone(doc.data) : undefined) };
   };
   const write = (path, data) => docs.set(path, { data, version: version(path) + 1 });
+  const remove = (path) => docs.delete(path);
   const stats = { attempts: 0 };
 
   async function runTransaction(fn, { onRead = null } = {}) {
@@ -27,18 +28,19 @@ function createFakeDb(initial = {}) {
           if (onRead) await onRead(path, attempt);
           return snap;
         },
-        set: (path, data) => writes.push([path, data])
+        set: (path, data) => writes.push([path, data]),
+        delete: (path) => writes.push([path, null])
       };
       const result = await fn(tx);
       const stale = [...readVersions].some(([path, seen]) => version(path) !== seen);
       if (stale) continue;
-      writes.forEach(([path, data]) => write(path, data));
+      writes.forEach(([path, data]) => (data === null ? remove(path) : write(path, data)));
       return result;
     }
     throw new Error('ABORTED');
   }
 
-  return { runTransaction, write, read: (path) => docs.get(path)?.data, snapshot, stats };
+  return { runTransaction, write, remove, read: (path) => docs.get(path)?.data, snapshot, stats };
 }
 
 const recalculation = (overrides = {}) => ({
@@ -173,6 +175,56 @@ test('an equal stored result is left alone; a missing equipage is skipped', asyn
   assert.deepEqual(outcome, { written: true, count: 1 });
   assert.equal(db.read('computed/8').totalPenalty, 3);
   assert.equal(db.read('computed/9'), undefined);
+});
+
+// As writeLatestResults: the equipage is an input, its result removed when it is gone
+const withEquipage = {
+  loadInputs: async (startNumber, read) => {
+    const [equipage, marathon] = await Promise.all([read(`equipages/${startNumber}`), read(`maraton/${startNumber}`)]);
+    return { startNumber, equipage, marathon };
+  },
+  calculate: (inputs, context) => (inputs.equipage.exists
+    ? { startNumber: inputs.startNumber, total: (inputs.marathon.data()?.penalty ?? 0) * context.rate }
+    : null)
+};
+const runWithRemove = (db, startNumbers, overrides = {}) => db.runTransaction((tx) => stageResultRecalculation({
+  read: (path) => tx.get(path),
+  write: (path, doc) => tx.set(path, doc),
+  remove: (path) => tx.delete(path),
+  startNumbers,
+  ...recalculation({ ...withEquipage, ...overrides })
+}));
+
+test('deleting an equipage removes its stored result', async () => {
+  const db = baseDb();
+  db.write('equipages/7', { className: 'A' });
+  db.write('equipages/8', { className: 'A' });
+  await runWithRemove(db, ['7', '8']);
+  assert.equal(db.read('computed/7').totalPenalty, 10);
+
+  db.remove('equipages/7');
+  const outcome = await runWithRemove(db, ['7']);
+  assert.deepEqual(outcome, { written: true, count: 1 });
+  assert.equal(db.read('computed/7'), undefined, 'orphan result removed');
+  assert.equal(db.read('computed/8').totalPenalty, 3, 'other results kept');
+
+  // With isUnchanged (automatic runs) nothing is staged when nothing is stored
+  const again = await runWithRemove(db, ['7'], { isUnchanged: (stored, doc) => stored?.totalPenalty === doc.totalPenalty });
+  assert.deepEqual(again, { written: true, count: 0 });
+});
+
+test('an archived or deleted competition keeps the result of a removed equipage', async () => {
+  const db = baseDb();
+  db.write('equipages/7', { className: 'A' });
+  await runWithRemove(db, ['7']);
+  db.write('comp', { locked: true });
+  db.remove('equipages/7');
+  assert.deepEqual(await runWithRemove(db, ['7']), { written: false, reason: 'archived' });
+  assert.equal(db.read('computed/7').totalPenalty, 10);
+
+  db.remove('comp');
+  assert.deepEqual(await runWithRemove(db, ['7']), { written: false, reason: 'competition-gone' });
+  assert.equal(db.read('computed/7').totalPenalty, 10);
 });
 
 test('a calculation error skips that equipage only when a handler is given', async () => {

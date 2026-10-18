@@ -11,8 +11,9 @@ import {
   getVetRemainingCount,
   getVetSearchStartNumber,
   isPulseWarning,
-  updateHorsePhaseInspection,
-  updateHorseVetStatus,
+  applyVetResultsToHorses,
+  buildVetStatusUpdate,
+  planLegacyVetDataMigration,
   resolveVetFilteredState,
   sortVetEquipages,
   VET_PHASES,
@@ -77,15 +78,16 @@ test('deriveVetStatusFromHorses summarizes per-horse inspection state', () => {
   ], 'incheckad'), 'struken');
 });
 
-test('updateHorseVetStatus updates only the selected horse', () => {
-  const updated = updateHorseVetStatus([
+test('buildVetStatusUpdate updates only the selected horse', () => {
+  const { horses, payload } = buildVetStatusUpdate({ horses: [
     { id: 'a', name: 'A' },
     { id: 'b', name: 'B' }
-  ], 'b', 'ombesiktning');
+  ] }, 'initial', { status: 'ombesiktning', horseKeys: ['b'] });
 
-  assert.equal(updated[0].vetStatus, undefined);
-  assert.equal(updated[1].vetStatus, 'ombesiktning');
-  assert.ok(updated[1].vetCheckedAt);
+  assert.equal(horses[0].vetStatus, undefined);
+  assert.equal(horses[1].vetStatus, 'ombesiktning');
+  assert.ok(horses[1].vetCheckedAt);
+  assert.deepEqual(Object.keys(payload.vetInspection_initial.horses), ['b']);
 });
 
 test('VET_PHASES defines initial, harness, restArea, and final inspections per TR Mom 526', () => {
@@ -105,19 +107,17 @@ test('isPulseWarning warns if pulse exceeds recommended threshold (64 bpm)', () 
   assert.equal(isPulseWarning(null), false);
 });
 
-test('updateHorsePhaseInspection saves vilobox clinical data per horse', () => {
-  const horses = [
-    { id: 'h1', name: 'Thunder' },
-    { id: 'h2', name: 'Lightning' }
-  ];
+test('vilobox result and private clinical data are put back on the horse', () => {
+  const equipage = {
+    horses: [
+      { id: 'h1', name: 'Thunder' },
+      { id: 'h2', name: 'Lightning' }
+    ],
+    vetInspection_restArea: { horses: { h1: { status: 'besiktigad', checkedAt: '2026-05-16T11:45:00Z' } } }
+  };
+  const clinical = { h1: { restArea: { pulseBpm: 56, respiration: 'normal', mucosa: 'ok' } } };
 
-  const updated = updateHorsePhaseInspection(horses, 'h1', 'restArea', {
-    status: 'besiktigad',
-    pulseBpm: 56,
-    respiration: 'normal',
-    mucosa: 'ok',
-    notes: 'Fräsch och pigg'
-  });
+  const updated = applyVetResultsToHorses(equipage, clinical);
 
   const inspection1 = getHorsePhaseInspection(updated[0], 'restArea');
   assert.equal(inspection1.status, 'besiktigad');
@@ -182,6 +182,206 @@ test('the vet can undo their own strike; a withdrawal by the secretariat stays',
   // Withdrawn by the secretariat (no horse struck): stays withdrawn
   assert.equal(hasVetStruckHorse(approvedAgain), false);
   assert.equal(deriveVetStatusFromHorses(approvedAgain, 'struken', 'initial', { keepWithdrawn: !hasVetStruckHorse(approvedAgain) }), 'struken');
+});
+
+// --- Older vet data on the public equipage (migrateEquipagePrivacy) ---
+
+const NOW = '2026-10-18T10:00:00.000Z';
+
+// Deep merge, as a Firestore set with merge: true
+function mergeDeep(target = {}, source = {}) {
+  const out = { ...target };
+  Object.entries(source).forEach(([key, value]) => {
+    out[key] = value && typeof value === 'object' && !Array.isArray(value)
+      && out[key] && typeof out[key] === 'object' && !Array.isArray(out[key])
+      ? mergeDeep(out[key], value)
+      : value;
+  });
+  return out;
+}
+
+// The stored documents after the plan was written (as the transaction does)
+function applyMigration(state, plan) {
+  const equipage = { ...state.equipage, ...plan.publicSet };
+  plan.publicDeletes.forEach(key => { delete equipage[key]; });
+  const privateEquipage = { ...(state.privateEquipage || {}) };
+  plan.privateEquipageDeletes.forEach(key => { delete privateEquipage[key]; });
+  return {
+    equipage,
+    privateEquipage,
+    temperatures: mergeDeep(state.temperatures, plan.temperatures || {}),
+    inspections: mergeDeep(state.inspections, plan.inspections || {}),
+    notes: mergeDeep(state.notes, plan.notes || {})
+  };
+}
+
+function migrate(state) {
+  const plan = planLegacyVetDataMigration(state, { nowIso: NOW });
+  assert.ok(plan, 'something to migrate');
+  const after = applyMigration(state, plan);
+  assert.equal(planLegacyVetDataMigration(after, { nowIso: NOW }), null, 'a second run changes nothing');
+  return { plan, after };
+}
+
+test('legacy migration: public temperatures only move to the private document, emails scrubbed', () => {
+  const { plan, after } = migrate({
+    equipage: {
+      startNumber: 5,
+      horses: [{ id: 'h1', name: 'Nova' }],
+      horseTemperatures: {
+        h1: {
+          'd1-morning': { temperatureC: 37.8, updatedBy: 'driver@example.com', slotId: 'd1-morning' },
+          'd1-evening': { temperatureC: 38.0, updatedBy: 'uid-1', slotId: 'd1-evening' }
+        }
+      }
+    }
+  });
+  assert.deepEqual(plan.publicDeletes, ['horseTemperatures']);
+  assert.equal('horseTemperatures' in after.equipage, false);
+  assert.equal(after.temperatures.h1['d1-morning'].temperatureC, 37.8);
+  assert.equal(after.temperatures.h1['d1-morning'].updatedBy, '');
+  assert.equal(after.temperatures.h1['d1-evening'].updatedBy, 'uid-1');
+  // The temperatures alone do not touch the horses
+  assert.equal('horses' in plan.publicSet, false);
+});
+
+test('legacy migration: a private temperature wins over the public one for the same slot', () => {
+  const { plan, after } = migrate({
+    equipage: {
+      horses: [{ id: 'h1', name: 'Nova' }],
+      horseTemperatures: {
+        h1: {
+          'd1-morning': { temperatureC: 37.5, slotId: 'd1-morning' },
+          'd1-evening': { temperatureC: 38.1, slotId: 'd1-evening' }
+        },
+        // Oldest shape: the record straight under the horse key
+        h2: { temperatureC: 37.9, updatedBy: 'x@example.com', slotId: 'd2-morning' }
+      }
+    },
+    temperatures: { h1: { 'd1-morning': { temperatureC: 37.6, slotId: 'd1-morning' } } }
+  });
+  assert.deepEqual(Object.keys(plan.temperatures.h1), ['d1-evening'], 'only the slot missing privately is written');
+  assert.equal(after.temperatures.h1['d1-morning'].temperatureC, 37.6, 'private value kept');
+  assert.equal(after.temperatures.h1['d1-evening'].temperatureC, 38.1);
+  assert.deepEqual(after.temperatures.h2['d2-morning'], { temperatureC: 37.9, updatedBy: '', slotId: 'd2-morning' });
+});
+
+test('legacy migration: clinical findings (pulse or pulseBpm) move to vetInspections, the result stays public', () => {
+  const { plan, after } = migrate({
+    equipage: {
+      status: 'besiktigad',
+      horses: [
+        {
+          id: 'h1', name: 'Thunder', vetStatus: 'besiktigad', vetCheckedAt: '2026-05-15T08:00:00Z',
+          inspections: {
+            initial: { status: 'besiktigad', checkedAt: '2026-05-15T08:00:00Z', notes: 'Rör sig rent' },
+            restArea: { status: 'besiktigad', checkedAt: '2026-05-16T11:45:00Z', pulse: '56', respiration: 'normal', mucosa: 'ok' }
+          }
+        },
+        {
+          name: 'Lightning',
+          inspections: {
+            harness: { status: 'besiktigad', checkedAt: '2026-05-16T09:00:00Z', bitOk: true, harnessOk: false },
+            restArea: { status: 'struken', pulseBpm: 72, notes: 'För hög vilopuls' }
+          }
+        }
+      ]
+    }
+  });
+
+  assert.deepEqual(after.inspections, {
+    h1: { restArea: { pulseBpm: 56, respiration: 'normal', mucosa: 'ok', checkedAt: '2026-05-16T11:45:00Z' } },
+    Lightning: {
+      harness: { bitOk: true, harnessOk: false, checkedAt: '2026-05-16T09:00:00Z' },
+      restArea: { pulseBpm: 72 }
+    }
+  });
+  // Only status and checkedAt stay on the public horses
+  assert.deepEqual(after.equipage.horses[0].inspections, {
+    initial: { status: 'besiktigad', checkedAt: '2026-05-15T08:00:00Z' },
+    restArea: { status: 'besiktigad', checkedAt: '2026-05-16T11:45:00Z' }
+  });
+  assert.deepEqual(after.equipage.horses[1].inspections.restArea, { status: 'struken' });
+  assert.equal(after.equipage.horses[0].vetStatus, 'besiktigad');
+
+  // The public per-phase results the current pages read
+  assert.deepEqual(after.equipage.vetInspection_restArea.horses, {
+    h1: { status: 'besiktigad', checkedAt: '2026-05-16T11:45:00Z' },
+    Lightning: { status: 'struken', checkedAt: null }
+  });
+  assert.equal(after.equipage.vetInspection_restArea.status, 'struken');
+  assert.equal(after.equipage.vetInspection_restArea.updatedAt, NOW);
+  assert.equal(after.equipage.vetInspection_initial.horses.h1.status, 'besiktigad');
+  assert.equal(getViloboxBadgeInfo(after.equipage).status, 'unfit');
+  // The equipage status is not rewritten (it counts for the results)
+  assert.equal('status' in plan.publicSet, false);
+
+  // Notes per phase, with the horse's name
+  assert.deepEqual(after.notes, {
+    initial: 'Thunder: Rör sig rent',
+    restArea: 'Lightning: För hög vilopuls'
+  });
+  // Nothing clinical left on the public document
+  const publicJson = JSON.stringify(after.equipage);
+  ['pulse', 'respiration', 'mucosa', 'bitOk', 'harnessOk', 'notes', 'Rör sig rent'].forEach(word => {
+    assert.equal(publicJson.includes(word), false, `${word} left on the public equipage`);
+  });
+});
+
+test('legacy migration: private findings and an existing phase result win', () => {
+  const { plan, after } = migrate({
+    equipage: {
+      horses: [{ id: 'h1', inspections: { restArea: { status: 'ombesiktning', pulseBpm: 70 } } }],
+      vetInspection_restArea: { status: 'besiktigad', updatedAt: '2026-05-16T12:00:00Z', horses: { h1: { status: 'besiktigad', checkedAt: '2026-05-16T12:00:00Z' } } }
+    },
+    inspections: { h1: { restArea: { pulseBpm: 58, checkedAt: '2026-05-16T12:00:00Z' } } }
+  });
+  assert.equal(plan.inspections, null, 'the vet\'s newer findings are not overwritten');
+  assert.equal(after.inspections.h1.restArea.pulseBpm, 58);
+  assert.equal('vetInspection_restArea' in plan.publicSet, false);
+  assert.equal(after.equipage.vetInspection_restArea.horses.h1.status, 'besiktigad');
+  assert.deepEqual(after.equipage.horses[0].inspections.restArea, { status: 'ombesiktning' });
+});
+
+test('legacy migration: vet notes from the public and the private equipage move to vetNotes', () => {
+  const { plan, after } = migrate({
+    equipage: {
+      horses: [{ id: 'h1', name: 'Nova', vetNote: 'Lätt hälta vä fram' }],
+      vetNotes: 'Allmänt pigg',
+      vetNotes_final: 'OK efter maraton',
+      vetNote: { harness: 'Bettet byttes' }
+    },
+    privateEquipage: { email: 'driver@example.com', vetNotes_restArea: 'Vattnad' },
+    notes: { final: 'Nyare anteckning' }
+  });
+  assert.deepEqual(plan.publicDeletes.sort(), ['vetNote', 'vetNotes', 'vetNotes_final']);
+  assert.deepEqual(plan.privateEquipageDeletes, ['vetNotes_restArea']);
+  assert.deepEqual(after.notes, {
+    initial: 'Allmänt pigg; Nova: Lätt hälta vä fram',
+    harness: 'Bettet byttes',
+    restArea: 'Vattnad',
+    final: 'Nyare anteckning'
+  });
+  assert.deepEqual(after.privateEquipage, { email: 'driver@example.com' });
+  assert.equal('vetNote' in after.equipage.horses[0], false);
+});
+
+test('legacy migration: an equipage in the current model has nothing to migrate', () => {
+  const current = {
+    equipage: {
+      status: 'besiktigad',
+      speakerNotes: 'Första start',
+      horses: [{ id: 'h1', name: 'Nova', vetStatus: 'besiktigad', inspections: { initial: { status: 'besiktigad', checkedAt: NOW } } }],
+      vetInspection_initial: { status: 'besiktigad', updatedAt: NOW, horses: { h1: { status: 'besiktigad', checkedAt: NOW } } }
+    },
+    privateEquipage: { email: 'driver@example.com' },
+    temperatures: { h1: { 'd1-morning': { temperatureC: 37.5 } } },
+    inspections: { h1: { initial: { pulseBpm: 40 } } },
+    notes: { initial: 'OK' }
+  };
+  assert.equal(planLegacyVetDataMigration(current), null);
+  assert.equal(planLegacyVetDataMigration({ equipage: { horses: [{ name: 'A' }] } }), null);
+  assert.equal(planLegacyVetDataMigration(), null);
 });
 
 

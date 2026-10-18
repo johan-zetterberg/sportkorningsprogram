@@ -292,15 +292,15 @@ function setupPrivacyMigrationButton(competitionId) {
 
     const migrationInfo = migrateBtn.previousElementSibling;
     if (migrationInfo) {
-        migrationInfo.textContent = 'Flytta befintliga personuppgifter till privat lagring och rensa bort dem fran publika ekipagedokument.';
+        migrationInfo.textContent = 'Flytta befintliga personuppgifter och äldre veterinärdata (temperaturer, besiktningsfynd, anteckningar) till privat lagring och rensa bort dem från publika ekipagedokument.';
     }
 
     const confirm = () => window.confirm(
-        'Detta flyttar befintliga personuppgifter till privat lagring och tar bort dem fran de publika ekipagedokumenten. Fortsatta?'
+        'Detta flyttar befintliga personuppgifter och äldre veterinärdata till privat lagring och tar bort dem från de publika ekipagedokumenten. Fortsätta?'
     );
 
     migrateBtn.addEventListener('click', async () => {
-        if (!confirm("Detta flyttar befintliga personuppgifter till privat lagring och tar bort dem från de publika ekipagedokumenten. Fortsätta?")) {
+        if (!confirm("Detta flyttar befintliga personuppgifter och äldre veterinärdata till privat lagring och tar bort dem från de publika ekipagedokumenten. Fortsätta?")) {
             return;
         }
 

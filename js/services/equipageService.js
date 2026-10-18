@@ -1,7 +1,8 @@
 import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
-import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc, collection, where, deleteField, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { doc, getDoc, getDocs, onSnapshot, query, runTransaction, deleteDoc, writeBatch, setDoc, collection, where, deleteField, limit, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
+import { isLegacyVetNoteField, planLegacyVetDataMigration } from '../pages/shared/vetCheckUtils.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
 
@@ -342,64 +343,86 @@ export async function deleteEquipage(competitionId, equipageId) {
     batch.delete(getCompDocRef(competitionId, 'horseTemperatures', String(equipageId)));
     // ...and its vet findings and notes (private, same id)
     VET_PRIVATE_COLLECTIONS.forEach(name => batch.delete(getCompDocRef(competitionId, name, String(equipageId))));
+    // Its stored result (computed_equipages) is removed by the server's
+    // recalculation, which keeps it in an archived competition
     await batch.commit();
   })());
 }
 
-/**
- * horseTemperatures entries whose updatedBy is an email address, with the
- * address removed; null when there is nothing to change. The entries are on
- * the public equipage document.
- */
-export function scrubTemperatureEmails(horseTemperatures) {
-  if (!horseTemperatures || typeof horseTemperatures !== 'object') return null;
-  let changed = false;
-  const scrubEntry = (entry) => {
-    if (entry && typeof entry === 'object' && String(entry.updatedBy || '').includes('@')) {
-      changed = true;
-      return { ...entry, updatedBy: '' };
-    }
-    return entry;
-  };
-  // { [horseKey]: { [slotId]: entry } }
-  const scrubbed = {};
-  Object.entries(horseTemperatures).forEach(([horseKey, slots]) => {
-    if (!slots || typeof slots !== 'object') { scrubbed[horseKey] = slots; return; }
-    const isEntry = 'temperatureC' in slots || 'updatedBy' in slots;
-    scrubbed[horseKey] = isEntry
-      ? scrubEntry(slots)
-      : Object.fromEntries(Object.entries(slots).map(([slotId, entry]) => [slotId, scrubEntry(entry)]));
-  });
-  return changed ? scrubbed : null;
+// Private fields on the public document that go to equipagePrivate (older vet
+// notes go to vetNotes instead, see planLegacyVetDataMigration)
+function privateFieldsToMove(data = {}) {
+  const { privateData } = splitEquipageData(cleanFirestoreData(data || {}));
+  Object.keys(privateData).forEach((key) => { if (isLegacyVetNoteField(key)) delete privateData[key]; });
+  return privateData;
 }
 
+/**
+ * Moves private data off the public equipage documents (an admin runs it from
+ * the participants page; running it again changes nothing): contact details
+ * and the like to equipagePrivate, and older vet data to the private
+ * collections (temperatures to horseTemperatures, clinical findings to
+ * vetInspections, notes to vetNotes; a value already there wins). Each
+ * equipage is moved in one transaction, so nothing is lost or written twice.
+ */
 export async function migrateEquipagePrivacy(competitionId) {
   const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
   return trackWrite('Migrerar privata ekipageuppgifter', (async () => {
-    const equipagesRef = getCompCollectionRef(safeCompetitionId, 'equipages');
-    const snapshot = await getDocs(equipagesRef);
+    const [snapshot, privateSnapshot] = await Promise.all([
+      getDocs(getCompCollectionRef(safeCompetitionId, 'equipages')),
+      getDocs(getPrivateEquipageCollectionRef(safeCompetitionId))
+    ]);
+    const privateById = new Map(privateSnapshot.docs.map(item => [item.id, item.data() || {}]));
     let migrated = 0;
 
     for (const item of snapshot.docs) {
-      const { privateData } = splitEquipageData(cleanFirestoreData(item.data() || {}));
-      // Horse temperatures saved before the fix carried the driver's email
-      const temperatures = scrubTemperatureEmails(item.data()?.horseTemperatures);
-      if (Object.keys(privateData).length === 0 && !temperatures) continue;
+      // Without the private collections' contents: only whether there is anything to do
+      const needed = Object.keys(privateFieldsToMove(item.data())).length > 0
+        || !!planLegacyVetDataMigration({ equipage: item.data() || {}, privateEquipage: privateById.get(item.id) || {} });
+      if (!needed) continue;
 
-      const batch = writeBatch(db);
-      if (Object.keys(privateData).length > 0) {
-        batch.set(getPrivateEquipageDocRef(safeCompetitionId, item.id), privateData, { merge: true });
-      }
+      const privateRef = getPrivateEquipageDocRef(safeCompetitionId, item.id);
+      const temperatureRef = getCompDocRef(safeCompetitionId, 'horseTemperatures', item.id);
+      const inspectionRef = getCompDocRef(safeCompetitionId, 'vetInspections', item.id);
+      const notesRef = getCompDocRef(safeCompetitionId, 'vetNotes', item.id);
+      const changed = await runTransaction(db, async (transaction) => {
+        const [fresh, privateSnap, temperatureSnap, inspectionSnap, notesSnap] = await Promise.all(
+          [item.ref, privateRef, temperatureRef, inspectionRef, notesRef].map(ref => transaction.get(ref))
+        );
+        if (!fresh.exists()) return false;
+        const data = fresh.data() || {};
+        const privateData = privateFieldsToMove(data);
+        const plan = planLegacyVetDataMigration({
+          equipage: data,
+          privateEquipage: privateSnap.exists() ? privateSnap.data() : {},
+          temperatures: temperatureSnap.exists() ? temperatureSnap.data()?.horseTemperatures : {},
+          inspections: inspectionSnap.exists() ? inspectionSnap.data()?.horses : {},
+          notes: notesSnap.exists() ? notesSnap.data()?.notes : {}
+        });
+        if (Object.keys(privateData).length === 0 && !plan) return false;
 
-      const clearPayload = {};
-      Object.keys(privateData).forEach((key) => {
-        clearPayload[key] = deleteField();
+        // Private copies first (merged: other slots, horses and phases stay)
+        const privateUpdate = { ...privateData };
+        if (privateSnap.exists()) plan?.privateEquipageDeletes.forEach((key) => { privateUpdate[key] = deleteField(); });
+        if (Object.keys(privateUpdate).length > 0) transaction.set(privateRef, privateUpdate, { merge: true });
+        if (plan?.temperatures) {
+          transaction.set(temperatureRef, { horseTemperatures: plan.temperatures, updatedAt: serverTimestamp() }, { merge: true });
+        }
+        if (plan?.inspections) {
+          transaction.set(inspectionRef, { horses: plan.inspections, updatedAt: serverTimestamp() }, { merge: true });
+        }
+        if (plan?.notes) {
+          transaction.set(notesRef, { notes: plan.notes, updatedAt: serverTimestamp() }, { merge: true });
+        }
+
+        const clearPayload = { ...(plan?.publicSet || {}) };
+        Object.keys(privateData).forEach((key) => { clearPayload[key] = deleteField(); });
+        (plan?.publicDeletes || []).forEach((key) => { clearPayload[key] = deleteField(); });
+        // update, not a merge: the horse list and each phase result are replaced whole
+        if (Object.keys(clearPayload).length > 0) transaction.update(item.ref, clearPayload);
+        return true;
       });
-      if (temperatures) clearPayload.horseTemperatures = temperatures;
-      batch.set(item.ref, clearPayload, { merge: true });
-
-      await batch.commit();
-      migrated += 1;
+      if (changed) migrated += 1;
     }
 
     return { total: snapshot.size, migrated };

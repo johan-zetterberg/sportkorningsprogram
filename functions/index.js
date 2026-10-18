@@ -236,8 +236,8 @@ function buildEquipageRecord({ eqKey, eqSnap, dressSnap, marSnap, timingSnap, pr
 
 async function recalculateEquipage(appId, competitionId, startNumber) {
     const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
-    // Read, calculated and written in one transaction (deleted, archived and
-    // missing equipages are skipped there)
+    // Read, calculated and written in one transaction (deleted and archived
+    // competitions are skipped there; a missing equipage's result is removed)
     await writeLatestResults(compRef, [String(startNumber)], {
         engineVersion: RESULT_ENGINE_VERSION,
         recalculatedAt: new Date().toISOString(),
@@ -286,6 +286,8 @@ async function writeLatestResults(compRef, startNumbers, audit, { settingsFinger
             const outcome = await db.runTransaction((tx) => stageResultRecalculation({
                 read: (ref) => tx.get(ref),
                 write: (ref, doc) => tx.set(ref, doc, storedResultWriteOptions(doc)),
+                // A deleted equipage leaves no orphan result behind
+                remove: (ref) => tx.delete(ref),
                 startNumbers: chunk,
                 loadContext: (read) => getContext(compRef, read),
                 loadInputs: (startNumber, read) => readEquipageInputs(compRef, startNumber, read),
