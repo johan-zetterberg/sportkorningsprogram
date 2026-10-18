@@ -896,7 +896,7 @@ export async function load() {
                                 </div>
                             </div>
                         </div>
-                        <p class="text-xs text-gray-500 mt-1">Kommaseparerad lista med avstånd.</p>
+                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Kommaseparerad lista med avstånd.</p>
                     </div>
                 </div>
                 <div class="mt-6 flex flex-col md:flex-row gap-4">

@@ -2124,11 +2124,11 @@ function renderRouteButtonsForCurrent() {
   });
 
   const labelU = document.createElement('div');
-  labelU.className = 'text-xs text-gray-600';
+  labelU.className = 'text-xs text-gray-600 dark:text-gray-400';
   labelU.textContent = `${t('marathon_gates_forward')} - ${result.source}:`;
 
   const labelL = document.createElement('div');
-  labelL.className = 'text-xs text-gray-600 mt-1';
+  labelL.className = 'text-xs text-gray-600 dark:text-gray-400 mt-1';
   labelL.textContent = `${t('marathon_gates_backward')}:`;
 
   wrap.appendChild(labelU);
@@ -2365,16 +2365,16 @@ export async function load() {
         <!-- EKIPAGE OCH HINDERVAL -->
         <div class="selection-grid grid grid-cols-1 md:grid-cols-2 gap-3 mb-2 relative z-30">
           <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
-            <label class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_select_equipage')}</label>
+            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('marathon_select_equipage')}</label>
             <div class="marathon-equipage-nav flex items-center gap-2">
-              <button id="prevEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
+              <button id="prevEquipage" type="button" aria-label="Föregående ekipage" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
               <div id="equipageSearchContainerMar" class="flex-grow"></div>
-              <button id="nextEquipage" type="button" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
+              <button id="nextEquipage" type="button" aria-label="Nästa ekipage" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
             </div>
           </div>
 
           <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
-            <label for="maratonObstacleSelect" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_obstacle')}</label>
+            <label for="maratonObstacleSelect" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('marathon_obstacle')}</label>
             <select id="maratonObstacleSelect" required class="block w-full p-2 text-base border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
           </div>
         </div>
@@ -2388,7 +2388,7 @@ export async function load() {
                  Hinder: <span id="infoObstacleLine" class="font-bold tabular-nums">–</span>
                </div>
             </div>
-            <div id="liveTimerMar" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer text-gray-800 dark:text-white" title="Ändra tid">00:00,00</div>
+            <div id="liveTimerMar" role="button" tabindex="0" data-kbd-click class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer text-gray-800 dark:text-white" title="Ändra tid">00:00,00</div>
           </div>
 
           <div class="marathon-control-strip ${competition?.competitionMode === 'field' ? 'is-field' : 'is-live'} mt-2 flex flex-wrap items-center gap-2">
@@ -2403,7 +2403,7 @@ export async function load() {
 
           <!-- Manuelltids-editor (floating) -->
           <div id="manualTimeEditorMar" class="marathon-manual-editor hidden p-4 rounded-xl border bg-white dark:bg-gray-800 shadow-2xl z-50 dark:border-gray-700">
-            <label class="block text-xs font-bold uppercase text-gray-500 mb-2">${t('marathon_manual_time_prompt')}</label>
+            <label class="block text-xs font-bold uppercase text-gray-500 dark:text-gray-400 mb-2">${t('marathon_manual_time_prompt')}</label>
             <input id="manualTimeDigitsMar" type="tel" inputmode="numeric" class="w-full text-3xl font-mono text-center py-3 border rounded-lg mb-3 dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="mmsscc" maxlength="6" />
             <div class="flex gap-2">
               <button id="btnManualApplyMar" type="button" class="flex-1 py-2 rounded-lg bg-emerald-600 text-white font-bold">${t('marathon_apply')}</button>
@@ -2436,10 +2436,10 @@ export async function load() {
         <!-- VÄGVAL -->
         <div class="space-y-2">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <label class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_route_through_obstacle')}</label>
+            <label class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_route_through_obstacle')}</label>
             <div class="flex gap-2">
-                <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 hover:underline">${t('marathon_undo')}</button>
-                <button id="routeClear" type="button" class="text-[10px] font-bold text-red-600 hover:underline">${t('marathon_clear')}</button>
+                <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline px-2 py-2">${t('marathon_undo')}</button>
+                <button id="routeClear" type="button" class="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline px-2 py-2">${t('marathon_clear')}</button>
             </div>
           </div>
           <div id="routeButtons" class="bg-gray-50 dark:bg-gray-900/40 p-2 rounded-lg border dark:border-gray-700"></div>
@@ -2450,17 +2450,17 @@ export async function load() {
         <!-- STRAFF OCH ELIMINERING -->
         <div class="marathon-penalty-grid grid grid-cols-2 md:grid-cols-3 gap-3 pt-2 border-t dark:border-gray-700">
           <div id="knockdown-container" class="hidden">
-            <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 mb-1">${t('marathon_knockdowns')}</label>
+            <label for="maratonKnockdowns" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('marathon_knockdowns')}</label>
             <input type="number" inputmode="numeric" id="maratonKnockdowns" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
             <p class="mt-1 text-[10px] leading-tight text-gray-500 dark:text-gray-400">${t('marathon_knockdowns_help')}</p>
           </div>
           
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label for="maratonPenalty" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_other_penalty')}</label>
+              <label for="maratonPenalty" class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_other_penalty')}</label>
               <div class="flex gap-1">
-                <button type="button" id="btnQuickPenaltyGroom" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Groom avstigning (+5)">+5 Groom</button>
-                <button type="button" id="btnQuickPenaltyCourse" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Korrigerad fel väg (+20)">+20 Fel väg</button>
+                <button type="button" id="btnQuickPenaltyGroom" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Groom avstigning (+5)">+5 Groom</button>
+                <button type="button" id="btnQuickPenaltyCourse" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Korrigerad fel väg (+20)">+20 Fel väg</button>
               </div>
             </div>
             <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -2468,19 +2468,19 @@ export async function load() {
 
           <div>
             <div class="flex items-center justify-between mb-1">
-              <label for="maratonHoldTime" class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_hold_time')}</label>
+              <label for="maratonHoldTime" class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_hold_time')}</label>
               <div class="flex gap-1">
-                <button type="button" id="btnQuickHold15" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+15 sek">+15s</button>
-                <button type="button" id="btnQuickHold30" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+30 sek">+30s</button>
-                <button type="button" id="btnQuickHold60" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+60 sek">+1m</button>
-                <button type="button" id="btnQuickHoldClear" class="px-1.5 py-0.5 text-[10px] font-semibold rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600 active:scale-95 transition-all" title="Nollställ">0</button>
+                <button type="button" id="btnQuickHold15" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+15 sek">+15s</button>
+                <button type="button" id="btnQuickHold30" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+30 sek">+30s</button>
+                <button type="button" id="btnQuickHold60" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+60 sek">+1m</button>
+                <button type="button" id="btnQuickHoldClear" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600 active:scale-95 transition-all" title="Nollställ">0</button>
               </div>
             </div>
             <input type="text" inputmode="decimal" id="maratonHoldTime" placeholder="Sekunder el mm:ss" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
             <div class="mt-1 flex flex-wrap gap-1" id="holdReasonPills">
-              <button type="button" data-hold-reason="Föregående ekipage i hinder" class="px-1.5 py-0.5 text-[9px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Föregående ekipage</button>
-              <button type="button" data-hold-reason="Domar-/Banchefsstopp" class="px-1.5 py-0.5 text-[9px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Domarstopp</button>
-              <button type="button" data-hold-reason="Hinderreparation" class="px-1.5 py-0.5 text-[9px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Hinderfel</button>
+              <button type="button" data-hold-reason="Föregående ekipage i hinder" class="px-2 py-1.5 text-[10px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Föregående ekipage</button>
+              <button type="button" data-hold-reason="Domar-/Banchefsstopp" class="px-2 py-1.5 text-[10px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Domarstopp</button>
+              <button type="button" data-hold-reason="Hinderreparation" class="px-2 py-1.5 text-[10px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Hinderfel</button>
             </div>
           </div>
 
@@ -2496,7 +2496,7 @@ export async function load() {
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-2">
              <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">${t('marathon_comment_short')}</button>
              <div class="text-right">
-                <span class="text-[10px] uppercase font-bold text-gray-500 block">${t('marathon_total_obstacle_penalty')}</span>
+                <span class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 block">${t('marathon_total_obstacle_penalty')}</span>
                 <span id="totalPenaltyDisplay" class="text-lg font-black text-brand-darkblue dark:text-blue-400">0.00</span>
              </div>
           </div>

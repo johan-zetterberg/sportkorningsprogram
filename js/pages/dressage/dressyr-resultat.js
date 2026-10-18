@@ -1527,7 +1527,7 @@ function renderTableHead(thead, judgesPresent) {
 
     const judgeHeaders = uniquePositions.map(pos => ({
         key: `judge_pos:${pos}`,
-        label: `<div class="text-center font-bold text-gray-700">${pos}</div>`,
+        label: `<div class="text-center font-bold text-gray-700 dark:text-gray-200">${pos}</div>`,
         title: `${t('judge')} ${pos}`,
         align: 'center',
         position: pos
@@ -1759,6 +1759,11 @@ function renderDesktop(judgesPresent) {
             </td>
         </tr>`;
     });
+
+    // No equipages: a message row instead of an empty table
+    if (rows.length === 0) {
+        html = `<tr><td colspan="20" class="p-6 text-center text-gray-500 dark:text-gray-400">Inga ekipage att visa ännu.</td></tr>`;
+    }
 
     tbody.innerHTML = html;
 

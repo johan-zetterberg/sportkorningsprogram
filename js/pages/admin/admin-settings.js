@@ -15,6 +15,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
 import { t } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
+import { diffFormFields, findFormConflicts, formConflictMessage } from '../../utils/formDiff.js';
 import { getPublishedState, parseDateTime } from './starttiderUtils.js';
 import {
     normalizeHorseTemperatureConfig,
@@ -411,7 +412,7 @@ function buildCompetitionChecklistItems(context = {}) {
 
     const coords = mapConfig.coordinates || compDoc.coordinates || null;
     const classes = getUniqueChecklistClasses(equipages);
-    const mode = compDoc?.competitionMode === 'field' ? 'Field mode light' : 'Live-läge';
+    const mode = compDoc?.competitionMode === 'field' ? 'Fältläge' : 'Live-läge';
     const hasClassSettings = classes.length > 0 && classes.every((className) => {
         const placedCount = Number(classConfig?.[className]?.placedCount);
         return Number.isFinite(placedCount) && placedCount >= 1;
@@ -975,42 +976,42 @@ export function getSettingsHtml() {
                             <span class="font-medium dark:text-gray-200">Admin/Sekretariat:</span>
                             <div class="flex items-center gap-2">
                                 <span id="pinCode_admin" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="admin">Ny</button>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="admin">Ny</button>
                             </div>
                         </div>
                         <div class="flex items-center justify-between">
                             <span class="font-medium dark:text-gray-200">Dressyr:</span>
                             <div class="flex items-center gap-2">
                                 <span id="pinCode_dressage" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="dressage">Ny</button>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="dressage">Ny</button>
                             </div>
                         </div>
                         <div class="flex items-center justify-between">
                             <span class="font-medium dark:text-gray-200">Maraton:</span>
                             <div class="flex items-center gap-2">
                                 <span id="pinCode_marathon" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="marathon">Ny</button>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="marathon">Ny</button>
                             </div>
                         </div>
                         <div class="flex items-center justify-between">
                             <span class="font-medium dark:text-gray-200">Precision:</span>
                             <div class="flex items-center gap-2">
                                 <span id="pinCode_precision" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="precision">Ny</button>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="precision">Ny</button>
                             </div>
                         </div>
                         <div class="flex items-center justify-between">
                             <span class="font-medium dark:text-gray-200">Speaker:</span>
                             <div class="flex items-center gap-2">
                                 <span id="pinCode_speaker" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="speaker">Ny</button>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="speaker">Ny</button>
                             </div>
                         </div>
                         <div class="flex items-center justify-between">
                             <span class="font-medium dark:text-gray-200">Veterinär:</span>
                             <div class="flex items-center gap-2">
                                 <span id="pinCode_vet" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded" data-role="vet">Ny</button>
+                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="vet">Ny</button>
                             </div>
                         </div>
                     </div>
@@ -1087,7 +1088,7 @@ export function getSettingsHtml() {
 
         <!-- DANGER ZONE -->
         <div id="dangerZone" class="md:col-span-2 mt-12 bg-red-50 dark:bg-red-900/10 p-6 rounded-xl shadow-md border border-red-200 dark:border-red-900" style="display:none;">
-            <h2 class="text-2xl font-bold text-red-800 dark:text-red-400 mb-4 border-b border-red-200 dark:border-red-800 pb-2">Danger Zone</h2>
+            <h2 class="text-2xl font-bold text-red-800 dark:text-red-400 mb-4 border-b border-red-200 dark:border-red-800 pb-2">Riskzon</h2>
             <p class="text-sm text-red-700 dark:text-red-300 mb-6 font-medium">
                 Här kan du radera hela tävlingen permanent.
                 Detta tar bort <strong>allt</strong>: inställningar, resultat, anmälda ekipage, funktionärer och loggar.
@@ -1113,6 +1114,102 @@ function canMaintainCompetition(user, comp) {
     if (comp && (comp.createdBy === user.uid || comp.ownerId === user.uid)) return true;
     if (Array.isArray(comp?.admins) && comp.admins.includes(user.uid)) return true;
     return Array.isArray(user.compRoles) && user.compRoles.includes('admin');
+}
+
+// The settings form as flat fields ('class:<name>' per class): a save writes
+// only the fields changed in the form (utils/formDiff.js), so two admins do not
+// put back each other's values
+const HORSE_TEMPERATURE_FIELDS = ['enabled', 'daysBefore', 'checksPerDay', 'warningTemperatureC', 'instructions'];
+const META_FIELDS = ['isInternational', 'lockdownMinutes', 'manualLockdown'];
+const SETTINGS_FIELD_LABELS = {
+    competitionMode: 'tävlingsläget',
+    isInternational: 'nationell/internationell profil',
+    lockdownMinutes: 'låsningstiden',
+    manualLockdown: 'manuell låsning',
+    coordinates: 'kartpositionen',
+    'horseTemperature.enabled': 'hästtemperatur på/av',
+    'horseTemperature.daysBefore': 'dagar med hästtemperatur',
+    'horseTemperature.checksPerDay': 'temperaturmätningar per dag',
+    'horseTemperature.warningTemperatureC': 'varningstemperaturen',
+    'horseTemperature.instructions': 'instruktionerna för hästtemperatur'
+};
+
+function settingsFieldLabels(fields = []) {
+    const labels = {};
+    fields.forEach((field) => {
+        labels[field] = field.startsWith('class:')
+            ? `antal placerade i ${field.slice(6)}`
+            : (SETTINGS_FIELD_LABELS[field] || field);
+    });
+    return labels;
+}
+
+function readSettingsForm() {
+    const values = {
+        competitionMode: document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live',
+        isInternational: !!document.getElementById('isInternationalToggle')?.checked,
+        lockdownMinutes: Number(document.getElementById('lockdownMinutesInput')?.value ?? 60),
+        manualLockdown: !!document.getElementById('manualLockdownCheckbox')?.checked
+    };
+    const horseTemperature = normalizeHorseTemperatureConfig({
+        enabled: !!document.getElementById('horseTempEnabledCheckbox')?.checked,
+        daysBefore: document.getElementById('horseTempDaysInput')?.value ?? 3,
+        checksPerDay: document.getElementById('horseTempChecksPerDaySelect')?.value ?? 2,
+        warningTemperatureC: normalizeHorseTemperatureValue(document.getElementById('horseTempWarningInput')?.value),
+        instructions: document.getElementById('horseTempInstructionsInput')?.value || ''
+    });
+    HORSE_TEMPERATURE_FIELDS.forEach((key) => { values[`horseTemperature.${key}`] = horseTemperature[key]; });
+
+    const lat = document.getElementById('settingsLatInput')?.value;
+    const lng = document.getElementById('settingsLngInput')?.value;
+    values.coordinates = (lat && lng) ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null;
+
+    document.querySelectorAll('#classSettingsTableBody tr').forEach(row => {
+        const className = row.dataset.className;
+        const input = row.querySelector('.placed-count-input');
+        if (className && input) {
+            const val = parseInt(input.value);
+            if (!isNaN(val)) values[`class:${className}`] = val;
+        }
+    });
+    return values;
+}
+
+// The stored documents in the form's fields (missing = not stored)
+function settingsFromStored({ compDoc, meta, horseTemperature, classSettings, mapConfig } = {}) {
+    const values = {
+        competitionMode: compDoc?.competitionMode === 'field' ? 'field' : 'live',
+        isInternational: !!meta?.isInternational,
+        lockdownMinutes: meta?.lockdownMinutes ?? 60,
+        manualLockdown: !!meta?.manualLockdown,
+        coordinates: mapConfig?.coordinates || null
+    };
+    const temperature = normalizeHorseTemperatureConfig(horseTemperature || {});
+    HORSE_TEMPERATURE_FIELDS.forEach((key) => { values[`horseTemperature.${key}`] = temperature[key]; });
+    Object.entries(classSettings || {}).forEach(([className, settings]) => {
+        if (settings?.placedCount != null) values[`class:${className}`] = settings.placedCount;
+    });
+    return values;
+}
+
+// The stored settings now, for the conflict check; null without an answer
+async function fetchStoredSettings(competitionId, timeoutMs = 4000) {
+    let timer;
+    const timeout = new Promise((resolve) => { timer = setTimeout(() => resolve(null), timeoutMs); });
+    const read = Promise.all([
+        getCompetitionById(competitionId),
+        getConfig(competitionId, 'competitionMeta', true),
+        getConfig(competitionId, 'horseTemperature', true),
+        getConfig(competitionId, 'classSettings', true),
+        getConfig(competitionId, 'map', true)
+    ]).then(([compDoc, meta, horseTemperature, classSettings, mapConfig]) =>
+        settingsFromStored({ compDoc, meta, horseTemperature, classSettings, mapConfig })
+    ).catch(() => null);
+    try {
+        return await Promise.race([read, timeout]);
+    } finally {
+        clearTimeout(timer);
+    }
 }
 
 export async function setupSettingsLogic(competitionId) {
@@ -1170,11 +1267,11 @@ export async function setupSettingsLogic(competitionId) {
 
         // --- 2. Map & Coordinates (From Config) ---
         // We fetch 'map' config. Fallback to competition doc 'coordinates' for migration/legacy.
-        const mapConfig = await getConfig(competitionId, 'map').catch(() => ({}));
+        const mapConfig = await getConfig(competitionId, 'map', true).catch(() => ({}));
         const compDoc = await getCompetitionById(competitionId);
         const [equipages, classConfig, judges, officials, startTimesConfig, publicInfo] = await Promise.all([
             getEquipages(competitionId),
-            getConfig(competitionId, 'classSettings').catch(() => ({})),
+            getConfig(competitionId, 'classSettings', true).catch(() => ({})),
             getJudges(competitionId).catch(() => []),
             getOfficials(competitionId).catch(() => []),
             getConfig(competitionId, 'startTimes').catch(() => ({})),
@@ -1290,6 +1387,10 @@ export async function setupSettingsLogic(competitionId) {
         // Init Map
         initSettingsMap(initialCoords);
 
+        // What the form was loaded from, and the form as filled (below)
+        let loadedStored = settingsFromStored({ compDoc, meta, horseTemperature: horseTemperatureConfig, classSettings: classConfig, mapConfig });
+        let loadedForm = null;
+
         // --- 3. Save Handler ---
         const btn = document.getElementById('saveGlobalSettingsBtn');
         if (btn) {
@@ -1301,63 +1402,64 @@ export async function setupSettingsLogic(competitionId) {
                 btn.textContent = 'Sparar...';
                 btn.disabled = true;
                 try {
-                    // Meta
-                    const newValIntl = !!document.getElementById('isInternationalToggle')?.checked;
-                    const newValLock = Number(document.getElementById('lockdownMinutesInput')?.value ?? 60);
-                    const newValManual = !!document.getElementById('manualLockdownCheckbox')?.checked;
-                    const newCompetitionMode = document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live';
-                    const newHorseTemperatureConfig = normalizeHorseTemperatureConfig({
-                        enabled: !!document.getElementById('horseTempEnabledCheckbox')?.checked,
-                        daysBefore: document.getElementById('horseTempDaysInput')?.value ?? 3,
-                        checksPerDay: document.getElementById('horseTempChecksPerDaySelect')?.value ?? 2,
-                        warningTemperatureC: normalizeHorseTemperatureValue(document.getElementById('horseTempWarningInput')?.value),
-                        instructions: document.getElementById('horseTempInstructionsInput')?.value || ''
+                    const formNow = readSettingsForm();
+                    // Only what was changed in the form, and whether someone
+                    // else changed the same thing since it was loaded
+                    const storedNow = await fetchStoredSettings(competitionId);
+                    // (changes against the form as shown, conflicts against the
+                    // stored values, since the form shows defaults for unset ones)
+                    const changes = diffFormFields(formNow, loadedForm || loadedStored);
+                    const conflictFields = findFormConflicts(changes, loadedStored, storedNow);
+                    // Placings per class and the map position not stored yet: saved
+                    // as shown (the checklist counts stored values; older
+                    // competitions have the position on the root document)
+                    Object.keys(formNow).forEach((field) => {
+                        if (field in changes || !(field.startsWith('class:') || field === 'coordinates')) return;
+                        const stored = (storedNow || loadedStored)[field];
+                        if ((stored === undefined || stored === null) && formNow[field] !== null) changes[field] = formNow[field];
                     });
-
-                    // Coordinates
-                    const lat = document.getElementById('settingsLatInput').value;
-                    const lng = document.getElementById('settingsLngInput').value;
-                    let newCoords = null;
-                    if (lat && lng) {
-                        newCoords = { lat: parseFloat(lat), lng: parseFloat(lng) };
+                    if (conflictFields.length > 0
+                        && !window.confirm(formConflictMessage(conflictFields, settingsFieldLabels(conflictFields)))) {
+                        return;
+                    }
+                    if (Object.keys(changes).length === 0) {
+                        showAlert('Inga ändringar att spara.', true);
+                        return;
                     }
 
-                    // Class Settings
-                    const classSettings = {};
-                    document.querySelectorAll('#classSettingsTableBody tr').forEach(row => {
-                        const className = row.dataset.className;
-                        const input = row.querySelector('.placed-count-input');
-                        if (className && input) {
-                            const val = parseInt(input.value);
-                            if (!isNaN(val)) {
-                                classSettings[className] = { placedCount: val };
-                            }
-                        }
+                    const metaChanges = {};
+                    const horseTemperatureChanges = {};
+                    const classChanges = {};
+                    Object.entries(changes).forEach(([field, value]) => {
+                        if (META_FIELDS.includes(field)) metaChanges[field] = value;
+                        else if (field.startsWith('horseTemperature.')) horseTemperatureChanges[field.slice('horseTemperature.'.length)] = value;
+                        else if (field.startsWith('class:')) classChanges[field.slice(6)] = { placedCount: value };
                     });
+                    const hasKeys = (obj) => Object.keys(obj).length > 0;
 
-                    // All writes at once, answered when queued: awaiting them one
-                    // by one left the button on "Sparar..." without signal
-                    const saveResult = await awaitWriteOrQueue(Promise.all([
-                        updateCompetition(competitionId, { competitionMode: newCompetitionMode }),
-                        saveConfig(competitionId, 'competitionMeta', {
-                            isInternational: newValIntl,
-                            lockdownMinutes: newValLock,
-                            manualLockdown: newValManual
-                        }),
-                        saveConfig(competitionId, 'horseTemperature', {
-                            ...newHorseTemperatureConfig,
-                            updatedAt: new Date()
-                        }),
-                        saveConfig(competitionId, 'classSettings', classSettings),
-                        // Coordinates in config/map (the root document is often not writable)
-                        saveConfig(competitionId, 'map', {
-                            coordinates: newCoords,
-                            updatedAt: new Date()
-                        })
-                    ]));
+                    // Merge writes of the changed fields only, all at once,
+                    // answered when queued: awaiting them one by one left the
+                    // button on "Sparar..." without signal
+                    const writes = [];
+                    if ('competitionMode' in changes) writes.push(updateCompetition(competitionId, { competitionMode: changes.competitionMode }));
+                    if (hasKeys(metaChanges)) writes.push(saveConfig(competitionId, 'competitionMeta', metaChanges));
+                    if (hasKeys(horseTemperatureChanges)) {
+                        writes.push(saveConfig(competitionId, 'horseTemperature', { ...horseTemperatureChanges, updatedAt: new Date() }));
+                    }
+                    if (hasKeys(classChanges)) writes.push(saveConfig(competitionId, 'classSettings', classChanges));
+                    // Coordinates in config/map (the root document is often not writable)
+                    if ('coordinates' in changes) {
+                        writes.push(saveConfig(competitionId, 'map', { coordinates: changes.coordinates, updatedAt: new Date() }));
+                    }
+                    const saveResult = await awaitWriteOrQueue(Promise.all(writes));
 
+                    // The form now matches what is stored
+                    loadedForm = formNow;
+                    loadedStored = { ...(storedNow || loadedStored), ...changes };
+
+                    const newCompetitionMode = formNow.competitionMode;
                     const currentComp = getGlobalState('currentCompetition');
-                    if (currentComp?.id === competitionId) {
+                    if (currentComp?.id === competitionId && 'competitionMode' in changes) {
                         setGlobalState({
                             key: 'currentCompetition',
                             value: {
@@ -1373,15 +1475,15 @@ export async function setupSettingsLogic(competitionId) {
                     };
                     checklistContext.meta = {
                         ...checklistContext.meta,
-                        isInternational: newValIntl,
-                        lockdownMinutes: newValLock,
-                        manualLockdown: newValManual
+                        ...metaChanges
                     };
-                    checklistContext.classConfig = { ...classSettings };
-                    checklistContext.mapConfig = {
-                        ...checklistContext.mapConfig,
-                        coordinates: newCoords
-                    };
+                    checklistContext.classConfig = { ...checklistContext.classConfig, ...classChanges };
+                    if ('coordinates' in changes) {
+                        checklistContext.mapConfig = {
+                            ...checklistContext.mapConfig,
+                            coordinates: changes.coordinates
+                        };
+                    }
                     renderCompetitionSetupChecklist(checklistContext);
                     renderChecklistSectionIndicators(checklistContext);
 
@@ -1420,6 +1522,7 @@ export async function setupSettingsLogic(competitionId) {
                 `;
             }).join('');
         }
+        loadedForm = readSettingsForm();
 
     } catch (e) {
         console.warn('Kunde inte läsa/spara inställningar', e);

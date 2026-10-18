@@ -250,7 +250,7 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
   containerElement.innerHTML = `
         <div class="p-4 md:p-6">
           ${isEliminated || (eq && ['utgått', 'utesluten', 'retired', 'eliminated', 'elim', 'ute', 'utg'].some(s => String(eq.status || '').toLowerCase().includes(s))) ? `
-            <div class="mb-4 bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert">
+            <div class="mb-4 bg-red-100 border border-red-400 text-red-700 dark:bg-red-900/30 dark:border-red-700 dark:text-red-300 px-4 py-3 rounded relative" role="alert">
               <strong class="font-bold">Eliminerad i maraton. </strong>
               <span class="block sm:inline">Ekipaget har status eliminerad (ELIM) i denna gren.</span>
             </div>
@@ -269,13 +269,13 @@ export function renderMarathonContent(containerElement, eq, marathonData, obstac
           </div>
           
           ${hasObserverData ? `
-            <div class="mt-4 bg-yellow-50 p-3 rounded border border-yellow-100 text-sm">
-               <h5 class="font-bold text-yellow-800 mb-1">Observatörsnoteringar</h5>
+            <div class="mt-4 bg-yellow-50 p-3 rounded border border-yellow-100 text-sm text-gray-800 dark:bg-yellow-900/20 dark:border-yellow-800 dark:text-gray-200">
+               <h5 class="font-bold text-yellow-800 dark:text-yellow-200 mb-1">Observatörsnoteringar</h5>
                <div class="grid grid-cols-2 gap-2">
                   ${wrongGaitSec ? `<div>Fel gångart: <b>${wrongGaitSec}s</b></div>` : ''}
                   ${totalHaltSec ? `<div>Halter: <b>${halts.length}st (${totalHaltSec}s totalt)</b></div>` : ''}
                </div>
-               ${obsNotes ? `<div class="mt-2 text-gray-700 italic">"${escapeHtml(obsNotes)}"</div>` : ''}
+               ${obsNotes ? `<div class="mt-2 text-gray-700 dark:text-gray-300 italic">"${escapeHtml(obsNotes)}"</div>` : ''}
             </div>
           ` : ''}
           

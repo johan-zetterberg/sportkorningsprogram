@@ -42,7 +42,7 @@ export function setupJudgeForm({ competitionId, getJudges }) {
         roleContainer.innerHTML = currentRoles.map((role, index) => `
         <div class="flex justify-between bg-white dark:bg-gray-800 p-2 border dark:border-gray-600 rounded mb-1 dark:text-gray-200">
                 <span>${escapeHtml(role.discipline)} ${escapeHtml(role.position || '')}</span>
-                <button type="button" class="remove-judge-role-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" data-idx="${index}">&times;</button>
+                <button type="button" class="remove-judge-role-btn text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300" data-idx="${index}" aria-label="Ta bort">&times;</button>
             </div>`).join('');
 
         roleContainer.querySelectorAll('.remove-judge-role-btn').forEach(btn => {

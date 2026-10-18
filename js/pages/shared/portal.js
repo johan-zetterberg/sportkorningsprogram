@@ -250,8 +250,8 @@ export async function load(options = {}) {
     if (!user) {
         container.innerHTML = `
             <div class="p-8 text-center">
-                <h2 class="text-xl font-bold text-gray-800 mb-2">${t('login_required_title')}</h2>
-                <p class="text-gray-600 mb-4">${t('login_required_msg')}</p>
+                <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">${t('login_required_title')}</h2>
+                <p class="text-gray-600 dark:text-gray-400 mb-4">${t('login_required_msg')}</p>
                 <div id="portal-login-placeholder"></div>
             </div>
         `;
@@ -319,7 +319,7 @@ export async function load(options = {}) {
                         </p>
                         <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
                             <button id="manualSyncBtn" class="text-white bg-blue-600 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-700 w-full md:w-auto">🔄 ${t('sync_btn')}</button>
-                            <button id="joinAsAdminBtn" class="text-blue-600 bg-blue-50 border border-blue-200 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-100 w-full md:w-auto transition-colors">🔐 Bli Funktionär</button>
+                            <button id="joinAsAdminBtn" class="text-blue-600 bg-blue-50 border border-blue-200 dark:text-blue-300 dark:bg-blue-900/30 dark:border-blue-800 dark:hover:bg-blue-900/50 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-100 w-full md:w-auto transition-colors">🔐 Bli funktionär</button>
                         </div>
                     </div>
                     ${adminImpersonateHtml}
@@ -416,7 +416,7 @@ export async function load(options = {}) {
             allMsgs = sortPortalItemsByTimestampDesc(allMsgs, 'timestamp');
 
             if (allMsgs.length === 0) {
-                msgContainer.innerHTML = `<p class="text-gray-500 italic text-center py-8">${t('no_new_messages')}</p>`;
+                msgContainer.innerHTML = `<p class="text-gray-500 dark:text-gray-400 italic text-center py-8">${t('no_new_messages')}</p>`;
                 badge.textContent = '0';
                 badge.classList.add('hidden');
                 return;
@@ -496,6 +496,8 @@ export async function load(options = {}) {
             };
             pollers.set(cid, poll);
         });
+        // No claimed equipages: nothing to poll, show the empty state
+        if (uniqueCompIds.length === 0) renderAllMessages();
 
         // Each competition is read once; only those still running are checked
         // again every minute, and not while the page is hidden (a callable call
@@ -562,7 +564,7 @@ export async function load(options = {}) {
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col transform transition-all scale-100">
             <div class="p-5 border-b dark:border-gray-700 bg-blue-50 dark:bg-blue-900/30 flex justify-between items-center">
                 <h3 class="font-bold text-lg text-blue-900 dark:text-blue-100">🔐 Ange Funktionärskod</h3>
-                <button id="closePinModal" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none">&times;</button>
+                <button id="closePinModal" type="button" aria-label="Stäng" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none">&times;</button>
             </div>
             <div class="p-6">
                 <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Ange den 6-siffriga koden du fått av arrangören för att låsa upp funktionärs-rättigheter.</p>
@@ -677,7 +679,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                 </button>
             </div>
             <div id="dashboard-header" class="mb-4 md:mb-6 bg-white dark:bg-gray-800 p-3 sm:p-4 md:p-6 rounded-xl shadow-sm border dark:border-gray-700">
-                <div class="animate-pulse h-16 bg-gray-100 rounded"></div>
+                <div class="animate-pulse h-16 bg-gray-100 dark:bg-gray-700 rounded"></div>
             </div>
             
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 overflow-hidden min-h-[500px]">
@@ -999,7 +1001,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                     </div>
 
                     ${!canEditTemperatures ? `
-                    <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
                         ${safeRestrictionMessage}
                     </div>` : ''}
                     ${isAdminUser && !canSelfEdit ? `
@@ -1162,15 +1164,15 @@ async function renderDashboard(container, compId, startNumber, user) {
                     const minutesToStart = getPortalMinutesToNextStart(portalStartTimes, startNumber) ?? 999;
 
                     if (compMeta.manualLockdown) {
-                        return `<span class="text-xs font-bold text-red-600 bg-red-100 px-2 py-1 rounded" title="Sekretariatet har låst portalen">🔒 ${t('locked_manual', compConfig?.isInternational)}</span>`;
+                        return `<span class="text-xs font-bold text-red-600 bg-red-100 dark:text-red-300 dark:bg-red-900/40 px-2 py-1 rounded" title="Sekretariatet har låst portalen">🔒 ${t('locked_manual', compConfig?.isInternational)}</span>`;
                     }
 
                     if (minutesToStart < (compMeta.lockdownMinutes ?? 60)) {
-                        return `<span class="text-xs font-bold text-orange-600 bg-orange-100 px-2 py-1 rounded" title="Start om mindre än 1h">🔒 ${t('locked_time', compConfig?.isInternational)}</span>`;
+                        return `<span class="text-xs font-bold text-orange-600 bg-orange-100 dark:text-orange-300 dark:bg-orange-900/40 px-2 py-1 rounded" title="Start om mindre än 1h">🔒 ${t('locked_time', compConfig?.isInternational)}</span>`;
                     }
 
                     if (!canSelfEdit) {
-                        return `<span class="text-xs font-bold text-amber-700 bg-amber-100 px-2 py-1 rounded" title="${safeRestrictionMessage}">🔒 Endast sekretariat</span>`;
+                        return `<span class="text-xs font-bold text-amber-700 bg-amber-100 dark:text-amber-300 dark:bg-amber-900/40 px-2 py-1 rounded" title="${safeRestrictionMessage}">🔒 Endast sekretariat</span>`;
                     }
 
                     return `
@@ -1199,7 +1201,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                             </dd>
                         </dl>
                         ${!canSelfEdit ? `
-                        <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
                             ${safeRestrictionMessage}
                         </div>` : ''}
                     </div>
@@ -1303,7 +1305,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                             ${t('speaker_notes_desc', compConfig?.isInternational)}
                         </p>
                         ${!canSelfEdit ? `
-                        <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                        <div class="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/30 dark:text-amber-200">
                             ${escapeHtml(selfServiceRestrictionMessage)}
                         </div>` : ''}
                         <div class="flex flex-col gap-2">
@@ -1333,33 +1335,33 @@ async function renderDashboard(container, compId, startNumber, user) {
                         const modal = document.createElement('div');
                         modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in";
                         modal.innerHTML = `
-                        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-                            <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
-                                <h3 class="font-bold text-lg">Redigera Deklaration</h3>
-                                <button id="closeDeclModal" class="text-gray-500 hover:text-gray-800 text-2xl leading-none">&times;</button>
+                        <div class="bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 rounded-xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+                            <div class="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-between items-center">
+                                <h3 class="font-bold text-lg">Redigera deklaration</h3>
+                                <button id="closeDeclModal" type="button" aria-label="Stäng" class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none p-2">&times;</button>
                             </div>
                             <div class="p-6 overflow-y-auto space-y-4">
                                 <div>
-                                    <label class="block text-sm font-bold text-gray-700 mb-1">Groom / Medhjälpare</label>
-                                    <input type="text" id="editGroom" class="w-full border rounded p-2" value="${escapeAttr(eq.groom || '')}" placeholder="Namn på groom">
+                                    <label for="editGroom" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Groom / Medhjälpare</label>
+                                    <input type="text" id="editGroom" class="w-full border rounded p-2 text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(eq.groom || '')}" placeholder="Namn på groom">
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-bold text-gray-700 mb-1">Vagn</label>
-                                    <input type="text" id="editCarriage" class="w-full border rounded p-2" value="${escapeAttr(eq.carriage || '')}" placeholder="Fabrikat / Modell / Spårbredd">
+                                    <label for="editCarriage" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Vagn</label>
+                                    <input type="text" id="editCarriage" class="w-full border rounded p-2 text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(eq.carriage || '')}" placeholder="Fabrikat / Modell / Spårbredd">
                                 </div>
-                                <div class="bg-blue-50 p-4 rounded border border-blue-100">
-                                    <label class="block text-sm font-bold text-blue-900 mb-2">Hästar (Max 5)</label>
+                                <div class="bg-blue-50 dark:bg-blue-900/20 p-4 rounded border border-blue-100 dark:border-blue-800">
+                                    <label class="block text-sm font-bold text-blue-900 dark:text-blue-200 mb-2">Hästar (max 5)</label>
                                     <div id="editHorseContainer" class="space-y-2"></div>
-                                    <button id="addHorseBtn" class="mt-2 text-sm text-blue-600 font-medium hover:underline">+ Lägg till häst</button>
+                                    <button id="addHorseBtn" type="button" class="mt-2 py-2 text-sm text-blue-600 dark:text-blue-400 font-medium hover:underline">+ Lägg till häst</button>
                                 </div>
                                 <div>
-                                    <label class="block text-sm font-bold text-gray-700 mb-1">Klubb</label>
-                                    <input type="text" id="editClub" class="w-full border rounded p-2" value="${escapeAttr(eq.clubName || '')}">
+                                    <label for="editClub" class="block text-sm font-bold text-gray-700 dark:text-gray-300 mb-1">Klubb</label>
+                                    <input type="text" id="editClub" class="w-full border rounded p-2 text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeAttr(eq.clubName || '')}">
                                 </div>
                             </div>
-                            <div class="p-4 border-t bg-gray-50 flex justify-end gap-2">
-                                <button id="cancelDeclFn" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded">Avbryt</button>
-                                <button id="saveDeclFn" class="px-6 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700">Spara Ändringar</button>
+                            <div class="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex justify-end gap-2">
+                                <button id="cancelDeclFn" type="button" class="px-4 py-2 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 rounded">Avbryt</button>
+                                <button id="saveDeclFn" type="button" class="px-6 py-2 bg-blue-600 text-white font-bold rounded shadow hover:bg-blue-700">Spara ändringar</button>
                             </div>
                         </div>
                         `;
@@ -1383,10 +1385,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                             container.innerHTML = currentHorses.map((h, i) => `
                                 <div class="flex gap-2 items-start animate-fade-in horse-row" data-idx="${i}">
                                     <div class="flex-1 space-y-1">
-                                        <input type="text" class="w-full border rounded p-1 text-sm h-name" placeholder="Hästnamn" value="${escapeAttr(h.name || '')}">
-                                        <input type="text" class="w-full border rounded p-1 text-xs h-id" placeholder="ID / Regnr" value="${escapeAttr(h.id || '')}">
+                                        <input type="text" class="w-full border rounded p-2 text-base h-name dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Hästnamn" aria-label="Hästnamn" value="${escapeAttr(h.name || '')}">
+                                        <input type="text" class="w-full border rounded p-2 text-base h-id dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="ID / Regnr" aria-label="ID / Regnr" value="${escapeAttr(h.id || '')}">
                                     </div>
-                                    <button class="rm-horse text-red-400 hover:text-red-600 p-1" title="Ta bort">&times;</button>
+                                    <button type="button" class="rm-horse text-red-400 hover:text-red-600 text-xl leading-none p-2" title="Ta bort häst" aria-label="Ta bort häst">&times;</button>
                                 </div>
                             `).join('');
 
@@ -1609,7 +1611,7 @@ async function renderDashboard(container, compId, startNumber, user) {
 
             contentEl.innerHTML = `
                 <div class="flex justify-end mb-4 px-2">
-                     <button id="portalTimeCardBtn" class="text-xs md:text-sm font-semibold text-blue-700 hover:underline flex items-center gap-1 bg-blue-50 px-3 py-1.5 rounded-full">
+                     <button id="portalTimeCardBtn" type="button" class="text-xs md:text-sm font-semibold text-blue-700 dark:text-blue-300 hover:underline flex items-center gap-1 bg-blue-50 dark:bg-blue-900/30 px-3 py-1.5 rounded-full">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path></svg>
                         Visa Tidkort
                     </button>
@@ -1702,13 +1704,13 @@ async function renderDashboard(container, compId, startNumber, user) {
                         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-2xl w-full max-h-[80vh] flex flex-col animate-fade-in-up border dark:border-gray-700">
                             <div class="p-4 border-b dark:border-gray-700 flex justify-between items-center bg-gray-50 dark:bg-gray-900/50 rounded-t-xl">
                                 <h3 class="font-bold text-lg text-gray-900 dark:text-white">${escapeHtml(d.title || t('doc_default_title'))}</h3>
-                                <button type="button" data-close-doc-modal class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
+                                <button type="button" data-close-doc-modal aria-label="Stäng" class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-2xl leading-none">&times;</button>
                             </div>
                             <div class="p-6 overflow-y-auto prose dark:prose-invert max-w-none text-gray-800 dark:text-gray-200">
                                 ${(d.content && sanitizeRichHtml(d.content)) || `<p class="text-gray-500 italic">${t('no_content')}</p>`}
                             </div>
                             <div class="p-4 border-t dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 rounded-b-xl text-right">
-                                <button type="button" data-close-doc-modal class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded font-medium text-sm text-gray-800 dark:text-gray-200 transition">${t('close_btn')}</button>
+                                <button type="button" data-close-doc-modal aria-label="Stäng" class="px-4 py-2 bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 rounded font-medium text-sm text-gray-800 dark:text-gray-200 transition">${t('close_btn')}</button>
                             </div>
                         </div>
                     </div>

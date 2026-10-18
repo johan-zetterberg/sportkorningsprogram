@@ -153,8 +153,8 @@ export function renderMarathonMobileCards({
               ${isActive
                 ? `
                   <div class="flex items-center gap-1">
-                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">Running</span>
-                      <span data-live-time="${sn}" class="font-bold text-yellow-700 animate-pulse">\u2014</span>
+                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">${t('running_status') || 'Pågår'}</span>
+                      <span data-live-time="${sn}" class="font-bold text-yellow-700 dark:text-yellow-400 animate-pulse">\u2014</span>
                   </div>
                   `
                 : `<span class="text-gray-500 dark:text-gray-400 font-medium">${status || '\u2013'}</span>`

@@ -1316,12 +1316,12 @@ function renderStagePanel(stage) {
 
     <!-- KLOCKSLAG OCH KOMMENTARER -->
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="startClockRow-${stage}">
-        <div class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_start_clock')} <span class="text-xs">✏️</span></div>
+      <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="startClockRow-${stage}" role="button" tabindex="0" data-kbd-click>
+        <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_stages_start_clock')} <span class="text-xs">✏️</span></div>
         <div id="startClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
       </div>
-      <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="stopClockRow-${stage}">
-        <div class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_finish_clock')} <span class="text-xs">✏️</span></div>
+      <div class="p-2 border dark:border-gray-700 rounded-lg bg-gray-50/50 dark:bg-gray-800/50 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors" id="stopClockRow-${stage}" role="button" tabindex="0" data-kbd-click>
+        <div class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_stages_finish_clock')} <span class="text-xs">✏️</span></div>
         <div id="stopClock-${stage}" class="text-sm font-bold tabular-nums dark:text-gray-200 text-blue-600 dark:text-blue-400">–</div>
       </div>
     </div>

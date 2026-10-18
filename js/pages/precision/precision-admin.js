@@ -18,6 +18,7 @@ import {
     resolvePrecisionMergeGrouping
 } from './precisionResultMerge.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { diffFormFields, findFormConflicts, flattenFormRows, formConflictMessage, formRowFieldLabel, unflattenFormRows } from '../../utils/formDiff.js';
 
 let competitionId = null;
 let activeClasses = [];
@@ -532,7 +533,7 @@ function renderClassCards() {
                                <input type="number" value="${escapeHtml(savedTempo ?? '')}" class="tempo-override-input w-full sm:w-20 p-1 text-sm border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="${tempoPlaceholder}">
                                <span class="text-xs text-gray-600 dark:text-gray-400">m/min</span>
                            </div>
-                           <span class="flex-1 sm:text-right text-xs text-gray-500">Maxtid:</span>
+                           <span class="flex-1 sm:text-right text-xs text-gray-500 dark:text-gray-400">Maxtid:</span>
                            <strong id="maxtime_${classId}" class="text-gray-800 dark:text-white whitespace-nowrap">${escapeHtml(maxTime)}</strong>
                         </div>
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${tempoState.hasMixedTempo ? `Häst och ponny har olika tempo (${escapeHtml(tempoState.tempos.join(' / '))} m/min). Lämna tomt: varje ekipage kör på sitt tempo (TR 535.1). Ett ifyllt tempo gäller alla i klassen.` : 'Lämna tempo tomt för att använda klassens standardtempo.'}</p>
@@ -929,10 +930,41 @@ async function saveData() {
             return;
         }
 
-        await saveConfig(competitionId, 'precisionConfig', newConfig);
+        // Only what differs from the settings the page loaded (another admin
+        // may have saved other classes meanwhile), checked against the stored ones
+        const classNames = Object.keys(newConfig.courses);
+        const formFlat = precisionSettingsFlat(newConfig, classNames);
+        const changes = diffFormFields(formFlat, precisionSettingsFlat(precisionConfig, classNames));
+        const fresh = await Promise.race([
+            getConfig(competitionId, 'precisionConfig', true).catch(() => null),
+            new Promise(resolve => setTimeout(() => resolve(null), 4000))
+        ]);
+        const conflicts = findFormConflicts(changes, precisionSettingsFlat(precisionConfig, classNames), fresh ? precisionSettingsFlat(fresh, classNames) : null);
+        if (conflicts.length > 0) {
+            const labels = Object.fromEntries(conflicts.map(key => [key, formRowFieldLabel(key, PRECISION_FIELD_LABELS)]));
+            if (!confirm(formConflictMessage(conflicts, labels))) return;
+        }
+        if (Object.keys(changes).length === 0) {
+            clearPrecisionValidationDom();
+            showAlert('Inga ändringar att spara.', 'success');
+            return;
+        }
+        // Merge write: top-level fields, and single classes of courses and
+        // port allowances (a cleared override is stored as null)
+        const payload = {};
+        Object.entries(changes).forEach(([key, value]) => { if (!key.includes('\u001f')) payload[key] = value; });
+        Object.entries(unflattenFormRows(changes)).forEach(([group, entries]) => { payload[group] = entries; });
+        await saveConfig(competitionId, 'precisionConfig', payload);
         clearPrecisionValidationDom();
         showAlert('Inställningar för precision har sparats!', 'success');
-        precisionConfig = newConfig;
+        // The stored settings now (what was read, with this save)
+        const base = fresh || precisionConfig;
+        precisionConfig = {
+            ...base,
+            ...payload,
+            courses: { ...(base.courses || {}), ...(payload.courses || {}) },
+            portAllowanceByClass: { ...(base.portAllowanceByClass || {}), ...(payload.portAllowanceByClass || {}) }
+        };
         renderPrecisionAdminReadiness();
 
     } catch (e) {
@@ -941,12 +973,37 @@ async function saveData() {
     }
 }
 
+// The settings the form edits as flat fields ('courses' and
+// 'portAllowanceByClass' per class), for saving only what changed
+function precisionSettingsFlat(config = {}, classNames = []) {
+    const courses = {};
+    const allowances = {};
+    classNames.forEach((className) => {
+        courses[className] = config.courses?.[className] ?? null;
+        allowances[className] = config.portAllowanceByClass?.[className] ?? null;
+    });
+    return {
+        knockdownPenalty: config.knockdownPenalty,
+        timePenaltyRate: config.timePenaltyRate,
+        mapSettings: config.mapSettings,
+        ...flattenFormRows({ courses, portAllowanceByClass: allowances })
+    };
+}
+
+const PRECISION_FIELD_LABELS = {
+    knockdownPenalty: 'straff per nedslag',
+    timePenaltyRate: 'tidsstraff per sekund',
+    mapSettings: 'kartinställningarna',
+    courses: 'banan',
+    portAllowanceByClass: 'porttillägget'
+};
+
 export async function load() {
     const comp = getGlobalState('currentCompetition');
     competitionId = comp?.id;
     const root = document.getElementById('page-precision-admin');
     if (!competitionId) {
-        if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+        if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
         return;
     }
 
@@ -956,7 +1013,8 @@ export async function load() {
     try {
         const [equipagesData, configData, displayConfig] = await Promise.all([
             getEquipages(competitionId),
-            getConfig(competitionId, 'precisionConfig'),
+            // Fresh (a cached copy can be an hour old): the save compares with it
+            getConfig(competitionId, 'precisionConfig', true).catch(() => getConfig(competitionId, 'precisionConfig')),
             getConfig(competitionId, 'display', true).catch(() => ({}))
         ]);
 

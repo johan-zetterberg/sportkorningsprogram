@@ -167,7 +167,7 @@ export function renderSectorAnalysis(context) {
                     <th class="px-3 py-2"># Ekipage</th>
                     <th class="px-3 py-2">Etapp</th>
                     <th class="px-3 py-2 text-right">Ideal</th>
-                    <th class="px-3 py-2 text-right">Live / Result</th>
+                    <th class="px-3 py-2 text-right">Live / Resultat</th>
                     <th class="px-3 py-2 text-right">Diff</th>
                 </tr>
             </thead>

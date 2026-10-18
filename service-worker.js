@@ -321,6 +321,7 @@ const urlsToCache = [
   abs('/js/utils/errorReporter.js'),
   abs('/js/utils/errorReportUtils.js'),
   abs('/js/utils/fieldBackup.js'),
+  abs('/js/utils/formDiff.js'),
   abs('/js/utils/i18n.js'),
   abs('/js/utils/marathonExportUtils.js'),
   abs('/js/utils/marathonUtils.js'),

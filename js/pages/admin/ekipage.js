@@ -1,5 +1,5 @@
 import { getGlobalState } from '../../main.js';
-import { pickEditedFields } from '../../services/secretariatPatchUtils.js';
+import { formConflictMessage, planFormSave } from '../../utils/formDiff.js';
 import { listenForEquipages } from '../../services/equipageService.js';
 import { saveEquipage } from '../../services/equipageService.js';
 import { listenForVetNotes, saveVetNote } from '../../services/vetInspectionService.js';
@@ -14,6 +14,18 @@ let unsubscribeVetNotes = null;
 let vetNotesByStartNumber = new Map();
 
 let allEquipages = []; // En cachad lista över alla ekipage
+
+// Names in the "someone else changed" question
+const INFO_FIELD_LABELS = {
+    driverName: 'kusk',
+    email: 'e-post',
+    clubName: 'klubb',
+    className: 'klass',
+    speakerNotes: 'speaker-noteringar',
+    dressage: 'hästar i dressyr',
+    marathon: 'hästar i maraton',
+    precision: 'hästar i precision'
+};
 let searchTerm = '';
 let filterStatus = 'alla'; // 'alla', 'anmäld', 'incheckad', 'besiktigad', 'ombesiktning', 'struken';
 
@@ -235,6 +247,13 @@ function renderEditInfoView(equipage, modalContent) {
     document.getElementById('cancelInfoBtn').addEventListener('click', () => showEquipageDetailsModal(equipage));
 
     const vetNoteBefore = String(getVetNotes(equipage).initial || '').trim();
+    // The values the form shows, to compare the save with
+    const normalizeInfo = (eq = {}) => {
+        const info = { email: String(eq.email || '').trim().toLowerCase() };
+        ['driverName', 'clubName', 'className', 'speakerNotes'].forEach(f => { info[f] = String(eq[f] || '').trim(); });
+        return info;
+    };
+    const loadedInfo = normalizeInfo(equipage);
     document.getElementById('saveInfoBtn').addEventListener('click', async () => {
         const formData = {
             driverName: document.getElementById('editDriverName').value.trim(),
@@ -243,12 +262,11 @@ function renderEditInfoView(equipage, modalContent) {
             className: document.getElementById('editClassName').value.trim(),
             speakerNotes: document.getElementById('editSpeakerNotes').value.trim(),
         };
-        // Only what was changed here: the vet or speaker may have written a
-        // newer note since this dialog opened
-        const newData = pickEditedFields(formData, {
-            ...equipage,
-            email: String(equipage.email || '').trim().toLowerCase()
-        }, Object.keys(formData), { driverName: '', email: '', clubName: '', className: '', speakerNotes: '' });
+        // Only what was changed here: the vet, the speaker or another admin may
+        // have saved since this dialog opened (the listener's copy is newer)
+        const latest = allEquipages.find(e => String(e.startNumber ?? e.id) === String(equipage.startNumber ?? equipage.id));
+        const { changes: newData, conflicts } = planFormSave(formData, loadedInfo, latest ? normalizeInfo(latest) : null);
+        if (conflicts.length > 0 && !confirm(formConflictMessage(conflicts, INFO_FIELD_LABELS))) return;
         // The vet's note is in its own document (vetNotes), saved only if changed here
         const vetNote = document.getElementById('editVetNotes').value.trim();
         if (vetNote !== vetNoteBefore) {
@@ -369,12 +387,22 @@ function renderHorseSelectionView(equipage, allHorses, horseLimit, modalContent)
             newMomentHorses[cb.dataset.discipline].push(cb.value);
         });
 
+        // Only the disciplines changed here (a merge keeps the others as stored)
+        const latest = allEquipages.find(e => String(e.startNumber ?? e.id) === String(equipage.startNumber ?? equipage.id));
+        const { changes, conflicts } = planFormSave(newMomentHorses, currentSelections, latest ? (latest.momentHorses || {}) : null,
+            { defaults: { dressage: [], marathon: [], precision: [] } });
+        if (Object.keys(changes).length === 0) {
+            showEquipageDetailsModal(equipage);
+            return;
+        }
+        if (conflicts.length > 0 && !confirm(formConflictMessage(conflicts, INFO_FIELD_LABELS))) return;
+
         try {
-            await saveEquipage(competitionId, equipage.startNumber, { momentHorses: newMomentHorses });
+            await saveEquipage(competitionId, equipage.startNumber, { momentHorses: changes });
             showAlert('Hästval för moment har sparats.');
 
             // Uppdatera det lokala objektet och rendera om "läs-vyn"
-            equipage.momentHorses = newMomentHorses;
+            equipage.momentHorses = { ...currentSelections, ...changes };
             showEquipageDetailsModal(equipage);
 
         } catch (error) {
@@ -428,20 +456,20 @@ function renderList() {
 
     if (sortedEquipages.length === 0) {
         if (searchTerm || filterStatus !== 'alla') {
-            listContainer.innerHTML = '<p class="text-center text-gray-500">Inga ekipage matchar din sökning/filter.</p>';
+            listContainer.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400">Inga ekipage matchar din sökning/filter.</p>';
         } else {
-            listContainer.innerHTML = '<p class="text-center text-gray-500">Inga ekipage tillagda ännu.</p>';
+            listContainer.innerHTML = '<p class="text-center text-gray-500 dark:text-gray-400">Inga ekipage tillagda ännu.</p>';
         }
         return;
     }
 
     // Definiera våra nya statusar
     const statusOptions = [
-        { value: 'anmäld', text: 'Anmäld', color: 'text-gray-700' },
-        { value: 'incheckad', text: 'Incheckad', color: 'text-blue-600' },
-        { value: 'besiktigad', text: 'Besiktigad (OK)', color: 'text-green-600' },
-        { value: 'ombesiktning', text: 'Ombesiktning (Håll)', color: 'text-yellow-600' },
-        { value: 'struken', text: 'Struken', color: 'text-red-600' }
+        { value: 'anmäld', text: 'Anmäld', color: 'text-gray-700 dark:text-gray-200' },
+        { value: 'incheckad', text: 'Incheckad', color: 'text-blue-600 dark:text-blue-300' },
+        { value: 'besiktigad', text: 'Besiktigad (OK)', color: 'text-green-600 dark:text-green-300' },
+        { value: 'ombesiktning', text: 'Ombesiktning (Håll)', color: 'text-yellow-600 dark:text-yellow-300' },
+        { value: 'struken', text: 'Struken', color: 'text-red-600 dark:text-red-300' }
     ];
 
     sortedEquipages.forEach(e => {
@@ -459,7 +487,7 @@ function renderList() {
         element.className = `p-3 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-colors duration-200 ${bgColor} hover:bg-gray-100 dark:hover:bg-gray-600`;
 
         // Skapa HTML för dropdown-menyn
-        let selectHtml = `<select class="status-select w-full sm:w-auto text-sm font-medium border-gray-300 dark:border-gray-600 rounded-md shadow-sm dark:bg-gray-800 dark:text-gray-200" data-start-number="${e.startNumber}">`;
+        let selectHtml = `<select class="status-select w-full sm:w-auto text-sm font-medium border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-gray-800 dark:bg-gray-800 dark:text-gray-100" data-start-number="${e.startNumber}">`;
         statusOptions.forEach(opt => {
             const selected = opt.value === currentStatus ? 'selected' : '';
             // Justera textfärger i options om det behövs

@@ -109,7 +109,7 @@ export function renderCompetitionModeBanner(competition, options = {}) {
 export function createSearchableDropdown(container, data, onSelect) {
     container.innerHTML = `
         <div class="searchable-dropdown relative bg-white dark:bg-gray-800">
-            <input type="text" class="search-input w-full p-2 border dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400" placeholder="${escapeHtml(t('search_startnumber_or_name'))}">
+            <input type="text" class="search-input w-full p-2 border dark:border-gray-600 rounded-md bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-500 dark:placeholder-gray-400" placeholder="${escapeHtml(t('search_startnumber_or_name'))}" aria-label="${escapeHtml(t('search_startnumber_or_name'))}">
             <div class="searchable-dropdown-list hidden absolute top-full left-0 right-0 bg-white dark:bg-gray-700 border dark:border-gray-600 mt-1 rounded-md shadow-lg z-10 max-h-60 overflow-y-auto"></div>
         </div>
     `;

@@ -47,9 +47,10 @@ export function renderLanguageToggle(container, isInternationalDefault = false) 
     const nextParams = isEn ? 'Byt till Svenska' : 'Switch to English';
 
     const btn = document.createElement('button');
-    btn.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-white hover:bg-gray-50 text-sm font-medium transition-all border border-gray-300 shadow-sm';
+    btn.className = 'flex items-center gap-2 px-3 py-1.5 rounded-full bg-white hover:bg-gray-50 text-sm font-medium transition-all border border-gray-300 shadow-sm dark:bg-gray-700 dark:hover:bg-gray-600 dark:border-gray-600';
     btn.title = nextParams;
-    btn.innerHTML = `<span class="flex items-center justify-center w-6 h-4 overflow-hidden rounded-[2px]">${icon}</span> <span class="hidden sm:inline text-gray-700">${label}</span>`;
+    btn.setAttribute('aria-label', nextParams);
+    btn.innerHTML = `<span class="flex items-center justify-center w-6 h-4 overflow-hidden rounded-[2px]">${icon}</span> <span class="hidden sm:inline text-gray-700 dark:text-gray-200">${label}</span>`;
 
     btn.onclick = (e) => {
         e.preventDefault();

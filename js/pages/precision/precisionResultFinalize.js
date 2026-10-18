@@ -35,12 +35,12 @@ export function renderPrecisionFinalizeButtons(options = {}) {
   return `
     <div class="mt-2 flex items-center justify-center gap-2" data-prec-finalize-slot>
       <span id="prec-final-badge-${sn}"
-            class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800"
+            class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/40 dark:text-emerald-300"
             style="display:${finalized ? 'inline-flex' : 'none'}">
         ${finalizedBadge}
       </span>
       <button type="button" data-prec-action="finalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700" style="display:${finalized ? 'none' : ''}" >${finalizeLabel}</button>
-      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50" style="display:${finalized ? '' : 'none'}" >${undoLabel}</button>
+      <button type="button" data-prec-action="unfinalize" data-sn="${sn}" class="px-2 py-1 text-xs rounded border border-emerald-600 text-emerald-700 hover:bg-emerald-50 dark:text-emerald-300 dark:hover:bg-emerald-900/30" style="display:${finalized ? '' : 'none'}" >${undoLabel}</button>
     </div>`;
 }
 

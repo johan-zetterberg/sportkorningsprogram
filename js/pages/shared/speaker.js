@@ -8,7 +8,8 @@ import { showDetailsModal as showPrecisionDetailsModal } from '../../ui/precisio
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getJudges } from '../../services/adminService.js';
-import { updateEquipage } from '../../services/equipageService.js';
+import { saveEquipage } from '../../services/equipageService.js';
+import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { getDressageResultsForEquipage } from '../../services/dressageService.js';
 import {
     getPrograms,
@@ -64,6 +65,7 @@ import {
     getSpeakerDisciplineState as readSpeakerDisciplineState
 } from './speakerResults.js';
 import {
+    canEditSpeakerNotes,
     formatSpeakerPenalty,
     getSpeakerPenaltyOrNull
 } from './speakerFormatUtils.js';
@@ -364,36 +366,52 @@ window.editSpeakerNotes = (sn) => {
 
     // Check if already editing
     if (document.getElementById('edit-notes-area')) return;
+    if (sn == null || String(sn) === '') return;
 
-    const currentText = notesEl.innerText === "Inga specifika noteringar inlagda." ? "" : notesEl.innerText;
+    // The stored notes (the shown text may be a placeholder)
+    const eq = allEquipages.find(e => String(e.startNumber) === String(sn) || String(e.id) === String(sn));
+    const currentText = String(eq?.speakerNotes || '');
 
     // Replace with textarea
     const area = document.createElement('textarea');
     area.id = 'edit-notes-area';
-    area.className = 'w-full h-32 p-2 border rounded text-lg text-gray-800  mb-2';
+    area.className = 'w-full h-32 p-2 border rounded text-lg text-gray-800 bg-white dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600 mb-2';
+    area.setAttribute('aria-label', 'Speaker-noteringar');
+    area.maxLength = 2000;
     area.value = currentText;
 
     const btnContainer = document.createElement('div');
     btnContainer.className = 'flex justify-end gap-2';
 
     const saveBtn = document.createElement('button');
+    saveBtn.type = 'button';
     saveBtn.className = 'px-4 py-1 bg-green-600 text-white rounded font-bold hover:bg-green-700';
     saveBtn.innerText = 'Spara';
     saveBtn.onclick = async () => {
         const newVal = area.value;
-        notesEl.textContent = newVal || "Sparar...";
+        saveBtn.disabled = true;
         try {
-            await updateEquipage(resolveCurrentCompId(), String(sn), { speakerNotes: newVal });
+            // Merge write of the notes only (the speaker's rules allow nothing
+            // else); queued on the device without signal
+            const result = await awaitWriteOrQueue(
+                saveEquipage(resolveCurrentCompId(), String(eq?.id ?? sn), { speakerNotes: newVal }),
+                { onLateError: () => alert('Noteringarna kunde inte sparas (nekades av servern).') }
+            );
+            if (eq) eq.speakerNotes = newVal;
             notesEl.textContent = newVal || "Inga specifika noteringar inlagda.";
             cleanup();
+            const notice = queuedNotice(result);
+            if (notice) alert(`Noteringarna sparade${notice}`);
         } catch (e) {
-            alert('Kunde inte spara noteringar.');
+            saveBtn.disabled = false;
+            alert('Kunde inte spara noteringar: ' + (e?.message || e));
             console.error(e);
         }
     };
 
     const cancelBtn = document.createElement('button');
-    cancelBtn.className = 'px-4 py-1 bg-gray-300 text-gray-800 rounded hover:bg-gray-400';
+    cancelBtn.type = 'button';
+    cancelBtn.className = 'px-4 py-1 bg-gray-300 text-gray-800 rounded hover:bg-gray-400 dark:bg-gray-600 dark:text-gray-100 dark:hover:bg-gray-500';
     cancelBtn.innerText = 'Avbryt';
     cancelBtn.onclick = () => {
         notesEl.textContent = currentText || "Inga specifika noteringar inlagda.";
@@ -484,7 +502,7 @@ function renderLayout() {
                      <div id="speaker-notes-card" class="bg-yellow-50 dark:bg-yellow-900/20 rounded-xl shadow-sm border border-yellow-200 dark:border-yellow-800/50 p-3 sm:p-4 shrink-0 h-fit min-h-[130px] md:min-h-[150px] ${currentDiscipline === 'maraton' ? 'order-3' : ''}">
                         <div class="flex justify-between items-center mb-2">
                             <h3 class="font-bold text-yellow-800 dark:text-yellow-200 uppercase tracking-wide text-xs">Speaker Noteringar</h3>
-                             <button onclick="window.editSpeakerNotes(currentRider?.eq?.startNumber)" class="text-yellow-600 hover:text-yellow-800 dark:text-yellow-300 dark:hover:text-yellow-100 text-xs font-bold px-2 py-1 bg-yellow-100 dark:bg-yellow-800/50 rounded">✎ Ändra</button>
+                             <button type="button" id="edit-notes-btn" class="hidden text-yellow-600 hover:text-yellow-800 dark:text-yellow-300 dark:hover:text-yellow-100 text-xs font-bold px-2 py-1 bg-yellow-100 dark:bg-yellow-800/50 rounded">✎ Ändra</button>
                         </div>
                         <div id="speaker-notes-content" class="text-gray-800 dark:text-gray-200 text-lg  italic leading-relaxed">
                             Inga specifika noteringar inlagda.
@@ -531,6 +549,10 @@ function renderLayout() {
                  </div>
             </div>
         </div>`;
+        // The rider on show when clicked (set by renderCurrentRiderCard)
+        document.getElementById('edit-notes-btn')?.addEventListener('click', (event) => {
+            window.editSpeakerNotes(event.currentTarget.dataset.sn);
+        });
     } else {
         // Toggle marathon specific blocks without fully rerendering
         const mObs = document.getElementById('marathon-obstacle-focus');
@@ -859,6 +881,15 @@ function renderCurrentRiderCard() {
     const notesEl = document.getElementById('speaker-notes-content');
     if (!el || !notesEl) return;
 
+    // One edit button (in the layout), for those the rules let write notes
+    const editBtn = document.getElementById('edit-notes-btn');
+    const isEditingNotes = !!document.getElementById('edit-notes-area');
+    if (editBtn) {
+        const canEdit = !!currentRider && !archiveSnapshot
+            && canEditSpeakerNotes(getGlobalState('currentUser'), getGlobalState('currentCompetition'));
+        editBtn.dataset.sn = currentRider ? String(currentRider.eq?.startNumber ?? '') : '';
+        editBtn.classList.toggle('hidden', !canEdit || isEditingNotes);
+    }
     if (!currentRider) {
         el.innerHTML = `<div class="flex items-center justify-center h-full text-gray-400 text-2xl font-light">Inget ekipage på banan just nu</div>`;
         notesEl.innerHTML = `<span class="text-gray-400 italic">Inväntar ekipage...</span>`;
@@ -875,19 +906,6 @@ function renderCurrentRiderCard() {
     const safeCity = escapeHtml(eq.address?.city || '');
     const safeGroom = escapeHtml(eq.groom || '');
     notesEl.textContent = notes;
-
-    // Inject Edit Button into Notes Header if check present
-    const notesCard = document.getElementById('speaker-notes-card');
-    if (notesCard) {
-        const h3 = notesCard.querySelector('h3');
-        if (h3) {
-            h3.innerHTML = `
-            <div class="flex justify-between items-center">
-                <span>📢 Speaker Noteringar</span>
-                <button id="edit-notes-btn" onclick="editSpeakerNotes(${jsStringAttr(eq.startNumber)})" class="text-xs bg-yellow-200 dark:bg-yellow-800 text-yellow-800 dark:text-yellow-100 px-2 py-1 rounded hover:bg-yellow-300 dark:hover:bg-gray-700 transition-colors">✎ Ändra</button>
-            </div> `;
-        }
-    }
 
     let horseText = '';
     const horses = eq.horses || [];
@@ -962,12 +980,12 @@ function renderCurrentRiderCard() {
                 // Hide balls text for Marathon (irrelevant/confusing?)
                 const extraText = currentDiscipline === 'maraton' ? '' : `<br> <span class="text-[10px]">${ballsText}</span>`;
 
-                marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200">
+                marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-green-700 bg-green-100 dark:text-green-200 dark:bg-green-900/40 px-2 py-0.5 rounded border border-green-200 dark:border-green-800">
     Segermarginal: ${(diff != null) ? Math.abs(diff).toFixed(2) : '—'} ${extraText}
     </div>`;
             } else if (diff !== null) {
                 // I am behind
-                marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200">
+                marginHtml = `<div id="speaker-live-margin" class="text-xs mt-1 font-bold text-red-700 bg-red-100 dark:text-red-200 dark:bg-red-900/40 px-2 py-0.5 rounded border border-red-200 dark:border-red-800">
     Upp till ledning: +${(diff != null) ? diff.toFixed(2) : '—'}
                  </div> `;
 
@@ -978,7 +996,7 @@ function renderCurrentRiderCard() {
                     const myTime = liveInjection?.timeMs || 0;
                     const targetTime = leader.tieBreakerTime || 0;
                     const timeDiffSec = (myTime - targetTime) / 1000;
-                    const timeColor = timeDiffSec < 0 ? 'text-green-600' : 'text-red-600';
+                    const timeColor = timeDiffSec < 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400';
                     const timeSign = timeDiffSec > 0 ? '+' : '';
                     marginHtml += `<div class="text-[10px] font-bold ${timeColor} mt-0.5">Lika straff! Tidsskillnad: ${timeSign}${timeDiffSec.toFixed(2)}s</div>`;
                 }
@@ -1203,7 +1221,7 @@ function renderCurrentRiderCard() {
 
                 comparisonHtml = `
                 <div class="mb-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-2 text-[10px] relative">
-                    <button onclick="window.setComparisonRider('')" class="absolute top-1 right-2 text-gray-400 hover:text-red-500">×</button>
+                    <button type="button" onclick="window.setComparisonRider('')" aria-label="Ta bort jämförelsen" class="absolute top-1 right-2 text-gray-400 hover:text-red-500">×</button>
                     <div class="flex justify-around items-center">
                         <div class="text-center">
                             <span class="text-gray-500 dark:text-gray-400">${safeDriverName}:</span>
@@ -1477,7 +1495,7 @@ function renderCurrentRiderCard() {
                 <div class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-center shadow-sm border border-blue-100 dark:border-blue-800 col-span-2 relative overflow-hidden">
                     <div class="text-[10px] uppercase tracking-wide text-blue-800 dark:text-blue-300 font-bold">Totalt Straff</div>
                     <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${formatSpeakerPenalty(calcData.totalPenalty, { eliminated: calcData.eliminated })}</div>
-                    ${!calcData.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Rank: ${myRank}</div>` : ''}
+                    ${!calcData.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-[10px] font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Plac: ${myRank}</div>` : ''}
                     ${gapHtml}
                 </div>
 

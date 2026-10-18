@@ -120,6 +120,7 @@ let isGloballyPaused = false;
 let pauseStartTime = 0;
 let viewMode = 'map'; // 'map' as default
 let maratonConfig = null; // Local copy for map settings
+let maratonConfigMissing = false; // The config document does not exist (no map entered)
 let lastRenderedGridHash = ""; // To prevent flickering
 let loadToken = 0;
 
@@ -552,7 +553,8 @@ function renderMonitor() {
 
   if (viewMode === 'map') {
     if (!maratonConfig) {
-      mapContainer.innerHTML = `<div class="p-10 text-center text-gray-400 italic">${t('loading_map') || 'Laddar karta...'}</div>`;
+      const text = maratonConfigMissing ? t('no_map_configured') : (t('loading_map') || 'Laddar karta...');
+      mapContainer.innerHTML = `<div class="p-10 text-center text-gray-400 dark:text-gray-500 italic">${text}</div>`;
       return;
     }
     renderMap(mapContainer, activeEquipages, maratonConfig?.mapSettings);
@@ -910,7 +912,7 @@ export async function load() {
   const root = document.getElementById('page-maraton-monitor');
 
   if (!competitionId) {
-    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
     return;
   }
 
@@ -1007,11 +1009,12 @@ export async function load() {
 
     // 3. Maraton Config (Live updates for map) - MOVED OUT OF MARATHON LISTENER
     const unSubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'maratonConfig'), (snap) => {
+      maratonConfigMissing = !snap.exists();
       if (snap.exists()) {
         maratonConfig = snap.data();
         setMarathonConfig(maratonConfig);
-        if (viewMode === 'map') renderMonitor();
       }
+      if (viewMode === 'map') renderMonitor();
     });
     unsubscribes.push(unSubConfig);
 
@@ -1231,6 +1234,7 @@ export function __unload() {
   isGloballyPaused = false;
   pauseStartTime = 0;
   maratonConfig = null;
+  maratonConfigMissing = false;
   lastRenderedGridHash = "";
 }
 

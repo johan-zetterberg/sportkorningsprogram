@@ -71,14 +71,14 @@ export function updateLiveClocks(context) {
                             if (nextBest != null) {
                                 const margin = nextBest - myTotal;
                                 cardMarginEl.textContent = `Segermarginal: ${Math.abs(margin).toFixed(2)}`;
-                                cardMarginEl.className = "text-xs mt-1 font-bold text-green-700 bg-green-100 px-2 py-0.5 rounded border border-green-200";
+                                cardMarginEl.className = "text-xs mt-1 font-bold text-green-700 bg-green-100 dark:text-green-200 dark:bg-green-900/40 px-2 py-0.5 rounded border border-green-200 dark:border-green-800";
                             }
                         } else {
                             const topTotal = getSpeakerPenaltyOrNull(totalRanking[0].total);
                             if (topTotal !== null) {
                                 const behind = myTotal - topTotal;
                                 cardMarginEl.textContent = `Upp till ledning: +${behind.toFixed(2)}`;
-                                cardMarginEl.className = "text-xs mt-1 font-bold text-red-700 bg-red-100 px-2 py-0.5 rounded border border-red-200";
+                                cardMarginEl.className = "text-xs mt-1 font-bold text-red-700 bg-red-100 dark:text-red-200 dark:bg-red-900/40 px-2 py-0.5 rounded border border-red-200 dark:border-red-800";
                             }
                         }
                     }

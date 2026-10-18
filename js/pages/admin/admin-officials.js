@@ -22,6 +22,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getGlobalState } from '../../main.js';
 import { generateOfficialsPdf, exportOfficialsCsv, exportAssignmentsCsv } from '../../pdf/officialsReports.js';
 import { normalizeOfficialTimestamp } from './adminOfficialDateUtils.js';
+import { formConflictMessage, planFormSave } from '../../utils/formDiff.js';
 
 let officials = [];
 let volunteerSignups = [];
@@ -158,6 +159,34 @@ function getDriverContact(container) {
         show,
         phone: show && !!container.querySelector('#newOffDriverContactPhone')?.checked,
         email: show && !!container.querySelector('#newOffDriverContactEmail')?.checked
+    };
+}
+
+// The official being edited and the form's values when it was opened
+let officialEditSnapshot = null;
+
+const OFFICIAL_FIELD_LABELS = {
+    name: 'namn', email: 'e-post', phone: 'telefon', club: 'klubb', role: 'funktion',
+    roles: 'systemroller', notes: 'anteckningar', iceName: 'anhörig', icePhone: 'anhörigs telefon',
+    diet: 'specialkost', shirtSize: 'tröjstorlek', driverContact: 'kontaktperson för kuskar'
+};
+
+// The edit form's fields from a stored official
+function officialFormValues(person = {}, competition = {}) {
+    const contact = person.driverContact || {};
+    return {
+        name: person.name || '',
+        email: person.email || '',
+        phone: person.phone || '',
+        club: person.club || '',
+        role: SYSTEM_ROLE_KEYS.includes(person.role) ? '' : (person.role || ''),
+        roles: normalizeOfficialSystemRoles(person, competition).sort(),
+        notes: person.notes || '',
+        iceName: person.iceName || '',
+        icePhone: person.icePhone || '',
+        diet: person.diet || '',
+        shirtSize: person.shirtSize || '',
+        driverContact: { show: !!contact.show, phone: !!(contact.show && contact.phone), email: !!(contact.show && contact.email) }
     };
 }
 
@@ -1003,18 +1032,18 @@ function renderOverviewView() {
             <div class="flex gap-2 items-center">
                  <!-- View Toggle -->
                 <div class="inline-flex rounded-md shadow-sm role='group' mr-4 print:hidden">
-                    <button type="button" onclick="window.toggleOverviewMode('cards')" class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-l-lg ${overviewMode === 'cards' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}">
+                    <button type="button" onclick="window.toggleOverviewMode('cards')" class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-l-lg ${overviewMode === 'cards' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'}">
                         🗳️ Kort
                     </button>
-                    <button type="button" onclick="window.toggleOverviewMode('table')" class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-r-lg ${overviewMode === 'table' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50'}">
+                    <button type="button" onclick="window.toggleOverviewMode('table')" class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-r-lg ${overviewMode === 'table' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'}">
                         📄 Tabell
                     </button>
                 </div>
 
-                <button onclick="window.exportOverviewCsv()" class="bg-white border-gray-300 text-gray-700 border px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-50 print:hidden mr-2 text-sm">
+                <button onclick="window.exportOverviewCsv()" class="bg-white border-gray-300 text-gray-700 border px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 print:hidden mr-2 text-sm">
                    📂 CSV
                 </button>
-                <button onclick="window.exportOverviewPdf()" class="bg-gray-800 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-700 print:hidden text-sm">
+                <button onclick="window.exportOverviewPdf()" class="bg-gray-800 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 print:hidden text-sm">
                     📄 Skriv ut PDF
                 </button>
             </div>
@@ -1045,14 +1074,14 @@ function renderOverviewView() {
 function renderSignupsView(competition) {
     const volLink = `${window.location.origin}/volunteer-signup.html?id=${encodeURIComponent(competition?.id || 'ID')}`;
     const safeVolLink = escapeHtml(volLink);
-    const copyHtml = `<button type="button" data-copy-signup-link="${safeVolLink}" class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 transition-colors">Kopiera</button>`;
+    const copyHtml = `<button type="button" data-copy-signup-link="${safeVolLink}" class="ml-2 px-2 py-1 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 transition-colors">Kopiera</button>`;
 
     if (volunteerSignups.length === 0) {
         return `
-            <div class="text-center py-10 bg-gray-50 rounded border border-dashed border-gray-300">
-                <p class="text-gray-500 font-medium">Inga nya anmälningar just nu</p>
+            <div class="text-center py-10 bg-gray-50 dark:bg-gray-800 rounded border border-dashed border-gray-300 dark:border-gray-600">
+                <p class="text-gray-500 dark:text-gray-400 font-medium">Inga nya anmälningar just nu</p>
                 <div class="flex items-center justify-center mt-2">
-                    <p class="text-xs text-gray-400">Dela länken <span class="font-mono bg-gray-100 p-1 rounded">${safeVolLink}</span></p>
+                    <p class="text-xs text-gray-400">Dela länken <span class="font-mono bg-gray-100 dark:bg-gray-700 dark:text-gray-300 p-1 rounded">${safeVolLink}</span></p>
                     ${copyHtml}
                 </div>
             </div>
@@ -1061,31 +1090,31 @@ function renderSignupsView(competition) {
 
     return `
         <div class="space-y-6">
-            <div class="flex flex-wrap items-center justify-between gap-4 bg-gray-50 p-4 rounded-lg border border-gray-200">
-                <h3 class="text-lg font-bold text-gray-800 m-0">Inkomna anmälningar (${volunteerSignups.length})</h3>
+            <div class="flex flex-wrap items-center justify-between gap-4 bg-gray-50 dark:bg-gray-800 p-4 rounded-lg border border-gray-200 dark:border-gray-700">
+                <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 m-0">Inkomna anmälningar (${volunteerSignups.length})</h3>
                 <div class="flex items-center text-sm">
-                    <span class="text-gray-500 mr-2">Dela länken:</span>
-                    <span class="font-mono bg-white border px-2 py-1 rounded text-xs truncate max-w-[200px] sm:max-w-none">${safeVolLink}</span>
+                    <span class="text-gray-500 dark:text-gray-400 mr-2">Dela länken:</span>
+                    <span class="font-mono bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-gray-300 border px-2 py-1 rounded text-xs truncate max-w-[200px] sm:max-w-none">${safeVolLink}</span>
                     ${copyHtml}
                 </div>
             </div>
             <div class="grid grid-cols-1 gap-4">
                 ${volunteerSignups.map(signup => `
-                    <div class="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                    <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
                         <div class="flex justify-between items-start">
                             <div>
-                                <h4 class="font-bold text-lg">${escapeHtml(signup.name || '')}</h4>
-                                <div class="text-sm text-gray-600 flex gap-4 mt-1">
+                                <h4 class="font-bold text-lg dark:text-gray-100">${escapeHtml(signup.name || '')}</h4>
+                                <div class="text-sm text-gray-600 dark:text-gray-400 flex gap-4 mt-1">
                                     <span>📞 ${escapeHtml(signup.phone)}</span>
-                                    <span>📧 <a href="${mailtoHref(signup.email)}" class="text-blue-600 hover:underline">${escapeHtml(signup.email)}</a></span>
+                                    <span>📧 <a href="${mailtoHref(signup.email)}" class="text-blue-600 dark:text-blue-400 hover:underline">${escapeHtml(signup.email)}</a></span>
                                     <span>🏠 ${escapeHtml(signup.club || '-')}</span>
                                 </div>
-                                <div class="mt-2 text-sm bg-blue-50 p-2 rounded inline-block text-blue-800 font-medium">
+                                <div class="mt-2 text-sm bg-blue-50 dark:bg-blue-900/30 p-2 rounded inline-block text-blue-800 dark:text-blue-200 font-medium">
                                     Önskar: ${escapeHtml(signup.role || 'Inget specifikt')}
                                 </div>
-                                ${signup.notes ? `<div class="mt-2 text-sm text-gray-700 italic">"${escapeHtml(signup.notes)}"</div>` : ''}
+                                ${signup.notes ? `<div class="mt-2 text-sm text-gray-700 dark:text-gray-300 italic">"${escapeHtml(signup.notes)}"</div>` : ''}
 
-                                <div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-500">
+                                <div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
                                     <div><span class="font-bold">ICE:</span> ${escapeHtml(signup.iceName)} (${escapeHtml(signup.icePhone)})</div>
                                     <div><span class="font-bold">Kost:</span> ${escapeHtml(signup.diet || '-')}</div>
                                     <div><span class="font-bold">Tröja:</span> ${escapeHtml(signup.shirtSize || '-')}</div>
@@ -1095,7 +1124,7 @@ function renderSignupsView(competition) {
                                 <button data-approve-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 font-bold whitespace-nowrap">
                                     ✅ Granska & Godkänn
                                 </button>
-                                <button data-reject-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 whitespace-nowrap">
+                                <button data-reject-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-800/60 whitespace-nowrap">
                                     🗑️ Ta bort
                                 </button>
                             </div>
@@ -1162,7 +1191,7 @@ function bindContentEvents(container, competition) {
 
         if (!name) return showAlert('Ange namn!', 'error');
 
-        const newOff = {
+        let newOff = {
             id: id || null,
             name,
             email: container.querySelector('#newOffEmail').value,
@@ -1178,6 +1207,22 @@ function bindContentEvents(container, competition) {
             shirtSize: container.querySelector('#newOffShirt').value,
             driverContact: getDriverContact(container),
         };
+        newOff.roles.sort();
+
+        // Editing: only the fields changed in the form are taken from it, the
+        // rest from the stored official (another admin may have saved since)
+        if (id && !signupId && officialEditSnapshot?.id === id) {
+            const current = findOfficialById(id);
+            const currentValues = current ? officialFormValues(current, competition) : null;
+            const { id: _formId, ...formValues } = newOff;
+            const { changes, conflicts } = planFormSave(formValues, officialEditSnapshot.values, currentValues);
+            if (conflicts.length > 0 && !confirm(formConflictMessage(conflicts, OFFICIAL_FIELD_LABELS))) return;
+            if (Object.keys(changes).length === 0) {
+                showAlert('Inga ändringar att spara.', 'success');
+                return;
+            }
+            newOff = { ...(currentValues || officialEditSnapshot.values), ...changes, id };
+        }
 
         if (signupId) {
             // Determine logic: Approved from signup
@@ -1204,6 +1249,7 @@ function bindContentEvents(container, competition) {
 
         container.querySelector('#editOfficialId').value = '';
         container.querySelector('#linkSignupId').value = '';
+        officialEditSnapshot = null;
         const form = container.querySelector('#addOfficialForm'); // Re-query form
         if (form) form.classList.add('hidden'); // Check if form exists before trying to hide it
     };
@@ -1228,6 +1274,8 @@ function bindContentEvents(container, competition) {
                 container.querySelector('#newOffDiet').value = person.diet || '';
                 container.querySelector('#newOffShirt').value = person.shirtSize || '';
                 setDriverContact(container, person.driverContact);
+                // What the form shows, compared with on save
+                officialEditSnapshot = { id: person.id, values: officialFormValues(person, competition) };
 
                 container.querySelector('#formTitle').textContent = 'Redigera Funktionär';
                 container.querySelector('#btnSaveNewOfficial').textContent = 'Uppdatera';
@@ -1601,7 +1649,7 @@ function minimizeHeaders(headerList) {
 
 function renderReportsView(competition) {
     if (officials.length === 0) {
-        return `<div class="p-8 text-center text-gray-500">Lägg till funktionärer först för att skapa rapporter.</div>`;
+        return `<div class="p-8 text-center text-gray-500 dark:text-gray-400">Lägg till funktionärer först för att skapa rapporter.</div>`;
     }
 
     setTimeout(() => {
@@ -1629,41 +1677,41 @@ function renderReportsView(competition) {
         <div id="reportsContainer" class="space-y-8">
             <div class="flex justify-between items-center mb-6">
                  <div>
-                    <h3 class="text-xl font-bold">Rapporter & Utskrifter</h3>
-                    <p class="text-sm text-gray-500">Skapa PDF-listor eller exportera till Excel.</p>
+                    <h3 class="text-xl font-bold dark:text-gray-100">Rapporter & Utskrifter</h3>
+                    <p class="text-sm text-gray-500 dark:text-gray-400">Skapa PDF-listor eller exportera till Excel.</p>
                  </div>
-                 <button id="btnExportCsv" class="px-4 py-2 bg-gray-100 text-gray-700 border rounded hover:bg-gray-200 flex items-center gap-2">
+                 <button id="btnExportCsv" class="px-4 py-2 bg-gray-100 text-gray-700 border rounded hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-600 flex items-center gap-2">
                     📊 Exportera allt till CSV
                  </button>
             </div>
             
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <!-- Phone List -->
-                <div class="bg-white border rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
+                <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
                     <div class="text-4xl mb-4">📒</div>
-                    <h4 class="font-bold text-lg mb-2">Telefonlista</h4>
-                    <p class="text-gray-600 text-sm mb-6 flex-grow">"Lilla Gula". Kompakt lista med namn, roll och telefonnummer.</p>
-                    <button data-report-type="phone" class="w-full py-2 bg-yellow-100 text-yellow-800 font-bold rounded border border-yellow-200 hover:bg-yellow-200 transition-colors">
+                    <h4 class="font-bold text-lg mb-2 dark:text-gray-100">Telefonlista</h4>
+                    <p class="text-gray-600 dark:text-gray-400 text-sm mb-6 flex-grow">"Lilla Gula". Kompakt lista med namn, roll och telefonnummer.</p>
+                    <button data-report-type="phone" class="w-full py-2 bg-yellow-100 text-yellow-800 font-bold rounded border border-yellow-200 hover:bg-yellow-200 dark:bg-yellow-900/40 dark:text-yellow-200 dark:border-yellow-800 dark:hover:bg-yellow-800/60 transition-colors">
                         🖨️ Skriv ut PDF
                     </button>
                 </div>
 
                 <!-- Catering -->
-                <div class="bg-white border rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
+                <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
                     <div class="text-4xl mb-4">🍽️</div>
-                    <h4 class="font-bold text-lg mb-2">Catering & Kost</h4>
-                    <p class="text-gray-600 text-sm mb-6 flex-grow">Sammanställning av antal portioner och lista på allergier.</p>
-                    <button data-report-type="catering" class="w-full py-2 bg-green-100 text-green-800 font-bold rounded border border-green-200 hover:bg-green-200 transition-colors">
+                    <h4 class="font-bold text-lg mb-2 dark:text-gray-100">Catering & Kost</h4>
+                    <p class="text-gray-600 dark:text-gray-400 text-sm mb-6 flex-grow">Sammanställning av antal portioner och lista på allergier.</p>
+                    <button data-report-type="catering" class="w-full py-2 bg-green-100 text-green-800 font-bold rounded border border-green-200 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-200 dark:border-green-800 dark:hover:bg-green-800/60 transition-colors">
                         🖨️ Skriv ut PDF
                     </button>
                 </div>
 
                 <!-- Check-in -->
-                <div class="bg-white border rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
+                <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-6 hover:shadow-md transition-shadow flex flex-col items-center text-center">
                     <div class="text-4xl mb-4">✅</div>
-                    <h4 class="font-bold text-lg mb-2">Incheckningslista</h4>
-                    <p class="text-gray-600 text-sm mb-6 flex-grow">För sekretariatet. Avprickning, västutdelning och radio.</p>
-                    <button data-report-type="checkin" class="w-full py-2 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 hover:bg-blue-200 transition-colors">
+                    <h4 class="font-bold text-lg mb-2 dark:text-gray-100">Incheckningslista</h4>
+                    <p class="text-gray-600 dark:text-gray-400 text-sm mb-6 flex-grow">För sekretariatet. Avprickning, västutdelning och radio.</p>
+                    <button data-report-type="checkin" class="w-full py-2 bg-blue-100 text-blue-800 font-bold rounded border border-blue-200 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:border-blue-800 dark:hover:bg-blue-800/60 transition-colors">
                         🖨️ Skriv ut PDF
                     </button>
                 </div>

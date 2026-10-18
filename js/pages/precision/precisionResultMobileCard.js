@@ -11,7 +11,8 @@ export function renderPrecisionResultCard({
   flagHtml = '',
   clubLogoHtml = '',
   finalizeButtonsHtml = '',
-  formatPenalty = defaultFormatPenalty
+  formatPenalty = defaultFormatPenalty,
+  runningLabel = 'Pågår'
 }) {
   const eq = data.eq;
   const sn = String(eq.startNumber);
@@ -93,7 +94,7 @@ export function renderPrecisionResultCard({
               ${isActive
                 ? `
                   <div class="flex items-center gap-1">
-                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">Running</span>
+                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">${escapeHtml(runningLabel)}</span>
                   </div>
                   `
                 : `<span class="text-gray-500 dark:text-gray-400 font-medium">${escapeHtml(data.status || '–')}</span>`

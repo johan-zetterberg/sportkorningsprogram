@@ -59,6 +59,7 @@ function finiteOrNull(value) {
 }
 
 let equipages = [];
+let dataLoaded = false; // load() has finished (also with no equipages)
 let reportRows = []; // Enriched data for reports
 let teams = []; // [NEW]
 let processedTeams = []; // [NEW]
@@ -89,6 +90,7 @@ export async function load() {
         return;
     }
 
+    dataLoaded = false;
     render(); // Initial render (loading state?)
 
     const eqs = await safeReportFetch('ekipage', () => getEquipages(competitionId), []);
@@ -121,7 +123,7 @@ export async function load() {
         safeReportFetch('dressyrprotokoll', () => getAllDressageProtocols(competitionId, eqs), () => new Map()),
         safeReportFetch('domarfördelning', () => getConfig(competitionId, 'dressageJudgeMapping'), {}),
         // The competition's own dressage programs and class mapping, as the result engine
-        loadDressageProgramSettings(competitionId)
+        safeReportFetch('dressyrprogram', () => loadDressageProgramSettings(competitionId), null)
     ]);
 
     equipages = eqs;
@@ -141,8 +143,8 @@ export async function load() {
 
     // Set global config for utils
     setMarathonConfig(marathonConfig);
-    await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
-    buildMergeMap(await loadMergeSource(competitionId)); // merged classes, as on every page
+    await safeReportFetch('pauser', () => loadPauseWindows(competitionId), null); // pauses subtracted from stage times, as on the server
+    buildMergeMap(await safeReportFetch('sammanslagna klasser', () => loadMergeSource(competitionId), null)); // merged classes, as on every page
 
     // --- PREPARE DATA ---
     // We need to build "reportRows" similar to how total-resultat.js does it.
@@ -301,6 +303,7 @@ export async function load() {
         processedTeams = calculateTeamResults(teams, reportRows, currentComp?.teamScoringProfile);
     }
 
+    dataLoaded = true;
     render();
 }
 
@@ -309,7 +312,9 @@ function render() {
     if (!page) return;
 
     const competition = getGlobalState('currentCompetition');
-    const loading = !equipages || !equipages.length;
+    // Loaded with no equipages: an empty state, not "Laddar" for ever
+    const noEquipages = dataLoaded && (!equipages || !equipages.length);
+    const loading = !dataLoaded || noEquipages;
 
     // Extract unique classes
     const uniqueClasses = getReportClassOptions(reportRows.length ? reportRows : equipages);
@@ -320,9 +325,11 @@ function render() {
 
         ${loading ? '' : judgeMappingNoticeHtml(classesWithoutJudgeMapping(equipages, dressageJudgeMapping))}
 
-        ${loading ? '<p class="text-center mt-8 text-gray-500 animate-pulse">Laddar data...</p>' : ''}
+        ${noEquipages
+            ? '<p id="reports-empty-state" class="text-center my-8 text-gray-500 dark:text-gray-400">Inga ekipage ännu – rapporterna blir tillgängliga när deltagare har lagts in.</p>'
+            : (loading ? '<p class="text-center mt-8 text-gray-500 animate-pulse">Laddar data...</p>' : '')}
 
-        <div class="${loading ? 'opacity-50 pointer-events-none' : ''}">
+        <div class="${loading ? 'opacity-50 pointer-events-none' : ''}" ${loading ? 'inert aria-disabled="true"' : ''}>
             <!-- FILTER TOOLBAR -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-3 sm:p-4 mb-6 flex flex-col items-stretch gap-3 transition-colors sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
                 <label class="font-bold text-sm sm:text-base text-gray-700 dark:text-gray-300">Filtrera på klass:</label>
@@ -343,20 +350,20 @@ function render() {
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Generera startlistor för hela tävlingen eller per klass.</p>
                 <div class="space-y-2">
                     <div class="grid grid-cols-1 gap-2">
-                        <button class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('dressage')">
+                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('dressage')">
                             <span>📄 Startlista Dressyr</span>
                             <span>➔</span>
                         </button>
-                        <button class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('marathon')">
+                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('marathon')">
                             <span>📄 Startlista Maraton</span>
                             <span>➔</span>
                         </button>
-                        <button class="w-full bg-blue-100 hover:bg-blue-200 text-blue-800 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('precision')">
+                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('precision')">
                             <span>📄 Startlista Precision</span>
                             <span>➔</span>
                         </button>
                     </div>
-                    <button class="w-full bg-gray-100 hover:bg-gray-200 text-gray-800 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateStartListCsv()">
+                    <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateStartListCsv()">
                         <span>📊 CSV Startlista (Grund)</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -798,7 +805,7 @@ window.reports_generateTeamCsv = function () {
         'Kusk',
         'StartNr',
         'Dressyr',
-        'Marathon',
+        'Maraton',
         'Precision',
         'Totalt',
         'Räknas i laget'

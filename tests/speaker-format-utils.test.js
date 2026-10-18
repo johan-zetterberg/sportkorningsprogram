@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  canEditSpeakerNotes,
   formatSpeakerPenalty,
   formatSpeakerPercent,
   getSpeakerPenaltyOrNull,
@@ -29,4 +30,15 @@ test('speaker helpers normalize penalties and percentages', () => {
   assert.equal(getSpeakerPenaltyOrNull(Infinity), null);
   assert.equal(formatSpeakerPercent(71.23), '71.2%');
   assert.equal(formatSpeakerPercent(null), '—');
+});
+
+test('speaker notes may be edited by the speaker and the competition admins only', () => {
+  assert.equal(canEditSpeakerNotes(null, {}), false);
+  assert.equal(canEditSpeakerNotes({ uid: 'u', role: 'publik' }, {}), false);
+  assert.equal(canEditSpeakerNotes({ uid: 'u', compRoles: ['dressage'] }, {}), false);
+  assert.equal(canEditSpeakerNotes({ uid: 'u', compRoles: ['speaker'] }, {}), true);
+  assert.equal(canEditSpeakerNotes({ uid: 'u', compRoles: ['admin'] }, {}), true);
+  assert.equal(canEditSpeakerNotes({ uid: 'u', role: 'superadmin' }, {}), true);
+  assert.equal(canEditSpeakerNotes({ uid: 'u' }, { createdBy: 'u' }), true);
+  assert.equal(canEditSpeakerNotes({ uid: 'u' }, { admins: ['u'] }), true);
 });

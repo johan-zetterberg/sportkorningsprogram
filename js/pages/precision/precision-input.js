@@ -475,7 +475,7 @@ function renderLayout() {
             <div class="sticky-precision-controls rounded-b-xl shadow-lg mb-4">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div class="flex-grow min-w-0">
-                        <div id="liveTimer" class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
+                        <div id="liveTimer" role="button" tabindex="0" data-kbd-click class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
                         <div class="text-xs md:text-sm mt-1 flex items-center gap-1">
                             <span class="text-gray-500 dark:text-gray-400">${t('precision_time_error')}</span>
                             <span id="uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
@@ -539,7 +539,7 @@ function renderLayout() {
                 <div class="pt-4 border-t dark:border-gray-700">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
+                            <label for="extraPenaltyInput" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
                             <input type="number" id="extraPenaltyInput" value="0" min="0" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                         </div>
                         <div class="flex items-end">
@@ -549,7 +549,7 @@ function renderLayout() {
                             </label>
                         </div>
                         <div class="sm:col-span-2">
-                            <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_comment')}</label>
+                            <label for="commentInput" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_comment')}</label>
                             <textarea id="commentInput" rows="1" class="w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('precision_comment_placeholder')}"></textarea>
                         </div>
                     </div>

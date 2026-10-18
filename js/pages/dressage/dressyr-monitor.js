@@ -104,7 +104,7 @@ const formatTime = (iso) => {
 function percentBar(pct) {
   if (!Number.isFinite(pct)) return '';
   const w = Math.max(0, Math.min(100, pct));
-  return `<div class="mt-2 h-3 bg-gray-200 rounded-full overflow-hidden"><div style="width:${w.toFixed(1)}%" class="h-full bg-green-500 transition-all duration-300"></div></div>`;
+  return `<div class="mt-2 h-3 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden"><div style="width:${w.toFixed(1)}%" class="h-full bg-green-500 transition-all duration-300"></div></div>`;
 }
 
 function isWithdrawnOrExcluded(state, eqLikeObj) {
@@ -829,7 +829,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = document.getElementById('page-dressyr-monitor');
   if (!competitionId) {
-    if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600">${t('no_competition_selected')}</p>`;
+    if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600 dark:text-gray-400">${t('no_competition_selected')}</p>`;
     return;
   }
   renderLayout();

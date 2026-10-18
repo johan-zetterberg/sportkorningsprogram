@@ -100,7 +100,7 @@ export function setupClassManager({ competitionId, getEquipages }) {
             <div class="relative p-5 border w-[600px] shadow-lg rounded-md bg-white dark:bg-gray-800 dark:border-gray-700">
                 <div class="flex justify-between items-center mb-4">
                     <h3 class="text-xl font-bold text-gray-900 dark:text-white">Hantera Klasser</h3>
-                    <button id="closeClassManager" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl">&times;</button>
+                    <button id="closeClassManager" aria-label="Stäng" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-2xl">&times;</button>
                 </div>
                 <div class="mb-4">
                     <p class="text-sm text-gray-600 dark:text-gray-400 mb-2">Här kan du döpa om klasser. Alla ekipage i klassen flyttas med.</p>

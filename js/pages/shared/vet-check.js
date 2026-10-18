@@ -191,7 +191,7 @@ function renderPhaseTabsHtml() {
                 return `
                     <button type="button" class="vet-phase-btn whitespace-nowrap px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all ${activeClass}" data-phase="${phase.id}">
                         <span>${escapeHtml(phase.shortLabel)}</span>
-                        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500'} font-mono">${remaining}</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-300'} font-mono">${remaining}</span>
                     </button>
                 `;
             }).join('')}
@@ -241,14 +241,14 @@ function renderPage(pageContainer, competition) {
                     </div>
 
                     <div class="flex gap-2 items-center">
-                        <button id="btn-prev-eq" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Föregående">‹</button>
+                        <button id="btn-prev-eq" type="button" aria-label="Föregående ekipage" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Föregående">‹</button>
                         <div class="relative flex-1">
-                            <input type="text" id="vet-search" list="vet-search-list" placeholder="Sök ekipage..."
+                            <input type="text" id="vet-search" list="vet-search-list" placeholder="Sök ekipage..." aria-label="Sök ekipage"
                                 class="w-full pl-3 pr-8 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 transition-all">
                             <datalist id="vet-search-list"></datalist>
-                            <div class="absolute right-3 top-3 text-gray-400 text-xs">Sök</div>
+                            <div class="absolute right-3 top-3 text-gray-500 dark:text-gray-400 text-xs" aria-hidden="true">Sök</div>
                         </div>
-                        <button id="btn-next-eq" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Nästa">›</button>
+                        <button id="btn-next-eq" type="button" aria-label="Nästa ekipage" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Nästa">›</button>
                     </div>
 
                     <div class="flex justify-center pb-1">
@@ -532,7 +532,7 @@ function renderHorseCard(horse = {}, index = 0) {
                 <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'besiktigad' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="besiktigad">
                     ${currentPhase === 'restArea' ? 'Godkänd för B' : 'Godkänd'}
                 </button>
-                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'ombesiktning' ? 'bg-amber-500 text-white' : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="ombesiktning">
+                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'ombesiktning' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="ombesiktning">
                     ${currentPhase === 'restArea' ? 'Omkontroll' : 'Ombesikt'}
                 </button>
                 <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'struken' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="struken">
@@ -675,10 +675,10 @@ function renderVetCard(eq = {}) {
             </div>
 
             <div class="mb-5 relative group">
-                <label class="block text-[10px] font-black text-gray-400 uppercase tracking-widest mb-2">
+                <label for="vet-notes-${escapeHtml(eq.startNumber)}" class="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
                     Veterinärnotering (${VET_PHASES[currentPhase]?.shortLabel})
                 </label>
-                <textarea class="w-full text-sm border dark:border-gray-700 rounded-lg p-3 vet-notes focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[60px] dark:bg-gray-900/40 dark:text-white placeholder-gray-500"
+                <textarea id="vet-notes-${escapeHtml(eq.startNumber)}" class="w-full text-sm border dark:border-gray-700 rounded-lg p-3 vet-notes focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[60px] dark:bg-gray-900/40 dark:text-white placeholder-gray-500"
                     placeholder="Anteckna t.ex. puls, andning, rörelsestörning..."
                     data-sn="${escapeHtml(eq.startNumber)}">${escapeHtml(phaseNoteVal)}</textarea>
                 <div class="absolute right-2 bottom-2">
@@ -690,7 +690,7 @@ function renderVetCard(eq = {}) {
                 <button class="vet-status-btn bg-emerald-600 text-white font-black py-3.5 sm:py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="besiktigad">
                     <span class="text-sm tracking-widest">${approvedBtnLabel}</span>
                 </button>
-                <button class="vet-status-btn bg-amber-500 text-white font-black py-3.5 sm:py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="ombesiktning">
+                <button class="vet-status-btn bg-amber-600 text-white font-black py-3.5 sm:py-4 px-3 rounded-xl shadow-lg active:scale-95 transition-all flex flex-col items-center justify-center gap-1 group" data-status="ombesiktning">
                     <span class="text-sm tracking-widest">${holdBtnLabel}</span>
                 </button>
             </div>

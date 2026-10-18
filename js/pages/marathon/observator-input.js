@@ -627,20 +627,20 @@ function render(container) {
           <div class="space-y-6">
             <!-- Search & Selector -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
-              <label class="block text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest mb-2">${t('observer_select_startnumber')}</label>
+              <label class="block text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest mb-2">${t('observer_select_startnumber')}</label>
               <div class="relative" role="combobox" aria-expanded="false">
                 <div class="flex gap-2">
-                  <button id="prevEqBtn" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
-                    <i class="fas fa-chevron-left text-gray-500"></i>
+                  <button id="prevEqBtn" type="button" aria-label="Föregående ekipage" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
+                    <i class="fas fa-chevron-left text-gray-500 dark:text-gray-300" aria-hidden="true"></i>
                   </button>
                   <div class="relative flex-1">
-                    <input id="eqComboInput" type="text"
+                    <input id="eqComboInput" type="text" aria-label="${t('observer_select_startnumber')}"
                       class="w-full border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50 rounded-xl px-4 h-12 text-base font-bold dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all"
                       placeholder="${t('observer_search_placeholder')}" />
                     <div id="eqComboList" class="absolute mt-2 left-0 right-0 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-2xl shadow-2xl max-h-80 overflow-auto hidden z-50 overflow-hidden"></div>
                   </div>
-                  <button id="nextEqBtn" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
-                    <i class="fas fa-chevron-right text-gray-500"></i>
+                  <button id="nextEqBtn" type="button" aria-label="Nästa ekipage" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
+                    <i class="fas fa-chevron-right text-gray-500 dark:text-gray-300" aria-hidden="true"></i>
                   </button>
                 </div>
               </div>
@@ -652,10 +652,10 @@ function render(container) {
               <!-- Wrong Gait -->
               <div id="wgCard" class="obs-card bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
                 <div class="flex items-center justify-between mb-4">
-                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">${t('observer_wrong_gait')}</span>
+                  <span class="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest">${t('observer_wrong_gait')}</span>
                   <i class="fas fa-running text-gray-200 dark:text-gray-700"></i>
                 </div>
-                <div id="wgVal" class="text-4xl font-black tabular-nums dark:text-white mb-6 text-center cursor-pointer hover:text-blue-500 transition-colors">00:00</div>
+                <div id="wgVal" role="button" tabindex="0" data-kbd-click class="text-4xl font-black tabular-nums dark:text-white mb-6 text-center cursor-pointer hover:text-blue-500 transition-colors">00:00</div>
                 <div class="flex gap-2">
                   <button id="btnWgStart" class="flex-1 obs-touch-btn rounded-xl bg-emerald-600 text-white font-black hover:bg-emerald-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-emerald-600/20">${t('observer_start')}</button>
                   <button id="btnWgStop" class="flex-1 obs-touch-btn rounded-xl bg-rose-600 text-white font-black hover:bg-rose-700 disabled:opacity-20 transition-all active:scale-95 shadow-md shadow-rose-600/20">${t('observer_stop')}</button>
@@ -676,7 +676,7 @@ function render(container) {
               <!-- Halt -->
               <div id="haltCard" class="obs-card bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
                 <div class="flex items-center justify-between mb-4">
-                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">${t('observer_halt')}</span>
+                  <span class="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest">${t('observer_halt')}</span>
                   <i class="fas fa-hand-paper text-gray-200 dark:text-gray-700"></i>
                 </div>
                 <div id="haltLive" class="text-4xl font-black tabular-nums text-gray-900 dark:text-white mb-6 text-center">—</div>
@@ -693,8 +693,8 @@ function render(container) {
             <!-- Halt Lista -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm h-fit">
                <div class="flex justify-between items-center mb-4">
-                  <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest">${t('observer_halt_log')}</span>
-                  <button id="btnHaltManualOpen" class="text-[10px] font-black text-blue-600 hover:text-blue-800 uppercase disabled:opacity-20" disabled>${t('observer_manual_add')}</button>
+                  <span class="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest">${t('observer_halt_log')}</span>
+                  <button id="btnHaltManualOpen" class="text-[10px] font-black text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 uppercase px-2 py-2 disabled:opacity-20" disabled>${t('observer_manual_add')}</button>
                </div>
                
                <div id="haltList" class="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
@@ -713,8 +713,8 @@ function render(container) {
 
             <!-- Anteckningar -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
-               <span class="text-[10px] font-black uppercase text-gray-400 dark:text-gray-500 tracking-widest block mb-4">${t('observer_notes')}</span>
-               <textarea id="notesField" rows="4" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="${t('observer_notes_placeholder')}"></textarea>
+               <span class="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest block mb-4">${t('observer_notes')}</span>
+               <textarea id="notesField" rows="4" aria-label="${t('observer_notes')}" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="${t('observer_notes_placeholder')}"></textarea>
                <div id="notesSaveStatus" class="flex items-center justify-end gap-1 mt-2 text-[10px] font-bold text-gray-400"></div>
             </div>
 
@@ -757,7 +757,7 @@ function renderHalts(container) {
     list.innerHTML = halts.map((h, i) => `
         <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 p-2.5 rounded-xl border dark:border-gray-800 shadow-xs group">
           <div class="min-w-0">
-             <div class="text-[10px] font-black text-gray-400 dark:text-gray-500 uppercase tracking-tighter">${t('observer_halt_n').replace('{n}', i + 1)}</div>
+             <div class="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-tighter">${t('observer_halt_n').replace('{n}', i + 1)}</div>
              <div class="font-bold tabular-nums text-gray-900 dark:text-white">${fmtMMSS(h.durSec)} <span class="text-xs text-gray-400 font-medium ml-1">${fmtTime(h.atSec)}</span></div>
           </div>
           <div class="flex gap-2 shrink-0">

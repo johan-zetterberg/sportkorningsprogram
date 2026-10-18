@@ -685,8 +685,8 @@ function renderAndShowDetailsModal(equipage) {
     };
 
     momentHorsesHtml = `
-            <div class="mt-3 pl-4 border-l-2 ml-1 border-blue-300 bg-blue-50 p-2 rounded-r-md">
-                <div class="font-bold text-blue-800 mb-2 text-sm">${t('valda_for_moment')}</div>
+            <div class="mt-3 pl-4 border-l-2 ml-1 border-blue-300 bg-blue-50 dark:border-blue-700 dark:bg-blue-900/20 p-2 rounded-r-md">
+                <div class="font-bold text-blue-800 dark:text-blue-200 mb-2 text-sm">${t('valda_for_moment')}</div>
                 <div class="space-y-1 text-sm">
                     ${kv(t('dressyr'), getHorseNames('dressage'), true)}
                     ${kv(t('maraton'), getHorseNames('marathon'), true)}
@@ -696,7 +696,7 @@ function renderAndShowDetailsModal(equipage) {
         `;
   }
   const groomsHtml = (Array.isArray(grooms) && grooms.length)
-    ? `<dd class="mt-3 pl-6 border-l-2 ml-1"><ul class="list-disc pl-5 text-gray-700 text-sm">${grooms.map((g) => `<li>${escapeHtml((g?.name) || g)}</li>`).join('')}</ul></dd>` : '';
+    ? `<dd class="mt-3 pl-6 border-l-2 ml-1"><ul class="list-disc pl-5 text-gray-700 dark:text-gray-300 text-sm">${grooms.map((g) => `<li>${escapeHtml((g?.name) || g)}</li>`).join('')}</ul></dd>` : '';
 
   contentWrap.innerHTML = `
     <div class="p-6 md:p-10">

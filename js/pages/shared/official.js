@@ -15,7 +15,7 @@ export async function load() {
 
     if (!user) {
         container.innerHTML = `
-            <div class="p-8 text-center text-gray-600">
+            <div class="p-8 text-center text-gray-600 dark:text-gray-400">
                 <h2 class="text-xl font-bold mb-2">Åtkomst nekad</h2>
                 <p>Du måste vara inloggad som funktionär för att se denna sida.</p>
             </div>`;
@@ -25,7 +25,7 @@ export async function load() {
     const competition = getGlobalState('currentCompetition');
     if (!competition) {
         container.innerHTML = `
-            <div class="p-8 text-center text-gray-600">
+            <div class="p-8 text-center text-gray-600 dark:text-gray-400">
                 <h2 class="text-xl font-bold mb-2">Ingen tävling vald</h2>
                 <p>Välj en tävling från Hubben först.</p>
             </div>`;
@@ -129,8 +129,8 @@ export async function load() {
                     <div id="official-assignments" class="space-y-4">
                         <div class="animate-pulse flex space-x-4">
                             <div class="flex-1 space-y-2 py-1">
-                                <div class="h-4 bg-gray-200 rounded w-3/4"></div>
-                                <div class="h-4 bg-gray-200 rounded"></div>
+                                <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4"></div>
+                                <div class="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
                             </div>
                         </div>
                     </div>

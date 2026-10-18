@@ -753,7 +753,7 @@ function rebuildMappingTable(root, filter = '') {
                 <input type="checkbox" class="cr-check rounded border-gray-300 text-brand-darkblue dark:bg-gray-700 dark:border-gray-600" 
                        data-cls="${esc(cls)}"
                        ${isClassClearRound(cls) ? 'checked' : ''}>
-                <span>Clear Round <span class="text-xs text-gray-500 dark:text-gray-400">(gäller hela klassen: dressyr, maraton och precision, ingen placering)</span></span>
+                <span>Lätt B Clear Round <span class="text-xs text-gray-500 dark:text-gray-400">(gäller hela klassen: dressyr, maraton och precision, ingen placering)</span></span>
               </label>
               ${isClassClearRound(cls) ? `
                 <div class="cr-limit-wrap flex items-center gap-1 sm:ml-auto">
@@ -1266,7 +1266,7 @@ export async function load() {
     const host = document.querySelector('#mappingTable');
     if (host) {
       host.insertAdjacentHTML('beforebegin',
-        '<div class="p-3 mb-2 rounded bg-amber-50 border border-amber-200 text-amber-800 text-sm">Inga program hittades ännu. Importera via PDF-fliken nedan eller skapa ett nytt program och spara – därefter dyker nycklarna upp här.</div>');
+        '<div class="p-3 mb-2 rounded bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-100 text-sm">Inga program hittades ännu. Importera via PDF-fliken nedan eller skapa ett nytt program och spara – därefter dyker nycklarna upp här.</div>');
     }
   }
   root.addEventListener('input', () => renderDressageAdminReadiness(root));

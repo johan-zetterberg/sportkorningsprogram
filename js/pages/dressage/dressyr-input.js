@@ -1690,9 +1690,9 @@ export function load() {
         <div class="md:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_equipage')}</label>
           <div class="dressage-equipage-nav flex items-center space-x-2">
-            <button id="prevEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
+            <button id="prevEquipage" type="button" aria-label="Föregående ekipage" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
             <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-30"></div>
-            <button id="nextEquipage" type="button" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
+            <button id="nextEquipage" type="button" aria-label="Nästa ekipage" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
           </div>
         </div>
       </div>
@@ -1733,9 +1733,9 @@ export function load() {
             <label for="errorPointsInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">${t('input_error_points')}</label>
             <div class="dressage-error-controls flex gap-1 mt-1">
                <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-               <button type="button" id="btnErr1" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
-               <button type="button" id="btnErr2" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
-               <button type="button" id="btnErr3" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-1 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_3')}</button>
+               <button type="button" id="btnErr1" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
+               <button type="button" id="btnErr2" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
+               <button type="button" id="btnErr3" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_3')}</button>
             </div>
           </div>
           

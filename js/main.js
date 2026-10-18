@@ -407,10 +407,22 @@ function initialize() {
     const menuToggle = document.getElementById('menu-toggle');
     const navLinksContainer = document.getElementById('nav-links');
     if (menuToggle) {
+        menuToggle.setAttribute('aria-expanded', 'false');
         menuToggle.addEventListener('click', () => {
             navLinksContainer.classList.toggle('hidden');
+            menuToggle.setAttribute('aria-expanded', String(!navLinksContainer.classList.contains('hidden')));
         });
     }
+
+    // Klickbara element som inte är knappar (role="button" data-kbd-click, t.ex.
+    // klockor att trycka på för att ändra tid) går att använda med Enter och mellanslag
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const target = event.target;
+        if (!(target instanceof HTMLElement) || !target.hasAttribute('data-kbd-click')) return;
+        event.preventDefault();
+        target.click();
+    });
 
     if (navLinksContainer) {
         // Hitta ALLA länkar, även de i undermenyerna

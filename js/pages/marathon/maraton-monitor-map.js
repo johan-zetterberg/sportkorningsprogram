@@ -110,22 +110,22 @@ function initMap(container) {
 
     container.innerHTML = `
         <div class="flex flex-col lg:flex-row gap-4 w-full h-[700px]">
-            <div class="relative z-0 flex-1 bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200">
+            <div class="relative z-0 flex-1 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden shadow-inner border border-gray-200 dark:border-gray-700">
                 <div id="maraton-live-map" class="w-full h-full"></div>
-                <div id="maraton-map-legend" class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-white/20 text-[10px] min-w-[120px]">
-                    <h4 class="font-bold mb-2 uppercase tracking-tight text-gray-400 border-b pb-1 text-[9px]">${t('map_legend_title') || 'Teckenförklaring'}</h4>
+                <div id="maraton-map-legend" class="absolute top-4 right-4 z-[1000] bg-white/95 dark:bg-gray-800/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-white/20 dark:border-gray-700 text-[10px] min-w-[120px]">
+                    <h4 class="font-bold mb-2 uppercase tracking-tight text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 pb-1 text-[9px]">${t('map_legend_title') || 'Teckenförklaring'}</h4>
                     <div id="legend-items" class="flex flex-col gap-2">
                         <!-- Dynamic classes here -->
                     </div>
                 </div>
             </div>
             
-            <div id="maraton-map-sidebar" class="w-full lg:w-80 bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col h-80 lg:h-full overflow-hidden">
-                <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
-                    <h3 class="font-bold text-gray-800 text-sm italic uppercase tracking-wider">${t('equipages_on_course')}</h3>
+            <div id="maraton-map-sidebar" class="w-full lg:w-80 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col h-80 lg:h-full overflow-hidden">
+                <div class="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
+                    <h3 class="font-bold text-gray-800 dark:text-gray-100 text-sm italic uppercase tracking-wider">${t('equipages_on_course')}</h3>
                     <span id="active-count-badge" class="bg-brand-darkblue text-white text-[10px] font-black px-2 py-0.5 rounded-full">0</span>
                 </div>
-                <div id="maraton-active-list" class="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/30">
+                <div id="maraton-active-list" class="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/30 dark:bg-transparent">
                     <!-- Dynamic list items -->
                 </div>
             </div>
@@ -178,7 +178,7 @@ function updateLegend(activeEquipages) {
     let html = `
         <div class="flex items-center gap-2">
             <span class="w-3 h-3 rounded-full bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.6)]"></span>
-            <span class="font-semibold text-gray-700 uppercase tracking-wide">${t('in_obstacle') || 'I hinder'}</span>
+            <span class="font-semibold text-gray-700 dark:text-gray-200 uppercase tracking-wide">${t('in_obstacle') || 'I hinder'}</span>
         </div>
     `;
 
@@ -187,7 +187,7 @@ function updateLegend(activeEquipages) {
         html += `
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full" style="background-color: ${color}"></span>
-                <span class="text-gray-600 font-medium">${escapeHtml(className)}</span>
+                <span class="text-gray-600 dark:text-gray-300 font-medium">${escapeHtml(className)}</span>
             </div>
         `;
     });
@@ -371,21 +371,21 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
                 : 'bg-blue-50 text-blue-700 border border-blue-100';
 
             html += `
-                <div onclick="window.focusDriverOnMap(${jsAttrArg(sn)})" class="group flex items-center gap-3 p-3 bg-white rounded-lg border border-gray-100 shadow-sm hover:border-gray-200 transition-all cursor-pointer active:scale-[0.98]">
+                <div onclick="window.focusDriverOnMap(${jsAttrArg(sn)})" role="button" tabindex="0" data-kbd-click class="group flex items-center gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-100 dark:border-gray-600 shadow-sm hover:border-gray-200 dark:hover:border-gray-500 transition-all cursor-pointer active:scale-[0.98]">
                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0" style="background-color: ${classColor}">
                         ${escapeHtml(sn)}
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start mb-1">
-                            <div class="font-bold text-gray-900 text-[11px] truncate uppercase tracking-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
+                            <div class="font-bold text-gray-900 dark:text-white text-[11px] truncate uppercase tracking-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
                             <div id="sidebar-timer-${escapeHtml(sn)}" class="text-[10px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm ${timerClasses}">00:00,00</div>
                         </div>
                         <div class="flex items-center gap-2">
-                            <span class="text-[9px] font-bold uppercase tracking-tighter ${isObstacle ? 'text-amber-600' : 'text-gray-400'}">
+                            <span class="text-[9px] font-bold uppercase tracking-tighter ${isObstacle ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}">
                                 ${escapeHtml(active.task.name)}
                             </span>
                             <span class="text-[9px] text-gray-400 truncate opacity-50">•</span>
-                            <span class="text-[9px] text-gray-400 truncate">${escapeHtml(active.equipageInfo.className)}</span>
+                            <span class="text-[9px] text-gray-500 dark:text-gray-400 truncate">${escapeHtml(active.equipageInfo.className)}</span>
                         </div>
                     </div>
                 </div>

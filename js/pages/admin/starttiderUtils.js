@@ -328,9 +328,9 @@ export function renderStarttiderStatusBadge(state, {
     notStartedLabel = 'Ej startad'
 } = {}) {
     const base = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium';
-    if (state === 'done') return `<span class="${base} bg-green-100 text-green-800">${doneLabel}</span>`;
-    if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800">${runningLabel}</span>`;
-    return `<span class="${base} bg-gray-100 text-gray-700">${notStartedLabel}</span>`;
+    if (state === 'done') return `<span class="${base} bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">${doneLabel}</span>`;
+    if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">${runningLabel}</span>`;
+    return `<span class="${base} bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200">${notStartedLabel}</span>`;
 }
 
 export function renderStarttiderNowNextChip(discipline, startNumber, liveStatus = {}, {
@@ -339,10 +339,10 @@ export function renderStarttiderNowNextChip(discipline, startNumber, liveStatus 
 } = {}) {
     const base = 'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium';
     if (liveStatus.current?.sn === startNumber && liveStatus.current?.discipline === discipline) {
-        return `<span class="${base} bg-red-100 text-red-700">${nowLabel}</span>`;
+        return `<span class="${base} bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">${nowLabel}</span>`;
     }
     if (liveStatus.next?.sn === startNumber && liveStatus.next?.discipline === discipline) {
-        return `<span class="${base} bg-blue-100 text-blue-700">${nextLabel}</span>`;
+        return `<span class="${base} bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300">${nextLabel}</span>`;
     }
     return '';
 }
@@ -394,8 +394,8 @@ export function renderStarttiderActionButtons({
     labels = {}
 } = {}) {
     const disciplineStyles = {
-        dressage: { shortLabel: 'D', mobileLabel: 'Dressage:', color: 'bg-slate-100', text: 'text-slate-700' },
-        marathon: { shortLabel: 'M', mobileLabel: 'Marathon:', color: 'bg-emerald-100', text: 'text-emerald-700' },
+        dressage: { shortLabel: 'D', mobileLabel: 'Dressyr:', color: 'bg-slate-100', text: 'text-slate-700' },
+        marathon: { shortLabel: 'M', mobileLabel: 'Maraton:', color: 'bg-emerald-100', text: 'text-emerald-700' },
         precision: { shortLabel: 'P', mobileLabel: 'Precision:', color: 'bg-indigo-100', text: 'text-indigo-700' }
     };
     const style = disciplineStyles[discipline] || disciplineStyles.dressage;
@@ -410,9 +410,9 @@ export function renderStarttiderActionButtons({
             <div class="flex items-center justify-between w-full gap-2 p-0.5 rounded ${style.color}">
                 <span class="font-bold text-[10px] text-gray-600 w-16 text-left">${style.mobileLabel}</span>
                 <div class="flex items-center gap-1">
-                    <button class="action-btn text-gray-600 hover:text-blue-600 px-1" data-action="pause" data-discipline="${discipline}" data-sn="${startNumber}" title="${pauseTitle}">☕</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 px-1 ${upDisabled}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${startNumber}" title="${moveUpTitle}">▲</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 px-1 ${downDisabled}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${startNumber}" title="${moveDownTitle}">▼</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-blue-600 min-w-[36px] min-h-[36px] px-1" data-action="pause" data-discipline="${discipline}" data-sn="${startNumber}" title="${pauseTitle}" aria-label="${pauseTitle}">☕</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 min-w-[36px] min-h-[36px] px-1 ${upDisabled}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${startNumber}" title="${moveUpTitle}" aria-label="${moveUpTitle}">▲</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 min-w-[36px] min-h-[36px] px-1 ${downDisabled}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${startNumber}" title="${moveDownTitle}" aria-label="${moveDownTitle}">▼</button>
                 </div>
             </div>`;
     }
@@ -421,9 +421,9 @@ export function renderStarttiderActionButtons({
             <div class="flex items-center justify-between w-full gap-1 py-1 pl-2 pr-1 rounded-full ${style.color}">
                 <span class="font-bold text-xs ${style.text} w-4 text-left">${style.shortLabel}</span>
                 <div class="flex items-center gap-1">
-                    <button class="action-btn text-gray-600 hover:text-blue-600" data-action="pause" data-discipline="${discipline}" data-sn="${startNumber}" title="${pauseTitle}">☕</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 ${upDisabled}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${startNumber}" title="${moveUpTitle}">▲</button>
-                    <button class="action-btn text-gray-600 hover:text-green-600 ${downDisabled}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${startNumber}" title="${moveDownTitle}">▼</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-blue-600" data-action="pause" data-discipline="${discipline}" data-sn="${startNumber}" title="${pauseTitle}" aria-label="${pauseTitle}">☕</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 ${upDisabled}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${startNumber}" title="${moveUpTitle}" aria-label="${moveUpTitle}">▲</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 ${downDisabled}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${startNumber}" title="${moveDownTitle}" aria-label="${moveDownTitle}">▼</button>
                 </div>
             </div>`;
 }

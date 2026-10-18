@@ -289,7 +289,7 @@ function renderCurrentDriver() {
                     ${leaderInClass ? `
                     <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
                     <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
-                    <div class="font-bold text-brand-lightblue">
+                    <div class="font-bold text-blue-700 dark:text-brand-lightblue">
                         ${leaderInClass.totalPenalty.toFixed(2)} p
                         <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
                     </div>
@@ -312,7 +312,7 @@ function renderCurrentDriver() {
                 <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg mt-4 md:mt-0">
                     <div class="text-center mb-4">
                         <div class="text-sm text-gray-500 dark:text-gray-400 uppercase">${t('total_penalty')} ${showFinal ? '' : t('preliminary_suffix')}</div>
-                        <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-brand-lightblue">${formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated })}</div>
+                        <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-blue-700 dark:text-brand-lightblue">${formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated })}</div>
                     </div>
                     <div class="grid grid-cols-3 gap-2 text-center text-sm border-t dark:border-gray-600 pt-2 dark:text-gray-300">
                         <div><div class="text-gray-500 dark:text-gray-400">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
@@ -390,7 +390,7 @@ function renderCurrentDriver() {
       leaderSlot.innerHTML = leaderInClass ? `
                 <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
                 <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
-                <div class="font-bold text-brand-lightblue">
+                <div class="font-bold text-blue-700 dark:text-brand-lightblue">
                     ${leaderInClass.totalPenalty.toFixed(2)} p
                     <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
                 </div>
@@ -828,7 +828,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = document.getElementById('page-precision-monitor');
   if (!competitionId) {
-    if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600">${t('no_competition_selected')}</p>`;
+    if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600 dark:text-gray-400">${t('no_competition_selected')}</p>`;
     return;
   }
   try {

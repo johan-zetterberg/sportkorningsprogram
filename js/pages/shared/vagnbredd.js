@@ -306,9 +306,9 @@ function renderPage(page, competition) {
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">1. Välj ekipage</label>
                     <div class="flex flex-wrap items-center gap-2 mt-1">
-                        <button id="prevBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Föregående">«</button>
+                        <button id="prevBtn" type="button" aria-label="Föregående ekipage" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Föregående">«</button>
                         <div id="vagnbreddEquipageSearch" class="flex-grow"></div>
-                        <button id="nextBtn" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Nästa">»</button>
+                        <button id="nextBtn" type="button" aria-label="Nästa ekipage" class="p-3 border rounded-md bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:hover:bg-gray-600" title="Nästa">»</button>
                     </div>
                 </div>
 

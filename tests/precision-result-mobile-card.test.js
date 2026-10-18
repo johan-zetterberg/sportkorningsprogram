@@ -48,7 +48,7 @@ test('renderPrecisionResultCard renders running state with live placeholders', (
     })
   });
 
-  assert.match(html, /Running/);
+  assert.match(html, /Pågår/);
   assert.match(html, /••:••,••/);
   assert.match(html, /bg-yellow-50/);
 });

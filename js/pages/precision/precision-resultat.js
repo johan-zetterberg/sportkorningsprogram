@@ -808,7 +808,8 @@ function renderCard(eq, placeMap, classStarters = new Map()) {
     flagHtml: getFlagHtml(data.eq),
     clubLogoHtml: getClubLogoHtml(data.eq),
     finalizeButtonsHtml: renderFinalizeButtons(eq),
-    formatPenalty: fmt2
+    formatPenalty: fmt2,
+    runningLabel: t('running_status')
   });
 }
 
@@ -829,8 +830,12 @@ function renderFinalizeButtons(eq) {
 }
 
 function renderDesktop() {
-  if (!precision_equipages?.length) return;
   const container = document.getElementById('prWrap');
+  if (!precision_equipages?.length) {
+    // No equipages: a message instead of an empty area
+    if (container) container.innerHTML = `<div class="p-6 text-center text-gray-500 dark:text-gray-400">${t('no_equipages_found_for_competition')}</div>`;
+    return;
+  }
   if (!container) return;
   container.innerHTML = '';
 
@@ -1119,7 +1124,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = document.getElementById('page-precision-results');
   if (!competitionId) {
-    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
     return;
   }
 

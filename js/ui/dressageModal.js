@@ -593,7 +593,7 @@ function renderJudgeDetailHTML(jr, program, data, isInternational = false) {
   let calculatedMax = 0;
 
   if (jr && jr.eliminated) {
-    html += `<tr><td colspan="${showComments ? 5 : 4}" class="p-4 text-center text-red-600 font-bold bg-red-50">${t('eliminated', isInternational).toUpperCase()}</td></tr>`;
+    html += `<tr><td colspan="${showComments ? 5 : 4}" class="p-4 text-center text-red-600 font-bold bg-red-50 dark:bg-red-900/20 dark:text-red-400">${t('eliminated', isInternational).toUpperCase()}</td></tr>`;
   } else if (programMovements.length) {
     programMovements.forEach(moment => {
       const c = Number(moment.coeff) || 1;

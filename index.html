@@ -74,8 +74,8 @@
               class="text-xs text-gray-500 leading-tight flex items-center gap-2 dark:text-gray-400"
               style="display: none;">
               <span id="active-comp-name" class="font-semibold">Ingen tävling vald</span>
-              <button id="compInfoBtn" class="ml-2 text-brand-lightblue hover:text-brand-darkblue transition-colors"
-                title="Visa tävlingsinformation">
+              <button id="compInfoBtn" type="button" class="ml-2 text-brand-lightblue hover:text-brand-darkblue transition-colors"
+                title="Visa tävlingsinformation" aria-label="Visa tävlingsinformation">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                   <path fill-rule="evenodd"
                     d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z"
@@ -111,7 +111,7 @@
           </span>
 
           <div class="xl:hidden ml-2">
-            <button id="menu-toggle" class="app-menu-toggle text-gray-600 hover:text-gray-800 focus:outline-none">
+            <button id="menu-toggle" type="button" aria-label="Meny" aria-controls="nav-links" class="app-menu-toggle text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white focus:outline-none">
               <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
                 xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16">
@@ -315,34 +315,34 @@
 
   <div id="loginModal"
     class="fixed inset-0 bg-gray-800 bg-opacity-75 h-full w-full z-[100] flex items-center justify-center">
-    <div class="w-full max-w-md p-8 space-y-6 bg-white rounded-xl shadow-lg relative">
-      <button id="closeLoginModal"
-        class="absolute top-4 right-4 text-3xl font-light text-gray-400 hover:text-gray-800">&times;</button>
-      <h2 class="text-3xl font-bold text-center text-gray-900">Logga in</h2>
-      <p class="text-center text-gray-600">Du måste logga in för att se denna sida.</p>
+    <div class="w-full max-w-md p-8 space-y-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg relative">
+      <button id="closeLoginModal" type="button" aria-label="Stäng"
+        class="absolute top-4 right-4 text-3xl font-light text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">&times;</button>
+      <h2 class="text-3xl font-bold text-center text-gray-900 dark:text-white">Logga in</h2>
+      <p class="text-center text-gray-600 dark:text-gray-300">Du måste logga in för att se denna sida.</p>
       <form id="loginForm" class="space-y-6">
         <div>
-          <label for="email" class="text-sm font-bold text-gray-600 block">E-postadress</label>
-          <input type="email" id="email" required
-            class="w-full p-3 mt-1 text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <label for="email" class="text-sm font-bold text-gray-600 dark:text-gray-300 block">E-postadress</label>
+          <input type="email" id="email" required autocomplete="username"
+            class="w-full p-3 mt-1 text-base text-gray-900 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
         </div>
         <div>
-          <label for="password" class="text-sm font-bold text-gray-600 block">Lösenord</label>
-          <input type="password" id="password" required
-            class="w-full p-3 mt-1 text-gray-900 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+          <label for="password" class="text-sm font-bold text-gray-600 dark:text-gray-300 block">Lösenord</label>
+          <input type="password" id="password" required autocomplete="current-password"
+            class="w-full p-3 mt-1 text-base text-gray-900 bg-white border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
         </div>
         <div>
           <button type="submit"
             class="w-full py-3 font-semibold text-white bg-brand-darkblue rounded-md hover:bg-brand-gold hover:text-brand-darkblue focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Logga
             in</button>
         </div>
-        <p id="loginError" class="text-sm text-center text-red-600"></p>
-        <p id="forgotPasswordLink" class="text-center text-xs text-gray-500 cursor-pointer hover:underline mt-2">
+        <p id="loginError" class="text-sm text-center text-red-600 dark:text-red-400" role="alert"></p>
+        <button type="button" id="forgotPasswordLink" class="block w-full text-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:underline mt-2 py-2">
           Glömt lösenordet?
-        </p>
-        <p id="toggleAuthMode" class="text-center text-sm text-blue-600 cursor-pointer hover:underline mt-4">
+        </button>
+        <button type="button" id="toggleAuthMode" class="block w-full text-center text-sm text-blue-600 dark:text-blue-400 cursor-pointer hover:underline mt-4 py-2">
           Har du inget konto? Registrera dig här.
-        </p>
+        </button>
       </form>
     </div>
   </div>
@@ -352,7 +352,7 @@
       class="relative top-10 mx-auto p-5 border w-full max-w-4xl shadow-lg rounded-md bg-white dark:bg-gray-800 dark:border-gray-700">
       <div class="flex justify-between items-center pb-3 border-b dark:border-gray-700">
         <h3 id="modalTitle" class="text-2xl font-bold text-gray-900 dark:text-white">Detaljer</h3>
-        <button id="closeModal"
+        <button id="closeModal" type="button" aria-label="Stäng"
           class="text-3xl font-light text-gray-400 hover:text-gray-800 dark:hover:text-gray-300">&times;</button>
       </div>
       <div id="modalTabs" class="border-b border-gray-200 dark:border-gray-700 mt-4"></div>
@@ -364,7 +364,7 @@
   <div id="compInfoModal"
     class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-[100] flex items-center justify-center">
     <div class="relative w-full max-w-2xl bg-white dark:bg-gray-800 dark:border-gray-700 rounded-xl shadow-2xl p-6 m-4">
-      <button id="closeCompInfoModal"
+      <button id="closeCompInfoModal" type="button" aria-label="Stäng"
         class="absolute top-4 right-4 text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 z-10">
         <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
@@ -465,7 +465,7 @@
 
   <div id="alertModal"
     class="fixed inset-0 bg-gray-600 bg-opacity-50 h-full w-full z-[100] flex items-center justify-center hidden">
-    <div class="relative mx-auto p-5 border w-96 shadow-lg rounded-md bg-white dark:bg-gray-800 dark:border-gray-700">
+    <div class="relative mx-auto p-5 border w-96 max-w-[calc(100%-2rem)] shadow-lg rounded-md bg-white dark:bg-gray-800 dark:border-gray-700">
       <div class="mt-3 text-center">
         <div id="alertModalIcon"
           class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900">

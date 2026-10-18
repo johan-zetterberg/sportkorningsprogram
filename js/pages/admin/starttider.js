@@ -780,7 +780,7 @@ function renderMobile() {
         let classHeader = '';
         if (viewMode === 'byclass' && (e._mergedLabel || e.className) !== lastClass) {
             lastClass = (e._mergedLabel || e.className);
-            classHeader = `<div class="px-2 py-1 mt-2 mb-1 bg-blue-100 text-blue-800 font-bold text-sm rounded-md">${escapeHtml(e._mergedLabel || e.className)}</div>`;
+            classHeader = `<div class="px-2 py-1 mt-2 mb-1 bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 font-bold text-sm rounded-md">${escapeHtml(e._mergedLabel || e.className)}</div>`;
         }
 
         const renderActions = (discipline) => {
@@ -2016,7 +2016,7 @@ export async function load() {
     let competition = getGlobalState('currentCompetition');
     competitionId = competition?.id;
     if (!competitionId) {
-        document.getElementById('page-starttider').innerHTML = '<p class="p-8 text-center text-gray-600">Ingen tävling vald.</p>';
+        document.getElementById('page-starttider').innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
         return;
     }
 

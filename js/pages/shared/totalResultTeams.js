@@ -132,7 +132,7 @@ export function renderTeamMemberRow(member = {}, {
   const cellClass = 'text-right p-1';
 
   return `
-        <div class="grid grid-cols-12 gap-2 text-sm py-2 border-b dark:border-gray-700/50 last:border-0 border-gray-100 items-center hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" data-start="${member.startNumber}" role="button">
+        <div class="grid grid-cols-12 gap-2 text-sm py-2 border-b dark:border-gray-700/50 last:border-0 border-gray-100 items-center hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" data-start="${member.startNumber}" role="button" tabindex="0" data-kbd-click>
            <div class="col-span-4 flex items-center gap-2 overflow-hidden pl-2">
              <span class="w-5 text-center flex-shrink-0">${statusIcon}</span>
              <div class="flex flex-col truncate">

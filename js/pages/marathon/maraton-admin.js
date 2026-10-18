@@ -16,6 +16,29 @@ import {
   MARATHON_OBSTACLE_MAX_TIME_SEC
 } from '../../core-engine/rules-ledger.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import {
+  diffFormFields,
+  findFormConflicts,
+  flattenFormRows,
+  formConflictMessage,
+  formRowFieldLabel,
+  sameFormValue,
+  unflattenFormRows,
+  unstoredFormFields
+} from '../../utils/formDiff.js';
+
+// Names in the "someone else changed" question
+const MARATHON_FIELD_LABELS = {
+  distanceA: 'distans A', tempoA: 'tempo A', windowA: 'fönster A', fixedTimeA: 'fast tid A',
+  distanceB: 'distans B', tempoB: 'tempo B', windowB: 'fönster B',
+  distanceT: 'distans transport', tempoT: 'tempo transport', includeTransport: 'transport',
+  gateCount: 'standardportar', obstaclePenaltyRate: 'hinderstraff/sek', drivenObstacles: 'körda hinder',
+  clearRound: 'clear round', trTemplate: 'tempo-mall', pauseTime: 'paustid'
+};
+const GLOBAL_MARATHON_LABELS = {
+  timePenaltyRate: 'straffpoäng/sek (sträcka)', obstaclePenaltyRate: 'straffpoäng/sek (hinder)',
+  knockdownPenaltyDefault: 'standardstraff per rivning', obstacleMaxTime: 'maximal hindertid', tempoRules: 'tempotabellen'
+};
 
 let competitionId = null;
 let allEquipages = [];
@@ -305,8 +328,8 @@ function renderLayout(competition) {
           <label class="block text-sm font-medium dark:text-gray-300">Bander (Bounds)</label>
           <div class="marathon-admin-bounds-row flex flex-col sm:flex-row sm:flex-wrap gap-2 sm:items-center">
               <span class="text-xs text-gray-500 dark:text-gray-400">[0,0] till</span>
-              <input type="number" id="mapBoundsX" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="X (1920)">
-              <input type="number" id="mapBoundsY" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Y (1080)">
+              <input type="number" id="mapBoundsX" aria-label="Kartbildens bredd (X, pixlar)" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="X (1920)">
+              <input type="number" id="mapBoundsY" aria-label="Kartbildens höjd (Y, pixlar)" class="mt-1 w-24 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Y (1080)">
               <button type="button" id="btnFixAspectRatio" class="text-[10px] text-blue-600 hover:underline dark:text-blue-400" title="Sätt bounds efter bildens faktiska storlek">Matcha bildens mått</button>
           </div>
         </div>
@@ -475,7 +498,7 @@ function renderClassGateOverrides(container, overrides = {}) {
     return `
         <div class="marathon-admin-override-row flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
            <label class="text-xs text-gray-700 truncate sm:w-2/3 dark:text-gray-400" title="${escapeAttr(cls)}">${escapeHtml(cls)}</label>
-           <input type="number" data-override-class="${escapeAttr(cls)}" value="${escapeAttr(val)}" class="gate-override-input w-full sm:w-16 p-1 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="-">
+           <input type="number" data-override-class="${escapeAttr(cls)}" aria-label="Antal portar för ${escapeAttr(cls)}" value="${escapeAttr(val)}" class="gate-override-input w-full sm:w-16 p-1 text-sm border rounded dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="-">
         </div>
       `;
   }).join('')}
@@ -495,7 +518,8 @@ async function setupGlobalSettingsForm() {
   const rulesInput = form.querySelector('#tempoRulesJson'); // <-- Nytt
   const btnLoadDef = form.querySelector('#btnLoadDefRules'); // <-- Nytt
 
-  const config = await getConfig(competitionId, 'maratonConfig') || {};
+  // Fresh (a cached copy can be an hour old): the save compares with it
+  const config = await getConfig(competitionId, 'maratonConfig', true).catch(() => getConfig(competitionId, 'maratonConfig')) || {};
   const comp = getGlobalState ? getGlobalState('currentCompetition') : null;
   const defObs = comp?.ruleSettings?.marathonObstaclePenaltyRate ?? MARATHON_OBSTACLE_TIME_PENALTY;
 
@@ -515,26 +539,55 @@ async function setupGlobalSettingsForm() {
     }
   });
 
-  form.onsubmit = async (e) => {
-    e.preventDefault();
+  // The form's values (null: the tempo table is not valid JSON)
+  const readGlobalForm = () => {
     let parsedRules = null;
     try {
       parsedRules = JSON.parse(rulesInput.value);
     } catch (err) {
-      renderMarathonAdminReadiness();
-      showAlert('Felaktigt JSON-format i tempotabellen.', false);
-      return;
+      return null;
     }
-
-    const newConfig = {
+    return {
       timePenaltyRate: parseFloat(rateInput.value) || PENALTY_RATE,
       obstaclePenaltyRate: parseFloat(obsRateInput.value) || defObs,
       knockdownPenaltyDefault: parseFloat(kdInput.value) || MARATHON_KNOCKDOWN_PENALTY,
       obstacleMaxTime: parseInt(maxTimeInput.value) || MARATHON_OBSTACLE_MAX_TIME_SEC,
       tempoRules: parsedRules // <-- Spara
     };
+  };
+  // The form as shown and the stored values it came from: a save writes only
+  // the fields changed here, and the defaults not stored yet (utils/formDiff.js)
+  let loadedGlobalForm = readGlobalForm() || {};
+  let loadedGlobalStored = { ...config };
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const formNow = readGlobalForm();
+    if (!formNow) {
+      renderMarathonAdminReadiness();
+      showAlert('Felaktigt JSON-format i tempotabellen.', false);
+      return;
+    }
+
+    const fresh = await Promise.race([
+      getConfig(competitionId, 'maratonConfig', true).catch(() => null),
+      new Promise(resolve => setTimeout(() => resolve(null), 4000))
+    ]);
+    const newConfig = {
+      ...unstoredFormFields(formNow, fresh || loadedGlobalStored),
+      ...diffFormFields(formNow, loadedGlobalForm)
+    };
+    const conflicts = findFormConflicts(newConfig, loadedGlobalStored, fresh);
+    if (conflicts.length > 0 && !confirm(formConflictMessage(conflicts, GLOBAL_MARATHON_LABELS))) return;
+    if (Object.keys(newConfig).length === 0) {
+      showAlert('Inga ändringar att spara.');
+      return;
+    }
     try {
       await saveConfig(competitionId, 'maratonConfig', newConfig);
+      // The form now matches what is stored
+      loadedGlobalForm = formNow;
+      loadedGlobalStored = { ...(fresh || loadedGlobalStored), ...newConfig };
       renderMarathonAdminReadiness();
       showAlert('Globala regelinställningar har sparats.');
     } catch (err) {
@@ -1149,7 +1202,8 @@ async function setupMarathonSettings() {
   if (!container || !form) return;
 
   // Läs svensknyckeln
-  let existingConfig = await getConfig(competitionId, 'maratonConfig') || {};
+  // Fresh (a cached copy can be an hour old): the save compares with it
+  let existingConfig = await getConfig(competitionId, 'maratonConfig', true).catch(() => getConfig(competitionId, 'maratonConfig')) || {};
 
   // Per-class marathon settings must stay on the original class, even if
   // classes are merged for competition display/results.
@@ -1316,10 +1370,22 @@ async function setupMarathonSettings() {
   });
   container.innerHTML = html;
   enhanceMarathonSettingsFields(container);
+  // Fields without a visible label get one for screen readers ("distans A – Lätt A")
+  container.querySelectorAll('.marathon-class-input').forEach((input) => {
+    if (input.closest('label') || input.hasAttribute('aria-label')) return;
+    const field = input.dataset.field;
+    input.setAttribute('aria-label', `${MARATHON_FIELD_LABELS[field] || field} – ${input.dataset.className || ''}`);
+  });
 
-  // Spara-logiken och realtids-uppdateringen är oförändrade och korrekta
-  form.onsubmit = async (e) => {
-    e.preventDefault();
+  // The form as shown and the stored values it came from: a save writes only
+  // the fields changed here (and those not stored yet), so two admins do not
+  // put back each other's values (utils/formDiff.js)
+  const loadedClassForm = flattenFormRows(readMarathonClassForm());
+  const loadedPauseTime = parseInt(pageRoot.querySelector('#pauseTime')?.value) || 10;
+  let loadedStoredFlat = flattenFormRows(classData);
+  let loadedStoredPause = existingConfig.pauseTime;
+
+  function readMarathonClassForm() {
     const newClassData = {};
     container.querySelectorAll('.marathon-class-input').forEach(input => {
       const cls = input.dataset.className, field = input.dataset.field;
@@ -1346,6 +1412,12 @@ async function setupMarathonSettings() {
         row.tempoT = null;
       }
     });
+    return newClassData;
+  }
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const newClassData = readMarathonClassForm();
 
     marathonValidationErrors = validateMarathonAdminSettings(newClassData, (className, row) => {
       const catKey = classCatMap.get(className) || 'horse';
@@ -1371,9 +1443,39 @@ async function setupMarathonSettings() {
     }
 
     const pauseVal = parseInt(pageRoot.querySelector('#pauseTime')?.value) || 10;
+
+    // Only what was changed here, checked against what is stored now
+    const fresh = await Promise.race([
+      getConfig(competitionId, 'maratonConfig', true).catch(() => null),
+      new Promise(resolve => setTimeout(() => resolve(null), 4000))
+    ]);
+    const currentFlat = fresh ? flattenFormRows(fresh.marathonClassData || {}) : null;
+    const formFlat = flattenFormRows(newClassData);
+    const classChanges = {
+      ...unstoredFormFields(formFlat, currentFlat || loadedStoredFlat),
+      ...diffFormFields(formFlat, loadedClassForm)
+    };
+    const pauseChanged = !sameFormValue(pauseVal, loadedPauseTime) || (fresh || existingConfig).pauseTime == null;
+    const conflicts = findFormConflicts(classChanges, loadedStoredFlat, currentFlat);
+    if (pauseChanged && fresh && !sameFormValue(fresh.pauseTime, loadedStoredPause) && !sameFormValue(fresh.pauseTime, pauseVal)) {
+      conflicts.push('pauseTime');
+    }
+    if (conflicts.length > 0) {
+      const labels = Object.fromEntries(conflicts.map(key => [key, formRowFieldLabel(key, MARATHON_FIELD_LABELS)]));
+      if (!confirm(formConflictMessage(conflicts, labels))) return;
+    }
+    if (Object.keys(classChanges).length === 0 && !pauseChanged) {
+      showAlert('Inga ändringar att spara.');
+      return;
+    }
+    const changedRows = unflattenFormRows(classChanges);
+    const storedRows = fresh ? (fresh.marathonClassData || {}) : classData;
+
     // --- Bygg normaliserat marathonClassDistances parallellt från admin-formatet ---
+    // (for the changed classes, from their stored values with the changes)
     const marathonClassDistances = {};
-    for (const [className, row] of Object.entries(newClassData)) {
+    for (const [className, changedRow] of Object.entries(changedRows)) {
+      const row = { ...(storedRows[className] || {}), ...changedRow };
       const A = Math.max(0, Number(row.distanceA) || 0);
       const T = row.includeTransport === true ? Math.max(0, Number(row.distanceT) || 0) : 0;
       const B = Math.max(0, Number(row.distanceB) || 0);
@@ -1390,17 +1492,23 @@ async function setupMarathonSettings() {
 
     // Spara allt i samma dokument (backwards-compat bibehålls). saveConfig
     // slår ihop, så övriga fält skrivs inte om från en gammal cachad kopia
+    // (merged: only the changed fields of the changed classes are written)
     const newConfig = {
-      marathonClassData: newClassData,     // ditt originalformat (windowA/B, gateCount, etc.)
-      marathonClassDistances,              // normaliserat A/T/B-format som andra sidor kan läsa direkt
-      pauseTime: pauseVal
+      marathonClassData: changedRows,      // ditt originalformat (windowA/B, gateCount, etc.)
+      marathonClassDistances               // normaliserat A/T/B-format som andra sidor kan läsa direkt
     };
+    if (pauseChanged) newConfig.pauseTime = pauseVal;
     try {
       await saveConfig(competitionId, 'maratonConfig', newConfig);
+      // The form now matches what is stored
+      loadedStoredFlat = { ...(currentFlat || loadedStoredFlat), ...classChanges };
+      if (pauseChanged) loadedStoredPause = pauseVal;
+      Object.assign(loadedClassForm, formFlat);
       // Clear round applies to every phase: the dressage setting follows
       // (saveConfig merges, so the class's limit/placedCount stay)
       const dressageEntries = {};
-      Object.entries(newClassData).forEach(([cls, row]) => {
+      Object.entries(changedRows).forEach(([cls, row]) => {
+        if (!('clearRound' in row)) return;
         if ((dressageClassConfig[cls]?.clearRound === true) !== (row.clearRound === true)) {
           dressageEntries[cls] = { clearRound: row.clearRound === true };
         }

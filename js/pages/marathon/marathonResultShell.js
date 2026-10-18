@@ -113,7 +113,7 @@ export function renderActiveMerges({
 
   host.innerHTML = `
     <div class="flex flex-wrap items-center gap-2 text-sm">
-      <span class="font-semibold text-gray-700">Aktiva sammanslagningar:</span>
+      <span class="font-semibold text-gray-700 dark:text-gray-300">Aktiva sammanslagningar:</span>
       ${chips}
     </div>`;
 }

@@ -225,7 +225,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
           <div class="p-4 md:p-6">
             <div class="flex justify-between items-start">
               <h3 class="text-xl font-bold">#${escapeHtml(id)} – ${t('equipage_not_found')}</h3>
-              <button id="closePrecModalBtn" class="px-2 py-1 text-2xl leading-none">&times;</button>
+              <button id="closePrecModalBtn" class="px-2 py-1 text-2xl leading-none" aria-label="Stäng">&times;</button>
             </div>
           </div>`;
 

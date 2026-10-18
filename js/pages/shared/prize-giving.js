@@ -506,7 +506,7 @@ function renderPodiumList(rows, container) {
             html += `
              <div class="flex justify-between items-center text-[11px] p-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 opacity-80">
                 <div class="flex gap-2 items-center min-w-0">
-                     <span class="text-[9px] font-black text-gray-400 dark:text-gray-600 bg-gray-50 dark:bg-gray-900/50 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-800">#${escapeHtml(row.startNumber)}</span>
+                     <span class="text-[9px] font-black text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-800">#${escapeHtml(row.startNumber)}</span>
                       <span class="dark:text-gray-300 truncate font-semibold">${escapeHtml(row.driverName)}</span>
                       ${row.className && row.className !== activeClass ? `<span class="text-[8px] text-gray-400 dark:text-gray-500 uppercase font-black tracking-tighter bg-gray-100/50 dark:bg-gray-700/50 px-1 rounded ml-1 border border-gray-100 dark:border-gray-700">${escapeHtml(row.className)}</span>` : ''}
                   </div>
