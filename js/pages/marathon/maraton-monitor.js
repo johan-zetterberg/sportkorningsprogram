@@ -12,6 +12,7 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { getMarathonActiveState } from '../../services/competitionStatusService.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 
 // Importera modalen direkt
 import { showDetailsModal } from '../../ui/marathonModal.js';
@@ -19,6 +20,7 @@ import { renderMap, destroyMap, updateSidebar as updateSidebarMap } from './mara
 import { buildObstaclePlacementsByClass, getObstaclePlacement } from './marathonObstaclePlacings.js';
 import { assignPlaces, compareMarathonRank, marathonRankKey } from '../../core-engine/ranking.js';
 import { stageRunningSince } from '../../core-engine/marathon.js';
+import { normalizeMarathonDoc } from '../../core-engine/stateSelector.js';
 
 import {
   setMarathonConfig,
@@ -576,15 +578,16 @@ function renderMonitor() {
   if (currentHash !== lastRenderedGridHash) {
     grid.innerHTML = sorted.map(active => {
       const eq = active.equipageInfo;
+      const sn = escapeHtml(eq.startNumber);
       const isFlash = active.task.type === 'result_flash';
 
       if (isFlash) {
-        return `<div id="card-${eq.startNumber}" data-sn="${eq.startNumber}" class="h-full"></div>`;
+        return `<div id="card-${sn}" data-sn="${sn}" class="h-full"></div>`;
       }
 
       return `
-     <div class="card-base relative bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 flex flex-col justify-between border-l-4 ${active.task.type === 'obstacle' ? 'border-amber-500' : 'border-blue-500'} h-full transition-all duration-300" data-sn="${eq.startNumber}" id="card-${eq.startNumber}">
-       <div id="warning-${eq.startNumber}"></div>
+     <div class="card-base relative bg-white dark:bg-gray-800 rounded-lg shadow-lg p-4 flex flex-col justify-between border-l-4 ${active.task.type === 'obstacle' ? 'border-amber-500' : 'border-blue-500'} h-full transition-all duration-300" data-sn="${sn}" id="card-${sn}">
+       <div id="warning-${sn}"></div>
            <div>
              <div class="flex justify-between items-start">
                <h3 class="text-lg font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
@@ -598,22 +601,22 @@ function renderMonitor() {
                 ${getFlagHtml(eq)}
                 ${getClubLogoHtml(eq)}
                 <span>${escapeHtml(eq.className)}</span>
-                <span class="rank-badge inline-block" id="rank-${eq.startNumber}"></span>
+                <span class="rank-badge inline-block" id="rank-${sn}"></span>
               </div>
            </div>
    
            <div class="text-center my-4">
-             <div id="timer-${eq.startNumber}" class="timer-display text-4xl font font-bold tabular-nums dark:text-white">00:00,00</div>
-             <div id="info-${eq.startNumber}"></div>
-             <div id="splits-${eq.startNumber}"></div>
-             <div id="progress-${eq.startNumber}"></div>
+             <div id="timer-${sn}" class="timer-display text-4xl font font-bold tabular-nums dark:text-white">00:00,00</div>
+             <div id="info-${sn}"></div>
+             <div id="splits-${sn}"></div>
+             <div id="progress-${sn}"></div>
              <div class="flex justify-center gap-4 mt-2">
-               <div id="startTime-${eq.startNumber}"></div>
-               <div id="eta-${eq.startNumber}"></div>
+               <div id="startTime-${sn}"></div>
+               <div id="eta-${sn}"></div>
              </div>
            </div>
    
-           <div class="mt-auto" id="bottom-${eq.startNumber}"></div>
+           <div class="mt-auto" id="bottom-${sn}"></div>
         </div>
         `;
     }).join('');
@@ -902,6 +905,8 @@ function rebuildMarathonData(sn) {
 }
 
 
+const connectionBanner = createConnectionBanner(() => document.getElementById('page-maraton-monitor')?.firstElementChild);
+
 // ---------- Entrypoint ----------
 export async function load() {
   __unload();
@@ -925,7 +930,18 @@ export async function load() {
     let resolveFirstEquipages;
     const firstEquipages = new Promise((resolve) => { resolveFirstEquipages = resolve; });
     let equipagesLoaded = false;
-    const unSubEquipages = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'equipages'), (snapshot) => {
+    // Every listener here subscribes again after an error, keeping the last
+    // data on screen with a banner (a dead listener stayed dead all day)
+    const resilient = (name, ref, onData, onFail = null) => resilientSnapshot({
+      name: `maraton-monitor:${name}`,
+      subscribe: (onNext, onError) => onSnapshot(ref, onNext, onError),
+      onData,
+      onStatus: (status) => {
+        connectionBanner.update(name, status);
+        if (status.ok === false) onFail?.(status.error);
+      }
+    });
+    const unSubEquipages = resilient('equipages', collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'equipages'), (snapshot) => {
       if (!equipagesLoaded) {
         equipagesLoaded = true;
         resolveFirstEquipages(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
@@ -940,8 +956,8 @@ export async function load() {
         else allEquipages.push(data);
       });
       renderUpcomingPanel();
-    }, (error) => {
-      console.error('[maraton-monitor] equipages listener:', error);
+    }, () => {
+      // No first list: the page starts empty and fills when it reconnects
       if (!equipagesLoaded) { equipagesLoaded = true; resolveFirstEquipages([]); }
     });
     unsubscribes.push(unSubEquipages);
@@ -965,9 +981,11 @@ export async function load() {
 
     // START LISTENERS (1. equipages: started above)
     // 2. Marathon Data Collection (State / Manual)
-    const unSubMarathon = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton'), (snapshot) => {
+    const unSubMarathon = resilient('maraton', collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
-        const d = change.doc.data();
+        // Saved results per obstacle merged into obstacles[], and the flat
+        // live fields from the obstacle being timed (obstacleLive.{n})
+        const d = normalizeMarathonDoc(change.doc.data());
         const sn = String(change.doc.id);
 
         // Update State Map
@@ -988,7 +1006,7 @@ export async function load() {
 
     // [FIX] Listen to maraton-timing (live stage times) and merge!
     // This ensures consistency with total-resultat.js and maraton-resultat.js
-    const unSubTiming = onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton-timing'), (snapshot) => {
+    const unSubTiming = resilient('maraton-timing', collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton-timing'), (snapshot) => {
       snapshot.docChanges().forEach((change) => {
         const d = change.doc.data();
         const sn = String(change.doc.id);
@@ -1008,7 +1026,7 @@ export async function load() {
     unsubscribes.push(unSubTiming);
 
     // 3. Maraton Config (Live updates for map) - MOVED OUT OF MARATHON LISTENER
-    const unSubConfig = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'maratonConfig'), (snap) => {
+    const unSubConfig = resilient('config', doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'maratonConfig'), (snap) => {
       maratonConfigMissing = !snap.exists();
       if (snap.exists()) {
         maratonConfig = snap.data();
@@ -1019,7 +1037,7 @@ export async function load() {
     unsubscribes.push(unSubConfig);
 
     // 3. Global Pause
-    const unSubPause = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus'), (docSnap) => {
+    const unSubPause = resilient('globalStatus', doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus'), (docSnap) => {
 
       if (docSnap.exists()) {
         const d = docSnap.data();
@@ -1219,6 +1237,7 @@ export function __unload() {
     try { u && u(); } catch { }
   });
   unsubscribes = [];
+  connectionBanner.clear();
   if (tickerInterval) {
     clearInterval(tickerInterval);
     tickerInterval = null;

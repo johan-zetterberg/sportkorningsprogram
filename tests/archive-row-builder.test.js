@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { buildArchiveRowsFromData } from '../js/services/archiveRowBuilder.js';
+import { plainDressageProtocolsFromDocs } from '../js/services/dressageProtocolDocs.js';
 
 const allPrograms = {
   LA: {
@@ -243,11 +244,14 @@ test('buildArchiveRowsFromData applies dressage general error points via shared 
     { startNumber: 50, className: 'KlassA', category: 'horse', errorPoints: 0, testKey: 'LA' }
   ];
 
+  // The documents as Firestore holds them, converted the way the loaders
+  // (getAllDressageProtocols, the protocol listeners) do: the 'general' doc
+  // with C's error points must survive the loader
   const dressageProtocols = new Map([
-    ['50', [
-      { judgeId: 'c', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] },
-      { id: 'general', errorPoints: 2 }
-    ]]
+    ['50', plainDressageProtocolsFromDocs([
+      { id: 'judge_c', data: { judgeId: 'c', judgePosition: 'C', testKey: 'LA', movements: [{ momentNo: 1, score: 8 }, { momentNo: 2, score: 8 }] } },
+      { id: 'general', data: { errorPoints: 2, errorComment: 'Vägfel' } }
+    ], '50')]
   ]);
 
   const marathonTimingMap = new Map([

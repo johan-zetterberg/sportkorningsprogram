@@ -160,10 +160,53 @@ test('a competition comes back from its backup, and a copy can be restored next 
   assert.notEqual(run.code, 0);
   assert.match(run.out, /finns redan/);
   await db.doc(`${PUBLIC}/equipages/5`).update({ driverName: 'Ändrad' });
+  // Set again since the backup (which has none of them): PINs, personal
+  // identity numbers (also inside a list), and a lock set after the backup
+  await db.doc(`${PUBLIC}/config/secrets`).set({ accessCode: '55556666' });
+  await db.doc(PUBLIC).update({ accessCode: '55556666' });
+  await db.doc(`${PUBLIC}/equipages/5`).update({ driverSSN: '19800101-1234' });
+  await db.doc(`${PUBLIC}/equipagePrivate/5`).update({ ssn: '19800101-1234' });
+  const archiveNow = (await db.doc(`${PUBLIC}/archive/final`).get()).data();
+  archiveNow.rows[0].ssn = 'x';
+  await db.doc(`${PUBLIC}/archive/final`).set(archiveNow);
+  await db.doc(`${FINAL}/precisionFinalization/5`).set({ finalized: true, lockedBy: 'judge-uid' });
+
+  // Changed after the backup was taken: refused without --force
   run = restore('--project', PROJECT_ID, '--overwrite');
+  assert.notEqual(run.code, 0);
+  assert.match(run.out, /ändrats efter att kopian togs/);
+  assert.equal((await db.doc(`${PUBLIC}/equipages/5`).get()).data().driverName, 'Ändrad');
+  run = restore('--project', PROJECT_ID, '--prune');
+  assert.notEqual(run.code, 0, 'prune only with --overwrite');
+
+  // --force: the backup's values, the left-out fields kept, the newer lock kept
+  run = restore('--project', PROJECT_ID, '--overwrite', '--force');
   assert.equal(run.code, 0, run.out);
   assert.equal((await db.doc(`${PUBLIC}/equipages/5`).get()).data().driverName, 'Anna');
-  assert.deepEqual(await readTrees(competitionRootPaths(APP_ID, COMP_ID)), expected);
+  const expectedKept = expected.map((d) => {
+    const data = structuredClone(d.data);
+    if (d.path === PUBLIC) data.accessCode = '55556666';
+    if (d.path === `${PUBLIC}/equipages/5`) data.driverSSN = '19800101-1234';
+    if (d.path === `${PUBLIC}/equipagePrivate/5`) data.ssn = '19800101-1234';
+    if (d.path === `${PUBLIC}/archive/final`) data.rows[0].ssn = 'x';
+    return { path: d.path, data };
+  });
+  expectedKept.push({ path: `${PUBLIC}/config/secrets`, data: { accessCode: '55556666' } });
+  expectedKept.sort((a, b) => a.path.localeCompare(b.path));
+  const withLock = [...expectedKept, { path: `${FINAL}/precisionFinalization/5`, data: { finalized: true, lockedBy: 'judge-uid' } }]
+    .sort((a, b) => a.path.localeCompare(b.path));
+  assert.deepEqual(await readTrees(competitionRootPaths(APP_ID, COMP_ID)), withLock);
+
+  // --prune: documents only in the database go, config/secrets (never in a
+  // backup) stays
+  run = restore('--project', PROJECT_ID, '--overwrite', '--force', '--prune', '--dry-run');
+  assert.equal(run.code, 0, run.out);
+  assert.match(run.out, /1 tas bort/);
+  assert.equal((await db.doc(`${FINAL}/precisionFinalization/5`).get()).exists, true);
+  run = restore('--project', PROJECT_ID, '--overwrite', '--force', '--prune');
+  assert.equal(run.code, 0, run.out);
+  assert.equal((await db.doc(`${FINAL}/precisionFinalization/5`).get()).exists, false);
+  assert.deepEqual(await readTrees(competitionRootPaths(APP_ID, COMP_ID)), expectedKept);
 
   // A copy next to the original
   run = restore('--project', PROJECT_ID, '--as-new-id', COPY_ID);
@@ -178,5 +221,5 @@ test('a competition comes back from its backup, and a copy can be restored next 
   const copyRef = (await db.doc(`${COPY_PUBLIC}/computed_equipages/5`).get()).data().equipageRef;
   assert.equal(copyRef.path, `${COPY_PUBLIC}/equipages/5`);
   // The original is untouched
-  assert.deepEqual(await readTrees(competitionRootPaths(APP_ID, COMP_ID)), expected);
+  assert.deepEqual(await readTrees(competitionRootPaths(APP_ID, COMP_ID)), expectedKept);
 });

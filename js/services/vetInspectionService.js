@@ -17,12 +17,12 @@ function docRef(competitionId, collectionName, startNumber) {
 }
 
 /** All clinical findings of the competition by start number ({ [horseKey]: { [phase]: findings } }). Returns the unsubscribe. */
-export function listenForVetInspections(competitionId, callback) {
+export function listenForVetInspections(competitionId, callback, onError = null) {
     return onSnapshot(getCompCollectionRef(competitionId, INSPECTIONS), (snapshot) => {
         const byStartNumber = new Map();
         snapshot.docs.forEach(item => byStartNumber.set(String(item.id), item.data()?.horses || {}));
         callback(byStartNumber);
-    }, buildSnapshotErrorHandler('listenForVetInspections', callback, new Map()));
+    }, buildSnapshotErrorHandler('listenForVetInspections', callback, new Map(), onError));
 }
 
 /** All clinical findings once, by start number (vet and admins only) */
@@ -44,9 +44,10 @@ export async function getVetInspection(competitionId, startNumber) {
  * Saves clinical findings: `changes` is a list of { horseKey, phase, fields }.
  * A merge write sets only the fields given, so two vets saving different
  * horses do not overwrite each other, and it works offline (queued on the
- * device). Resolves 'saved' or 'queued'.
+ * device). Resolves 'saved' or 'queued'; a refusal after that goes to
+ * onLateError.
  */
-export async function saveVetClinicalFindings(competitionId, startNumber, changes = []) {
+export async function saveVetClinicalFindings(competitionId, startNumber, changes = [], { onLateError = null } = {}) {
     const list = changes.filter(change => change?.horseKey && change?.phase && change.fields && Object.keys(change.fields).length);
     if (!competitionId || !list.length) return 'saved';
     const checkedAt = new Date().toISOString();
@@ -59,16 +60,16 @@ export async function saveVetClinicalFindings(competitionId, startNumber, change
     return awaitWriteOrQueue(setDoc(docRef(competitionId, INSPECTIONS, startNumber), {
         horses,
         updatedAt: serverTimestamp()
-    }, { merge: true }));
+    }, { merge: true }), { onLateError });
 }
 
 /** All vet notes by start number ({ [phase]: text }). Returns the unsubscribe. */
-export function listenForVetNotes(competitionId, callback) {
+export function listenForVetNotes(competitionId, callback, onError = null) {
     return onSnapshot(getCompCollectionRef(competitionId, NOTES), (snapshot) => {
         const byStartNumber = new Map();
         snapshot.docs.forEach(item => byStartNumber.set(String(item.id), item.data()?.notes || {}));
         callback(byStartNumber);
-    }, buildSnapshotErrorHandler('listenForVetNotes', callback, new Map()));
+    }, buildSnapshotErrorHandler('listenForVetNotes', callback, new Map(), onError));
 }
 
 /** All vet notes once, by start number (vet and admins only) */
@@ -79,11 +80,11 @@ export async function getVetNotes(competitionId) {
     return byStartNumber;
 }
 
-/** Saves the vet's note for one phase. Resolves 'saved' or 'queued'. */
-export async function saveVetNote(competitionId, startNumber, phase, text) {
+/** Saves the vet's note for one phase. Resolves 'saved' or 'queued' (a later refusal goes to onLateError). */
+export async function saveVetNote(competitionId, startNumber, phase, text, { onLateError = null } = {}) {
     const note = String(text ?? '').slice(0, 4000);
     return awaitWriteOrQueue(setDoc(docRef(competitionId, NOTES, startNumber), {
         notes: { [phase]: note },
         updatedAt: serverTimestamp()
-    }, { merge: true }));
+    }, { merge: true }), { onLateError });
 }

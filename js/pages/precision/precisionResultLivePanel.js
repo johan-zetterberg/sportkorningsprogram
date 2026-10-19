@@ -13,7 +13,8 @@ export function renderPrecisionLiveStatusPanel({
   horseLabelHtml = '',
   flagHtml = ''
 }) {
-  const sn = String(equipage.startNumber);
+  // Escaped for the HTML below (text and attributes)
+  const sn = escapeHtml(String(equipage.startNumber ?? ''));
   const toBeatLabel = toBeat
     ? `<div class="text-[10px] text-emerald-500 font-bold mt-1">För ${toBeat.targetP < 0 ? 'vinst' : 'nästa'}: < ${toBeat.targetP.toFixed(1)}</div>`
     : '';
@@ -26,7 +27,7 @@ export function renderPrecisionLiveStatusPanel({
         <div class="flex items-center gap-4 md:gap-6 flex-1 min-w-0">
            <div class="flex flex-col items-center justify-center bg-white/10 w-16 h-16 rounded-lg backdrop-blur-sm border border-white/10 shrink-0">
               <span class="text-xs text-gray-400 uppercase font-bold tracking-wider">Start</span>
-              <span class="text-3xl font-bold font-mono leading-none">${equipage.startNumber}</span>
+              <span class="text-3xl font-bold font-mono leading-none">${sn}</span>
            </div>
 
            <div class="min-w-0">
@@ -74,7 +75,7 @@ export function renderPrecisionLiveStatusPanel({
       <div class="relative z-10 flex md:hidden flex-col gap-3">
         <div class="flex items-center justify-between">
            <div class="flex items-center gap-3 min-w-0">
-             <div class="bg-white/10 px-2 py-1 rounded border border-white/10 font-bold font-mono text-xl">#${equipage.startNumber}</div>
+             <div class="bg-white/10 px-2 py-1 rounded border border-white/10 font-bold font-mono text-xl">#${sn}</div>
              <div class="min-w-0">
                <h2 class="text-lg font-bold truncate leading-tight">${escapeHtml(equipage.driverName)}</h2>
                <div class="flex items-center gap-2">

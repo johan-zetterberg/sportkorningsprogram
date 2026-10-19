@@ -89,6 +89,27 @@ Examples:
 2025-001_SVAR_OPEN_HORSE_FOUR_IN_HAND
 ```
 
+### 1.6 Rule profile per class (TR or FEI)
+
+Each class has a rule profile, `'TR'` or `'FEI'`, stored in the marathon admin
+(`maratonConfig.marathonClassData[class].ruleProfile`). When none is stored the
+admin proposes FEI if the tempo template or the class name is a FEI/CAI one or
+the competition is international (`config/competitionMeta.isInternational`),
+else TR, and stores it on the next save; the result engine (which does not read
+competitionMeta) derives only from the template and the name.
+
+| Topic | TR | FEI |
+|---|---|---|
+| Wrong gait | 523.1: 1 p per commenced 5 s after 5 s | 964.4: 1 p + 1 per further completed 5 s |
+| Section times | 523.2: whole seconds | 968.1.1: no rounding (ms) |
+| Marathon tie | 527.1: lowest B-section penalties | 968.1.4: equal place |
+| Cones speed | Bilaga 5 | 975.10.5 by hitch and horse/pony |
+| Total tie | 533.3: marathon, then dressage | 904: the same |
+
+A class whose horse/pony category is unknown (a class for both, TR 535.1,
+without a stated category or measured height) gets no marathon ideal time and
+no precision time allowed: its result is withheld instead of guessing horse.
+
 ---
 
 ## 2. Result statuses and continuation rules
@@ -252,15 +273,33 @@ Speeds are in km/h. Pony columns `A`, `B`, `C/D` refer to pony categories; `H` i
 For each timed section:
 
 ```pseudo
-max_time_seconds = section_distance_km / speed_kmh * 3600
+max_time_seconds = round_to_whole_second(section_distance_km / speed_kmh * 3600)
 ```
 
-Minimum times:
+Minimum times (TR V 522 figure, PDF p. 30: "sträcka A … mintid = maxtid – 2 min",
+"B-sträcka … mintid = maxtid – 3 min"; the same as FEI 963.2.2 and 963.2.4;
+a warm-up is judged as section A, TR 522.1):
 
 ```pseudo
-min_time_A_seconds = max_time_A_seconds - 180
-min_time_B_seconds = max_time_B_seconds - 120
+min_time_A_seconds = max_time_A_seconds - 120
+min_time_B_seconds = max_time_B_seconds - 180
 ```
+
+(Corrected 2026-10-19: this document had A −180 / B −120, reversed against
+the rule text and the program.)
+
+#### Rounding of ideal times
+
+Neither TR V (Bilaga 3, 516, 530.10) nor FEI (963.2.1, 975.10.5) states how a
+calculated ideal time is rounded. The program uses:
+
+| Ideal time | Rounding | Why |
+|---|---|---|
+| Marathon section (A, WU, transfer, B) | nearest whole second | it bounds both the minimum and the maximum time, so rounding up would favour the driver on one side and penalise on the other; time cards show whole seconds |
+| Precision time allowed | up to the whole second | it is only an upper bound: rounding up is in the driver's favour |
+
+Example: 6000 m at 11 km/h = 1963.6 s → 1964 s; a 610 m cones course at
+250 m/min = 146.4 s → 147 s.
 
 Time limits:
 
@@ -284,6 +323,14 @@ else:
 
 If `actual_time_seconds > time_limit_seconds`, status is `U`.
 
+TR V 523.2 counts "0,25 straffpoäng per sekund" with timekeepers' clocks
+(523.3): in TR classes the driven time is cut off at the whole second before
+it is compared with the minimum and maximum times (1500.4 s against a 1500 s
+maximum = 0 penalties; 1319.6 s against a 1320 s minimum = 1 s under = 0.25).
+FEI classes keep milliseconds (FEI 968.1.1 "There shall be no rounding of
+times"). Owner's decision 2026-10-19; the class's rule profile decides (see
+section 1.6).
+
 ### 4.6 Gait rules
 
 | Situation | Rule |
@@ -291,7 +338,7 @@ If `actual_time_seconds > time_limit_seconds`, status is `U`.
 | Lätt B | Only walk and trot are allowed in all phases and in the competition area. Intentional canter = eliminated. |
 | Lätt A, Medelsvår, Svår | Free gait on all marathon sections. |
 | Last 300 m of B section | Only walk and trot are allowed. Intentional canter = eliminated. |
-| Wrong gait, if not corrected within 5 seconds | 1 penalty per started 5-second period. |
+| Wrong gait, if not corrected within 5 seconds | 1 penalty per started 5-second period after the first 5 s (TR 523.1): 0–5 s 0, 6–10 s 1, 11–15 s 2, 16–20 s 3 (owner's decision 2026-10-19). FEI classes: 1 for the occurrence + 1 per additional completed 5 s (FEI 964.4). |
 
 ### 4.7 Obstacle time penalties
 
@@ -326,8 +373,25 @@ marathon_penalties_display = round_to_2_decimals(marathon_penalties)
 Sort `OK` competitors by:
 
 1. lowest `marathon_penalties`
-2. lowest penalty points on B section
+2. lowest penalty points on B section (TR 527.1)
 3. if still tied, equal placing unless the proposition defines another tie-breaker.
+
+B-section penalties (`bPenalty` in the engine) = B's time penalty + all
+obstacle penalties (the obstacles are on B) + other penalties and wrong-gait
+penalties given on B. Their section is stored with the penalty:
+
+- `otherPenaltySection: 'A' | 'transport' | 'B'` on the marathon result doc
+  (applies to its `otherPenalty`);
+- `section: 'A' | 'transport' | 'B'` on each `observerLog.wrongGaits[]` incident.
+
+A penalty without a section counts on B only when the class drives B alone
+(one-day competition, TR 509.6); otherwise it is left out of the tie-break and
+the result is flagged `bPenaltyPartial`. FEI classes have no tie-break: equal
+penalties share the place (FEI 968.1.4).
+
+Hold time in an obstacle is entered in minutes (TR 525.7 "Väntetiden ska anges
+i hela minuter"; FEI 965.8.2 whole or half minutes): "2", "2,5" or "m:ss";
+stored as seconds (`holdTimeSec`) and deducted from B.
 
 ### 4.10 Marathon penalties and elimination events
 
@@ -444,6 +508,26 @@ else:
 If `actual_time_seconds > time_limit_seconds`, status is `U`.
 
 Display precision penalties with two decimals.
+
+`actual_time_seconds` is the driven time **truncated to hundredths** (TR 530.8
+stopwatch tenths / electronic hundredths; FEI 975.10.3 "Times must be recorded
+to hundredths of a second" — a timer shows the elapsed time cut off at its last
+digit) **plus 10 s per obstacle rebuild** (TR 530.15 "Rivning på grund av
+olydnad 5 straffp. + 10 sek", 530.19 "River del av hinder som ska köras 3
+straffp. + 10 sek"; FEI 975.4.4, 975.5.1, 975.8.5). The rebuild count is stored
+on the precision result doc as `rebuildCount`. The same time is used for the
+time penalty, the time limit and ranking; equal hundredths with equal
+penalties share the place (TR 530.1.2).
+
+A para driver in an ordinary Medelsvår or Svår class drives the Bilaga 5 PARA
+cones speed (MSV pony 210 / horse 220, SVÅR 230 / 230; TR 534.8–534.9
+"Parakuskar tävlar med sina tempon"). Lätt B and Lätt A have no para row: the
+class speed applies.
+
+Precision formats other than clear round / A:0 (A with two phases, TR 510.4
+time competition, FEI 977–980) are not calculated by the program: the class
+can be marked in the precision admin and gets no precision placing (and, for
+a time competition, no total).
 
 ### 5.5 Obstacle and fault penalties
 
@@ -584,7 +668,7 @@ Rules to encode:
 - Groom may read the dressage program.
 - Groom may hold the rein ends behind the driver's hands.
 - Groom may handle the whip and show the route in all phases.
-- In precision, Barn drivers have no normal maximum time; elimination occurs if the calculated time limit is exceeded.
+- In precision, Barn drivers in **Lätt B** have no normal maximum time; elimination occurs if the calculated time limit (100 m/min) is exceeded (TR 509.2, Bilaga 5 #, Bilaga 9 "Barnkusk i Lätt B överskrider tillåten tid"). The Lätt A children's class ("Lätt A Barnklass", "LA Barn") drives the LA "Barn" tempo 180 m/min with normal time penalties, and the Lätt A marathon tempos.
 - All starting Barn drivers receive a rosette.
 
 ### 7.4 Team competitions
@@ -598,6 +682,9 @@ team_eligible = dressage.status == OK
 ```
 
 The proposition must define the team scoring aggregation if not otherwise fixed.
+
+TR V 510.2 states no tie-break for teams: equal team totals share the place
+(1, 2, 2, 4). (Lag-SM has its own stated tie-breakers.)
 
 ---
 
@@ -857,7 +944,8 @@ Use clear labels for incomplete/live data:
 
 Recommended internal precision:
 
-- Store raw times in hundredths of a second if electronic timing is used, otherwise tenths where manual timing is used.
+- Store raw times in hundredths of a second if electronic timing is used, otherwise tenths where manual timing is used. Precision times are truncated to hundredths before use; TR marathon section times are cut to whole seconds (section 4.5).
+- Ideal times: see "Rounding of ideal times" in section 4.4.
 - Store penalties internally as decimal with at least 4 decimal places.
 - Display phase and total penalties with 2 decimals.
 
@@ -908,7 +996,7 @@ Input:
 
 ```yaml
 b_max_time_seconds: 1800
-b_min_time_seconds: 1680
+b_min_time_seconds: 1620
 actual_b_time_seconds: 1830
 ```
 

@@ -1,12 +1,13 @@
 import { findProgramKey, resolveDressageProgramKey } from './core-engine/dressage.js';
-import { buildCompetitionState } from './core-engine/stateSelector.js';
+import { buildCompetitionState, normalizeMarathonDoc } from './core-engine/stateSelector.js';
 
 /**
  * Engine state from the Firestore documents of one equipage, as the Cloud
  * Function reads them. The stage input writes stage times (start_A,
  * duration_A_ms, …) on the maraton document, while maraton-timing holds older
  * or separately saved timing; they are merged with the maraton document
- * winning, the same way the browser result pages merge them.
+ * winning, the same way the browser result pages merge them. Obstacle results
+ * saved per obstacle (obstacleResults.{n}) are merged into obstacles[].
  */
 export function buildServerCompetitionState({
     equipage,
@@ -15,7 +16,7 @@ export function buildServerCompetitionState({
     timingDoc = {},
     precisionDoc = {}
 } = {}, context = {}) {
-    const marathon = { ...(marathonDoc || {}) };
+    const marathon = normalizeMarathonDoc({ ...(marathonDoc || {}) });
     if (!Array.isArray(marathon.obstacles)) marathon.obstacles = [];
     const timing = { ...(timingDoc || {}), ...marathon };
     return buildCompetitionState(equipage, dressageProtocols, marathon, timing, precisionDoc || {}, context);

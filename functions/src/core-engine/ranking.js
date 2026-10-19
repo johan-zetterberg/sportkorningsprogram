@@ -4,16 +4,18 @@
 // Rules (TR V 2025 / FEI 2026):
 //   Dressage  – lowest penalty; equal penalties share the place.
 //   Marathon  – lowest total, then lowest B-section penalty (TR 527.1);
-//               still equal shares the place. FEI classes: equal penalties
-//               share the place (FEI Art 968.1.4), no B tie-break.
-//   Precision – lowest penalty, then fastest time (TR 530, FEI Art 977);
-//               still equal shares the place.
+//               still equal shares the place. FEI classes (rule profile
+//               FEI): equal penalties share the place (FEI Art 968.1.4).
+//   Precision – lowest penalty, then fastest time in hundredths (TR 530.1.2,
+//               FEI Art 977.2.3); still equal shares the place. Unsupported
+//               precision formats are not placed.
 //   Total     – lowest total, then marathon, then dressage
 //               (TR 533.3, FEI Art 904); still equal shares the place.
 //   Clear round – the class is not ranked in any phase or in the total
 //               (TR V 509.3); results carry isClearRound (isClearRoundClass).
 
 import { isClearRoundClass } from './marathon.js';
+import { truncatePrecisionTimeMs } from './rules-ledger.js';
 
 export { isClearRoundClass };
 
@@ -69,9 +71,12 @@ export function marathonRankKey(result, { requireFinished = true } = {}) {
     if (!result || result.eliminated || result.isClearRound) return null;
     if (!isNum(result.totalPenalty)) return null;
     if (requireFinished && result.status !== 'Klar' && result.status !== 'Färdig') return null;
-    // TR 527.1: on equal penalties the lowest penalties on section B win. All
-    // obstacles are on section B, so they count with B's time penalties.
-    // FEI Art 968.1.4: equal penalties are placed equal, so no tie-break.
+    // TR 527.1: on equal penalties the lowest penalties on section B win:
+    // the engine's bPenalty holds B's time penalty, the obstacles (all on B)
+    // and the other / wrong-gait penalties recorded on B. Rows without it
+    // (older callers) fall back to B's time penalty and the obstacles.
+    // FEI Art 968.1.4: equal penalties are placed equal, so no tie-break
+    // (feiClass: the class's rule profile is FEI).
     if (result.feiClass === true) {
         return { penalty: result.totalPenalty, bPenalty: 0 };
     }
@@ -93,10 +98,17 @@ export function marathonRankKey(result, { requireFinished = true } = {}) {
  */
 export function precisionRankKey(result, { requireFinished = false } = {}) {
     if (!result || result.eliminated || result.isClearRound === true || !isNum(result.totalPenalty)) return null;
+    // A precision format the engine does not calculate (time competition, two
+    // phases, winning round, drive-off, FEI Young Horse): no placing rather
+    // than a wrong one
+    if (result.formatUnsupported === true) return null;
     if (requireFinished && (result.running || !(result.finalized || result.status === 'Klar'))) return null;
+    // Times in hundredths (FEI 975.10.3, TR 530.8): equal hundredths are an
+    // equal time, and with equal penalties an equal place (TR 530.1.2)
+    const timeMs = truncatePrecisionTimeMs(result.timeMs);
     return {
         penalty: result.totalPenalty,
-        timeMs: isNum(result.timeMs) && result.timeMs > 0 ? result.timeMs : null
+        timeMs: isNum(timeMs) && timeMs > 0 ? timeMs : null
     };
 }
 

@@ -2,6 +2,8 @@ import { db, appId } from '../config/firebase-config.js';
 import { collection, doc, getDoc, getDocs, setDoc, onSnapshot, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { deriveDressageStatusState, judgeStatusKey, liveDocIdFor } from './dressageStatusUtils.js';
+import { asPlainDressageProtocol, plainDressageProtocolsFromDocs, normalizeSavedScore } from './dressageProtocolDocs.js';
 
 export async function setDressageStatus(competitionId, startNumber, {
   state,
@@ -15,7 +17,9 @@ export async function setDressageStatus(competitionId, startNumber, {
   finalPoints,
   finalPenalty,
   errorPoints,
-  errorPenalty
+  errorPenalty,
+  judgeDone,
+  expectedPositions
 }) {
   const ref = doc(
     db,
@@ -39,10 +43,35 @@ export async function setDressageStatus(competitionId, startNumber, {
   if (finalPenalty !== undefined) payload.finalPenalty = finalPenalty;
   if (errorPoints !== undefined) payload.errorPoints = errorPoints;
   if (errorPenalty !== undefined) payload.errorPenalty = errorPenalty;
+  // Each judge marks only its own position (a merged map field): readers
+  // derive "finished" from all positions, not from whoever saved last
+  const key = judgeStatusKey(payload.judgePosition, payload.judgeId);
+  if (judgeDone !== undefined && key) {
+    payload.judgesDone = { [key]: !!judgeDone };
+    if (finalJudgeScore !== undefined) payload.judgeScores = { [key]: finalJudgeScore };
+  }
+  if (Array.isArray(expectedPositions) && expectedPositions.length) {
+    payload.expectedPositions = expectedPositions.map(p => String(p).toUpperCase());
+  }
 
   // A plain merge write, not a transaction: a transaction needs the server, so
   // a judge without signal could not save (and it never used what it read)
   return trackWrite(`Ändrar dressyrstatus #${startNumber}`, setDoc(ref, payload, { merge: true }));
+}
+
+/**
+ * A judge's live protocol, in its own document per position (judges no
+ * longer overwrite each other), stamped with the server's time.
+ */
+export function writeDressageLive(competitionId, startNumber, judge, { protocol, lastUpdate }) {
+  const id = liveDocIdFor(judge?.position || judge?._pos, judge?.id);
+  const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus/${String(startNumber)}/live/${id}`);
+  return setDoc(ref, {
+    state: 'ongoing',
+    protocol,
+    lastUpdate,
+    updatedAt: serverTimestamp()
+  }, { merge: true });
 }
 
 export function listenForDressageStatus(competitionId, startNumber, callback) {
@@ -53,7 +82,7 @@ export function listenForDressageStatus(competitionId, startNumber, callback) {
 
   return onSnapshot(ref, (docSnap) => {
     if (docSnap.exists()) {
-      callback(docSnap.data());
+      callback(deriveDressageStatusState(docSnap.data()));
     } else {
       callback(null);
     }
@@ -111,7 +140,8 @@ export async function saveDressageJudgeProtocol(competitionId, startNumber, judg
     movements: Array.isArray(data?.movements)
       ? data.movements.map((m, idx) => ({
         momentNo: m?.momentNo ?? m?.movementNo ?? (idx + 1),
-        score: typeof m?.score === "number" ? m.score : Number(m?.score || 0),
+        // An empty movement stays null (not scored), never 0
+        score: normalizeSavedScore(m?.score),
         comment: m?.comment || ""
       }))
       : [],
@@ -141,30 +171,7 @@ export async function saveDressageGeneralData(competitionId, startNumber, data) 
   return { ok: true, path: ref.path };
 }
 
-function asPlainDressageProtocol(data, docId, fallbackStartNumber) {
-  if (!data) return null;
-  const protocol = data.protocol && typeof data.protocol === 'object' ? data.protocol : data;
-  const judgePosition = protocol.judgePosition ?? protocol.position ?? data.judgePosition ?? data.position ?? '';
-
-  return {
-    id: docId,
-    // Where the protocol is stored decides whose it is: a startNumber field
-    // inside it could point a protocol at another (even finalized) equipage
-    startNumber: fallbackStartNumber ?? protocol.startNumber ?? data.startNumber,
-    judgeId: protocol.judgeId ?? data.judgeId ?? (docId.startsWith('judge_') ? docId.replace('judge_', '') : docId),
-    judgeName: protocol.judgeName ?? data.judgeName ?? '',
-    judgePosition,
-    position: judgePosition,
-    testKey: protocol.testKey ?? protocol.programKey ?? data.testKey ?? data.programKey ?? '',
-    programKey: protocol.programKey ?? protocol.testKey ?? data.programKey ?? data.testKey ?? '',
-    movements: Array.isArray(protocol.movements) ? protocol.movements.map(m => ({ ...m })) : [],
-    eliminated: !!(protocol.eliminated ?? data.eliminated),
-    generalErrors: protocol.generalErrors ?? data.generalErrors ?? 0,
-    lastUpdate: data.lastUpdate ?? null,
-    state: data.state ?? null,
-    updatedAt: data.updatedAt ?? protocol.updatedAt ?? null
-  };
-}
+export { asPlainDressageProtocol, plainDressageProtocolsFromDocs, normalizeSavedScore };
 
 function createCoalescedMapEmitter(map, callback) {
   let timerId = null;
@@ -212,9 +219,9 @@ export function listenForDressageProtocols(competitionId, startNumber, callback)
     `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${sn}/protocols`
   );
 
+  // 'general' (error points from C) is kept: the result engine needs it
   return onSnapshot(colRef, (snapshot) => {
-    const docs = snapshot.docs.map(d => asPlainDressageProtocol(d.data(), d.id, startNumber));
-    callback(docs.filter(d => d.id !== 'general'));
+    callback(plainDressageProtocolsFromDocs(snapshot.docs.map(d => ({ id: d.id, data: d.data() })), startNumber));
   }, buildSnapshotErrorHandler(`listenForDressageProtocols:${sn}`, callback, []));
 }
 
@@ -222,7 +229,7 @@ export function listenForDressageStatusCollection(competitionId, callback) {
   if (!competitionId) throw new Error("listenForDressageStatusCollection: competitionId saknas");
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus`);
   return onSnapshot(colRef, (snap) => {
-    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+    callback(snap.docs.map(d => deriveDressageStatusState({ id: d.id, ...d.data() })));
   }, buildSnapshotErrorHandler('listenForDressageStatusCollection', callback, []));
 }
 
@@ -230,92 +237,89 @@ export async function getDressageStatusCollection(competitionId) {
   if (!competitionId) throw new Error("getDressageStatusCollection: competitionId saknas");
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus`);
   const snap = await getDocs(colRef);
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs.map(d => deriveDressageStatusState({ id: d.id, ...d.data() }));
 }
 
+/**
+ * One listener per start number on a sub-collection, emitted as one list.
+ * The returned unsubscribe function has setStartNumbers(list): listeners are
+ * added for new start numbers (an equipage added later) and removed for
+ * dropped ones (e.g. a finished equipage's live data).
+ */
+function listenPerStartNumber(label, pathFor, equipagesOrStartNumbers, callback) {
+  const map = new Map();
+  const unsubs = new Map();
+  const emitter = createCoalescedMapEmitter(map, callback);
+
+  const listenTo = (sn) => {
+    try {
+      const unsub = onSnapshot(collection(db, pathFor(sn)), (snap) => {
+        snap.docChanges().forEach(change => {
+          const docId = change.doc.id;
+          const fullId = `${sn}_${docId}`;
+          if (change.type === 'removed') {
+            map.delete(fullId);
+          } else {
+            // Pending server timestamps get the local estimate, not null
+            const plain = asPlainDressageProtocol(change.doc.data({ serverTimestamps: 'estimate' }), docId, sn);
+            if (plain) map.set(fullId, plain);
+          }
+        });
+        emitter.emit();
+      }, buildSnapshotErrorHandler(`${label}:${sn}`, callback, []));
+      unsubs.set(sn, unsub);
+    } catch (e) {
+      console.warn(`${label} setup err`, sn, e);
+    }
+  };
+
+  const setStartNumbers = (list) => {
+    const wanted = new Set(normalizeStartNumbers(list));
+    let removed = false;
+    unsubs.forEach((unsub, sn) => {
+      if (wanted.has(sn)) return;
+      try { unsub(); } catch (_) { }
+      unsubs.delete(sn);
+      for (const key of map.keys()) {
+        if (key.startsWith(`${sn}_`)) { map.delete(key); removed = true; }
+      }
+    });
+    wanted.forEach(sn => { if (!unsubs.has(sn)) listenTo(sn); });
+    if (removed) emitter.emit();
+  };
+
+  setStartNumbers(equipagesOrStartNumbers);
+  if (unsubs.size === 0) callback([]);
+
+  const unsubscribe = () => {
+    emitter.cancel();
+    unsubs.forEach(u => { try { u(); } catch (_) { } });
+    unsubs.clear();
+  };
+  unsubscribe.setStartNumbers = setStartNumbers;
+  return unsubscribe;
+}
+
+/** Live protocols (one document per judge position) of the given equipages */
 export function listenForDressageLiveGroup(competitionId, equipagesOrStartNumbers, callback) {
   if (!competitionId) throw new Error("listenForDressageLiveGroup: competitionId saknas");
-  
-  const map = new Map();
-  const unsubs = [];
-  const emitter = createCoalescedMapEmitter(map, callback);
-
-  const sns = normalizeStartNumbers(equipagesOrStartNumbers);
-  if (sns.length === 0) {
-    callback([]);
-    return () => {};
-  }
-
-  sns.forEach(sn => {
-    if (!sn) return;
-    try {
-      const liveRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus/${sn}/live`);
-      const unsub = onSnapshot(liveRef, (snap) => {
-        snap.docChanges().forEach(change => {
-          const docId = change.doc.id;
-          const fullId = `${sn}_${docId}`;
-          if (change.type === 'removed') {
-            map.delete(fullId);
-          } else {
-            const plain = asPlainDressageProtocol(change.doc.data(), docId, sn);
-            if (plain) map.set(fullId, plain);
-          }
-        });
-        emitter.emit();
-      }, buildSnapshotErrorHandler(`listenForDressageLiveGroup:${sn}`, callback, []));
-      unsubs.push(unsub);
-    } catch (e) {
-      console.warn("listenForDressageLiveGroup setup err", sn, e);
-    }
-  });
-
-  return () => {
-    emitter.cancel();
-    unsubs.forEach(u => u());
-  };
+  return listenPerStartNumber(
+    'listenForDressageLiveGroup',
+    (sn) => `artifacts/${appId}/public/data/competitions/${competitionId}/dressageStatus/${sn}/live`,
+    equipagesOrStartNumbers,
+    callback
+  );
 }
 
+/** Saved protocols of the given equipages, the 'general' document (error points) included */
 export function listenForDressageProtocolsCollectionGroup(competitionId, equipagesOrStartNumbers, callback) {
   if (!competitionId) throw new Error("listenForDressageProtocolsCollectionGroup: competitionId saknas");
-  
-  const map = new Map();
-  const unsubs = [];
-  const emitter = createCoalescedMapEmitter(map, callback);
-
-  const sns = normalizeStartNumbers(equipagesOrStartNumbers);
-  if (sns.length === 0) {
-    callback([]);
-    return () => {};
-  }
-
-  sns.forEach(sn => {
-    if (!sn) return;
-    try {
-      const protoRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${sn}/protocols`);
-      const unsub = onSnapshot(protoRef, (snap) => {
-        snap.docChanges().forEach(change => {
-          const docId = change.doc.id;
-          if (docId === 'general') return;
-          const fullId = `${sn}_${docId}`;
-          if (change.type === 'removed') {
-            map.delete(fullId);
-          } else {
-            const plain = asPlainDressageProtocol(change.doc.data(), docId, sn);
-            if (plain) map.set(fullId, plain);
-          }
-        });
-        emitter.emit();
-      }, buildSnapshotErrorHandler(`listenForDressageProtocolsCollectionGroup:${sn}`, callback, []));
-      unsubs.push(unsub);
-    } catch (e) {
-      console.warn("listenForDressageProtocolsCollectionGroup setup err", sn, e);
-    }
-  });
-
-  return () => {
-    emitter.cancel();
-    unsubs.forEach(u => u());
-  };
+  return listenPerStartNumber(
+    'listenForDressageProtocolsCollectionGroup',
+    (sn) => `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${sn}/protocols`,
+    equipagesOrStartNumbers,
+    callback
+  );
 }
 
 export async function getAllDressageProtocols(competitionId, equipages) {
@@ -332,8 +336,8 @@ export async function getAllDressageProtocols(competitionId, equipages) {
       const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/dressage/${sn}/protocols`);
       try {
         const snap = await getDocs(colRef);
-        const protos = snap.docs.map(d => asPlainDressageProtocol(d.data(), d.id, sn));
-        return { sn, protos: protos.filter(p => p && p.id !== 'general') };
+        // 'general' (error points from C) is kept for the result engine
+        return { sn, protos: plainDressageProtocolsFromDocs(snap.docs.map(d => ({ id: d.id, data: d.data() })), sn) };
       } catch (e) {
         return { sn, protos: [] };
       }

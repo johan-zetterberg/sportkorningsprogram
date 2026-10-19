@@ -177,6 +177,9 @@ export const dressagePrograms = {
 
     'SvSvar': {
         penaltyCoeff: 0.76,
+        // nr 526 is an FEI test (coefficient 0.76): scored as FEI 958 so a
+        // penalty stays within 0–160 (TR on 280 x 0.76 gave up to 212.8)
+        scoring: 'fei',
         name: 'Svår Klass (2020) (nr 526)',
         category: 'Svenska Program',
         calculationType: 'national',

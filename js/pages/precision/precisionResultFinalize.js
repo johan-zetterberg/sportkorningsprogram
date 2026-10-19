@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 export function isPrecisionFinalized(startNumber, precisionMap = new Map(), finalizeCache = new Map()) {
   const sn = String(startNumber);
   const data = precisionMap.get(sn);
@@ -27,7 +29,8 @@ export function renderPrecisionFinalizeButtons(options = {}) {
 
   if (!canFinalize) return '';
 
-  const sn = String(startNumber);
+  // Escaped for the HTML below (ids and attributes)
+  const sn = escapeHtml(String(startNumber ?? ''));
   const finalizedBadge = labels.finalizedBadge || 'Finaliserad';
   const finalizeLabel = labels.finalize || 'Finalisera';
   const undoLabel = labels.undo || 'Ångra';
@@ -44,8 +47,11 @@ export function renderPrecisionFinalizeButtons(options = {}) {
     </div>`;
 }
 
+// Never the knock list: knocks are written one toggle at a time, and a whole
+// list from one device would erase knocks entered on another
 export function buildPrecisionFinalizePayload(currentData = {}) {
-  return { prioritized: true, ...currentData, finalized: true };
+  const { knocks, knockDownTimes, ...rest } = currentData || {};
+  return { prioritized: true, ...rest, finalized: true };
 }
 
 export function buildPrecisionUnfinalizePayload() {

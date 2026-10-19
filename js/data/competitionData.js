@@ -190,7 +190,25 @@ export const klassTempoData = {
   "FEI 2* Enbet Ponny": { maraton: 240, precision: 260 }, "FEI 2* Par Ponny": { maraton: 240, precision: 250 },
   "FEI 3* Enbet Häst": { maraton: 260, precision: 250 }, "FEI 3* Par Häst": { maraton: 260, precision: 250 },
   "FEI 3* Fyrspann Häst": { maraton: 250, precision: 240 }, "FEI 3* Enbet Ponny": { maraton: 250, precision: 260 },
-  "FEI 3* Par Ponny": { maraton: 250, precision: 250 }, "FEI 3* Fyrspann Ponny": { maraton: 240, precision: 240 }
+  "FEI 3* Par Ponny": { maraton: 250, precision: 250 }, "FEI 3* Fyrspann Ponny": { maraton: 240, precision: 240 },
+
+  // --- PER NIVÅ OCH HÄST/PONNY (TR V 2025 Bilaga 5, Fas 1) ---
+  // Classes without a row of their own ("Msv Enbet Ponny", "Lätt B Par Ponny",
+  // "Svår J Enbet Ponny"): the precision tempo depends on level and horse/pony
+  // only (and for Svår also the hitch, which has its own rows above); the
+  // hitch word is skipped when matching (getClassTempoMpm)
+  "Lätt C Ponny": { precision: 160 }, "Lätt C Häst": { precision: 180 },
+  "Lätt B Ponny": { precision: 160 }, "Lätt B Häst": { precision: 180 },
+  "Lätt A Ponny": { precision: 200 }, "Lätt A Häst": { precision: 210 },
+  "Lätt A J Ponny": { precision: 200 }, "Lätt A J Häst": { precision: 210 },
+  "Lätt A U25 Ponny": { precision: 200 }, "Lätt A U25 Häst": { precision: 210 },
+  "Msv Ponny": { precision: 230 }, "Msv Häst": { precision: 230 },
+  "Msv J Ponny": { precision: 230 }, "Msv J Häst": { precision: 230 },
+  "Msv U25 Ponny": { precision: 230 }, "Msv U25 Häst": { precision: 230 },
+  "Svår J Ponny": { precision: 260 }, "Svår J Häst": { precision: 250 },
+  "Svår U25 Ponny": { precision: 260 }, "Svår U25 Häst": { precision: 250 },
+  // FEI 974.1 table: Children cones 220 m/min, horse or pony, any hitch
+  "CAI Children": { precision: 220 }, "FEI Children": { precision: 220 }
 };
 
 /**

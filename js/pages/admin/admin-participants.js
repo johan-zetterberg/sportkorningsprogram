@@ -1,4 +1,4 @@
-import { saveEquipage, deleteEquipage, clearAllEquipages, competitionHasResults, migrateEquipagePrivacy } from '../../services/equipageService.js';
+import { deleteEquipage, clearAllEquipages, competitionHasResults, migrateEquipagePrivacy } from '../../services/equipageService.js';
 import { showAlert } from '../../ui/components.js';
 import { competitionClasses } from '../../data/competitionData.js';
 import {
@@ -6,6 +6,7 @@ import {
     resolveProgramKeyForClass
 } from './adminParticipantClassUtils.js';
 import { setupParticipantImportForm } from './adminParticipantImportForm.js';
+import { createEquipageIfNew, equipageIdentity, updateEquipageIfSame } from './adminParticipantWrites.js';
 import { setupClassManager } from './adminParticipantClassManager.js';
 import { renderClassNumberMergePanel } from './adminParticipantMergePanels.js';
 import {
@@ -27,6 +28,8 @@ let allJudges = [];
 let allOfficials = [];
 let competitionId = null;
 let formPopulationDeps = {};
+// The equipage loaded into the form for editing ({ startNumber, identity, data })
+let loadedEquipage = null;
 
 export function getParticipantsHtml() {
     return `
@@ -323,6 +326,7 @@ function setupPrivacyMigrationButton(competitionId) {
 
 export function setupParticipantsLogic(compId) {
     competitionId = compId;
+    loadedEquipage = null;
     setupEquipageForm();
     setupParticipantImportForm({
         competitionId: compId,
@@ -531,13 +535,18 @@ function setupEquipageForm() {
 
     form.addEventListener('submit', async (e) => {
         e.preventDefault();
-        const startNumber = document.getElementById('startNumber').value;
-        const existingForHorses = allEquipages.find(eq => eq.startNumber === parseInt(startNumber));
-        const existingHorses = Array.isArray(existingForHorses?.horses) ? existingForHorses.horses : [];
+        const startNumber = String(document.getElementById('startNumber').value || '').trim();
+        // Editing only the equipage loaded into the form (Enter, the list or
+        // the name search) under the same number; any other number is a new
+        // equipage, which is refused if the number is taken
+        const editing = loadedEquipage && String(loadedEquipage.startNumber) === startNumber ? loadedEquipage : null;
+        const existing = editing
+            ? (allEquipages.find(eq => String(eq.startNumber) === startNumber) || editing.data)
+            : null;
+        const existingHorses = Array.isArray(existing?.horses) ? existing.horses : [];
         // Each horse on its own saved record (vet results, inspections, import
         // data); a horse new to the equipage starts clean
         const horses = getHorseFormData().map(horse => mergeFormHorse(existingHorses, horse));
-        const existing = allEquipages.find(eq => eq.startNumber === parseInt(startNumber));
         const status = existing ? existing.status : 'anmäld';
 
         const selectedClass = document.getElementById('className').value;
@@ -582,13 +591,27 @@ function setupEquipageForm() {
         };
 
         try {
-            await saveEquipage(competitionId, startNumber, equipageData);
+            if (editing) {
+                await updateEquipageIfSame(competitionId, startNumber, equipageData, editing.identity);
+            } else {
+                await createEquipageIfNew(competitionId, startNumber, equipageData);
+            }
             showAlert(`Ekipage #${startNumber} har sparats.`);
             e.target.reset();
+            loadedEquipage = null;
             syncParaGradeUi();
             populateClassSelect();
             onClassChange({ target: classSelect });
-        } catch (err) { showAlert("Fel vid sparande.", false); }
+        } catch (err) {
+            console.error('Kunde inte spara ekipaget:', err);
+            if (err?.code === 'equipage-exists') {
+                showAlert(`${err.message} Läs in ekipaget (skriv numret och tryck Enter) för att ändra det, eller välj ett annat startnummer.`, false);
+            } else if (err?.code === 'equipage-changed' || err?.code === 'equipage-missing') {
+                showAlert(`${err.message} Läs in ekipaget igen innan du sparar.`, false);
+            } else {
+                showAlert(`Fel vid sparande${err?.message ? `: ${err.message}` : '.'}`, false);
+            }
+        }
     });
 
     classSelect.addEventListener('change', onClassChange);
@@ -604,6 +627,9 @@ function setupEquipageForm() {
 }
 
 function populateEquipageForm(data, extra = {}) {
+    // The entry the form now edits: saving under its number updates it (if it
+    // still belongs to the same driver)
+    loadedEquipage = data ? { startNumber: String(data.startNumber ?? data.id ?? ''), identity: equipageIdentity(data), data } : null;
     populateEquipageFormFields(data, {
         inferParaGradeFromClassName,
         onClassChange,

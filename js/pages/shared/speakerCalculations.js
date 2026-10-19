@@ -290,7 +290,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             isWithdrawn,
             isClearRound,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD, isClearRound },
-            marathon: { totalPenalty: mPen, eliminated: isElimM, bPenalty: mResult.result?.stages?.B?.timePenalty ?? 0, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound },
+            marathon: { totalPenalty: mPen, eliminated: isElimM, bTimePenalty: mResult.result?.stages?.B?.timePenalty ?? 0, bPenalty: mResult.result?.bPenalty ?? null, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound },
             precision: { pen: pPen, eliminated: isElimP, isClearRound }
         });
     });
@@ -302,7 +302,10 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         key: (r) => (r.isWithdrawn ? null : marathonRankKey({
             totalPenalty: r.marathon.totalPenalty,
             eliminated: r.marathon.eliminated,
-            stages: { B: { timePenalty: r.marathon.bPenalty } },
+            // TR 527.1: the engine's B-section penalty (time, obstacles and
+            // penalties recorded on B); older results: B time + obstacles
+            bPenalty: r.marathon.bPenalty,
+            stages: { B: { timePenalty: r.marathon.bTimePenalty } },
             obstaclePenaltySum: r.marathon.obstaclePenaltySum,
             feiClass: r.marathon.feiClass,
             isClearRound: r.marathon.isClearRound

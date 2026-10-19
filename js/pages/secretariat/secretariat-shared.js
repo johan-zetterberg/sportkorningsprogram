@@ -1,4 +1,78 @@
 import { t } from '../../utils/i18n.js';
+import { CORRECTION_REFERENCE_TYPES, buildCorrectionReason } from '../../services/secretariatPatchUtils.js';
+
+/**
+ * Asks for the reason of a correction before it is saved: a free text
+ * (required) and optionally where it comes from (protest number, ground jury
+ * decision, the judge's request). Resolves to { reason, reference } or null
+ * when cancelled.
+ */
+export function askCorrectionReason({ title = 'Orsak till korrigeringen', summary = '' } = {}) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div');
+    // Inline: above the dressage detail modal (same z-index, added later)
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:2147483647;display:flex;align-items:center;justify-content:center;padding:16px;background:rgba(15,23,42,0.6);';
+    overlay.innerHTML = `
+      <form role="dialog" aria-modal="true" aria-labelledby="secretariatReasonTitle" class="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 p-4 shadow-xl text-gray-900 dark:text-gray-100">
+        <h2 id="secretariatReasonTitle" class="text-lg font-semibold mb-1">${escapeHtml(title)}</h2>
+        ${summary ? `<p class="text-sm text-gray-600 dark:text-gray-300 mb-3">${escapeHtml(summary)}</p>` : ''}
+        <label class="block mb-3">
+          <span class="block text-sm font-medium mb-1">Orsak (krävs)</span>
+          <textarea data-role="reason" rows="3" maxlength="1000" required class="w-full rounded border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700"></textarea>
+        </label>
+        <div class="grid gap-2 sm:grid-cols-2 mb-3">
+          <label class="block">
+            <span class="block text-sm font-medium mb-1">Underlag (valfritt)</span>
+            <select data-role="reference-type" class="w-full rounded border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700">
+              <option value="">Inget</option>
+              ${Object.entries(CORRECTION_REFERENCE_TYPES).map(([key, label]) => `<option value="${escapeHtml(key)}">${escapeHtml(label)}</option>`).join('')}
+            </select>
+          </label>
+          <label class="block">
+            <span class="block text-sm font-medium mb-1">Nr / beteckning</span>
+            <input data-role="reference-value" maxlength="200" class="w-full rounded border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700">
+          </label>
+        </div>
+        <p data-role="error" class="hidden text-sm text-red-600 dark:text-red-400 mb-2"></p>
+        <div class="flex justify-end gap-2">
+          <button type="button" data-role="cancel" class="rounded border border-gray-300 dark:border-gray-600 px-4 py-2 text-sm font-semibold">Avbryt</button>
+          <button type="submit" class="rounded bg-brand-darkblue text-white px-4 py-2 text-sm font-semibold">Spara</button>
+        </div>
+      </form>
+    `;
+    const form = overlay.querySelector('form');
+    const close = (value) => {
+      document.removeEventListener('keydown', onKey, true);
+      overlay.remove();
+      resolve(value);
+    };
+    const onKey = (event) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        close(null);
+      }
+    };
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      try {
+        close(buildCorrectionReason({
+          reason: form.querySelector('[data-role="reason"]').value,
+          referenceType: form.querySelector('[data-role="reference-type"]').value,
+          referenceValue: form.querySelector('[data-role="reference-value"]').value,
+        }));
+      } catch (error) {
+        const errorEl = form.querySelector('[data-role="error"]');
+        errorEl.textContent = error.message;
+        errorEl.classList.remove('hidden');
+      }
+    });
+    form.querySelector('[data-role="cancel"]').addEventListener('click', () => close(null));
+    document.addEventListener('keydown', onKey, true);
+    document.body.appendChild(overlay);
+    form.querySelector('[data-role="reason"]').focus();
+  });
+}
 
 function toComparableStartNumber(value) {
   const numeric = Number(value);
@@ -7,7 +81,38 @@ function toComparableStartNumber(value) {
 
 let stickyCloneStyleInjected = false;
 
-export { escapeHtml } from '../../utils/sharedUtils.js';
+// Imported as well: a re-export alone is no binding in this module, and the
+// helpers below use it
+import { escapeHtml } from '../../utils/sharedUtils.js';
+export { escapeHtml };
+
+function formatReportedAt(value) {
+  const ms = typeof value?.toMillis === 'function' ? value.toMillis() : Number(value);
+  if (!Number.isFinite(ms)) return '';
+  return new Date(ms).toLocaleString('sv-SE', { dateStyle: 'short', timeStyle: 'short' });
+}
+
+/**
+ * Writes from the field the server refused (queued offline, sent after the
+ * result was locked): they never reached the result, so the secretariat
+ * checks them against the protocol on paper.
+ */
+export function renderRejectedWritesPanel(entries = []) {
+  if (!entries.length) return '';
+  const items = entries.slice(0, 50).map(entry => `
+    <li class="py-1">
+      <span class="font-semibold">#${escapeHtml(entry.startNumber)}${entry.obstacle != null ? `, hinder ${escapeHtml(entry.obstacle)}` : ''}</span>
+      <span class="text-xs opacity-80">${escapeHtml(formatReportedAt(entry.reportedAt))}${entry.source ? ` · ${escapeHtml(entry.source)}` : ''}</span>
+      ${entry.payloadSummary ? `<div class="text-xs font-mono break-all">${escapeHtml(entry.payloadSummary)}</div>` : ''}
+    </li>
+  `).join('');
+  return `
+    <details class="rounded-xl border border-red-300 bg-red-50 text-red-950 shadow-sm p-4 mb-4 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100">
+      <summary class="cursor-pointer text-sm font-semibold">Nekade inmatningar (${entries.length}): skickades efter att resultatet låsts och sparades inte</summary>
+      <ul class="mt-2 divide-y divide-red-200 dark:divide-red-800 text-sm">${items}</ul>
+    </details>
+  `;
+}
 
 export function renderFieldModeBanner(competition, options = {}) {
   if ((competition?.competitionMode || 'live') !== 'field') return '';

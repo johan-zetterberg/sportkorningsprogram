@@ -1120,7 +1120,9 @@ async function renderDashboard(container, compId, startNumber, user) {
                         ...writes,
                         ...migration.removeKeys.map(key => ({ horseKey: key, record: null }))
                     ];
-                    await saveHorseTemperatureChanges(compId, startNumber, changes);
+                    await saveHorseTemperatureChanges(compId, startNumber, changes, {
+                        onLateError: () => showAlert('Temperaturerna kunde inte sparas på servern. Kontrollera och spara igen.', false)
+                    });
                     // Show what is on the server now, the secretariat's values included
                     const fresh = await getHorseTemperatures(compId, startNumber).catch(() => null);
                     if (fresh) {

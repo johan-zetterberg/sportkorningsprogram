@@ -5,6 +5,7 @@ import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { competitionClasses, standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { getClassTempoMpm } from '../../utils/precisionUtils.js';
+import { PRECISION_FORMATS, getPrecisionFormat } from '../../utils/precisionCalculation.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../../core-engine/rules-ledger.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import { precisionSettingsIssues } from '../../ui/resultSettingsNotice.js';
@@ -151,6 +152,8 @@ function renderPrecisionRulesCheatSheet() {
                 <div><strong>Rivning/nedslag:</strong> 3 p per boll eller nedslaget element.</div>
                 <div><strong>Tidsstraff:</strong> 0,5 p per sekund över maxtiden när klassen använder normal maxtid.</div>
                 <div><strong>Vanliga extraavdrag:</strong> olydnad 5/10 p, 3:e olydnad eliminering, groom avsittning 5 p per gång.</div>
+                <div><strong>Ombyggnad av hinder:</strong> +10 sekunder på tiden per gång (TR 530.15/530.19, FEI 975.4.4/975.5.1), utöver straffpoängen.</div>
+                <div><strong>Tider:</strong> räknas i hundradelar, avkortade (FEI 975.10.3, TR 530.8). Lika straff och lika tid ger lika placering (TR 530.1.2).</div>
                 <div class="text-xs text-gray-500 dark:text-gray-400">Barnklasser och clear round kan ha särskild tidshantering. Kontrollera alltid aktuell TR/FEI och proposition.</div>
             </div>
         </details>
@@ -445,6 +448,29 @@ function renderLayout() {
     `;
 }
 
+// Precision format per class (precisionConfig.courses[cls].format). Only
+// "Normal (fel)" is calculated; the other formats can be chosen so the class
+// is marked, and its precision gets no placing (calculate by hand)
+function renderPrecisionFormatField(className, classId, courseData = {}) {
+    const current = getPrecisionFormat(className, precisionConfig);
+    const options = Object.entries(PRECISION_FORMATS).map(([key, info]) => `
+        <option value="${escapeHtml(key)}" ${key === current ? 'selected' : ''}>${escapeHtml(info.label)}${info.supported ? '' : ' – stöds inte, räkna manuellt'}</option>
+    `).join('');
+    const info = PRECISION_FORMATS[current] || PRECISION_FORMATS.normal;
+    const autoYoungHorse = !courseData.format && current === 'youngHorse';
+    return `
+        <div class="mt-4">
+            <label for="format_${classId}" class="block text-sm font-medium dark:text-gray-300">Bedömning / format</label>
+            <select id="format_${classId}" class="precision-format-select mt-1 w-full sm:max-w-md p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                ${options}
+            </select>
+            <p class="precision-format-note mt-1 text-xs ${info.supported ? 'text-gray-500 dark:text-gray-400' : 'font-semibold text-amber-700 dark:text-amber-300'}">${info.supported
+                ? 'Straff, sedan tid (TR 530.1.1–530.1.2, FEI 976). Clear round ställs in i maratonadmin och gäller hela klassen.'
+                : `Programmet räknar inte detta format: precisionen får ingen placering${info.excludesTotal ? ' och inget totalresultat' : ''}. Räkna manuellt.${autoYoungHorse ? ' (Valt utifrån klassnamnet.)' : ''}`}</p>
+        </div>
+    `;
+}
+
 function renderClassCards() {
     const container = document.getElementById('classConfigsContainer');
     if (!container) return;
@@ -539,6 +565,7 @@ function renderClassCards() {
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${tempoState.hasMixedTempo ? `Häst och ponny har olika tempo (${escapeHtml(tempoState.tempos.join(' / '))} m/min). Lämna tomt: varje ekipage kör på sitt tempo (TR 535.1). Ett ifyllt tempo gäller alla i klassen.` : 'Lämna tempo tomt för att använda klassens standardtempo.'}</p>
                     </div>
                 </div>
+                ${renderPrecisionFormatField(className, classId, courseData)}
                 <div class="precision-field-wrap mt-4">
                     <label for="labels_${classId}" class="block text-sm font-medium dark:text-gray-300">Hinderetiketter</label>
                     <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${escapeHtml(labels.join(', '))}</textarea>
@@ -590,6 +617,18 @@ function renderClassCards() {
 
     container.querySelectorAll('.track-length-input, .tempo-override-input').forEach(input => {
         input.addEventListener('input', updateMaxTime);
+    });
+
+    container.querySelectorAll('.precision-format-select').forEach(select => {
+        select.addEventListener('change', (e) => {
+            const note = e.target.closest('div')?.querySelector('.precision-format-note');
+            const info = PRECISION_FORMATS[e.target.value] || PRECISION_FORMATS.normal;
+            if (!note) return;
+            note.className = `precision-format-note mt-1 text-xs ${info.supported ? 'text-gray-500 dark:text-gray-400' : 'font-semibold text-amber-700 dark:text-amber-300'}`;
+            note.textContent = info.supported
+                ? 'Straff, sedan tid (TR 530.1.1–530.1.2, FEI 976). Clear round ställs in i maratonadmin och gäller hela klassen.'
+                : `Programmet räknar inte detta format: precisionen får ingen placering${info.excludesTotal ? ' och inget totalresultat' : ''}. Räkna manuellt.`;
+        });
     });
 
     container.querySelectorAll('.obstacle-labels-input').forEach(textarea => {
@@ -695,6 +734,14 @@ function setupPrecisionBulkFill(container) {
     });
 }
 
+// The class's format from its select. Stored only when not "normal" or when a
+// format is stored already (a merge write would otherwise keep the old one)
+function applyPrecisionFormatToCourse(courseConfig, card, className) {
+    const value = card.querySelector('.precision-format-select')?.value || 'normal';
+    const stored = precisionConfig.courses?.[className]?.format;
+    if (value !== 'normal' || stored) courseConfig.format = PRECISION_FORMATS[value] ? value : 'normal';
+}
+
 function buildPrecisionConfigFromForm() {
     const comp = getGlobalState('currentCompetition');
     const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
@@ -741,6 +788,7 @@ function buildPrecisionConfigFromForm() {
             tempo: parseOptionalNumber(tempoRaw)
         };
         if (Object.keys(specialPortAllowance).length > 0) courseConfig.specialPortAllowance = specialPortAllowance;
+        applyPrecisionFormatToCourse(courseConfig, card, className);
 
         const group = activeClassGroups.find(item => item.label === className);
         newConfig.courses[className] = courseConfig;
@@ -861,6 +909,7 @@ async function saveData() {
             if (Object.keys(specialPortAllowance).length > 0) {
                 courseConfig.specialPortAllowance = specialPortAllowance;
             }
+            applyPrecisionFormatToCourse(courseConfig, card, className);
 
             const group = activeClassGroups.find(item => item.label === className);
             newConfig.courses[className] = courseConfig;

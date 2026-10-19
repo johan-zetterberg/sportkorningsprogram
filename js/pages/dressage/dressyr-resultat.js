@@ -1,6 +1,8 @@
 import { getGlobalState } from '../../main.js';
 import { listenMergeSource, pickMergeSource } from '../../services/mergeConfigService.js';
 import { getEquipages } from '../../services/equipageService.js';
+import { isLiveDocStale } from '../../services/dressageStatusUtils.js';
+import { serverNow } from '../../utils/serverClock.js';
 import { getJudges } from '../../services/adminService.js';
 import { 
   listenForDressageStatus, 
@@ -73,7 +75,7 @@ import {
 
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
-import { finalizeDressage, unfinalizeDressage } from '../../services/finalizationService.js';
+import { confirmFinalizeWithGaps, finalizeDressage, unfinalizeDressage } from '../../services/finalizationService.js';
 import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 
 let processedResults = [];
@@ -962,7 +964,7 @@ function sortProcessedResults() {
 }
 
 function ensureModeToggle() {
-    const container = document.getElementById('modeToggle');
+    const container = document.getElementById('drModeToggle');
     if (!container || container.dataset.listenersAttached) return;
     container.dataset.listenersAttached = 'true';
 
@@ -1123,12 +1125,12 @@ function renderMobile(judgesPresent) {
 
         return `
           ${classHeader}
-          <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer clickable-row ${placBg}" data-start-number="${r.startNumber}" role="button" tabindex="0">
+          <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer clickable-row ${placBg}" data-start-number="${escapeHtml(r.startNumber)}" role="button" tabindex="0">
               <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 ${isPlaced ? '' : 'bg-gray-50 dark:bg-gray-800/50'}">
                   <!-- Left: Name & Flags -->
                   <div class="flex flex-col min-w-0 pr-1">
                       <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                         <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${r.startNumber}</span> 
+                         <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${escapeHtml(r.startNumber)}</span> 
                          <span class="truncate">${escapeHtml(r.driverName)}</span>
                       </div>
                       <div class="flex items-center gap-1 mt-0.5">
@@ -1155,7 +1157,7 @@ function renderMobile(judgesPresent) {
                      <span class="text-[9px] text-gray-500 dark:text-gray-400 font-medium">%: <span class="${r.isBestTotalPercent ? 'text-emerald-700 dark:text-emerald-400 font-black' : 'dark:text-gray-200'}">${percentLabel}</span></span>
                      ${uniqueJudgesPositions.length > 0 ? `<div class="flex gap-0.5 ml-1 border-l dark:border-gray-100 dark:border-gray-700 pl-1">` + uniqueJudgesPositions.map(pos => {
                          const match = Object.values(r.judges || {}).find(j => j.position === pos || (expandDressagePosition(j) === pos));
-                         return `<div class="flex items-center gap-0.5"><span class="text-[8px] font-bold text-gray-400 dark:text-gray-500">${pos}</span>${judgeChip(match, r.startNumber)}</div>`;
+                         return `<div class="flex items-center gap-0.5"><span class="text-[8px] font-bold text-gray-400 dark:text-gray-500">${escapeHtml(pos)}</span>${judgeChip(match, r.startNumber)}</div>`;
                      }).join('') + `</div>` : ''}
                   </div>
                   <div class="shrink-0 flex items-center gap-1" data-finalize-slot>
@@ -1168,9 +1170,9 @@ function renderMobile(judgesPresent) {
                 if (!can) return '';
                 if (finalized) {
                     return `
-                                <span id="badge-final-${r.startNumber}" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 mr-0.5 leading-none">Finaliserad</span>
+                                <span id="badge-final-${escapeHtml(r.startNumber)}" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 mr-0.5 leading-none">Finaliserad</span>
                                 <button type="button"
-                                        data-action="unfinalize" data-sn="${r.startNumber}"
+                                        data-action="unfinalize" data-sn="${escapeHtml(r.startNumber)}"
                                         class="px-1.5 py-0.5 text-[9px] rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 leading-none"
                                         >
                                     Ångra
@@ -1179,7 +1181,7 @@ function renderMobile(judgesPresent) {
                 } else {
                     return `
                                  <button type="button"
-                                         data-action="finalize" data-sn="${r.startNumber}"
+                                         data-action="finalize" data-sn="${escapeHtml(r.startNumber)}"
                                          class="px-1.5 py-0.5 text-[9px] rounded bg-emerald-600 text-white hover:bg-emerald-700 leading-none"
                                          >
                                      Lås
@@ -1414,7 +1416,7 @@ function renderLiveHeader() {
         return `
       <div class="bg-indigo-900/40 rounded-md px-1 py-1 text-center border border-indigo-500/30 flex flex-col items-center min-w-[60px] relative group h-full justify-between">
            <!-- Pos -->
-           <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-[8px] font-bold px-1 rounded-bl-sm opacity-90">${j.position || '?'}</div>
+           <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-[8px] font-bold px-1 rounded-bl-sm opacity-90">${escapeHtml(j.position || '?')}</div>
            
            <!-- Name -->
            <div class="text-[8px] font-semibold text-indigo-300 truncate w-full mt-2.5 mb-0.5 leading-tight max-w-[55px]" title="${escapeHtml(displayName)}">
@@ -1458,7 +1460,7 @@ function renderLiveHeader() {
              <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-2 mb-0.5 opacity-80">
                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-red-600 text-white animate-pulse shadow-sm">Live</span>
-                     <span class="text-[10px] font-medium text-indigo-200 truncate">${activeRes.startNumber} ${escapeHtml(activeRes.className)}</span>
+                     <span class="text-[10px] font-medium text-indigo-200 truncate">${escapeHtml(activeRes.startNumber)} ${escapeHtml(activeRes.className)}</span>
                      <span class="hidden sm:inline italic text-indigo-300 text-[10px]">• ${escapeHtml(getMomentHorseLabel(activeRes, 'dressage'))}</span>
                 </div>
                 <div class="text-lg font-black text-white leading-none tracking-tight truncate">
@@ -1527,7 +1529,7 @@ function renderTableHead(thead, judgesPresent) {
 
     const judgeHeaders = uniquePositions.map(pos => ({
         key: `judge_pos:${pos}`,
-        label: `<div class="text-center font-bold text-gray-700 dark:text-gray-200">${pos}</div>`,
+        label: `<div class="text-center font-bold text-gray-700 dark:text-gray-200">${escapeHtml(pos)}</div>`,
         title: `${t('judge')} ${pos}`,
         align: 'center',
         position: pos
@@ -1720,9 +1722,9 @@ function renderDesktop(judgesPresent) {
         }
 
         html += `
-        <tr class="${rowClass}" data-start-number="${sn}" style="${rowStyle}">
+        <tr class="${rowClass}" data-start-number="${escapeHtml(sn)}" style="${rowStyle}">
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center font-semibold text-xs lg:text-sm text-gray-900 dark:text-white">${placHtml}</td>
-            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-xs lg:text-sm text-gray-900 dark:text-gray-300 sticky-col-start ${rowClass || ''}">${sn}</td>
+            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-xs lg:text-sm text-gray-900 dark:text-gray-300 sticky-col-start ${rowClass || ''}">${escapeHtml(sn)}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowClass || ''}" style="min-width: 120px;">
                 <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate" title="${escapeHtml(res.driverName || '')}">${escapeHtml(res.driverName || '')}</div>
                 <div class="text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 leading-tight whitespace-normal hidden lg:block mb-0.5 mt-0.5">${getMomentHorseLabelStacked(res, 'dressage')}</div>
@@ -1751,9 +1753,9 @@ function renderDesktop(judgesPresent) {
             <td class="px-1.5 py-1.5 lg:px-4 lg:py-2">
                 <div class="flex items-center justify-center gap-1 lg:gap-2 flex-wrap" data-finalize-slot>
                     ${can ? `
-                    <span id="badge-final-${sn}" class="inline-flex items-center px-1.5 py-0.5 lg:px-2 lg:py-1 rounded text-[10px] lg:text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300" style="${finalized ? '' : 'display:none'}">Finaliserad</span>
-                    <button type="button" data-action="finalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"  style="${finalized ? 'display:none' : ''}">Finalisera</button>
-                    <button type="button" data-action="unfinalize" data-sn="${sn}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"  style="${finalized ? '' : 'display:none'}">Ångra</button>
+                    <span id="badge-final-${escapeHtml(sn)}" class="inline-flex items-center px-1.5 py-0.5 lg:px-2 lg:py-1 rounded text-[10px] lg:text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300" style="${finalized ? '' : 'display:none'}">Finaliserad</span>
+                    <button type="button" data-action="finalize" data-sn="${escapeHtml(sn)}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"  style="${finalized ? 'display:none' : ''}">Finalisera</button>
+                    <button type="button" data-action="unfinalize" data-sn="${escapeHtml(sn)}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"  style="${finalized ? '' : 'display:none'}">Ångra</button>
                     ` : ''}
                 </div>
             </td>
@@ -1906,7 +1908,7 @@ function renderLiveUpdateTicker(lastUpdate, activeEquipageInfo, startNo) {
     <div class="ticker-grid ${compact ? 'compact-judges' : ''} ${summaryOnly ? 'summary-only' : ''}">
       <div class="ticker-header">
         ${liveIndicatorHtml} PÅ BANAN:
-        <strong>#${activeEquipageInfo.startNumber} ${escapeHtml(activeEquipageInfo.driverName || '')}</strong>
+        <strong>#${escapeHtml(activeEquipageInfo.startNumber)} ${escapeHtml(activeEquipageInfo.driverName || '')}</strong>
       </div>
       ${latestScoreHtml}
 
@@ -1972,7 +1974,8 @@ window.__finalizeDressyr = async (compIdFromBtn, startNo) => {
         if (!isPrivileged()) { alert('Endast domare/admin.'); return; }
         const compId = compIdFromBtn || resolveCurrentCompId();
         if (!compId) return alert('Ingen tävling vald.');
-        if (!confirm(`Finalisera dressyrresultat för #${startNo}?`)) return;
+        // Lists the judges whose protocols have not come in
+        if (!(await confirmFinalizeWithGaps(compId, 'dressage', startNo))) return;
 
         // Through the service: the lock change and its log entry in one batch
         await finalizeDressage(compId, startNo);
@@ -2141,10 +2144,9 @@ function setupLive(competitionId, activeEquipages) {
             const key = String(st.startNumber);
             const known = dressageStatusMap.get(key);
             if (known?.state === 'finished') return;
-            if (st?.updatedAt) {
-                const age = Date.now() - new Date(st.updatedAt).getTime();
-                if (Number.isFinite(age) && age > 120000) return;
-            }
+            // Server time against the server's stamp: a judge tablet with a
+            // wrong clock no longer hides its marks
+            if (isLiveDocStale(st, serverNow())) return;
             let proto = st?.protocol || st?.liveProtocol;
             if (!proto && st && (st.judgeId || st.judgeUid || st.judge) && (st.movements || st.totalPoints || st.points || st.score || st.runningTotalPoints)) {
                 proto = st;
@@ -2390,7 +2392,7 @@ export async function load() {
       </div>
       ${archivedNoticeHtml(archiveSnapshot, 'mb-2 md:mb-4')}
       <div id="${JUDGE_MAPPING_NOTICE_ID}"></div>
-      <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="modeToggle">
+      <div class="bg-white dark:bg-gray-800 p-2 md:p-3 rounded-lg md:rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 mb-2 md:mb-4 flex flex-wrap md:flex-nowrap gap-2 items-center justify-start transition-colors overflow-x-auto" id="drModeToggle">
         
         <!-- Sök -->
         <div class="relative w-full md:w-[240px] flex-shrink-0 min-w-0">

@@ -16,6 +16,7 @@ import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, tr
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import { renderMap, destroyMap } from './precision-monitor-map.js';
 import {
   formatPrecisionMonitorPartPenalty,
@@ -705,7 +706,20 @@ function processDocChange(change) {
 
 function listenForUpdates() {
   const precisionRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
-  const unsub = onSnapshot(precisionRef, (snapshot) => {
+  // Subscribes again after an error (the last data stays on screen, with a
+  // banner); a new subscription's first snapshot holds every document
+  const unsub = resilientSnapshot({
+    name: 'precision-monitor',
+    subscribe: (onNext, onError) => onSnapshot(precisionRef, onNext, onError),
+    onStatus: (status) => connectionBanner.update('precision-monitor', status),
+    onData: (snapshot, { fresh }) => {
+    if (fresh) {
+      // Removed while the listener was down
+      const present = new Set(snapshot.docs.map(d => d.id));
+      for (const sn of [...allPrecisionData.keys()]) {
+        if (!present.has(sn)) allPrecisionData.delete(sn);
+      }
+    }
     snapshot.docChanges().forEach(processDocChange);
 
     // Försök hitta en PÅGÅENDE förare (running = true)
@@ -815,9 +829,12 @@ function listenForUpdates() {
 
     if (currentDriver) ensureTicker();
     else stopTicker();
+    }
   });
   unsubscribes.push(unsub);
 }
+
+const connectionBanner = createConnectionBanner(() => document.querySelector('#page-precision-monitor .container'));
 
 // ---------- Entrypoint ----------
 export async function load() {
@@ -872,6 +889,7 @@ export function __unload() {
     try { unsub(); } catch { }
   });
   unsubscribes = [];
+  connectionBanner.clear();
   currentDriver = null;
   leaderInClass = null;
   allPrecisionData.clear();

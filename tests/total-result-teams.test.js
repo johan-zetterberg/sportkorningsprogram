@@ -318,7 +318,7 @@ test('calculateTeamResults leaves out every result of a member eliminated in any
   assert.equal(team.isEliminated, false);
 });
 
-test('calculateTeamResults correctly ranks teams with tie-breakers', () => {
+test('calculateTeamResults shares the place between equal team totals (TR V 510.2 has no team tie-break)', () => {
   const teams = [
     { id: 'team-tied-1', name: 'Tied Team 1', members: ['eq-1', 'eq-2', 'eq-3'] },
     { id: 'team-tied-2', name: 'Tied Team 2', members: ['eq-4', 'eq-5', 'eq-6'] }
@@ -337,13 +337,14 @@ test('calculateTeamResults correctly ranks teams with tie-breakers', () => {
 
   // Team 1: dressage = 135, marathon = 165, precision = 45. Total = 345. Best individual plac = 3.
   // Team 2: dressage = 135, marathon = 165, precision = 45. Total = 345. Best individual plac = 2.
-  // Team 2 should rank first (rank 1) due to better best individual member placement (2 < 3).
+  // Before 2026-10-19 team 2 won on "best individual placing", a tie-break
+  // not in TR V 510.2: equal totals now share the place (listed by name)
   const sortedTeams = calculateTeamResults(teams, rows);
 
-  assert.equal(sortedTeams[0].teamId, 'team-tied-2');
+  assert.equal(sortedTeams[0].teamId, 'team-tied-1');
   assert.equal(sortedTeams[0].rank, 1);
-  assert.equal(sortedTeams[1].teamId, 'team-tied-1');
-  assert.equal(sortedTeams[1].rank, 2);
+  assert.equal(sortedTeams[1].teamId, 'team-tied-2');
+  assert.equal(sortedTeams[1].rank, 1);
 });
 
 test('Lag-SM 2026 counts the best two results in each discipline', () => {

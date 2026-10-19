@@ -44,7 +44,8 @@ import { getClassTempoMpm as serverTempo } from '../functions/src/utils/precisio
 const min = (m) => m * 60000;
 
 test('engine version is bumped for the rule decisions', () => {
-  assert.equal(RESULT_ENGINE_VERSION, '2026-10-17.1');
+  // At least this version (later rule fixes bump it again)
+  assert.ok(RESULT_ENGINE_VERSION >= '2026-10-17.1');
 });
 
 // --- 1. Warm-up = section A (TR V 522.1; FEI 963.2.3, 963.2.5, 963.5) ---

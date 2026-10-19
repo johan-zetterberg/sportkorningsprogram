@@ -2,7 +2,10 @@ import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
+import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
+import { listRejectedWrites } from '../../services/rejectedWritesService.js';
 import {
+  askCorrectionReason,
   clearRowDirty,
   derivePrecisionStatus,
   escapeHtml,
@@ -12,6 +15,7 @@ import {
   markRowDirty,
   parseEditableTime,
   renderFieldModeBanner,
+  renderRejectedWritesPanel,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -27,6 +31,7 @@ import {
 let rootEl = null;
 let competitionId = null;
 let rows = [];
+let rejectedWrites = [];
 let drafts = new Map();
 let teardownStickyHeaders = null;
 let filters = {
@@ -59,7 +64,7 @@ function buildTableRows() {
   if (visibleRows.length === 0) {
     return `
       <tr>
-        <td colspan="10" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Inga ekipage matchar filtret.</td>
+        <td colspan="12" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Inga ekipage matchar filtret.</td>
       </tr>
     `;
   }
@@ -90,6 +95,9 @@ function buildTableRows() {
         </td>
         <td class="px-3 py-3 text-sm min-w-[4.1rem]">
           <input data-field="extraPenalty" type="number" step="0.1" value="${escapeHtml(view.extraPenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        </td>
+        <td class="px-3 py-3 text-sm min-w-[4.1rem]">
+          <input data-field="rebuildCount" type="number" step="1" min="0" title="Ombyggda hinder, +10 s var" value="${escapeHtml(view.rebuildCount ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
         <td data-role="total" class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">${escapeHtml(totalPenalty.toFixed(2).replace(/\.00$/, ''))}</td>
         <td class="px-3 py-3 text-sm text-center">
@@ -130,6 +138,7 @@ function render() {
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Registrera tider och straff manuellt här och använd sekretariatet för upplåsning och återfinalisering.',
       })}
+      ${renderRejectedWritesPanel(rejectedWrites)}
       <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
         <div class="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
           <div>
@@ -156,6 +165,7 @@ function render() {
                 <th class="px-3 py-3">Hinder</th>
                 <th class="px-3 py-3">Tidstraff</th>
                 <th class="px-3 py-3">Övrigt</th>
+                <th class="px-3 py-3" title="Ombyggda hinder, +10 s var">Ombyggn.</th>
                 <th class="px-3 py-3">Totalt</th>
                 <th class="px-3 py-3">Elim.</th>
                 <th class="px-3 py-3">Kommentar</th>
@@ -200,6 +210,8 @@ function collectPatch(rowEl, baseRow) {
     timePenalty: Number.isFinite(timePenalty) ? timePenalty : 0,
     timePenaltyOverride: timePenaltyEdited || baseRow.timePenaltyOverride === true,
     extraPenalty: Number.isFinite(extraPenalty) ? extraPenalty : 0,
+    // Obstacle rebuilds (+10 s each), a whole number >= 0
+    rebuildCount: Math.max(0, Math.floor(Number(rowEl.querySelector('[data-field="rebuildCount"]')?.value || 0) || 0)),
     eliminated: !!rowEl.querySelector('[data-field="eliminated"]')?.checked,
     comment: rowEl.querySelector('[data-field="comment"]')?.value?.trim() || '',
   };
@@ -211,45 +223,61 @@ function updateDraft(rowEl) {
   if (!baseRow || baseRow.finalized) return;
 
   try {
-    const patch = collectPatch(rowEl, baseRow);
+    const patch = collectPatch(rowEl, draftBaseFor(sn, baseRow));
     const totalCell = rowEl.querySelector('[data-role="total"]');
     if (totalCell) {
       const totalPenalty = calculateSecretariatPrecisionDraft(baseRow, patch).totalPenalty ?? 0;
       totalCell.textContent = totalPenalty.toFixed(2).replace(/\.00$/, '');
     }
 
+    // The row as it was when editing began: kept with the draft, so a reload
+    // after another row's save cannot hide what the judge changed meanwhile
+    const draftBase = drafts.get(sn)?.__base || baseRow;
     const hasChanges = JSON.stringify({
       timeMs: patch.timeMs,
       obstaclePenalty: patch.obstaclePenalty,
       timePenalty: patch.timePenalty,
       extraPenalty: patch.extraPenalty,
+      rebuildCount: patch.rebuildCount,
       eliminated: patch.eliminated,
       comment: patch.comment,
     }) !== JSON.stringify({
-      timeMs: baseRow.timeMs || 0,
-      obstaclePenalty: baseRow.obstaclePenalty || 0,
-      timePenalty: baseRow.timePenalty || 0,
-      extraPenalty: baseRow.extraPenalty || 0,
-      eliminated: !!baseRow.eliminated,
-      comment: baseRow.comment || '',
+      timeMs: draftBase.timeMs || 0,
+      obstaclePenalty: draftBase.obstaclePenalty || 0,
+      timePenalty: draftBase.timePenalty || 0,
+      extraPenalty: draftBase.extraPenalty || 0,
+      rebuildCount: draftBase.rebuildCount || 0,
+      eliminated: !!draftBase.eliminated,
+      comment: draftBase.comment || '',
     });
 
     if (hasChanges) {
-      drafts.set(sn, patch);
+      drafts.set(sn, { ...patch, __base: draftBase });
       markRowDirty(rowEl, true);
     } else {
       drafts.delete(sn);
       clearRowDirty(rowEl);
     }
   } catch {
-    drafts.set(sn, { __invalid: true });
+    drafts.set(sn, { __invalid: true, __base: drafts.get(sn)?.__base || baseRow });
     markRowDirty(rowEl, true);
   }
 }
 
-async function refreshData() {
-  rows = await loadSecretariatPrecisionRows(competitionId);
-  drafts = new Map();
+// The row a draft was edited from (the loaded row when there is no draft)
+function draftBaseFor(sn, row) {
+  return drafts.get(String(sn))?.__base || row;
+}
+
+// Reloads the rows. Unsaved edits of other rows are kept (each with the row
+// it was edited from); `savedStartNumber` drops the draft just saved
+async function refreshData({ savedStartNumber = null, keepDrafts = true } = {}) {
+  [rows, rejectedWrites] = await Promise.all([
+    loadSecretariatPrecisionRows(competitionId),
+    listRejectedWrites(competitionId, { discipline: 'precision' }).catch(() => []),
+  ]);
+  if (!keepDrafts) drafts = new Map();
+  else if (savedStartNumber != null) drafts.delete(String(savedStartNumber));
   render();
 }
 
@@ -270,7 +298,7 @@ async function handleAction(event) {
     if (action === 'unlock') {
       await unlockResult(competitionId, 'precision', sn);
       showAlert(`Resultat #${sn} upplåst.`);
-      await refreshData();
+      await refreshData({ savedStartNumber: sn });
       return;
     }
 
@@ -280,24 +308,33 @@ async function handleAction(event) {
       return;
     }
 
+    const editBase = draftBaseFor(sn, baseRow);
+
     if (action === 'save') {
-      const patch = collectPatch(rowEl, baseRow);
-      await saveSecretariatPrecisionRow(competitionId, sn, patch, 'Sekretariatskorrigering', { baseRow });
+      if (drafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga värden innan du sparar.');
+      if (!drafts.has(sn)) return;
+      const patch = collectPatch(rowEl, editBase);
+      const correction = await askCorrectionReason({ summary: `Precision #${sn}` });
+      if (!correction) return;
+      await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase });
       showAlert(`Ändringar sparade för #${sn}.`);
-      await refreshData();
+      await refreshData({ savedStartNumber: sn });
       return;
     }
 
     if (action === 'finalize') {
       // Only edited fields are saved; without edits finalizing just locks
       if (drafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga värden innan du finaliserar.');
+      if (!(await confirmFinalizeWithGaps(competitionId, 'precision', sn))) return;
       if (drafts.has(sn)) {
-        const patch = collectPatch(rowEl, baseRow);
-        await saveSecretariatPrecisionRow(competitionId, sn, patch, 'Sekretariatskorrigering före återfinalisering', { baseRow });
+        const patch = collectPatch(rowEl, editBase);
+        const correction = await askCorrectionReason({ summary: `Precision #${sn}, före finalisering` });
+        if (!correction) return;
+        await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase });
       }
       await refinalizeResult(competitionId, 'precision', sn);
       showAlert(`Resultat #${sn} finaliserat.`);
-      await refreshData();
+      await refreshData({ savedStartNumber: sn });
     }
   } catch (error) {
     console.error('Secretariat precision action failed:', error);
@@ -448,6 +485,7 @@ export function unload() {
   rootEl = null;
   competitionId = null;
   rows = [];
+  rejectedWrites = [];
   drafts = new Map();
   filters = { search: '', status: 'all', className: 'all' };
 }

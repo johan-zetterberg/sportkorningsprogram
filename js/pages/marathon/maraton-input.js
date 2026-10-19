@@ -3,7 +3,7 @@ import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForMarathonObstacles } from '../../services/marathonService.js';
 import { getMarathonStateDocuments } from '../../services/marathonService.js';
-import { trackWrite } from '../../services/firestoreService.js';;
+import { trackWrite } from '../../services/firestoreService.js';
 import { getStartTimes, saveMarathonObstacleResult, listenForMaratonCollection } from '../../services/marathonService.js';
 import {
   setPauseWindows,
@@ -12,7 +12,6 @@ import {
   getObstacleMaxTime,
   getClassDrivenObstacles,
   setMarathonConfig,
-  parseHoldTimeInput,
   shouldShowObstacleKnockdowns,
 } from '../../utils/marathonUtils.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
@@ -20,20 +19,26 @@ import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
-import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
-import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import { serverNow, startServerClockSync, stopServerClockSync, setServerClockHold, isServerClockSynced } from '../../utils/serverClock.js';
+import { readNewestBackupData, writeMergedBackup, pruneFieldBackups } from '../../utils/fieldBackup.js';
+import { queuedNotice } from '../../utils/offlineWrite.js';
+import { obstacleLiveEntry, mergeMarathonObstacles, MARATHON_LIVE_DEFAULTS } from '../../core-engine/stateSelector.js';
 import {
-  isObstacleStateOwnedByAnotherObstacle,
   markObstacleUpdateInProgress,
-  liveFieldsBelongToObstacle,
   obstacleElapsedMs,
   shouldResumeAfterGlobalPause,
   lastClosedPauseEndMs,
-  obstacleTakeoverFields
+  obstacleSeedFields,
+  obstacleFormState,
+  obstacleLiveWrite,
+  obstaclesRunningElsewhere,
+  parseHoldMinutes,
+  formatHoldTime,
+  obstaclePageHasUnsavedWork
 } from './marathonObstacleOwnership.js';
 
 // Firestore för live (endast det vi använder på denna sida)
-import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, collection, query, where, getDocs, limit }
+import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, collection, query, where, getDocs, limit, FieldPath }
   from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 
@@ -56,16 +61,17 @@ function isFieldModeEnabled() {
   return getGlobalState('currentCompetition')?.competitionMode === 'field';
 }
 
+// Every page stays in the DOM: lookups are scoped to this page's container,
+// so an element with the same id on another page (dressyr-input) is never hit
+const pageRoot = () => document.getElementById('page-maraton-input');
+const byId = (id) => pageRoot()?.querySelector(`#${CSS.escape(id)}`) || null;
+const pageQuery = (selector) => pageRoot()?.querySelector(selector) || null;
+const pageQueryAll = (selector) => Array.from(pageRoot()?.querySelectorAll(selector) || []);
+
 // ---- LIVE state (återanvänder precisionens modell) ----
 let currentEquipage = null;
 let timerInterval = null;
-let startEpoch = 0;
-let pausedMs = 0;
-let lastPushedTick = -1;
-let inProgress = false;
-let isRunning = false;
 let currentObstacleNumber = null; // vilken hinderpost vi mäter live på just nu
-let extraPenaltyLive = 0;         // frivillig snabb-”annat” under pågående mätning
 
 // ---- Tidshjälpare (kopierat från precision) ----
 let pendingLiveComment = null;
@@ -151,6 +157,10 @@ function timestampToMs(value) {
     const ms = new Date(value).getTime();
     return Number.isFinite(ms) ? ms : 0;
   }
+  // A Timestamp restored from the local backup is a plain { seconds, nanoseconds }
+  if (typeof value === 'object' && Number.isFinite(value.seconds)) {
+    return value.seconds * 1000 + Math.floor((Number(value.nanoseconds) || 0) / 1e6);
+  }
   const ms = Number(value);
   return Number.isFinite(ms) ? ms : 0;
 }
@@ -183,9 +193,9 @@ function mirrorToLocal(sn, data) {
 
 function getElapsedMsFromState(state) {
   if (!state) return 0;
+  // The state is this obstacle's own (obstacleLive.{n}): another obstacle's
+  // clock is never shown here
   const accumulated = state.liveObstacleTimeMs || 0;
-  // Running at another obstacle: that judge's clock, not this obstacle's time
-  if (runsAtAnotherObstacle(state, currentObstacleNumber)) return accumulated;
   // Klockan går: ackumulerad tid + tid sedan senaste start. A global pause
   // this device never saw (offline while it began and ended) lies inside the
   // running segment: it must not count. A pause it did see ended the segment
@@ -273,28 +283,28 @@ function syncGlobalPauseUiState() {
     'maratonEliminated',
     'maratonComment'
   ].forEach((id) => {
-    const el = document.getElementById(id);
+    const el = byId(id);
     if (!el) return;
     el.disabled = lockTiming;
     el.classList.toggle('opacity-50', lockTiming);
     el.classList.toggle('cursor-not-allowed', lockTiming);
   });
 
-  const timerEl = document.getElementById('liveTimerMar');
+  const timerEl = byId('liveTimerMar');
   if (timerEl) {
     timerEl.classList.toggle('pointer-events-none', lockTiming);
     timerEl.classList.toggle('opacity-70', lockTiming);
     timerEl.title = lockTiming ? 'Global paus aktiv' : 'Ändra tid';
   }
 
-  const saveBtn = document.querySelector('#addMaratonResultForm button[type="submit"]');
+  const saveBtn = pageQuery('#addMaratonResultForm button[type="submit"]');
   if (saveBtn) {
     saveBtn.disabled = lockTiming;
     saveBtn.classList.toggle('opacity-50', lockTiming);
     saveBtn.classList.toggle('cursor-not-allowed', lockTiming);
   }
 
-  const routeButtons = document.getElementById('routeButtons');
+  const routeButtons = byId('routeButtons');
   if (routeButtons) {
     routeButtons.classList.toggle('pointer-events-none', lockTiming);
     routeButtons.classList.toggle('opacity-60', lockTiming);
@@ -483,122 +493,133 @@ let currentLiveState = {}; // Håller alltid den senaste datan från Firestore
 
 // RAD FÖRE (ca 298): let currentLiveState = {}; // Håller alltid den senaste datan från Firestore
 
-function applyLiveStateToUI(data) {
-  const commentInput = document.getElementById('maratonComment');
-  const commentBtn = document.querySelector('.comment-toggle-btn');
+// The form and clock of one obstacle from the equipage's document: its own
+// live entry (obstacleLive.{n}) while that holds work, else the saved result.
+// Another obstacle's clock or form on the same document is never used here.
+function deriveObstacleState(data, obstacleNo) {
+  const obstacles = mergeMarathonObstacles(data || {});
+  const entry = obstacleLiveEntry(data || {}, obstacleNo);
+  const saved = obstacleNo != null ? obstacles.find(o => Number(o?.number) === Number(obstacleNo)) : null;
+  const pendingHere = pendingFormFields && pendingFormTarget
+    && String(pendingFormTarget.equipage?.startNumber) === String(data?.startNumber ?? currentEquipage?.startNumber)
+    && Number(pendingFormTarget.obstacleNumber) === Number(obstacleNo);
+  return {
+    startNumber: data?.startNumber ?? currentEquipage?.startNumber ?? null,
+    className: data?.className ?? currentEquipage?.className ?? '',
+    obstacles,
+    currentObstacle: obstacleNo,
+    ...obstacleFormState(entry, saved),
+    // Typed but not yet sent wins over the server copy
+    ...(pendingHere ? pendingFormFields : {})
+  };
+}
 
+function applyLiveStateToUI(data) {
   if (!data || !currentEquipage) {
+    renderLiveState(null);
+    return;
+  }
+  // 1. Synka valt hinder (behåll domarens valda hinder om ett redan är valt)
+  const obstacleSelect = byId('maratonObstacleSelect');
+  const selectedObsNo = Number(obstacleSelect?.value || 0) || null;
+  const obstacleNo = selectedObsNo || null;
+  currentObstacleNumber = obstacleNo;
+  renderLiveState(deriveObstacleState(data, obstacleNo));
+}
+
+// Shows a state of this obstacle (from the document or an optimistic change)
+function renderLiveState(state) {
+  const commentInput = byId('maratonComment');
+  const commentBtn = pageQuery('.comment-toggle-btn');
+
+  if (!state || !currentEquipage) {
     // Om inget ekipage är valt eller data är tom, återställ allt
     cancelPendingLiveCommentSave();
     currentLiveState = {};
     if (timerInterval) clearInterval(timerInterval);
-    document.getElementById('routeString').value = '';
-    document.getElementById('maratonKnockdowns').value = '0';
-    document.getElementById('maratonPenalty').value = '0';
-    document.getElementById('maratonHoldTime').value = '';
+    timerInterval = null;
+    updateServerClockHold();
+    const route = byId('routeString');
+    if (route) route.value = '';
+    const kd = byId('maratonKnockdowns');
+    if (kd) kd.value = '0';
+    const pen = byId('maratonPenalty');
+    if (pen) pen.value = '0';
+    const hold = byId('maratonHoldTime');
+    if (hold) hold.value = '';
     if (commentInput) commentInput.value = '';
     if (commentBtn) commentBtn.classList.remove('has-comment');
-    document.getElementById('maratonEliminated').checked = false;
-    document.querySelectorAll('#liveTimerMar').forEach(out => { out.textContent = '00:00,00'; });
+    const elim = byId('maratonEliminated');
+    if (elim) elim.checked = false;
+    pageQueryAll('#liveTimerMar').forEach(out => { out.textContent = '00:00,00'; });
     updateHeaderInfoMar();
     renderRoutePreview();
     updateTotalPenaltyDisplay();
     return;
   }
 
-  currentLiveState = data; // Spara senaste läget globalt
-
-  // 1. Synka valt hinder (behåll domarens valda hinder om ett redan är valt)
-  const obstacleSelect = document.getElementById('maratonObstacleSelect');
-  const selectedObsNo = Number(obstacleSelect?.value || 0) || null;
-  const obstacleNo = selectedObsNo || Number(data.currentObstacle || 0) || null;
-  currentObstacleNumber = obstacleNo;
-  if (obstacleSelect && !selectedObsNo && obstacleNo) {
-    obstacleSelect.value = String(obstacleNo);
-    updateKnockdownVisibility();
-    renderRouteButtonsForCurrent();
-  }
-
-  // === NEW: Fyll på från sparad obstacles[] om live_* saknas eller hör till annat hinder ===
-  const savedObstacle = Array.isArray(data.obstacles)
-    ? data.obstacles.find(o => Number(o?.number) === Number(obstacleNo))
-    : null;
-  // Only when the document's current obstacle is this one: after a save it is
-  // null and its live fields are cleared, so the saved result is shown (it
-  // showed 00:00 and an empty route, and a second Save stored time 0)
-  const useLiveFields = liveFieldsBelongToObstacle(data, obstacleNo);
-
-  // “Effective” fält = live_* om de hör till detta hinder, annars sparat hinderresultat
-  const effective = {
-    liveObstacleTimeMs: ((useLiveFields ? data.liveObstacleTimeMs : null) ?? (savedObstacle?.timeMs ?? 0)),
-    live_routeString: ((useLiveFields ? data.live_routeString : null) ?? (savedObstacle?.routeString ?? '')),
-    live_knockdowns: ((useLiveFields ? data.live_knockdowns : null) ?? (savedObstacle?.knockdowns ?? '0')),
-    live_otherPenalty: ((useLiveFields ? data.live_otherPenalty : null) ?? (savedObstacle?.otherPenalty ?? '0')),
-    live_holdTimeSec: ((useLiveFields ? data.live_holdTimeSec : null) ?? (savedObstacle?.holdTimeSec ?? '')),
-    live_comment: ((useLiveFields ? data.live_comment : null) ?? (savedObstacle?.comment ?? '')),
-    live_eliminated: ((useLiveFields ? data.live_eliminated : null) ?? !!(savedObstacle?.eliminated)),
-    live_gateSplits: ((useLiveFields ? data.live_gateSplits : null) ?? (savedObstacle?.gateSplits ?? [])),
-    // Typed but not yet sent wins over the server copy
-    ...(pendingFormFields || {})
-  };
-
-  // Se till att timern använder “effective” tid, även om liveObstacleTimeMs saknas i docet.
-  // currentObstacle stays where the clock actually runs: with this judge's
-  // obstacle here, a clock running at another obstacle looked like our own,
-  // and Stop or Save took it over (and its time) from that judge.
-  currentLiveState = {
-    ...data,
-    ...effective,
-    currentObstacle: useLiveFields ? obstacleNo : (data.currentObstacle ?? obstacleNo)
-  };
+  currentLiveState = state;
+  const effective = state;
 
   // A clock the global pause stopped, shown after the pause has ended (reload
   // or re-select): resume it, the pause listener saw no lift on this load
-  if (useLiveFields) resumeClockAfterGlobalPauseIfStopped();
+  resumeClockAfterGlobalPauseIfStopped();
 
-  // 2. Synka Timern (NU ROBUST)
+  // 2. Synka Timern
   if (timerInterval) clearInterval(timerInterval);
   timerInterval = null;
-  if (currentLiveState.running && useLiveFields && !isGloballyPaused) {
+  if (currentLiveState.running && !isGloballyPaused) {
     // Starta en lokal renderingsloop BARA för att uppdatera texten på skärmen
     timerInterval = setInterval(updateTimerViewMar, 90);
   }
+  updateServerClockHold();
   updateTimerViewMar(); // Kör en gång direkt för att visa korrekt tid
 
-  // 3. Synka alla andra formulärfält (använd "effective")
+  // 3. Synka alla andra formulärfält
   const pendingHold = pendingHoldTimes.get(String(currentEquipage?.startNumber));
   // Not while the judge is typing in the hold time or the comment: the value
   // would be taken (and announced) but never reach the field. It is picked up
   // when the field is left (see the focusout re-apply below).
   const holdFieldBusy = ['maratonHoldTime', 'maratonComment'].includes(document.activeElement?.id);
-  if (pendingHold && !holdFieldBusy && (!effective.live_holdTimeSec || effective.live_holdTimeSec === '0')) {
-    effective.live_holdTimeSec = String(pendingHold.holdTimeSec);
+  if (pendingHold && !holdFieldBusy && currentObstacleNumber != null && !parseHoldMinutes(effective.live_holdTimeSec)) {
+    const holdText = formatHoldTime(pendingHold.holdTimeSec);
     const holdNote = `Väntetid: ${pendingHold.reason}`;
-    effective.live_comment = effective.live_comment
-      ? `${effective.live_comment}, ${holdNote}`
-      : holdNote;
+    const comment = effective.live_comment ? `${effective.live_comment}, ${holdNote}` : holdNote;
+    currentLiveState = { ...currentLiveState, live_holdTimeSec: holdText, live_comment: comment };
     pendingHoldTimes.delete(String(currentEquipage.startNumber));
+    persistPendingHoldTimes();
     renderWaitingList();
-    showAlert(`Väntetid (${pendingHold.holdTimeSec}s) hämtad för startnr ${currentEquipage.startNumber}!`, true);
+    // Stored on this obstacle at once (it was only on this device)
+    pushFormField('live_holdTimeSec', holdText);
+    scheduleLiveCommentSave(comment);
+    showAlert(`Väntetid (${holdText} min) hämtad för startnr ${currentEquipage.startNumber}!`, true);
   }
+  const shown = currentLiveState;
 
-  const routeEl = document.getElementById('routeString');
-  const kdEl = document.getElementById('maratonKnockdowns');
-  const penEl = document.getElementById('maratonPenalty');
-  const holdEl = document.getElementById('maratonHoldTime');
-  if (routeEl && document.activeElement !== routeEl) routeEl.value = effective.live_routeString || '';
-  if (kdEl && document.activeElement !== kdEl) kdEl.value = String(effective.live_knockdowns ?? '0');
-  if (penEl && document.activeElement !== penEl) penEl.value = String(effective.live_otherPenalty ?? '0');
-  if (holdEl && document.activeElement !== holdEl) holdEl.value = String(effective.live_holdTimeSec ?? '');
+  const routeEl = byId('routeString');
+  const kdEl = byId('maratonKnockdowns');
+  const penEl = byId('maratonPenalty');
+  const holdEl = byId('maratonHoldTime');
+  if (routeEl && document.activeElement !== routeEl) routeEl.value = shown.live_routeString || '';
+  if (kdEl && document.activeElement !== kdEl) kdEl.value = String(shown.live_knockdowns ?? '0');
+  if (penEl && document.activeElement !== penEl) penEl.value = String(shown.live_otherPenalty ?? '0');
+  if (holdEl && document.activeElement !== holdEl) holdEl.value = String(shown.live_holdTimeSec ?? '');
   if (commentInput && document.activeElement !== commentInput && pendingLiveComment == null) {
-    commentInput.value = effective.live_comment || '';
+    commentInput.value = shown.live_comment || '';
   }
-  if (commentBtn) commentBtn.classList.toggle('has-comment', !!(effective.live_comment || ''));
-  document.getElementById('maratonEliminated').checked = !!effective.live_eliminated;
+  if (commentBtn) commentBtn.classList.toggle('has-comment', !!(commentInput?.value || shown.live_comment || ''));
+  const elimEl = byId('maratonEliminated');
+  if (elimEl) elimEl.checked = !!shown.live_eliminated;
 
   renderRoutePreview();
   updateTotalPenaltyDisplay();
   updateHeaderInfoMar();
+}
+
+// Hold the server-clock offset while this obstacle's clock runs on this
+// device: start and stop must be stamped with the same correction
+function updateServerClockHold() {
+  setServerClockHold(currentLiveState?.running === true);
 }
 
 // RAD EFTER (ca 369): // Nollställer endast formuläret lokalt vid kontextbyte (nytt ekipage/hinder)
@@ -607,27 +628,27 @@ function applyLiveStateToUI(data) {
 // – INGEN skrivning till Firestore.
 function resetFormLocallyForContextSwitch() {
   // Timeretikett(er)
-  document.querySelectorAll('#liveTimerMar').forEach(out => { out.textContent = '00:00,00'; });
+  pageQueryAll('#liveTimerMar').forEach(out => { out.textContent = '00:00,00'; });
 
   // Fält
-  const sel = document.getElementById('maratonObstacleSelect');
+  const sel = byId('maratonObstacleSelect');
   if (sel) sel.value = '';
-  const route = document.getElementById('routeString');
+  const route = byId('routeString');
   if (route) route.value = '';
 
-  const kd = document.getElementById('maratonKnockdowns');
+  const kd = byId('maratonKnockdowns');
   if (kd) kd.value = '0';
 
-  const other = document.getElementById('maratonPenalty');
+  const other = byId('maratonPenalty');
   if (other) other.value = '0';
 
-  const hold = document.getElementById('maratonHoldTime');
+  const hold = byId('maratonHoldTime');
   if (hold) hold.value = '';
 
-  const cmt = document.getElementById('maratonComment');
+  const cmt = byId('maratonComment');
   if (cmt) cmt.value = '';
 
-  const elim = document.getElementById('maratonEliminated');
+  const elim = byId('maratonEliminated');
   if (elim) { elim.checked = false; elim.disabled = false; }
 
   // UI-uppdateringar
@@ -655,11 +676,9 @@ function subscribeToMarathonDoc(startNumber) {
   if (unsubMaratonDoc) unsubMaratonDoc(); // Stäng tidigare lyssnare
 
   const docRef = marathonDocRef(startNumber);
+  // The sync indicator follows the writes themselves (trackWrite), not this
+  // one document's pending state
   unsubMaratonDoc = onSnapshot(docRef, (snap) => {
-    // Uppdatera global synk-status baserat på metadata
-    if (typeof window.setSyncStatus === 'function') {
-      window.setSyncStatus(snap.metadata.hasPendingWrites);
-    }
     // Pending server timestamps as estimates (not empty) until the server answers
     const data = snap.exists() ? snap.data({ serverTimestamps: 'estimate' }) : readMarathonBackup(startNumber);
     if (snap.exists() && data) mirrorToLocal(startNumber, data); // Backuppa lokalt
@@ -677,116 +696,73 @@ function marathonDocRef(startNumber) {
 }
 
 // Tidsstämplar för in- och utpassage i obstacleTimes.{number} på /maraton/{sn}.
-// Hinderlistan obstacles[] skrivs inte här: den bär de sparade hinderresultaten,
-// och att läsa och skriva tillbaka hela listan kunde radera ett resultat som en
-// annan hinderdomare sparade emellan. Kartan slås ihop per nyckel (merge).
-async function upsertObstacleTimestamp(equipageId, obstacleNumber, patch) {
+// Kartan slås ihop per nyckel (merge): ett hinder rör aldrig ett annat hinders.
+function upsertObstacleTimestamp(equipageId, obstacleNumber, patch) {
   const summaryDocRef = marathonDocRef(equipageId);
   const key = String(Number(obstacleNumber)); // map-nyckel måste vara sträng
-  const payload = {
-    updatedAt: serverTimestamp()
-  };
-
-  // Spegla server-tider på rotnivå i obstacleTimes.{number}
-  if (patch && patch.enteredAtClient) {
-    payload.obstacleTimes = {
-      [key]: {
-        enteredAt: serverTimestamp(),
-        enteredAtClient: patch.enteredAtClient
-      }
-    };
+  const entry = {};
+  if (patch?.enteredAtClient) {
+    entry.enteredAt = serverTimestamp();
+    entry.enteredAtClient = patch.enteredAtClient;
   }
-  if (patch && patch.exitAtClient) {
-    // Om enteredAt redan satts i detta anropet (eller tidigare), merge: true kommer att slå ihop
-    payload.obstacleTimes = {
-      ...(payload.obstacleTimes || {}),
-      [key]: {
-        ...((payload.obstacleTimes && payload.obstacleTimes[key]) || {}),
-        exitAt: serverTimestamp(),
-        exitAtClient: patch.exitAtClient
-      }
-    };
+  if (patch?.exitAtClient) {
+    entry.exitAt = serverTimestamp();
+    entry.exitAtClient = patch.exitAtClient;
   }
-
-  await setDoc(summaryDocRef, payload, { merge: true });
-
+  // Not awaited to the server by the caller's flow: queued without signal
+  return trackWrite('Stämplar hinderpassage', setDoc(summaryDocRef, { obstacleTimes: { [key]: entry } }, { merge: true }));
 }
 
 function markObstacleEntered(equipageId, obstacleNumber) {
   return upsertObstacleTimestamp(equipageId, obstacleNumber, {
-    enteredAtClient: new Date().toISOString()
+    enteredAtClient: new Date(serverNow()).toISOString()
   });
 }
 
 function markObstacleExit(equipageId, obstacleNumber) {
   return upsertObstacleTimestamp(equipageId, obstacleNumber, {
-    exitAtClient: new Date().toISOString()
+    exitAtClient: new Date(serverNow()).toISOString()
   });
 }
 
-
-// All obstacle judges share one live document per equipage (maraton/{sn})
-function runsAtAnotherObstacle(state, obstacleNumber) {
-  return isObstacleStateOwnedByAnotherObstacle(state, obstacleNumber);
+// The equipage's document as last seen here (for the obstacle being shown)
+function lastSeenDocFor(equipage) {
+  return equipage && lastRemoteLiveData && lastRemoteLiveData.startNumber === String(equipage.startNumber)
+    ? lastRemoteLiveData.data
+    : null;
 }
 
-// Skyddad push (som i precision)
+// Writes a live change of one obstacle: only its own entry obstacleLive.{n}
 async function pushLiveSafe(update, target = null) {
   const eq = target?.equipage || currentEquipage;
   const obsNo = target?.obstacleNumber !== undefined ? target.obstacleNumber : currentObstacleNumber;
-  // Skriv bara live när ett ekipage är valt
-  if (!eq) return;
-  const liveStateMatchesEquipage = currentLiveState?.startNumber == null
-    || String(currentLiveState.startNumber) === String(eq.startNumber);
-  if (liveStateMatchesEquipage && runsAtAnotherObstacle(currentLiveState, obsNo)) {
-    console.warn(`[maraton] #${eq.startNumber} har osparat arbete i hinder ${currentLiveState.currentObstacle}; live-uppdatering från hinder ${obsNo} hoppas över.`);
-    return;
-  }
+  // Skriv bara live när ett ekipage och ett hinder är valt
+  if (!eq || obsNo == null) return;
+  const sameView = String(currentLiveState?.startNumber ?? eq.startNumber) === String(eq.startNumber)
+    && Number(obsNo) === Number(currentObstacleNumber);
 
-  // Loading a saved result explicitly sends inProgress:false. Any later edit
-  // of its live fields turns it into unsaved work and reserves this obstacle.
+  // Loading a saved result sends nothing. Any edit of its live fields turns
+  // it into unsaved work at this obstacle
   const effectiveUpdate = markObstacleUpdateInProgress(update);
-  const marksUnsavedObstacleWork = effectiveUpdate !== update;
 
-  // The document belongs to another obstacle (or a save just cleared it): its
-  // live fields hold that obstacle's time and route, or zeros. This obstacle's
-  // whole shown state goes with the edit, else the next snapshot and Save
-  // would use those values (read before any await: state may change after)
-  const remote = lastRemoteLiveData && lastRemoteLiveData.startNumber === String(eq.startNumber)
-    ? lastRemoteLiveData.data
+  // The entry holds no work yet (none, or cleared by a save): the form shows
+  // the saved result or zeros, which go with the edit, else the next snapshot
+  // and Save would use the entry's empty values (read before any await)
+  const makesWork = effectiveUpdate.inProgress === true || effectiveUpdate.running === true;
+  const seed = sameView && makesWork
+    ? obstacleSeedFields(obstacleLiveEntry(lastSeenDocFor(eq) || {}, obsNo), currentLiveState)
     : null;
-  const takeover = liveStateMatchesEquipage && obsNo != null && Number(obsNo) === Number(currentObstacleNumber)
-    ? obstacleTakeoverFields(remote, obsNo, currentLiveState)
-    : null;
-  if (marksUnsavedObstacleWork && liveStateMatchesEquipage) {
-    currentLiveState = {
-      ...currentLiveState,
-      currentObstacle: obsNo,
-      inProgress: true
-    };
+  if (sameView && effectiveUpdate.inProgress === true) {
+    currentLiveState = { ...currentLiveState, inProgress: true };
   }
 
   try {
-    // Sätt updatedAt ENDAST när vi uppdaterar tidsrelaterade fält
-    const touchUpdatedAtKeys = new Set([
-      'running', 'inProgress', 'currentObstacle',
-      'liveObstacleStartAt', 'liveObstacleTimeMs'
-    ]);
-    const shouldTouchUpdatedAt = Object.keys(effectiveUpdate || {}).some(k => touchUpdatedAtKeys.has(k));
-
     const dataToSend = {
       startNumber: eq.startNumber,
       className: eq.className || '',
-      currentObstacle: obsNo,
-      ...(takeover || {}),
-      ...effectiveUpdate
+      ...obstacleLiveWrite(obsNo, { ...(seed || {}), ...effectiveUpdate }, serverTimestamp)
     };
-    if (shouldTouchUpdatedAt) {
-      dataToSend.updatedAt = serverTimestamp();
-    }
-
     await trackWrite('Uppdaterar maraton-status', setDoc(marathonDocRef(eq.startNumber), dataToSend, { merge: true }));
-
   } catch (e) {
     if (e.code === 'permission-denied') {
       // The result is finalized (locked): what the judge enters is not stored.
@@ -804,7 +780,7 @@ let lockedNoticeShownFor = null;
 
 function updateHeaderInfoMar() {
   const setTextAll = (selector, text) => {
-    document.querySelectorAll(selector).forEach(el => { el.textContent = text; });
+    pageQueryAll(selector).forEach(el => { el.textContent = text; });
   };
 
   if (!currentEquipage) {
@@ -822,15 +798,15 @@ function updateTimerViewMar() {
   // Använder ALLTID den nya robusta funktionen och senaste state från Firestore
   const t = getElapsedMsFromState(currentLiveState);
   const txt = partsToString(msToParts(t));
-  document.querySelectorAll('#liveTimerMar').forEach(out => { out.textContent = txt; });
+  pageQueryAll('#liveTimerMar').forEach(out => { out.textContent = txt; });
   updateTotalPenaltyDisplay();
 }
 
 function updateKnockdownVisibility() {
-  const container = document.getElementById('knockdown-container');
+  const container = byId('knockdown-container');
   if (!container) return;
 
-  const obstacleNumber = document.getElementById('maratonObstacleSelect')?.value;
+  const obstacleNumber = byId('maratonObstacleSelect')?.value;
   const list = obstacleList || [];
   const obsConfig = list.find(o => String(o.number) === String(obstacleNumber));
 
@@ -840,20 +816,20 @@ function updateKnockdownVisibility() {
   container.classList.toggle('hidden', !shouldShow);
   // Nollställ värdet om fältet döljs för att undvika fel
   if (!shouldShow) {
-    const input = document.getElementById('maratonKnockdowns');
+    const input = byId('maratonKnockdowns');
     if (input) input.value = '0';
   }
 }
 // Funktion för att summera och visa totalt straff
 function updateTotalPenaltyDisplay() {
-  const display = document.getElementById('totalPenaltyDisplay');
+  const display = byId('totalPenaltyDisplayMar');
   if (!display) return;
 
   // KORRIGERING: Använder den korrekta funktionen 'getElapsedMsFromState'
   const timeInSeconds = getElapsedMsFromState(currentLiveState) / 1000;
 
-  const knockdowns = parseInt(document.getElementById('maratonKnockdowns').value) || 0;
-  const otherPenalty = parseFloat(document.getElementById('maratonPenalty').value) || 0;
+  const knockdowns = parseInt(byId('maratonKnockdowns').value) || 0;
+  const otherPenalty = parseFloat(byId('maratonPenalty').value) || 0;
 
   // Hinderstraff från resultatmotorn (koefficient, rivningar, fri runda)
   const { penalty } = calculateObstacleResult(
@@ -874,13 +850,17 @@ function startTimerMar() {
     showAlert(t('marathon_select_equipage_and_obstacle'), false);
     return;
   }
-  if (runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) {
-    showAlert(`#${currentEquipage.startNumber} har osparat arbete i hinder ${currentLiveState.currentObstacle}. Spara eller nollställ där först.`, false);
-    return;
-  }
   // Already running here (a double tap): a second Start would restart the
   // clock from zero, since the running time is kept in the start timestamp
-  if (currentLiveState.running === true && Number(currentLiveState.currentObstacle) === Number(currentObstacleNumber)) {
+  if (currentLiveState.running === true) {
+    return;
+  }
+  // A clock still running for this equipage at another obstacle (forgotten,
+  // or not yet stopped there): ask, but never block. The other obstacle's
+  // clock and result are its own and are not touched.
+  const elsewhere = obstaclesRunningElsewhere(lastSeenDocFor(currentEquipage), currentObstacleNumber);
+  if (elsewhere.length > 0
+    && !confirm(`#${currentEquipage.startNumber} har en klocka som går i hinder ${elsewhere.join(', ')}. Starta ändå tiden här i hinder ${currentObstacleNumber}? (Den andra klockan påverkas inte.)`)) {
     return;
   }
 
@@ -910,13 +890,12 @@ function startTimerMar() {
   };
 
   // 2. Applicera detta state på UI *direkt*.
-  applyLiveStateToUI(optimisticState);
+  renderLiveState(optimisticState);
 
   // --- SERVERUPPDATERING ---
   pushLiveSafe({
     running: true,
     inProgress: true,
-    currentObstacle: currentObstacleNumber,
     liveObstacleStartAt: localStartTimestamp,
     live_staticStartAt: staticStart,
     liveObstacleTimeMs: accumulatedMs,
@@ -933,9 +912,8 @@ function stopTimerMar() {
     showAlert('Tävlingen är globalt pausad. Hindertimern är låst tills tävlingen återupptas.', false);
     return;
   }
+  // The state is this obstacle's own: a clock at another obstacle is not seen here
   if (!currentEquipage || !currentLiveState.running) return;
-  // The clock runs at another obstacle: it is that judge's to stop
-  if (runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) return;
 
   // 1. Beräkna den slutgiltiga tiden *lokalt*
   const finalTimeMs = getElapsedMsFromState(currentLiveState);
@@ -952,7 +930,7 @@ function stopTimerMar() {
 
   // 3. Applicera detta state på UI *direkt*.
   //    Detta rensar `timerInterval` omedelbart.
-  applyLiveStateToUI(optimisticState);
+  renderLiveState(optimisticState);
 
   // --- SERVERUPPDATERING ---
   // 4. Skicka det *riktiga* kommandot till servern i bakgrunden.
@@ -976,21 +954,11 @@ function resetTimerMar(force = false) {
 
     // 1. Definiera exakt vad som ska skickas till servern för nollställning
     cancelPendingLiveCommentSave();
-    const serverUpdatePayload = {
-      running: false,
-      inProgress: false,
-      pausedByGlobalPause: false,
-      liveObstacleTimeMs: 0,
-      liveObstacleStartAt: null,
-      live_staticStartAt: null,
-      live_routeString: '',
-      live_knockdowns: '0',
-      live_otherPenalty: '0',
-      live_holdTimeSec: '',
-      live_comment: '',
-      live_eliminated: false,
-      live_gateSplits: []
-    };
+    // Only this obstacle's entry: another obstacle's clock is not touched.
+    // Over a saved result the reset is a new timing (unsaved work), so the
+    // zeros are shown here and not the saved result again
+    const hasSaved = (currentLiveState.obstacles || []).some(o => Number(o?.number) === Number(currentObstacleNumber));
+    const serverUpdatePayload = { ...MARATHON_LIVE_DEFAULTS, live_gateSplits: [], inProgress: hasSaved };
 
     // --- OPTIMISTISK UPPDATERING ---
     // 2. Skapa det nya "låtsas-state" genom att slå ihop det nuvarande
@@ -998,14 +966,12 @@ function resetTimerMar(force = false) {
     const optimisticResetState = {
       ...currentLiveState,
       ...serverUpdatePayload,
-      // This obstacle's (the write sets it too): with the document's null
-      // after a save, the saved result would be shown instead of the reset
       currentObstacle: currentObstacleNumber
     };
 
     // 3. Applicera detta state på UI *direkt*.
     //    Detta stoppar klockan och rensar alla fält omedelbart.
-    applyLiveStateToUI(optimisticResetState);
+    renderLiveState(optimisticResetState);
 
     // --- SERVERUPPDATERING ---
     // 4. Skicka det *riktiga* kommandot till servern i bakgrunden.
@@ -1029,10 +995,19 @@ function pushFormField(fieldName, value) {
 async function onMarathonEquipageSelected(equipage) {
   await flushPendingLiveComment();
   currentEquipage = equipage || null;
+  lastRemoteLiveData = null;
+  // Kept on the device: a reload (app update, phone closing the app) comes
+  // back to the same equipage
+  try {
+    if (competitionId) {
+      if (equipage) localStorage.setItem(`maratonLastEquipage_${competitionId}`, String(equipage.startNumber));
+      else localStorage.removeItem(`maratonLastEquipage_${competitionId}`);
+    }
+  } catch (_) { /* no storage */ }
   // The previous equipage's typed time must not be applied to this one
-  const manualDigits = document.getElementById('manualTimeDigitsMar');
+  const manualDigits = byId('manualTimeDigitsMar');
   if (manualDigits) manualDigits.value = '';
-  document.getElementById('manualTimeEditorMar')?.classList.add('hidden');
+  byId('manualTimeEditorMar')?.classList.add('hidden');
 
   // Stäng gammal lyssnare
   if (unsubMaratonDoc) unsubMaratonDoc();
@@ -1054,7 +1029,7 @@ async function onMarathonEquipageSelected(equipage) {
   }
 
   // Ladda befintligt resultat för det hinder som eventuellt redan är valt i dropdown
-  const sel = document.getElementById('maratonObstacleSelect');
+  const sel = byId('maratonObstacleSelect');
   if (sel && sel.value) {
     await loadExistingResult(true); // Tyst inläsning vid ekipage-byte
   } else {
@@ -1067,14 +1042,14 @@ async function autoSelectRunningDriverMar(obstacleNo) {
   if (!competitionId || !obstacleNo) return false;
   try {
     const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton`);
-    // Vi söker efter någon som har running=true OCH currentObstacle=obstacleNo
-    const q = query(colRef, where('running', '==', true), where('currentObstacle', '==', Number(obstacleNo)), limit(1));
+    // Ett ekipage vars klocka går i just detta hinder (obstacleLive.{n}.running)
+    const q = query(colRef, where(new FieldPath('obstacleLive', String(Number(obstacleNo)), 'running'), '==', true), limit(1));
     const snap = await getDocs(q);
 
     if (!snap.empty) {
       const firstRunning = snap.docs[0];
       const startNumber = firstRunning.id;
-      
+
       if (equipageSearchDropdownMar) {
         const current = equipageSearchDropdownMar.getValue();
         if (Number(current) !== Number(startNumber)) {
@@ -1106,34 +1081,12 @@ async function handleObstacleChange() {
   const found = await autoSelectRunningDriverMar(newVal);
 
   if (!found) {
-    // 3. Om ingen kör det nya hindret:
-    //    Kolla om den nuvarande föraren kör ett ANNAT hinder just nu.
-    //    Om så är fallet, ska vi INTE behålla föraren vald för det nya hindret,
-    //    för då riskerar vi att nollställa deras "running"-status när vi laddar det nya (tomma) hindret.
-
-    if (currentEquipage && currentLiveState && currentLiveState.running) {
-      // Om föraren kör, och det är INTE det nya hindret (vilket vi vet eftersom found=false)
-
-      // Avmarkera föraren (sätt dropdown till tom/null)
-      if (equipageSearchDropdownMar) {
-        equipageSearchDropdownMar.setValue(null);
-        // Detta triggar onMarathonEquipageSelected(null) som rensar UI.
-        return;
-      }
-    }
-
-    // 4. Om föraren INTE kör något annat (eller vi inte har någon förare),
-    //    ladda bara resultatet för det nya hindret (vilket blir tomt/sparat).
+    // 3. Visa det valda ekipaget i det nya hindret. Inget skrivs: varje
+    //    hinder har sin egen post, så en klocka i ett annat hinder påverkas
+    //    inte av att hindret byts här
     await loadExistingResult(false); // Visa bekräftelse vid AKTIVT hinderbyte
 
-    // 5. NYTT: Pusha valet till Firestore omedelbart för att etablera kontext
-    //    Detta gör att Monitorn följer med och att t.ex. kommentarer kan sparas 
-    //    direkt utan att hindret "tappas bort" vid sync.
-    if (currentEquipage && newVal) {
-      await pushLiveSafe({ currentObstacle: Number(newVal) });
-    }
-
-    // 6. NYTT: Sortera om ekipagen baserat på det nya hindret
+    // 4. Sortera om ekipagen baserat på det nya hindret
     rebuildSortedEquipages(newVal);
   }
 }
@@ -1149,7 +1102,7 @@ function populateObstacleSelector(obstacles, skipAutoSelect = false) {
     obstacleList = Array.isArray(obstacles) ? obstacles : (obstacles.obstacles || []);
   }
 
-  const obstacleSelect = document.getElementById('maratonObstacleSelect');
+  const obstacleSelect = byId('maratonObstacleSelect');
   if (!obstacleSelect) return;
 
   const currentVal = obstacleSelect.value;
@@ -1221,7 +1174,7 @@ function populateObstacleSelector(obstacles, skipAutoSelect = false) {
 
 async function loadExistingResult(silent = false) {
   const equipageId = currentEquipage?.startNumber;
-  const obstacleNumber = document.getElementById('maratonObstacleSelect').value;
+  const obstacleNumber = byId('maratonObstacleSelect')?.value;
   currentObstacleNumber = obstacleNumber ? Number(obstacleNumber) : null;
 
   // Uppdatera knapparna (A/B/C) eftersom hindret kan ha specifikt antal portar
@@ -1231,174 +1184,45 @@ async function loadExistingResult(silent = false) {
 
   if (!equipageId || !currentObstacleNumber) {
     // Om ekipage eller hinder av-selekteras, rensa live-vyn lokalt
-    // KORRIGERING: Skicka det existerande state men med null-hinder
-    const stateWithoutObstacle = {
-      ...currentLiveState,
+    renderLiveState(currentEquipage ? {
+      startNumber: currentEquipage.startNumber,
+      obstacles: currentLiveState?.obstacles || [],
       currentObstacle: null,
-      running: false,
-      inProgress: false,
-      liveObstacleTimeMs: null,
-      live_routeString: null,
-      live_knockdowns: '0',
-      live_otherPenalty: '0',
-      live_holdTimeSec: '',
-      live_comment: '',
-      live_eliminated: false,
-      live_gateSplits: []
-    };
-    applyLiveStateToUI(stateWithoutObstacle);
+      ...MARATHON_LIVE_DEFAULTS
+    } : null);
     return;
   }
 
+  // Only shown, never written: selecting an equipage or an obstacle must not
+  // change any obstacle's clock (another device at this obstacle may have
+  // just started it). This obstacle's unsaved work (a running clock, a time
+  // stopped but not saved, typed fields) is shown as it is on the document;
+  // else its saved result, else zeros.
+  const requested = { sn: String(equipageId), obstacle: currentObstacleNumber };
   try {
-    const docRef = marathonDocRef(equipageId);
-    const docSnap = await getDoc(docRef);
-
-    let resultToLoad = null;
-    const backupData = readMarathonBackup(equipageId);
-    const sourceData = docSnap.exists() ? docSnap.data() : backupData;
-
-    if (sourceData) {
-      if (docSnap.exists()) mirrorToLocal(equipageId, sourceData);
-      const savedObstacles = sourceData.obstacles || [];
-      resultToLoad = savedObstacles.find(o => o.number === currentObstacleNumber);
-    }
-
-    // The equipage is being timed at another obstacle right now: the live
-    // fields on its document belong to that judge, and writing this
-    // obstacle's state would stop their clock. Deselect, as on an obstacle
-    // change while running (onObstacleChanged)
-    if (runsAtAnotherObstacle(sourceData, currentObstacleNumber)) {
-      showAlert(`#${equipageId} körs just nu i hinder ${sourceData.currentObstacle}. Välj ekipaget igen när det har lämnat det hindret.`, false);
-      if (equipageSearchDropdownMar) equipageSearchDropdownMar.setValue(null);
-      return;
-    }
-
-    // This obstacle's own unsaved work (a running clock, or a time stopped but
-    // not saved yet, or typed fields): keep it as it is on the document. A
-    // load (switching equipage and back, reload, a course change) must not
-    // replace it with the saved result or a reset, and needs no write.
-    const ownUnsaved = sourceData
-      && Number(sourceData.currentObstacle) === Number(currentObstacleNumber)
-      && (sourceData.running === true || sourceData.inProgress === true);
-    if (ownUnsaved) {
-      applyLiveStateToUI(sourceData);
-      return;
-    }
-
-    let liveDataUpdate;
-    if (resultToLoad) {
-      // Om vi hittade ett sparat resultat, förbered att ladda in dess data
-      if (!silent) {
-        showAlert(t('marathon_loaded_saved_result').replace('{obstacleNumber}', currentObstacleNumber), true);
+    let sourceData = lastSeenDocFor(currentEquipage);
+    if (!sourceData) {
+      try {
+        const docSnap = await getDoc(marathonDocRef(equipageId));
+        sourceData = docSnap.exists() ? docSnap.data({ serverTimestamps: 'estimate' }) : null;
+        if (sourceData) mirrorToLocal(equipageId, sourceData);
+      } catch (error) {
+        console.warn('Kunde inte läsa maratondokumentet, använder lokal backup om den finns.', error);
       }
-
-      // KORRIGERING: Återställ ursprunglig starttid för att mellantider ska förbli giltiga
-      let restoredStart = null;
-      if (resultToLoad.enteredAt) {
-        const ea = resultToLoad.enteredAt;
-        if (ea && typeof ea.toMillis === 'function') restoredStart = ea.toMillis();
-        else if (ea instanceof Date) restoredStart = ea.getTime();
-        else if (typeof ea === 'string') restoredStart = new Date(ea).getTime();
-        else if (typeof ea === 'number') restoredStart = ea;
-      }
-
-      liveDataUpdate = {
-        currentObstacle: currentObstacleNumber,
-        running: false,
-        // Merely viewing a saved result must not reserve the equipage and
-        // prevent another obstacle judge from selecting it.
-        inProgress: false,
-        liveObstacleTimeMs: resultToLoad.timeMs || 0,
-        liveObstacleStartAt: null, // Ensure stale start time is cleared
-        live_staticStartAt: restoredStart, // Restore original start
-        live_routeString: resultToLoad.routeString || '',
-        live_knockdowns: resultToLoad.knockdowns ?? '0',
-        live_otherPenalty: resultToLoad.otherPenalty ?? '0',
-        live_holdTimeSec: resultToLoad.holdTimeSec ?? '',
-        live_comment: resultToLoad.comment || '',
-        live_eliminated: resultToLoad.eliminated || false,
-        live_gateSplits: resultToLoad.gateSplits || []
-      };
-    } else {
-      // Om inget sparat resultat fanns, nollställ för ny tidtagning
-      liveDataUpdate = {
-        currentObstacle: currentObstacleNumber,
-        running: false,
-        inProgress: false,
-        liveObstacleTimeMs: 0, // Ändrat från null
-        live_routeString: '', // Ändrat från null
-        live_knockdowns: '0',
-        live_otherPenalty: '0',
-        live_holdTimeSec: '',
-        live_comment: '',
-        live_eliminated: false,
-        live_gateSplits: []
-      };
+      if (!sourceData) sourceData = readMarathonBackup(equipageId);
     }
+    // Another equipage or obstacle chosen meanwhile
+    if (String(currentEquipage?.startNumber) !== requested.sn || currentObstacleNumber !== requested.obstacle) return;
 
-    // 2. CRITICAL FIX: Om currentLiveState säger att vi KÖR detta hinder just nu,
-    // låt INTE "saved result" eller "default reset" skriva över running-statusen!
-    // Detta händer när autoSelectRunningDriverMar() har hittat en löpare och satt igång lyssnaren,
-    // men sedan anropas loadExistingResult() som försöker nollställa.
-
-    if (currentLiveState &&
-      currentLiveState.running === true &&
-      Number(currentLiveState.currentObstacle) === Number(currentObstacleNumber)) {
-
-
-      // Vi behåller de fält som styr timern från live-state
-      liveDataUpdate.running = true;
-      liveDataUpdate.inProgress = true;
-      liveDataUpdate.liveObstacleTimeMs = currentLiveState.liveObstacleTimeMs; // Kan vara 0 om nyss startad
-      liveDataUpdate.liveObstacleStartAt = currentLiveState.liveObstacleStartAt;
-      liveDataUpdate.live_staticStartAt = currentLiveState.live_staticStartAt;
-
-      // Vi kanske också vill behålla live-input om den finns (tex knockdowns som precis matats in men inte sparats)
-      if (currentLiveState.live_knockdowns !== undefined) liveDataUpdate.live_knockdowns = currentLiveState.live_knockdowns;
-      if (currentLiveState.live_otherPenalty !== undefined) liveDataUpdate.live_otherPenalty = currentLiveState.live_otherPenalty;
-      if (currentLiveState.live_holdTimeSec !== undefined) liveDataUpdate.live_holdTimeSec = currentLiveState.live_holdTimeSec;
-      if (currentLiveState.live_routeString !== undefined) liveDataUpdate.live_routeString = currentLiveState.live_routeString;
-      if (currentLiveState.live_gateSplits !== undefined) liveDataUpdate.live_gateSplits = currentLiveState.live_gateSplits;
+    const state = deriveObstacleState(sourceData || { startNumber: equipageId }, currentObstacleNumber);
+    const entry = obstacleLiveEntry(sourceData || {}, currentObstacleNumber);
+    const hasSaved = (state.obstacles || []).some(o => Number(o?.number) === currentObstacleNumber);
+    if (!silent && hasSaved && !(entry && (entry.running === true || entry.inProgress === true))) {
+      showAlert(t('marathon_loaded_saved_result').replace('{obstacleNumber}', currentObstacleNumber), true);
     }
-
-    // Applicera datan lokalt
-    // Slå ihop med existerande state för att inte tappa bort ekipage-info
-    const finalState = { ...currentLiveState, ...liveDataUpdate };
-    applyLiveStateToUI(finalState);
-
-    // KORRIGERING: Eftersom vi måste pusha currentObstacle för att synka monitorn,
-    // måste vi också pusha hela liveDataUpdate så att inte onSnapshot tömmer fälten.
-    // Eftersom vi nu förhindrar byten av hinder när timern går (längre upp i flödet),
-    // är det säkert att pusha detta.
-    await pushLiveSafe(liveDataUpdate);
-
+    renderLiveState(state);
   } catch (error) {
     console.error("Kunde inte ladda hinderresultat:", error);
-    const backupData = readMarathonBackup(equipageId);
-    if (backupData) {
-      const savedObstacles = backupData.obstacles || [];
-      const resultToLoad = savedObstacles.find(o => o.number === currentObstacleNumber);
-      if (resultToLoad) {
-        const restoredState = {
-          ...currentLiveState,
-          currentObstacle: currentObstacleNumber,
-          running: false,
-          inProgress: false,
-          liveObstacleTimeMs: resultToLoad.timeMs || 0,
-          liveObstacleStartAt: null,
-          live_routeString: resultToLoad.routeString || '',
-          live_knockdowns: resultToLoad.knockdowns ?? '0',
-          live_otherPenalty: resultToLoad.otherPenalty ?? '0',
-          live_holdTimeSec: resultToLoad.holdTimeSec ?? '',
-          live_comment: resultToLoad.comment || '',
-          live_eliminated: resultToLoad.eliminated || false,
-          live_gateSplits: resultToLoad.gateSplits || []
-        };
-        applyLiveStateToUI(restoredState);
-        return;
-      }
-    }
     showAlert("Ett fel inträffade vid hämtning av sparat resultat.", false);
   }
 }
@@ -1406,9 +1230,9 @@ async function loadExistingResult(silent = false) {
 // RAD EFTER (ca 882): function renderRoutePreview() {
 
 function renderRoutePreview() {
-  const preview = document.getElementById('routePreview');
-  const inp = document.getElementById('routeString');
-  const eliminatedCheckbox = document.getElementById('maratonEliminated');
+  const preview = byId('routePreview');
+  const inp = byId('routeString');
+  const eliminatedCheckbox = byId('maratonEliminated');
   if (!preview || !inp || !eliminatedCheckbox) return;
 
   const cls = currentEquipage?.className || null;
@@ -1423,7 +1247,7 @@ function renderRoutePreview() {
   preview.innerHTML = validation.styledHtml;
 
   // Visa statusmeddelande under
-  const statusEl = document.querySelector('#routePreview + .text-sm');
+  const statusEl = pageQuery('#routePreview + .text-sm');
   if (statusEl) {
     statusEl.textContent = validation.reason + ` (Källa: ${result.source})`;
     statusEl.className = 'text-sm mt-1'; // Nollställ klasser
@@ -1449,19 +1273,14 @@ async function saveResult(e) {
   }
   await flushPendingLiveComment();
   const equipageId = currentEquipage?.startNumber ?? equipageSearchDropdownMar?.getValue();
-  const obstacleNumber = currentObstacleNumber ?? Number(document.getElementById('maratonObstacleSelect').value || 0);
+  const obstacleNumber = currentObstacleNumber ?? Number(byId('maratonObstacleSelect').value || 0);
   if (!equipageId || !obstacleNumber) {
     showAlert(t('marathon_select_both'), false);
     return;
   }
 
-  // The live time on the document belongs to another obstacle (its clock
-  // runs, or its time is not saved yet): saving here would store that judge's
-  // time, or 0.00, as this obstacle's result
-  if (runsAtAnotherObstacle(currentLiveState, obstacleNumber)) {
-    showAlert(`#${equipageId} har en pågående eller osparad tid i hinder ${currentLiveState.currentObstacle}. Spara den där först.`, false);
-    return;
-  }
+  // The time shown is this obstacle's own (obstacleLive.{n}); a save writes
+  // only this obstacle's result, another obstacle's is never touched
 
   // Säkerställ att klockan är stoppad innan vi sparar
   if (currentLiveState.running) {
@@ -1483,15 +1302,16 @@ async function saveResult(e) {
     return;
   }
 
-  let comment = document.getElementById('maratonComment').value || '';
-  let eliminated = !!document.getElementById('maratonEliminated').checked;
-  const holdTimeSec = parseHoldTimeInput(document.getElementById('maratonHoldTime')?.value);
+  let comment = byId('maratonComment')?.value || '';
+  let eliminated = !!byId('maratonEliminated')?.checked;
+  // Typed in minutes ("2", "2,5" or "1:30"), stored in seconds
+  const holdTimeSec = parseHoldMinutes(byId('maratonHoldTime')?.value);
   if (holdTimeSec > 0 && !comment.trim()) {
     comment = 'Väntetid: Föregående ekipage i hinder';
   }
 
-  const knockdowns = parseInt(document.getElementById('maratonKnockdowns').value) || 0;
-  const otherPenalty = parseFloat(document.getElementById('maratonPenalty').value) || 0;
+  const knockdowns = parseInt(byId('maratonKnockdowns').value) || 0;
+  const otherPenalty = parseFloat(byId('maratonPenalty').value) || 0;
 
   // Hinderstraff från resultatmotorn (koefficient, rivningar, fri runda, maxtid)
   const obstacleCalc = calculateObstacleResult(
@@ -1517,7 +1337,7 @@ async function saveResult(e) {
     holdTimeSec,
     penalty: totalObstaclePenalty,
     comment: comment.trim(), eliminated,
-    routeString: (document.getElementById('routeString')?.value || '').trim(),
+    routeString: (byId('routeString')?.value || '').trim(),
     gateSplits: currentLiveState.live_gateSplits || [],
     enteredAt: enteredAt // Sparas nu direkt i resultatet!
   };
@@ -1536,7 +1356,7 @@ async function saveResult(e) {
     });
 
     if (saved?.status === 'queued') {
-      showAlert(t('marathon_result_queued').replace('{obstacleNumber}', obstacleNumber), 'offline');
+      showAlert(t('marathon_result_queued').replace('{obstacleNumber}', obstacleNumber) + queuedNotice('queued'), 'offline');
     } else {
       showAlert(t('marathon_result_saved').replace('{obstacleNumber}', obstacleNumber));
     }
@@ -1590,7 +1410,7 @@ function rebuildSortedEquipages(obstacleNo) {
   if (equipageSearchDropdownMar) {
     equipageSearchDropdownMar.updateData(sortedEquipages);
   } else {
-    const equipageSearchContainer = document.getElementById('equipageSearchContainerMar');
+    const equipageSearchContainer = byId('equipageSearchContainerMar');
     if (equipageSearchContainer) {
       equipageSearchDropdownMar = createSearchableDropdown(equipageSearchContainer, sortedEquipages, onMarathonEquipageSelected);
     }
@@ -1600,14 +1420,14 @@ function rebuildSortedEquipages(obstacleNo) {
 let equipagesRawCache = [];
 
 function addQuickObstaclePenalty(amount, reason) {
-  const penaltyInput = document.getElementById('maratonPenalty');
+  const penaltyInput = byId('maratonPenalty');
   if (!penaltyInput) return;
   const currentVal = parseFloat(penaltyInput.value) || 0;
   penaltyInput.value = String(currentVal + amount);
   updateTotalPenaltyDisplay();
   pushFormField('live_otherPenalty', penaltyInput.value);
 
-  const commentInput = document.getElementById('maratonComment');
+  const commentInput = byId('maratonComment');
   if (commentInput) {
     const existing = commentInput.value.trim();
     const note = `${reason} (+${amount})`;
@@ -1616,7 +1436,7 @@ function addQuickObstaclePenalty(amount, reason) {
     } else if (!existing.includes(reason)) {
       commentInput.value = `${existing}, ${note}`;
     }
-    const btn = document.querySelector('.comment-toggle-btn');
+    const btn = pageQuery('.comment-toggle-btn');
     if (btn) btn.classList.toggle('has-comment', commentInput.value.trim() !== '');
     scheduleLiveCommentSave(commentInput.value);
   }
@@ -1626,8 +1446,62 @@ let waitingTimerInterval = null;
 let waitingStartTime = 0;
 const pendingHoldTimes = new Map();
 
+// Waiting times measured here and the running waiting clock are kept on the
+// device: a reload (app update, the phone closing the app) does not lose them
+const pendingHoldKey = () => (competitionId ? `maratonPendingHold_${competitionId}` : null);
+const waitingTimerKey = () => (competitionId ? `maratonWaitingTimer_${competitionId}` : null);
+
+function persistPendingHoldTimes() {
+  const key = pendingHoldKey();
+  if (!key) return;
+  try {
+    if (pendingHoldTimes.size === 0) localStorage.removeItem(key);
+    else localStorage.setItem(key, JSON.stringify([...pendingHoldTimes.entries()]));
+  } catch (_) { /* no storage */ }
+}
+
+function restorePendingHoldTimes() {
+  pendingHoldTimes.clear();
+  const key = pendingHoldKey();
+  if (!key) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || '[]');
+    (Array.isArray(saved) ? saved : []).forEach(([sn, item]) => {
+      const sec = Number(item?.holdTimeSec);
+      if (sn && Number.isFinite(sec) && sec > 0) pendingHoldTimes.set(String(sn), { holdTimeSec: sec, reason: String(item?.reason || 'Föregående ekipage i hinder') });
+    });
+  } catch (_) { /* no storage */ }
+}
+
+function persistWaitingTimer(sn) {
+  const key = waitingTimerKey();
+  if (!key) return;
+  try {
+    if (waitingStartTime) localStorage.setItem(key, JSON.stringify({ sn: sn || '', startedAt: waitingStartTime }));
+    else localStorage.removeItem(key);
+  } catch (_) { /* no storage */ }
+}
+
+function restoreWaitingTimer() {
+  const key = waitingTimerKey();
+  if (!key) return;
+  try {
+    const saved = JSON.parse(localStorage.getItem(key) || 'null');
+    if (!saved || !Number.isFinite(saved.startedAt)) return;
+    waitingStartTime = saved.startedAt;
+    const snInput = byId('waitingStartNumber');
+    if (snInput && saved.sn) snInput.value = saved.sn;
+    byId('waitingDriverBody')?.classList.remove('hidden');
+    byId('btnStartWaitingTimer')?.classList.add('hidden');
+    byId('btnStopWaitingTimer')?.classList.remove('hidden');
+    if (waitingTimerInterval) clearInterval(waitingTimerInterval);
+    waitingTimerInterval = setInterval(updateWaitingTimerDisplay, 500);
+    updateWaitingTimerDisplay();
+  } catch (_) { /* no storage */ }
+}
+
 function updateWaitingTimerDisplay() {
-  const disp = document.getElementById('waitingTimerDisplay');
+  const disp = byId('waitingTimerDisplay');
   if (!disp) return;
   if (!waitingStartTime) {
     disp.textContent = '00:00';
@@ -1640,8 +1514,8 @@ function updateWaitingTimerDisplay() {
 }
 
 function renderWaitingList() {
-  const container = document.getElementById('waitingListContainer');
-  const countBadge = document.getElementById('waitingCountBadge');
+  const container = byId('waitingListContainer');
+  const countBadge = byId('waitingCountBadge');
   if (!container) return;
   if (pendingHoldTimes.size === 0) {
     container.classList.add('hidden');
@@ -1655,35 +1529,37 @@ function renderWaitingList() {
     countBadge.classList.remove('hidden');
   }
   container.innerHTML = Array.from(pendingHoldTimes.entries()).map(([sn, item]) => `
-    <div class="flex items-center justify-between bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-900 text-xs">
-      <span class="font-bold text-blue-900 dark:text-blue-200">#${escapeHtml(sn)}: ${item.holdTimeSec}s (${escapeHtml(item.reason)})</span>
-      <div class="flex items-center gap-1">
-        <button type="button" data-apply-waiting="${escapeHtml(sn)}" class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline">Använd</button>
-        <button type="button" data-delete-waiting="${escapeHtml(sn)}" class="text-[10px] text-red-500 font-bold hover:underline ml-1">Ta bort</button>
+    <div class="flex items-center justify-between gap-2 bg-white dark:bg-gray-800 px-2 py-1 rounded border border-blue-200 dark:border-blue-900 text-xs">
+      <span class="font-bold text-blue-900 dark:text-blue-200">#${escapeHtml(sn)}: ${escapeHtml(formatHoldTime(item.holdTimeSec))} min (${escapeHtml(item.reason)})</span>
+      <div class="flex items-center gap-2">
+        <button type="button" data-apply-waiting="${escapeHtml(sn)}" class="min-h-[44px] px-3 rounded text-xs text-emerald-700 dark:text-emerald-400 font-bold border border-emerald-300 dark:border-emerald-800">Använd</button>
+        <button type="button" data-delete-waiting="${escapeHtml(sn)}" class="min-h-[44px] px-3 rounded text-xs text-red-600 dark:text-red-400 font-bold border border-red-200 dark:border-red-900">Ta bort</button>
       </div>
     </div>
   `).join('');
 }
 
+// Hold time is entered in minutes (TR V 525.7, FEI 965.8.2: whole or half
+// minutes); the field shows m:ss
 function addQuickHoldTime(seconds, defaultReason = 'Föregående ekipage i hinder') {
-  const holdInput = document.getElementById('maratonHoldTime');
+  const holdInput = byId('maratonHoldTime');
   if (!holdInput) return;
-  const currentVal = parseHoldTimeInput(holdInput.value);
+  const currentVal = parseHoldMinutes(holdInput.value);
   const nextVal = Math.max(0, currentVal + seconds);
-  holdInput.value = nextVal > 0 ? String(nextVal) : '';
+  holdInput.value = formatHoldTime(nextVal);
   pushFormField('live_holdTimeSec', holdInput.value);
 
-  const commentInput = document.getElementById('maratonComment');
+  const commentInput = byId('maratonComment');
   if (commentInput && nextVal > 0 && !commentInput.value.trim()) {
     commentInput.value = `Väntetid: ${defaultReason}`;
-    const btn = document.querySelector('.comment-toggle-btn');
+    const btn = pageQuery('.comment-toggle-btn');
     if (btn) btn.classList.add('has-comment');
     scheduleLiveCommentSave(commentInput.value);
   }
 }
 
 function setHoldReason(reason) {
-  const commentInput = document.getElementById('maratonComment');
+  const commentInput = byId('maratonComment');
   if (!commentInput) return;
   const existing = commentInput.value.trim();
   const note = `Väntetid: ${reason}`;
@@ -1692,7 +1568,7 @@ function setHoldReason(reason) {
   } else if (!existing.includes(reason)) {
     commentInput.value = `${existing}, ${note}`;
   }
-  const btn = document.querySelector('.comment-toggle-btn');
+  const btn = pageQuery('.comment-toggle-btn');
   if (btn) btn.classList.add('has-comment');
   scheduleLiveCommentSave(commentInput.value);
 }
@@ -1724,7 +1600,7 @@ async function setupPage(mySeq = loadSeq) {
     obstacleList = getClassDrivenObstacles(null);
     populateObstacleSelector();
 
-    rebuildSortedEquipages(document.getElementById('maratonObstacleSelect')?.value);
+    rebuildSortedEquipages(byId('maratonObstacleSelect')?.value);
 
     // Request Wake Lock bara i full live-drift
     if (!isFieldModeEnabled()) {
@@ -1750,7 +1626,7 @@ async function setupPage(mySeq = loadSeq) {
     } else if (target.id === 'maratonHoldTime') {
       pushFormField('live_holdTimeSec', target.value);
     } else if (target.id === 'maratonComment') {
-      const btn = document.querySelector('.comment-toggle-btn');
+      const btn = pageQuery('.comment-toggle-btn');
       if (btn) btn.classList.toggle('has-comment', target.value.trim() !== '');
       scheduleLiveCommentSave(target.value);
     } else if (target.id === 'maratonEliminated') {
@@ -1770,7 +1646,7 @@ async function setupPage(mySeq = loadSeq) {
   boundHandlers.formClickHandler = (e) => {
     const btn = e.target.closest('.comment-toggle-btn');
     if (!btn) return;
-    const wrapper = document.querySelector('.comment-wrapper');
+    const wrapper = pageQuery('.comment-wrapper');
     if (!wrapper) return;
 
     wrapper.classList.toggle('comment-visible');
@@ -1800,8 +1676,8 @@ async function setupPage(mySeq = loadSeq) {
   boundHandlers.startH = () => startTimerMar();
   boundHandlers.stopH = () => stopTimerMar();
   boundHandlers.resetH = () => resetTimerMar();
-  boundHandlers.timerClick = () => document.getElementById('manualTimeEditorMar')?.classList.remove('hidden');
-  boundHandlers.cancelClick = () => document.getElementById('manualTimeEditorMar')?.classList.add('hidden');
+  boundHandlers.timerClick = () => byId('manualTimeEditorMar')?.classList.remove('hidden');
+  boundHandlers.cancelClick = () => byId('manualTimeEditorMar')?.classList.add('hidden');
   boundHandlers.applyClick = () => applyManualTime();
   boundHandlers.manualTimeKeydown = (e) => {
     if (e.key === 'Enter') {
@@ -1812,7 +1688,7 @@ async function setupPage(mySeq = loadSeq) {
   boundHandlers.routeUndo = () => updateRouteString('undo');
   boundHandlers.routeClear = () => updateRouteString('clear');
 
-  const form = document.getElementById('addMaratonResultForm');
+  const form = byId('addMaratonResultForm');
   if (form) {
     form.addEventListener('submit', boundHandlers.submitHandler);
     form.addEventListener('input', boundHandlers.formInputHandler);
@@ -1821,38 +1697,38 @@ async function setupPage(mySeq = loadSeq) {
     form.addEventListener('focusout', reapplyRemoteStateAfterEdit);
   }
 
-  document.getElementById('maratonObstacleSelect')?.addEventListener('change', boundHandlers.obstacleChange);
-  document.getElementById('btnQuickPenaltyGroom')?.addEventListener('click', () => addQuickObstaclePenalty(5, 'Groom avstigning'));
-  document.getElementById('btnQuickPenaltyCourse')?.addEventListener('click', () => addQuickObstaclePenalty(20, 'Korrigerad fel väg'));
-  document.getElementById('btnQuickHold15')?.addEventListener('click', () => addQuickHoldTime(15));
-  document.getElementById('btnQuickHold30')?.addEventListener('click', () => addQuickHoldTime(30));
-  document.getElementById('btnQuickHold60')?.addEventListener('click', () => addQuickHoldTime(60));
-  document.getElementById('btnQuickHoldClear')?.addEventListener('click', () => {
-    const holdInput = document.getElementById('maratonHoldTime');
+  byId('maratonObstacleSelect')?.addEventListener('change', boundHandlers.obstacleChange);
+  byId('btnQuickPenaltyGroom')?.addEventListener('click', () => addQuickObstaclePenalty(5, 'Groom avstigning'));
+  byId('btnQuickPenaltyCourse')?.addEventListener('click', () => addQuickObstaclePenalty(20, 'Korrigerad fel väg'));
+  byId('btnQuickHold30')?.addEventListener('click', () => addQuickHoldTime(30));
+  byId('btnQuickHold60')?.addEventListener('click', () => addQuickHoldTime(60));
+  byId('btnQuickHold120')?.addEventListener('click', () => addQuickHoldTime(120));
+  byId('btnQuickHoldClear')?.addEventListener('click', () => {
+    const holdInput = byId('maratonHoldTime');
     if (holdInput) {
       holdInput.value = '';
       pushFormField('live_holdTimeSec', '');
     }
   });
 
-  document.querySelectorAll('#holdReasonPills button[data-hold-reason]').forEach(btn => {
+  pageQueryAll('#holdReasonPills button[data-hold-reason]').forEach(btn => {
     btn.addEventListener('click', () => {
       setHoldReason(btn.dataset.holdReason);
-      const holdInput = document.getElementById('maratonHoldTime');
-      if (holdInput && parseHoldTimeInput(holdInput.value) === 0) {
-        holdInput.value = '30';
-        pushFormField('live_holdTimeSec', '30');
+      const holdInput = byId('maratonHoldTime');
+      if (holdInput && parseHoldMinutes(holdInput.value) === 0) {
+        holdInput.value = formatHoldTime(30);
+        pushFormField('live_holdTimeSec', holdInput.value);
       }
     });
   });
 
-  document.getElementById('btnToggleWaitingCard')?.addEventListener('click', () => {
-    const body = document.getElementById('waitingDriverBody');
+  byId('btnToggleWaitingCard')?.addEventListener('click', () => {
+    const body = byId('waitingDriverBody');
     if (body) body.classList.toggle('hidden');
   });
 
-  document.getElementById('btnStartWaitingTimer')?.addEventListener('click', () => {
-    const snInput = document.getElementById('waitingStartNumber');
+  byId('btnStartWaitingTimer')?.addEventListener('click', () => {
+    const snInput = byId('waitingStartNumber');
     const sn = (snInput?.value || '').trim();
     if (!sn) {
       showAlert('Ange startnummer för det väntande ekipaget.', false);
@@ -1860,70 +1736,82 @@ async function setupPage(mySeq = loadSeq) {
       return;
     }
     waitingStartTime = Date.now();
-    document.getElementById('btnStartWaitingTimer')?.classList.add('hidden');
-    document.getElementById('btnStopWaitingTimer')?.classList.remove('hidden');
+    persistWaitingTimer(sn);
+    byId('btnStartWaitingTimer')?.classList.add('hidden');
+    byId('btnStopWaitingTimer')?.classList.remove('hidden');
     if (waitingTimerInterval) clearInterval(waitingTimerInterval);
     waitingTimerInterval = setInterval(updateWaitingTimerDisplay, 500);
     updateWaitingTimerDisplay();
   });
 
-  document.getElementById('btnStopWaitingTimer')?.addEventListener('click', () => {
+  byId('btnStopWaitingTimer')?.addEventListener('click', () => {
     if (!waitingStartTime) return;
-    const snInput = document.getElementById('waitingStartNumber');
+    const snInput = byId('waitingStartNumber');
     const sn = (snInput?.value || '').trim();
     const elapsedSec = Math.max(1, Math.round((Date.now() - waitingStartTime) / 1000));
     waitingStartTime = 0;
+    persistWaitingTimer(null);
     if (waitingTimerInterval) {
       clearInterval(waitingTimerInterval);
       waitingTimerInterval = null;
     }
-    document.getElementById('btnStartWaitingTimer')?.classList.remove('hidden');
-    document.getElementById('btnStopWaitingTimer')?.classList.add('hidden');
+    byId('btnStartWaitingTimer')?.classList.remove('hidden');
+    byId('btnStopWaitingTimer')?.classList.add('hidden');
     updateWaitingTimerDisplay();
     if (sn) {
       pendingHoldTimes.set(sn, { holdTimeSec: elapsedSec, reason: 'Föregående ekipage i hinder' });
+      persistPendingHoldTimes();
       renderWaitingList();
       if (snInput) snInput.value = '';
-      showAlert(`Väntetid ${elapsedSec}s sparad för ekipage #${sn}!`, true);
+      showAlert(`Väntetid ${formatHoldTime(elapsedSec)} min sparad för ekipage #${sn}!`, true);
     }
   });
 
-  document.getElementById('waitingListContainer')?.addEventListener('click', (e) => {
+  byId('waitingListContainer')?.addEventListener('click', (e) => {
     const applySn = e.target.closest('[data-apply-waiting]')?.dataset.applyWaiting;
     const deleteSn = e.target.closest('[data-delete-waiting]')?.dataset.deleteWaiting;
     if (applySn) {
       const item = pendingHoldTimes.get(applySn);
       if (item) {
-        const holdInput = document.getElementById('maratonHoldTime');
+        const holdInput = byId('maratonHoldTime');
         if (holdInput) {
-          holdInput.value = String(item.holdTimeSec);
+          holdInput.value = formatHoldTime(item.holdTimeSec);
           pushFormField('live_holdTimeSec', holdInput.value);
         }
         setHoldReason(item.reason);
         pendingHoldTimes.delete(applySn);
+        persistPendingHoldTimes();
         renderWaitingList();
-        showAlert(`Väntetid (${item.holdTimeSec}s) applicerad!`, true);
+        showAlert(`Väntetid (${formatHoldTime(item.holdTimeSec)} min) applicerad!`, true);
       }
     } else if (deleteSn) {
+      if (!confirm(`Ta bort den uppmätta väntetiden för #${deleteSn}?`)) return;
       pendingHoldTimes.delete(deleteSn);
+      persistPendingHoldTimes();
       renderWaitingList();
     }
   });
-  document.getElementById('prevEquipage')?.addEventListener('click', boundHandlers.prevClick);
-  document.getElementById('nextEquipage')?.addEventListener('click', boundHandlers.nextClick);
-  document.getElementById('btnStartMar')?.addEventListener('click', boundHandlers.startH);
-  document.getElementById('btnStopMar')?.addEventListener('click', boundHandlers.stopH);
-  document.getElementById('btnResetMar')?.addEventListener('click', boundHandlers.resetH);
-  document.getElementById('btnManualOpenMar')?.addEventListener('click', boundHandlers.timerClick);
-  document.getElementById('liveTimerMar')?.addEventListener('click', boundHandlers.timerClick);
-  document.getElementById('btnManualCancelMar')?.addEventListener('click', boundHandlers.cancelClick);
-  document.getElementById('btnManualApplyMar')?.addEventListener('click', boundHandlers.applyClick);
-  document.getElementById('manualTimeDigitsMar')?.addEventListener('keydown', boundHandlers.manualTimeKeydown);
+  restorePendingHoldTimes();
+  renderWaitingList();
+  restoreWaitingTimer();
+  boundHandlers.clockBadge = () => updateClockSyncBadge();
+  window.addEventListener('serverclockchange', boundHandlers.clockBadge);
+  updateClockSyncBadge();
+  byId('prevEquipageMar')?.addEventListener('click', boundHandlers.prevClick);
+  byId('nextEquipageMar')?.addEventListener('click', boundHandlers.nextClick);
+  byId('btnStartMar')?.addEventListener('click', boundHandlers.startH);
+  byId('btnStopMar')?.addEventListener('click', boundHandlers.stopH);
+  byId('btnResetMar')?.addEventListener('click', boundHandlers.resetH);
+  byId('btnManualOpenMar')?.addEventListener('click', boundHandlers.timerClick);
+  byId('liveTimerMar')?.addEventListener('click', boundHandlers.timerClick);
+  byId('btnManualCancelMar')?.addEventListener('click', boundHandlers.cancelClick);
+  byId('btnManualApplyMar')?.addEventListener('click', boundHandlers.applyClick);
+  byId('manualTimeDigitsMar')?.addEventListener('keydown', boundHandlers.manualTimeKeydown);
 
-  document.getElementById('routeUndo')?.addEventListener('click', boundHandlers.routeUndo);
-  document.getElementById('routeClear')?.addEventListener('click', boundHandlers.routeClear);
+  byId('routeUndo')?.addEventListener('click', boundHandlers.routeUndo);
+  byId('routeClear')?.addEventListener('click', boundHandlers.routeClear);
 
-  document.getElementById('btnBackupMarJson')?.addEventListener('click', () => {
+  byId('btnBackupMarJson')?.addEventListener('click', () => {
     const backup = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -1939,8 +1827,13 @@ async function setupPage(mySeq = loadSeq) {
   unsubMaratonList = listenForMaratonCollection(competitionId, (maratonDocs) => {
     marathonStateDocsMap = new Map();
     (maratonDocs || []).forEach(d => marathonStateDocsMap.set(String(d.id), d));
-    rebuildSortedEquipages(document.getElementById('maratonObstacleSelect')?.value);
+    rebuildSortedEquipages(byId('maratonObstacleSelect')?.value);
   });
+
+  // Back to the equipage chosen before a reload (app update, the phone
+  // closing the app), unless one is chosen already
+  restoreSelectedEquipage();
+  pruneFieldBackups();
 
   } catch (err) {
     console.error('[MarathonInput] Allvarligt fel vid initiering:', err);
@@ -1949,6 +1842,35 @@ async function setupPage(mySeq = loadSeq) {
 }
 
 let unsubMaratonList = null;
+
+function restoreSelectedEquipage() {
+  if (!equipageSearchDropdownMar || equipageSearchDropdownMar.getValue()) return;
+  let saved = null;
+  try { saved = localStorage.getItem(`maratonLastEquipage_${competitionId}`); } catch (_) { /* no storage */ }
+  if (saved && sortedEquipages.some(e => String(e.startNumber) === String(saved))) {
+    equipageSearchDropdownMar.setValue(Number(saved));
+  }
+}
+
+// "Klocka ej synkad": no offset to the server is known on this device, so its
+// own clock stamps the times (they may differ from other devices' stamps)
+function updateClockSyncBadge() {
+  byId('clockSyncBadgeMar')?.classList.toggle('hidden', isServerClockSynced());
+}
+
+// The update prompt asks before reloading while there is work here: a clock
+// running or stopped but not saved, typed fields not sent yet, measured
+// waiting times or a running waiting clock, a save under way
+function hasUnsavedObstacleWork() {
+  return obstaclePageHasUnsavedWork({
+    liveState: currentEquipage && currentObstacleNumber != null ? currentLiveState : null,
+    pendingFormFields,
+    pendingComment: pendingLiveComment,
+    pendingHoldCount: pendingHoldTimes.size,
+    waitingTimerRunning: waitingStartTime > 0,
+    saveInFlight: obstacleSaveInFlight
+  });
+}
 
 // RAD EFTER (ca 1062): // Hanterar Föregående/Nästa-knapparna
 
@@ -1984,7 +1906,7 @@ function applyManualTime() {
     showAlert(t('marathon_select_equipage_and_obstacle'), false);
     return;
   }
-  const digitsEl = document.getElementById('manualTimeDigitsMar');
+  const digitsEl = byId('manualTimeDigitsMar');
   // Empty or invalid input is refused: it used to be stored as 0.00
   const ms = parseManualTimeMs(digitsEl?.value);
   if (ms == null) {
@@ -1992,32 +1914,26 @@ function applyManualTime() {
     digitsEl?.focus();
     return;
   }
-  if (runsAtAnotherObstacle(currentLiveState, currentObstacleNumber)) {
-    showAlert(`#${currentEquipage.startNumber} har osparat arbete i hinder ${currentLiveState.currentObstacle}. Spara eller nollställ där först.`, false);
-    return;
-  }
   if (currentLiveState.running === true
     && !confirm(`Klockan går. Stoppa den och ersätt tiden med ${partsToString(msToParts(ms))}?`)) return;
-  pausedMs = ms;
   if (digitsEl) digitsEl.value = '';
-  isRunning = false;
-  inProgress = true;
 
   // Update state locally immediately (prevent race condition)
-  currentLiveState.liveObstacleTimeMs = pausedMs;
-  currentLiveState.running = false;
-  currentLiveState.liveObstacleStartAt = null;
-  currentLiveState.pausedByGlobalPause = false;
-
-  updateTimerViewMar();
-  document.getElementById('manualTimeEditorMar')?.classList.add('hidden');
+  renderLiveState({
+    ...currentLiveState,
+    liveObstacleTimeMs: ms,
+    running: false,
+    inProgress: true,
+    liveObstacleStartAt: null,
+    pausedByGlobalPause: false
+  });
+  byId('manualTimeEditorMar')?.classList.add('hidden');
 
   // Skicka en komplett ögonblicksbild av tillståndet
   pushLiveSafe({
     running: false,
     inProgress: true,
-    currentObstacle: currentObstacleNumber,
-    liveObstacleTimeMs: pausedMs,
+    liveObstacleTimeMs: ms,
     liveObstacleStartAt: null, // Clear start time so monitor knows it is stopped
     // A typed time replaces one the global pause stopped: not resumed later
     pausedByGlobalPause: false
@@ -2026,12 +1942,14 @@ function applyManualTime() {
 
 // Förenklad funktion för att hantera rutt-strängen
 function updateRouteString(action) {
-  const inp = document.getElementById('routeString');
+  const inp = byId('routeString');
   if (!inp) return;
 
   let splits = currentLiveState.live_gateSplits || [];
 
   if (action === 'clear') {
+    // The whole route goes: asked first (the button sits next to Undo)
+    if (inp.value.trim() && !confirm('Rensa hela vägvalet för hindret?')) return;
     inp.value = '';
     splits = [];
   } else if (action === 'undo') {
@@ -2090,7 +2008,7 @@ function getGateLettersForClass(className) {
 }
 
 function renderRouteButtonsForCurrent() {
-  const wrap = document.getElementById('routeButtons');
+  const wrap = byId('routeButtons');
   if (!wrap) return;
   wrap.innerHTML = '';
 
@@ -2138,7 +2056,7 @@ function renderRouteButtonsForCurrent() {
 }
 
 function appendRouteLetter(ch) {
-  const inp = document.getElementById('routeString');
+  const inp = byId('routeString');
   if (!inp) return;
   const before = (inp.value || '').trim();
   const newValue = before ? `${before} ${ch}` : ch;
@@ -2167,7 +2085,7 @@ function appendRouteLetter(ch) {
 export async function load() {
   const mySeq = ++loadSeq;
   const competition = getGlobalState('currentCompetition');
-  const page = document.getElementById('page-maraton-input');
+  const page = pageRoot();
 
   if (!competition) {
     page.innerHTML = `<p class="p-8 text-center text-red-500 dark:text-red-400">${t('marathon_no_competition')}</p>`;
@@ -2194,7 +2112,8 @@ export async function load() {
           background: none;
           border: 1px solid #cbd5e1;
           border-radius: 99px;
-          padding: 4px 10px;
+          min-height: 44px;
+          padding: 4px 14px;
           font-size: 11px;
           line-height: 1.2;
           color: #475569;
@@ -2367,9 +2286,9 @@ export async function load() {
           <div class="p-2 border rounded-lg bg-gray-50/50 dark:bg-gray-700/30 dark:border-gray-700">
             <label class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('marathon_select_equipage')}</label>
             <div class="marathon-equipage-nav flex items-center gap-2">
-              <button id="prevEquipage" type="button" aria-label="Föregående ekipage" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
+              <button id="prevEquipageMar" type="button" aria-label="Föregående ekipage" class="w-11 h-11 shrink-0 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
               <div id="equipageSearchContainerMar" class="flex-grow"></div>
-              <button id="nextEquipage" type="button" aria-label="Nästa ekipage" class="w-10 h-10 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
+              <button id="nextEquipageMar" type="button" aria-label="Nästa ekipage" class="w-11 h-11 shrink-0 flex items-center justify-center border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
             </div>
           </div>
 
@@ -2386,6 +2305,7 @@ export async function load() {
                <div id="infoEquipageLineMar" class="font-bold text-sm md:text-base dark:text-white truncate">–</div>
                <div class="text-xs text-gray-600 dark:text-gray-400">
                  Hinder: <span id="infoObstacleLine" class="font-bold tabular-nums">–</span>
+                 <span id="clockSyncBadgeMar" class="hidden ml-2 inline-block px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 text-[10px] font-bold uppercase" title="Enheten har inte kunnat jämföra sin klocka med serverns: tiderna stämplas med enhetens egen klocka">Klocka ej synkad</span>
                </div>
             </div>
             <div id="liveTimerMar" role="button" tabindex="0" data-kbd-click class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer text-gray-800 dark:text-white" title="Ändra tid">00:00,00</div>
@@ -2398,7 +2318,7 @@ export async function load() {
               : `<button id="btnStartMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
             <button id="btnStopMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
             </div>
-            <button id="btnResetMar" type="button" class="control-btn marathon-reset-btn w-12 h-12 flex items-center justify-center rounded-lg bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white">🔄</button>
+            <button id="btnResetMar" type="button" aria-label="Nollställ hindertid och formulär" title="Nollställ hindertid och formulär" class="control-btn marathon-reset-btn ml-4 w-12 h-12 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white"><span aria-hidden="true">🔄</span></button>
           </div>
 
           <!-- Manuelltids-editor (floating) -->
@@ -2437,9 +2357,9 @@ export async function load() {
         <div class="space-y-2">
           <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
             <label class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_route_through_obstacle')}</label>
-            <div class="flex gap-2">
-                <button id="routeUndo" type="button" class="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline px-2 py-2">${t('marathon_undo')}</button>
-                <button id="routeClear" type="button" class="text-[10px] font-bold text-red-600 dark:text-red-400 hover:underline px-2 py-2">${t('marathon_clear')}</button>
+            <div class="flex gap-6">
+                <button id="routeUndo" type="button" class="min-h-[44px] min-w-[44px] px-3 rounded-md border border-blue-200 dark:border-blue-800 text-xs font-bold text-blue-600 dark:text-blue-400">${t('marathon_undo')}</button>
+                <button id="routeClear" type="button" class="min-h-[44px] min-w-[44px] px-3 rounded-md border border-red-200 dark:border-red-900 text-xs font-bold text-red-600 dark:text-red-400">${t('marathon_clear')}</button>
             </div>
           </div>
           <div id="routeButtons" class="bg-gray-50 dark:bg-gray-900/40 p-2 rounded-lg border dark:border-gray-700"></div>
@@ -2458,9 +2378,9 @@ export async function load() {
           <div>
             <div class="flex items-center justify-between mb-1">
               <label for="maratonPenalty" class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_other_penalty')}</label>
-              <div class="flex gap-1">
-                <button type="button" id="btnQuickPenaltyGroom" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Groom avstigning (+5)">+5 Groom</button>
-                <button type="button" id="btnQuickPenaltyCourse" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Korrigerad fel väg (+20)">+20 Fel väg</button>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button type="button" id="btnQuickPenaltyGroom" class="min-h-[44px] min-w-[44px] px-2 text-xs font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Groom avstigning (+5)">+5 Groom</button>
+                <button type="button" id="btnQuickPenaltyCourse" class="min-h-[44px] min-w-[44px] px-2 text-xs font-semibold rounded bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200 border border-amber-300 dark:border-amber-700 active:scale-95 transition-all" title="Korrigerad fel väg (+20)">+20 Fel väg</button>
               </div>
             </div>
             <input type="number" inputmode="numeric" id="maratonPenalty" value="0" min="0" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
@@ -2469,24 +2389,24 @@ export async function load() {
           <div>
             <div class="flex items-center justify-between mb-1">
               <label for="maratonHoldTime" class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400">${t('marathon_hold_time')}</label>
-              <div class="flex gap-1">
-                <button type="button" id="btnQuickHold15" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+15 sek">+15s</button>
-                <button type="button" id="btnQuickHold30" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+30 sek">+30s</button>
-                <button type="button" id="btnQuickHold60" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+60 sek">+1m</button>
-                <button type="button" id="btnQuickHoldClear" class="px-1.5 py-1.5 text-[10px] font-semibold rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600 active:scale-95 transition-all" title="Nollställ">0</button>
+              <div class="flex flex-wrap justify-end gap-2">
+                <button type="button" id="btnQuickHold30" class="min-h-[44px] min-w-[44px] px-2 text-xs font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+½ minut">+½</button>
+                <button type="button" id="btnQuickHold60" class="min-h-[44px] min-w-[44px] px-2 text-xs font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+1 minut">+1</button>
+                <button type="button" id="btnQuickHold120" class="min-h-[44px] min-w-[44px] px-2 text-xs font-semibold rounded bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 border border-blue-300 dark:border-blue-700 active:scale-95 transition-all" title="+2 minuter">+2</button>
+                <button type="button" id="btnQuickHoldClear" class="min-h-[44px] min-w-[44px] px-2 text-xs font-semibold rounded bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300 border border-gray-300 dark:border-gray-600 active:scale-95 transition-all" title="Nollställ">0</button>
               </div>
             </div>
-            <input type="text" inputmode="decimal" id="maratonHoldTime" placeholder="Sekunder el mm:ss" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-            <div class="mt-1 flex flex-wrap gap-1" id="holdReasonPills">
-              <button type="button" data-hold-reason="Föregående ekipage i hinder" class="px-2 py-1.5 text-[10px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Föregående ekipage</button>
-              <button type="button" data-hold-reason="Domar-/Banchefsstopp" class="px-2 py-1.5 text-[10px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Domarstopp</button>
-              <button type="button" data-hold-reason="Hinderreparation" class="px-2 py-1.5 text-[10px] font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Hinderfel</button>
+            <input type="text" inputmode="decimal" id="maratonHoldTime" placeholder="min, t.ex. 2 eller 2,5" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+            <div class="mt-2 flex flex-wrap gap-2" id="holdReasonPills">
+              <button type="button" data-hold-reason="Föregående ekipage i hinder" class="min-h-[44px] px-3 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Föregående ekipage</button>
+              <button type="button" data-hold-reason="Domar-/Banchefsstopp" class="min-h-[44px] px-3 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Domarstopp</button>
+              <button type="button" data-hold-reason="Hinderreparation" class="min-h-[44px] px-3 text-xs font-medium rounded bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-blue-100 hover:text-blue-800 dark:hover:bg-blue-900/50 dark:hover:text-blue-200 border border-gray-200 dark:border-gray-600 transition-all">Hinderfel</button>
             </div>
           </div>
 
           <div class="flex items-end">
-            <label class="flex items-center cursor-pointer p-2 border rounded hover:bg-red-50 dark:hover:bg-red-900/10 w-full h-[38px] transition-colors dark:border-gray-700">
-              <input type="checkbox" id="maratonEliminated" class="h-4 w-4 rounded border-gray-300 text-red-600 focus:ring-red-500">
+            <label for="maratonEliminated" class="flex items-center cursor-pointer px-3 border rounded hover:bg-red-50 dark:hover:bg-red-900/10 w-full min-h-[44px] transition-colors dark:border-gray-700">
+              <input type="checkbox" id="maratonEliminated" class="h-5 w-5 rounded border-gray-300 text-red-600 focus:ring-red-500">
               <span class="ml-2 text-xs font-bold text-red-700 dark:text-red-400 uppercase">${t('marathon_elim')}</span>
             </label>
           </div>
@@ -2497,7 +2417,7 @@ export async function load() {
              <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">${t('marathon_comment_short')}</button>
              <div class="text-right">
                 <span class="text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 block">${t('marathon_total_obstacle_penalty')}</span>
-                <span id="totalPenaltyDisplay" class="text-lg font-black text-brand-darkblue dark:text-blue-400">0.00</span>
+                <span id="totalPenaltyDisplayMar" class="text-lg font-black text-brand-darkblue dark:text-blue-400">0.00</span>
              </div>
           </div>
           <div class="comment-wrapper">
@@ -2546,8 +2466,8 @@ export function __unload() {
       clearInterval(timerInterval);
       timerInterval = null;
     }
-    isRunning = false;
-    inProgress = false;
+    setServerClockHold(false);
+    if (boundHandlers.clockBadge) window.removeEventListener('serverclockchange', boundHandlers.clockBadge);
 
     // Stäng lyssnare mot Firestore
     if (typeof unsubObstacles === 'function') {
@@ -2570,14 +2490,14 @@ export function __unload() {
 
     // Ta bort DOM-lyssnare vi satte i setupPage()
     const rm = (sel, ev, fn) => {
-      const el = document.getElementById(sel);
+      const el = byId(sel);
       if (el && typeof fn === 'function') {
         try { el.removeEventListener(ev, fn); } catch { }
       }
     };
 
     // NYTT: Ta bort de nya formulär-lyssnarna
-    const form = document.getElementById('addMaratonResultForm');
+    const form = byId('addMaratonResultForm');
     if (form) {
       if (boundHandlers.submitHandler) form.removeEventListener('submit', boundHandlers.submitHandler);
       if (boundHandlers.formInputHandler) form.removeEventListener('input', boundHandlers.formInputHandler);
@@ -2587,8 +2507,8 @@ export function __unload() {
     }
 
     rm('maratonObstacleSelect', 'change', boundHandlers.obstacleChange);
-    rm('prevEquipage', 'click', boundHandlers.prevClick);
-    rm('nextEquipage', 'click', boundHandlers.nextClick);
+    rm('prevEquipageMar', 'click', boundHandlers.prevClick);
+    rm('nextEquipageMar', 'click', boundHandlers.nextClick);
     rm('btnStartMar', 'click', boundHandlers.startH);
     rm('btnStopMar', 'click', boundHandlers.stopH);
     rm('btnResetMar', 'click', boundHandlers.resetH);
@@ -2633,5 +2553,6 @@ function resetModuleSelectionState() {
   lastPauseLog = [];
 }
 
-// A new version of the app asks before reloading while the obstacle clock runs
-registerUnsavedWork('maraton-input', () => isRunning);
+// A new version of the app asks before reloading while there is work on the
+// obstacle page (see hasUnsavedObstacleWork)
+registerUnsavedWork('maraton-input', () => hasUnsavedObstacleWork());

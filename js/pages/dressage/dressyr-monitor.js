@@ -4,7 +4,9 @@
 import { getGlobalState } from '../../main.js';
 import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { t } from '../../utils/i18n.js';
-import { getEquipages } from '../../services/equipageService.js';
+import { getEquipages, listenForEquipages } from '../../services/equipageService.js';
+import { isLiveDocStale } from '../../services/dressageStatusUtils.js';
+import { serverNow } from '../../utils/serverClock.js';
 import { getConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { listenForDressageStatusCollection, listenForDressageLiveGroup, getDressageResultsForEquipage } from '../../services/dressageService.js';
@@ -284,7 +286,9 @@ function renderCurrentRider() {
 
   // Live Aggregate Prognosis
   const programs = getPrograms();
-  const result = calculateDressageResult(eq, liveProtoArray, allJudges, programs);
+  // The saved 'general' doc carries C's error points into the prognosis
+  const generalDoc = (savedProtocolsByStart.get(String(eq.startNumber)) || []).find(p => p?.id === 'general');
+  const result = calculateDressageResult(eq, generalDoc ? [...liveProtoArray, generalDoc] : liveProtoArray, allJudges, programs);
   const currentPenalty = (result && result.projectedPenalty != null) ? result.projectedPenalty : ((result && result.penalty != null) ? result.penalty : null);
 
   let avgPercent = (result && result.projectedPercent != null) ? result.projectedPercent : (result ? result.percent : null);
@@ -601,23 +605,11 @@ function maybePushRecent(sn) {
     return false;
   }
 
+  // Derived by the service from every judge's own done flag
   let finished = stateStr === 'finished';
 
   // 1. Get ALL available protocols (Saved + Live)
   const merged = getMergedProtocols(S);
-
-  // Auto-detect finished status if we have enough judges
-  if (!finished && window.currentJudgesPresent && window.currentJudgesPresent.length > 0) {
-    // Logic: count unique positions in merged protocols
-    const uniquePos = new Set(merged.map(p => (p.position || p.judgePosition || '').toUpperCase()).filter(x => x));
-    // Compare against expected unique positions
-    const expectedPos = new Set(window.currentJudgesPresent.map(j => (j.position || '').toUpperCase()));
-
-    // If we have protocols for all expected positions, treat as finished
-    if (uniquePos.size >= expectedPos.size && uniquePos.size > 0) {
-      finished = true;
-    }
-  }
 
   // 2. Attempt calculation if we have ANY data
   let computed = null;
@@ -640,6 +632,8 @@ function maybePushRecent(sn) {
       st.errorPenalty = result.errorPenalty;
       dressageStatusMap.set(S, st);
       computed = result; // For the check below
+      // Every assigned judge has a complete protocol (a partial live one does not count)
+      if (result.judgesComplete) finished = true;
     }
   }
 
@@ -731,6 +725,18 @@ function setupAllListeners() {
     if (changed) triggerRender();
   }
 
+  // Live data is only read for equipages not yet finished (a finished
+  // equipage's live data is ignored anyway): fewer listeners as the day goes on
+  let unLiveGroup = null;
+  let unProtoGroup = null;
+  const liveStartNumbers = () => allEquipages
+    .map(e => String(e.startNumber))
+    .filter(sn => dressageStatusMap.get(sn)?.state !== 'finished');
+  const syncGroupListeners = () => {
+    unLiveGroup?.setStartNumbers?.(liveStartNumbers());
+    unProtoGroup?.setStartNumbers?.(allEquipages);
+  };
+
   // 1) Status Collection Listener (Ersätter N unsubStatus-lyssnare)
   const unStatusCol = listenForDressageStatusCollection(competitionId, (docs) => {
     docs.forEach(stDoc => {
@@ -738,21 +744,22 @@ function setupAllListeners() {
       dressageStatusMap.set(sn, { ...stDoc });
       maybePushRecent(sn);
     });
+    syncGroupListeners();
     triggerRender();
   });
   unsubscribes.push(unStatusCol);
 
-  // 2) Live Group Listener
-  const unLiveGroup = listenForDressageLiveGroup(competitionId, allEquipages, (docs) => {
+  // 2) Live Group Listener (one document per judge position)
+  unLiveGroup = listenForDressageLiveGroup(competitionId, liveStartNumbers(), (docs) => {
+    // Server time against the server's stamp: a judge tablet with a wrong
+    // clock no longer hides its marks
+    const now = serverNow();
     docs.forEach(st => {
       const sn = String(st.startNumber);
       const known = dressageStatusMap.get(sn);
       if (known?.state === 'finished') return;
 
-      if (st?.updatedAt) {
-        const age = Date.now() - new Date(st.updatedAt).getTime();
-        if (Number.isFinite(age) && age > 120000) return;
-      }
+      if (isLiveDocStale(st, now)) return;
 
       let proto = st;
       // Some live sources wrap data in "protocol"
@@ -774,9 +781,7 @@ function setupAllListeners() {
         const merged = { ...existing, ...proto };
         liveProtocolMap.get(sn).set(jid, merged);
 
-        // Update projection in judgeLiveByPos (legacy cache, maybe irrelevant now but good for debug)
         if (!judgeLiveByPos.has(sn)) judgeLiveByPos.set(sn, {});
-        // Note: judgeLiveByPos logic assumes simple structure, could be deprecated if we rely on liveProtocolMap
       }
 
       const cur = dressageStatusMap.get(sn) || {};
@@ -791,8 +796,8 @@ function setupAllListeners() {
   });
   unsubscribes.push(unLiveGroup);
 
-  // 3) Protocols (NU COLLECTION GROUP)
-  const unProtoGroup = listenForDressageProtocolsCollectionGroup(competitionId, allEquipages, (docs) => {
+  // 3) Protocols ('general' with the error points included)
+  unProtoGroup = listenForDressageProtocolsCollectionGroup(competitionId, allEquipages, (docs) => {
     // Gruppera docs efter startNumber
     const grouped = new Map();
     docs.forEach(d => {
@@ -810,6 +815,14 @@ function setupAllListeners() {
     triggerRender();
   });
   unsubscribes.push(unProtoGroup);
+
+  // 4) Equipages added (or changed) after the page was opened
+  unsubscribes.push(listenForEquipages(competitionId, (equipagesRaw) => {
+    if (!Array.isArray(equipagesRaw)) return;
+    allEquipages = toMonitorEquipages(equipagesRaw);
+    syncGroupListeners();
+    triggerRender();
+  }));
 
   // The competition's own dressage programs and class mapping
   unsubscribes.push(listenDressageProgramSettings(competitionId, ({ programs }) => {
@@ -856,29 +869,7 @@ export async function load() {
 
     setCompetitionSetting(competitionId, 'dressageJudgeMapping', (judgeMappingCfg && typeof judgeMappingCfg === 'object') ? (judgeMappingCfg.value ?? judgeMappingCfg) : {});
 
-    allEquipages = (equipagesRaw || []).filter(e => e && e.startNumber != null).map(e => {
-      const g = monitor_resolveMergeGrouping(e);
-      return {
-        startNumber: Number(e.startNumber),
-        driverName: e.driverName || e.driver || e.name || '',
-        className: e.className || e.class || e.klass || '',
-        clubName: e.clubName || e.club || '',
-        country: e.country || e.nation || '',
-        status: e.status || e.eqStatus || e.dressageStatus || '',
-        withdrawn: Boolean(e.withdrawn || e.scratched || e.struken || e.didNotStart || e.dns),
-        tdbClassNumber: e.tdbClassNumber ?? null,
-        useMergedTestForDisplay: e.useMergedTestForDisplay ?? false,
-        mergedTestKey: e.mergedTestKey ?? null,
-        mergedTestLabel: e.mergedTestLabel ?? null,
-        _mergedKey: g.key,
-        _mergedLabel: g.label,
-        email: e.email,
-        driverEmail: e.driverEmail,
-        horses: e.horses || [],
-        horseNames: e.horseNames || e.horse || '',
-        momentHorses: e.momentHorses || {}
-      };
-    });
+    allEquipages = toMonitorEquipages(equipagesRaw);
 
     // Robust startTimes parsing
     const stVal = startTimesData?.value ?? startTimesData;
@@ -904,6 +895,33 @@ export async function load() {
     console.error('Kunde inte ladda data för dressyr-monitor:', err);
     if (root) root.innerHTML = `<p class="p-8 text-center text-red-500">Kunde inte ladda nödvändig data: ${escapeHtml(err.message)}</p>`;
   }
+}
+
+// The monitor's view of the equipages (also for ones added later)
+function toMonitorEquipages(equipagesRaw) {
+    return (equipagesRaw || []).filter(e => e && e.startNumber != null).map(e => {
+      const g = monitor_resolveMergeGrouping(e);
+      return {
+        startNumber: Number(e.startNumber),
+        driverName: e.driverName || e.driver || e.name || '',
+        className: e.className || e.class || e.klass || '',
+        clubName: e.clubName || e.club || '',
+        country: e.country || e.nation || '',
+        status: e.status || e.eqStatus || e.dressageStatus || '',
+        withdrawn: Boolean(e.withdrawn || e.scratched || e.struken || e.didNotStart || e.dns),
+        tdbClassNumber: e.tdbClassNumber ?? null,
+        useMergedTestForDisplay: e.useMergedTestForDisplay ?? false,
+        mergedTestKey: e.mergedTestKey ?? null,
+        mergedTestLabel: e.mergedTestLabel ?? null,
+        _mergedKey: g.key,
+        _mergedLabel: g.label,
+        email: e.email,
+        driverEmail: e.driverEmail,
+        horses: e.horses || [],
+        horseNames: e.horseNames || e.horse || '',
+        momentHorses: e.momentHorses || {}
+      };
+    });
 }
 
 export function __unload() {

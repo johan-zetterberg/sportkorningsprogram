@@ -12,6 +12,11 @@ function toFiniteOrNull(value) {
     return Number.isFinite(number) ? number : null;
 }
 
+// Team totals are sums of two-decimal scores: equal within float noise
+function sameTeamTotal(a, b) {
+    return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a - b) <= 1e-6;
+}
+
 function addFinite(sum, value) {
     return Number.isFinite(value) ? (sum ?? 0) + value : sum;
 }
@@ -182,43 +187,20 @@ function calculateLegacyTeamResults(teams, equipageResults) {
             return 0;
         }
 
-        // Both are complete
-        if (a.total !== b.total) return a.total - b.total;
-
-        // Tie-breakers!
-        // 1. Best individual placement among counting members
-        const getBestIndividualPlac = (team) => {
-            const places = team.members
-                .filter(m => m.isCounting && m.details && m.details.plac != null)
-                .map(m => Number(m.details.plac));
-            return places.length > 0 ? Math.min(...places) : Infinity;
-        };
-        const bestPlacA = getBestIndividualPlac(a);
-        const bestPlacB = getBestIndividualPlac(b);
-        if (bestPlacA !== bestPlacB) return bestPlacA - bestPlacB;
-
-        // 2. Sum of counting marathon scores (lowest first)
-        const marA = a.marathon ?? Infinity;
-        const marB = b.marathon ?? Infinity;
-        if (marA !== marB) return marA - marB;
-
-        // 3. Sum of counting dressage scores (lowest first)
-        const drA = a.dressage ?? Infinity;
-        const drB = b.dressage ?? Infinity;
-        if (drA !== drB) return drA - drB;
-
-        // 4. Sum of counting precision scores (lowest first)
-        const prA = a.precision ?? Infinity;
-        const prB = b.precision ?? Infinity;
-        if (prA !== prB) return prA - prB;
-
-        return 0;
+        // Both are complete. TR V 510.2 (Lagtävling) states no tie-break for
+        // teams: equal totals share the place (1, 2, 2, 4); the order between
+        // them is only for display (team name)
+        if (!sameTeamTotal(a.total, b.total)) return a.total - b.total;
+        return String(a.teamName || '').localeCompare(String(b.teamName || ''), 'sv');
     });
 
-    let place = 1;
-    teamResults.forEach((team) => {
+    let place = 0;
+    let previous = null;
+    teamResults.forEach((team, index) => {
         if (!team.isEliminated && !team.isIncomplete) {
-            team.rank = place++;
+            if (!previous || !sameTeamTotal(team.total, previous.total)) place = index + 1;
+            team.rank = place;
+            previous = team;
         } else {
             team.rank = null;
         }

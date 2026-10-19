@@ -2,7 +2,7 @@
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { getClubLogoUrl, fetchImageDataUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
-import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName } from '../utils/precisionUtils.js';
+import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName, precisionFormatWarning } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
@@ -101,7 +101,7 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
     startY: y,
     head: [['Summering', 'Värde']],
     body: [
-      ['Tid', `${data.display.timeLabel} (${formatPrecisionPdfTimeSeconds(data.d?.timeMs)})`],
+      ['Tid', `${data.display.timeLabel} (${formatPrecisionPdfTimeSeconds(data.timeMs ?? data.d?.timeMs)})`],
       ['Hinderstraff', formatPdfPenalty(data.obstaclePenalty, { eliminated: data.eliminated })],
       ['Tidsstraff', formatPdfPenalty(data.timePenalty, { eliminated: data.eliminated })],
       ['Övrigt straff', formatPdfPenalty(data.extraPenalty, { eliminated: data.eliminated })],
@@ -252,6 +252,28 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
 
   doc.setFont(undefined, 'normal'); // Reset font for table
 
+  // Classes whose precision format the program does not calculate: no places
+  const formatWarnings = [...new Set(equipages
+    .filter(eq => !isWithdrawnStatus(eq.status))
+    .map(eq => {
+      const warning = precisionFormatWarning(eq, config, { en: isInt });
+      return warning ? `${eq._mergedLabel || eq.className || ''}: ${warning}` : '';
+    })
+    .filter(Boolean))];
+  if (formatWarnings.length > 0) {
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(150, 80, 0);
+    formatWarnings.forEach(text => {
+      const lines = doc.splitTextToSize(text, pageWidth - 80);
+      doc.text(lines, 40, y);
+      y += 12 * lines.length;
+    });
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'normal');
+    y += 4;
+  }
+
   // UPDATED HEADER with START column
   const head = [[
     t('rank', isInt), '#', `${t('driver', isInt)} / ${t('horse', isInt)}`, t('class', isInt),
@@ -275,7 +297,8 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       eq._mergedLabel || eq.className || '',
       eq.clubName || '',
       row.startT || '–', // Start time column
-      `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.d?.timeMs)}`,
+      // The engine's time: hundredths, with +10 s per obstacle rebuild
+      `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.timeMs ?? row.d?.timeMs)}`,
       formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
       formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
       { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } }

@@ -4,18 +4,30 @@ import { parseArgs } from 'node:util';
 import {
   EXPORT_FORMAT,
   EXPORT_FORMAT_VERSION,
-  collectDocuments,
   competitionRootPaths,
   fromExportValue,
   restoreWarnings,
   rewriteCompetitionId
 } from '../functions/src/competitionExport.js';
 import { isValidCompetitionId } from '../functions/src/adminJoin.js';
+import {
+  documentsNewerThanExport,
+  findExtraDocuments,
+  mergeRedactedFields,
+  redactionsByPath
+} from './restore-plan.mjs';
 
 // Återställer en tävling från en säkerhetskopia (exportCompetition, JSON).
 //
 //   node scripts/restore-competition.mjs <backup.json> --project <id>
-//        [--as-new-id <nyttId>] [--dry-run] [--overwrite] [--yes-production]
+//        [--as-new-id <nyttId>] [--dry-run] [--overwrite [--prune] [--force]]
+//        [--yes-production]
+//
+// --overwrite skriver dokumenten i kopian över de befintliga. Fält som
+// kopian saknar med flit (PIN-koder, accessCode_*, personnummer) behålls från
+// databasen. Dokument som bara finns i databasen (t.ex. lås satta efter
+// kopian) lämnas kvar, om inte --prune anges. Har databasen ändrats efter
+// att kopian togs nekas återställningen, om inte --force anges.
 //
 // Mot emulatorn: sätt FIRESTORE_EMULATOR_HOST (t.ex. 127.0.0.1:8080).
 // Mot ett riktigt projekt: inloggning via GOOGLE_APPLICATION_CREDENTIALS
@@ -34,7 +46,12 @@ Flaggor:
   --project <id>       Firebase-projektet att skriva till (krävs)
   --as-new-id <id>     Återställ som en kopia med ett nytt Competition ID
   --dry-run            Kontrollera och visa vad som skulle skrivas, skriv inget
-  --overwrite          Skriv över en tävling som redan finns
+  --overwrite          Skriv över en tävling som redan finns (PIN-koder och
+                       personnummer som saknas i kopian behålls från databasen)
+  --prune              Med --overwrite: ta bort dokument som inte finns i kopian
+                       (t.ex. finaliseringslås satta efter kopian)
+  --force              Med --overwrite: skriv även om databasen har ändrats
+                       efter att kopian togs (de ändringarna går förlorade)
   --yes-production     Krävs för att skriva till produktionen (${PRODUCTION_PROJECT});
                        --dry-run där läser bara och kräver den inte
   --help               Visa den här texten`;
@@ -53,6 +70,8 @@ try {
       'as-new-id': { type: 'string' },
       'dry-run': { type: 'boolean', default: false },
       overwrite: { type: 'boolean', default: false },
+      prune: { type: 'boolean', default: false },
+      force: { type: 'boolean', default: false },
       'yes-production': { type: 'boolean', default: false },
       help: { type: 'boolean', default: false }
     }
@@ -68,6 +87,7 @@ if (opts.help) {
 if (positionals.length !== 1) fail(`Ange exakt en säkerhetskopia (JSON-fil).\n\n${USAGE}`);
 const projectId = String(opts.project || '').trim();
 if (!projectId) fail(`--project krävs, så att ingen återställning hamnar i fel projekt av misstag.\n\n${USAGE}`);
+if ((opts.prune || opts.force) && !opts.overwrite) fail(`--prune och --force gäller bara tillsammans med --overwrite.\n\n${USAGE}`);
 const emulatorHost = process.env.FIRESTORE_EMULATOR_HOST || '';
 
 if (projectId === PRODUCTION_PROJECT) {
@@ -177,14 +197,62 @@ if (existing.length && !opts.overwrite) {
   fail(`Tävlingen ${targetId} finns redan (${existing.join(', ')}).\n` +
     'Använd --overwrite för att skriva över den, eller --as-new-id <id> för att återställa en kopia bredvid.');
 }
+// Every document under the roots, as stored (Firestore types) with its last
+// change time
+async function collectLive(docRef, out) {
+  const snap = await docRef.get();
+  if (snap.exists) out.push({ path: docRef.path, data: snap.data(), updateMs: snap.updateTime?.toMillis?.() ?? null });
+  const collections = await docRef.listCollections();
+  for (const collection of collections) {
+    const refs = await collection.listDocuments();
+    for (const ref of refs) await collectLive(ref, out);
+  }
+  return out;
+}
+
+// What the backup left out on purpose, under the target's paths
+const mapRedactedPath = targetId === sourceId
+  ? (path) => path
+  : (path) => rewriteCompetitionId([{ path, data: {} }], sourceId, targetId).documents[0].path;
+const { fieldsByPath: redactedFields, wholeDocuments: redactedDocuments } = redactionsByPath(exportData.redacted, mapRedactedPath);
+let toPrune = [];
+let keptRedacted = 0;
 if (existing.length) {
-  const restoredPaths = new Set(prepared.map(d => d.path));
-  const current = [];
-  for (const root of existing) await collectDocuments(db.doc(root), { out: current });
-  const extra = current.filter(d => !restoredPaths.has(d.path)).map(d => d.path);
-  console.warn(`\nVARNING: --overwrite: ${current.length} befintliga dokument; dokument i kopian skrivs över helt.`);
+  const live = [];
+  for (const root of existing) await collectLive(db.doc(root), live);
+  const liveByPath = new Map(live.map(d => [d.path, d]));
+
+  // Changed after the backup was taken: the restore would undo it
+  const newer = documentsNewerThanExport(live, exportData.exportedAt);
+  if (newer.length) {
+    const list = newer.slice(0, 10).map(d => `    ${d.path}${d.updateMs ? ` (${new Date(d.updateMs).toISOString()})` : ''}`).join('\n');
+    const message = `${newer.length} dokument i databasen har ändrats efter att kopian togs (${exportData.exportedAt || 'okänd tid'}):\n${list}${newer.length > 10 ? '\n    ...' : ''}`;
+    if (!opts.force && !opts['dry-run']) {
+      fail(`${message}\nÅterställningen skulle skriva över de ändringarna. Ta en ny kopia, eller kör med --force om de verkligen ska skrivas över.`);
+    }
+    console.warn(`\nVARNING: ${message}${opts.force ? '\n  --force: de skrivs över.' : '\n  (Utan --force nekas återställningen.)'}`);
+  }
+
+  // Fields the backup left out are kept from the database (a plain overwrite
+  // would delete PINs and personal identity numbers)
+  prepared = prepared.map((doc) => {
+    const fields = redactedFields.get(doc.path);
+    const current = liveByPath.get(doc.path);
+    if (!fields || !current) return doc;
+    const { data, kept } = mergeRedactedFields(doc.data, current.data, fields);
+    keptRedacted += kept.length;
+    return { ...doc, data };
+  });
+
+  const extra = findExtraDocuments(live.map(d => d.path), prepared.map(d => d.path), redactedDocuments);
+  console.warn(`\nVARNING: --overwrite: ${live.length} befintliga dokument; dokument i kopian skrivs över (${keptRedacted} fält som kopian saknar behålls från databasen).`);
   if (extra.length) {
-    console.warn(`  ${extra.length} dokument finns bara i databasen (inte i kopian) och lämnas orörda:`);
+    if (opts.prune) {
+      toPrune = extra;
+      console.warn(`  --prune: ${extra.length} dokument finns bara i databasen (inte i kopian) och tas bort:`);
+    } else {
+      console.warn(`  ${extra.length} dokument finns bara i databasen (inte i kopian) och lämnas orörda (--prune tar bort dem):`);
+    }
     extra.slice(0, 10).forEach(path => console.warn(`    ${path}`));
     if (extra.length > 10) console.warn('    ...');
   }
@@ -209,7 +277,7 @@ console.log('\nDokument per samling:');
 summarize(prepared).forEach(([key, n]) => console.log(`  ${String(n).padStart(5)}  ${key}`));
 
 if (opts['dry-run']) {
-  console.log(`\nTorrkörning (--dry-run): ${prepared.length} dokument skulle skrivas. Inget skrevs.`);
+  console.log(`\nTorrkörning (--dry-run): ${prepared.length} dokument skulle skrivas${toPrune.length ? ` och ${toPrune.length} tas bort` : ''}. Inget skrevs.`);
 } else {
   let batch = db.batch();
   let ops = 0;
@@ -234,11 +302,17 @@ if (opts['dry-run']) {
       ops++;
       bytes += doc.size;
     }
+    // --prune: what only the database had (deleted last, after the restore)
+    for (const path of toPrune) {
+      if (ops >= MAX_BATCH_WRITES) await commit();
+      batch.delete(db.doc(path));
+      ops++;
+    }
     await commit();
   } catch (error) {
-    fail(`Skrivningen avbröts efter ${written} dokument: ${error.message}\nKör igen med --overwrite för att slutföra.`);
+    fail(`Skrivningen avbröts efter ${written} dokument: ${error.message}\nKör igen med --overwrite --force för att slutföra (databasen är nu nyare än kopian).`);
   }
-  console.log(`\nKlart: ${written} dokument återställda i ${batches} omgångar till ${projectId}, tävling ${targetId}.`);
+  console.log(`\nKlart: ${written - toPrune.length} dokument återställda${toPrune.length ? ` och ${toPrune.length} borttagna` : ''} i ${batches} omgångar till ${projectId}, tävling ${targetId}.`);
   if (!emulatorHost) console.log('Molnfunktionerna räknar om resultaten när dokumenten skrivs.');
 }
 

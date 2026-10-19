@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+    changedPauseWindows,
+    marathonOverlapsPauseWindows,
     equipageWriteAffectsResults,
     marathonWriteAffectsResults,
     precisionWriteAffectsResults,
@@ -60,4 +62,33 @@ test('saving the course map does not recalculate the competition', () => {
         resultSettingsFingerprint({ configs: { maratonConfig: cfg } }),
         resultSettingsFingerprint({ configs: { maratonConfig: { ...cfg, mapSettings: null } } })
     );
+});
+
+test('pause log: only the changed pauses count, an open pause lasts until closed', () => {
+    const p1 = { start: '2026-10-17T10:00:00.000Z', end: '2026-10-17T10:10:00.000Z', durationSec: 600 };
+    const open = { start: '2026-10-17T11:00:00.000Z', end: null };
+    const closed = { ...open, end: '2026-10-17T11:05:00.000Z', durationSec: 300 };
+    const t = (iso) => Date.parse(iso);
+    // A new open pause
+    assert.deepEqual(changedPauseWindows([p1], [p1, open]), [[t(open.start), Infinity]]);
+    // Closing it: the open and the closed versions both count
+    assert.deepEqual(changedPauseWindows([p1, open], [p1, closed]), [[t(open.start), Infinity], [t(closed.start), t(closed.end)]]);
+    assert.deepEqual(changedPauseWindows([p1], [p1]), []);
+    // An entry without a readable start: recalculate everything
+    assert.equal(changedPauseWindows([], [{ start: 'not a date' }]), null);
+});
+
+test('pause log: only equipages with a stage overlapping the pause are recalculated', () => {
+    const at = (hhmm) => Date.parse(`2026-10-17T${hhmm}:00.000Z`);
+    const windows = [[at('11:00'), at('11:05')]];
+    // Stage B over the pause
+    assert.equal(marathonOverlapsPauseWindows({ start_B: at('10:50'), finish_B: at('11:20') }, {}, windows), true);
+    // Finished before the pause, started after it
+    assert.equal(marathonOverlapsPauseWindows({ start_A: at('09:00'), finish_A: at('09:30') }, {}, windows), false);
+    assert.equal(marathonOverlapsPauseWindows({}, { start_A: at('11:10'), finish_A: at('11:40') }, windows), false);
+    // Still running at the pause (from the timing document)
+    assert.equal(marathonOverlapsPauseWindows(null, { start_A: at('10:30') }, windows), true);
+    // No stage times at all
+    assert.equal(marathonOverlapsPauseWindows({ obstacles: [] }, null, windows), false);
+    assert.equal(marathonOverlapsPauseWindows({ start_B: at('10:50') }, {}, []), false);
 });

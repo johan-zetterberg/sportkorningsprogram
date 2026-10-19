@@ -24,9 +24,10 @@ export const MARATHON_OBSTACLE_MAX_TIME_SEC = 300;
 export const MARATHON_KNOCKDOWN_PENALTY = 2;
 
 // Wrong gait, per incident: corrected within the grace time, no penalty;
-// otherwise 1 penalty per period (TR V 523.1: per commenced 5 s period after
-// the grace; FEI 960.6.4: 1 for the incident plus 1 per further completed
-// 5 s period)
+// otherwise 1 penalty per period (TR V 523.1: "ska det korrigeras inom 5
+// sekunder, annars tilldelas 1 straffpoäng/påbörjad period om 5 sekunder":
+// 0-5 s free, 6-10 s 1 p, 11-15 s 2 p (owner's decision 2026-10-19); FEI
+// 964.4: 1 for the occurrence plus 1 per additional completed 5 s period)
 export const MARATHON_WRONG_GAIT_GRACE_SEC = 5;
 export const MARATHON_WRONG_GAIT_PERIOD_SEC = 5;
 
@@ -168,6 +169,25 @@ export const PRECISION_TIME_PENALTY_RATE = 0.5;
 
 // Precision standard knockdown penalty (3)
 export const PRECISION_KNOCKDOWN_PENALTY = 3;
+
+// Seconds added to the precision time for each obstacle rebuild: TR V 530.15
+// and 530.19 (Bilaga 9: "Rivning på grund av olydnad 5 straffp. + 10 sek",
+// "River del av hinder som ska köras 3 straffp. + 10 sek"); FEI 975.4.4,
+// 975.5.1, 975.5.3, 975.8.5 ("10 seconds will be added to their time")
+export const PRECISION_REBUILD_ADDED_SEC = 10;
+
+// Precision times count in hundredths of a second (FEI 975.10.3 "Times must
+// be recorded to hundredths of a second"; TR V 530.8 stopwatch tenths or
+// electronic hundredths). A timer shows the elapsed time cut off at its last
+// digit, so a time is truncated (not rounded) to hundredths.
+export const PRECISION_TIME_RESOLUTION_MS = 10;
+
+/** A precision time in ms truncated to hundredths (null when not a number). */
+export function truncatePrecisionTimeMs(ms) {
+  if (!isNum(ms)) return null;
+  // The small margin keeps float noise (64.99999 s) from losing a hundredth
+  return Math.floor(ms / PRECISION_TIME_RESOLUTION_MS + 1e-6) * PRECISION_TIME_RESOLUTION_MS;
+}
 
 // --- DRESSAGE CONSTANTS ---
 

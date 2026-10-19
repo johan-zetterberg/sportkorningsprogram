@@ -15,7 +15,8 @@ export function renderPrecisionResultCard({
   runningLabel = 'Pågår'
 }) {
   const eq = data.eq;
-  const sn = String(eq.startNumber);
+  // Escaped for the HTML below (text and attributes)
+  const sn = escapeHtml(String(eq.startNumber ?? ''));
   const timeLabel = data.display.timeLabel;
   const timeMs = Number(data.d?.timeMs);
   const timeTitle = Number.isFinite(timeMs)
@@ -68,7 +69,7 @@ export function renderPrecisionResultCard({
         <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 ${(isPlaced || isActive || isStruken) ? '' : 'bg-gray-50 dark:bg-gray-800/50'}">
            <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${eq.startNumber}</span>
+                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${sn}</span>
                  <span class="truncate">${escapeHtml(eq.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">

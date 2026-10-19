@@ -12,6 +12,7 @@ import { calculateDressageResult } from '../../services/calculationService.js';
 import { setMarathonConfig, buildMergeMap, ensureMergeDecorations, setPauseWindows } from '../../utils/marathonUtils.js';
 
 import { expandDressagePosition } from './speakerHelpers.js';
+import { normalizeMarathonDoc } from '../../core-engine/stateSelector.js';
 import {
     applySpeakerDressageCalculatedResult,
     applySpeakerDressageLiveDoc,
@@ -196,7 +197,12 @@ export function setupAllListeners(context) {
     function setupMarathonListeners() {
         const maratonRef = collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton');
         const unsub = onSnapshot(maratonRef, (snapshot) => {
-            const changes = snapshot.docChanges();
+            // Per-obstacle results and live entries (obstacleLive.{n}) in the
+            // flat shape the speaker reads
+            const changes = snapshot.docChanges().map(change => {
+                const data = normalizeMarathonDoc(change.doc.data());
+                return { type: change.type, doc: { id: change.doc.id, data: () => data } };
+            });
             applySpeakerMarathonDocChanges(changes, maratonStatusMap, activeEquipages, evaluateActiveState);
             changes.forEach(change => {
                 if (change.type !== 'removed') maybePushRecentMarathon(change.doc.id, change.doc.data());

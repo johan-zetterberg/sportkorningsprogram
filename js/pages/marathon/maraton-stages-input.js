@@ -10,15 +10,23 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { trackWrite } from '../../services/firestoreService.js';
+import { mergeMarathonObstacles } from '../../core-engine/stateSelector.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
-import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
+import { readNewestBackupData, writeMergedBackup, pruneFieldBackups } from '../../utils/fieldBackup.js';
 import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
 // Stage start and stop may be stamped on different phones: use the server's clock
 import { serverNow, setServerClockHold, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
-import { stageDrivenMsAtRestart, stageStopDurationMs } from './marathonObstacleOwnership.js';
+import { stageDrivenMsAtRestart, stageStopDurationMs, stageStartPayload, isStageRestart, formatHoldTime } from './marathonObstacleOwnership.js';
+
+// Every page stays in the DOM: lookups are scoped to this page's container
+const pageRoot = () => document.getElementById('page-maraton-stages');
+const byId = (id) => pageRoot()?.querySelector(`#${CSS.escape(id)}`) || null;
+const pageQuery = (selector) => pageRoot()?.querySelector(selector) || null;
+const pageQueryAll = (selector) => Array.from(pageRoot()?.querySelectorAll(selector) || []);
 
 // --- Wrapper functions for marathonUtils ---
 
@@ -298,13 +306,11 @@ async function ensureMaratonDoc(sn, equipage = currentEquipage) {
     try {
       // Not awaited to the server: without signal the stage write behind this
       // one would otherwise not even be queued
-      await awaitWriteOrQueue(setDoc(ref, {
+      await awaitWriteOrQueue(trackWrite('Skapar maratondokument', setDoc(ref, {
         startNumber: Number(sn),
         className: equipage?.className || '',
-        running: false,
-        currentObstacle: null,
         updatedAt: serverTimestamp()
-      }, { merge: true }));
+      }, { merge: true })));
       knownMaratonDocs.add(String(sn));
       return;
     } catch (e) {
@@ -316,8 +322,6 @@ async function ensureMaratonDoc(sn, equipage = currentEquipage) {
         await setDoc(refEN, {
           startNumber: Number(sn),
           className: equipage?.className || '',
-          running: false,
-          currentObstacle: null,
           updatedAt: serverTimestamp()
         }, { merge: true });
       }
@@ -432,11 +436,11 @@ function normalizeEquipage(e) {
 }
 
 function renderActiveCards() {
-  const host = document.getElementById('activeTimers');
+  const host = byId('activeTimers');
   if (!host) return;
 
   // NYTT: Uppdatera toggle-knappen med antalet
-  const toggleBtn = document.getElementById('toggleActiveTimers');
+  const toggleBtn = byId('toggleActiveTimers');
   if (toggleBtn) {
     const labelEl = toggleBtn.querySelector('span:not(.arrow)');
     if (labelEl) {
@@ -446,7 +450,7 @@ function renderActiveCards() {
   }
   // NYTT: Håll listan stängd om den är tom
   if (activeTimers.size === 0) {
-    document.getElementById('activeTimersWrapper')?.classList.remove('is-open');
+    byId('activeTimersWrapper')?.classList.remove('is-open');
   }
 
   const parts = [];
@@ -468,7 +472,7 @@ function renderActiveCards() {
   </button>
   <div class="flex items-center gap-3">
     <div class="timer font-mono tabular-nums text-lg dark:text-gray-200">${fmtMsTimer(ms)}</div>
-    <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
+    <button class="stop min-h-[44px] min-w-[44px] px-3 text-sm font-bold rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
   </div>
 </div>
     `);
@@ -508,7 +512,9 @@ function hydrateTimingFromFlat(doc) {
   ['warmup', 'A', 'transport', 'B'].forEach(stage => {
     t[stage] = makeStageTimingFromFlat(doc, stage);
   });
-  return { ...doc, timing: t };
+  // Saved obstacle results (obstacleResults.{n} and older obstacles[]): the
+  // hold times on stage B come from them
+  return { ...doc, obstacles: mergeMarathonObstacles(doc), timing: t };
 }
 
 function stagesBackupKey(sn) {
@@ -620,11 +626,12 @@ async function saveStageSnapshot(stage, payload, equipage = currentEquipage) {
   }
 
   // --- Skriv EN gång (bara /maraton) ---
-  await setDoc(
+  // Tracked: the sync indicator keeps it until the server has it
+  await trackWrite(`Sparar etapp ${stage} #${sn}`, setDoc(
     maratonDocRef(sn),
     { ...flat, updatedAt: serverTimestamp() },
     { merge: true }
-  );
+  ));
   // The local cache (currentDocData) is updated by the callers: the write is
   // acknowledged later, when the screen may show a newer action or another equipage
 }
@@ -734,10 +741,7 @@ function subscribeToEquipageDoc(sn) {
   unsubscribeStageDoc = onSnapshot(
     maratonDocRef(sn),
     (snap) => {
-      // Uppdatera global synk-status baserat på metadata
-      if (typeof window.setSyncStatus === 'function') {
-        window.setSyncStatus(snap.metadata.hasPendingWrites);
-      }
+      // The sync indicator follows the writes (trackWrite), not this document
       const data = snap.exists() ? snap.data() : readStagesBackup(sn);
       if (snap.exists() && data) mirrorToLocal(sn, data); // Backuppa lokalt
       applyDocToLocalState(sn, data);
@@ -808,7 +812,7 @@ function paintTimer(key, now = serverNow()) {
   const ms = shownElapsedMs(t, now);
 
   // 1) Uppdatera lilla rad-timern i "Aktiva timrar"
-  const small = document.querySelector(`[data-active="${sn}|${stage}"] .timer`);
+  const small = pageQuery(`[data-active="${sn}|${stage}"] .timer`);
   if (small) small.textContent = fmtMsTimer(ms);
 
   // 2) Uppdatera huvudpanelen ENDAST om detta är nuvarande ekipage + etapp
@@ -819,7 +823,7 @@ function paintTimer(key, now = serverNow()) {
     normalizeStageForEquipage(currentEquipage, currentStage) === normalizeStageForEquipage(eq, stage);
 
   if (isCurrentPanel) {
-    const big = document.getElementById(`timer-${currentStage}`);
+    const big = byId(`timer-${currentStage}`);
     if (big) {
       big.textContent = fmtMsTimer(ms);
       // färglägg enligt TL/max etc
@@ -847,10 +851,10 @@ function fmtMsMMSS(ms) {
 
 // Skriv ut TL + straffrad under timern
 function updateTimerInfo(stage, equipageSnOrObj, ms) {
-  const tlEl = document.getElementById(`info-${stage}-tl`);
-  const devEl = document.getElementById(`info-${stage}-dev`);
-  const penEl = document.getElementById(`info-${stage}-pen`);
-  const timerEl = document.getElementById(`timer-${stage}`);
+  const tlEl = byId(`info-${stage}-tl`);
+  const devEl = byId(`info-${stage}-dev`);
+  const penEl = byId(`info-${stage}-pen`);
+  const timerEl = byId(`timer-${stage}`);
   const obsList = Array.isArray(currentDocData?.obstacles) ? currentDocData.obstacles : [];
   const holdTimeMs = (stage === 'B') ? getTotalHoldTimeMs(obsList) : 0;
   const res = computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs);
@@ -879,8 +883,8 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
   }
 
   // Tid kvar till B (om Fixed Time A)
-  const etaBox = document.getElementById(`box-${stage}-etaB`);
-  const etaEl = document.getElementById(`info-${stage}-etaB`);
+  const etaBox = byId(`box-${stage}-etaB`);
+  const etaEl = byId(`info-${stage}-etaB`);
   if (etaBox && etaEl) {
     const eq = resolveEquipage(equipageSnOrObj);
     const limA = eq ? limitsFor(eq, 'A') : null;
@@ -956,16 +960,21 @@ function updateTimerInfo(stage, equipageSnOrObj, ms) {
   }
 
   // Vilobox-status (TR Mom 526.4 / FEI Art 948.3)
-  const viloboxEl = document.getElementById(`box-${stage}-vilobox`);
+  const viloboxEl = byId(`box-${stage}-vilobox`);
   if (viloboxEl) {
     const eq = resolveEquipage(equipageSnOrObj);
     if (eq && (stage === 'B' || stage === 'A' || stage === 'warmup')) {
       const vInfo = getViloboxBadgeInfo(eq);
       viloboxEl.classList.remove('hidden');
-      viloboxEl.innerHTML = `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${vInfo.colorClass}">🩺 Vilobox: ${escapeHtml(vInfo.label)}</span>`;
-    } else {
+      const html = `<span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold border ${vInfo.colorClass}">🩺 Vilobox: ${escapeHtml(vInfo.label)}</span>`;
+      if (viloboxEl.dataset.html !== html) {
+        viloboxEl.innerHTML = html;
+        viloboxEl.dataset.html = html;
+      }
+    } else if (viloboxEl.dataset.html !== '') {
       viloboxEl.classList.add('hidden');
       viloboxEl.innerHTML = '';
+      viloboxEl.dataset.html = '';
     }
   }
 
@@ -1019,7 +1028,7 @@ function applyTimerColor(el, equipageSnOrObj, stage, ms) {
 
 function renderLayout() {
   const comp = getGlobalState('currentCompetition');
-  const root = document.getElementById('page-maraton-stages');
+  const root = pageRoot();
   if (!root) return;
 
   root.innerHTML = `
@@ -1031,7 +1040,8 @@ function renderLayout() {
           background: none;
           border: 1px solid #cbd5e1;
           border-radius: 99px;
-          padding: 4px 10px;
+          min-height: 44px;
+          padding: 4px 14px;
           font-size: 11px;
           line-height: 1.2;
           color: #475569;
@@ -1203,9 +1213,9 @@ function renderLayout() {
                 ${comp?.competitionMode === 'field' ? 'Vald etapp' : 'Aktiv etapp'}: <span id="activeStageLabel" class="text-blue-600 dark:text-blue-400">${decorateStageLabel(currentStage)}</span>
               </div>
             </div>
-            <div class="flex gap-1 shrink-0">
-              <button id="eqPrev" class="w-8 h-8 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟨</button>
-              <button id="eqNext" class="w-8 h-8 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟩</button>
+            <div class="flex gap-2 shrink-0">
+              <button id="eqPrev" type="button" aria-label="Föregående ekipage" class="w-11 h-11 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟨</button>
+              <button id="eqNext" type="button" aria-label="Nästa ekipage" class="w-11 h-11 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟩</button>
             </div>
           </div>
 
@@ -1311,7 +1321,7 @@ function renderStagePanel(stage) {
         : `<button id="btnStart-${stage}" class="stage-action-btn stage-main-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-emerald-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_start')}</button>
       <button id="btnStop-${stage}"  class="stage-action-btn stage-main-btn flex-1 min-w-[9rem] py-3 md:py-4 text-lg md:text-xl font-black rounded-xl bg-rose-600 text-white shadow-lg active:scale-95 transition-all">${t('marathon_stages_btn_finish')}</button>`}
       </div>
-      <button id="btnReset-${stage}" class="stage-reset-btn w-full sm:w-14 py-3 sm:py-0 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">↺</button>
+      <button id="btnReset-${stage}" aria-label="${t('marathon_stages_reset')}" class="stage-reset-btn w-full sm:w-14 sm:ml-3 py-3 sm:py-0 flex items-center justify-center rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 active:scale-95 transition-all" title="${t('marathon_stages_reset')}">↺</button>
     </div>
 
     <!-- KLOCKSLAG OCH KOMMENTARER -->
@@ -1330,8 +1340,8 @@ function renderStagePanel(stage) {
       <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <button type="button" class="toggle-btn comment-toggle-btn uppercase font-bold">${t('marathon_stages_comments')}</button>
         <div class="flex items-center gap-2">
-           <label class="flex items-center gap-1.5 cursor-pointer">
-             <input id="manualEliminated" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-rose-600">
+           <label for="manualEliminated" class="flex items-center gap-2 cursor-pointer min-h-[44px] px-3 rounded border dark:border-gray-700">
+             <input id="manualEliminated" type="checkbox" class="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-rose-600">
              <span class="text-[10px] uppercase font-bold text-rose-700 dark:text-rose-400">${t('marathon_stages_elim')}</span>
            </label>
         </div>
@@ -1348,13 +1358,13 @@ function renderStagePanel(stage) {
       <div id="holdTimeNotice-B" class="hidden p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-700 text-xs space-y-1">
         <div class="font-bold text-blue-900 dark:text-blue-200 flex items-center justify-between">
           <span>⏱️ Registrerat uppehåll vid hinder:</span>
-          <span id="holdTimeNoticeAmount-B" class="font-mono font-bold">-0s</span>
+          <span id="holdTimeNoticeAmount-B" class="font-mono font-bold">-0:00 min</span>
         </div>
         <div id="holdTimeNoticeDetails-B" class="text-blue-800 dark:text-blue-300"></div>
       </div>
       <div class="pt-2 border-t dark:border-gray-700 space-y-2">
-        <label class="flex items-center gap-2 cursor-pointer">
-          <input id="bitOk" type="checkbox" class="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-blue-600">
+        <label for="bitOk" class="flex items-center gap-2 cursor-pointer min-h-[44px]">
+          <input id="bitOk" type="checkbox" class="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600">
           <span class="text-xs font-bold dark:text-gray-200 uppercase">${t('marathon_stages_bit_check_ok')}</span>
         </label>
         <textarea id="bitComment" rows="1" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_bit_comment')}"></textarea>
@@ -1376,7 +1386,7 @@ function renderStagePanel(stage) {
 }
 
 function highlightActiveTab() {
-  document.querySelectorAll('.stageTab').forEach(btn => {
+  pageQueryAll('.stageTab').forEach(btn => {
     const s = btn.dataset.stage;
     const active = (s === currentStage);
     btn.classList.toggle('bg-brand-darkblue', active);
@@ -1386,14 +1396,14 @@ function highlightActiveTab() {
 }
 
 function updateStageEqLine() {
-  const el = document.getElementById('stageEqLine');
+  const el = byId('stageEqLine');
   if (!el) return;
   if (!currentEquipage) { el.textContent = '—'; return; }
   el.textContent = `#${currentEquipage.startNumber} ${currentEquipage.driverName || ''} (${currentEquipage.className || '—'})`;
 }
 
 function updateEqInfo() {
-  const el = document.getElementById('eqInfo');
+  const el = byId('eqInfo');
   if (!el) return;
   if (!currentEquipage) { el.textContent = '–'; return; }
   const h = currentEquipage?.horses?.[0]?.name || currentEquipage?.horse || '';
@@ -1402,7 +1412,7 @@ function updateEqInfo() {
 
 function updateTimerLabel(stage) {
   const sn = currentEquipage ? String(currentEquipage.startNumber) : null;
-  const host = document.getElementById(`timer-${stage}`);
+  const host = byId(`timer-${stage}`);
   if (!host) return;
   if (!sn) { host.textContent = msToLabel(0); return; }
 
@@ -1450,8 +1460,8 @@ function updateTimerLabel(stage) {
 // ---------- Aktiva kort (multi-timer) ----------
 function addOrUpdateActiveCard(sn, stage) {
   const key = `${sn}|${stage}`;
-  const host = document.getElementById('activeTimers');
-  let card = document.querySelector(`[data-active="${key}"]`);
+  const host = byId('activeTimers');
+  let card = pageQuery(`[data-active="${key}"]`);
   if (!card) {
     card = document.createElement('div');
     card.setAttribute('data-active', key);
@@ -1459,28 +1469,28 @@ function addOrUpdateActiveCard(sn, stage) {
     card.innerHTML = `
       <div class="text-sm dark:text-gray-300">#${escapeHtml(sn)} • ${escapeHtml(stage.toUpperCase())}</div>
       <div class="timer tabular-nums text-lg dark:text-white">00:00,00</div>
-      <button class="stop px-2 py-1 text-xs rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
+      <button class="stop min-h-[44px] min-w-[44px] px-3 text-sm font-bold rounded bg-rose-600 text-white hover:bg-rose-700">${t('marathon_stages_stop')}</button>
     `;
     host.appendChild(card);
   }
 }
 function removeActiveCard(key) {
-  document.querySelector(`[data-active="${key}"]`)?.remove();
+  pageQuery(`[data-active="${key}"]`)?.remove();
 }
 // === Global: manuell editor via klick på timern (mmsscc eller mm:ss,cc) ===
 function bindManualEditor(stage) {
   // Ensure manual UI is hidden initially
-  document.getElementById('manual-warmup')?.classList.add('hidden');
-  document.getElementById('manual-A')?.classList.add('hidden');
-  document.getElementById('manual-transport')?.classList.add('hidden');
-  document.getElementById('manual-B')?.classList.add('hidden');
+  byId('manual-warmup')?.classList.add('hidden');
+  byId('manual-A')?.classList.add('hidden');
+  byId('manual-transport')?.classList.add('hidden');
+  byId('manual-B')?.classList.add('hidden');
 
-  const timerEl = document.getElementById(`timer-${stage}`);
-  const openBtn = document.getElementById(`btnManualOpen-${stage}`);
-  const wrapEl = document.getElementById(`manual-${stage}`);
-  const inputEl = document.getElementById(`manualDigits-${stage}`);
-  const okBtn = document.getElementById(`manualApply-${stage}`);
-  const cancelBtn = document.getElementById(`manualCancel-${stage}`);
+  const timerEl = byId(`timer-${stage}`);
+  const openBtn = byId(`btnManualOpen-${stage}`);
+  const wrapEl = byId(`manual-${stage}`);
+  const inputEl = byId(`manualDigits-${stage}`);
+  const okBtn = byId(`manualApply-${stage}`);
+  const cancelBtn = byId(`manualCancel-${stage}`);
 
   if (!timerEl || !wrapEl || !inputEl || !okBtn || !cancelBtn) return;
 
@@ -1581,11 +1591,11 @@ function formatClockDisplay(value) {
 }
 
 function refreshCommentToggleState(stage) {
-  const wrap = document.querySelector('#stagePanel .comment-wrapper');
-  const toggle = document.querySelector('#stagePanel .comment-toggle-btn');
-  const startComment = document.getElementById(`commentStart-${stage}`)?.value?.trim() || '';
-  const stopComment = document.getElementById(`commentStop-${stage}`)?.value?.trim() || '';
-  const bitComment = document.getElementById('bitComment')?.value?.trim() || '';
+  const wrap = pageQuery('#stagePanel .comment-wrapper');
+  const toggle = pageQuery('#stagePanel .comment-toggle-btn');
+  const startComment = byId(`commentStart-${stage}`)?.value?.trim() || '';
+  const stopComment = byId(`commentStop-${stage}`)?.value?.trim() || '';
+  const bitComment = byId('bitComment')?.value?.trim() || '';
   const hasComment = !!(startComment || stopComment || bitComment);
 
   if (wrap) {
@@ -1627,12 +1637,12 @@ function mergeStagePayloadIntoCurrentDoc(stage, payload = {}) {
 // is saved, after which it follows the document again.
 function stageFormFields(stage) {
   return [
-    document.getElementById(`commentStart-${stage}`),
-    document.getElementById(`commentStop-${stage}`),
-    document.getElementById('manualEliminated'),
-    document.getElementById('otherMarathonPenalty'),
-    document.getElementById('bitOk'),
-    document.getElementById('bitComment')
+    byId(`commentStart-${stage}`),
+    byId(`commentStop-${stage}`),
+    byId('manualEliminated'),
+    byId('otherMarathonPenalty'),
+    byId('bitOk'),
+    byId('bitComment')
   ].filter(Boolean);
 }
 
@@ -1646,14 +1656,14 @@ function clearStageFormDirty(stage) {
 
 function populateStageUI(stage, docData = {}) {
   const stageData = docData?.timing?.[stage] || {};
-  const startClockEl = document.getElementById(`startClock-${stage}`);
-  const stopClockEl = document.getElementById(`stopClock-${stage}`);
-  const commentStartEl = document.getElementById(`commentStart-${stage}`);
-  const commentStopEl = document.getElementById(`commentStop-${stage}`);
-  const eliminatedEl = document.getElementById('manualEliminated');
-  const otherPenaltyEl = document.getElementById('otherMarathonPenalty');
-  const bitOkEl = document.getElementById('bitOk');
-  const bitCommentEl = document.getElementById('bitComment');
+  const startClockEl = byId(`startClock-${stage}`);
+  const stopClockEl = byId(`stopClock-${stage}`);
+  const commentStartEl = byId(`commentStart-${stage}`);
+  const commentStopEl = byId(`commentStop-${stage}`);
+  const eliminatedEl = byId('manualEliminated');
+  const otherPenaltyEl = byId('otherMarathonPenalty');
+  const bitOkEl = byId('bitOk');
+  const bitCommentEl = byId('bitComment');
 
   updateStageEqLine();
   updateEqInfo();
@@ -1674,18 +1684,19 @@ function populateStageUI(stage, docData = {}) {
   }
 
   if (stage === 'B') {
-    const noticeEl = document.getElementById('holdTimeNotice-B');
-    const amountEl = document.getElementById('holdTimeNoticeAmount-B');
-    const detailsEl = document.getElementById('holdTimeNoticeDetails-B');
+    const noticeEl = byId('holdTimeNotice-B');
+    const amountEl = byId('holdTimeNoticeAmount-B');
+    const detailsEl = byId('holdTimeNoticeDetails-B');
     if (noticeEl) {
       const obsList = Array.isArray(docData?.obstacles) ? docData.obstacles : [];
+      // Stored in seconds, shown in minutes (m:ss) as it is entered
       const holdObs = obsList.filter(o => Number(o?.holdTimeSec) > 0);
       const totalHoldSec = holdObs.reduce((s, o) => s + Number(o.holdTimeSec), 0);
       if (totalHoldSec > 0) {
         noticeEl.classList.remove('hidden');
-        if (amountEl) amountEl.textContent = `-${totalHoldSec}s`;
+        if (amountEl) amountEl.textContent = `-${formatHoldTime(totalHoldSec)} min`;
         if (detailsEl) {
-          detailsEl.innerHTML = holdObs.map(o => `<div>Hinder ${escapeHtml(o.number || o.obstacleNumber || '?')}: -${Number(o.holdTimeSec)}s ${o.comment ? `(${escapeHtml(o.comment)})` : ''}</div>`).join('');
+          detailsEl.innerHTML = holdObs.map(o => `<div>Hinder ${escapeHtml(o.number || o.obstacleNumber || '?')}: -${escapeHtml(formatHoldTime(Number(o.holdTimeSec)))} min ${o.comment ? `(${escapeHtml(o.comment)})` : ''}</div>`).join('');
         }
       } else {
         noticeEl.classList.add('hidden');
@@ -1698,8 +1709,8 @@ function populateStageUI(stage, docData = {}) {
 }
 
 function updateTabVisibility(eq) {
-  const warmupTab = document.querySelector('[data-stage="warmup"]');
-  const stageATab = document.querySelector('[data-stage="A"]');
+  const warmupTab = pageQuery('[data-stage="warmup"]');
+  const stageATab = pageQuery('[data-stage="A"]');
   const limA = eq ? limitsFor(eq, 'A') : null;
   const isFixedTimeA = !!(limA && limA.isFixedTime);
 
@@ -1738,15 +1749,15 @@ async function startStage(stage) {
     showAlert(t('marathon_stages_already_running'), 'warning');
     return;
   }
-  const existingDuration = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
-  const startClock = stageData.startClock || new Date(now).toISOString();
   // A restart keeps the time so far as driven time (manual flag): the engine
   // would otherwise take off pauses while the stage stood stopped, and a
-  // typed time would lose its flag (see stageDrivenMsAtRestart)
-  const restarting = existingDuration > 0;
+  // typed time would lose its flag (see stageDrivenMsAtRestart). It clears
+  // the stop, so it is only done when the judge confirms it.
+  const restarting = isStageRestart(stageData);
+  if (restarting && !window.confirm(`Etappen har redan en tid (${msToLabel(Number(stageData.durationMs) || 0)}). Starta om och fortsätta tiden?`)) return;
   const startDuration = restarting
     ? stageDrivenMsAtRestart(stageData, (a, b) => pausedMsBetween(a, b, now))
-    : existingDuration;
+    : 0;
 
   activeTimers.set(key, {
     isRunning: true,
@@ -1759,15 +1770,15 @@ async function startStage(stage) {
 
   ensureGlobalTicker();
 
-  const payload = {
-    startClock,
-    stopClock: null,
-    durationMs: startDuration,
-    manualDuration: restarting,
-    runningSince: new Date(now).toISOString(),
-    commentStart: document.getElementById(`commentStart-${stage}`)?.value?.trim() || '',
+  // A first start writes only its own fields: a start queued without signal
+  // that reaches the server after a finish recorded on another device must
+  // not erase that finish (stageStartPayload)
+  const payload = stageStartPayload(stageData, {
+    nowMs: now,
+    drivenMs: startDuration,
+    commentStart: byId(`commentStart-${stage}`)?.value?.trim() || '',
     runningStage: actualStage
-  };
+  });
 
   await saveStageSnapshot(stage, payload);
   if (!currentEquipage || !isLatestStageAction(key, seq)) return;
@@ -1777,13 +1788,15 @@ async function startStage(stage) {
   renderActiveCards();
 }
 
-async function stopStage(stage) {
+// at: the server time of the click (Stop in "Aktiva timrar" selects the
+// equipage and reads its document first: the stop is the click, not after it)
+async function stopStage(stage, at = serverNow()) {
   if (!currentEquipage) return;
 
   const actualStage = normalizeStageForEquipage(currentEquipage, stage);
   const key = `${currentEquipage.startNumber}|${actualStage}`;
   const timerState = activeTimers.get(key);
-  const now = serverNow();
+  const now = Number.isFinite(at) ? at : serverNow();
   const stageData = currentDocData?.timing?.[actualStage] || currentDocData?.timing?.[stage] || {};
   const savedMs = Number.isFinite(Number(stageData.durationMs)) ? Number(stageData.durationMs) : 0;
   // Running per the document (older documents have only the start clock)
@@ -1817,7 +1830,7 @@ async function stopStage(stage) {
     durationMs,
     manualDuration: driven,
     runningSince: null,
-    commentStop: document.getElementById(`commentStop-${stage}`)?.value?.trim() || '',
+    commentStop: byId(`commentStop-${stage}`)?.value?.trim() || '',
     runningStage: null
   };
 
@@ -1918,12 +1931,12 @@ async function saveStageDetails(stage) {
   // currentEquipage) or pick another equipage while the writes are under way
   const equipage = currentEquipage;
 
-  const commentStart = document.getElementById(`commentStart-${stage}`)?.value?.trim() || '';
-  const commentStop = document.getElementById(`commentStop-${stage}`)?.value?.trim() || '';
-  const eliminated = !!document.getElementById('manualEliminated')?.checked;
-  const otherPenalty = Number(document.getElementById('otherMarathonPenalty')?.value || 0);
-  const bitCheckOk = !!document.getElementById('bitOk')?.checked;
-  const bitCheckComment = document.getElementById('bitComment')?.value?.trim() || '';
+  const commentStart = byId(`commentStart-${stage}`)?.value?.trim() || '';
+  const commentStop = byId(`commentStop-${stage}`)?.value?.trim() || '';
+  const eliminated = !!byId('manualEliminated')?.checked;
+  const otherPenalty = Number(byId('otherMarathonPenalty')?.value || 0);
+  const bitCheckOk = !!byId('bitOk')?.checked;
+  const bitCheckComment = byId('bitComment')?.value?.trim() || '';
 
   const stagePayload = { commentStart, commentStop };
   if (stage === 'B') {
@@ -1936,6 +1949,12 @@ async function saveStageDetails(stage) {
     otherPenalty,
     updatedAt: serverTimestamp()
   };
+  // The section the other penalty was given on (the tab it is entered on;
+  // warm-up counts as A)
+  if (otherPenalty > 0) {
+    const section = normalizeStageForEquipage(equipage, stage);
+    rootPayload.otherPenaltySection = section === 'warmup' ? 'A' : section;
+  }
   if (stage === 'B') {
     rootPayload.bitCheckOk = bitCheckOk;
     rootPayload.bettOk = bitCheckOk;
@@ -1948,7 +1967,7 @@ async function saveStageDetails(stage) {
   // at once: a write only resolves when the server answers, so awaiting the
   // first would keep the second from even being queued without signal
   const writes = Promise.all([
-    setDoc(maratonDocRef(equipage.startNumber), rootPayload, { merge: true }),
+    trackWrite(`Sparar maraton #${equipage.startNumber}`, setDoc(maratonDocRef(equipage.startNumber), rootPayload, { merge: true })),
     saveStageSnapshot(stage, stagePayload, equipage)
   ]);
   const saveResult = await awaitWriteOrQueue(writes, {
@@ -1971,13 +1990,13 @@ function bindStagePanel(stage) {
   // (render + bind) and the page wiring used to bind the same panel again, so
   // Start/Stop/Save ran twice and the comment toggle opened and closed at once.
   // A re-rendered panel (new equipage or tab) is a new element and is bound.
-  const panel = document.getElementById('stagePanel')?.firstElementChild;
+  const panel = byId('stagePanel')?.firstElementChild;
   if (panel) {
     if (panel.dataset.boundStage === stage) return;
     panel.dataset.boundStage = stage;
   }
 
-  document.getElementById(`btnStart-${stage}`)?.addEventListener('click', async () => {
+  byId(`btnStart-${stage}`)?.addEventListener('click', async () => {
     try {
       await startStage(stage);
     } catch (error) {
@@ -1986,16 +2005,17 @@ function bindStagePanel(stage) {
     }
   });
 
-  document.getElementById(`btnStop-${stage}`)?.addEventListener('click', async () => {
+  byId(`btnStop-${stage}`)?.addEventListener('click', async () => {
+    const stoppedAt = serverNow();
     try {
-      await stopStage(stage);
+      await stopStage(stage, stoppedAt);
     } catch (error) {
       console.error(error);
       showAlert(t('marathon_stages_stop_error'), false);
     }
   });
 
-  document.getElementById(`btnReset-${stage}`)?.addEventListener('click', async () => {
+  byId(`btnReset-${stage}`)?.addEventListener('click', async () => {
     // The button sits next to Stop: a slip must not wipe the stage time
     if (!window.confirm(t('marathon_stages_confirm_reset'))) return;
     try {
@@ -2006,7 +2026,7 @@ function bindStagePanel(stage) {
     }
   });
 
-  document.getElementById(`btnSave-${stage}`)?.addEventListener('click', async () => {
+  byId(`btnSave-${stage}`)?.addEventListener('click', async () => {
     try {
       await saveStageDetails(stage);
     } catch (error) {
@@ -2015,7 +2035,7 @@ function bindStagePanel(stage) {
     }
   });
 
-  document.getElementById(`startClockRow-${stage}`)?.addEventListener('click', async () => {
+  byId(`startClockRow-${stage}`)?.addEventListener('click', async () => {
     try {
       await editClock(stage, 'start');
     } catch (error) {
@@ -2024,7 +2044,7 @@ function bindStagePanel(stage) {
     }
   });
 
-  document.getElementById(`stopClockRow-${stage}`)?.addEventListener('click', async () => {
+  byId(`stopClockRow-${stage}`)?.addEventListener('click', async () => {
     try {
       await editClock(stage, 'stop');
     } catch (error) {
@@ -2033,17 +2053,17 @@ function bindStagePanel(stage) {
     }
   });
 
-  document.querySelector('#stagePanel .comment-toggle-btn')?.addEventListener('click', () => {
-    const wrap = document.querySelector('#stagePanel .comment-wrapper');
+  pageQuery('#stagePanel .comment-toggle-btn')?.addEventListener('click', () => {
+    const wrap = pageQuery('#stagePanel .comment-wrapper');
     if (!wrap) return;
     const open = !wrap.classList.contains('comment-visible');
     wrap.classList.toggle('comment-visible', open);
     wrap.dataset.userOpen = open ? '1' : '';
   });
 
-  document.getElementById(`commentStart-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
-  document.getElementById(`commentStop-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
-  document.getElementById('bitComment')?.addEventListener('input', () => refreshCommentToggleState(stage));
+  byId(`commentStart-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
+  byId(`commentStop-${stage}`)?.addEventListener('input', () => refreshCommentToggleState(stage));
+  byId('bitComment')?.addEventListener('input', () => refreshCommentToggleState(stage));
 
   // Edited fields keep their value against incoming snapshots until saved
   stageFormFields(stage).forEach(el => {
@@ -2093,10 +2113,10 @@ function wireKeyboardShortcuts() {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
 
     // 1-4 för flikar
-    if (e.key === '1') document.querySelector('[data-stage="warmup"]')?.click();
-    if (e.key === '2') document.querySelector('[data-stage="A"]')?.click();
-    if (e.key === '3') document.querySelector('[data-stage="transport"]')?.click();
-    if (e.key === '4') document.querySelector('[data-stage="B"]')?.click();
+    if (e.key === '1') pageQuery('[data-stage="warmup"]')?.click();
+    if (e.key === '2') pageQuery('[data-stage="A"]')?.click();
+    if (e.key === '3') pageQuery('[data-stage="transport"]')?.click();
+    if (e.key === '4') pageQuery('[data-stage="B"]')?.click();
 
     // Pilar för navigering
     if (e.key === 'ArrowLeft') gotoRelative(-1);
@@ -2119,7 +2139,7 @@ function updateTabStatuses(docData) {
   };
 
   ['warmup', 'A', 'transport', 'B'].forEach(stage => {
-    const btn = document.querySelector(`button[data-stage="${stage}"]`);
+    const btn = pageQuery(`button[data-stage="${stage}"]`);
     if (btn) {
       // Spara originallabeln om vi inte gjort det
       if (!btn.dataset.originalLabel) btn.dataset.originalLabel = btn.textContent;
@@ -2134,15 +2154,15 @@ function updateTabStatuses(docData) {
 // NY SAMLINGSFUNKTION FÖR ALLA EVENTLISTENERS
 
 function wireEventListeners() {
-  document.getElementById('eqPrev')?.addEventListener('click', () => gotoRelative(-1));
-  document.getElementById('eqNext')?.addEventListener('click', () => gotoRelative(+1));
+  byId('eqPrev')?.addEventListener('click', () => gotoRelative(-1));
+  byId('eqNext')?.addEventListener('click', () => gotoRelative(+1));
 
   // NYTT: Koppla knappen för att fälla ut/in aktiva timers
-  document.getElementById('toggleActiveTimers')?.addEventListener('click', () => {
-    document.getElementById('activeTimersWrapper')?.classList.toggle('is-open');
+  byId('toggleActiveTimers')?.addEventListener('click', () => {
+    byId('activeTimersWrapper')?.classList.toggle('is-open');
   });
 
-  document.getElementById('btnBackupJson')?.addEventListener('click', () => {
+  byId('btnBackupJson')?.addEventListener('click', () => {
     const backup = {};
     for (let i = 0; i < localStorage.length; i++) {
       const key = localStorage.key(i);
@@ -2154,13 +2174,14 @@ function wireEventListeners() {
     downloadJson(filename, backup);
   });
 
-  const activeHost = document.getElementById('activeTimers');
+  const activeHost = byId('activeTimers');
   if (activeHost && !activeHost.dataset.bound) {
     activeHost.dataset.bound = '1';
     activeHost.addEventListener('click', async (e) => {
       // 1) Klick på Stoppa -> stoppa timern (prioritet högst)
       const stopBtn = e.target.closest('button.stop');
       if (stopBtn) {
+        const stoppedAt = serverNow();
         const card = e.target.closest('[data-active]');
         const key = card?.getAttribute('data-active');
         if (!key) return;
@@ -2169,7 +2190,7 @@ function wireEventListeners() {
         // As the panel's Stop: a failure is shown, not an unhandled rejection
         try {
           if (eq) await onEquipageSelected(eq);
-          await stopStage(stage);
+          await stopStage(stage, stoppedAt);
         } catch (error) {
           console.error(error);
           showAlert(t('marathon_stages_stop_error'), false);
@@ -2218,7 +2239,7 @@ async function onEquipageSelected(eq) {
   currentDocData = null;
 
   // Rendera om panel för aktuell flik, bind och fyll från Firestore
-  const host = document.getElementById('stagePanel');
+  const host = byId('stagePanel');
   host.innerHTML = renderStagePanel(currentStage);
   bindStagePanel(currentStage);
   bindManualEditor(currentStage); // <- NY: kopplar timer-klick + editor
@@ -2270,15 +2291,15 @@ async function onEquipageSelected(eq) {
 }
 
 function wireTabs() {
-  document.querySelectorAll('.stageTab').forEach(btn => {
+  pageQueryAll('.stageTab').forEach(btn => {
     btn.addEventListener('click', async () => {
       const s = btn.dataset.stage;
       if (s === currentStage) return;
       currentStage = s;
       highlightActiveTab();
-      const lab = document.getElementById('activeStageLabel');
+      const lab = byId('activeStageLabel');
       if (lab) lab.textContent = decorateStageLabel(s);
-      const host = document.getElementById('stagePanel');
+      const host = byId('stagePanel');
       host.innerHTML = renderStagePanel(currentStage);
       bindStagePanel(currentStage);
       bindManualEditor(currentStage);
@@ -2292,13 +2313,19 @@ function wireTabs() {
 }
 
 // ---------- Lifecycle ----------
+// Bumped by every load and unload: a load still awaiting its data when the
+// page was left (or loaded again) must not start listeners or a wake lock
+let loadToken = 0;
+
 export async function load() {
   __unload();
+  const myToken = ++loadToken;
+  const stale = () => myToken !== loadToken;
 
   const comp = getGlobalState('currentCompetition');
   const isFieldMode = comp?.competitionMode === 'field';
   competitionId = comp?.id;
-  const root = document.getElementById('page-maraton-stages');
+  const root = pageRoot();
   if (!competitionId) {
     if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
     return;
@@ -2308,7 +2335,7 @@ export async function load() {
   // 1. Rendera grundlayouten först så att alla HTML-element finns på plats
   renderLayout();
   if (isFieldMode) {
-    document.getElementById('activeTimersWrapper')?.remove();
+    byId('activeTimersWrapper')?.remove();
   }
   // 1b. Knyt flikarnas klick-hanterare
   wireTabs();
@@ -2321,6 +2348,8 @@ export async function load() {
     getConfig(competitionId, 'startTimes').catch(() => null),
     getMarathonStateDocuments(competitionId)
   ]);
+  if (stale()) return;
+  pruneFieldBackups();
 
   // 3. Bearbeta och lagra datan i programmets minne
   // Fallback: använd svensk config om den finns, annars engelsk
@@ -2351,7 +2380,7 @@ export async function load() {
   });
 
   // 4. Initiera UI-komponenter NU när datan finns (ÅTERSTÄLLER DROPDOWN)
-  const ddHost = document.getElementById('equipageDropdown');
+  const ddHost = byId('equipageDropdown');
   if (ddHost) {
     dropdown = createSearchableDropdown(ddHost, orderByMarathonStart, onEquipageSelected);
     if (!currentEquipage && orderByMarathonStart.length > 0) {
@@ -2377,7 +2406,10 @@ export async function load() {
     if (!currentEquipage && !dropdown && orderByMarathonStart.length > 0) {
       await onEquipageSelected(orderByMarathonStart[0]);
     }
+    if (stale()) return;
     await requestWakeLock();
+    // Left while the wake lock was requested: release it again
+    if (stale()) { releaseWakeLock(); return; }
   }
 
   // 6. Starta de globala Firestore-lyssnarna
@@ -2412,6 +2444,7 @@ export async function load() {
 
 let unsubMaratonList = null;
 export function __unload() {
+  loadToken++;
   releaseWakeLock();
   stopServerClockSync();
   // Stoppa global ticker

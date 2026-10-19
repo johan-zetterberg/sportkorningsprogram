@@ -156,10 +156,12 @@ export function listenForEquipages(competitionId, callback, options = {}) {
   const equipagesRef = getCompCollectionRef(competitionId, 'equipages');
 
   if (!options.includePrivate) {
+    // options.onError: report the error instead of handing an empty list
+    // (see buildSnapshotErrorHandler)
     return onSnapshot(query(equipagesRef), (snapshot) => {
       const equipages = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
       callback(equipages);
-    }, buildSnapshotErrorHandler('listenForEquipages', callback, []));
+    }, buildSnapshotErrorHandler('listenForEquipages', callback, [], options.onError));
   }
 
   const publicMap = new Map();
@@ -260,8 +262,10 @@ const LATEST_UPDATE_TIMEOUT_MS = 5000;
  * each) do not overwrite each other. `buildUpdate(equipage)` returns the
  * fields to write. Without a connection (a transaction needs the server) the
  * update is built from `fallbackEquipage`, the copy on the device, and queued.
+ * A failure after the answer (a refused queued write, or a slow transaction
+ * that then fails) goes to onLateError: the caller has already moved on.
  */
-export async function updateEquipageFromLatest(competitionId, startNumber, buildUpdate, fallbackEquipage = {}) {
+export async function updateEquipageFromLatest(competitionId, startNumber, buildUpdate, fallbackEquipage = {}, { onLateError = null } = {}) {
   const safeCompetitionId = normalizeDocumentId(competitionId, 'Competition ID');
   const safeStartNumber = normalizeDocumentId(startNumber, 'Startnummer');
   const equipageRef = getCompDocRef(safeCompetitionId, 'equipages', safeStartNumber);
@@ -271,7 +275,7 @@ export async function updateEquipageFromLatest(competitionId, startNumber, build
     const fallback = buildUpdate({ ...fallbackEquipage }) || {};
     // The write only resolves when the server answers: give the page an
     // answer once it is queued on the device
-    await awaitWriteOrQueue(saveEquipage(competitionId, startNumber, fallback));
+    await awaitWriteOrQueue(saveEquipage(competitionId, startNumber, fallback), { onLateError });
     return fallback;
   };
 
@@ -310,11 +314,18 @@ export async function updateEquipageFromLatest(competitionId, startNumber, build
   // second write from the device's copy now (that would put back an older
   // horse list). Only if it then fails for lack of connection is the change
   // queued instead.
+  const reportLate = (error) => {
+    try { onLateError?.(mapEquipageWriteError(error)); } catch { /* reporting only */ }
+  };
   transactionDone.catch((error) => {
     if (isOfflineError(error)) {
-      queueFallback().catch((queueError) => console.error('[equipage] Kunde inte köa ändringen:', queueError));
+      queueFallback().catch((queueError) => {
+        console.error('[equipage] Kunde inte köa ändringen:', queueError);
+        reportLate(queueError);
+      });
     } else {
       console.error('[equipage] Ändringen kunde inte sparas:', error);
+      reportLate(error);
     }
   });
   return built;
@@ -333,6 +344,42 @@ export async function deleteEquipage(competitionId, equipageId) {
     throw new Error("Competition ID och Equipage ID krävs för att kunna radera.");
   }
   return trackWrite(`Raderar ekipage ${equipageId}`, (async () => {
+    // Its results and result locks too, while the competition is open (an
+    // archived competition keeps them; an admin reopens it first): else
+    // competitionHasResults stays true and a new equipage given the start
+    // number inherits the results and a finalized lock
+    const compSnap = await getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}`));
+    const compData = compSnap.exists() ? compSnap.data() : {};
+    const archived = compData?.locked === true || compData?.status === 'completed';
+    if (!archived) {
+      const id = String(equipageId);
+      const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+      // A finalized lock is unlocked through the logged unlock (the lock
+      // documents are only deleted by superadmins)
+      const finalization = await import('./finalizationService.js');
+      const unlockers = { dressage: finalization.unfinalizeDressage, marathon: finalization.unfinalizeMarathon, precision: finalization.unfinalizePrecision };
+      for (const [discipline, unlock] of Object.entries(unlockers)) {
+        const lock = await getDoc(doc(db, `competitions/${competitionId}/${discipline}Finalization/${id}`));
+        if (lock.exists() && lock.data()?.finalized === true) await unlock(competitionId, id);
+      }
+      const resultDocs = ['precision', 'maraton', 'maraton-timing', 'maratonLive', 'dressageStatus']
+        .map(name => doc(db, `${base}/${name}/${id}`));
+      const subcollections = [
+        `${base}/dressage/${id}/protocols`,
+        `${base}/dressage/${id}/meta`,
+        `${base}/dressageResults/${id}/protocols`,
+        `${base}/dressageStatus/${id}/live`,
+        `${base}/maratonResults/${id}/obstacles`
+      ];
+      const snaps = await Promise.all(subcollections.map(path => getDocs(collection(db, path))));
+      const refs = [...resultDocs, ...snaps.flatMap(snap => snap.docs.map(d => d.ref))];
+      for (let i = 0; i < refs.length; i += 400) {
+        const resultBatch = writeBatch(db);
+        refs.slice(i, i + 400).forEach(ref => resultBatch.delete(ref));
+        await resultBatch.commit();
+      }
+    }
+
     const equipageRef = getCompDocRef(competitionId, 'equipages', String(equipageId));
     const privateRef = getPrivateEquipageDocRef(competitionId, String(equipageId));
     const batch = writeBatch(db);

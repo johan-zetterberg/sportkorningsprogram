@@ -10,7 +10,9 @@ import {
 import {
   collection,
   deleteDoc,
+  deleteField,
   doc,
+  Timestamp,
   FieldPath,
   getDoc,
   getDocs,
@@ -969,6 +971,30 @@ test('marathon writes are denied when the equipage is finalized', { skip: !HAS_E
     startNumber: Number(START_NO),
     eliminated: false
   }));
+  // Nor a per-obstacle result or live entry
+  await assertFails(setDoc(doc(db, compPath(`maraton/${START_NO}`)), {
+    obstacleResults: { 2: { number: 2, timeMs: 30000 } }
+  }, { merge: true }));
+  await assertFails(setDoc(doc(db, compPath(`maraton/${START_NO}`)), {
+    obstacleLive: { 2: { running: true } }
+  }, { merge: true }));
+});
+
+test('marathon officials write per-obstacle results and live entries; the public reads, others may not write', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-2', 'marathon', 'marathon2@example.com');
+  const judge = testEnv.authenticatedContext('marathon-2', { email_verified: true, email: 'marathon2@example.com' }).firestore();
+  const ref = doc(judge, compPath(`maraton/${START_NO}`));
+  // Two obstacles, each its own entry (merge)
+  await assertSucceeds(setDoc(ref, { obstacleLive: { 3: { running: true, inProgress: true } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, {
+    obstacleResults: { 2: { number: 2, timeMs: 30000 } },
+    obstacleLive: { 2: { running: false, inProgress: false } }
+  }, { merge: true }));
+  await assertSucceeds(setDoc(doc(judge, compPath(`maratonResults/${START_NO}/obstacles/2`)), { obstacleNumber: 2, timeMs: 30000 }, { merge: true }));
+
+  const anon = testEnv.unauthenticatedContext().firestore();
+  await assertSucceeds(getDoc(doc(anon, compPath(`maraton/${START_NO}`))));
+  await assertFails(setDoc(doc(anon, compPath(`maraton/${START_NO}`)), { obstacleLive: { 3: { running: false } } }, { merge: true }));
 });
 
 test('computed_equipages stays server-write-only even for admin role', { skip: !HAS_EMULATOR }, async () => {
@@ -1039,18 +1065,114 @@ test('non-admin competition role may not write config documents', { skip: !HAS_E
   }));
 });
 
+// A correction entry as secretariatService writes it
+function auditEntry(uid, overrides = {}) {
+  return {
+    source: 'secretariat',
+    discipline: 'precision',
+    startNumber: '12',
+    entityType: 'result',
+    entityId: '12',
+    reason: 'Domaren rättade tiden',
+    reference: { type: 'judgeRequest', value: '' },
+    changes: [{ field: 'timeMs', oldValue: 100000, newValue: 101000 }],
+    editedBy: uid,
+    editedAt: serverTimestamp(),
+    ...overrides
+  };
+}
+
 test('auditLog writes are allowed for admin-scoped competition access', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('admin-audit-1', 'admin', 'admin-audit@example.com');
   const ctx = testEnv.authenticatedContext('admin-audit-1', { email_verified: true, email: 'admin-audit@example.com' });
   const db = ctx.firestore();
 
-  await assertSucceeds(setDoc(doc(db, privateCompPath('auditLog/log-1')), {
-    discipline: 'precision',
-    startNumber: 12,
-    field: 'timeMs',
-    oldValue: 100000,
-    newValue: 101000
-  }));
+  await assertSucceeds(setDoc(doc(db, privateCompPath('auditLog/log-1')), auditEntry('admin-audit-1')));
+  // Only in the writer's own name, with the server's time and known fields
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-1b')), auditEntry('someone-else')));
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-1c')), auditEntry('admin-audit-1', { editedAt: 123 })));
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-1d')), auditEntry('admin-audit-1', { extra: true })));
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-1e')), auditEntry('admin-audit-1', { reference: { type: 'other', value: '' } })));
+});
+
+test('auditLog: officials log their own corrections of their discipline only', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-audit-1', 'marathon', 'marathon-audit@example.com');
+  const ctx = testEnv.authenticatedContext('marathon-audit-1', { email_verified: true, email: 'marathon-audit@example.com' });
+  const db = ctx.firestore();
+
+  await assertSucceeds(setDoc(doc(db, privateCompPath('auditLog/log-m1')), auditEntry('marathon-audit-1', {
+    discipline: 'marathon', entityType: 'obstacle', entityId: '12:3', reference: { type: 'protest', value: '4' }
+  })));
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-m2')), auditEntry('marathon-audit-1', { discipline: 'precision' })));
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-m3')), auditEntry('other-uid', { discipline: 'marathon' })));
+  // Still not readable for them
+  await assertFails(getDoc(doc(db, privateCompPath('auditLog/log-m1'))));
+});
+
+test('rejectedWrites: officials record refused writes of their discipline; staff read them; never changed', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-rej-1', 'marathon', 'marathon-rej@example.com');
+  await seedCompetitionRole('speaker-rej-1', 'speaker', 'speaker-rej@example.com');
+  const db = testEnv.authenticatedContext('marathon-rej-1', { email_verified: true, email: 'marathon-rej@example.com' }).firestore();
+  const entry = (overrides = {}) => ({
+    discipline: 'marathon',
+    startNumber: '12',
+    obstacle: 3,
+    payloadSummary: 'timeInSeconds=41.2, knockdowns=1',
+    errorCode: 'permission-denied',
+    source: 'maraton-input',
+    reportedBy: 'marathon-rej-1',
+    reportedAt: serverTimestamp(),
+    ...overrides
+  });
+  const ref = doc(db, privateCompPath('rejectedWrites/r1'));
+  await assertSucceeds(setDoc(ref, entry()));
+  await assertSucceeds(getDoc(ref));
+  await assertFails(updateDoc(ref, { payloadSummary: 'x' }));
+  await assertFails(deleteDoc(ref));
+  await assertFails(setDoc(doc(db, privateCompPath('rejectedWrites/r2')), entry({ discipline: 'dressage' })));
+  await assertFails(setDoc(doc(db, privateCompPath('rejectedWrites/r3')), entry({ reportedBy: 'someone-else' })));
+  await assertFails(setDoc(doc(db, privateCompPath('rejectedWrites/r4')), entry({ obstacle: 'three' })));
+  await assertFails(setDoc(doc(db, privateCompPath('rejectedWrites/r5')), entry({ payloadSummary: 'x'.repeat(1001) })));
+
+  const speakerDb = testEnv.authenticatedContext('speaker-rej-1', { email_verified: true, email: 'speaker-rej@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(speakerDb, privateCompPath('rejectedWrites/r1'))));
+  await assertFails(setDoc(doc(speakerDb, privateCompPath('rejectedWrites/r6')), entry({ reportedBy: 'speaker-rej-1' })));
+  // Not public
+  await assertFails(getDoc(doc(testEnv.unauthenticatedContext().firestore(), privateCompPath('rejectedWrites/r1'))));
+});
+
+test('equipages of an archived competition are not edited, also not by admins (fields may only be removed)', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('admin-arch-1', 'admin', 'admin-arch@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath(`equipages/${START_NO}`)), { startNumber: 101, driverName: 'Anna', phone: '070-1' });
+    await updateDoc(doc(db, compPath()), { locked: true, status: 'completed' });
+  });
+  const db = testEnv.authenticatedContext('admin-arch-1', { email_verified: true, email: 'admin-arch@example.com' }).firestore();
+  await assertFails(updateDoc(doc(db, compPath(`equipages/${START_NO}`)), { driverName: 'Bo' }));
+  await assertFails(setDoc(doc(db, compPath('equipages/202')), { startNumber: 202, driverName: 'Ny' }));
+  // Moving private data off the public document still works
+  await assertSucceeds(updateDoc(doc(db, compPath(`equipages/${START_NO}`)), { phone: deleteField() }));
+
+  // Reopened: editable again
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), compPath()), { locked: false, status: 'active' });
+  });
+  await assertSucceeds(updateDoc(doc(db, compPath(`equipages/${START_NO}`)), { driverName: 'Bo' }));
+});
+
+test('while the competition is being archived (finalizing) results are not written; a stale mark stops counting', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('precision-fin-1', 'precision', 'precision-fin@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), compPath()), { finalizing: true, finalizingAt: Timestamp.now() });
+  });
+  const db = testEnv.authenticatedContext('precision-fin-1', { email_verified: true, email: 'precision-fin@example.com' }).firestore();
+  await assertFails(setDoc(doc(db, compPath(`precision/${START_NO}`)), { timeMs: 90000 }));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await updateDoc(doc(context.firestore(), compPath()), { finalizingAt: Timestamp.fromMillis(Date.now() - 20 * 60 * 1000) });
+  });
+  await assertSucceeds(setDoc(doc(db, compPath(`precision/${START_NO}`)), { timeMs: 90000 }));
 });
 
 test('auditLog reads are denied for non-admin competition roles', { skip: !HAS_EMULATOR }, async () => {
@@ -1070,18 +1192,12 @@ test('auditLog reads are denied for non-admin competition roles', { skip: !HAS_E
   await assertFails(getDoc(doc(db, privateCompPath('auditLog/log-read-1'))));
 });
 
-test('auditLog writes are denied for non-admin competition roles', { skip: !HAS_EMULATOR }, async () => {
-  await seedCompetitionRole('precision-audit-1', 'precision', 'precision-audit@example.com');
-  const ctx = testEnv.authenticatedContext('precision-audit-1', { email_verified: true, email: 'precision-audit@example.com' });
+test('auditLog writes are denied for roles without the discipline', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('speaker-audit-1', 'speaker', 'speaker-audit@example.com');
+  const ctx = testEnv.authenticatedContext('speaker-audit-1', { email_verified: true, email: 'speaker-audit@example.com' });
   const db = ctx.firestore();
 
-  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-2')), {
-    discipline: 'precision',
-    startNumber: 12,
-    field: 'timeMs',
-    oldValue: 100000,
-    newValue: 101000
-  }));
+  await assertFails(setDoc(doc(db, privateCompPath('auditLog/log-2')), auditEntry('speaker-audit-1')));
 });
 
 test('auditLog is append-only for admins', { skip: !HAS_EMULATOR }, async () => {
@@ -1090,13 +1206,7 @@ test('auditLog is append-only for admins', { skip: !HAS_EMULATOR }, async () => 
   const db = ctx.firestore();
   const ref = doc(db, privateCompPath('auditLog/log-append-1'));
 
-  await assertSucceeds(setDoc(ref, {
-    discipline: 'marathon',
-    startNumber: 7,
-    field: 'duration_A',
-    oldValue: 60000,
-    newValue: 61000
-  }));
+  await assertSucceeds(setDoc(ref, auditEntry('admin-audit-3', { discipline: 'marathon' })));
   await assertFails(updateDoc(ref, {
     newValue: 62000
   }));

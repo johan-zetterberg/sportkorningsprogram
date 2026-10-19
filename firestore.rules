@@ -197,7 +197,18 @@ service cloud.firestore {
     function isCompetitionOpen(appId, compId) {
       let comp = /databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId);
       return !exists(comp)
-        || (get(comp).data.get('locked', false) != true && get(comp).data.get('status', '') != 'completed');
+        || (get(comp).data.get('locked', false) != true && get(comp).data.get('status', '') != 'completed'
+          && !isBeingArchived(get(comp).data));
+    }
+
+    // Archiving in progress (archivingService sets it before reading the
+    // results and clears it when the snapshot is saved or the attempt fails):
+    // no result writes meanwhile, so the archive holds what is stored. A flag
+    // left by a crashed browser stops counting after 15 minutes.
+    function isBeingArchived(compData) {
+      return compData.get('finalizing', false) == true
+        && compData.get('finalizingAt', null) is timestamp
+        && request.time < compData.finalizingAt + duration.value(15, 'm');
     }
 
     // The driver portal's declaration: not archived and not locked by the secretariat
@@ -623,7 +634,17 @@ service cloud.firestore {
 
     match /artifacts/{appId}/public/data/competitions/{compId}/equipages/{equipageId} {
       allow read: if isCompetitionVisible(appId, compId);
-      allow create, delete: if request.auth != null
+      // An archived competition's equipages are part of its archived results:
+      // an admin reopens it first (deleting stays possible, the stored result
+      // is kept by the server)
+      allow create: if request.auth != null
+        && isCompetitionOpen(appId, compId)
+        && (
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+      allow delete: if request.auth != null
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
@@ -631,7 +652,16 @@ service cloud.firestore {
         );
       allow update: if request.auth != null
         && (
-          canAdminThisArtifactsComp(appId, compId) ||
+          (
+            canAdminThisArtifactsComp(appId, compId)
+            && (
+              isCompetitionOpen(appId, compId)
+              // Archived: only removing fields (moving private data off the
+              // public document), nothing added or changed
+              || (request.resource.data.diff(resource.data).addedKeys().size() == 0
+                && request.resource.data.diff(resource.data).changedKeys().size() == 0)
+            )
+          ) ||
           (
             // The speaker keeps notes for the commentary, nothing else
             request.resource.data.diff(resource.data).affectedKeys().hasOnly(['speakerNotes', 'lastUpdated', 'updatedAt'])
@@ -932,6 +962,22 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // A secretariat correction (secretariatService): who, when, why and what
+    function isAuditLogEntry(data) {
+      return data.keys().hasOnly(['source', 'editedBy', 'editedAt', 'discipline', 'startNumber',
+          'entityType', 'entityId', 'reason', 'reference', 'changes'])
+        && data.get('editedBy', null) == request.auth.uid
+        && data.get('editedAt', null) == request.time
+        && data.get('discipline', '') in ['dressage', 'marathon', 'precision']
+        && data.get('reason', '') is string && data.get('reason', '').size() <= 1000
+        && (data.get('reference', null) == null
+          || (data.reference is map
+            && data.reference.keys().hasOnly(['type', 'value'])
+            && data.reference.get('type', '') in ['protest', 'groundJury', 'judgeRequest']
+            && data.reference.get('value', '') is string
+            && data.reference.get('value', '').size() <= 200));
+    }
+
     match /artifacts/{appId}/private/data/competitions/{compId}/auditLog/{docId} {
       allow read: if request.auth != null
         && (
@@ -939,11 +985,47 @@ service cloud.firestore {
           getUserRole() == 'admin' ||
           canAdminThisArtifactsComp(appId, compId)
         );
+      // The secretariat pages are open to the officials of each discipline
+      // too: they log their own corrections of that discipline, in their own
+      // name. Never changed or removed.
       allow create: if request.auth != null
+        && isAuditLogEntry(request.resource.data)
         && (
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
-          canAdminThisArtifactsComp(appId, compId)
+          canAdminThisArtifactsComp(appId, compId) ||
+          hasExplicitRoleInComp(appId, compId, request.resource.data.discipline)
+        );
+      allow update, delete: if false;
+    }
+
+    // Writes from the field the server refused (queued offline and sent after
+    // the result was locked), recorded by the device (rejectedWritesService)
+    // so the secretariat sees what never arrived. Officials of the discipline
+    // and admins add entries in their own name; the competition's staff read
+    // them. Never changed or removed.
+    function isRejectedWriteEntry(data) {
+      return data.keys().hasOnly(['discipline', 'startNumber', 'obstacle', 'payloadSummary',
+          'errorCode', 'source', 'reportedBy', 'reportedAt'])
+        && data.get('reportedBy', null) == request.auth.uid
+        && data.get('reportedAt', null) == request.time
+        && data.get('discipline', '') in ['dressage', 'marathon', 'precision']
+        && data.get('startNumber', null) is string
+        && data.startNumber.size() > 0 && data.startNumber.size() <= 20
+        && (data.get('obstacle', null) == null || data.obstacle is int)
+        && data.get('payloadSummary', '') is string && data.get('payloadSummary', '').size() <= 1000
+        && (data.get('errorCode', null) == null
+          || (data.errorCode is string && data.errorCode.size() <= 100))
+        && data.get('source', '') is string && data.get('source', '').size() <= 100;
+    }
+
+    match /artifacts/{appId}/private/data/competitions/{compId}/rejectedWrites/{docId} {
+      allow read: if request.auth != null && canReadCompetitionStaffDocs(appId, compId);
+      allow create: if request.auth != null
+        && isRejectedWriteEntry(request.resource.data)
+        && (
+          canAdminThisArtifactsComp(appId, compId) ||
+          hasExplicitRoleInComp(appId, compId, request.resource.data.discipline)
         );
       allow update, delete: if false;
     }

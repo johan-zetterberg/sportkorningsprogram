@@ -2,7 +2,7 @@
 import { getGlobalState } from '../../main.js';
 import { listenMergeSource, loadMergeSource } from '../../services/mergeConfigService.js';
 import { getEquipages } from '../../services/equipageService.js';
-import { finalizeMarathon, unfinalizeMarathon } from '../../services/finalizationService.js';
+import { confirmFinalizeWithGaps, finalizeMarathon, unfinalizeMarathon } from '../../services/finalizationService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getMarathonTimingData, listenForMarathonTimingUpdates } from '../../services/marathonService.js';
 import { collection, onSnapshot, updateDoc, doc, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -82,6 +82,7 @@ import {
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 
 import { showDetailsModal } from '../../ui/marathonModal.js';
+import { normalizeMarathonDoc } from '../../core-engine/stateSelector.js';
 import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 // ---- Cross-page X-Scroll Guard (shared) ----
 
@@ -211,7 +212,9 @@ function isMarathonFinalized(sn) {
 
 // Åtgärder (samma behörighetskontroll som i dressyr)
 export function __finalizeMaraton(compId, sn) {
-  finalizeMarathon(compId, sn)
+  // What has not come in (obstacles, stage times, observer log) is listed first
+  confirmFinalizeWithGaps(compId, 'marathon', sn)
+    .then(ok => (ok ? finalizeMarathon(compId, sn) : null))
     .catch(err => {
       console.error('Finalize failed:', err);
       if (window.showAlert) window.showAlert('Kunde inte finalisera resultatet.', false);
@@ -673,7 +676,8 @@ function listenLive() {
       const id = String(change.doc.id);
       if (change.type === 'added' || change.type === 'modified') {
         const current = maraton_marathonMap.get(id) || {};
-        const next = { ...current, ...change.doc.data() };
+        // Per-obstacle results and live entries in the shape the page reads
+        const next = { ...current, ...normalizeMarathonDoc(change.doc.data()) };
         maraton_marathonMap.set(id, next);
         if (change.type === 'added' || hasRenderableSummaryChange(current, next)) {
           changed = true;

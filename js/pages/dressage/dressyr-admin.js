@@ -686,6 +686,19 @@ function render(root) {
               <label class="text-sm block mb-1 dark:text-gray-300">Version / år</label>
               <input id="progVersion" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. 2020"/>
             </div>
+            <div>
+              <label for="progCoeff" class="text-sm block mb-1 dark:text-gray-300">Koefficient (enligt protokollet)</label>
+              <input id="progCoeff" type="text" inputmode="decimal" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="tomt = 160 / maxpoäng (1,0 om max ≤ 160)"/>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Står koefficienten på protokollet, skriv in den (t.ex. 0,8).</p>
+            </div>
+            <div>
+              <label for="progScoring" class="text-sm block mb-1 dark:text-gray-300">Straffberäkning</label>
+              <select id="progScoring" class="border rounded px-3 py-2 w-full dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                <option value="">Enligt namn/kategori (FEI/CAI → FEI)</option>
+                <option value="tr">TR 518.9: (maxpoäng − poäng) × koefficient</option>
+                <option value="fei">FEI 958: 160 − poäng × koefficient</option>
+              </select>
+            </div>
           </div>
 
           <div class="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -813,6 +826,10 @@ function fillProgramForm(root, prog) {
   qs('#progVerified', root).checked = !!prog.verified;
   qs('#progSource', root).value = prog.source || '';
   qs('#progVersion', root).value = prog.version || '';
+  const coeffEl = qs('#progCoeff', root);
+  if (coeffEl) coeffEl.value = prog.penaltyCoeff != null ? String(prog.penaltyCoeff) : '';
+  const scoringEl = qs('#progScoring', root);
+  if (scoringEl) scoringEl.value = ['tr', 'fei'].includes(String(prog.scoring || '').toLowerCase()) ? String(prog.scoring).toLowerCase() : '';
 
   const tb = qs('#movesTbody', root);
   tb.innerHTML = (prog.movements || []).map(m => `
@@ -846,7 +863,12 @@ function readProgramForm(root) {
   }).filter(r => r.no > 0 && (r.text || r.letters || r.judge));
 
   const movements = rows; // behåll alla rader i ordning
-  return { key, program: { name, category, arena, movements, verified, source, version } };
+  // Empty coefficient: the engine uses 160 / max points (1.0 when max ≤ 160)
+  const coeffRaw = Number(String(qs('#progCoeff', root)?.value || '').trim().replace(',', '.'));
+  const penaltyCoeff = Number.isFinite(coeffRaw) && coeffRaw > 0 ? coeffRaw : null;
+  const scoringRaw = String(qs('#progScoring', root)?.value || '').toLowerCase();
+  const scoring = scoringRaw === 'tr' || scoringRaw === 'fei' ? scoringRaw : null;
+  return { key, program: { name, category, arena, movements, verified, source, version, penaltyCoeff, scoring } };
 
 }
 
@@ -1003,8 +1025,9 @@ function wire(root) {
     if (!key) { alert('Program-nyckel saknas.'); return; }
     try {
       const old = await getConfig(competitionId, 'dressagePrograms') || {};
-      // The form edits only some fields: keep the rest of the program
-      // (penaltyCoeff, which weighs dressage against the other disciplines)
+      // The form edits only some fields: keep the rest of the program. An
+      // empty coefficient (null) falls back to the built-in program's, else
+      // to 160 / max points (core-engine getDressagePenaltyCoeff)
       const program = { ...(mergedPrograms[key] || {}), ...(old[key] || {}), ...formProgram };
       const next = { ...old, [key]: program };
       await saveConfig(competitionId, 'dressagePrograms', next);

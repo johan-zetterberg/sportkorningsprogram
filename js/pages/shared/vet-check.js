@@ -5,6 +5,7 @@ import { listenForVetInspections, listenForVetNotes, saveVetClinicalFindings, sa
 import { getCompetitionById, getConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import {
     buildHorseTemperatureSlots,
     getHorseTemperatureRecord,
@@ -59,6 +60,11 @@ function byId(id) {
     return document.getElementById(id);
 }
 
+const connectionBanner = createConnectionBanner(() => document.querySelector('#page-vet-check .container'));
+
+// A save the server refuses after the page moved on (offline queue)
+const lateSaveError = (what) => () => showAlert(`${what} kunde inte sparas på servern. Kontrollera och försök igen.`, false);
+
 export function load() {
     const competition = getGlobalState('currentCompetition');
     const pageContainer = byId('page-vet-check');
@@ -77,9 +83,18 @@ export function load() {
     attachPageHandlers();
     loadTemperatureSettings(competition);
 
+    // Each listener subscribes again after an error, keeping what is shown
+    // (an empty list would hide every equipage) and showing a banner meanwhile
+    const resilient = (name, listen, onData) => resilientSnapshot({
+        name,
+        subscribe: (onNext, onError) => listen(onNext, onError),
+        onData,
+        onStatus: (status) => connectionBanner.update(name, status)
+    });
+
     // The public equipages only: the vet's notes and findings are in their own
     // collections (the vet does not read the drivers' contact details)
-    unsubscribe = listenForEquipages(competitionId, update => {
+    unsubscribe = resilient('vet-equipages', (onNext, onError) => listenForEquipages(competitionId, onNext, { onError }), update => {
         rawEquipages = Array.isArray(update) ? update : [];
         mergePrivateData();
         updatePhaseTabs();
@@ -89,15 +104,15 @@ export function load() {
 
     // Temperatures are not on the public equipage document: merged in by
     // start number (any old copy there is replaced, not shown)
-    unsubscribeTemperatures = listenForHorseTemperatures(competitionId, byStartNumber => {
+    unsubscribeTemperatures = resilient('vet-temperatures', (onNext, onError) => listenForHorseTemperatures(competitionId, onNext, onError), byStartNumber => {
         temperaturesByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
         refreshAfterPrivateUpdate();
     });
-    unsubscribeClinical = listenForVetInspections(competitionId, byStartNumber => {
+    unsubscribeClinical = resilient('vet-inspections', (onNext, onError) => listenForVetInspections(competitionId, onNext, onError), byStartNumber => {
         clinicalByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
         refreshAfterPrivateUpdate();
     });
-    unsubscribeNotes = listenForVetNotes(competitionId, byStartNumber => {
+    unsubscribeNotes = resilient('vet-notes', (onNext, onError) => listenForVetNotes(competitionId, onNext, onError), byStartNumber => {
         notesByStartNumber = byStartNumber instanceof Map ? byStartNumber : new Map();
         refreshAfterPrivateUpdate();
     });
@@ -149,6 +164,7 @@ export function __unload() {
     unsubscribeClinical = null;
     if (unsubscribeNotes) unsubscribeNotes();
     unsubscribeNotes = null;
+    connectionBanner.clear();
     temperaturesByStartNumber = new Map();
     clinicalByStartNumber = new Map();
     notesByStartNumber = new Map();
@@ -189,7 +205,7 @@ function renderPhaseTabsHtml() {
                     ? 'bg-blue-600 text-white shadow-sm font-black'
                     : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700 font-bold';
                 return `
-                    <button type="button" class="vet-phase-btn whitespace-nowrap px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all ${activeClass}" data-phase="${phase.id}">
+                    <button type="button" class="vet-phase-btn whitespace-nowrap min-h-[44px] px-3 py-1.5 rounded-lg text-xs flex items-center gap-1.5 transition-all ${activeClass}" data-phase="${phase.id}">
                         <span>${escapeHtml(phase.shortLabel)}</span>
                         <span class="text-[10px] px-1.5 py-0.5 rounded-full ${isActive ? 'bg-white/20 text-white' : 'bg-gray-200 dark:bg-gray-700 text-gray-500 dark:text-gray-300'} font-mono">${remaining}</span>
                     </button>
@@ -232,7 +248,7 @@ function renderPage(pageContainer, competition) {
                         <div class="text-right shrink-0 flex flex-col items-end gap-1">
                             <div class="flex items-center gap-2">
                                 <div class="text-[11px] font-bold uppercase text-blue-600 dark:text-blue-400" id="vet-queue-count">Laddar...</div>
-                                <button id="btn-print-vet-pdf" class="px-2 py-0.5 text-[11px] font-semibold rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 flex items-center gap-1 transition-colors" title="Skriv ut besiktningslista som PDF">
+                                <button id="btn-print-vet-pdf" type="button" class="min-h-[44px] min-w-[44px] px-3 py-1 text-xs font-semibold rounded bg-gray-100 hover:bg-gray-200 dark:bg-gray-800 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 border border-gray-300 dark:border-gray-600 flex items-center gap-1 transition-colors" title="Skriv ut besiktningslista som PDF">
                                     <i class="fa fa-print text-[10px]"></i> PDF
                                 </button>
                             </div>
@@ -241,14 +257,14 @@ function renderPage(pageContainer, competition) {
                     </div>
 
                     <div class="flex gap-2 items-center">
-                        <button id="btn-prev-eq" type="button" aria-label="Föregående ekipage" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Föregående">‹</button>
+                        <button id="btn-prev-eq" type="button" aria-label="Föregående ekipage" class="w-11 h-11 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Föregående">‹</button>
                         <div class="relative flex-1">
                             <input type="text" id="vet-search" list="vet-search-list" placeholder="Sök ekipage..." aria-label="Sök ekipage"
-                                class="w-full pl-3 pr-8 py-2.5 border rounded-lg text-sm font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 transition-all">
+                                class="w-full min-h-[44px] pl-3 pr-12 py-2.5 border rounded-lg text-base font-medium focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400 transition-all">
                             <datalist id="vet-search-list"></datalist>
                             <div class="absolute right-3 top-3 text-gray-500 dark:text-gray-400 text-xs" aria-hidden="true">Sök</div>
                         </div>
-                        <button id="btn-next-eq" type="button" aria-label="Nästa ekipage" class="w-10 h-10 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Nästa">›</button>
+                        <button id="btn-next-eq" type="button" aria-label="Nästa ekipage" class="w-11 h-11 flex items-center justify-center bg-gray-50 dark:bg-gray-800 border dark:border-gray-700 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-700 dark:text-gray-200 disabled:opacity-30 transition-all font-bold" title="Nästa">›</button>
                     </div>
 
                     <div class="flex justify-center pb-1">
@@ -467,13 +483,13 @@ function renderHorseCard(horse = {}, index = 0) {
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
                     <div>
                         <label class="block text-[10px] font-bold text-gray-500 mb-0.5">Puls (bpm):</label>
-                        <div class="flex items-center gap-1.5">
+                        <div class="flex flex-wrap items-center gap-1.5">
                             <input type="number" min="20" max="150" step="1" inputmode="numeric"
-                                class="vet-pulse-input w-20 px-2 py-1 text-sm font-bold rounded border dark:border-gray-600 dark:bg-gray-700 dark:text-white ${pulseHigh ? 'border-rose-500 bg-rose-50 text-rose-900' : ''}"
+                                class="vet-pulse-input w-20 min-h-[44px] px-2 py-1 text-base font-bold rounded border dark:border-gray-600 dark:bg-gray-700 dark:text-white ${pulseHigh ? 'border-rose-500 bg-rose-50 text-rose-900' : ''}"
                                 placeholder="bpm" value="${escapeHtml(pulse)}" data-horse-key="${escapeHtml(horseKey)}">
-                            <div class="flex items-center gap-1 text-[10px]">
+                            <div class="flex flex-wrap items-center gap-1 text-xs">
                                 ${[48, 56, 60, 64, 68].map(pVal => `
-                                    <button type="button" class="quick-pulse-btn px-1.5 py-0.5 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30" data-horse-key="${escapeHtml(horseKey)}" data-pulse="${pVal}">${pVal}</button>
+                                    <button type="button" class="quick-pulse-btn min-w-[44px] min-h-[44px] px-2 rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-blue-50 dark:hover:bg-blue-900/30" data-horse-key="${escapeHtml(horseKey)}" data-pulse="${pVal}">${pVal}</button>
                                 `).join('')}
                             </div>
                         </div>
@@ -481,12 +497,12 @@ function renderHorseCard(horse = {}, index = 0) {
 
                     <div>
                         <label class="block text-[10px] font-bold text-gray-500 mb-0.5">Andning / Allmäntillstånd:</label>
-                        <div class="flex gap-2">
-                            <select class="vet-resp-select text-xs font-medium rounded border dark:border-gray-600 dark:bg-gray-700 dark:text-white px-2 py-1" data-horse-key="${escapeHtml(horseKey)}">
+                        <div class="flex flex-wrap gap-2">
+                            <select class="vet-resp-select min-h-[44px] text-base font-medium rounded border dark:border-gray-600 dark:bg-gray-700 dark:text-white px-2 py-1" data-horse-key="${escapeHtml(horseKey)}">
                                 <option value="normal" ${resp === 'normal' ? 'selected' : ''}>Andning: Normal</option>
                                 <option value="elevated" ${resp === 'elevated' ? 'selected' : ''}>Andning: Flåsande / Förhöjd</option>
                             </select>
-                            <select class="vet-mucosa-select text-xs font-medium rounded border dark:border-gray-600 dark:bg-gray-700 dark:text-white px-2 py-1" data-horse-key="${escapeHtml(horseKey)}">
+                            <select class="vet-mucosa-select min-h-[44px] text-base font-medium rounded border dark:border-gray-600 dark:bg-gray-700 dark:text-white px-2 py-1" data-horse-key="${escapeHtml(horseKey)}">
                                 <option value="ok" ${mucosa === 'ok' ? 'selected' : ''}>Slemhinnor: U.a.</option>
                                 <option value="remark" ${mucosa === 'remark' ? 'selected' : ''}>Slemhinnor: Anmärkning</option>
                             </select>
@@ -499,13 +515,13 @@ function renderHorseCard(horse = {}, index = 0) {
         const bitOk = phaseInspection.bitOk ?? true;
         const harnessOk = phaseInspection.harnessOk ?? true;
         clinicalSectionHtml = `
-            <div class="mt-2.5 pt-2 border-t dark:border-gray-700 flex items-center gap-4 text-xs font-bold text-gray-700 dark:text-gray-300">
-                <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input type="checkbox" class="vet-harness-check h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600" data-horse-key="${escapeHtml(horseKey)}" data-check="bitOk" ${bitOk ? 'checked' : ''}>
+            <div class="mt-2.5 pt-2 border-t dark:border-gray-700 flex flex-wrap items-center gap-x-4 text-sm font-bold text-gray-700 dark:text-gray-300">
+                <label class="flex items-center gap-2 min-h-[44px] cursor-pointer">
+                    <input type="checkbox" class="vet-harness-check h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600" data-horse-key="${escapeHtml(horseKey)}" data-check="bitOk" ${bitOk ? 'checked' : ''}>
                     <span>Bett & träns u.a.</span>
                 </label>
-                <label class="flex items-center gap-1.5 cursor-pointer">
-                    <input type="checkbox" class="vet-harness-check h-3.5 w-3.5 rounded border-gray-300 dark:border-gray-600 text-blue-600" data-horse-key="${escapeHtml(horseKey)}" data-check="harnessOk" ${harnessOk ? 'checked' : ''}>
+                <label class="flex items-center gap-2 min-h-[44px] cursor-pointer">
+                    <input type="checkbox" class="vet-harness-check h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600" data-horse-key="${escapeHtml(horseKey)}" data-check="harnessOk" ${harnessOk ? 'checked' : ''}>
                     <span>Sele & draglinor u.a.</span>
                 </label>
             </div>
@@ -529,13 +545,13 @@ function renderHorseCard(horse = {}, index = 0) {
             ${clinicalSectionHtml}
 
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-1.5 mt-2.5 pt-2 border-t dark:border-gray-700">
-                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'besiktigad' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="besiktigad">
+                <button type="button" class="vet-horse-status-btn min-h-[44px] rounded-md px-2 py-1 text-xs font-black uppercase ${horseStatus === 'besiktigad' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="besiktigad">
                     ${currentPhase === 'restArea' ? 'Godkänd för B' : 'Godkänd'}
                 </button>
-                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'ombesiktning' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="ombesiktning">
+                <button type="button" class="vet-horse-status-btn min-h-[44px] rounded-md px-2 py-1 text-xs font-black uppercase ${horseStatus === 'ombesiktning' ? 'bg-amber-600 text-white' : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="ombesiktning">
                     ${currentPhase === 'restArea' ? 'Omkontroll' : 'Ombesikt'}
                 </button>
-                <button type="button" class="vet-horse-status-btn rounded-md px-2 py-1 text-[10px] font-black uppercase ${horseStatus === 'struken' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="struken">
+                <button type="button" class="vet-horse-status-btn min-h-[44px] rounded-md px-2 py-1 text-xs font-black uppercase ${horseStatus === 'struken' ? 'bg-rose-600 text-white' : 'bg-rose-50 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'}" data-horse-key="${escapeHtml(horseKey)}" data-status="struken">
                     ${currentPhase === 'restArea' ? 'Startförbud B' : 'Stryk'}
                 </button>
             </div>
@@ -678,11 +694,11 @@ function renderVetCard(eq = {}) {
                 <label for="vet-notes-${escapeHtml(eq.startNumber)}" class="block text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-widest mb-2">
                     Veterinärnotering (${VET_PHASES[currentPhase]?.shortLabel})
                 </label>
-                <textarea id="vet-notes-${escapeHtml(eq.startNumber)}" class="w-full text-sm border dark:border-gray-700 rounded-lg p-3 vet-notes focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[60px] dark:bg-gray-900/40 dark:text-white placeholder-gray-500"
+                <textarea id="vet-notes-${escapeHtml(eq.startNumber)}" class="w-full text-base border dark:border-gray-700 rounded-lg p-3 vet-notes focus:ring-2 focus:ring-blue-500/20 transition-all min-h-[60px] dark:bg-gray-900/40 dark:text-white placeholder-gray-500"
                     placeholder="Anteckna t.ex. puls, andning, rörelsestörning..."
                     data-sn="${escapeHtml(eq.startNumber)}">${escapeHtml(phaseNoteVal)}</textarea>
                 <div class="absolute right-2 bottom-2">
-                    <button class="text-[10px] font-black bg-brand-darkblue text-white px-3 py-1.5 rounded-lg shadow-sm save-notes-btn hidden uppercase tracking-wide" data-sn="${escapeHtml(eq.startNumber)}">Spara</button>
+                    <button type="button" class="min-h-[44px] text-xs font-black bg-brand-darkblue text-white px-4 py-2 rounded-lg shadow-sm save-notes-btn hidden uppercase tracking-wide" data-sn="${escapeHtml(eq.startNumber)}">Spara</button>
                 </div>
             </div>
 
@@ -696,7 +712,7 @@ function renderVetCard(eq = {}) {
             </div>
 
             <div class="mt-4 flex justify-center">
-                <button class="vet-status-btn text-[10px] font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest flex items-center gap-1.5 opacity-60 hover:opacity-100 transition-opacity" data-status="struken">
+                <button type="button" class="vet-status-btn min-h-[44px] px-4 py-2 text-xs font-bold text-rose-600 dark:text-rose-400 uppercase tracking-widest flex items-center gap-1.5 opacity-80 hover:opacity-100 transition-opacity" data-status="struken">
                     ${rejectBtnLabel}
                 </button>
             </div>
@@ -717,26 +733,10 @@ function attachCardHandlers(container, eq) {
     });
 
     container.querySelectorAll('.vet-horse-status-btn').forEach(button => {
-        button.addEventListener('click', () => {
-            const horseKey = button.dataset.horseKey;
-            const status = button.dataset.status;
-            // Collect any clinical fields
-            const cardEl = button.closest('.horse-id-grid');
-            const pulseInput = cardEl?.querySelector('.vet-pulse-input');
-            const respSelect = cardEl?.querySelector('.vet-resp-select');
-            const mucosaSelect = cardEl?.querySelector('.vet-mucosa-select');
-            const bitCheck = cardEl?.querySelector('input[data-check="bitOk"]');
-            const harnessCheck = cardEl?.querySelector('input[data-check="harnessOk"]');
-
-            const extra = {};
-            if (pulseInput && pulseInput.value) extra.pulseBpm = Number(pulseInput.value);
-            if (respSelect) extra.respiration = respSelect.value;
-            if (mucosaSelect) extra.mucosa = mucosaSelect.value;
-            if (bitCheck) extra.bitOk = bitCheck.checked;
-            if (harnessCheck) extra.harnessOk = harnessCheck.checked;
-
-            setHorseVetStatus(eq, horseKey, status, extra);
-        });
+        // Only the status: the horse's findings were saved field by field as
+        // they were entered, and the screen's copy may be older than another
+        // vet's save
+        button.addEventListener('click', () => setHorseVetStatus(eq, button.dataset.horseKey, button.dataset.status));
     });
 
     // Quick pulse buttons
@@ -820,7 +820,9 @@ function storedCopy(local = {}) {
 async function saveHorseClinicalField(eq = {}, horseKey, updateData = {}) {
     if (!competitionId || !eq.startNumber || !horseKey) return;
     try {
-        await saveVetClinicalFindings(competitionId, eq.startNumber, [{ horseKey, phase: currentPhase, fields: updateData }]);
+        await saveVetClinicalFindings(competitionId, eq.startNumber, [{ horseKey, phase: currentPhase, fields: updateData }], {
+            onLateError: lateSaveError(`Undersökningsvärdet (#${eq.startNumber})`)
+        });
     } catch (err) {
         console.warn('Failed to save horse clinical data:', err);
         showAlert('Kunde inte spara undersökningsvärdet', false);
@@ -829,7 +831,9 @@ async function saveHorseClinicalField(eq = {}, horseKey, updateData = {}) {
 
 async function saveVetNote(startNumber, note, saveBtn) {
     try {
-        await saveVetNoteDoc(competitionId, startNumber, currentPhase, note);
+        await saveVetNoteDoc(competitionId, startNumber, currentPhase, note, {
+            onLateError: lateSaveError(`Noteringen (#${startNumber})`)
+        });
         saveBtn.textContent = 'KLART!';
         setTimeout(() => {
             saveBtn.textContent = 'SPARA';
@@ -849,42 +853,20 @@ async function setVetStatus(startNumber, status) {
     }
 
     const phase = currentPhase;
-    const container = document.getElementById('vet-card-container');
-    const domExtrasByHorseKey = {};
-    if (container) {
-        container.querySelectorAll('[data-horse-key]').forEach(el => {
-            const hk = el.dataset.horseKey;
-            if (!hk || domExtrasByHorseKey[hk]) return;
-            const extra = {};
-            const pulseInput = container.querySelector(`.vet-pulse-input[data-horse-key="${CSS.escape(String(hk))}"]`);
-            const respSelect = container.querySelector(`.vet-resp-select[data-horse-key="${CSS.escape(String(hk))}"]`);
-            const mucosaSelect = container.querySelector(`.vet-mucosa-select[data-horse-key="${CSS.escape(String(hk))}"]`);
-            const bitCheck = container.querySelector(`.vet-harness-check[data-horse-key="${CSS.escape(String(hk))}"][data-check="bitOk"]`);
-            const harnessCheck = container.querySelector(`.vet-harness-check[data-horse-key="${CSS.escape(String(hk))}"][data-check="harnessOk"]`);
-            if (pulseInput && pulseInput.value !== '') extra.pulseBpm = Number(pulseInput.value) || null;
-            if (respSelect) extra.respiration = respSelect.value;
-            if (mucosaSelect) extra.mucosa = mucosaSelect.value;
-            if (bitCheck) extra.bitOk = bitCheck.checked;
-            if (harnessCheck) extra.harnessOk = harnessCheck.checked;
-            domExtrasByHorseKey[hk] = extra;
-        });
-    }
     try {
         const local = latestLocalEquipage(startNumber);
-        // The findings on the card to the private document, the decision to
-        // the public equipage
-        const findings = Object.entries(domExtrasByHorseKey)
-            .map(([horseKey, fields]) => ({ horseKey, phase, fields }));
+        // Only the decision, to the public equipage. The findings are saved
+        // field by field as they are entered (saveHorseClinicalField): sending
+        // every horse's fields from this screen would overwrite what another
+        // vet saved meanwhile.
         // Built from the latest copy of the equipage (see updateEquipageFromLatest)
         const buildPayload = (eq) => buildVetStatusUpdate(eq, phase, { status }).payload;
 
         // Done with this equipage: the next snapshot moves on in the queue
         advanceAfterOwnSave = true;
-        // Side by side: offline each waits for its own write to be queued
-        await Promise.all([
-            saveVetClinicalFindings(competitionId, startNumber, findings),
-            updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), storedCopy(local))
-        ]);
+        await updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), storedCopy(local), {
+            onLateError: lateSaveError(`Status för #${startNumber}`)
+        });
         showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet update failed', error);
@@ -892,7 +874,7 @@ async function setVetStatus(startNumber, status) {
     }
 }
 
-async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
+async function setHorseVetStatus(eq = {}, horseKey, status) {
     if (!competitionId || !eq.startNumber) return;
     const phaseInfo = VET_PHASES[currentPhase] || VET_PHASES.initial;
     if (status === 'struken' && !confirm(`Ska vald häst i ekipage #${eq.startNumber} underkännas / få startförbud i ${phaseInfo.shortLabel}?`)) {
@@ -902,19 +884,16 @@ async function setHorseVetStatus(eq = {}, horseKey, status, extraData = {}) {
     const phase = currentPhase;
     try {
         const local = latestLocalEquipage(eq.startNumber, eq);
-        // Findings to the private document, the decision to the public equipage
-        await Promise.all([
-            saveVetClinicalFindings(competitionId, eq.startNumber, [{ horseKey, phase, fields: extraData }]),
-            // Built from the latest copy: another vet may have saved another horse
-            updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => {
-                const { payload, horses } = buildVetStatusUpdate(latest, phase, { status, horseKeys: [horseKey] });
-                // Every horse inspected in this phase: move on after the save;
-                // otherwise stay on the card for the next horse
-                advanceAfterOwnSave = horses.length > 0
-                    && horses.every(horse => !!horse?.inspections?.[phase]?.status);
-                return payload;
-            }), storedCopy(local))
-        ]);
+        // The decision to the public equipage, built from the latest copy:
+        // another vet may have saved another horse
+        await updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => {
+            const { payload, horses } = buildVetStatusUpdate(latest, phase, { status, horseKeys: [horseKey] });
+            // Every horse inspected in this phase: move on after the save;
+            // otherwise stay on the card for the next horse
+            advanceAfterOwnSave = horses.length > 0
+                && horses.every(horse => !!horse?.inspections?.[phase]?.status);
+            return payload;
+        }), storedCopy(local), { onLateError: lateSaveError(`Hästens status (#${eq.startNumber})`) });
         showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet horse update failed', error);

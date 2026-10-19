@@ -15,8 +15,31 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
 import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
+import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
+import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
+
+const connectionBanner = createConnectionBanner(
+    () => document.querySelector('#page-precision-split-input .container')
+);
+
+// A split write: 'saved' or 'queued' after a short wait (offline), a refusal
+// shown to the judge, also one that comes after the page moved on
+async function writeSplit(startNumber, write) {
+    const onError = (error) => {
+        console.warn('Split write failed:', error?.message || error);
+        showAlert(`#${startNumber}: ${t('precision_split_save_error')}`, 'error');
+    };
+    try {
+        // Queued offline: the gate already shows it, no notice per tap
+        return await awaitWriteOrQueue(write, { onLateError: onError });
+    } catch (error) {
+        onError(error);
+        return null;
+    }
+}
 
 let competitionId = null;
 let equipages = [];
@@ -63,11 +86,11 @@ export function renderLayout() {
 
                 <div class="flex items-center gap-2">
                     <div id="splitEquipageSearchContainer" class="flex-grow"></div>
-                    ${isFieldMode ? '' : `<button id="btnAutoFind" class="p-2 border rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" title="${t('precision_split_auto_find_title')}">${t('precision_split_auto_find_btn')}</button>`}
+                    ${isFieldMode ? '' : `<button id="btnAutoFind" type="button" class="min-h-[44px] min-w-[44px] px-3 py-2 border rounded-md bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:border-emerald-800 dark:text-emerald-400" title="${t('precision_split_auto_find_title')}">${t('precision_split_auto_find_btn')}</button>`}
                 </div>
                 
                 <div class="p-3 bg-gray-50 dark:bg-gray-900/50 rounded-lg border dark:border-gray-700 text-center">
-                    <div id="infoEquipageLine" class="font-bold dark:text-white text-lg md:text-xl">–</div>
+                    <div id="prs-infoEquipageLine" class="font-bold dark:text-white text-lg md:text-xl">–</div>
                     <div class="text-xs text-gray-500 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">${isFieldMode ? 'Valt ekipage' : t('precision_split_current_equipage')}</div>
                 </div>
 
@@ -80,7 +103,7 @@ export function renderLayout() {
 }
 
 function updateHeaderInfo() {
-    const el = document.getElementById('infoEquipageLine');
+    const el = document.getElementById('prs-infoEquipageLine');
     if (!currentEquipage) {
         if(el) el.textContent = '–';
         return;
@@ -119,12 +142,8 @@ async function logSplit(gateId) {
         }
     }
 
-    try {
-        await setDoc(precisionDocRef(currentEquipage.startNumber), updates, { merge: true });
-    } catch (e) {
-        console.warn('Split push failed:', e.message);
-        showAlert(t('precision_split_save_error'), 'error');
-    }
+    const sn = currentEquipage.startNumber;
+    await writeSplit(sn, setDoc(precisionDocRef(sn), updates, { merge: true }));
 }
 
 async function undoSplit(gateId) {
@@ -152,11 +171,22 @@ async function undoSplit(gateId) {
         updates.status = 'Pågår';
     }
 
-    try {
-        await updateDoc(precisionDocRef(currentEquipage.startNumber), updates);
-    } catch (e) {
-        console.warn('Split undo failed:', e.message);
-    }
+    const sn = currentEquipage.startNumber;
+    await writeSplit(sn, updateDoc(precisionDocRef(sn), updates));
+}
+
+// Without the live map there are no gates to log here: say so once, clearly,
+// instead of an equipage picker that leads nowhere
+function liveMapDisabledHtml() {
+    return `<div class="p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100 space-y-1">
+        <p class="font-bold">${escapeHtml(t('precision_split_live_map_disabled'))}</p>
+        <p>Passager loggas bara när live-kartan med portar är aktiverad (Precision → inställningar). Tid och rivningar registreras i precisionsinmatningen.</p>
+    </div>`;
+}
+
+function isLiveMapOff() {
+    const isFieldMode = getGlobalState('currentCompetition')?.competitionMode === 'field';
+    return !isFieldMode && !(precisionConfig?.mapSettings?.enabled);
 }
 
 function renderGates() {
@@ -176,7 +206,7 @@ function renderGates() {
 
     const mapSettings = precisionConfig?.mapSettings || {};
     if (!mapSettings.enabled && !isFieldMode) {
-        container.innerHTML = `<div class="p-4 bg-red-50 text-red-700 rounded text-center text-sm dark:bg-red-900/30 dark:text-red-300">${t('precision_split_live_map_disabled')}</div>`;
+        container.innerHTML = liveMapDisabledHtml();
         return;
     }
 
@@ -230,8 +260,8 @@ function renderGates() {
         }
 
         html += `
-            <button class="btn-gate aspect-square p-1 sm:p-2 border-2 rounded-lg flex flex-col items-center justify-center transition-all ${hasSplit ? 'bg-green-100 border-green-500 text-green-900 dark:bg-green-900/30 dark:border-green-500 dark:text-green-100' : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 active:scale-95 shadow-sm'}" data-gate="${k}">
-                <span class="font-bold text-lg sm:text-xl">${label}</span>
+            <button type="button" class="btn-gate aspect-square min-h-[56px] p-1 sm:p-2 border-2 rounded-lg flex flex-col items-center justify-center transition-all ${hasSplit ? 'bg-green-100 border-green-500 text-green-900 dark:bg-green-900/30 dark:border-green-500 dark:text-green-100' : 'bg-gray-50 border-gray-300 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700 active:scale-95 shadow-sm'}" data-gate="${escapeHtml(k)}">
+                <span class="font-bold text-lg sm:text-xl">${escapeHtml(label)}</span>
                 ${hasSplit ? `<span class="text-[10px] sm:text-xs font-mono font-bold mt-1 opacity-80">${timeStr}</span>` : ''}
             </button>
         `;
@@ -261,6 +291,7 @@ function loadDriverData(equipage) {
         currentUnsubscribe();
         currentUnsubscribe = null;
     }
+    connectionBanner.clear();
 
     // The previous equipage's state must not be written into or checked
     // against the new one while its snapshot is on the way
@@ -273,22 +304,25 @@ function loadDriverData(equipage) {
 
     const startNumber = String(equipage.startNumber);
     const docRef = precisionDocRef(startNumber);
-    currentUnsubscribe = onSnapshot(docRef, (docSnap) => {
-        // A late snapshot for an equipage no longer selected
-        if (!currentEquipage || String(currentEquipage.startNumber) !== startNumber) return;
-        currentDataLoaded = true;
-        if (docSnap.exists()) {
-            const data = docSnap.data();
-            currentEquipageData = data;
-            gateSplits = data.gateSplits || {};
+    // Resubscribes after an error; the gates shown stay meanwhile
+    currentUnsubscribe = resilientSnapshot({
+        name: `precision-split:${startNumber}`,
+        subscribe: (onNext, onError) => onSnapshot(docRef, onNext, onError),
+        onData: (docSnap) => {
+            // A late snapshot for an equipage no longer selected
+            if (!currentEquipage || String(currentEquipage.startNumber) !== startNumber) return;
+            currentDataLoaded = true;
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                currentEquipageData = data;
+                gateSplits = data.gateSplits || {};
+            } else {
+                currentEquipageData = null;
+                gateSplits = {};
+            }
             renderGates();
-        } else {
-            currentEquipageData = null;
-            gateSplits = {};
-            renderGates();
-        }
-    }, (err) => {
-        console.warn('Split listener failed:', err?.message || err);
+        },
+        onStatus: (status) => connectionBanner.update('precision-split', status)
     });
 }
 
@@ -343,6 +377,17 @@ export async function load() {
         if (mySeq !== loadSeq) return;
 
         precisionConfig = configData || {};
+
+        // Live map off: nothing to log here, no picker or polling either
+        if (isLiveMapOff()) {
+            const picker = document.getElementById('splitEquipageSearchContainer')?.parentElement;
+            picker?.classList.add('hidden');
+            document.getElementById('prs-infoEquipageLine')?.parentElement?.classList.add('hidden');
+            const container = document.getElementById('gatesListContainer');
+            if (container) container.innerHTML = liveMapDisabledHtml();
+            return;
+        }
+
         equipages = equipagesData
             .filter(e => e.startNumber)
             .map(e => ({
@@ -388,6 +433,7 @@ export function __unload() {
         currentUnsubscribe();
         currentUnsubscribe = null;
     }
+    connectionBanner.clear();
     if (autoSyncInterval) {
         clearInterval(autoSyncInterval);
         autoSyncInterval = null;

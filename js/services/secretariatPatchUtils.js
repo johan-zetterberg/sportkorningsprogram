@@ -88,3 +88,102 @@ export function mergeProtocolEdits(edited = {}, loaded = {}, current = {}) {
 export function isStillRunning(doc = {}) {
     return doc?.running === true || !!doc?.runningStage;
 }
+
+const toNumber = (value, fallback = 0) => {
+    const num = Number(value);
+    return Number.isFinite(num) ? num : fallback;
+};
+
+// Obstacle fields the secretariat edits (time penalty and total follow from them)
+export const OBSTACLE_EDIT_FIELDS = ['timeInSeconds', 'knockdowns', 'knockdownPenalty', 'otherPenalty', 'holdTimeSec', 'eliminated', 'comment'];
+export const OBSTACLE_EDIT_DEFAULTS = { timeInSeconds: 0, knockdowns: 0, knockdownPenalty: 0, otherPenalty: 0, holdTimeSec: 0, eliminated: false, comment: '' };
+
+/** One stored obstacle result in the secretariat's shape */
+export function normalizeSecretariatObstacle(obstacle = {}, number = null) {
+    const timeMsSec = Number.isFinite(Number(obstacle.timeMs)) && obstacle.timeMs !== null ? Number(obstacle.timeMs) / 1000 : null;
+    return {
+        obstacleNumber: Number(number ?? obstacle.obstacleNumber ?? obstacle.number),
+        timeInSeconds: toNumber(obstacle.timeInSeconds ?? obstacle.timeSeconds ?? obstacle.timeSec ?? timeMsSec, 0),
+        knockdowns: toNumber(obstacle.knockdowns, 0),
+        knockdownPenalty: toNumber(obstacle.knockdownPenalty ?? obstacle.knockDownPenalty, 0),
+        otherPenalty: toNumber(obstacle.otherPenalty, 0),
+        timePenalty: toNumber(obstacle.timePenalty, 0),
+        penalty: toNumber(obstacle.penalty, 0),
+        holdTimeSec: toNumber(obstacle.holdTimeSec, 0),
+        eliminated: !!obstacle.eliminated,
+        comment: obstacle.comment || '',
+        routeString: obstacle.routeString || '',
+    };
+}
+
+/**
+ * The obstacle results of one equipage by number, from every place they are
+ * stored: the obstacle documents, the maraton document's list and (newer
+ * storage) a map of entries keyed by obstacle number. The maraton document
+ * wins, as on the result pages.
+ */
+export function mergeObstacleSources(savedObstacles = [], summary = null) {
+    const byNumber = new Map();
+    const put = (obstacle, fallbackNumber, override) => {
+        if (!obstacle || typeof obstacle !== 'object') return;
+        const key = Number(obstacle.obstacleNumber ?? obstacle.number ?? fallbackNumber);
+        if (!Number.isFinite(key)) return;
+        byNumber.set(key, override ? { ...(byNumber.get(key) || {}), ...obstacle, obstacleNumber: key } : { ...obstacle, obstacleNumber: key });
+    };
+    (savedObstacles || []).forEach(obstacle => put(obstacle, obstacle?.id, false));
+    const list = Array.isArray(summary?.obstacles) ? summary.obstacles : [];
+    list.forEach(obstacle => put(obstacle, null, true));
+    // A map of entries keyed by obstacle number
+    const map = summary?.obstacleResults;
+    if (map && typeof map === 'object' && !Array.isArray(map)) {
+        Object.entries(map).forEach(([key, obstacle]) => put(obstacle, key, true));
+    }
+    return byNumber;
+}
+
+/**
+ * A secretariat correction of one obstacle: the fields edited compared with
+ * the row as loaded (`baseRow`), the edited fields the judge changed on the
+ * server since (`conflicts`, the save must be refused) and the obstacle to
+ * save: the server's current values with only the edited fields replaced.
+ */
+export function planObstacleCorrection(patch = {}, baseRow = {}, current = {}) {
+    const currentRow = normalizeSecretariatObstacle(current || {}, baseRow?.obstacleNumber);
+    const edited = pickEditedFields(patch, baseRow || {}, OBSTACLE_EDIT_FIELDS, OBSTACLE_EDIT_DEFAULTS);
+    const conflicts = findEditConflicts(edited, baseRow || {}, currentRow, OBSTACLE_EDIT_DEFAULTS);
+    const payload = { ...currentRow };
+    Object.entries(edited).forEach(([field, value]) => {
+        payload[field] = field === 'eliminated' ? !!value : (field === 'comment' ? String(value ?? '') : toNumber(value, 0));
+    });
+    return { edited, conflicts, payload, current: currentRow };
+}
+
+// Where a correction comes from (optional, besides the free-text reason)
+export const CORRECTION_REFERENCE_TYPES = {
+    protest: 'Protest nr',
+    groundJury: 'Domarjurybeslut',
+    judgeRequest: 'Domarens begäran'
+};
+
+/**
+ * The reason saved with a secretariat correction: a free text is required,
+ * the reference (protest number, ground jury decision, judge's request) is
+ * optional. Throws with a Swedish message when the reason is missing.
+ */
+export function buildCorrectionReason({ reason = '', referenceType = '', referenceValue = '' } = {}) {
+    const text = String(reason || '').trim().slice(0, 1000);
+    if (!text) throw new Error('Ange en orsak till korrigeringen.');
+    const type = String(referenceType || '').trim();
+    const value = String(referenceValue || '').trim().slice(0, 200);
+    const reference = type && CORRECTION_REFERENCE_TYPES[type] ? { type, value } : null;
+    return { reason: text, reference };
+}
+
+/** The correction reason as one line (finalization log, messages) */
+export function formatCorrectionReason(correction = {}) {
+    const reason = String(correction?.reason || '').trim();
+    const ref = correction?.reference;
+    if (!ref || !CORRECTION_REFERENCE_TYPES[ref.type]) return reason;
+    const label = `${CORRECTION_REFERENCE_TYPES[ref.type]}${ref.value ? ` ${ref.value}` : ''}`;
+    return reason ? `${reason} (${label})` : label;
+}

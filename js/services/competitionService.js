@@ -5,6 +5,7 @@ import { trackWrite, getCompDocRef, getCompCollectionRef } from './firestoreServ
 import { auth } from '../config/firebase-config.js';
 import { getExpectedDressageJudgePositions, isDressageReadyToFinalize } from './competitionStatusService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { mergeMarathonObstacles } from '../core-engine/stateSelector.js';
 
 const CONFIG_CACHE_PREFIX = 'configCache:';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 timme
@@ -477,7 +478,8 @@ export async function getCompetitionStatistics(competitionId) {
         data.startTime ||
         data.finish_A ||
         data.finish_B ||
-        (Array.isArray(data.obstacles) && data.obstacles.length > 0) ||
+        // Saved per obstacle (obstacleResults.{n}) or in older obstacles[]
+        mergeMarathonObstacles(data).length > 0 ||
         data.totalPenalty != null ||
         data.status === 'finished' ||
         data.status === 'Klar' ||

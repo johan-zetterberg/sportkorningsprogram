@@ -733,13 +733,19 @@ async function seedMarathonForEquipage(competitionId, eq, user) {
   }
 
   if (eq.profile === 'marathon_obstacle_live') {
+    // The obstacle's own live entry (obstacleLive.{n}), as the obstacle page writes it
     await upsertLiveMarathonState(competitionId, eq.sn, {
       start_B: Timestamp.fromMillis(Date.now() - 300000),
-      currentObstacle: 3,
-      running: true,
-      liveObstacleStartAt: Timestamp.fromMillis(Date.now() - 9000),
-      live_staticStartAt: Timestamp.fromMillis(Date.now() - 9000),
-      liveObstacleTimeMs: 0,
+      obstacleLive: {
+        3: {
+          running: true,
+          inProgress: true,
+          liveObstacleStartAt: Timestamp.fromMillis(Date.now() - 9000),
+          live_staticStartAt: Timestamp.fromMillis(Date.now() - 9000),
+          liveObstacleTimeMs: 0,
+          updatedAt: Timestamp.now()
+        }
+      },
       status: 'Pagar'
     });
     return;

@@ -24,6 +24,11 @@ export function calculatePrecisionResult(state) {
         precision?.resultDoc || {},
         equipage,
         config?.precisionConfig || {},
-        { currentCompetition: config?.ruleSettings ? { ruleSettings: config.ruleSettings } : null, isClearRound }
+        {
+            currentCompetition: config?.ruleSettings ? { ruleSettings: config.ruleSettings } : null,
+            isClearRound,
+            // The class's rule profile (TR/FEI) is in the marathon class settings
+            marathonConfig: config?.marathonConfig || null
+        }
     );
 }

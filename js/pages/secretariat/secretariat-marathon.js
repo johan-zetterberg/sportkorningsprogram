@@ -2,7 +2,10 @@ import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
+import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
+import { listRejectedWrites } from '../../services/rejectedWritesService.js';
 import {
+  askCorrectionReason,
   clearRowDirty,
   deriveMarathonStatus,
   escapeHtml,
@@ -12,6 +15,7 @@ import {
   markRowDirty,
   parseEditableTime,
   renderFieldModeBanner,
+  renderRejectedWritesPanel,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -29,6 +33,7 @@ import {
 let rootEl = null;
 let competitionId = null;
 let rows = [];
+let rejectedWrites = [];
 let timingDrafts = new Map();
 let obstacleDrafts = new Map();
 let obstacleRows = [];
@@ -249,7 +254,7 @@ function buildTimingRows() {
   if (visibleRows.length === 0) {
     return `
       <tr>
-        <td colspan="8" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Inga ekipage matchar filtret.</td>
+        <td colspan="9" class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Inga ekipage matchar filtret.</td>
       </tr>
     `;
   }
@@ -273,6 +278,14 @@ function buildTimingRows() {
         <td class="px-3 py-3 text-sm min-w-[8rem]">
           <input data-field="duration_B" value="${escapeHtml(formatEditableTime(view.duration_B))}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
           ${row.holdTimeSec > 0 ? `<div class="text-[10px] text-blue-600 dark:text-blue-400 font-semibold mt-0.5">Avdrag: -${row.holdTimeSec}s</div>` : ''}
+        </td>
+        <td class="px-3 py-3 text-sm min-w-[9rem]">
+          <div class="flex gap-1">
+            <input data-field="otherPenalty" type="number" step="0.01" value="${escapeHtml(view.otherPenalty || 0)}" ${readOnly ? 'disabled' : ''} class="w-16 rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+            <select data-field="otherPenaltySection" title="Sträcka där straffet gavs (TR 527.1)" ${readOnly ? 'disabled' : ''} class="rounded border border-gray-300 dark:border-gray-600 px-1 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+              ${[['A', 'A'], ['transport', 'Transport'], ['B', 'B']].map(([value, label]) => `<option value="${value}"${(view.otherPenaltySection || 'B') === value ? ' selected' : ''}>${label}</option>`).join('')}
+            </select>
+          </div>
         </td>
         <td class="px-3 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">${escapeHtml(String(row.obstacleCount || 0))}</td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">${renderStatusBadge(view.status, row.finalized)}</td>
@@ -329,6 +342,7 @@ function renderTimingTab() {
               <th class="px-3 py-3">Ekipage</th>
               <th class="px-3 py-3">Tid A</th>
               <th class="px-3 py-3">Tid B</th>
+              <th class="px-3 py-3" title="Övriga straff och sträckan de gavs på">Övriga straff</th>
               <th class="px-3 py-3">Hinder</th>
               <th class="px-3 py-3">${escapeHtml(t('status'))}</th>
               <th class="px-3 py-3">Åtgärder</th>
@@ -472,6 +486,7 @@ function render() {
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Etapptider och hinder registreras manuellt, och sekretariatet används för kontroll, korrigering och finalisering.',
       })}
+      ${renderRejectedWritesPanel(rejectedWrites)}
       ${renderTabs()}
       ${activeTab === 'timing' ? renderTimingTab() : renderObstacleTab()}
     </div>
@@ -494,38 +509,67 @@ function collectTimingPatch(rowEl, baseRow) {
     throw new Error('Ogiltigt tidsformat för Tid B. Använd mm:ss,cc eller sekunder.');
   }
 
+  const otherText = String(rowEl.querySelector('[data-field="otherPenalty"]')?.value ?? '').trim().replace(',', '.');
+  const otherPenalty = otherText ? Number(otherText) : 0;
+  if (!Number.isFinite(otherPenalty)) throw new Error('Ogiltigt värde för övriga straff.');
+  // The section select shows B when none is saved: it counts as a change only
+  // when changed, or saved together with a changed penalty
+  const shownSection = baseRow.otherPenaltySection || 'B';
+  const selectedSection = rowEl.querySelector('[data-field="otherPenaltySection"]')?.value || shownSection;
+  const penaltyChanged = Math.abs(otherPenalty - (baseRow.otherPenalty || 0)) > 1e-9;
+  const otherPenaltySection = (penaltyChanged || selectedSection !== shownSection) ? selectedSection : (baseRow.otherPenaltySection || '');
+
   return {
     startNumber: baseRow.startNumber,
     className: baseRow.className,
     duration_A: durationA ?? 0,
     duration_B: durationB ?? 0,
+    otherPenalty,
+    otherPenaltySection,
   };
+}
+
+// The row a draft was edited from: kept with the draft, so reloading after
+// another row's save cannot hide a change the timekeeper made meanwhile
+function timingBaseFor(sn) {
+  return timingDrafts.get(String(sn))?.__base || getRowByStartNumber(sn);
+}
+
+function obstacleBaseFor(obstacleNumber) {
+  return obstacleDrafts.get(String(obstacleNumber))?.__base
+    || obstacleRows.find(row => String(row.obstacleNumber) === String(obstacleNumber))
+    || null;
 }
 
 function updateTimingDraft(rowEl) {
   const sn = String(rowEl.dataset.sn);
-  const baseRow = getRowByStartNumber(sn);
-  if (!baseRow || baseRow.finalized) return;
+  const row = getRowByStartNumber(sn);
+  if (!row || row.finalized) return;
+  const baseRow = timingBaseFor(sn);
 
   try {
     const patch = collectTimingPatch(rowEl, baseRow);
     const hasChanges = JSON.stringify({
       duration_A: patch.duration_A,
       duration_B: patch.duration_B,
+      otherPenalty: patch.otherPenalty,
+      otherPenaltySection: patch.otherPenaltySection || '',
     }) !== JSON.stringify({
       duration_A: baseRow.duration_A || 0,
       duration_B: baseRow.duration_B || 0,
+      otherPenalty: baseRow.otherPenalty || 0,
+      otherPenaltySection: baseRow.otherPenaltySection || '',
     });
 
     if (hasChanges) {
-      timingDrafts.set(sn, patch);
+      timingDrafts.set(sn, { ...patch, __base: baseRow });
       markRowDirty(rowEl, true);
     } else {
       timingDrafts.delete(sn);
       clearRowDirty(rowEl);
     }
   } catch {
-    timingDrafts.set(sn, { __invalid: true });
+    timingDrafts.set(sn, { __invalid: true, __base: baseRow });
     markRowDirty(rowEl, true);
   }
 
@@ -559,7 +603,7 @@ function collectObstaclePatch(rowEl, baseRow) {
 
 function updateObstacleDraft(rowEl) {
   const obstacleNumber = String(rowEl.dataset.obstacle);
-  const baseRow = obstacleRows.find(row => String(row.obstacleNumber) === obstacleNumber);
+  const baseRow = obstacleBaseFor(obstacleNumber);
   if (!baseRow) return;
 
   try {
@@ -592,54 +636,79 @@ function updateObstacleDraft(rowEl) {
     });
 
     if (hasChanges) {
-      obstacleDrafts.set(obstacleNumber, patch);
+      obstacleDrafts.set(obstacleNumber, { ...patch, __base: baseRow });
       markRowDirty(rowEl, true);
     } else {
       obstacleDrafts.delete(obstacleNumber);
       clearRowDirty(rowEl);
     }
   } catch {
-    obstacleDrafts.set(obstacleNumber, { __invalid: true });
+    obstacleDrafts.set(obstacleNumber, { __invalid: true, __base: baseRow });
     markRowDirty(rowEl, true);
   }
 
   syncDraftUiState();
 }
 
-async function saveAllTimingDrafts() {
+// Saves every valid draft; one that fails (e.g. changed by the judge) keeps its
+// draft while the others are saved. Returns the saved keys and the errors.
+async function saveAllTimingDrafts(correction) {
   if (hasInvalidTimingDraft()) {
     throw new Error('Det finns ogiltiga etapptider. Rätta dem innan du sparar alla.');
   }
 
+  const saved = [];
+  const errors = [];
   const entries = Array.from(timingDrafts.entries()).filter(([, patch]) => patch && !patch.__invalid);
   for (const [sn, patch] of entries) {
-    await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering etapptid', { baseRow: getRowByStartNumber(sn) });
+    try {
+      await saveSecretariatMarathonTiming(competitionId, sn, patch, correction, { baseRow: patch.__base || getRowByStartNumber(sn) });
+      saved.push(sn);
+    } catch (error) {
+      errors.push(error.message || `#${sn} kunde inte sparas.`);
+    }
   }
+  return { saved, errors };
 }
 
-async function saveAllObstacleDrafts() {
+async function saveAllObstacleDrafts(correction) {
   if (hasInvalidObstacleDraft()) {
     throw new Error('Det finns ogiltiga hinderändringar. Rätta dem innan du sparar alla.');
   }
 
+  const saved = [];
+  const errors = [];
   const entries = Array.from(obstacleDrafts.entries()).filter(([, patch]) => patch && !patch.__invalid);
   for (const [obstacleNumber, patch] of entries) {
-    await saveSecretariatMarathonObstacle(
-      competitionId,
-      selectedStartNumber,
-      obstacleNumber,
-      patch,
-      'Sekretariatskorrigering hinder'
-    );
+    try {
+      await saveSecretariatMarathonObstacle(
+        competitionId,
+        selectedStartNumber,
+        obstacleNumber,
+        patch,
+        correction,
+        { baseRow: patch.__base || obstacleBaseFor(obstacleNumber) }
+      );
+      saved.push(obstacleNumber);
+    } catch (error) {
+      errors.push(error.message || `Hinder ${obstacleNumber} kunde inte sparas.`);
+    }
   }
+  return { saved, errors };
 }
 
 async function refreshRows() {
-  rows = await loadSecretariatMarathonRows(competitionId);
+  [rows, rejectedWrites] = await Promise.all([
+    loadSecretariatMarathonRows(competitionId),
+    listRejectedWrites(competitionId, { discipline: 'marathon' }).catch(() => []),
+  ]);
 }
 
-async function refreshObstacleDetail() {
-  obstacleDrafts = new Map();
+// Reloads the selected equipage's obstacles. With keepDrafts the unsaved
+// edits of other obstacles stay (another equipage starts without drafts)
+async function refreshObstacleDetail({ keepDrafts = false, savedObstacles = [] } = {}) {
+  if (!keepDrafts) obstacleDrafts = new Map();
+  savedObstacles.forEach(number => obstacleDrafts.delete(String(number)));
   if (!selectedStartNumber) {
     obstacleRows = [];
     return;
@@ -653,17 +722,30 @@ async function refreshObstacleDetail() {
   obstacleCalcContext = detail.calcContext || null;
 }
 
-async function refreshAll() {
+// Reloads rows (and the selected equipage's obstacles). Unsaved edits are
+// kept, except those just saved (savedTiming: start numbers, savedObstacles:
+// obstacle numbers of the selected equipage)
+async function refreshAll({ savedTiming = [], savedObstacles = [] } = {}) {
   await refreshRows();
   if (selectedStartNumber) {
     const stillExists = getRowByStartNumber(selectedStartNumber);
     if (!stillExists) selectedStartNumber = null;
   }
   if (activeTab === 'obstacles' || selectedStartNumber) {
-    await refreshObstacleDetail();
+    await refreshObstacleDetail({ keepDrafts: !!selectedStartNumber, savedObstacles });
   }
-  timingDrafts = new Map();
+  savedTiming.forEach(sn => timingDrafts.delete(String(sn)));
+  // A draft of an equipage no longer listed has nothing to be saved to
+  [...timingDrafts.keys()].forEach(sn => { if (!getRowByStartNumber(sn)) timingDrafts.delete(sn); });
   render();
+}
+
+function showSaveAllResult(saved, errors, what) {
+  if (errors.length === 0) {
+    showAlert(`${saved.length} ${what} sparade.`);
+    return;
+  }
+  showAlert(`${saved.length} ${what} sparade. Ej sparade (ändringarna finns kvar): ${errors.join(' ')}`, false);
 }
 
 async function handleAction(event) {
@@ -680,9 +762,12 @@ async function handleAction(event) {
     }
 
     if (action === 'save-all-timing') {
-      await saveAllTimingDrafts();
-      showAlert('Alla etapptider sparade.');
-      await refreshAll();
+      if (hasInvalidTimingDraft()) throw new Error('Det finns ogiltiga etapptider. Rätta dem innan du sparar alla.');
+      const correction = await askCorrectionReason({ summary: `Etapptider för ${getTimingDirtyCount()} ekipage` });
+      if (!correction) return;
+      const { saved, errors } = await saveAllTimingDrafts(correction);
+      await refreshAll({ savedTiming: saved });
+      showSaveAllResult(saved, errors, 'etapptider');
       return;
     }
 
@@ -694,12 +779,13 @@ async function handleAction(event) {
     }
 
     if (action === 'save-all-obstacles' && selectedStartNumber) {
-      await saveAllObstacleDrafts();
-      showAlert(`Alla hinder sparade för #${selectedStartNumber}.`);
-      await refreshAll();
+      if (hasInvalidObstacleDraft()) throw new Error('Det finns ogiltiga hinderändringar. Rätta dem innan du sparar alla.');
+      const correction = await askCorrectionReason({ summary: `Hinder för #${selectedStartNumber}` });
+      if (!correction) return;
+      const { saved, errors } = await saveAllObstacleDrafts(correction);
       activeTab = 'obstacles';
-      await refreshObstacleDetail();
-      render();
+      await refreshAll({ savedObstacles: saved });
+      showSaveAllResult(saved, errors, `hinder för #${selectedStartNumber}`);
       return;
     }
 
@@ -713,10 +799,8 @@ async function handleAction(event) {
     if (action === 'unlock-selected' && selectedStartNumber) {
       await unlockResult(competitionId, 'marathon', selectedStartNumber);
       showAlert(`Maraton #${selectedStartNumber} upplåst.`);
-      await refreshAll();
       activeTab = 'obstacles';
-      await refreshObstacleDetail();
-      render();
+      await refreshAll();
       return;
     }
 
@@ -725,12 +809,11 @@ async function handleAction(event) {
         showAlert('Spara hinderändringarna innan du finaliserar ekipaget.', false);
         return;
       }
+      if (!(await confirmFinalizeWithGaps(competitionId, 'marathon', selectedStartNumber))) return;
       await refinalizeResult(competitionId, 'marathon', selectedStartNumber);
       showAlert(`Maraton #${selectedStartNumber} finaliserat.`);
-      await refreshAll();
       activeTab = 'obstacles';
-      await refreshObstacleDetail();
-      render();
+      await refreshAll();
       return;
     }
 
@@ -742,6 +825,8 @@ async function handleAction(event) {
 
       if (action === 'open-obstacles') {
         if (!(await confirmDiscardTimingDrafts())) return;
+        // Another equipage's obstacles: earlier obstacle drafts do not apply
+        if (String(selectedStartNumber) !== String(sn) && hasObstacleDrafts() && !(await confirmDiscardObstacleDrafts())) return;
         selectedStartNumber = sn;
         activeTab = 'obstacles';
         await refreshObstacleDetail();
@@ -762,11 +847,17 @@ async function handleAction(event) {
         return;
       }
 
+      const editBase = timingBaseFor(sn) || baseRow;
+
       if (action === 'save-timing') {
-        const patch = collectTimingPatch(timingRow, baseRow);
-        await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering etapptid', { baseRow });
+        if (timingDrafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga tider innan du sparar.');
+        if (!timingDrafts.has(sn)) return;
+        const patch = collectTimingPatch(timingRow, editBase);
+        const correction = await askCorrectionReason({ summary: `Etapptider #${sn}` });
+        if (!correction) return;
+        await saveSecretariatMarathonTiming(competitionId, sn, patch, correction, { baseRow: editBase });
         showAlert(`Etapptider sparade för #${sn}.`);
-        await refreshAll();
+        await refreshAll({ savedTiming: [sn] });
         return;
       }
 
@@ -774,14 +865,17 @@ async function handleAction(event) {
         if (timingDrafts.has(sn) && timingDrafts.get(sn)?.__invalid) {
           throw new Error('Rätta ogiltiga tider innan du finaliserar.');
         }
+        if (!(await confirmFinalizeWithGaps(competitionId, 'marathon', sn))) return;
         // Only edited times are saved; without edits finalizing just locks
         if (timingDrafts.has(sn)) {
-          const patch = collectTimingPatch(timingRow, baseRow);
-          await saveSecretariatMarathonTiming(competitionId, sn, patch, 'Sekretariatskorrigering före återfinalisering', { baseRow });
+          const patch = collectTimingPatch(timingRow, editBase);
+          const correction = await askCorrectionReason({ summary: `Etapptider #${sn}, före finalisering` });
+          if (!correction) return;
+          await saveSecretariatMarathonTiming(competitionId, sn, patch, correction, { baseRow: editBase });
         }
         await refinalizeResult(competitionId, 'marathon', sn);
         showAlert(`Maraton #${sn} finaliserat.`);
-        await refreshAll();
+        await refreshAll({ savedTiming: [sn] });
         return;
       }
     }
@@ -789,7 +883,7 @@ async function handleAction(event) {
     const obstacleRow = button.closest('tr[data-obstacle]');
     if (obstacleRow && selectedStartNumber) {
       const obstacleNumber = obstacleRow.dataset.obstacle;
-      const baseRow = obstacleRows.find(row => String(row.obstacleNumber) === obstacleNumber);
+      const baseRow = obstacleBaseFor(obstacleNumber);
       if (!baseRow) return;
 
       if (action === 'reset-obstacle') {
@@ -799,13 +893,15 @@ async function handleAction(event) {
       }
 
       if (action === 'save-obstacle') {
+        if (obstacleDrafts.get(obstacleNumber)?.__invalid) throw new Error('Rätta ogiltiga värden innan du sparar.');
+        if (!obstacleDrafts.has(obstacleNumber)) return;
         const patch = collectObstaclePatch(obstacleRow, baseRow);
-        await saveSecretariatMarathonObstacle(competitionId, selectedStartNumber, obstacleNumber, patch, 'Sekretariatskorrigering hinder');
+        const correction = await askCorrectionReason({ summary: `Hinder ${obstacleNumber}, #${selectedStartNumber}` });
+        if (!correction) return;
+        await saveSecretariatMarathonObstacle(competitionId, selectedStartNumber, obstacleNumber, patch, correction, { baseRow });
         showAlert(`Hinder ${obstacleNumber} sparat för #${selectedStartNumber}.`);
-        await refreshAll();
         activeTab = 'obstacles';
-        await refreshObstacleDetail();
-        render();
+        await refreshAll({ savedObstacles: [obstacleNumber] });
       }
     }
   } catch (error) {
@@ -855,7 +951,7 @@ function wireEvents() {
       render();
     });
 
-    rootEl.querySelectorAll('tbody tr[data-sn] input').forEach(input => {
+    rootEl.querySelectorAll('tbody tr[data-sn] input, tbody tr[data-sn] select').forEach(input => {
       input.addEventListener('input', event => updateTimingDraft(event.target.closest('tr[data-sn]')));
       input.addEventListener('change', event => updateTimingDraft(event.target.closest('tr[data-sn]')));
     });
@@ -904,6 +1000,7 @@ export function unload() {
   rootEl = null;
   competitionId = null;
   rows = [];
+  rejectedWrites = [];
   timingDrafts = new Map();
   obstacleDrafts = new Map();
   obstacleRows = [];

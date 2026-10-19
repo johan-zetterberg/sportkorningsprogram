@@ -3,13 +3,11 @@ import { getCurrentUserRole } from '../../services/authService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
-import { saveDressageJudgeProtocol, saveDressageGeneralData, setDressageStatus, getDressageStatusCollection } from '../../services/dressageService.js';
+import { saveDressageJudgeProtocol, saveDressageGeneralData, setDressageStatus, getDressageStatusCollection, writeDressageLive, normalizeSavedScore } from '../../services/dressageService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getDressageResultsForEquipage, listenForDressageStatusCollection } from '../../services/dressageService.js';
-
-// NYTT: Importera det vi behöver från Firebase för att prata direkt med databasen
-import { doc, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { db, appId } from '../../config/firebase-config.js';
+import { deriveDressageStatusState, expectedDressagePositions, judgeStatusKey } from '../../services/dressageStatusUtils.js';
+import { getUnscoredMovementNumbers } from '../../core-engine/dressage.js';
 
 import { getPrograms, getDressagePenaltyCoeff, guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
 import { calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
@@ -27,7 +25,7 @@ import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
-import { awaitWriteOrQueue, WRITE_ACK_TIMEOUT_MS } from '../../utils/offlineWrite.js';
+import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { serverNow } from '../../utils/serverClock.js';
 import {
@@ -57,6 +55,8 @@ let lastStartNumber = null;
 // Error points live in the shared 'general' doc. Only write it when this judge
 // changed the fields, so a save from another judge cannot reset C's points.
 let generalDataDirty = false;
+// Latest dressageStatus docs by start number (per-judge done flags)
+let latestStatusMap = new Map();
 
 const DRESSAGE_DEFAULT_ERROR_1 = 5;
 const DRESSAGE_DEFAULT_ERROR_2 = 10;
@@ -482,7 +482,9 @@ async function loadExistingProtocol(startNumber, judgeId, opts = {}) {
         if (md) {
           const scoreEl = card.querySelector('.score-input');
           const commentEl = card.querySelector('.comment-input');
-          if (scoreEl) scoreEl.value = (typeof md.score === 'number' ? md.score : Number(md.score || 0));
+          // An unscored movement (null) stays an empty field, not 0
+          const saved = normalizeSavedScore(md.score);
+          if (scoreEl) scoreEl.value = saved == null ? '' : saved.toFixed(1);
           if (commentEl) commentEl.value = md.comment || '';
         }
       });
@@ -668,7 +670,11 @@ function updateProgramMeta(key) {
     meta.source ? escapeHtml(meta.source) : ''
   ].filter(Boolean);
 
-  host.innerHTML = `${badge}${escapeHtml(meta.name)} <span class="ml-1">${parts.join(' • ')}</span>`;
+  // Technical details stay folded away: the judge needs the badge and the name
+  host.innerHTML = `${badge}<span class="font-medium">${escapeHtml(meta.name)}</span>
+    <details class="dr-program-details mt-1"><summary class="cursor-pointer select-none">${t('input_program_details')}</summary>
+      <div class="mt-1">${parts.join(' • ')}</div>
+    </details>`;
 }
 
 function renderProtocol(testKey) {
@@ -684,40 +690,41 @@ function renderProtocol(testKey) {
   currentDressageTest.movements.forEach((moment, index) => {
     const card = document.createElement('div');
     card.className = 'movement-card border rounded-lg p-2 bg-gray-50 dark:bg-gray-800 dark:border-gray-700';
+    const no = escapeHtml(moment.no);
+    const text = String(moment.text || '');
+    // Long texts are clamped to two lines and open on "Mer"
+    const isLong = text.length > 110;
+    // One score per movement (the field); the coefficient is shown as a badge
     card.innerHTML = `
-            <div class="movement-meta-row flex justify-between items-start gap-2"><div class="movement-labels min-w-0 flex-1 font-medium">
-                    <span class="font-bold dark:text-gray-200">${escapeHtml(moment.no)}.</span>
-                    <span class="text-blue-800 text-sm ml-1 mr-2 dark:text-blue-300">${escapeHtml(moment.letters || '')}</span>
-                    ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs dark:bg-blue-900/40 dark:text-blue-100">x${escapeHtml(moment.coeff)}</span>` : ''}
+            <div class="movement-row flex items-start gap-2">
+                <div class="movement-labels min-w-0 flex-1">
+                    <div class="flex items-baseline flex-wrap gap-x-1">
+                        <span class="font-bold dark:text-gray-200">${no}.</span>
+                        <span class="text-blue-800 text-sm dark:text-blue-300">${escapeHtml(moment.letters || '')}</span>
+                        ${moment.coeff > 1 ? `<span class="coeff-display bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full text-xs dark:bg-blue-900/40 dark:text-blue-100">x${escapeHtml(moment.coeff)}</span>` : ''}
+                    </div>
+                    <p class="movement-text text-xs leading-snug text-gray-700 dark:text-gray-300${isLong ? ' is-long' : ''}">${escapeHtml(text)}</p>
+                    ${isLong ? `<button type="button" class="movement-more-btn text-xs text-blue-700 underline dark:text-blue-300" data-target="more" aria-expanded="false" aria-label="${escapeHtml(t('input_movement_more').replace('{no}', moment.no))}">Mer</button>` : ''}
+                    ${moment.judge ? `<details class="movement-details text-xs text-gray-500 mt-1 dark:text-gray-400"><summary class="cursor-pointer select-none">Bedömning</summary><p class="mt-1">${escapeHtml(moment.judge)}</p></details>` : ''}
                 </div>
-                
-                <div class="movement-score-total flex-shrink-0 text-right" style="width: 50px;"> <span class="movement-score text-xl font-bold text-blue-700 dark:text-blue-400">0.0</span>
-                </div>
-            </div>
-
-            <div class="movement-entry-row flex items-center gap-2 mt-2">
-                <div class="movement-score-input-wrap flex-grow" style="max-width: 90px;"> <input type="tel" min="0" max="10" step="0.5"
-                           class="score-input w-full p-3 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                <div class="movement-entry flex items-center gap-1 flex-shrink-0">
+                    <input type="text"
+                           class="score-input w-20 p-2 text-center text-2xl font-bold border-gray-300 rounded-lg shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                            data-coeff="${escapeHtml(moment.coeff)}"
                            data-moment-index="${index}"
                            pattern="[0-9.,]*"
                            inputmode="decimal"
-                           placeholder="-"
-                           style="min-height: 50px;">
-                </div>
-
-                <div class="movement-card-actions flex-shrink-0 flex flex-col sm:flex-row gap-1">
-                    <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment">💬</button>
-                    <button type="button" class="toggle-btn" data-target="details">ℹ️</button>
+                           autocomplete="off"
+                           enterkeyhint="next"
+                           aria-label="${escapeHtml(t('input_score_label').replace('{no}', moment.no))}"
+                           placeholder="–">
+                    <button type="button" class="toggle-btn comment-toggle-btn" data-target="comment" aria-expanded="false"
+                            aria-label="${escapeHtml(t('input_comment_button').replace('{no}', moment.no))}" title="${escapeHtml(t('input_comment_button').replace('{no}', moment.no))}">💬</button>
                 </div>
             </div>
 
             <div class="comment-wrapper">
-                <textarea rows="1" placeholder="${t('input_add_comment')}" class="comment-input w-full p-2 text-sm border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
-            </div>
-            <div class="movement-details text-sm text-gray-600 mt-2 border-l-2 border-gray-200 pl-2 dark:text-gray-400 dark:border-gray-700">
-                <p class="font-medium dark:text-gray-300">${escapeHtml(moment.text)}</p>
-                <p class="text-sm text-gray-500 mt-1 dark:text-gray-500">${escapeHtml(moment.judge || '')}</p>
+                <textarea rows="1" placeholder="${t('input_add_comment')}" aria-label="${escapeHtml(t('input_comment_button').replace('{no}', moment.no))}" class="comment-input w-full p-2 text-base border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
             </div>
         `;
     protocolBody.appendChild(card);
@@ -725,33 +732,46 @@ function renderProtocol(testKey) {
   calculateTotals();
 }
 
+// The equipage chosen, for the sticky header
+function updateCurrentEquipageLabel() {
+  const el = document.getElementById('drCurrentEquipage');
+  if (!el) return;
+  const sn = equipageSearchDropdown?.getValue?.();
+  const eq = sn ? sortedEquipages.find(e => String(e.startNumber) === String(sn)) : null;
+  el.textContent = eq ? `#${eq.startNumber} ${eq.driverName || ''}`.trim() : (sn ? `#${sn}` : 'Inget ekipage valt');
+}
+
 function calculateTotals() {
+  updateCurrentEquipageLabel();
+  const filledEl = document.getElementById('drFilledCount');
   if (!currentDressageTest) {
-    document.getElementById('percentage').textContent = `0.00 %`;
-    document.getElementById('penaltyPoints').textContent = `0.0`;
+    document.getElementById('drPercentage').textContent = `0.00 %`;
+    document.getElementById('drPenaltyPoints').textContent = `0.0`;
     document.getElementById('extraPenaltyDisplay').textContent = `0.0`;
-    document.getElementById('totalPenaltyDisplay').textContent = `0.0`;
+    document.getElementById('drTotalPenaltyDisplay').textContent = `0.0`;
     document.getElementById('totalPointsDisplay').textContent = `0.0`;
+    if (filledEl) filledEl.textContent = '';
     return;
   }
 
   // 1. Gather current inputs into a protocol-like object
   const movementsData = [];
+  let filled = 0;
   document.querySelectorAll('#protocolBody .movement-card').forEach((card, index) => {
     const input = card.querySelector('.score-input');
-    const scoreVal = input.value.trim();
-    const score = scoreVal !== '' ? parseFloat(scoreVal) : null;
-    const coeff = parseFloat(input.dataset.coeff) || 1;
-
-    // Update individual card display
-    const cardScore = (score !== null ? score * coeff : 0).toFixed(1);
-    card.querySelector('.movement-score').textContent = cardScore;
+    const score = normalizeSavedScore(input.value);
+    if (score != null) filled++;
 
     movementsData.push({
       momentNo: currentDressageTest.movements[index].no,
       score: score
     });
   });
+  if (filledEl) {
+    filledEl.textContent = t('input_filled_count')
+      .replace('{n}', String(filled))
+      .replace('{total}', String(currentDressageTest.movements.length));
+  }
 
   const eliminated = document.getElementById('dressageEliminated').checked;
   const errorPointsInput = document.getElementById('errorPointsInput');
@@ -791,14 +811,14 @@ function calculateTotals() {
     const totalPenalty = judgePenalty + errorPenalty;
 
     document.getElementById('totalPointsDisplay').textContent = points.toFixed(1);
-    document.getElementById('percentage').textContent = `${percent.toFixed(2)} %`;
-    document.getElementById('penaltyPoints').textContent = judgePenalty.toFixed(1);
+    document.getElementById('drPercentage').textContent = `${percent.toFixed(2)} %`;
+    document.getElementById('drPenaltyPoints').textContent = judgePenalty.toFixed(1);
     document.getElementById('extraPenaltyDisplay').textContent = errorPenalty.toFixed(1); // Show penalty, not points
-    document.getElementById('totalPenaltyDisplay').textContent = totalPenalty.toFixed(1);
+    document.getElementById('drTotalPenaltyDisplay').textContent = totalPenalty.toFixed(1);
   } else {
     // Fallback if service returns null (should verify why)
     document.getElementById('totalPointsDisplay').textContent = "0.0";
-    document.getElementById('percentage').textContent = "0.00 %";
+    document.getElementById('drPercentage').textContent = "0.00 %";
   }
 }
 
@@ -810,17 +830,16 @@ async function updateLiveStatus(lastUpdatedElement = null) {
   const testSelector = document.getElementById('testSelector');
   const eliminatedCheckbox = document.getElementById('dressageEliminated');
 
-  if (!startNumber || !activeDressageJudge || !currentDressageTest || !testSelector || !eliminatedCheckbox || !competitionId || !appId) {
+  if (!startNumber || !activeDressageJudge || !currentDressageTest || !testSelector || !eliminatedCheckbox || !competitionId) {
     return;
   }
 
   try {
     const movementsData = Array.from(document.querySelectorAll('#protocolBody .movement-card')).map((card, index) => {
       const scoreInput = card.querySelector('.score-input');
-      const scoreValue = scoreInput ? scoreInput.value : '';
       return {
         momentNo: currentDressageTest.movements[index].no,
-        score: scoreValue.trim() !== '' ? parseFloat(scoreValue) : null,
+        score: normalizeSavedScore(scoreInput ? scoreInput.value : ''),
         comment: card.querySelector('.comment-input')?.value || ''
       };
     });
@@ -856,22 +875,23 @@ async function updateLiveStatus(lastUpdatedElement = null) {
     if (signature === lastLiveSignature) return;
     lastLiveSignature = signature;
 
-    const liveDocRef = doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'dressageStatus', String(startNumber), 'live', 'data');
+    const judge = activeDressageJudge;
     const payload = {
       state: 'ongoing',
       protocol: liveProtocolData,
       lastUpdate: lastUpdatePayload,
-      updatedAt: new Date().toISOString()
+      updatedAt: new Date(serverNow()).toISOString()
     };
 
     // Backup on the device first: the write only resolves when the server has
     // answered, so without signal a backup written after it would never happen
     mirrorToLocal(startNumber, { live: payload });
 
-    // Skriv med enkel retry/backoff för att undvika tappade pulser på nätverksglitch
+    // Skriv med enkel retry/backoff för att undvika tappade pulser på nätverksglitch.
+    // Each judge has its own live doc, stamped with the server's time
     for (let i = 0; i < 3; i++) {
       try {
-        await setDoc(liveDocRef, payload, { merge: true });
+        await writeDressageLive(competitionId, startNumber, judge, { protocol: liveProtocolData, lastUpdate: lastUpdatePayload });
         break; // klart
       } catch (err) {
         if (i === 2) {
@@ -913,9 +933,19 @@ async function saveProtocol() {
     const eliminated = document.getElementById('dressageEliminated').checked;
     const movementsData = Array.from(document.querySelectorAll('#protocolBody .movement-card')).map((card, index) => ({
       momentNo: currentDressageTest.movements[index].no,
-      score: parseFloat(card.querySelector('.score-input').value) || 0,
+      // An empty movement is saved as null (not scored), never as 0
+      score: normalizeSavedScore(card.querySelector('.score-input').value),
       comment: card.querySelector('.comment-input').value || ''
     }));
+
+    // Movements without a mark: ask before saving; such a protocol stays
+    // ongoing (not complete) until every movement has a mark
+    const missing = getUnscoredMovementNumbers({ movements: movementsData }, getPrograms()[testKey] || currentDressageTest);
+    if (!eliminated && missing.length > 0
+      && !window.confirm(t('input_missing_confirm').replace('{list}', missing.join(', ')))) {
+      return;
+    }
+    const judgeDone = eliminated || missing.length === 0;
 
     // KORRIGERING: Lägger till 'testKey' i dokumentet som sparas.
     const protocolData = {
@@ -957,34 +987,24 @@ async function saveProtocol() {
       eliminated: eliminated,
     };
 
-    // Calculate if ALL expected judges have finished (from the device's copy
-    // when there is no signal; this judge's protocol counts in any case)
-    const savedPositions = new Set();
-    const allProtocols = await Promise.race([
-      getDressageResultsForEquipage(competitionId, startNumber).catch(() => []),
-      new Promise(resolve => setTimeout(() => resolve([]), WRITE_ACK_TIMEOUT_MS))
-    ]);
-    allProtocols.forEach(p => {
-      if (p.id !== 'general' && p.judgePosition) {
-        savedPositions.add(p.judgePosition.toUpperCase());
-      }
-    });
-    if (judge._pos) {
-      savedPositions.add(judge._pos.toUpperCase());
-    }
-
+    // Each judge marks only its own position as done; readers derive
+    // "finished" from all expected positions (deriveDressageStatusState), so
+    // the last judge to save does not decide it. The state written here is
+    // this device's best view for older readers.
     const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
-    let expectedPositions = [];
-    if (equipage && window.dressageJudgeMapping && window.dressageJudgeMapping[equipage.className]) {
-      const mapped = window.dressageJudgeMapping[equipage.className];
-      expectedPositions = Object.keys(mapped).filter(k => mapped[k] && String(mapped[k]).trim() !== '').map(k => k.toUpperCase());
-    } else {
-      expectedPositions = (allJudges || []).map(j => (j._pos || '').toUpperCase()).filter(p => p !== '');
-    }
-
-    const expectedCount = new Set(expectedPositions).size;
-    const isFullyFinished = savedPositions.size >= expectedCount || expectedCount === 0;
-    const finalState = isFullyFinished ? 'finished' : 'ongoing';
+    const expectedPositions = expectedDressagePositions(
+      equipage?.className,
+      window.dressageJudgeMapping || {},
+      (allJudges || []).map(j => j._pos)
+    );
+    const known = latestStatusMap.get(String(startNumber)) || {};
+    const ownKey = judgeStatusKey(judge._pos, judge.id);
+    const finalState = deriveDressageStatusState({
+      ...known,
+      state: 'ongoing',
+      judgesDone: { ...(known.judgesDone || {}), [ownKey]: judgeDone },
+      expectedPositions
+    })?.state || 'ongoing';
 
     writes.push(setDressageStatus(competitionId, startNumber, {
       state: finalState,
@@ -993,7 +1013,9 @@ async function saveProtocol() {
       judgePosition: judge._pos || '',
       protocol: null,
       lastUpdate: null,
-      finalJudgeScore: finalJudgeScorePayload
+      finalJudgeScore: finalJudgeScorePayload,
+      judgeDone,
+      expectedPositions
     }));
 
     const result = await awaitWriteOrQueue(Promise.all(writes), {
@@ -1041,8 +1063,9 @@ function setupEventListeners() {
   const errorPointsInput = document.getElementById('errorPointsInput');
   const eliminatedCheckbox = document.getElementById('dressageEliminated');
   const saveButton = document.getElementById('saveProtocol');
-  const prevButton = document.getElementById('prevEquipage');
-  const nextButton = document.getElementById('nextEquipage');
+  // dr-prefixed: maraton-input (also kept in the DOM) has prevEquipage/nextEquipage
+  const prevButton = document.getElementById('drPrevEquipage');
+  const nextButton = document.getElementById('drNextEquipage');
 
   if (!testSelector || !judgeSelector || !protocolBody || !saveButton) {
     // Kritiska element för event-lyssnare saknas i DOM. Avbryter setup.
@@ -1286,17 +1309,20 @@ function setupEventListeners() {
 
   // --- NYTT: Hantera klick på Info/Kommentar-knappar ---
   protocolBody.addEventListener('click', (e) => {
-    const btn = e.target.closest('.toggle-btn');
+    const btn = e.target.closest('.toggle-btn, .movement-more-btn');
     if (!btn) return;
 
     const card = btn.closest('.movement-card');
-    const targetType = btn.dataset.target; // 'details' eller 'comment'
+    const targetType = btn.dataset.target; // 'more' eller 'comment'
 
-    if (targetType === 'details') {
-      card.classList.toggle('details-visible');
+    if (targetType === 'more') {
+      const open = card.classList.toggle('text-expanded');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      btn.textContent = open ? 'Mindre' : 'Mer';
     } else if (targetType === 'comment') {
-      card.classList.toggle('comment-visible');
-      if (card.classList.contains('comment-visible')) {
+      const open = card.classList.toggle('comment-visible');
+      btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) {
         // Fokusera på textrutan när den öppnas
         card.querySelector('.comment-input').focus();
       }
@@ -1438,29 +1464,56 @@ export function load() {
       message: 'Tävlingen körs i fältläge. Domarprotokoll registreras manuellt här, och sekretariatet används för efterkontroll och finalisering.'
     })}
 <style>
-        /* Dölj detaljer och kommentarsfält som standard */
-        .movement-details,
+        /* Kommentarsfältet är dolt tills knappen trycks */
         .comment-wrapper {
             display: none;
             margin-top: 8px;
         }
-        /* Visa dem när 'details-visible' är satt på kortet */
-        .movement-card.details-visible .movement-details {
-            display: block;
-        }
-        /* Visa kommentaren när 'comment-visible' är satt */
         .movement-card.comment-visible .comment-wrapper {
             display: block;
         }
+        /* Momenttexten syns direkt; långa texter kortas till två rader */
+        .movement-text { margin-top: 2px; }
+        .movement-text.is-long {
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+        .movement-card.text-expanded .movement-text.is-long {
+            display: block;
+            overflow: visible;
+        }
+        /* Tryckytor minst 44 px */
+        .movement-more-btn,
+        .movement-details summary,
+        .dr-program-details summary {
+            display: inline-flex;
+            align-items: center;
+            min-height: 44px;
+        }
+        #page-dressyr-input .score-input {
+            min-height: 48px;
+            font-size: 1.5rem;
+        }
+        #page-dressyr-input .dr-touch {
+            min-height: 44px;
+            min-width: 44px;
+        }
 
-        /* Stil för våra nya små-knappar */
+        /* Kommentarsknappen */
         .toggle-btn {
             background: none;
             border: 1px solid #cbd5e1; /* gray-300 */
             border-radius: 99px; /* rounded-full */
-            padding: 4px 8px;
-            font-size: 11px;
-            line-height: 1.2;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 44px;
+            min-height: 44px;
+            padding: 0 8px;
+            font-size: 18px;
+            line-height: 1;
             color: #475569; /* gray-600 */
             cursor: pointer;
             white-space: nowrap;
@@ -1502,44 +1555,11 @@ export function load() {
                 padding: 0.5rem;
             }
             .movement-card {
-                padding: 0.75rem !important;
-            }
-            .movement-meta-row {
-                align-items: flex-start !important;
+                padding: 0.6rem !important;
             }
             .movement-labels {
                 min-width: 0;
                 line-height: 1.25;
-            }
-            .movement-entry-row {
-                display: grid !important;
-                grid-template-columns: minmax(0, 1fr) auto;
-                gap: 0.5rem;
-                align-items: center;
-            }
-            .movement-score-input-wrap {
-                max-width: none !important;
-                width: 100%;
-            }
-            .movement-card .score-input {
-                min-height: 3rem !important;
-                font-size: 1.5rem !important;
-                padding: 0.7rem !important;
-            }
-            .movement-score-total {
-                width: auto !important;
-                min-width: 3rem;
-            }
-            .movement-score-total .movement-score {
-                font-size: 1.1rem !important;
-            }
-            .movement-card-actions {
-                flex-direction: row !important;
-                grid-column: 1 / -1;
-                justify-content: flex-end;
-            }
-            .movement-card .toggle-btn {
-                padding: 0.35rem 0.6rem;
             }
             .dressage-main-card {
                 padding: 0.85rem !important;
@@ -1565,9 +1585,10 @@ export function load() {
                 margin-bottom: 0.75rem !important;
                 padding: 0.5rem !important;
             }
+            /* Phone: the sticky header shows procent, poäng and straff totalt */
             .dressage-summary-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
-                gap: 0.5rem !important;
+                grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+                gap: 0.35rem !important;
             }
             .dressage-summary-grid > div {
                 min-width: 0;
@@ -1575,8 +1596,8 @@ export function load() {
             .dressage-summary-grid > div p:last-child {
                 font-size: 1rem !important;
             }
-            .dressage-summary-grid > div:last-child {
-                grid-column: 1 / -1;
+            .dressage-summary-grid .dr-hide-sm {
+                display: none;
             }
             .dressage-footer {
                 padding: 0.85rem !important;
@@ -1599,6 +1620,10 @@ export function load() {
                 padding-top: 0.85rem !important;
                 padding-bottom: 0.85rem !important;
             }
+            /* One column: the protocol is shorter without the wrapper scroll */
+            #protocolBody {
+                gap: 0.4rem !important;
+            }
         }
 
         @media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
@@ -1607,17 +1632,6 @@ export function load() {
             }
             .movement-card {
                 padding: 0.6rem !important;
-            }
-            .movement-card .score-input {
-                min-height: 2.7rem !important;
-                font-size: 1.35rem !important;
-                padding: 0.55rem !important;
-            }
-            .movement-card-actions .toggle-btn {
-                padding: 0.3rem 0.55rem;
-            }
-            .movement-score-total .movement-score {
-                font-size: 1rem !important;
             }
             .dressage-main-card {
                 padding: 0.75rem !important;
@@ -1645,11 +1659,8 @@ export function load() {
             .dressage-summary-grid p:last-child {
                 font-size: 1rem !important;
             }
-            .dressage-summary-grid > div:last-child {
-                grid-column: auto !important;
-                padding-top: 0.4rem !important;
-                padding-bottom: 0.4rem !important;
-                font-size: 0.85rem !important;
+            .dressage-summary-grid .dr-hide-sm {
+                display: block;
             }
             .dressage-footer {
                 padding: 0.75rem !important;
@@ -1690,33 +1701,38 @@ export function load() {
         <div class="md:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_equipage')}</label>
           <div class="dressage-equipage-nav flex items-center space-x-2">
-            <button id="prevEquipage" type="button" aria-label="Föregående ekipage" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
+            <button id="drPrevEquipage" type="button" aria-label="Föregående ekipage" class="dr-touch p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">«</button>
             <div id="equipageSearchContainer" class="mt-1 flex-grow relative z-30"></div>
-            <button id="nextEquipage" type="button" aria-label="Nästa ekipage" class="p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
+            <button id="drNextEquipage" type="button" aria-label="Nästa ekipage" class="dr-touch p-3 border rounded-md hover:bg-gray-100 dark:border-gray-600 dark:hover:bg-gray-700 dark:text-white">»</button>
           </div>
         </div>
       </div>
-      
-      <div id="dressage-summary-bar" class="dressage-summary-bar relative md:sticky md:top-[63px] z-10 bg-white shadow-md p-2 my-6 rounded-lg dark:bg-gray-800 dark:border dark:border-gray-700">
-          <div class="dressage-summary-grid grid grid-cols-5 gap-2 text-center"> <div>
+
+      <div id="dressage-summary-bar" class="dressage-summary-bar sticky top-[63px] z-20 bg-white shadow-md p-2 my-6 rounded-lg dark:bg-gray-800 dark:border dark:border-gray-700" aria-live="polite">
+          <div class="flex items-center justify-between gap-2 mb-1 text-sm">
+              <span id="drCurrentEquipage" class="font-semibold truncate text-gray-900 dark:text-white">Inget ekipage valt</span>
+              <span id="drFilledCount" class="text-xs font-medium text-gray-600 whitespace-nowrap dark:text-gray-300"></span>
+          </div>
+          <div class="dressage-summary-grid grid grid-cols-5 gap-2 text-center">
+              <div>
+                  <p class="text-xs font-medium text-green-700 dark:text-green-400">${t('input_percent')}</p>
+                  <p id="drPercentage" class="text-xl font-bold text-green-900 dark:text-green-300">0.00 %</p>
+              </div>
+              <div>
                   <p class="text-xs font-medium text-gray-700 dark:text-gray-400">${t('input_total_points')}</p>
                   <p id="totalPointsDisplay" class="text-xl font-bold text-gray-900 dark:text-white">0.0</p>
               </div>
-              <div>
-                  <p class="text-xs font-medium text-green-700 dark:text-green-400">${t('input_percent')}</p>
-                  <p id="percentage" class="text-xl font-bold text-green-900 dark:text-green-300">0.00 %</p>
-              </div>
-              <div>
+              <div class="dr-hide-sm">
                   <p class="text-xs font-medium text-red-700 dark:text-red-400">${t('input_judge_penalty')}</p>
-                  <p id="penaltyPoints" class="text-xl font-bold text-red-900 dark:text-red-300">0.0</p>
+                  <p id="drPenaltyPoints" class="text-xl font-bold text-red-900 dark:text-red-300">0.0</p>
               </div>
-              <div class="bg-orange-100 rounded-md p-1 dark:bg-orange-900/30">
+              <div class="dr-hide-sm bg-orange-100 rounded-md p-1 dark:bg-orange-900/30">
                   <p class="text-xs font-medium text-orange-700 dark:text-orange-300">${t('input_extra_penalty')}</p>
                   <p id="extraPenaltyDisplay" class="text-xl font-bold text-orange-900 dark:text-orange-200">0.0</p>
               </div>
               <div>
                   <p class="text-xs font-medium text-blue-700 dark:text-blue-400">${t('input_total_penalty')}</p>
-                  <p id="totalPenaltyDisplay" class="text-xl font-bold text-blue-900 dark:text-blue-300">0.0</p>
+                  <p id="drTotalPenaltyDisplay" class="text-xl font-bold text-blue-900 dark:text-blue-300">0.0</p>
               </div>
           </div>
       </div>
@@ -1732,10 +1748,10 @@ export function load() {
           <div class="md:col-span-3">
             <label for="errorPointsInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">${t('input_error_points')}</label>
             <div class="dressage-error-controls flex gap-1 mt-1">
-               <input type="number" id="errorPointsInput" value="0" min="0" class="block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-               <button type="button" id="btnErr1" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
-               <button type="button" id="btnErr2" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
-               <button type="button" id="btnErr3" class="dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_3')}</button>
+               <input type="number" id="errorPointsInput" value="0" min="0" inputmode="decimal" class="dr-touch block w-20 p-2 border rounded-md text-base text-center font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+               <button type="button" id="btnErr1" class="dr-touch dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_1')}</button>
+               <button type="button" id="btnErr2" class="dr-touch dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
+               <button type="button" id="btnErr3" class="dr-touch dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_3')}</button>
             </div>
           </div>
           
@@ -1745,13 +1761,15 @@ export function load() {
           </div>
 
           <div class="md:col-span-2 flex items-center h-full pt-5">
-            <input type="checkbox" id="dressageEliminated" class="h-5 w-5 rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 focus:ring-red-500">
-            <label for="dressageEliminated" class="ml-2 block text-sm font-medium dark:text-gray-300">${t('input_eliminated')}</label>
+            <label for="dressageEliminated" class="dr-touch flex items-center gap-2 text-sm font-medium cursor-pointer dark:text-gray-300">
+              <input type="checkbox" id="dressageEliminated" class="h-6 w-6 rounded border-gray-300 dark:bg-gray-700 dark:border-gray-600 focus:ring-red-500">
+              ${t('input_eliminated')}
+            </label>
           </div>
           
           <div class="md:col-span-3">
             <label class="block text-xs font-medium text-transparent select-none">${t('input_save')}</label>
-            <button id="saveProtocol" class="dressage-save-btn w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
+            <button id="saveProtocol" class="dr-touch dressage-save-btn w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
               ${t('input_save_protocol')}
             </button>
           </div>
@@ -1811,6 +1829,7 @@ export function load() {
 
         const statusMap = new Map();
         (statusDocs || []).forEach(s => statusMap.set(String(s.id), s));
+        latestStatusMap = statusMap;
 
         sortedEquipages = [...(equipages || [])].sort((a, b) => {
           const statusA = statusMap.get(String(a.startNumber));

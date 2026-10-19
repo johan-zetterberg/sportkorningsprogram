@@ -31,30 +31,23 @@ export function getDressagePenaltyCoeff(programOrKey, allPrograms = {}) {
     if (inherited != null) return inherited;
 
     const name = String(p?.name || p?.title || p?.id || '');
-    const category = String(p?.category || '');
     const m = name.match(/^(\d{3})\b/);
     const code = m ? m[1] : null;
 
     if (code && DRESSAGE_COEFFICIENTS_BY_CODE[code] != null) return DRESSAGE_COEFFICIENTS_BY_CODE[code];
 
-    const nm = `${name} ${category}`.toLowerCase();
-    if (/\bdot\b.*coefficient/.test(nm)) return 0.615;
-    if (/cai1|para/.test(nm)) return 0.80;
-    if (/cai2.*hp2|hp2.*2\*|2\*.*hp2/.test(nm)) return 0.615;
-    if (/cai2/.test(nm)) return 0.76;
-    if (/cai3/.test(nm)) {
-        if (/singles|enbet|single/.test(nm)) return 0.666;
-        if (/hp2|p2|pairs|hp4|p4|four/.test(nm)) return 0.615;
-    }
-    if (/children/.test(nm)) return 0.80;
-    if (/junior/.test(nm)) return 0.80;
+    return defaultDressagePenaltyCoeff(p);
+}
 
-    if (/svensk|svenska/.test(nm)) {
-        if (/l[äa]tt\s*a|l[âa]tt\s*a|lb|la/.test(nm)) return 1.00;
-        return 0.80;
-    }
-
-    return 1.00;
+/**
+ * Coefficient for a program that names none (e.g. a competition's own
+ * program): 160 / max points when the test has more than 160 points, else 1
+ * (FEI 958.1.3; keeps a TR penalty, TR 518.9, within 0–160). Guessing it from
+ * the name gave wrong values ("Alla" matched "la").
+ */
+export function defaultDressagePenaltyCoeff(program) {
+    const maxScore = getProgramMaxScore(program);
+    return maxScore > 160 ? 160 / maxScore : 1.00;
 }
 
 const movementNo = (mv) => Number(mv?.momentNo ?? mv?.movementNo ?? mv?.no);
@@ -219,7 +212,8 @@ export function getClassJudgeAssignments(className, judgeMapping = {}) {
 }
 
 // A judge's protocol is complete when every movement of the program is scored
-function isProtocolComplete(protocol, program) {
+// (an empty movement is saved as null and counts as not scored)
+export function isProtocolComplete(protocol, program) {
     const movs = Array.isArray(program?.movements) ? program.movements : [];
     if (movs.length === 0) return false;
     const scored = new Set((protocol?.movements || [])
@@ -265,15 +259,27 @@ export function getMissingJudgePositions(assignments, judgeProtocols, program) {
 }
 
 /**
- * Error points (felkörning) from C. Stored on the 'general' protocol doc;
- * an equipage-level value is also honoured. The highest value wins.
+ * Movement numbers of the program a protocol has no score for (empty = null)
+ */
+export function getUnscoredMovementNumbers(protocol, program) {
+    const scored = new Set((protocol?.movements || [])
+        .filter(m => scoreOf(m) != null)
+        .map(movementNo));
+    return (Array.isArray(program?.movements) ? program.movements : [])
+        .map(pm => Number(pm.no))
+        .filter(no => !scored.has(no));
+}
+
+/**
+ * Error points (felkörning). Only C gives them (TR 518.9; FEI 958.1.4: the
+ * President at C), stored on the 'general' protocol doc; an equipage-level
+ * value is also honoured and the highest value wins. A value on a judge's
+ * own protocol does not count.
  */
 export function resolveDressageErrorPoints(equipage, protocols = []) {
     const values = [Number(equipage?.errorPoints) || 0];
     for (const p of protocols || []) {
-        if (p && (p.id === 'general' || typeof p.errorPoints === 'number')) {
-            values.push(Number(p.errorPoints) || 0);
-        }
+        if (p && p.id === 'general') values.push(Number(p.errorPoints) || 0);
     }
     return Math.max(...values);
 }

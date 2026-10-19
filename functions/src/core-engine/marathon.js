@@ -18,6 +18,7 @@ import {
     PONY_CATEGORY_MAX_HEIGHT_CM,
     round2
 } from './rules-ledger.js';
+import { mergeMarathonObstacles } from './stateSelector.js';
 
 const kmhToMmin = (kmh) => (kmh * 1000) / 60;
 const isPositive = (v) => Number.isFinite(v) && v > 0;
@@ -45,9 +46,13 @@ export function normalizeClassKey(raw) {
     const lower = String(raw).trim().toLowerCase();
     const para = /para/.test(lower);
 
+    const lattA = /(^|[\d\s\.,&\;-]+)l[aä]tt\s*a\b|(\b)la\b/.test(lower);
+
     // The template itself ("Barnklass", chosen in the marathon admin) or a
-    // class named so: the children's class, driven in Lätt B (TR V 509.2)
-    if (/\bbarnklass\b/.test(lower)) return "Barnklass";
+    // class named so: the children's class in Lätt B (TR V 509.2). TR 509.2
+    // also has a children's class in Lätt A ("Lätt A Barnklass"): it drives
+    // the Lätt A tempos (Bilaga 3 has no children's row)
+    if (/\bbarnklass\b/.test(lower) && !lattA) return "Barnklass";
 
     if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*c\b|(\b)lc\b/.test(lower)) {
         if (/barn/.test(lower)) return "Barnklass";
@@ -57,7 +62,7 @@ export function normalizeClassKey(raw) {
         if (/barn/.test(lower)) return "Barnklass";
         return para ? "Lätt B Para" : "Lätt B";
     }
-    if (/(^|[\d\s\.,&\;-]+)l[aä]tt\s*a\b|(\b)la\b/.test(lower)) return para ? "Lätt A Para" : "Lätt A";
+    if (lattA) return para ? "Lätt A Para" : "Lätt A";
     if (/(^|[\d\s\.,&\;-]+)(msv|medelsv[aå]r)\b/.test(lower)) return para ? "Msv Para" : "Msv";
     if (/(^|[\d\s\.,&\;-]+)sv[aå]r\b/.test(lower)) return para ? "Svår Para" : "Svår";
 
@@ -267,7 +272,12 @@ export function tlSecondsFor(equipage, rawStage, marathonConfig) {
         let baseKey = classSettings.trTemplate || className;
         if (equipage?.isPara && !/para/i.test(baseKey)) baseKey += " Para";
         const clsKey = normalizeClassKey(baseKey);
-        const catKey = detectTRCategoryFromEquipage(equipage);
+        // TR V 535.1: in a class for ponies and horses together each equipage
+        // drives its own tempo. Without a stated category, height or a class
+        // name that tells, the tempo is unknown: no ideal time (configMissing,
+        // the result is withheld) instead of guessing horse, as in precision
+        const catKey = detectKnownTRCategory(equipage);
+        if (!catKey) return null;
         const activeRules = getActiveTempoRules(marathonConfig);
 
         // The children's class is driven in Lätt B (TR V 509.2): a tempo table
@@ -327,6 +337,20 @@ export function limitsFor(equipage, rawStage, marathonConfig) {
     return null;
 }
 
+/**
+ * The driven section time (seconds) compared with the minimum and maximum
+ * times. TR V 523.2 counts "0,25 straffpoäng per sekund" with timekeepers'
+ * clocks (523.3): whole seconds, the time cut off at the second (0.4 s over
+ * the max time gives 0 p; owner's decision 2026-10-19). FEI 968.1.1: "There
+ * shall be no rounding of times", so FEI classes keep milliseconds.
+ */
+export function stageSecondsForPenalty(ms, ruleProfile = 'TR') {
+    const sec = ms / 1000;
+    if (ruleProfile === 'FEI') return sec;
+    // The small margin keeps float noise (1499.9999…) from losing a second
+    return Math.floor(sec + 1e-6);
+}
+
 export function getStageTimePenaltyRate(marathonConfig) {
     const rate = marathonConfig?.timePenaltyRate;
     return isPositive(rate) ? rate : PENALTY_RATE;
@@ -338,7 +362,7 @@ export function stagePenaltyFromMs(ms, equipage, stage, marathonConfig) {
     const lim = limitsFor(equipage, stage, marathonConfig);
     if (!lim) return { points: 0, elim: false };
 
-    const sec = ms / 1000;
+    const sec = stageSecondsForPenalty(ms, getClassRuleProfile(equipageClassName(equipage), marathonConfig));
     if (sec > lim.timeLimit) return { points: Infinity, elim: true };
     if (lim.noTimePenalty) return { points: 0, elim: false };
 
@@ -432,12 +456,52 @@ export function getKnockdownPenaltyPerElement(marathonConfig) {
         : MARATHON_KNOCKDOWN_PENALTY;
 }
 
-// FEI classes follow the FEI rules, the Swedish ones TR
-export function isFeiMarathonClass(className) {
-    return /\b(FEI|CAI)(\b|\d)/i.test(String(className || ''));
+// === Rule profile (TR or FEI) ===
+
+export const RULE_PROFILES = ['TR', 'FEI'];
+
+// A FEI/CAI name or template: "FEI 2* Enbet", "CAI2*", "CAI Children", "CAIO"
+const FEI_NAME_RE = /\b(?:FEI|CAI(?:O|P|CH|J|Y|YH|YP)?)(?![a-zåäö])/i;
+
+/**
+ * The rule profile a class gets when none is stored: FEI when its tempo
+ * template or its name is a FEI/CAI one, or the competition is international
+ * (config/competitionMeta.isInternational; only the marathon admin knows it
+ * and stores the profile it derives), else TR.
+ */
+export function deriveRuleProfile(className, { trTemplate = null, isInternational = false } = {}) {
+    if (FEI_NAME_RE.test(String(trTemplate || '')) || FEI_NAME_RE.test(String(className || ''))) return 'FEI';
+    return isInternational === true ? 'FEI' : 'TR';
 }
 
-/** Penalty for one wrong-gait incident of durationSec seconds. */
+/**
+ * The class's rule profile: 'TR' (TR V) or 'FEI' (FEI Driving Rules), stored
+ * per class in the marathon admin (maratonConfig.marathonClassData[cls]
+ * .ruleProfile), else derived from the tempo template and the class name. It
+ * decides wrong gait (FEI 964.4 / TR 523.1), the marathon tie-break (FEI
+ * 968.1.4 / TR 527.1), section time resolution (FEI 968.1.1 / TR 523.2) and
+ * the cones speeds (FEI 975.10.5 / TR Bilaga 5). The total (TR 533.3, FEI 904)
+ * is the same in both.
+ */
+export function getClassRuleProfile(className, marathonConfig = null) {
+    const settings = getClassSettings(className, marathonConfig);
+    const explicit = String(settings?.ruleProfile || '').trim().toUpperCase();
+    if (RULE_PROFILES.includes(explicit)) return explicit;
+    return deriveRuleProfile(className, { trTemplate: settings?.trTemplate });
+}
+
+// FEI classes follow the FEI rules, the Swedish ones TR. Without the marathon
+// config only the class name tells (deriveRuleProfile)
+export function isFeiMarathonClass(className, marathonConfig = null) {
+    return getClassRuleProfile(className, marathonConfig) === 'FEI';
+}
+
+/**
+ * Penalty for one wrong-gait incident of durationSec seconds.
+ * TR V 523.1: corrected within 5 s no penalty, then 1 p per commenced 5 s
+ * period (6-10 s 1 p, 11-15 s 2 p). FEI 964.4: 1 p for the occurrence and 1 p
+ * per additional completed 5 s period.
+ */
 export function wrongGaitIncidentPenalty(durationSec, { fei = false } = {}) {
     const d = Math.max(0, Math.floor(Number(durationSec) || 0));
     if (d <= MARATHON_WRONG_GAIT_GRACE_SEC) return 0;
@@ -452,19 +516,50 @@ export function wrongGaitIncidentPenalty(durationSec, { fei = false } = {}) {
  * [{ atSec, durSec }]) on its own. A log from before incidents were kept has
  * only the total (wrongGaitSeconds); it counts as one incident.
  */
-export function wrongGaitPenaltyFromLog(observerLog, className) {
-    const fei = isFeiMarathonClass(className);
+export function wrongGaitPenaltyFromLog(observerLog, className, marathonConfig = null) {
+    const bySection = wrongGaitPenaltyBySection(observerLog, className, marathonConfig);
+    return bySection.A + bySection.transport + bySection.B + bySection.unknown;
+}
+
+/**
+ * The section a penalty was given on: 'A', 'transport' or 'B' (also
+ * 'warmup' -> 'A', 'transfer' -> 'transport'); null when not recorded.
+ */
+export function penaltySection(raw) {
+    if (raw == null || raw === '') return null;
+    const s = normStage(raw);
+    return STAGE_KEYS.includes(s) ? s : null;
+}
+
+/**
+ * Wrong-gait penalty per section. Each incident in observerLog.wrongGaits may
+ * carry `section` ('A' | 'transport' | 'B'); incidents without it, and seconds
+ * of an old total-only log, count as 'unknown'.
+ * @returns {{A:number, transport:number, B:number, unknown:number}}
+ */
+export function wrongGaitPenaltyBySection(observerLog, className, marathonConfig = null) {
+    const fei = isFeiMarathonClass(className, marathonConfig);
+    const out = { A: 0, transport: 0, B: 0, unknown: 0 };
     const incidents = Array.isArray(observerLog?.wrongGaits) ? observerLog.wrongGaits : [];
     const incidentSec = incidents.reduce((sum, inc) => sum + Math.max(0, Number(inc?.durSec) || 0), 0);
+    for (const inc of incidents) {
+        out[penaltySection(inc?.section) || 'unknown'] += wrongGaitIncidentPenalty(inc?.durSec, { fei });
+    }
     // Seconds in the total that no incident accounts for (saved before
     // incidents were kept) count as one more incident
     const unattributedSec = Math.max(0, (Number(observerLog?.wrongGaitSeconds) || 0) - incidentSec);
-    return incidents.reduce((sum, inc) => sum + wrongGaitIncidentPenalty(inc?.durSec, { fei }), 0)
-        + wrongGaitIncidentPenalty(unattributedSec, { fei });
+    out.unknown += wrongGaitIncidentPenalty(unattributedSec, { fei });
+    return out;
 }
 
 // === Obstacles & hold times ===
 
+/**
+ * A hold time as typed in, in MINUTES (TR V 525.7: "Väntetiden ska anges i
+ * hela minuter"; FEI 965.8.2: "in whole or half minutes"): "2" -> 120,
+ * "2.5" / "2,5" -> 150, and "m:ss" ("1:30" -> 90). Returns whole seconds
+ * (what obstacles store as holdTimeSec); 0 for empty or invalid input.
+ */
 export function parseHoldTimeInput(val) {
     if (val == null) return 0;
     const str = String(val).trim();
@@ -472,14 +567,45 @@ export function parseHoldTimeInput(val) {
     if (str.includes(':')) {
         const parts = str.split(':');
         const m = parseInt(parts[0], 10) || 0;
-        const s = parseFloat(parts[1]) || 0;
+        const s = parseFloat(String(parts[1]).replace(',', '.')) || 0;
         return Math.max(0, Math.round(m * 60 + s));
     }
-    const num = parseFloat(str.replace(',', '.'));
-    return Number.isFinite(num) ? Math.max(0, Math.round(num)) : 0;
+    const minutes = Number(str.replace(',', '.'));
+    return Number.isFinite(minutes) ? Math.max(0, Math.round(minutes * 60)) : 0;
+}
+
+/**
+ * A stored hold time (obstacle.holdTimeSec, seconds) as the minutes text the
+ * input takes: 120 -> "2", 150 -> "2,5", 70 -> "1:10", 0 -> "".
+ * @param {number} seconds
+ * @param {{ decimal?: string }} [opts] - decimal separator (default ',')
+ */
+export function formatHoldTimeMinutes(seconds, { decimal = ',' } = {}) {
+    const sec = Math.max(0, Math.round(Number(seconds) || 0));
+    if (sec === 0) return '';
+    if (sec % 60 === 0) return String(sec / 60);
+    if (sec % 30 === 0) return `${Math.floor(sec / 60)}${decimal}5`;
+    return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+}
+
+// A stored hold time (holdTimeSec) in seconds: a number, a numeric text or
+// "m:ss". Not parseHoldTimeInput, which reads typed minutes
+function storedHoldTimeSec(v) {
+    if (v == null || v === '') return 0;
+    if (typeof v === 'number') return Number.isFinite(v) && v > 0 ? v : 0;
+    const str = String(v).trim();
+    if (str.includes(':')) return parseHoldTimeInput(str);
+    const n = Number(str.replace(',', '.'));
+    return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
 export function getObstacleArray(res) {
+    // Results saved per obstacle (obstacleResults.{n}) merged with obstacles[],
+    // also when a caller passes a document that was not normalized
+    if (res && typeof res === 'object' && !Array.isArray(res.obstacleResults)
+        && res.obstacleResults && typeof res.obstacleResults === 'object') {
+        return mergeMarathonObstacles(res);
+    }
     const cand = res?.obstacles || res?.hinder || res?.obstacleResults || res?.maratonObstacles || [];
     return Array.isArray(cand) ? cand : [];
 }
@@ -488,8 +614,8 @@ export function getTotalHoldTimeMs(dataOrObstacles) {
     if (!dataOrObstacles) return 0;
     const list = Array.isArray(dataOrObstacles) ? dataOrObstacles : getObstacleArray(dataOrObstacles);
     return list.reduce((sum, o) => {
-        const ht = parseHoldTimeInput(o?.holdTimeSec);
-        return ht > 0 ? sum + ht * 1000 : sum;
+        const ht = storedHoldTimeSec(o?.holdTimeSec);
+        return ht > 0 ? sum + Math.round(ht * 1000) : sum;
     }, 0);
 }
 
@@ -851,8 +977,26 @@ export function calculateMarathonResult(state) {
         && course.every(n => isObstacleDone(obsArr.find(x => obstacleNo(x) === n)));
 
     // 3. Wrong gait (observer) and other penalties
-    const wgPenalty = round2(wrongGaitPenaltyFromLog(d.observerLog, equipageClassName(eq)));
+    const ruleProfile = getClassRuleProfile(equipageClassName(eq), marathonConfig);
+    const wgBySection = wrongGaitPenaltyBySection(d.observerLog, equipageClassName(eq), marathonConfig);
+    const wgPenalty = round2(wgBySection.A + wgBySection.transport + wgBySection.B + wgBySection.unknown);
     const other = Number(d.otherPenalty ?? d.miscPenalty ?? d.others ?? d.other ?? d.penalty_other) || 0;
+
+    // TR V 527.1: "Vid lika straffpoäng vinner det ekipage som har lägst
+    // straffpoäng på B-sträckan": B's time penalty, the obstacles (all on B,
+    // TR 521) and the other and wrong-gait penalties given on B. Their
+    // section is d.otherPenaltySection and observerLog.wrongGaits[].section;
+    // when not recorded they count on B only if the class drives B alone
+    // (one-day competition / Barnklass, TR 509.6), else they stay out
+    // (bPenaltyPartial)
+    const onlyB = !stages.A.limits && !stages.A.start && !Number.isFinite(stages.A.rawDurationMs)
+        && !stages.transport.limits && !stages.transport.start;
+    const otherSection = penaltySection(d.otherPenaltySection) || (onlyB ? 'B' : null);
+    const bPenalty = round2((Number(stages.B.timePenalty) || 0)
+        + obsPenalty
+        + (otherSection === 'B' ? other : 0)
+        + wgBySection.B + (onlyB ? wgBySection.unknown : 0));
+    const bPenaltyPartial = (other > 0 && otherSection === null) || (!onlyB && wgBySection.unknown > 0);
 
     // 4. Settings check: a driven stage without ideal time / limits (no class
     // data in the marathon config) cannot be penalised, so the result would
@@ -923,8 +1067,11 @@ export function calculateMarathonResult(state) {
         otherPenalty: other,
         wgPenalty,
         eta: { A: etaA, B: etaB },
+        ruleProfile, // 'TR' | 'FEI' (getClassRuleProfile)
         // TR tie-breakers (FEI classes have none: equal penalties share the place)
-        feiClass: isFeiMarathonClass(equipageClassName(eq)),
+        feiClass: ruleProfile === 'FEI',
+        bPenalty, // TR 527.1 tie-break: penalties on section B
+        bPenaltyPartial, // a penalty without a recorded section is left out of bPenalty
         obstaclePenaltySum: obsPenalty,
         obstacleTimes: obsItems.map(o => o.timeSec || 0)
     };

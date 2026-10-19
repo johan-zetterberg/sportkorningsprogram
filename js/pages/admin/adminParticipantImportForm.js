@@ -1,4 +1,6 @@
-﻿import { getEquipages, saveEquipage } from '../../services/equipageService.js';
+﻿import { getEquipages } from '../../services/equipageService.js';
+import { createEquipageIfNew, updateEquipageIfSame } from './adminParticipantWrites.js';
+import { describeImportWrites, equipageIdentity } from './adminParticipantIdentity.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getVetInspections } from '../../services/vetInspectionService.js';
 import { createImportNumberResolver } from './adminParticipantImportNumbers.js';
@@ -97,27 +99,38 @@ async function planImportedEquipages(compId, equipagesFromFile, userClassMapping
         const sn = String(eqa.startNumber);
         const existing = existingById.get(sn) || null;
         const merge = buildImportMerge(existing, eqa, { clinicalByHorse: clinical.get(sn) || {} });
-        plan.push({ ...merge, startNumber: eqa.startNumber, driverName: eqa.driverName });
+        // Who the number belonged to when compared: checked again when saving
+        plan.push({ ...merge, startNumber: eqa.startNumber, driverName: eqa.driverName, expected: existing ? equipageIdentity(existing) : null });
     }
     return plan;
 }
 
+// The start numbers were decided when the file was compared with the list;
+// each entry is saved only if that still holds (a new number still free, an
+// existing one still the same driver), so nothing lands on another driver
 async function writeImportPlan(compId, plan, progress) {
-    let ok = 0;
-    let fail = 0;
+    const written = [];
+    const failed = [];
     const toWrite = plan.filter(item => Object.keys(item.patch).length);
     for (const item of toWrite) {
         try {
-            // Partial update (merge): fields not in the patch are kept
-            await saveEquipage(compId, item.startNumber, item.patch);
-            ok++;
+            if (item.kind === 'new') {
+                await createEquipageIfNew(compId, item.startNumber, item.patch);
+            } else {
+                // Partial update (merge): fields not in the patch are kept
+                await updateEquipageIfSame(compId, item.startNumber, item.patch, item.expected);
+            }
+            written.push({ startNumber: item.startNumber, driverName: item.driverName, kind: item.kind });
         } catch (err) {
             console.warn('Kunde inte spara ekipage', item, err);
-            fail++;
+            const reason = ['equipage-exists', 'equipage-changed', 'equipage-missing'].includes(err?.code)
+                ? `${err.message} Jämför filen igen.`
+                : (err?.message || 'okänt fel');
+            failed.push({ startNumber: item.startNumber, driverName: item.driverName, reason });
         }
-        progress.textContent = `Sparar ekipage... (${ok} av ${toWrite.length} klara)`;
+        progress.textContent = `Sparar ekipage... (${written.length + failed.length} av ${toWrite.length})`;
     }
-    return { ok, fail };
+    return { ok: written.length, fail: failed.length, written, failed };
 }
 
 function describeConflict(conflict) {
@@ -206,15 +219,23 @@ export function setupParticipantImportForm({ competitionId, getJudges, getOffici
                     document.getElementById('eqXmlConfirmImport').onclick = async () => {
                         try {
                             progress.innerHTML = 'Sparar importerad data...';
-                            const { fail } = await writeImportPlan(competitionId, plan, progress);
+                            const outcome = await writeImportPlan(competitionId, plan, progress);
+                            const { fail } = outcome;
 
                             progress.textContent += ' | Importerar funktionärer...';
                             const stats = await importOfficialsFromXml(file, competitionId, getJudges(), getOfficials());
                             const mergeMessage = mergePerTest ? ' Testnivå-visning sparad för nya ekipage.' : '';
-                            const message = `Import klar: ${summary.new} nya och ${summary.updated} uppdaterade ekipage (${summary.unchanged} oförändrade), ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${mergeMessage}${fail ? ` ${fail} ekipage misslyckades.` : ''}`;
-                            showAlert(message);
+                            const writtenNew = outcome.written.filter(item => item.kind === 'new').length;
+                            const writtenUpdated = outcome.written.length - writtenNew;
+                            const message = fail
+                                ? `Importen sparades delvis: ${writtenNew} nya och ${writtenUpdated} uppdaterade ekipage sparades, ${fail} sparades inte (se listan). ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${mergeMessage}`
+                                : `Import klar: ${summary.new} nya och ${summary.updated} uppdaterade ekipage (${summary.unchanged} oförändrade), ${stats.judges} nya domare och ${stats.officials} nya funktionärer importerade.${mergeMessage}`;
+                            showAlert(message, !fail);
+                            const detailLines = describeImportWrites(outcome)
+                                .map(line => `<li>${escapeAdminImportHtml(line)}</li>`).join('');
                             progress.innerHTML = `${buildImportSummaryHtml(summary, { done: true })}
-        <p class="mt-2 text-sm dark:text-gray-200">${escapeAdminImportHtml(message)}</p>`;
+        <p class="mt-2 text-sm dark:text-gray-200">${escapeAdminImportHtml(message)}</p>
+        ${detailLines ? `<ul class="mt-2 list-disc ml-5 text-xs max-h-64 overflow-y-auto dark:text-gray-200">${detailLines}</ul>` : ''}`;
                             form.reset();
                         } catch (err) {
                             console.error(err);

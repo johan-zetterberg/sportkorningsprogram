@@ -33,7 +33,7 @@ const MARATHON_FIELD_LABELS = {
   distanceB: 'distans B', tempoB: 'tempo B', windowB: 'fönster B',
   distanceT: 'distans transport', tempoT: 'tempo transport', includeTransport: 'transport',
   gateCount: 'standardportar', obstaclePenaltyRate: 'hinderstraff/sek', drivenObstacles: 'körda hinder',
-  clearRound: 'clear round', trTemplate: 'tempo-mall', pauseTime: 'paustid'
+  clearRound: 'clear round', trTemplate: 'tempo-mall', ruleProfile: 'regelverk', pauseTime: 'paustid'
 };
 const GLOBAL_MARATHON_LABELS = {
   timePenaltyRate: 'straffpoäng/sek (sträcka)', obstaclePenaltyRate: 'straffpoäng/sek (hinder)',
@@ -135,6 +135,7 @@ import {
   detectTRCategoryFromEquipage,
   buildDominantTRCategoryByClass
 } from '../../utils/marathonUtils.js';
+import { deriveRuleProfile } from '../../core-engine/marathon.js';
 
 // ------------------------------
 // === TR V 2025 – Maratontempon (km/h) per klass & kategori ===
@@ -1101,7 +1102,7 @@ function buildMarathonValidationFromForm(container) {
 
     if (field === 'includeTransport' || field === 'clearRound') {
       newClassData[cls][field] = input.checked === true;
-    } else if (field === 'trTemplate') {
+    } else if (field === 'trTemplate' || field === 'ruleProfile') {
       newClassData[cls][field] = input.value || null;
     } else if (field === 'drivenObstacles') {
       const str = (input.value || '').trim();
@@ -1228,6 +1229,18 @@ async function setupMarathonSettings() {
   let dressageClassConfig = await getConfig(competitionId, 'dressyrClassConfig').catch(() => ({})) || {};
   const classClearRound = (cn, data) => data.clearRound === true
     || dressageClassConfig[cn]?.clearRound === true;
+
+  // Rule profile (TR/FEI) per class: the stored one, else derived from the
+  // tempo template, the class name and whether the competition is
+  // international; the derived value is stored on the next save, so the
+  // result engine (which does not know competitionMeta) uses the same
+  const competitionMeta = await getConfig(competitionId, 'competitionMeta').catch(() => null) || {};
+  const isInternationalMeta = competitionMeta.isInternational === true
+    || currentCompetition?.meta?.isInternational === true
+    || currentCompetition?.isInternational === true;
+  const ruleProfileFor = (cn, data) => (data.ruleProfile === 'FEI' || data.ruleProfile === 'TR')
+    ? data.ruleProfile
+    : deriveRuleProfile(cn, { trTemplate: data.trTemplate, isInternational: isInternationalMeta });
 
   const pauseEl = pageRoot.querySelector('#pauseTime');
   if (pauseEl) pauseEl.value = existingConfig.pauseTime ?? '10';
@@ -1362,6 +1375,14 @@ async function setupMarathonSettings() {
                      </select>
                      <p class="text-xs text-gray-500 mt-1 dark:text-gray-400">Välj för att tvinga fram specifika TR-regler för denna klass (bra för "Sammanslagen").</p>
                 </div>
+                <div class="min-w-0">
+                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Regelverk</label>
+                     <select data-class-name="${escapeAttr(cn)}" data-field="ruleProfile" class="marathon-class-input p-2 border rounded-md text-sm w-full sm:max-w-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <option value="TR" ${ruleProfileFor(cn, data) === 'TR' ? 'selected' : ''}>TR (Svenska Ridsportförbundet)</option>
+                        <option value="FEI" ${ruleProfileFor(cn, data) === 'FEI' ? 'selected' : ''}>FEI</option>
+                     </select>
+                     <p class="text-xs text-gray-500 mt-1 dark:text-gray-400">Gäller hela klassen i maraton och precision: felaktig gångart (TR 523.1 / FEI 964.4), lika maratonstraff (TR 527.1 B-sträckan avgör / FEI 968.1.4 lika placering), sträcktider i hela sekunder (TR 523.2) eller utan avrundning (FEI 968.1.1) och precisionstempon (TR Bilaga 5 / FEI 975.10.5). ${data.ruleProfile ? '' : `Förvalt utifrån ${isInternationalMeta ? 'internationell tävling, ' : ''}tempo-mall och klassnamn; sparas när du sparar.`}</p>
+                </div>
             </div>
         </div>
 
@@ -1395,7 +1416,7 @@ async function setupMarathonSettings() {
       // Specialhantering för sträng-fält (som trTemplate och drivenObstacles)
       if (field === 'includeTransport' || field === 'clearRound') {
         newClassData[cls][field] = input.checked === true;
-      } else if (field === 'trTemplate') {
+      } else if (field === 'trTemplate' || field === 'ruleProfile') {
         newClassData[cls][field] = input.value || null;
       } else if (field === 'drivenObstacles') {
         const str = (input.value || '').trim();
@@ -1580,7 +1601,14 @@ async function setupMarathonSettings() {
 
     const cls = t.dataset.className;
     const val = t.value;
-    if (!cls || !val) return;
+    if (!cls) return;
+
+    // A class without a stored rule profile follows its template (CAI -> FEI)
+    if (!(classData[cls] || {}).ruleProfile) {
+      const profileSelect = container.querySelector(`select[data-class-name="${CSS.escape(cls)}"][data-field="ruleProfile"]`);
+      if (profileSelect) profileSelect.value = deriveRuleProfile(cls, { trTemplate: val || null, isInternational: isInternationalMeta });
+    }
+    if (!val) return;
 
     // Om man väljer "CAI Children" eller "Barnklass", och Fixed Time är tomt, sätt till 10 min.
     if (val === 'CAI Children' || val === 'Barnklass') {

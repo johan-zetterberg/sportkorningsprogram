@@ -1,4 +1,4 @@
-import { db, appId } from '../config/firebase-config.js';
+import { db, appId, auth } from '../config/firebase-config.js';
 import { addDoc, collection, doc, getDoc, getDocs, serverTimestamp, setDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getGlobalState } from '../main.js';
 import { getEquipages } from './equipageService.js';
@@ -18,10 +18,20 @@ import {
   saveDressageJudgeProtocol
 } from './dressageService.js';
 import { getCompDocRef } from './firestoreService.js';
-import { findEditConflicts, isStillRunning, mergeProtocolEdits, pickEditedFields } from './secretariatPatchUtils.js';
+import {
+  buildCorrectionReason,
+  findEditConflicts,
+  isStillRunning,
+  mergeObstacleSources,
+  mergeProtocolEdits,
+  normalizeSecretariatObstacle,
+  pickEditedFields,
+  planObstacleCorrection
+} from './secretariatPatchUtils.js';
 import { getConfig } from './competitionService.js';
-import { calculatePrecisionResult } from '../utils/precisionCalculation.js';
+import { calculatePrecisionResult, nextPrecisionRebuildCount, precisionRebuildCount } from '../utils/precisionCalculation.js';
 import { calculateObstacleResult } from '../core-engine/marathon.js';
+import { obstacleLiveEntry } from '../core-engine/stateSelector.js';
 import {
   finalizePrecision,
   unfinalizePrecision,
@@ -46,7 +56,7 @@ function numberOrDefault(value, fallback = 0) {
 }
 
 function buildPrecisionDiff(before = {}, after = {}) {
-  const fields = ['timeMs', 'obstaclePenalty', 'timePenalty', 'extraPenalty', 'totalPenalty', 'eliminated', 'comment', 'finalized'];
+  const fields = ['timeMs', 'obstaclePenalty', 'timePenalty', 'extraPenalty', 'rebuildCount', 'totalPenalty', 'eliminated', 'comment', 'finalized'];
   const diff = [];
 
   fields.forEach(field => {
@@ -72,6 +82,27 @@ function buildFieldDiff(before = {}, after = {}, fields = []) {
   return diff;
 }
 
+// The 'general' protocol document (error points) per start number, from the
+// protocols path or, when only that exists, the older dressageResults path
+async function getDressageGeneralMap(competitionId, equipages = []) {
+  const out = new Map();
+  const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+  const startNumbers = equipages.map(eq => String(eq.startNumber ?? eq.id ?? '').trim()).filter(Boolean);
+  const chunkSize = 20;
+  for (let i = 0; i < startNumbers.length; i += chunkSize) {
+    await Promise.all(startNumbers.slice(i, i + chunkSize).map(async (sn) => {
+      try {
+        let snap = await getDoc(doc(db, `${base}/dressage/${sn}/protocols/general`));
+        if (!snap.exists()) snap = await getDoc(doc(db, `${base}/dressageResults/${sn}/protocols/general`));
+        if (snap.exists()) out.set(sn, snap.data() || {});
+      } catch (error) {
+        console.warn(`Kunde inte läsa felpoäng för #${sn}:`, error);
+      }
+    }));
+  }
+  return out;
+}
+
 async function getDressageFinalizationMap(competitionId) {
   const out = new Map();
   if (!competitionId) return out;
@@ -81,14 +112,42 @@ async function getDressageFinalizationMap(competitionId) {
   return out;
 }
 
-export async function writeSecretariatAuditLog(competitionId, entry = {}) {
-  if (!competitionId) return null;
+/**
+ * The reason of a correction as { reason, reference }: from the reason dialog
+ * ({ reason, reference }) or a plain text. A correction needs a reason.
+ */
+function requireCorrectionReason(reason) {
+  if (reason && typeof reason === 'object') {
+    return buildCorrectionReason({
+      reason: reason.reason,
+      referenceType: reason.reference?.type || reason.referenceType,
+      referenceValue: reason.reference?.value || reason.referenceValue,
+    });
+  }
+  return buildCorrectionReason({ reason });
+}
 
+/**
+ * Logs a correction in the competition's change log. Best effort, after the
+ * save: the save itself has gone through, so a log entry that cannot be
+ * written (no signal, no permission) must not turn it into an error, and the
+ * page does not wait for it (offline it would wait until the signal is back).
+ */
+export function writeSecretariatAuditLog(competitionId, entry = {}) {
+  if (!competitionId) return Promise.resolve(null);
+  // The rules require the writer's own uid
+  const uid = auth?.currentUser?.uid || currentUserId();
+  const { reason = '', reference = null, ...rest } = entry;
   return addDoc(getAuditCollectionRef(competitionId), {
     source: 'secretariat',
-    editedBy: currentUserId(),
+    ...rest,
+    reason: String(reason || ''),
+    reference: reference || null,
+    editedBy: uid,
     editedAt: serverTimestamp(),
-    ...entry,
+  }).catch((error) => {
+    console.warn('Ändringsloggen kunde inte sparas:', error);
+    return null;
   });
 }
 
@@ -146,6 +205,8 @@ export async function loadSecretariatPrecisionRows(competitionId) {
       timePenalty: numberOrDefault(result.timePenalty, 0),
       timePenaltyOverride: result.timePenaltyOverride === true,
       extraPenalty: numberOrDefault(result.extraPenalty, 0),
+      // Obstacle rebuilds, +10 s each on the time
+      rebuildCount: precisionRebuildCount(result),
       totalPenalty: result.totalPenalty == null ? null : numberOrDefault(result.totalPenalty, 0),
       eliminated: !!result.eliminated,
       comment: result.comment || '',
@@ -199,6 +260,9 @@ export async function loadSecretariatMarathonRows(competitionId) {
       finish_B: state.finish_B ?? timing.finish_B ?? null,
       duration_A: numberOrDefault(state.duration_A_ms ?? timing.duration_A, 0),
       duration_B: numberOrDefault(state.duration_B_ms ?? timing.duration_B, 0),
+      // Other penalties and the section they were given on (TR 527.1)
+      otherPenalty: numberOrDefault(state.otherPenalty, 0),
+      otherPenaltySection: state.otherPenaltySection || '',
       holdTimeSec,
       obstacleCount: obstacles.length,
       stateDoc: state,
@@ -217,18 +281,22 @@ export async function loadSecretariatDressageRows(competitionId) {
   if (!competitionId) return [];
 
   const equipages = await getEquipages(competitionId);
-  const [statusDocs, allProtocolsMap, finalizationMap] = await Promise.all([
+  const [statusDocs, allProtocolsMap, finalizationMap, generalMap] = await Promise.all([
     getDressageStatusCollection(competitionId),
     getAllDressageProtocols(competitionId, equipages),
     getDressageFinalizationMap(competitionId),
+    getDressageGeneralMap(competitionId, equipages),
   ]);
 
   const statusMap = new Map(statusDocs.map(docRow => [String(docRow.id || docRow.startNumber), docRow]));
   const rows = equipages.map(eq => {
     const sn = String(eq.startNumber);
     const status = statusMap.get(sn) || {};
-    const protocols = allProtocolsMap.get(sn) || [];
+    // The error points are kept in the 'general' protocol document (the
+    // status document's copy may be older)
+    const protocols = (allProtocolsMap.get(sn) || []).filter(protocol => protocol?.id !== 'general');
     const finalization = finalizationMap.get(sn) || {};
+    const general = generalMap.get(sn) || null;
 
     const row = {
       startNumber: eq.startNumber,
@@ -243,7 +311,7 @@ export async function loadSecretariatDressageRows(competitionId) {
       state: status.state || 'not-started',
       protocolCount: protocols.length,
       judgeNames: protocols.map(protocol => protocol.judgeName).filter(Boolean),
-      errorPoints: Number(status.errorPoints || 0),
+      errorPoints: Number((general ? general.errorPoints : status.errorPoints) || 0),
       finalPenalty: Number.isFinite(Number(status.finalPenalty)) ? Number(status.finalPenalty) : null,
       statusDoc: status,
     };
@@ -329,37 +397,10 @@ export async function loadSecretariatMarathonObstacleDetail(competitionId, start
   ]);
   const calcContext = { equipage: equipage || { startNumber }, marathonConfig };
 
-  const byNumber = new Map();
-  savedObstacles.forEach(obstacle => {
-    const key = Number(obstacle.obstacleNumber ?? obstacle.number);
-    if (Number.isFinite(key)) byNumber.set(key, { ...obstacle });
-  });
+  const byNumber = mergeObstacleSources(savedObstacles, summary);
 
-  const summaryObstacles = Array.isArray(summary?.obstacles) ? summary.obstacles : [];
-  summaryObstacles.forEach(obstacle => {
-    const key = Number(obstacle.obstacleNumber ?? obstacle.number);
-    if (!Number.isFinite(key)) return;
-    const existing = byNumber.get(key) || {};
-    byNumber.set(key, { ...existing, ...obstacle, obstacleNumber: key });
-  });
-
-  const obstacles = Array.from(byNumber.values())
-    .map(obstacle => {
-      const number = Number(obstacle.obstacleNumber ?? obstacle.number);
-      return {
-        obstacleNumber: number,
-        timeInSeconds: numberOrDefault(obstacle.timeInSeconds ?? obstacle.timeSeconds, 0),
-        knockdowns: numberOrDefault(obstacle.knockdowns, 0),
-        knockdownPenalty: numberOrDefault(obstacle.knockdownPenalty ?? obstacle.knockDownPenalty, 0),
-        otherPenalty: numberOrDefault(obstacle.otherPenalty, 0),
-        timePenalty: numberOrDefault(obstacle.timePenalty, 0),
-        penalty: numberOrDefault(obstacle.penalty, 0),
-        holdTimeSec: numberOrDefault(obstacle.holdTimeSec, 0),
-        eliminated: !!obstacle.eliminated,
-        comment: obstacle.comment || '',
-        routeString: obstacle.routeString || '',
-      };
-    })
+  const obstacles = Array.from(byNumber.entries())
+    .map(([number, obstacle]) => normalizeSecretariatObstacle(obstacle, number))
     .map(row => {
       const calc = calculateSecretariatObstacle(calcContext, row);
       return { ...row, timePenalty: calc.timePenalty, penalty: calc.penalty ?? row.penalty };
@@ -374,8 +415,8 @@ export async function loadSecretariatMarathonObstacleDetail(competitionId, start
   };
 }
 
-const PRECISION_EDIT_FIELDS = ['timeMs', 'obstaclePenalty', 'timePenalty', 'extraPenalty', 'eliminated', 'comment'];
-const PRECISION_EDIT_DEFAULTS = { timeMs: 0, obstaclePenalty: 0, timePenalty: 0, extraPenalty: 0, eliminated: false, comment: '' };
+const PRECISION_EDIT_FIELDS = ['timeMs', 'obstaclePenalty', 'timePenalty', 'extraPenalty', 'rebuildCount', 'eliminated', 'comment'];
+const PRECISION_EDIT_DEFAULTS = { timeMs: 0, obstaclePenalty: 0, timePenalty: 0, extraPenalty: 0, rebuildCount: 0, eliminated: false, comment: '' };
 
 /**
  * Saves the fields the secretariat edited in a row. `baseRow` is the row as
@@ -403,6 +444,7 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     }
   }
   if (!Object.keys(edited).length) return current;
+  const correction = requireCorrectionReason(reason);
 
   const payload = {
     startNumber: Number(startNumber),
@@ -414,6 +456,7 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     // An edited time penalty becomes a manual override; otherwise it follows the time
     timePenaltyOverride: 'timePenalty' in edited || current?.timePenaltyOverride === true,
     extraPenalty: numberOrDefault(edited.extraPenalty, current?.extraPenalty ?? 0),
+    rebuildCount: 'rebuildCount' in edited ? nextPrecisionRebuildCount(edited.rebuildCount, 0) : precisionRebuildCount(current),
     eliminated: edited.eliminated ?? current?.eliminated ?? false,
     comment: edited.comment ?? current?.comment ?? '',
     // savePrecisionResult would otherwise reset these two
@@ -440,6 +483,10 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
   if (calc.configMissing) payload.status = 'Pågår';
 
   await savePrecisionResult(competitionId, startNumber, payload);
+  // savePrecisionResult does not carry the rebuild count: written on its own
+  if ('rebuildCount' in edited) {
+    await setDoc(getCompDocRef(competitionId, 'precision', String(startNumber)), { rebuildCount: payload.rebuildCount }, { merge: true });
+  }
 
   const after = {
     ...current,
@@ -449,12 +496,12 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
 
   const changes = buildPrecisionDiff(current || {}, after);
   if (changes.length > 0) {
-    await writeSecretariatAuditLog(competitionId, {
+    writeSecretariatAuditLog(competitionId, {
       discipline: 'precision',
       startNumber: String(startNumber),
       entityType: 'result',
       entityId: String(startNumber),
-      reason: reason || '',
+      ...correction,
       changes,
     });
   }
@@ -485,51 +532,66 @@ export async function saveSecretariatMarathonTiming(competitionId, startNumber, 
   const serverNow = {
     duration_A: numberOrDefault(summary.duration_A_ms ?? current.duration_A, 0),
     duration_B: numberOrDefault(summary.duration_B_ms ?? current.duration_B, 0),
+    otherPenalty: numberOrDefault(summary.otherPenalty, 0),
+    otherPenaltySection: summary.otherPenaltySection || '',
   };
-  const fields = ['duration_A', 'duration_B'];
-  const defaults = { duration_A: 0, duration_B: 0 };
+  const fields = ['duration_A', 'duration_B', 'otherPenalty', 'otherPenaltySection'];
+  const defaults = { duration_A: 0, duration_B: 0, otherPenalty: 0, otherPenaltySection: '' };
   const edited = pickEditedFields(patch, baseRow || serverNow, fields, defaults);
+  // The section of the other penalty (TR 527.1, the B-section tie-break) is
+  // saved with every change of the penalty
+  if ('otherPenalty' in edited && !('otherPenaltySection' in edited) && patch.otherPenaltySection) {
+    edited.otherPenaltySection = patch.otherPenaltySection;
+  }
   if (baseRow) {
     const conflicts = findEditConflicts(edited, baseRow, serverNow, defaults);
     if (conflicts.length) {
-      throw new Error(`Tiden för ${conflicts.map(f => f.replace('duration_', 'sträcka ')).join(', ')} på #${startNumber} har ändrats efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
+      const labels = { duration_A: 'sträcka A', duration_B: 'sträcka B', otherPenalty: 'övriga straff', otherPenaltySection: 'övriga straffs sträcka' };
+      throw new Error(`${conflicts.map(f => labels[f] || f).join(', ')} på #${startNumber} har ändrats efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
     }
   }
   if (!Object.keys(edited).length) return { ...current, ...summary };
+  const correction = requireCorrectionReason(reason);
 
   const payload = {
     startNumber: Number(startNumber),
     className: patch.className ?? summary.className ?? current.className ?? null,
     duration_A: numberOrDefault(edited.duration_A, serverNow.duration_A),
     duration_B: numberOrDefault(edited.duration_B, serverNow.duration_B),
+    otherPenalty: numberOrDefault(edited.otherPenalty, serverNow.otherPenalty),
+    otherPenaltySection: ['A', 'transport', 'B'].includes(edited.otherPenaltySection) ? edited.otherPenaltySection : (serverNow.otherPenaltySection || null),
   };
 
   const summaryWrite = { startNumber: payload.startNumber, className: payload.className, updatedAt: serverTimestamp() };
   const timingWrite = { startNumber: payload.startNumber, className: payload.className, updatedAt: serverTimestamp() };
-  Object.keys(edited).forEach((field) => {
+  ['duration_A', 'duration_B'].filter(field => field in edited).forEach((field) => {
     summaryWrite[`${field}_ms`] = payload[field];
     timingWrite[field] = payload[field];
   });
+  // Other penalties live on the maraton document only
+  if ('otherPenalty' in edited) summaryWrite.otherPenalty = payload.otherPenalty;
+  if ('otherPenaltySection' in edited) summaryWrite.otherPenaltySection = payload.otherPenaltySection;
   await setDoc(getCompDocRef(competitionId, 'maraton', String(startNumber)), summaryWrite, { merge: true });
-  await setDoc(getCompDocRef(competitionId, 'maraton-timing', String(startNumber)), timingWrite, { merge: true });
+  if (Object.keys(timingWrite).length > 3) {
+    await setDoc(getCompDocRef(competitionId, 'maraton-timing', String(startNumber)), timingWrite, { merge: true });
+  }
 
-  const beforeForDiff = {
-    duration_A: numberOrDefault(summary.duration_A_ms ?? current.duration_A, 0),
-    duration_B: numberOrDefault(summary.duration_B_ms ?? current.duration_B, 0),
-  };
+  const beforeForDiff = { ...serverNow };
   const after = { ...current, ...summary, ...payload, duration_A_ms: payload.duration_A, duration_B_ms: payload.duration_B };
   const afterForDiff = {
     duration_A: payload.duration_A,
     duration_B: payload.duration_B,
+    otherPenalty: payload.otherPenalty,
+    otherPenaltySection: payload.otherPenaltySection || '',
   };
-  const changes = buildFieldDiff(beforeForDiff, afterForDiff, ['duration_A', 'duration_B']);
+  const changes = buildFieldDiff(beforeForDiff, afterForDiff, fields);
   if (changes.length > 0) {
-    await writeSecretariatAuditLog(competitionId, {
+    writeSecretariatAuditLog(competitionId, {
       discipline: 'marathon',
       startNumber: String(startNumber),
       entityType: 'timing',
       entityId: String(startNumber),
-      reason: reason || '',
+      ...correction,
       changes,
     });
   }
@@ -537,7 +599,23 @@ export async function saveSecretariatMarathonTiming(competitionId, startNumber, 
   return after;
 }
 
-export async function saveSecretariatMarathonObstacle(competitionId, startNumber, obstacleNumber, patch = {}, reason = '') {
+const OBSTACLE_FIELD_LABELS = {
+  timeInSeconds: 'tiden',
+  knockdowns: 'nedslagna element',
+  knockdownPenalty: 'nedslagsstraffet',
+  otherPenalty: 'övriga straff',
+  holdTimeSec: 'uppehållet',
+  eliminated: 'eliminering',
+  comment: 'kommentaren',
+};
+
+/**
+ * Saves the secretariat's correction of one obstacle (see
+ * saveSecretariatPrecisionRow for `baseRow`, here the obstacle row as loaded):
+ * only the edited fields change, the rest of the entry and the other
+ * obstacles stay as the judges saved them.
+ */
+export async function saveSecretariatMarathonObstacle(competitionId, startNumber, obstacleNumber, patch = {}, reason = '', { baseRow = null } = {}) {
   if (!competitionId) throw new Error('Ingen tävling vald.');
   if (startNumber == null) throw new Error('Startnummer saknas.');
   if (obstacleNumber == null) throw new Error('Hindernummer saknas.');
@@ -546,24 +624,33 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
   if (currentSummary?.finalized === true) {
     throw new Error('Resultatet är finaliserat. Lås upp innan ändring.');
   }
-  if (isStillRunning(currentSummary)) {
-    throw new Error(`#${startNumber} kör hinder just nu. Vänta tills hindertiden är stoppad.`);
+  // This obstacle's own clock and form (each obstacle has its own live
+  // entry): a running time, or one stopped but not saved yet, is the judge's
+  // work, which saving now would clear
+  const live = obstacleLiveEntry(currentSummary, obstacleNumber);
+  if (live?.running === true) {
+    throw new Error(`#${startNumber} kör hinder ${obstacleNumber} just nu. Vänta tills hindertiden är stoppad.`);
+  }
+  if (live?.inProgress === true) {
+    throw new Error(`Hinderdomaren har en osparad tid för #${startNumber} i hinder ${obstacleNumber}. Vänta tills den är sparad.`);
   }
 
-  const currentObstacles = await getMarathonObstacleResults(competitionId, startNumber);
-  const current = currentObstacles.find(item => Number(item.obstacleNumber ?? item.number) === Number(obstacleNumber)) || {};
-  const payload = {
-    timeInSeconds: numberOrDefault(patch.timeInSeconds, current.timeInSeconds ?? current.timeSeconds ?? 0),
-    timePenalty: numberOrDefault(patch.timePenalty, current.timePenalty ?? 0),
-    knockdowns: numberOrDefault(patch.knockdowns, current.knockdowns ?? 0),
-    knockdownPenalty: numberOrDefault(patch.knockdownPenalty ?? patch.knockDownPenalty, current.knockdownPenalty ?? current.knockDownPenalty ?? 0),
-    otherPenalty: numberOrDefault(patch.otherPenalty, current.otherPenalty ?? 0),
-    penalty: numberOrDefault(patch.penalty, current.penalty ?? 0),
-    holdTimeSec: numberOrDefault(patch.holdTimeSec, current.holdTimeSec ?? 0),
-    eliminated: patch.eliminated ?? current.eliminated ?? false,
-    comment: patch.comment ?? current.comment ?? '',
-    routeString: patch.routeString ?? current.routeString ?? '',
-  };
+  // The obstacle as stored now, from the same sources as the page loaded it
+  const savedObstacles = await getMarathonObstacleResults(competitionId, startNumber);
+  const current = mergeObstacleSources(savedObstacles, currentSummary).get(Number(obstacleNumber)) || {};
+  // Only the fields edited on the page (compared with the row as loaded) are
+  // written, on top of the server's values; an edit of a field the judge
+  // changed since is refused instead of overwriting it
+  const loadedRow = baseRow || normalizeSecretariatObstacle(current, obstacleNumber);
+  const plan = planObstacleCorrection(patch, loadedRow, current);
+  if (plan.conflicts.length) {
+    throw new Error(`Hinderdomaren har ändrat ${plan.conflicts.map(field => OBSTACLE_FIELD_LABELS[field] || field).join(', ')} i hinder ${obstacleNumber} för #${startNumber} efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
+  }
+  if (!Object.keys(plan.edited).length) return { ...plan.current, obstacleNumber: Number(obstacleNumber) };
+  const correction = requireCorrectionReason(reason);
+
+  const payload = { ...plan.payload };
+  delete payload.obstacleNumber;
   payload.timeMs = Math.round(payload.timeInSeconds * 1000);
 
   // Time penalty and obstacle total come from the result engine
@@ -577,15 +664,15 @@ export async function saveSecretariatMarathonObstacle(competitionId, startNumber
 
   await saveMarathonObstacleResult(competitionId, startNumber, obstacleNumber, payload);
 
-  const after = { ...current, ...payload, obstacleNumber: Number(obstacleNumber) };
-  const changes = buildFieldDiff(current, after, ['timeInSeconds', 'timePenalty', 'knockdowns', 'knockdownPenalty', 'otherPenalty', 'holdTimeSec', 'penalty', 'eliminated', 'comment']);
+  const after = { ...plan.current, ...payload, obstacleNumber: Number(obstacleNumber) };
+  const changes = buildFieldDiff(plan.current, after, ['timeInSeconds', 'timePenalty', 'knockdowns', 'knockdownPenalty', 'otherPenalty', 'holdTimeSec', 'penalty', 'eliminated', 'comment']);
   if (changes.length > 0) {
-    await writeSecretariatAuditLog(competitionId, {
+    writeSecretariatAuditLog(competitionId, {
       discipline: 'marathon',
       startNumber: String(startNumber),
       entityType: 'obstacle',
       entityId: `${startNumber}:${obstacleNumber}`,
-      reason: reason || '',
+      ...correction,
       changes,
     });
   }
@@ -622,6 +709,7 @@ export async function saveSecretariatDressageProtocol(competitionId, startNumber
     eliminated = merged.eliminated;
     movements = merged.movements;
   }
+  const correction = requireCorrectionReason(reason);
 
   const payload = {
     judgeId: String(judgeId),
@@ -646,12 +734,12 @@ export async function saveSecretariatDressageProtocol(competitionId, startNumber
     ['eliminated', 'movements']
   );
   if (changes.length > 0) {
-    await writeSecretariatAuditLog(competitionId, {
+    writeSecretariatAuditLog(competitionId, {
       discipline: 'dressage',
       startNumber: String(startNumber),
       entityType: 'protocol',
       entityId: `${startNumber}:${judgeId}`,
-      reason: reason || '',
+      ...correction,
       changes,
     });
   }
@@ -681,6 +769,7 @@ export async function saveSecretariatDressageGeneral(competitionId, startNumber,
     if (Object.keys(edited).length === 0) return current;
     effectivePatch = edited;
   }
+  const correction = requireCorrectionReason(reason);
   const payload = {
     errorPoints: Number.isFinite(Number(effectivePatch.errorPoints)) ? Number(effectivePatch.errorPoints) : Number(current.errorPoints || 0),
     errorComment: effectivePatch.errorComment ?? current.errorComment ?? '',
@@ -690,12 +779,12 @@ export async function saveSecretariatDressageGeneral(competitionId, startNumber,
 
   const changes = buildFieldDiff(current, payload, ['errorPoints', 'errorComment']);
   if (changes.length > 0) {
-    await writeSecretariatAuditLog(competitionId, {
+    writeSecretariatAuditLog(competitionId, {
       discipline: 'dressage',
       startNumber: String(startNumber),
       entityType: 'general',
       entityId: String(startNumber),
-      reason: reason || '',
+      ...correction,
       changes,
     });
   }

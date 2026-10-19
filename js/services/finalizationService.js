@@ -1,8 +1,10 @@
-import { getCompDocRef, trackWrite } from './firestoreService.js';
-import { doc, collection, getDoc, getDocs, query, orderBy, limit, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { db } from '../config/firebase-config.js';
+import { getCompCollectionRef, getCompDocRef, trackWrite } from './firestoreService.js';
+import { doc, collection, getDoc, getDocs, getDocFromServer, getDocsFromServer, query, orderBy, limit, writeBatch, serverTimestamp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { db, appId } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { isStillRunning } from './secretariatPatchUtils.js';
+import { normalizeMarathonDoc } from '../core-engine/stateSelector.js';
+import { finalizeConfirmMessage, findDressageGaps, findMarathonGaps, findPrecisionGaps } from './finalizeCompletenessUtils.js';
 
 // =========================================================================
 // FINALIZATION SERVICE
@@ -45,6 +47,89 @@ export async function getFinalizationLog(competitionId, max = 300) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// --- COMPLETENESS BEFORE FINALIZING ---
+
+// The server's copy when there is signal; offline the device's copy (noted)
+async function readDocFresh(ref, notes) {
+  try {
+    return await getDocFromServer(ref);
+  } catch {
+    notes.offline = true;
+    return getDoc(ref);
+  }
+}
+
+async function readDocsFresh(ref, notes) {
+  try {
+    return await getDocsFromServer(ref);
+  } catch {
+    notes.offline = true;
+    return getDocs(ref);
+  }
+}
+
+const dataOf = (snap) => (snap?.exists() ? snap.data() : null);
+
+/**
+ * What is missing for one result before it is finalized: expected data
+ * (obstacles of the class's course, stage times, observer log; a precision
+ * time; a protocol per assigned dressage judge) compared with what came in.
+ * Returns Swedish lines for the confirmation (empty: nothing missing).
+ */
+export async function findFinalizeGaps(competitionId, discipline, startNumber) {
+  const sn = String(startNumber);
+  const notes = { offline: false };
+  const equipage = dataOf(await readDocFresh(getCompDocRef(competitionId, 'equipages', sn), notes)) || { startNumber: sn };
+  let gaps = [];
+  if (discipline === 'marathon') {
+    const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+    const [summarySnap, timingSnap, obstaclesSnap, configSnap] = await Promise.all([
+      readDocFresh(getCompDocRef(competitionId, 'maraton', sn), notes),
+      readDocFresh(getCompDocRef(competitionId, 'maraton-timing', sn), notes),
+      readDocsFresh(collection(db, `${base}/maratonResults/${sn}/obstacles`), notes),
+      readDocFresh(getCompDocRef(competitionId, 'config', 'maratonConfig'), notes),
+    ]);
+    gaps = findMarathonGaps({
+      equipage,
+      summary: dataOf(summarySnap),
+      timing: dataOf(timingSnap),
+      savedObstacles: obstaclesSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      marathonConfig: dataOf(configSnap) || {},
+    });
+  } else if (discipline === 'precision') {
+    gaps = findPrecisionGaps({ equipage, result: dataOf(await readDocFresh(getCompDocRef(competitionId, 'precision', sn), notes)) });
+  } else if (discipline === 'dressage') {
+    const [protocolsSnap, mappingSnap] = await Promise.all([
+      readDocsFresh(getCompCollectionRef(competitionId, `dressage/${sn}/protocols`), notes),
+      readDocFresh(getCompDocRef(competitionId, 'config', 'dressageJudgeMapping'), notes),
+    ]);
+    gaps = findDressageGaps({
+      equipage,
+      protocols: protocolsSnap.docs.map(d => ({ id: d.id, ...d.data() })),
+      judgeMapping: dataOf(mappingSnap) || {},
+    });
+  }
+  if (notes.offline) gaps.push('Ingen kontakt med servern: kontrollen bygger på data som finns på enheten.');
+  return gaps;
+}
+
+/**
+ * Asks before finalizing, listing what is missing (finalizing locks the
+ * result: later writes from the field are refused). Resolves true to go on.
+ * A failed check is shown too, it does not stop the finalizing on its own.
+ */
+export async function confirmFinalizeWithGaps(competitionId, discipline, startNumber) {
+  let gaps;
+  try {
+    gaps = await findFinalizeGaps(competitionId, discipline, startNumber);
+  } catch (error) {
+    console.warn('Kontrollen före finalisering misslyckades:', error);
+    gaps = ['Kontrollen av inkomna data kunde inte göras.'];
+  }
+  if (typeof window === 'undefined' || typeof window.confirm !== 'function') return true;
+  return window.confirm(finalizeConfirmMessage(discipline, startNumber, gaps));
+}
+
 // --- DRESSAGE ---
 export async function finalizeDressage(competitionId, startNumber) {
   return trackWrite(`Finaliserar dressyr #${startNumber}`, (async () => {
@@ -66,7 +151,10 @@ export async function unfinalizeDressage(competitionId, startNumber) {
 // be refused and the official result would be the half-finished one
 async function assertNotRunning(ref, startNumber, { obstacleWork = false } = {}) {
   const snap = await getDoc(ref);
-  const data = snap.exists() ? snap.data() : {};
+  // Marathon: the obstacle clocks are per obstacle (obstacleLive.{n}); the
+  // normalized document shows the one running or with unsaved work
+  const raw = snap.exists() ? snap.data() : {};
+  const data = obstacleWork ? normalizeMarathonDoc(raw) : raw;
   if (isStillRunning(data)) {
     throw new Error(`#${startNumber} kör just nu. Vänta tills tiden är stoppad innan du finaliserar.`);
   }

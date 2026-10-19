@@ -1716,6 +1716,23 @@ export async function setupSettingsLogic(competitionId) {
                     }
                     return;
                 }
+                // No equipages yet does not mean nothing to lose: settings,
+                // judges and obstacles would be written over too. A demo
+                // competition or one without them goes ahead; else the admin
+                // types the confirmation
+                const ownSetup = await findCompetitionSetupForDemo(competitionId);
+                const isDemo = /demo/i.test(String(comp?.name || ''));
+                if (ownSetup.length && !isDemo) {
+                    const typed = window.prompt(`Tävlingen har redan egna inställningar: ${ownSetup.join(', ')}.\nDemodatat skriver över dem.\n\nSkriv SKRIV ÖVER för att fortsätta.`);
+                    if (String(typed || '').trim().toUpperCase() !== 'SKRIV ÖVER') {
+                        showAlert('Demodata laddades inte. Inget ändrades.', false);
+                        if (btn) {
+                            btn.disabled = false;
+                            btn.innerHTML = '<span>⚡ Ladda demodata</span>';
+                        }
+                        return;
+                    }
+                }
                 await seedDemoCompetition({ competitionId });
                 showAlert('Demodata har laddats framgångsrikt!');
                 setTimeout(() => window.location.reload(), 1200);
@@ -2017,4 +2034,24 @@ function initSettingsMap(startCoords) {
 
     // Fix render
     setTimeout(() => { mapInstance.invalidateSize(); }, 200);
+}
+
+// What a demo load would write over besides equipages: the competition's own
+// marathon, precision and dressage settings and judges (Swedish names)
+async function findCompetitionSetupForDemo(competitionId) {
+    const hasKeys = (value) => !!value && typeof value === 'object' && Object.keys(value).length > 0;
+    const [marathon, precision, judgeMapping, judges] = await Promise.all([
+        getConfig(competitionId, 'maratonConfig', true).catch(() => null),
+        getConfig(competitionId, 'precisionConfig', true).catch(() => null),
+        getConfig(competitionId, 'dressageJudgeMapping', true).catch(() => null),
+        getJudges(competitionId).catch(() => null)
+    ]);
+    const found = [];
+    // Could not be read: counts as something to lose
+    if ([marathon, precision, judgeMapping, judges].some(value => value === null)) found.push('inställningar som inte kunde läsas');
+    if (hasKeys(marathon?.marathonClassData) || (Array.isArray(marathon?.obstacleNumbers) && marathon.obstacleNumbers.length)) found.push('maratoninställningar');
+    if (hasKeys(precision?.courses)) found.push('precisionsbanor');
+    if (hasKeys(judgeMapping?.mapping ?? judgeMapping)) found.push('domarfördelning');
+    if (Array.isArray(judges) && judges.length) found.push(`${judges.length} domare`);
+    return found;
 }

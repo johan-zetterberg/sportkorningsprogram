@@ -1,8 +1,27 @@
-export function isObstacleStateOwnedByAnotherObstacle(state, obstacleNumber) {
-  if (!state || state.currentObstacle == null || obstacleNumber == null) return false;
-  if (Number(state.currentObstacle) === Number(obstacleNumber)) return false;
+import { activeObstacleLiveEntries, MARATHON_LIVE_DEFAULTS } from '../../core-engine/stateSelector.js';
+import { parseHoldTimeInput, formatHoldTimeMinutes } from '../../core-engine/marathon.js';
 
-  return state.running === true || state.inProgress === true;
+// Each obstacle has its own live entry on maraton/{sn} (obstacleLive.{n}): a
+// clock or a form at one obstacle never changes another obstacle's entry.
+
+// A running clock or unsaved work (a stopped time or typed fields)
+export function isActiveObstacleLive(entry) {
+  return !!entry && (entry.running === true || entry.inProgress === true);
+}
+
+// Other obstacles where this equipage's clock runs now (numbers). Only shown
+// as a question on Start: an equipage is in one obstacle at a time, but a
+// clock left running at another obstacle must not block this one.
+export function obstaclesRunningElsewhere(doc, obstacleNumber) {
+  return activeObstacleLiveEntries(doc)
+    .filter(e => e.running === true && Number(e.number) !== Number(obstacleNumber))
+    .map(e => e.number);
+}
+
+// The write of a live change at one obstacle: only obstacleLive.{n} (merged
+// field by field), so another obstacle's entry is never touched
+export function obstacleLiveWrite(obstacleNumber, update, stamp = () => null) {
+  return { obstacleLive: { [String(Number(obstacleNumber))]: { ...update, updatedAt: stamp() } } };
 }
 
 export function markObstacleUpdateInProgress(update) {
@@ -13,15 +32,6 @@ export function markObstacleUpdateInProgress(update) {
     ? { ...value, inProgress: true }
     : value;
 }
-
-// The live fields on the shared document show this obstacle only when it is
-// the document's current obstacle. After a save they are cleared and
-// currentObstacle is null: the saved result is shown then, not 00:00.
-export function liveFieldsBelongToObstacle(data, obstacleNumber) {
-  if (!data || obstacleNumber == null || data.currentObstacle == null) return false;
-  return Number(data.currentObstacle) === Number(obstacleNumber);
-}
-
 // Obstacle time: the time kept from earlier running segments plus the running
 // segment, minus global pauses inside that segment only. A restart keeps the
 // earlier time apart (not baked into a virtual start), so a pause before the
@@ -93,15 +103,42 @@ export function stageStopDurationMs({ savedMs = 0, runningSinceMs, nowMs, driven
   return base + (driven ? Math.max(0, segment - (pausedBetween(runningSinceMs, nowMs) || 0)) : segment);
 }
 
-// The fields this obstacle writes when it takes the shared document over from
-// another obstacle (or after a save cleared it). The document's live fields
-// then hold the other obstacle's values (or zeros): writing only the edited
-// field would let the next snapshot, and Save, use that time and route.
-// null when the document already belongs to this obstacle. Running fields are
-// never part of it: the clock is only changed by Start, Stop and the pause.
-export function obstacleTakeoverFields(remote, obstacleNumber, shown) {
-  if (!remote || obstacleNumber == null) return null;
-  if (liveFieldsBelongToObstacle(remote, obstacleNumber)) return null;
+// Whether Start on this stage is a restart: it already has a stop or a time
+export function isStageRestart(stageData) {
+  return !!stageData?.stopClock || (Number(stageData?.durationMs) || 0) > 0;
+}
+
+/**
+ * The stage fields a Start writes. A first start writes only its own fields
+ * (start clock, running since, start comment): a start queued offline that
+ * reaches the server after a finish recorded on another device must not
+ * erase that finish. Only a restart of a stopped stage (the judge confirms it)
+ * clears the stop and keeps the time so far as driven time.
+ */
+export function stageStartPayload(stageData, { nowMs, drivenMs = 0, commentStart = '', runningStage = null } = {}) {
+  const at = new Date(nowMs).toISOString();
+  const payload = {
+    startClock: stageData?.startClock || at,
+    runningSince: at,
+    commentStart,
+    runningStage
+  };
+  if (isStageRestart(stageData)) {
+    payload.stopClock = null;
+    payload.durationMs = Math.max(0, Number(drivenMs) || 0);
+    payload.manualDuration = true;
+  }
+  return payload;
+}
+
+// The fields an edit also writes when the obstacle's live entry holds no work
+// (none yet, or cleared by a save): the form shows the saved result or zeros,
+// and writing only the edited field would let the next snapshot, and Save,
+// use the entry's empty values. null when the entry already holds this work.
+// Running fields are never part of it: the clock is only changed by Start,
+// Stop and the pause.
+export function obstacleSeedFields(entry, shown) {
+  if (isActiveObstacleLive(entry)) return null;
   const s = shown || {};
   const fields = {
     live_routeString: s.live_routeString ?? '',
@@ -114,7 +151,51 @@ export function obstacleTakeoverFields(remote, obstacleNumber, shown) {
   };
   // A clock started here moments ago (its write not seen back yet) keeps its
   // own time fields
-  const runsHere = s.running === true && Number(s.currentObstacle) === Number(obstacleNumber);
-  if (!runsHere) fields.liveObstacleTimeMs = Math.max(0, Number(s.liveObstacleTimeMs) || 0);
+  if (s.running !== true) fields.liveObstacleTimeMs = Math.max(0, Number(s.liveObstacleTimeMs) || 0);
   return fields;
+}
+
+// The form of one obstacle: its live entry while it holds work, else the saved
+// result, else zeros
+export function obstacleFormState(entry, saved) {
+  if (isActiveObstacleLive(entry)) return { ...MARATHON_LIVE_DEFAULTS, ...entry };
+  const o = saved || null;
+  return {
+    ...MARATHON_LIVE_DEFAULTS,
+    liveObstacleTimeMs: Number(o?.timeMs ?? (Number(o?.timeInSeconds) * 1000)) || 0,
+    live_routeString: o?.routeString ?? '',
+    live_knockdowns: o?.knockdowns != null ? String(o.knockdowns) : '0',
+    live_otherPenalty: o?.otherPenalty != null ? String(o.otherPenalty) : '0',
+    live_holdTimeSec: Number(o?.holdTimeSec) > 0 ? formatHoldTime(Number(o.holdTimeSec)) : '',
+    live_comment: o?.comment ?? '',
+    live_eliminated: !!o?.eliminated,
+    live_gateSplits: Array.isArray(o?.gateSplits) ? o.gateSplits : [],
+    live_staticStartAt: o?.enteredAt ?? null
+  };
+}
+
+// --- Hold time (TR V 525.7, FEI 965.8.2: whole or half minutes) ---
+// Typed in minutes: "2", "2,5" or "1:30" (m:ss); stored as seconds
+// (holdTimeSec). The engine's own parser and formatter, so the field, the
+// saved value and the result always agree.
+export function parseHoldMinutes(value) {
+  return parseHoldTimeInput(value);
+}
+
+// Seconds as the minutes text the field takes (120 -> "2", 150 -> "2,5",
+// 70 -> "1:10"); empty for none
+export function formatHoldTime(seconds) {
+  return formatHoldTimeMinutes(seconds);
+}
+// --- Unsaved work on the obstacle page (the update prompt asks before a reload) ---
+export function obstaclePageHasUnsavedWork({
+  liveState = null, pendingFormFields = null, pendingComment = null,
+  pendingHoldCount = 0, waitingTimerRunning = false, saveInFlight = false
+} = {}) {
+  return isActiveObstacleLive(liveState)
+    || (!!pendingFormFields && Object.keys(pendingFormFields).length > 0)
+    || pendingComment != null
+    || pendingHoldCount > 0
+    || waitingTimerRunning === true
+    || saveInFlight === true;
 }

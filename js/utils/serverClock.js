@@ -7,23 +7,43 @@
 // used offline. Without any measurement the device clock is used as before.
 
 const STORAGE_KEY = 'serverClockOffset';
-const MAX_AGE_MS = 12 * 60 * 60 * 1000;   // a remembered offset older than this is not used
+// A remembered offset older than this is not used. Two days: a phone that
+// measured on the day before the competition still has it at a start without
+// signal (the offset is measured again whenever there is a connection)
+export const MAX_AGE_MS = 48 * 60 * 60 * 1000;
 const RESYNC_MS = 10 * 60 * 1000;
 const MAX_ROUND_TRIP_MS = 3000;           // slower answers are too imprecise
 const SAMPLES = 3;
 
 let offsetMs = 0;          // the offset serverNow() uses
 let measuredOffsetMs = null; // the latest measurement, held back while timing
+let offsetKnown = false;   // a measured or remembered offset is in use
 let holdOffset = false;
 let syncTimer = null;
 let syncing = null;
 
+/** A remembered offset that may still be used ({ offsetMs, measuredAt }) */
+export function isRememberedOffsetUsable(saved, nowMs = Date.now()) {
+    return !!saved && Number.isFinite(saved.offsetMs) && Number.isFinite(saved.measuredAt)
+        && nowMs - saved.measuredAt >= 0 && nowMs - saved.measuredAt < MAX_AGE_MS;
+}
+
 try {
     const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (saved && Number.isFinite(saved.offsetMs) && Date.now() - saved.measuredAt < MAX_AGE_MS) {
+    if (isRememberedOffsetUsable(saved)) {
         offsetMs = saved.offsetMs;
+        offsetKnown = true;
     }
 } catch (_) { /* no storage */ }
+
+/** Whether the device knows its offset to the server (else its own clock is used) */
+export function isServerClockSynced() {
+    return offsetKnown;
+}
+
+function notifyClockState() {
+    try { globalThis.dispatchEvent?.(new Event('serverclockchange')); } catch (_) { /* no events */ }
+}
 
 /** Current time in milliseconds, corrected to the server's clock */
 export function serverNow() {
@@ -34,21 +54,29 @@ export function getServerClockOffset() {
     return offsetMs;
 }
 
+/** A new measurement: used at once, or after the hold is released */
+export function applyMeasuredOffset(measured) {
+    if (!Number.isFinite(measured)) return;
+    measuredOffsetMs = measured;
+    if (!holdOffset) useOffset(measured);
+}
+
+function useOffset(value) {
+    offsetMs = value;
+    if (!offsetKnown) {
+        offsetKnown = true;
+        notifyClockState();
+    }
+}
+
 /**
  * While a stopwatch runs on this device the offset must not change: start and
  * stop would be stamped with different corrections and the duration would
  * absorb the difference. A measurement made meanwhile is applied on release.
  */
-/** A new measurement: used at once, or after the hold is released */
-export function applyMeasuredOffset(measured) {
-    if (!Number.isFinite(measured)) return;
-    measuredOffsetMs = measured;
-    if (!holdOffset) offsetMs = measured;
-}
-
 export function setServerClockHold(hold) {
     holdOffset = !!hold;
-    if (!holdOffset && Number.isFinite(measuredOffsetMs)) offsetMs = measuredOffsetMs;
+    if (!holdOffset && Number.isFinite(measuredOffsetMs)) useOffset(measuredOffsetMs);
 }
 
 /**

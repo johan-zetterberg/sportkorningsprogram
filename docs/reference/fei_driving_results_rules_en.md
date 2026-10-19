@@ -414,6 +414,14 @@ late_start_penalty = seconds_late * 0.25
 
 Exceeding the section time limit results in Elimination.
 
+Times are not rounded (FEI 968.1.1 "There shall be no rounding of times"): the
+program compares FEI-profile section times in milliseconds (TR classes are cut
+to whole seconds, TR 523.2). The Time Allowed itself is rounded to the nearest
+whole second (no rule states its rounding; it bounds both the minimum and the
+maximum time). Equal marathon penalties share the place (968.1.4). Wrong pace
+(964.4): 1 penalty per occurrence not corrected within 5 s, plus 1 per
+additional completed 5 s period.
+
 ### 6.5 Obstacle time penalties
 
 The time in all Marathon obstacles is added and converted:
@@ -520,6 +528,18 @@ The Athlete with the lowest Marathon penalties wins Marathon. In case of equalit
 | `TWO_PHASES` | Competition in two phases/rounds | May be used in Cones phase; first part may count for combined result |
 | `WINNING_ROUND` | Competition with Winning Round | First round may count for final classification; winning round determines Cones placings |
 | `DRIVE_OFF` | Drive-Off | Tie-break for Cones if in schedule |
+
+The program calculates only `FAULT` (FEI 976). The other formats (FEI 977–980;
+TR 510.4 and 530.1.3) can be set per class in the precision admin
+(`precisionConfig.courses[class].format`: `time`, `twoPhase`, `winningRound`,
+`driveOff`, `youngHorse`); such classes are flagged on result pages and PDFs and
+get no cones placing. `time` and `youngHorse` also give no combined total
+(FEI 971.2.1: Time Competitions only determine Cones placings).
+
+Cones times are truncated to hundredths (975.10.3) and 10 s is added per
+obstacle rebuild (975.4.4, 975.5.1, 975.5.3, 975.8.5; stored as `rebuildCount`)
+before the time penalty, the time limit and ranking. The Time Allowed is
+rounded up to the whole second (in the driver's favour; no rule states it).
 
 ### 7.2 Course requirements
 
@@ -824,7 +844,9 @@ Horses and ponies compete in separate classes.
 | 6-year-old | YH4 with Cones, single final mark | Combined Marathon: 2 Marathon obstacles A–E and 10–13 cones | YH4 with Cones, single final mark | Day 2 score + Day 3 score |
 | 7-year-old | YH4 with Cones, single final mark | Combined Marathon: 2 Marathon obstacles A–F and 10–13 cones | YH4 with Cones, single final mark | Day 2 score + Day 3 score |
 
-Incidents use reduced deductions compared with normal Driving rules, typically 1/10 of the normal FEI penalty points. Example: a ball down is 0.3 and a Groom down is 0.5. Time over allowed in Cones Driving is 0.1 per second.
+Reduced deductions (FEI Annex 13 "FEI Driving Rules for Young Horses / Ponies", Art. 6.4 Marks — not Para Driving, Annex 8, which uses the normal penalties): "In the event of incidents, penalties equal to 1/10 of the points shown in the FEI Driving Rules for Dressage and Cones will be deducted from the average result (example: 0,3 for a ball down, 0,5 for a groom down, etc..). The penalty for exceeding the Time Allowed in the Cones Driving is 0.1 penalty per second."
+
+The program does not calculate Young Horse/Pony scoring: such a class (by name, or format "youngHorse" in the precision admin) is flagged and gets no cones placing and no total.
 
 ### 11.3 Young Horse/Pony tie-break
 

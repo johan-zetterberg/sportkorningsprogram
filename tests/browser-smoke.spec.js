@@ -434,12 +434,12 @@ test('precision knocks can be recorded without signal and reach the server after
   }, competitionId);
 
   await page.goto('/index.html#precision-input');
-  await expect(page.locator('#precisionEquipageSearchContainer .search-input')).toBeVisible();
-  await page.locator('#btnNextEq').click();
-  const gate = page.locator('#gatesGrid .gateBtn').first();
+  await expect(page.locator('#pr-precisionEquipageSearchContainer .search-input')).toBeVisible();
+  await page.locator('#pr-btnNextEq').click();
+  const gate = page.locator('#pr-gatesGrid .gateBtn').first();
   await expect(gate).toBeVisible();
   const gateLabel = await gate.getAttribute('data-g');
-  const startNumber = await page.evaluate(() => document.querySelector('#precisionEquipageSearchContainer .search-input')?.value?.match(/#(\d+)/)?.[1]);
+  const startNumber = await page.evaluate(() => document.querySelector('#pr-precisionEquipageSearchContainer .search-input')?.value?.match(/#(\d+)/)?.[1]);
   expect(startNumber).toBeTruthy();
   await page.waitForTimeout(1500);
 
@@ -478,10 +478,52 @@ test('marathon input loads a seeded equipage with obstacle data without errors',
   await expect.poll(async () => select.locator('option[value="3"]').count()).toBe(1);
   await select.selectOption('3');
   await page.waitForTimeout(2000);
-  await page.locator('#nextEquipage').click();
+  await page.locator('#nextEquipageMar').click();
   await page.waitForTimeout(1500);
 
   expect(browserErrors).toEqual([]);
+});
+
+test('two obstacles saving the same equipage, one without signal, keep both results', async ({ page, context }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#maraton-input');
+  await expect(page.locator('#maratonObstacleSelect')).toBeVisible();
+  const startNumber = '1';
+
+  const save = (obstacleNumber, timeMs) => page.evaluate(async ({ competitionId, startNumber, obstacleNumber, timeMs }) => {
+    const { saveMarathonObstacleResult } = await import('../js/services/marathonService.js');
+    const res = await saveMarathonObstacleResult(competitionId, startNumber, obstacleNumber, {
+      timeMs, timeInSeconds: timeMs / 1000, penalty: 0, routeString: 'A B C'
+    });
+    return res.status;
+  }, { competitionId, startNumber, obstacleNumber, timeMs });
+
+  // Obstacle 4's clock runs meanwhile: no save may stop it
+  await page.evaluate(async ({ competitionId, startNumber }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton/${startNumber}`),
+      { obstacleLive: { 4: { running: true, inProgress: true, liveObstacleTimeMs: 0 } } }, { merge: true });
+  }, { competitionId, startNumber });
+
+  // Obstacle 3 saves without signal (queued on the device), obstacle 2 with signal
+  await context.setOffline(true);
+  expect(await save(3, 44000)).toBe('queued');
+  await context.setOffline(false);
+  expect(['saved', 'queued']).toContain(await save(2, 33000));
+
+  await expect.poll(async () => page.evaluate(async ({ competitionId, startNumber }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDocFromServer } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const { mergeMarathonObstacles } = await import('../js/core-engine/stateSelector.js');
+    try {
+      const snap = await getDocFromServer(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/maraton/${startNumber}`));
+      const data = snap.data() || {};
+      const times = mergeMarathonObstacles(data).filter(o => [2, 3].includes(Number(o.number))).map(o => `${o.number}:${o.timeMs}`).join(',');
+      return `${times}|${data.obstacleLive?.['4']?.running === true}`;
+    } catch { return ''; }
+  }, { competitionId, startNumber }), { timeout: 60000 }).toBe('2:33000,3:44000|true');
 });
 
 test('public center and portal audience smoke flow', async ({ page }) => {
@@ -640,6 +682,8 @@ test('maraton stages can pause resume reset save and reload state', async ({ pag
   await page.waitForTimeout(1200);
   expect(parseStageTimerMs(await timerDisplay.textContent())).toBe(stoppedMs);
 
+  // A restart of a stopped stage clears its stop: the judge confirms it
+  page.once('dialog', (dialog) => dialog.accept());
   await startButton.click();
   await expect(startClock).toHaveText(originalStartClock || '');
   await expect(stopClock).toHaveText(/^[–—-]$/);

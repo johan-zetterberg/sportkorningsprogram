@@ -4,7 +4,7 @@ import { getConfig } from '../../services/competitionService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments, loadPauseWindows } from '../../services/marathonService.js';
-import { finalizePrecision, unfinalizePrecision } from '../../services/finalizationService.js';
+import { confirmFinalizeWithGaps, finalizePrecision, unfinalizePrecision } from '../../services/finalizationService.js';
 
 import { getGlobalState } from '../../main.js';
 
@@ -30,8 +30,26 @@ import {
   buildOverallStandingPerGroup,
   getToBeatInfo,
   calculatePrecisionResult,
-  isPrecisionClearRound
+  isPrecisionClearRound,
+  precisionFormatWarning
 } from '../../utils/precisionUtils.js';
+
+// Classes whose precision format (time competition, two phases, Young Horse
+// …) the program does not calculate: shown to everyone, as they get no places
+function precisionFormatWarningsHtml(equipages = [], config = {}) {
+  const warnings = new Map();
+  (equipages || []).forEach((eq) => {
+    const label = eq?._mergedLabel || eq?.className || '';
+    if (!label || warnings.has(label)) return;
+    const text = precisionFormatWarning(eq, config);
+    if (text) warnings.set(label, text);
+  });
+  if (warnings.size === 0) return '';
+  return `
+    <div class="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/20 dark:text-amber-100" role="note">
+      ${[...warnings.entries()].map(([label, text]) => `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(text)}</div>`).join('')}
+    </div>`;
+}
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 
@@ -561,6 +579,8 @@ function renderLayout() {
         ${archivedNoticeHtml(archiveSnapshot)}
 
         ${canSeeSettingsNotices() ? resultSettingsNoticeHtml({ precision: precisionSettingsIssues(precision_equipages, precision_precisionConfig) }) : ''}
+
+        ${precisionFormatWarningsHtml(precision_equipages, precision_precisionConfig)}
 
         <div id="liveStatusPanelContainer" class="mb-3 hidden"></div>
 
@@ -1229,6 +1249,8 @@ export async function load() {
 window.__finalizePrecision = async (compId, sn) => {
   if (!compId || !sn) return;
   try {
+    // What has not come in is listed first
+    if (!(await confirmFinalizeWithGaps(compId, 'precision', sn))) return;
     await finalizePrecision(compId, sn);
 
     precision_finalizeCache.set(String(sn), true);

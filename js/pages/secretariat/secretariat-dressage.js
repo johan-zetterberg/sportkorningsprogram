@@ -4,12 +4,16 @@ import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosServ
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
+import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
+import { listRejectedWrites } from '../../services/rejectedWritesService.js';
 import {
+  askCorrectionReason,
   deriveDressageStatus,
   escapeHtml,
   filterRows,
   initializeToolbarInteractions,
   renderFieldModeBanner,
+  renderRejectedWritesPanel,
   renderStatusBadge,
   renderToolbar,
   setupStickyTableHeaders,
@@ -26,6 +30,7 @@ import {
 let rootEl = null;
 let competitionId = null;
 let rows = [];
+let rejectedWrites = [];
 let selectedStartNumber = null;
 let selectedProtocolId = 'general';
 let detailData = null;
@@ -667,6 +672,7 @@ function render() {
       ${renderFieldModeBanner(competition, {
         message: 'Tävlingen körs i fältläge. Protokoll och allmänna fel hanteras manuellt här innan ekipagen åter finaliseras.',
       })}
+      ${renderRejectedWritesPanel(rejectedWrites)}
       ${renderToolbar({
         searchValue: filters.search,
         statusValue: filters.status,
@@ -721,7 +727,10 @@ function collectProtocolPayload(protocol) {
 }
 
 async function refreshRows() {
-  rows = await loadSecretariatDressageRows(competitionId);
+  [rows, rejectedWrites] = await Promise.all([
+    loadSecretariatDressageRows(competitionId),
+    listRejectedWrites(competitionId, { discipline: 'dressage' }).catch(() => []),
+  ]);
 }
 
 async function refreshDetail() {
@@ -822,6 +831,7 @@ async function handleAction(event) {
         showAlert('Spara andringarna innan du finaliserar.', false);
         return;
       }
+      if (!(await confirmFinalizeWithGaps(competitionId, 'dressage', selectedStartNumber))) return;
       await refinalizeResult(competitionId, 'dressage', selectedStartNumber);
       showAlert(`Dressyr #${selectedStartNumber} finaliserad.`);
       await refreshAll();
@@ -838,12 +848,15 @@ async function handleAction(event) {
     }
 
     if (action === 'save-detail') {
+      if (!isCurrentDetailDirty()) return;
+      const correction = await askCorrectionReason({ summary: `Dressyr #${selectedStartNumber}` });
+      if (!correction) return;
       if (selectedProtocolId === 'general') {
         const scope = getDetailScope();
         await saveSecretariatDressageGeneral(competitionId, selectedStartNumber, {
           errorPoints: Number(scope?.querySelector('#dressageGeneralErrorPoints')?.value || 0),
           errorComment: scope?.querySelector('#dressageGeneralErrorComment')?.value || '',
-        }, 'Sekretariatskorrigering allmänt', detailData?.general || {});
+        }, correction, detailData?.general || {});
         showAlert(`Allmän dressyrdata sparad för #${selectedStartNumber}.`);
       } else {
         const protocol = detailData?.protocols.find(item => item.id === selectedProtocolId);
@@ -853,7 +866,7 @@ async function handleAction(event) {
           selectedStartNumber,
           protocol.judgeId,
           collectProtocolPayload(protocol),
-          'Sekretariatskorrigering protokoll',
+          correction,
           protocol
         );
         showAlert(`Dressyrprotokoll sparat för #${selectedStartNumber}.`);
@@ -928,6 +941,7 @@ export function unload() {
   rootEl = null;
   competitionId = null;
   rows = [];
+  rejectedWrites = [];
   selectedStartNumber = null;
   selectedProtocolId = 'general';
   detailData = null;

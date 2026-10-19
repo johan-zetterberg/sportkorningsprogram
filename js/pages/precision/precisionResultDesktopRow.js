@@ -18,7 +18,8 @@ export function renderPrecisionResultDesktopRow({
   finalizeButtonsHtml = '',
   formatPenalty = defaultFormatPenalty
 }) {
-  const sn = String(data.eq.startNumber);
+  // Escaped for the HTML below (text and attributes)
+  const sn = escapeHtml(String(data.eq.startNumber ?? ''));
   const isStruken = data.eq.status === 'struken';
   const isActive = data.status && data.status.includes('Påg');
   const timeMs = Number(data.d?.timeMs);
@@ -49,7 +50,7 @@ export function renderPrecisionResultDesktopRow({
   return `
            <tr class="${rowBgClass} hover:bg-blue-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-200" data-sn="${sn}" style="${rowStyle}">
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 font-semibold text-[11px] lg:text-sm">${data.place || '–'}</td>
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm sticky-col-start ${rowBgClass || ''}">${data.eq.startNumber}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm sticky-col-start ${rowBgClass || ''}">${sn}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-left align-top sticky-col-driver ${rowBgClass || ''}">
                     <button type="button" class="text-xs lg:text-base font-bold text-gray-900 dark:text-white hover:text-blue-700 dark:hover:text-blue-400 hover:underline text-left transition-colors truncate block w-full" title="${escapeHtml(data.eq.driverName)}">${escapeHtml(data.eq.driverName)}</button>
                     <div class="hidden lg:block text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 leading-tight whitespace-nowrap">${horseLabelHtml}</div>

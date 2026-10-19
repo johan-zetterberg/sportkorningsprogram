@@ -16,7 +16,9 @@ import { buildDriverContacts } from "./src/driverContacts.js";
 import { EXPORT_FORMAT, EXPORT_FORMAT_VERSION, collectDocuments, redactExportDocuments } from "./src/competitionExport.js";
 import { scrubClientPage, scrubClientText } from "./src/clientErrorReport.js";
 import {
+    changedPauseWindows,
     equipageWriteAffectsResults,
+    marathonOverlapsPauseWindows,
     marathonWriteAffectsResults,
     precisionWriteAffectsResults,
     storedResultUnchanged
@@ -53,7 +55,14 @@ import {
     resolveJoinRoleForPin,
 } from "./src/adminJoin.js";
 
-setGlobalOptions({ region: 'europe-west1' });
+// A cap on instances for every function (a runaway client or loop cannot
+// scale up the bill); the public callables have lower caps of their own
+setGlobalOptions({ region: 'europe-west1', maxInstances: 10 });
+
+// Result triggers are idempotent (each run recalculates from the stored
+// inputs in a transaction), so a failed run is retried instead of leaving a
+// stale result
+const RESULT_TRIGGER_OPTIONS = { retry: true };
 
 initializeApp();
 const db = getFirestore();
@@ -343,23 +352,65 @@ async function recalculateWholeCompetition(appId, competitionId, triggerType) {
     });
 }
 
+// A pause started, ended or edited (config/globalStatus.pauseLog): only the
+// equipages with a stage interval overlapping the changed pause can change
+// (the engine subtracts a pause where it overlaps a stopped stage). Two
+// collection reads instead of every equipage's inputs; with a pause entry it
+// cannot read, everything is recalculated.
+async function recalculatePauseAffected(appId, competitionId, beforeLog, afterLog) {
+    const windows = changedPauseWindows(beforeLog, afterLog);
+    if (windows === null) {
+        await recalculateWholeCompetition(appId, competitionId, 'config-change:globalStatus');
+        return;
+    }
+    if (!windows.length) return;
+    const compRef = db.doc(`artifacts/${appId}/public/data/competitions/${competitionId}`);
+    const compSnap = await compRef.get();
+    const comp = compSnap.exists ? compSnap.data() : null;
+    if (!comp || comp.deleting === true) return;
+    if (comp.locked === true || comp.status === 'completed') {
+        logger.info('Arkiverad tävling: automatisk omräkning hoppas över.', { competition: competitionId, triggerType: 'pause' });
+        return;
+    }
+    const [equipagesSnap, marathonSnap, timingSnap] = await Promise.all([
+        compRef.collection('equipages').select().get(),
+        compRef.collection('maraton').get(),
+        compRef.collection('maraton-timing').get()
+    ]);
+    const marathonById = new Map(marathonSnap.docs.map((d) => [d.id, d.data()]));
+    const timingById = new Map(timingSnap.docs.map((d) => [d.id, d.data()]));
+    const affected = equipagesSnap.docs
+        .map((d) => d.id)
+        .filter((id) => marathonOverlapsPauseWindows(marathonById.get(id), timingById.get(id), windows));
+    if (!affected.length) return;
+    await writeLatestResults(compRef, affected, {
+        engineVersion: RESULT_ENGINE_VERSION,
+        recalculatedAt: new Date().toISOString(),
+        triggerType: 'config-change:globalStatus'
+    });
+}
+
 // --- TRIGGERS ---
 
 // 0. Settings that every result depends on (marathon/precision config, dressage
 // programs and mappings, the pause log, rule settings)
 export const onResultConfigWrite = onDocumentWritten(
-    { document: "artifacts/{appId}/public/data/competitions/{compId}/config/{configId}", timeoutSeconds: 540, memory: '512MiB' },
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/config/{configId}", timeoutSeconds: 540, memory: '512MiB', ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, configId } = event.params;
         const before = event.data?.before?.exists ? event.data.before.data() : null;
         const after = event.data?.after?.exists ? event.data.after.data() : null;
         if (!configChangeAffectsResults(configId, before, after)) return;
+        if (configId === 'globalStatus') {
+            await recalculatePauseAffected(appId, compId, before?.pauseLog, after?.pauseLog);
+            return;
+        }
         await recalculateWholeCompetition(appId, compId, `config-change:${configId}`);
     }
 );
 
 export const onCompetitionRuleSettingsWrite = onDocumentWritten(
-    { document: "artifacts/{appId}/public/data/competitions/{compId}", timeoutSeconds: 540, memory: '512MiB' },
+    { document: "artifacts/{appId}/public/data/competitions/{compId}", timeoutSeconds: 540, memory: '512MiB', ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId } = event.params;
         const before = event.data?.before?.exists ? event.data.before.data() : null;
@@ -398,7 +449,7 @@ export const onCompetitionAdminDeleted = onDocumentWritten(
 
 // 1. Dressage Changes
 export const onDressageProtocolWrite = onDocumentWritten(
-    "artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/protocols/{protoId}",
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/dressage/{startNo}/protocols/{protoId}", ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, startNo } = event.params;
         await recalculateEquipage(appId, compId, startNo);
@@ -407,7 +458,7 @@ export const onDressageProtocolWrite = onDocumentWritten(
 
 // 2. Marathon Changes
 export const onMarathonResultWrite = onDocumentWritten(
-    "artifacts/{appId}/public/data/competitions/{compId}/maraton/{startNo}",
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/maraton/{startNo}", ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, startNo } = event.params;
         // The obstacle input writes its live form state here on every change
@@ -417,7 +468,7 @@ export const onMarathonResultWrite = onDocumentWritten(
 );
 // FIX: Add missing trigger for timing
 export const onMarathonTimingWrite = onDocumentWritten(
-    "artifacts/{appId}/public/data/competitions/{compId}/maraton-timing/{startNo}",
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/maraton-timing/{startNo}", ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, startNo } = event.params;
         await recalculateEquipage(appId, compId, startNo);
@@ -426,7 +477,7 @@ export const onMarathonTimingWrite = onDocumentWritten(
 
 // 3. Precision Changes
 export const onPrecisionResultWrite = onDocumentWritten(
-    "artifacts/{appId}/public/data/competitions/{compId}/precision/{startNo}",
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/precision/{startNo}", ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, startNo } = event.params;
         if (!precisionWriteAffectsResults(beforeData(event), afterData(event))) return;
@@ -436,7 +487,7 @@ export const onPrecisionResultWrite = onDocumentWritten(
 
 // 4. Equipage Static Data Changes
 export const onEquipageUpdate = onDocumentWritten(
-    "artifacts/{appId}/public/data/competitions/{compId}/equipages/{startNo}",
+    { document: "artifacts/{appId}/public/data/competitions/{compId}/equipages/{startNo}", ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, startNo } = event.params;
         // Speaker notes, temperatures and the like do not change the result
@@ -798,7 +849,7 @@ export const recalculateCompetitionResults = onCall(
     }
 );
 
-export const joinCompetitionAsOfficial = onCall(async (request) => {
+export const joinCompetitionAsOfficial = onCall({ maxInstances: 5 }, async (request) => {
     if (!request.auth?.uid) {
         throw new HttpsError('unauthenticated', 'Inloggning kravs.');
     }
@@ -1006,7 +1057,8 @@ export const updateEquipageDeclaration = onCall(async (request) => {
 // The server's clock, so timing devices can correct their own: a marathon
 // section started on one phone and stopped on another must not carry the
 // difference between the phones' clocks (js/utils/serverClock.js)
-export const getServerTime = onCall((request) => {
+// Every timing device asks at start and now and then: a cap, not a bottleneck
+export const getServerTime = onCall({ maxInstances: 10 }, (request) => {
     if (!request.auth?.uid) {
         throw new HttpsError('unauthenticated', 'Inloggning krävs.');
     }
@@ -1117,7 +1169,7 @@ export const reportClientError = onCall({ maxInstances: 2 }, (request) => {
     return { logged: true };
 });
 
-export const submitVolunteerSignup = onCall(async (request) => {
+export const submitVolunteerSignup = onCall({ maxInstances: 2 }, async (request) => {
     const competitionId = String(request.data?.competitionId || '').trim();
     const honeypot = String(request.data?.website || '').trim();
 

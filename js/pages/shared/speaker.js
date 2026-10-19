@@ -1110,7 +1110,7 @@ function renderCurrentRiderCard() {
         // 2. Find their lengths. 
         // 3. Use Min length.
         const activeJudges = liveProtoArray.filter(p => {
-            const ts = p.updatedAt?.toMillis ? p.updatedAt.toMillis() : (Number(p.updatedAt) || 0);
+            const ts = Number.isFinite(p.updatedAtMs) ? p.updatedAtMs : (p.updatedAt?.toMillis ? p.updatedAt.toMillis() : (new Date(p.updatedAt || 0).getTime() || 0));
             const fresh = (Date.now() - ts) < 60000;
             return fresh && p.movements && p.movements.length > 0;
         });

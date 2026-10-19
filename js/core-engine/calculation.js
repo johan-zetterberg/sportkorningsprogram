@@ -26,7 +26,10 @@ export function calculateTotalResult(state) {
     // finished, precision not running
     const dressageComplete = isNum(dr.penalty) && !dr.isLive && dr.judgesComplete !== false;
     const marathonComplete = isNum(ma.totalPenalty) && ma.status === 'Klar';
+    // A precision format whose result cannot be added to a combined total
+    // (time competition, FEI 971.2.1; Young Horse marks, FEI Annex 13): no total
     const precisionComplete = isNum(pr.totalPenalty) && !pr.running && !pr.configMissing
+        && pr.formatExcludesTotal !== true
         && (pr.finalized || pr.status === 'Klar');
 
     let total = null;

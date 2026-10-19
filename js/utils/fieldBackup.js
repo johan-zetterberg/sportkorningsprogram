@@ -62,3 +62,30 @@ export function writeMergedBackup(storageKey, patch) {
     return null;
   }
 }
+
+// Field backups (bkp_*) are written on every snapshot and were never removed:
+// old ones are dropped, and only the newest are kept when there are many
+export const BACKUP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const BACKUP_MAX_ENTRIES = 300;
+
+export function pruneFieldBackups({ prefix = 'bkp_', maxAgeMs = BACKUP_MAX_AGE_MS, maxEntries = BACKUP_MAX_ENTRIES, now = Date.now(), storage = null } = {}) {
+  const store = storage || (hasLocalStorage() ? globalThis.localStorage : null);
+  if (!store) return 0;
+  try {
+    const entries = [];
+    for (let i = 0; i < store.length; i++) {
+      const key = store.key(i);
+      if (!key || !key.startsWith(prefix)) continue;
+      let ts = 0;
+      try { ts = Number(JSON.parse(store.getItem(key) || 'null')?.ts) || 0; } catch { ts = 0; }
+      entries.push({ key, ts });
+    }
+    entries.sort((a, b) => b.ts - a.ts);
+    const remove = entries.filter((e, i) => i >= maxEntries || !(now - e.ts < maxAgeMs));
+    remove.forEach((e) => store.removeItem(e.key));
+    return remove.length;
+  } catch (error) {
+    console.warn('Could not prune local field backups', error);
+    return 0;
+  }
+}

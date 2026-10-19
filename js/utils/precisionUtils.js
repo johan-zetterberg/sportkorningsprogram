@@ -18,12 +18,16 @@ import {
     calculatePrecisionResult as _calculatePrecisionResult,
     calculatePrecisionLiveResult as _calculatePrecisionLiveResult,
     calculatePrecisionTimePenalty as _calculatePrecisionTimePenalty,
-    computeMaxSecondsForClass,
+    computeMaxSecondsForClass as _computeMaxSecondsForClass,
     getTrackLengthMeters,
-    getClassTempoMpm,
+    getClassTempoMpm as _getClassTempoMpm,
     getMergedClassName,
-    getCourseCandidates
+    getCourseCandidates,
+    formatPrecisionAddedTime,
+    getPrecisionFormat,
+    PRECISION_FORMATS
 } from './precisionCalculation.js';
+import { getClassRuleProfile } from '../core-engine/marathon.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey, isClearRoundClass } from '../core-engine/ranking.js';
 import { getMarathonEngineConfig } from './marathonUtils.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../core-engine/rules-ledger.js';
@@ -51,6 +55,24 @@ export function getPrecisionCourseData(value, config = {}) {
     const courses = config?.courses || {};
     const key = getPrecisionCourseCandidates(value).find((candidate) => courses[candidate]);
     return key ? { key, course: courses[key] || {} } : { key: null, course: {} };
+}
+
+/**
+ * Warning for a class whose precision format the program does not calculate
+ * (precisionConfig.courses[cls].format, or a FEI Young Horse/Pony class):
+ * its precision has no placings. '' for a normal class.
+ * @param {object|string} cls - equipage or class name
+ * @param {object} config - precisionConfig
+ * @param {{ en?: boolean }} [opts] - English text (international PDFs)
+ */
+export function precisionFormatWarning(cls, config = {}, { en = false } = {}) {
+    const format = getPrecisionFormat(cls, config);
+    const info = PRECISION_FORMATS[format];
+    if (!info || info.supported) return '';
+    const total = info.excludesTotal;
+    return en
+        ? `Cones format "${format}" is not calculated by the program: no placings${total ? ' and no combined total' : ''}. Classify by hand.`
+        : `Formatet "${info.label}" räknas inte av programmet: ingen placering i precisionen${total ? ' och inget totalresultat' : ''}. Räkna manuellt.`;
 }
 
 const _norm = (s) => String(s || '').replace(/^[\d\s\.,&\;-]+/, '').toLowerCase().replace(/[^a-z0-9åäö]/g, '');
@@ -253,8 +275,20 @@ export function computePortWidth(eqOrDoc, precisionConfig = {}) {
 // -------------------------------------------------------------
 // Bana, tempo & maxtid
 // -------------------------------------------------------------
-// Course length, tempo and max time come from the shared precision calculation
-export { getTrackLengthMeters, getClassTempoMpm, computeMaxSecondsForClass };
+// Course length, tempo and max time come from the shared precision calculation,
+// with the class's rule profile (TR/FEI) from this session's marathon settings
+// unless the caller gives one, as the result engine does
+function sessionRuleProfile(cls) {
+    const className = typeof cls === 'string' ? cls : (cls?.className || '');
+    return getClassRuleProfile(className, getMarathonEngineConfig().marathonConfig || null);
+}
+export function getClassTempoMpm(cls, config = {}, opts = {}) {
+    return _getClassTempoMpm(cls, config, { ruleProfile: opts?.ruleProfile || sessionRuleProfile(cls) });
+}
+export function computeMaxSecondsForClass(cls, config = {}, opts = {}) {
+    return _computeMaxSecondsForClass(cls, config, { ruleProfile: opts?.ruleProfile || sessionRuleProfile(cls) });
+}
+export { getTrackLengthMeters };
 
 export function startTimeFor(startNumber, startTimes) {
     if (!startTimes) return '–';
@@ -282,6 +316,8 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     return _calculatePrecisionResult(data, equipage, config, {
         currentCompetition: comp,
         isClearRound: isPrecisionClearRound(equipage, options),
+        // The class's rule profile (TR/FEI) lives in the marathon class settings
+        marathonConfig: getMarathonEngineConfig().marathonConfig || null,
         ...options
     });
 }
@@ -308,6 +344,7 @@ export function calculatePrecisionLiveResult(data, equipage, config = {}, nowMs 
     return _calculatePrecisionLiveResult(data, equipage, config, {
         currentCompetition: comp,
         isClearRound: isPrecisionClearRound(equipage, options),
+        marathonConfig: getMarathonEngineConfig().marathonConfig || null,
         ...options
     }, nowMs);
 }
@@ -333,7 +370,11 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
     // Tid & straff
     const timeMs = isNum(calc.timeMs) ? calc.timeMs : null;
     const isElim = d.eliminated === true;
-    const timeLabel = isElim ? 'ELIM' : ((timeMs != null && timeMs > 0) ? msToLabel(timeMs) : '–');
+    // The time includes 10 s per obstacle rebuild (TR 530.15/530.19, FEI 975.4.4)
+    const addedLabel = formatPrecisionAddedTime(calc.rebuildCount);
+    const timeLabel = isElim ? 'ELIM' : ((timeMs != null && timeMs > 0)
+        ? `${msToLabel(timeMs)}${addedLabel ? ` (inkl. ${addedLabel})` : ''}`
+        : '–');
 
     const obstaclePenalty = isNum(calc.obstaclePenalty) ? calc.obstaclePenalty : null;
     const timePenalty = isNum(calc.timePenalty) ? calc.timePenalty : null;
@@ -408,6 +449,10 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
         status,
         eliminated: isElim,
         configMissing: calc.configMissing === true, // no max time for the class: no total
+        // A precision format the engine does not calculate: no placing
+        formatUnsupported: calc.formatUnsupported === true,
+        precisionFormat: calc.precisionFormat || 'normal',
+        rebuildCount: calc.rebuildCount || 0,
         timeLabel, // NYTT: Skicka med timeLabel på toppnivå för modalen
 
         // Data för PDF/Tabell

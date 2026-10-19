@@ -9,20 +9,22 @@ import {
   shouldShowObstacleKnockdowns
 } from '../js/utils/marathonUtils.js';
 
-test('parseHoldTimeInput parses seconds, mm:ss, decimals, and gracefully handles edge cases', () => {
-  // Plain integers and numeric strings
-  assert.equal(parseHoldTimeInput(30), 30);
-  assert.equal(parseHoldTimeInput('45'), 45);
-  assert.equal(parseHoldTimeInput('  60  '), 60);
+// Since 2026-10-19 a plain number is MINUTES (TR V 525.7 "hela minuter", FEI
+// 965.8.2 "whole or half minutes"; owner's decision); it used to be seconds
+test('parseHoldTimeInput parses minutes, m:ss, decimals, and gracefully handles edge cases', () => {
+  // Plain integers and numeric strings: minutes -> seconds
+  assert.equal(parseHoldTimeInput(1), 60);
+  assert.equal(parseHoldTimeInput('2'), 120);
+  assert.equal(parseHoldTimeInput('  3  '), 180);
 
-  // mm:ss format
+  // m:ss format
   assert.equal(parseHoldTimeInput('1:15'), 75);
   assert.equal(parseHoldTimeInput('02:30'), 150);
   assert.equal(parseHoldTimeInput('0:45'), 45);
 
-  // Decimals (both dot and comma)
-  assert.equal(parseHoldTimeInput('45.4'), 45);
-  assert.equal(parseHoldTimeInput('45,6'), 46);
+  // Decimal minutes (both dot and comma)
+  assert.equal(parseHoldTimeInput('2.5'), 150);
+  assert.equal(parseHoldTimeInput('1,5'), 90);
 
   // Zero, empty, null, undefined, invalid
   assert.equal(parseHoldTimeInput(0), 0);

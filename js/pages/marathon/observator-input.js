@@ -4,6 +4,7 @@
 import { getGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { getEquipages } from '../../services/equipageService.js';
+import { getConfig } from '../../services/competitionService.js';
 import {
   doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, runTransaction,
   writeBatch, increment, arrayUnion, arrayRemove
@@ -14,6 +15,7 @@ import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { trackWrite } from '../../services/firestoreService.js';
 import { isFeiMarathonClass, wrongGaitIncidentPenalty } from '../../core-engine/marathon.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
@@ -42,6 +44,19 @@ let halts = [];           // [{ atSec, durSec }]
 
 // Notes
 let notes = "";
+
+// The section the observer follows ('A' | 'transport' | 'B'): each wrong-gait
+// incident is stored with it (the penalty belongs to that section)
+let observerSection = 'B';
+let marathonConfig = null; // the class rule profile (TR/FEI) is stored per class
+const OBSERVER_SECTIONS = [['A', 'A'], ['transport', 'Transport'], ['B', 'B']];
+const sectionKey = () => `observerSection:${resolveCompetitionId()}`;
+function loadObserverSection() {
+  try {
+    const saved = localStorage.getItem(sectionKey());
+    if (OBSERVER_SECTIONS.some(([key]) => key === saved)) observerSection = saved;
+  } catch (_) { /* no storage */ }
+}
 
 // Ticker
 let liveTicker = null;
@@ -114,7 +129,7 @@ async function setGlobalPause(isPaused) {
       const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
       if (!pauseLog) return 'saved';
       // Not awaited until the server answers: the observer gets feedback now
-      return awaitWriteOrQueue(setDoc(statusRef, statusDoc(pauseLog), { merge: true }), {
+      return awaitWriteOrQueue(trackWrite('Sparar tävlingspaus', setDoc(statusRef, statusDoc(pauseLog), { merge: true })), {
         onLateError: () => showAlert(t('observer_pause_error'), false)
       });
     };
@@ -171,11 +186,11 @@ async function setGlobalPause(isPaused) {
   }
 }
 
-function listenForGlobalPause() {
-  const pauseBtn = document.getElementById('btnEmergencyPause');
-  const resumeBtn = document.getElementById('btnEmergencyResume');
-  const statusTextEl = document.getElementById('pause-status-text');
-  const logContainer = document.getElementById('pause-log-container');
+function listenForGlobalPause(root) {
+  const pauseBtn = qs('#btnEmergencyPause', root);
+  const resumeBtn = qs('#btnEmergencyResume', root);
+  const statusTextEl = qs('#pause-status-text', root);
+  const logContainer = qs('#pause-log-container', root);
 
   return onSnapshot(globalStatusDocRef(), (docSnap) => {
     const data = docSnap.exists() ? docSnap.data() : {};
@@ -263,7 +278,8 @@ function normalizeObserverLog(log) {
     wrongGaitSeconds: Math.max(0, Math.round(toInt(log?.wrongGaitSeconds))),
     wrongGaits: (Array.isArray(log?.wrongGaits) ? log.wrongGaits : []).map(w => ({
       atSec: Math.max(0, Math.round(toInt(w?.atSec))),
-      durSec: Math.max(0, Math.round(toInt(w?.durSec)))
+      durSec: Math.max(0, Math.round(toInt(w?.durSec))),
+      ...(w?.section ? { section: String(w.section) } : {})
     })),
     halts: (Array.isArray(log?.halts) ? log.halts : []).map(h => ({
       atSec: Math.max(0, Math.round(toInt(h?.atSec))),
@@ -280,6 +296,8 @@ function normalizeObserverLog(log) {
 const logBaselines = new Map();
 const emptyLog = () => ({ wrongGaitSeconds: 0, wrongGaits: [], halts: [], notes: '' });
 const haltKey = (h) => `${h.atSec}:${h.durSec}`;
+// A wrong-gait incident also by its section (arrayRemove needs the stored object)
+const wgKey = (w) => `${w.atSec}:${w.durSec}:${w.section || ''}`;
 
 function setLogBaseline(sn, log) {
   logBaselines.set(String(sn), normalizeObserverLog(log));
@@ -308,10 +326,10 @@ async function writeObserverLog(sn, log) {
   if (removed.length) { batch.set(ref, { observerLog: { halts: arrayRemove(...removed) } }, { merge: true }); changed = true; }
   if (added.length) { batch.set(ref, { observerLog: { halts: arrayUnion(...added) }, updatedAt: serverTimestamp() }, { merge: true }); changed = true; }
 
-  const baseWg = new Set(base.wrongGaits.map(haltKey));
-  const nextWg = new Set(next.wrongGaits.map(haltKey));
-  const removedWg = base.wrongGaits.filter(w => !nextWg.has(haltKey(w)));
-  const addedWg = next.wrongGaits.filter(w => !baseWg.has(haltKey(w)));
+  const baseWg = new Set(base.wrongGaits.map(wgKey));
+  const nextWg = new Set(next.wrongGaits.map(wgKey));
+  const removedWg = base.wrongGaits.filter(w => !nextWg.has(wgKey(w)));
+  const addedWg = next.wrongGaits.filter(w => !baseWg.has(wgKey(w)));
   if (removedWg.length) { batch.set(ref, { observerLog: { wrongGaits: arrayRemove(...removedWg) } }, { merge: true }); changed = true; }
   if (addedWg.length) { batch.set(ref, { observerLog: { wrongGaits: arrayUnion(...addedWg) }, updatedAt: serverTimestamp() }, { merge: true }); changed = true; }
 
@@ -319,7 +337,7 @@ async function writeObserverLog(sn, log) {
   // The baseline moves at once: the next save sends only what comes after this
   logBaselines.set(String(sn), next);
   try {
-    await batch.commit();
+    await trackWrite(`Sparar observatörslogg #${sn}`, batch.commit());
   } catch (err) {
     // Refused by the server: what this batch sent is not stored, so the next
     // save must send it again. Undo only this batch's change on the baseline
@@ -476,7 +494,8 @@ async function onEquipageSelected(sn, container) {
     wrongGaitAccum = Math.max(0, toInt(log.wrongGaitSeconds));
     wrongGaits = Array.isArray(log.wrongGaits) ? log.wrongGaits.map(w => ({
       atSec: Math.max(0, toInt(w.atSec)),
-      durSec: Math.max(0, toInt(w.durSec))
+      durSec: Math.max(0, toInt(w.durSec)),
+      ...(w.section ? { section: String(w.section) } : {})
     })) : [];
     halts = Array.isArray(log.halts) ? log.halts.map(h => ({
       atSec: Math.max(0, toInt(h.atSec)),
@@ -647,6 +666,14 @@ function render(container) {
               <div id="statusMsg" class="mt-2 text-[11px] font-bold text-amber-600 text-center min-h-[1rem]"></div>
             </div>
 
+            <!-- Sträcka som observatören följer -->
+            <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-3 shadow-sm">
+              <span class="block text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest mb-2">Sträcka (fel gångart räknas på den)</span>
+              <div id="obsSectionButtons" class="grid grid-cols-3 gap-2" role="radiogroup" aria-label="Sträcka">
+                ${OBSERVER_SECTIONS.map(([key, label]) => `<button type="button" role="radio" data-section="${key}" class="obs-section-btn min-h-[44px] rounded-xl border dark:border-gray-700 font-bold text-sm">${label}</button>`).join('')}
+              </div>
+            </div>
+
             <!-- Reglage Grid -->
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <!-- Wrong Gait -->
@@ -694,7 +721,7 @@ function render(container) {
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm h-fit">
                <div class="flex justify-between items-center mb-4">
                   <span class="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest">${t('observer_halt_log')}</span>
-                  <button id="btnHaltManualOpen" class="text-[10px] font-black text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 uppercase px-2 py-2 disabled:opacity-20" disabled>${t('observer_manual_add')}</button>
+                  <button id="btnHaltManualOpen" class="min-h-[44px] text-[10px] font-black text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 uppercase px-3 disabled:opacity-20" disabled>${t('observer_manual_add')}</button>
                </div>
                
                <div id="haltList" class="space-y-2 max-h-[250px] overflow-y-auto pr-2 custom-scrollbar">
@@ -720,7 +747,7 @@ function render(container) {
 
             <!-- Manual Save (Backup) -->
             <div class="flex gap-4">
-               <button id="btnSave" class="flex-1 h-12 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-xs uppercase tracking-widest hover:bg-gray-300 transition-all disabled:opacity-20" disabled>${t('observer_save_manually')}</button>
+               <button id="btnObsSave" class="flex-1 h-12 rounded-xl bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300 font-bold text-xs uppercase tracking-widest hover:bg-gray-300 transition-all disabled:opacity-20" disabled>${t('observer_save_manually')}</button>
                <div id="saveMsg" class="flex items-center text-xs font-bold text-emerald-600"></div>
             </div>
           </div>
@@ -760,9 +787,9 @@ function renderHalts(container) {
              <div class="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase tracking-tighter">${t('observer_halt_n').replace('{n}', i + 1)}</div>
              <div class="font-bold tabular-nums text-gray-900 dark:text-white">${fmtMMSS(h.durSec)} <span class="text-xs text-gray-400 font-medium ml-1">${fmtTime(h.atSec)}</span></div>
           </div>
-          <div class="flex gap-2 shrink-0">
-            <button class="btnEditHalt w-8 h-8 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 flex items-center justify-center" data-i="${i}"><i class="fas fa-edit text-[10px]"></i></button>
-            <button class="btnDelHalt w-8 h-8 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center" data-i="${i}"><i class="fas fa-trash text-[10px]"></i></button>
+          <div class="flex gap-3 shrink-0">
+            <button type="button" class="btnEditHalt w-11 h-11 rounded-lg bg-blue-50 dark:bg-blue-900/20 text-blue-600 flex items-center justify-center" data-i="${i}" aria-label="Ändra halt ${i + 1}"><i class="fas fa-edit text-xs" aria-hidden="true"></i></button>
+            <button type="button" class="btnDelHalt w-11 h-11 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center" data-i="${i}" aria-label="Ta bort halt ${i + 1}"><i class="fas fa-trash text-xs" aria-hidden="true"></i></button>
           </div>
         </div>
       `).join('');
@@ -774,8 +801,18 @@ function fmtTime(sec) {
   return new Date(sec * 1000).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 }
 
+function renderSectionButtons(container) {
+  qsa('.obs-section-btn', container).forEach(btn => {
+    const active = btn.dataset.section === observerSection;
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+    btn.classList.toggle('bg-brand-darkblue', active);
+    btn.classList.toggle('text-white', active);
+    btn.classList.toggle('dark:text-gray-200', !active);
+  });
+}
+
 function setButtonsEnabled(container, enabled) {
-  ['#btnWgStart', '#btnWgStop', '#btnHaltStart', '#btnHaltStop', '#btnSave', '#btnHaltManualOpen'].forEach(id => {
+  ['#btnWgStart', '#btnWgStop', '#btnHaltStart', '#btnHaltStop', '#btnObsSave', '#btnHaltManualOpen'].forEach(id => {
     const el = qs(id, container);
     if (el) el.disabled = !enabled;
   });
@@ -810,7 +847,7 @@ function updateWrongGaitUI(container) {
 
 function endWrongGaitIncident() {
   const durSec = Math.max(0, nowSec() - wrongGaitStartTs);
-  wrongGaits.push({ atSec: wrongGaitStartTs, durSec });
+  wrongGaits.push({ atSec: wrongGaitStartTs, durSec, section: observerSection });
   wrongGaitAccum += durSec;
   wrongGaitRunning = false; wrongGaitStartTs = 0;
 }
@@ -819,16 +856,17 @@ function renderWrongGaits(container) {
   const list = qs('#wgList', container);
   if (!list) return;
   const className = findEquipageBySn(currentSn)?.className;
-  const fei = isFeiMarathonClass(className);
+  const fei = isFeiMarathonClass(className, marathonConfig);
   const earlierSec = Math.max(0, wrongGaitAccum - wrongGaits.reduce((sum, w) => sum + w.durSec, 0));
-  const row = (label, durSec, i) => `
+  const sectionLabel = (s) => (OBSERVER_SECTIONS.find(([key]) => key === s) || [null, ''])[1];
+  const row = (label, durSec, i, section = null) => `
         <div class="flex items-center justify-between bg-gray-50 dark:bg-gray-900 px-2.5 py-1.5 rounded-lg border dark:border-gray-800">
           <div class="text-xs"><span class="font-bold text-gray-500 dark:text-gray-400">${escapeHtml(label)}</span>
             <span class="font-bold tabular-nums text-gray-900 dark:text-white ml-1">${fmtMMSS(durSec)}</span>
-            <span class="text-gray-500 ml-1">→ ${wrongGaitIncidentPenalty(durSec, { fei })} p</span></div>
-          ${i == null ? '' : `<button class="btnDelWg w-7 h-7 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center" data-i="${i}" aria-label="${escapeHtml(t('observer_remove_wrong_gait_confirm'))}"><i class="fas fa-trash text-[10px]"></i></button>`}
+            <span class="text-gray-500 ml-1">→ ${wrongGaitIncidentPenalty(durSec, { fei })} p</span>${section ? ` <span class="ml-1 text-[10px] font-bold uppercase text-gray-500">(${escapeHtml(sectionLabel(section))})</span>` : ''}</div>
+          ${i == null ? '' : `<button type="button" class="btnDelWg w-11 h-11 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-600 flex items-center justify-center" data-i="${i}" aria-label="${escapeHtml(t('observer_remove_wrong_gait_confirm'))}"><i class="fas fa-trash text-[10px]"></i></button>`}
         </div>`;
-  const rows = wrongGaits.map((w, i) => row(t('observer_wrong_gait_n').replace('{n}', i + 1), w.durSec, i));
+  const rows = wrongGaits.map((w, i) => row(t('observer_wrong_gait_n').replace('{n}', i + 1), w.durSec, i, w.section));
   if (earlierSec > 0) rows.unshift(row(t('observer_wrong_gait_earlier'), earlierSec, null));
   list.innerHTML = rows.length
     ? rows.join('')
@@ -850,7 +888,7 @@ function stopTicker() {
 function wire(container) {
   const status = qs('#statusMsg', container);
   const notesEl = qs('#notesField', container);
-  const btnSave = qs('#btnSave', container);
+  const btnSave = qs('#btnObsSave', container);
 
   function selectPrevNext(dir) {
     if (!allEquipages.length) return;
@@ -982,6 +1020,15 @@ function wire(container) {
     });
   }
 
+  // === Section ===
+  qs('#obsSectionButtons', container)?.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-section]');
+    if (!btn) return;
+    observerSection = btn.dataset.section;
+    try { localStorage.setItem(sectionKey(), observerSection); } catch (_) { /* no storage */ }
+    renderSectionButtons(container);
+  });
+
   // === Buttons & logic ===
   qs('#btnWgStart', container)?.addEventListener('click', () => {
     if (!currentSn || wrongGaitRunning) return;
@@ -1004,7 +1051,7 @@ function wire(container) {
     if (secs == null) { alert(t('observer_invalid_format')); return; }
     if (wrongGaitRunning) endWrongGaitIncident();
     const durSec = Math.max(0, Math.round(secs));
-    if (durSec > 0) { wrongGaits.push({ atSec: nowSec(), durSec }); wrongGaitAccum += durSec; }
+    if (durSec > 0) { wrongGaits.push({ atSec: nowSec(), durSec, section: observerSection }); wrongGaitAccum += durSec; }
     persistRunning();
     if (wgInp) wgInp.value = '';
     updateWrongGaitUI(container); wgWrap?.classList.add('hidden'); autoSave();
@@ -1106,8 +1153,10 @@ export async function load() {
   if (!root) return;
 
   resolveCompetitionId();
+  loadObserverSection();
   render(root);
   wire(root);
+  renderSectionButtons(root);
 
   if (!competitionId) {
     const status = qs('#statusMsg', root);
@@ -1117,15 +1166,19 @@ export async function load() {
   }
 
   startServerClockSync();
-  unsubscribeGlobalPause = listenForGlobalPause();
+  unsubscribeGlobalPause = listenForGlobalPause(root);
   const emPause = qs('#btnEmergencyPause', root);
   const emResume = qs('#btnEmergencyResume', root);
   emPause?.addEventListener('click', () => { if (confirm(t('observer_pause_all_confirm'))) setGlobalPause(true); });
   emResume?.addEventListener('click', () => setGlobalPause(false));
 
   try {
-    const raw = await getEquipages(competitionId);
+    const [raw, cfg] = await Promise.all([
+      getEquipages(competitionId),
+      getConfig(competitionId, 'maratonConfig').catch(() => null)
+    ]);
     if (currentLoadToken !== loadToken) return;
+    marathonConfig = cfg || null;
 
     allEquipages = (raw || []).map(normalizeEquipage).sort((a, b) => (a.startNumber || 0) - (b.startNumber || 0));
     filtered = allEquipages.slice();
