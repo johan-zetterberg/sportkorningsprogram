@@ -626,9 +626,16 @@ function openHoldtimesPrintView({ equipage, className, categoryKey, distA, distT
   <div class="card">
     ${tablesHtml}
   </div>
-  <script>window.onload = () => setTimeout(()=>window.print(), 50);</script>
 </body></html>`);
   w.document.close();
+  printOpenedWindow(w);
+}
+
+// Print from here: an inline <script> in the new window is blocked by the CSP
+function printOpenedWindow(w) {
+  setTimeout(() => {
+    try { w.focus(); w.print(); } catch { /* window closed */ }
+  }, 50);
 }
 
 function printCurrentHoldtimesPreview() {
@@ -666,8 +673,9 @@ function printCurrentHoldtimesPreview() {
 
   const w = window.open('', '_blank');
   w.document.write(`<!doctype html><html><head><meta charset="utf-8">${styles}</head><body>${html}
-  <script>window.onload = () => setTimeout(() => window.print(), 50);<\/script></body></html>`);
+</body></html>`);
   w.document.close();
+  printOpenedWindow(w);
 }
 
 async function generateMarathonPdfFromCurrent() {

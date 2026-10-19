@@ -3,10 +3,9 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { getClubLogoHtml } from '../../services/logosService.js';
 import { showAlert } from '../../ui/components.js';
 import { getObstacleArray, formatMsLive, pausedMsSince } from '../../utils/marathonUtils.js';
-import { escapeHtml } from '../../utils/sharedUtils.js';
+import { actionAttrs, escapeHtml } from '../../utils/sharedUtils.js';
 
 // Safe JS string literal for use inside an HTML attribute (onclick="fn(...)")
-const jsAttrArg = (value) => escapeHtml(JSON.stringify(String(value ?? '')));
 
 let map = null;
 let resizeObserver = null;
@@ -314,7 +313,7 @@ function updateMarkers(activeEquipages) {
                         ` : ''}
                     </div>
 
-                    <button onclick="window.openMarathonDetailsModal(${jsAttrArg(sn)})" class="w-full bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-black py-2 rounded-lg transition-all shadow-md active:scale-95">
+                    <button ${actionAttrs('openMarathonDetailsModal', String(sn ?? ''))} class="w-full bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-black py-2 rounded-lg transition-all shadow-md active:scale-95">
                         ${t('view_details') || 'VISA DETALJER'}
                     </button>
                     <div class="text-[9px] text-gray-400 text-center mt-2 italic text-gray-400 font-normal">${t('click_map_to_close') || 'Klicka på kartan för att stänga'}</div>
@@ -371,7 +370,7 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
                 : 'bg-blue-50 text-blue-700 border border-blue-100';
 
             html += `
-                <div onclick="window.focusDriverOnMap(${jsAttrArg(sn)})" role="button" tabindex="0" data-kbd-click class="group flex items-center gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-100 dark:border-gray-600 shadow-sm hover:border-gray-200 dark:hover:border-gray-500 transition-all cursor-pointer active:scale-[0.98]">
+                <div ${actionAttrs('focusDriverOnMap', String(sn ?? ''))} role="button" tabindex="0" data-kbd-click class="group flex items-center gap-3 p-3 bg-white dark:bg-gray-700 rounded-lg border border-gray-100 dark:border-gray-600 shadow-sm hover:border-gray-200 dark:hover:border-gray-500 transition-all cursor-pointer active:scale-[0.98]">
                     <div class="w-10 h-10 rounded-full flex items-center justify-center text-white font-black text-sm shadow-sm shrink-0" style="background-color: ${classColor}">
                         ${escapeHtml(sn)}
                     </div>

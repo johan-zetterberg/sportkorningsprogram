@@ -488,7 +488,7 @@ async function seedOfficialsAndSetup(competitionId, user, includeStress) {
       notes: 'Har arbetat med tvadomarsklasser tidigare.',
       iceName: 'Eva Funktionar',
       icePhone: '070-765 43 21',
-      diet: 'Glutenfritt',
+      diet: 'Glutenfri',
       shirtSize: 'S'
     }
   ];
@@ -499,7 +499,8 @@ async function seedOfficialsAndSetup(competitionId, user, includeStress) {
 
   const signupIds = [];
   for (const signup of volunteerSignups) {
-    signupIds.push(await saveVolunteerSignup(competitionId, signup));
+    // As the form sends it: consent given, filled in for more than 3 s (anti-bot)
+    signupIds.push(await saveVolunteerSignup(competitionId, { consent: true, elapsedMs: 5000, ...signup }));
   }
 
   return { signupCount: signupIds.length };

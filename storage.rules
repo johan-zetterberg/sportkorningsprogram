@@ -34,7 +34,7 @@ service firebase.storage {
         ) ||
         (
           firestore.exists(adminPath) && (
-            firestore.get(adminPath).data.get('role', 'admin') == 'admin' ||
+            firestore.get(adminPath).data.get('role', '') == 'admin' ||
             (
               firestore.get(adminPath).data.get('roles', []) != null &&
               'admin' in firestore.get(adminPath).data.get('roles', [])
@@ -65,6 +65,83 @@ service firebase.storage {
         );
     }
 
+    // Every competition role (as hasStaffRoleInComp in firestore.rules)
+    function isStaffInApp(appId, competitionId) {
+      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
+      let adminPath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/admins/$(request.auth.uid);
+      return firestore.exists(adminPath) && (
+        firestore.get(adminPath).data.get('role', '') in staffRoles ||
+        (
+          firestore.get(adminPath).data.get('roles', []) is list &&
+          firestore.get(adminPath).data.get('roles', []).hasAny(staffRoles)
+        )
+      );
+    }
+
+    function isStaffInAppByEmail(appId, competitionId) {
+      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
+      let email = request.auth.token.email != null ? request.auth.token.email.lower() : '';
+      let rolePath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/roleEmails/$(email);
+      return request.auth.token.get('email_verified', false) == true
+        && email != ''
+        && firestore.exists(rolePath) && (
+          firestore.get(rolePath).data.get('role', '') in staffRoles ||
+          (
+            firestore.get(rolePath).data.get('roles', []) is list &&
+            firestore.get(rolePath).data.get('roles', []).hasAny(staffRoles)
+          )
+        );
+    }
+
+    function isCompetitionStaff(competitionId) {
+      return request.auth != null && (
+        canAdminCompetition(competitionId) ||
+        isStaffInApp('drivelive', competitionId) ||
+        isStaffInApp('combined-driving', competitionId) ||
+        isStaffInAppByEmail('drivelive', competitionId) ||
+        isStaffInAppByEmail('combined-driving', competitionId)
+      );
+    }
+
+    // Published (or an older competition without the field), as
+    // isCompetitionVisible in firestore.rules; drafts only for staff
+    function isPublishedInApp(appId, competitionId) {
+      let compPath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId);
+      return firestore.exists(compPath)
+        && firestore.get(compPath).data.get('published', true) != false;
+    }
+
+    function isCompetitionVisible(competitionId) {
+      return isPublishedInApp('drivelive', competitionId)
+        || isPublishedInApp('combined-driving', competitionId)
+        || isCompetitionStaff(competitionId);
+    }
+
+    // A driver of the competition: getDriverInbox (functions/index.js) keeps a
+    // pointer users/{uid}/driverCompetitions/{competitionId} to one of the
+    // driver's equipages, and the verified email is checked against that
+    // equipage's private doc on every read, so a stale pointer grants nothing
+    function isDriverOfCompetition(competitionId) {
+      let accessPath = /databases/(default)/documents/users/$(request.auth.uid)/driverCompetitions/$(competitionId);
+      return request.auth != null
+        && request.auth.token.get('email_verified', false) == true
+        && request.auth.token.email != null
+        && firestore.exists(accessPath)
+        && isDriverEquipage(
+          firestore.get(accessPath).data.get('appId', ''),
+          competitionId,
+          string(firestore.get(accessPath).data.get('startNumber', ''))
+        );
+    }
+
+    function isDriverEquipage(appId, competitionId, startNumber) {
+      let privatePath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/equipagePrivate/$(startNumber);
+      return appId in ['drivelive', 'combined-driving']
+        && startNumber != ''
+        && firestore.exists(privatePath)
+        && firestore.get(privatePath).data.get('email', '').lower() == request.auth.token.email.lower();
+    }
+
     // Uploads: a size limit, so a mistake can't fill the bucket
     function isReasonableUpload(maxBytes) {
       return request.resource == null || request.resource.size < maxBytes;
@@ -92,12 +169,31 @@ service firebase.storage {
       allow write: if canAdminCompetition(competitionId) && isReasonableUpload(5 * 1024 * 1024) && isImageUpload();
     }
 
-    // Competition documents (maps, PDFs). Read by their link only: listing
-    // would reveal documents meant for drivers (the app never lists files)
-    match /competitions/{competitionId}/documents/{allPaths=**} {
-      allow get: if true;
+    // Competition documents (maps, PDFs) for everyone: readable while the
+    // competition is visible. Listing stays with admins (the app never lists).
+    // Note: a download URL with its token bypasses these rules, so links
+    // saved in Firestore keep working for whoever has them
+    match /competitions/{competitionId}/documents/public/{fileName} {
+      allow get: if isCompetitionVisible(competitionId);
       allow list: if canAdminCompetition(competitionId);
       allow write: if canAdminCompetition(competitionId) && isReasonableUpload(50 * 1024 * 1024) && isDocumentUpload();
+    }
+
+    // Driver-only documents: the competition's drivers and staff. The app
+    // saves only the path for these and asks for a download URL when shown
+    match /competitions/{competitionId}/documents/drivers/{fileName} {
+      allow get: if request.auth != null
+        && (isCompetitionStaff(competitionId) || isDriverOfCompetition(competitionId));
+      allow list: if canAdminCompetition(competitionId);
+      allow write: if canAdminCompetition(competitionId) && isReasonableUpload(50 * 1024 * 1024) && isDocumentUpload();
+    }
+
+    // Older uploads straight under documents/ (no audience in the path):
+    // staff only. New uploads go to public/ or drivers/
+    match /competitions/{competitionId}/documents/{fileName} {
+      allow get: if request.auth != null && isCompetitionStaff(competitionId);
+      allow list: if canAdminCompetition(competitionId);
+      allow delete: if canAdminCompetition(competitionId);
     }
 
     // Default catch-all: deny everything outside explicitly public paths.

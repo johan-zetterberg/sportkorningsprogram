@@ -5,7 +5,7 @@ import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 import { loadPdfFontData, installPdfFont } from './pdfFonts.js';
 
-function loadScriptTag(src) {
+function loadScriptTag(src, integrity = '') {
   return new Promise((resolve, reject) => {
     if (typeof document === 'undefined') return resolve();
     const existing = document.querySelector(`script[src="${src}"]`);
@@ -17,6 +17,10 @@ function loadScriptTag(src) {
     }
     const script = document.createElement('script');
     script.src = src;
+    if (integrity) {
+      script.integrity = integrity;
+      script.crossOrigin = 'anonymous';
+    }
     script.onload = () => resolve();
     script.onerror = (e) => reject(e);
     document.head.appendChild(script);
@@ -46,8 +50,11 @@ async function loadPdfScripts() {
 
   // 2. CDN-fallback om lokala saknas
   try {
-    await loadScriptTag("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js");
-    await loadScriptTag("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js");
+    // SRI: the CDN copies must be exactly these versions
+    await loadScriptTag("https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js",
+      'sha384-JcnsjUPPylna1s1fvi1u12X5qjY5OL56iySh75FdtrwhO/SWXgMjoVqcKyIIWOLk');
+    await loadScriptTag("https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js",
+      'sha384-fCAW/rDWORTbQXSiB7mOg0QtQ5c+r0f544y6XoKjuVva0nMBlCpNUjiFeG5iMdS3');
   } catch (err) {
     console.error("Kunde inte ladda PDF-bibliotek från CDN:", err);
   }

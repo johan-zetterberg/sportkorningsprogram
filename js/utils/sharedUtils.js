@@ -24,6 +24,16 @@ export function jsStringAttr(value) {
     return escapeHtml(JSON.stringify(String(value ?? '')));
 }
 
+/**
+ * A click handler without inline code (the CSP allows none): calls
+ * window[action](...args) through the delegated listener in domActions.js.
+ * Extra attributes (data-action-on, -confirm, -stop) are added by the caller.
+ */
+export function actionAttrs(action, ...args) {
+    const argsAttr = args.length ? ` data-action-args="${escapeHtml(JSON.stringify(args))}"` : '';
+    return `data-action="${escapeHtml(action)}"${argsAttr}`;
+}
+
 /** Image URLs from organisers: web, site-relative and inline images only (never javascript: etc.) */
 /**
  * A link typed in by an admin, for href: web, mail, or a path on this site.

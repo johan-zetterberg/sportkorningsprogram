@@ -12,7 +12,7 @@ import {
     calculateClassObstacleStats,
     calculateClassSplitStats
 } from '../../utils/marathonUtils.js';
-import { escapeHtml, isWithdrawnEquipage, jsStringAttr } from '../../utils/sharedUtils.js';
+import { actionAttrs, escapeHtml, isWithdrawnEquipage } from '../../utils/sharedUtils.js';
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import {
     assignPlaces,
@@ -320,7 +320,7 @@ export function renderRecentResultsList(ctx) {
         }
 
         return `
-        <div onclick="showRiderDetails(${jsStringAttr(r.sn)})" class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
+        <div ${actionAttrs('showRiderDetails', String(r.sn ?? ''))} class="p-2 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer transition-colors">
             <div class="flex justify-between items-baseline mb-1">
                 <div class="flex items-center">
                      <span class="font-bold text-gray-900 dark:text-gray-200 mr-2">#${escapeHtml(String(r.sn ?? ''))} ${escapeHtml(r.name || '')}</span>
@@ -473,7 +473,7 @@ export function renderActiveListNew(ctx) {
             }
 
             return `
-            <div onclick="selectSpeakerRider(${jsStringAttr(c.sn)})" class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
+            <div ${actionAttrs('selectSpeakerRider', String(c.sn ?? ''))} class="cursor-pointer bg-amber-50 dark:bg-amber-900/20 border-l-4 border-amber-500 dark:border-amber-600 p-3 rounded shadow-sm hover:shadow-md transition-all ${isSelected ? 'ring-2 ring-amber-400' : ''}">
                 <div class="flex justify-between items-start">
                     <div>
                         <div class="font-black text-lg text-gray-900 dark:text-white leading-none">#${escapeHtml(String(c.sn ?? ''))} ${escapeHtml(c.eq?.driverName || '')}</div>
@@ -521,7 +521,7 @@ export function renderActiveListNew(ctx) {
             }
 
             return `
-             <div onclick="selectSpeakerRider(${jsStringAttr(c.sn)})" class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
+             <div ${actionAttrs('selectSpeakerRider', String(c.sn ?? ''))} class="flex items-center justify-between p-2 bg-white dark:bg-gray-800 rounded border border-gray-200 dark:border-gray-700 hover:border-blue-300 dark:hover:border-blue-500 cursor-pointer ${isSelected ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-300 dark:border-blue-700' : ''}">
                 <div class="flex items-center gap-2 overflow-hidden">
                     <span class="font-bold text-gray-700 dark:text-gray-300 text-xs w-8">#${escapeHtml(String(c.sn ?? ''))}</span>
                     <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${escapeHtml(c.eq?.driverName || '')}</span>

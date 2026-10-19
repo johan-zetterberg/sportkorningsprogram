@@ -76,7 +76,7 @@ import {
   debounce,
   escapeHtml,
   isNum,
-  jsStringAttr
+  actionAttrs
 } from '../../utils/sharedUtils.js';
 
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
@@ -468,6 +468,7 @@ function renderTable() {
   lastStructuralHash = currentStructuralHash;
   const renderRow = (eq, index) => {
     const sn = String(eq.startNumber), d = maraton_marathonMap.get(sn) || {};
+    const snH = escapeHtml(sn);
     const res = marathonResultFor(eq, d, timingDocFor(sn));
     const isStruken = eq.status === 'struken';
     const status = res.status;
@@ -495,9 +496,9 @@ function renderTable() {
       ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
       : ((totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '—'));
 
-    return `<tr class="${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors" data-sn="${sn}" style="cursor: pointer; ${rowStyle}">
+    return `<tr class="${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors" data-sn="${snH}" style="cursor: pointer; ${rowStyle}">
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center font-bold text-gray-700 dark:text-gray-300 text-[11px] lg:text-sm">${isNum(place) ? place : '—'}</td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm font-medium text-gray-900 dark:text-white">${sn}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm font-medium text-gray-900 dark:text-white">${snH}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowBgClass || ''}">
             <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1.5" title="${escapeHtml(eq.driverName || '-')}">
               <span class="truncate">${escapeHtml(eq.driverName || '-')}</span>
@@ -516,14 +517,14 @@ function renderTable() {
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-900 dark:text-gray-200 whitespace-nowrap">${startLabel}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm dark:text-gray-300 whitespace-nowrap">${etaLabel}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm tabular-nums whitespace-nowrap">
-             <span data-live-label="${sn}" class="text-[10px] lg:text-xs font-bold text-gray-400 mr-1"></span>
-             <span data-live-time="${sn}" class="font-bold text-gray-700 dark:text-gray-200">—</span>
+             <span data-live-label="${snH}" class="text-[10px] lg:text-xs font-bold text-gray-400 mr-1"></span>
+             <span data-live-time="${snH}"class="font-bold text-gray-700 dark:text-gray-200">—</span>
         </td>
 
         ${rowStageCellsHTML(res)}
         ${rowObstacleCells(res, eq, maxObs, obstaclePlaceMap, getObstaclePlacement)}
 
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300" data-sn="${sn}" data-cell="obsSum">${isNum(res.obstacles.sum) ? res.obstacles.sum.toFixed(2) : '-'}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300" data-sn="${snH}" data-cell="obsSum">${isNum(res.obstacles.sum) ? res.obstacles.sum.toFixed(2) : '-'}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300">
           ${(() => {
         // Sum global Other + Wrong Gait + Per-Obstacle Other Penalty
@@ -536,7 +537,7 @@ function renderTable() {
         return (val > 0 || val !== 0) ? val.toFixed(2) : '-';
       })()}
         </td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-black text-gray-900 dark:text-white" data-total-pen="${sn}">${totalLabel}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-black text-gray-900 dark:text-white" data-total-pen="${snH}">${totalLabel}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">
              <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] lg:text-xs font-medium whitespace-nowrap ${statusClass(status)}">
                ${status}
@@ -551,8 +552,8 @@ function renderTable() {
         const finalized = isMarathonFinalized(sn);
         if (!can) return '';
         return finalized
-          ? `<button class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 text-[10px] lg:text-xs border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded whitespace-nowrap" onclick="event.stopPropagation(); __unfinalizeMaraton(${jsStringAttr(compId)},${jsStringAttr(sn)})">${t('undo')}</button>`
-          : `<button class="text-white bg-emerald-600 hover:bg-emerald-700 text-[10px] lg:text-xs px-2 py-1 rounded shadow-sm whitespace-nowrap" onclick="event.stopPropagation(); __finalizeMaraton(${jsStringAttr(compId)},${jsStringAttr(sn)})">${t('finalize')}</button>`;
+          ? `<button class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 text-[10px] lg:text-xs border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded whitespace-nowrap" ${actionAttrs('__unfinalizeMaraton', String(compId ?? ''), String(sn ?? ''))} data-action-stop>${t('undo')}</button>`
+          : `<button class="text-white bg-emerald-600 hover:bg-emerald-700 text-[10px] lg:text-xs px-2 py-1 rounded shadow-sm whitespace-nowrap" ${actionAttrs('__finalizeMaraton', String(compId ?? ''), String(sn ?? ''))} data-action-stop>${t('finalize')}</button>`;
       })()}
              </div>
         </td>

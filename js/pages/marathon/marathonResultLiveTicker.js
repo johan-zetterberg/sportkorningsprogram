@@ -1,4 +1,4 @@
-import { isNum } from '../../utils/sharedUtils.js';
+import { escapeHtml, isNum } from '../../utils/sharedUtils.js';
 import { formatMsMMSS, formatObstacleSeconds } from './marathonResultFormatters.js';
 
 const localLiveTickers = {};
@@ -34,7 +34,7 @@ export function rowStageCellsHTML(res, stageCols) {
     }
 
     return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm">
-      <span class="tabular-nums" data-stage-pts="${res.startNumber}" data-stage="${stKey}">${val}</span>
+      <span class="tabular-nums" data-stage-pts="${escapeHtml(res.startNumber)}" data-stage="${stKey}">${val}</span>
     </td>`;
   }).join('');
 }

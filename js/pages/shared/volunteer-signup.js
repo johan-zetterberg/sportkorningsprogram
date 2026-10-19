@@ -1,6 +1,7 @@
 import { saveVolunteerSignup } from '../../services/officialsService.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { competitionDays } from '../../utils/officialAccessUtils.js';
 
 const urlParams = new URLSearchParams(window.location.search);
 const compId = urlParams.get('id');
@@ -8,7 +9,40 @@ const compId = urlParams.get('id');
 const form = document.getElementById('volunteerForm');
 const statusMsg = document.getElementById('statusMsg');
 const btnSubmit = document.getElementById('btnSubmit');
+const dietSelect = document.getElementById('volDiet');
+const dietOther = document.getElementById('volDietOther');
+// The server ignores forms sent sooner than 3 s after the page loaded (bots)
 const formOpenedAt = Date.now();
+
+// "Annat" opens a short text field of its own
+dietSelect?.addEventListener('change', () => {
+    const other = dietSelect.value === 'Annat';
+    dietOther?.classList.toggle('hidden', !other);
+    if (!other && dietOther) dietOther.value = '';
+});
+
+const SHIFT_LABELS = { fm: 'förmiddag', em: 'eftermiddag' };
+
+// Checkboxes per competition day and half day (from the competition's dates)
+function renderAvailability(dates) {
+    const box = document.getElementById('volAvailabilityBox');
+    const list = document.getElementById('volAvailability');
+    const days = competitionDays(dates);
+    if (!box || !list || !days.length) return;
+    list.replaceChildren(...days.flatMap((day) => Object.entries(SHIFT_LABELS).map(([shift, label]) => {
+        const wrapper = document.createElement('label');
+        wrapper.className = 'flex items-center gap-2';
+        const input = document.createElement('input');
+        input.type = 'checkbox';
+        input.name = 'volAvailability';
+        input.value = `${day}_${shift}`;
+        const date = new Date(`${day}T12:00:00`);
+        const dayText = date.toLocaleDateString('sv-SE', { weekday: 'short', day: 'numeric', month: 'short' });
+        wrapper.append(input, document.createTextNode(` ${dayText}, ${label}`));
+        return wrapper;
+    })));
+    box.classList.remove('hidden');
+}
 
 (async () => {
     if (!compId) {
@@ -24,6 +58,7 @@ const formOpenedAt = Date.now();
         if (snap.exists()) {
             const data = snap.data() || {};
             document.querySelector('h1').textContent = `Funktionärsanmälan: ${data.name || ''}`;
+            renderAvailability(data.dates);
         }
     } catch (err) {
         console.warn('Could not fetch competition name', err);
@@ -33,6 +68,10 @@ const formOpenedAt = Date.now();
 form.addEventListener('submit', async (e) => {
     e.preventDefault();
     if (!compId) return;
+    if (!document.getElementById('volConsent')?.checked) {
+        showStatus('Kryssa i att du godkänner att uppgifterna sparas.', true);
+        return;
+    }
 
     btnSubmit.disabled = true;
     btnSubmit.textContent = 'Skickar...';
@@ -44,23 +83,25 @@ form.addEventListener('submit', async (e) => {
         email: document.getElementById('volEmail').value.trim(),
         club: document.getElementById('volClub').value.trim(),
         shirtSize: document.getElementById('volShirtSize').value,
-        diet: document.getElementById('volDiet').value.trim(),
+        diet: dietSelect?.value || 'Ingen',
+        dietOther: dietOther?.value.trim() || '',
+        availability: Array.from(document.querySelectorAll('input[name="volAvailability"]:checked')).map((el) => el.value),
         iceName: document.getElementById('volIceName').value.trim(),
         icePhone: document.getElementById('volIcePhone').value.trim(),
         role: document.getElementById('volRole').value,
         notes: document.getElementById('volNotes').value.trim(),
+        consent: true,
         website: document.getElementById('volWebsite')?.value.trim() || '',
         elapsedMs: Date.now() - formOpenedAt
     };
 
     try {
-        const result = await saveVolunteerSignup(compId, data);
-        if (result?.duplicate) {
-            showStatus('Din anmälan finns redan registrerad. Arrangören kontaktar dig vid behov.', false);
-        } else {
-            showStatus('Tack! Din anmälan är mottagen. Arrangören återkommer till dig.', false);
-        }
+        await saveVolunteerSignup(compId, data);
+        // The same answer for every accepted form (the server says nothing
+        // about earlier sign-ups with the same email)
+        showStatus('Tack! Din anmälan är mottagen. Arrangören återkommer till dig.', false);
         form.reset();
+        dietOther?.classList.add('hidden');
         btnSubmit.textContent = 'Skickat!';
     } catch (err) {
         console.error(err);

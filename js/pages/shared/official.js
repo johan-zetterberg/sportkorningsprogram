@@ -140,19 +140,19 @@ export async function load() {
             <div class="mt-8 bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6">
                  <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-4">Verktyg & Inmatning</h3>
                  <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 md:gap-4">
-                    <button onclick="location.hash='#dressyr-input'" class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
+                    <button data-action="setHash" data-action-args='["#dressyr-input"]' class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
                         <div class="text-2xl mb-1">📝</div>
                         <div class="font-bold text-sm text-slate-800 dark:text-slate-200">Dressyr</div>
                     </button>
-                    <button onclick="location.hash='#maraton-input'" class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
+                    <button data-action="setHash" data-action-args='["#maraton-input"]' class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
                         <div class="text-2xl mb-1">⏱️</div>
                         <div class="font-bold text-sm text-slate-800 dark:text-slate-200">Hinder</div>
                     </button>
-                    <button onclick="location.hash='#maraton-stages'" class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
+                    <button data-action="setHash" data-action-args='["#maraton-stages"]' class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
                         <div class="text-2xl mb-1">🚩</div>
                         <div class="font-bold text-sm text-slate-800 dark:text-slate-200">Sträckor</div>
                     </button>
-                    <button onclick="location.hash='#precision-input'" class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
+                    <button data-action="setHash" data-action-args='["#precision-input"]' class="p-3 bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 rounded text-center transition">
                         <div class="text-2xl mb-1">⚠️</div>
                         <div class="font-bold text-sm text-slate-800 dark:text-slate-200">Precision</div>
                     </button>

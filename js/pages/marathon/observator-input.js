@@ -12,6 +12,7 @@ import {
 
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
+import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -129,6 +130,7 @@ async function setGlobalPause(isPaused) {
       const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
       if (!pauseLog) return 'saved';
       // Not awaited until the server answers: the observer gets feedback now
+      // Not reported to rejectedWrites: a pause belongs to no start number
       return awaitWriteOrQueue(trackWrite('Sparar tävlingspaus', setDoc(statusRef, statusDoc(pauseLog), { merge: true })), {
         onLateError: () => showAlert(t('observer_pause_error'), false)
       });
@@ -452,8 +454,12 @@ async function onEquipageSelected(sn, container) {
     if (wrongGaitRunning) endWrongGaitIncident();
     const previousLog = { wrongGaitSeconds: wrongGaitAccum, wrongGaits: [...wrongGaits], halts: [...halts], notes: qs('#notesField', container)?.value ?? notes };
     try { localStorage.removeItem(runningKey(previousSn)); } catch (_) { }
+    const previousCid = resolveCompetitionId();
     awaitWriteOrQueue(writeObserverLog(previousSn, previousLog), {
-      onLateError: () => showAlert(`#${previousSn}: observatörsloggen nekades av servern när den skickades.`, false)
+      onLateError: (error) => {
+        showAlert(`#${previousSn}: observatörsloggen nekades av servern när den skickades.`, false);
+        reportRejectedWrite(previousCid, { discipline: 'marathon', startNumber: previousSn, payloadSummary: { observerLog: true, wrongGaitSeconds: previousLog.wrongGaitSeconds, halts: previousLog.halts.length, notes: previousLog.notes }, error, source: 'observator-input' });
+      }
     }).catch((e) => {
       console.error('Kunde inte spara observatörslogg vid byte:', e);
       showAlert(`#${previousSn}: observatörsloggen kunde inte sparas.`, false);
@@ -741,7 +747,7 @@ function render(container) {
             <!-- Anteckningar -->
             <div class="bg-white dark:bg-gray-800 rounded-2xl border dark:border-gray-700 p-5 shadow-sm">
                <span class="text-[10px] font-black uppercase text-gray-500 dark:text-gray-400 tracking-widest block mb-4">${t('observer_notes')}</span>
-               <textarea id="notesField" rows="4" aria-label="${t('observer_notes')}" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="${t('observer_notes_placeholder')}"></textarea>
+               <textarea id="notesField" rows="4" maxlength="2000" aria-label="${t('observer_notes')}" class="w-full bg-gray-50 dark:bg-gray-900/50 border dark:border-gray-700 rounded-xl p-3 text-sm dark:text-white focus:ring-4 focus:ring-blue-500/10 focus:border-blue-500 transition-all resize-none" placeholder="${t('observer_notes_placeholder')}"></textarea>
                <div id="notesSaveStatus" class="flex items-center justify-end gap-1 mt-2 text-[10px] font-bold text-gray-400"></div>
             </div>
 
@@ -941,17 +947,22 @@ function wire(container) {
     if (notesStatus) notesStatus.textContent = t('observer_saving');
 
     const sn = currentSn;
+    const cid = resolveCompetitionId();
     try {
       // Without signal the write is kept on the device; say so instead of
       // showing "Sparar…" until the network returns. A queued write the server
       // refuses later (e.g. the result was finalized) is reported then.
-      const result = await awaitWriteOrQueue(writeObserverLog(sn, {
+      const savedLog = {
         wrongGaitSeconds: wrongGaitAccum,
         wrongGaits,
         halts,
         notes: notesEl ? notesEl.value : notes
-      }), {
-        onLateError: () => showAlert(`#${sn}: observatörsloggen nekades av servern när den skickades – resultatet kan vara låst. Kontakta sekretariatet.`, false)
+      };
+      const result = await awaitWriteOrQueue(writeObserverLog(sn, savedLog), {
+        onLateError: (error) => {
+          showAlert(`#${sn}: observatörsloggen nekades av servern när den skickades – resultatet kan vara låst. Kontakta sekretariatet.`, false);
+          reportRejectedWrite(cid, { discipline: 'marathon', startNumber: sn, payloadSummary: { observerLog: true, wrongGaitSeconds: savedLog.wrongGaitSeconds, halts: savedLog.halts.length, notes: savedLog.notes }, error, source: 'observator-input' });
+        }
       });
       const savedText = result === 'queued' ? 'Sparat på enheten – skickas när nätet är tillbaka' : t('observer_saved_check');
       if (msg) {

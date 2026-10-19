@@ -1,5 +1,5 @@
 import { storage } from '../config/firebase-config.js';
-import { ref, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
+import { ref, uploadBytes, getDownloadURL, deleteObject } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-storage.js";
 
 /**
  * Uploads a document (PDF) for a specific competition.
@@ -22,26 +22,75 @@ export function isAllowedDocumentType(type) {
     return DOCUMENT_TYPE_PATTERNS.some(pattern => pattern.test(String(type || '')));
 }
 
-export async function uploadCompetitionDocument(competitionId, file) {
+// Storage folder for a document's audience (storage.rules): public/ is
+// readable while the competition is visible, drivers/ only by its drivers
+// and staff
+export function documentFolderForAudience(audience) {
+    return audience?.public === false ? 'drivers' : 'public';
+}
+
+function buildDocumentPath(competitionId, file, folder) {
+    const timestamp = Date.now();
+    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
+    return `competitions/${competitionId}/documents/${folder}/${timestamp}_${safeName}`;
+}
+
+/**
+ * Uploads a competition document to documents/public/ (default) or
+ * documents/drivers/. Returns the download URL (public folder) for callers
+ * that only need a link.
+ */
+export async function uploadCompetitionDocument(competitionId, file, folder = 'public') {
+    const { url } = await uploadCompetitionDocumentFile(competitionId, file, folder);
+    return url;
+}
+
+/**
+ * As uploadCompetitionDocument, with the storage path. For drivers/ no URL is
+ * fetched: its token would bypass the rules, so only the path is saved and a
+ * URL is asked for when the document is shown (resolveDocumentUrls)
+ */
+export async function uploadCompetitionDocumentFile(competitionId, file, folder = 'public') {
     if (!file) throw new Error("Ingen fil vald");
     if (!isAllowedDocumentType(file.type)) {
         throw new Error("Filtypen stöds inte. Använd PDF, bild (PNG/JPG/WebP/GIF), Word, Excel, PowerPoint eller text.");
     }
+    if (folder !== 'public' && folder !== 'drivers') throw new Error('Okänd dokumentmapp');
 
-    // Create a reference to 'competitions/<compId>/documents/<timestamp>_<filename>'
-    const timestamp = Date.now();
-    // Sanitize filename
-    const safeName = file.name.replace(/[^a-zA-Z0-9.-]/g, '_');
-    const storagePath = `competitions/${competitionId}/documents/${timestamp}_${safeName}`;
+    const storagePath = buildDocumentPath(competitionId, file, folder);
+    const snapshot = await uploadBytes(ref(storage, storagePath), file);
+    const url = folder === 'public' ? await getDownloadURL(snapshot.ref) : null;
+    return { url, storagePath, folder };
+}
 
-    const storageRef = ref(storage, storagePath);
+// A download URL for a stored driver-only document, asked for when shown
+// (the rules decide); null when the user may not read it
+export async function getStoredDocumentUrl(storagePath) {
+    if (!storagePath) return null;
+    try {
+        return await getDownloadURL(ref(storage, storagePath));
+    } catch (err) {
+        console.warn('Could not get document URL:', err?.code || err);
+        return null;
+    }
+}
 
-    // Upload
-    const snapshot = await uploadBytes(storageRef, file);
+// Documents saved with a storage path but no URL get one for this view
+export async function resolveDocumentUrls(documents = []) {
+    return Promise.all((documents || []).map(async (document) => {
+        if (!document || document.url || !document.storagePath) return document;
+        return { ...document, url: await getStoredDocumentUrl(document.storagePath) };
+    }));
+}
 
-    // Get URL
-    const url = await getDownloadURL(snapshot.ref);
-    return url;
+// Removing a document's file; a missing file is fine
+export async function deleteStoredDocument(storagePath) {
+    if (!storagePath || !String(storagePath).includes('/documents/')) return;
+    try {
+        await deleteObject(ref(storage, storagePath));
+    } catch (err) {
+        if (err?.code !== 'storage/object-not-found') throw err;
+    }
 }
 
 /**

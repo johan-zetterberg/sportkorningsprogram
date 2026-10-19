@@ -155,6 +155,37 @@ export function restoreWarnings(exportData = {}) {
     return warnings;
 }
 
+function hasGlobalAdminRole(identity = {}) {
+    const roles = Array.isArray(identity?.roles) ? identity.roles : [];
+    return identity?.superadmin === true
+        || identity?.role === 'admin' || identity?.role === 'superadmin'
+        || roles.includes('admin') || roles.includes('superadmin');
+}
+
+/**
+ * Whether this caller may export personal identity numbers: only the
+ * competition's owner (createdBy/ownerId) or a global admin (token claims or
+ * users/{uid}). Other competition admins export without them.
+ */
+export function canExportPersonalNumbers({ uid = '', token = {}, competitionData = {}, userData = {} } = {}) {
+    if (!uid) return false;
+    if (competitionData?.createdBy === uid || competitionData?.ownerId === uid) return true;
+    return hasGlobalAdminRole(token) || hasGlobalAdminRole(userData);
+}
+
+/** The private auditLog entry for one export (who, when, with personal numbers) */
+export function buildExportAuditEntry({ uid, email = '', includePersonalNumbers = false, documentCount = 0, at = Date.now() }) {
+    return {
+        source: 'exportCompetition',
+        action: 'export',
+        exportedBy: uid,
+        exportedByEmail: String(email || '').trim().toLowerCase() || null,
+        includePersonalNumbers: includePersonalNumbers === true,
+        documentCount,
+        exportedAt: at
+    };
+}
+
 // Access PINs and other secrets are never exported: whole documents by path,
 // fields by name wherever they are (also nested and in archive copies)
 const SECRET_DOCUMENT_PATTERNS = [/\/config\/secrets$/];

@@ -41,3 +41,10 @@ test('renderArchiveStatusMessage renders loading and error states', () => {
   assert.match(statusEl.innerHTML, /text-red-700/);
   assert.match(statusEl.innerHTML, /Stopp/);
 });
+
+test('renderArchiveStatusMessage escapes the message', () => {
+  const statusEl = { innerHTML: '' };
+  renderArchiveStatusMessage(statusEl, { state: 'error', message: '#1"><img src=x onerror=alert(1)>' });
+  assert.doesNotMatch(statusEl.innerHTML, /<img/);
+  assert.match(statusEl.innerHTML, /&lt;img src=x onerror=alert\(1\)&gt;/);
+});

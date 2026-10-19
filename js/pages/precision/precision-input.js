@@ -21,6 +21,7 @@ import {
     increment
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
+import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
@@ -287,7 +288,7 @@ async function saveKnockToggle(equipage, gateLabel, shouldAdd, elapsedMs) {
         extraPenalty,
         updatedAt: Date.now()
     }, { merge: true });
-    return awaitWriteOrQueue(write, { onLateError: () => showAlert(t('precision_save_error'), false) });
+    return awaitWriteOrQueue(write, { onLateError: lateRejection(equipage.startNumber, { gate: gateLabel, knock: shouldAdd, elapsedMs }, 'precision-input:knock') });
 }
 
 // The rebuild count next to the clock, and the undo only when there is one
@@ -325,7 +326,7 @@ async function changeRebuildCount(delta) {
                 rebuildCount: value,
                 updatedAt: Date.now()
             }, { merge: true }),
-            { onLateError: (error) => reportWriteError(equipage.startNumber, error) }
+            { onLateError: lateRejection(equipage.startNumber, { rebuildCount: next }, 'precision-input:rebuild') }
         );
     } catch (error) {
         reportWriteError(equipage.startNumber, error);
@@ -356,6 +357,22 @@ function reportWriteError(startNumber, error) {
     showAlert(`#${startNumber}: ${t('precision_save_error')}`, false);
 }
 
+// onLateError for a queued write: shown as above and recorded for the
+// secretariat (rejectedWrites). Live pushes repeat every few seconds, so one
+// entry per start number and source a minute is enough.
+const lastRejectionReportAt = new Map();
+function lateRejection(startNumber, summary, source = 'precision-input') {
+    const cid = competitionId;
+    return (error) => {
+        reportWriteError(startNumber, error);
+        const key = `${cid}|${startNumber}|${source}`;
+        const now = Date.now();
+        if (now - (lastRejectionReportAt.get(key) || 0) < 60000) return;
+        lastRejectionReportAt.set(key, now);
+        reportRejectedWrite(cid, { discipline: 'precision', startNumber, payloadSummary: summary, error, source });
+    };
+}
+
 // Start, stop, penalties and the like: answers 'saved' or 'queued' after a
 // short wait (offline), a refusal is shown to the judge, also a late one.
 // Never rejects.
@@ -373,7 +390,7 @@ async function pushLiveSafe(update) {
     try {
         return await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), snapshot, { merge: true }),
-            { onLateError: (error) => reportWriteError(equipage.startNumber, error) }
+            { onLateError: lateRejection(equipage.startNumber, update, 'precision-input:live') }
         );
     } catch (e) {
         reportWriteError(equipage.startNumber, e);
@@ -643,7 +660,7 @@ function renderLayout() {
                         </div>
                         <div class="sm:col-span-2">
                             <label for="pr-commentInput" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_comment')}</label>
-                            <textarea id="pr-commentInput" rows="1" class="w-full min-h-[44px] p-2 text-base border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('precision_comment_placeholder')}"></textarea>
+                            <textarea id="pr-commentInput" rows="1" maxlength="1000" class="w-full min-h-[44px] p-2 text-base border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('precision_comment_placeholder')}"></textarea>
                         </div>
                     </div>
                 </div>
@@ -1226,7 +1243,7 @@ async function saveFinal() {
     try {
         const result = await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
-            { onLateError: (error) => reportWriteError(equipage.startNumber, error) }
+            { onLateError: lateRejection(equipage.startNumber, { ...payload, knocks: countedKnocks }, 'precision-input:save') }
         );
         if (result === 'saved') correctPenaltiesAfterSave(equipage, payload, countedKnocks, calculate, storedRebuildCount(stored));
         const message = calc.configMissing ? t('precision_saved_course_missing') : t('precision_save_success');
@@ -1251,7 +1268,7 @@ async function correctPenaltiesAfterSave(equipage, payload, countedKnocks, calcu
         if (!patch) return;
         await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), { ...patch, updatedAt: Date.now() }, { merge: true }),
-            { onLateError: (error) => reportWriteError(equipage.startNumber, error) }
+            { onLateError: lateRejection(equipage.startNumber, patch, 'precision-input:correction') }
         );
     } catch (error) {
         console.warn('Precision: kunde inte kontrollera rivningarna efter sparning:', error);

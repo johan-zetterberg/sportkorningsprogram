@@ -48,6 +48,8 @@ const pagePermissions = {
   'page-vet-check': ['vet', 'admin'],
   'page-manual': ['publik', 'funktionar', 'domare', 'admin'],
   'page-official': ['funktionar', 'domare', 'admin'],
+  // The privacy notice: readable by everyone, signed in or not
+  'page-privacy': ['publik', 'funktionar', 'domare', 'admin'],
 };
 
 const pageLoaders = {
@@ -87,6 +89,7 @@ const pageLoaders = {
   'vet-check': () => import('../pages/shared/vet-check.js'),
   'manual': () => import('../pages/shared/manual.js'),
   'official': () => import('../pages/shared/official.js'),
+  'privacy': () => import('../pages/shared/privacy.js'),
 };
 
 const pageModeRequirements = {

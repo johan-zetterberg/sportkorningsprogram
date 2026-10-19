@@ -132,7 +132,7 @@ export function renderTeamMemberRow(member = {}, {
   const cellClass = 'text-right p-1';
 
   return `
-        <div class="grid grid-cols-12 gap-2 text-sm py-2 border-b dark:border-gray-700/50 last:border-0 border-gray-100 items-center hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" data-start="${member.startNumber}" role="button" tabindex="0" data-kbd-click>
+        <div class="grid grid-cols-12 gap-2 text-sm py-2 border-b dark:border-gray-700/50 last:border-0 border-gray-100 items-center hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors cursor-pointer" data-start="${escapeHtml(member.startNumber)}" role="button" tabindex="0" data-kbd-click>
            <div class="col-span-4 flex items-center gap-2 overflow-hidden pl-2">
              <span class="w-5 text-center flex-shrink-0">${statusIcon}</span>
              <div class="flex flex-col truncate">
@@ -140,7 +140,7 @@ export function renderTeamMemberRow(member = {}, {
                   ${flagHtml} ${escapeHtml(member.name)}
                 </span>
                 <span class="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
-                  #${member.startNumber} ${escapeHtml(clubName || '')} ${clubLogoHtml}
+                  #${escapeHtml(member.startNumber)} ${escapeHtml(clubName || '')} ${clubLogoHtml}
                 </span>
              </div>
            </div>
@@ -162,7 +162,7 @@ export function renderTeamDisciplineSummaryCell({
 } = {}) {
   const highlightClass = 'text-amber-600 dark:text-amber-400 font-extrabold';
   return `
-            <div class="col-span-2 text-right font-bold ${isBest ? highlightClass : ''}" title="${isBest ? title : ''}">
+            <div class="col-span-2 text-right font-bold ${isBest ? highlightClass : ''}" title="${isBest ? escapeHtml(title) : ''}">
                 ${formatTeamScore(value, { eliminated: isEliminated })}
                 ${Number.isFinite(rank) ? `<span class="ml-1 text-[10px] font-semibold text-gray-500 dark:text-gray-400">${rank}:a</span>` : ''}
                 ${isBest ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}

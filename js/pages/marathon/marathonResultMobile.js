@@ -75,6 +75,7 @@ export function renderMarathonMobileCards({
       startTimeFor,
       fmtClock
     });
+    const snH = escapeHtml(sn);
     const place = placeMap.get(sn);
     const isActive = status && status.includes('P\u00e5g');
     const isStruken = eq.status === 'struken';
@@ -121,11 +122,11 @@ export function renderMarathonMobileCards({
       }).join('');
 
     html += `
-      <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer ${placBg}" data-sn="${sn}" style="cursor: pointer;">
+      <div class="m-1 mb-1.5 rounded-lg border shadow-sm overflow-hidden cursor-pointer ${placBg}" data-sn="${snH}" style="cursor: pointer;">
         <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 ${(isPlaced || isActive || isStruken) ? '' : 'bg-gray-50 dark:bg-gray-800/50'}">
            <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${eq.startNumber}</span>
+                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${snH}</span>
                  <span class="truncate">${escapeHtml(eq.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">
@@ -136,7 +137,7 @@ export function renderMarathonMobileCards({
            <div class="flex items-center gap-2 shrink-0">
               <div class="text-right">
                   <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Totalt</div>
-                  <div class="font-bold text-[13px] text-blue-800 dark:text-blue-300 leading-none" data-total-pen="${sn}">${totalLabel}</div>
+                  <div class="font-bold text-[13px] text-blue-800 dark:text-blue-300 leading-none" data-total-pen="${snH}">${totalLabel}</div>
               </div>
               <div class="text-right border-l dark:border-gray-300 dark:border-gray-600 pl-2">
                   ${placBlock}
@@ -154,7 +155,7 @@ export function renderMarathonMobileCards({
                 ? `
                   <div class="flex items-center gap-1">
                       <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">${t('running_status') || 'Pågår'}</span>
-                      <span data-live-time="${sn}" class="font-bold text-yellow-700 dark:text-yellow-400 animate-pulse">\u2014</span>
+                      <span data-live-time="${snH}"class="font-bold text-yellow-700 dark:text-yellow-400 animate-pulse">\u2014</span>
                   </div>
                   `
                 : `<span class="text-gray-500 dark:text-gray-400 font-medium">${status || '\u2013'}</span>`
@@ -177,7 +178,7 @@ export function renderMarathonMobileCards({
                  return `
                     <div class="flex-1 text-center py-0.5 rounded ${valClass} border border-gray-100 dark:border-gray-600">
                        <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">${stageLabel(st)}</div>
-                       <div class="font-bold text-[10px] tabular-nums leading-tight" data-stage-pts="${sn}" data-stage="${st}">${val}</div>
+                       <div class="font-bold text-[10px] tabular-nums leading-tight" data-stage-pts="${snH}" data-stage="${st}">${val}</div>
                     </div>
                   `;
                }).join('')}

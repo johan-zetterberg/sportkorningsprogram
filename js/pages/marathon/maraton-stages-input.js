@@ -20,6 +20,7 @@ import { getViloboxBadgeInfo } from '../shared/vetCheckUtils.js';
 // Stage start and stop may be stamped on different phones: use the server's clock
 import { serverNow, setServerClockHold, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
+import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { stageDrivenMsAtRestart, stageStopDurationMs, stageStartPayload, isStageRestart, formatHoldTime } from './marathonObstacleOwnership.js';
 
 // Every page stays in the DOM: lookups are scoped to this page's container
@@ -1349,8 +1350,8 @@ function renderStagePanel(stage) {
 
       <div class="comment-wrapper">
         <div class="grid gap-3">
-          <textarea id="commentStart-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_comment_start')}"></textarea>
-          <textarea id="commentStop-${stage}" rows="2" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_comment_finish')}"></textarea>
+          <textarea id="commentStart-${stage}" rows="2" maxlength="1000" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_comment_start')}"></textarea>
+          <textarea id="commentStop-${stage}" rows="2" maxlength="1000" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_comment_finish')}"></textarea>
         </div>
       </div>
 
@@ -1367,7 +1368,7 @@ function renderStagePanel(stage) {
           <input id="bitOk" type="checkbox" class="h-5 w-5 rounded border-gray-300 dark:border-gray-600 text-blue-600">
           <span class="text-xs font-bold dark:text-gray-200 uppercase">${t('marathon_stages_bit_check_ok')}</span>
         </label>
-        <textarea id="bitComment" rows="1" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_bit_comment')}"></textarea>
+        <textarea id="bitComment" rows="1" maxlength="1000" class="w-full text-sm rounded-lg border dark:border-gray-700 px-3 py-2 dark:bg-gray-900/40 dark:text-white" placeholder="${t('marathon_stages_bit_comment')}"></textarea>
       </div>
       ` : ``}
 
@@ -1548,11 +1549,16 @@ function bindManualEditor(stage) {
       manualDuration: true
     };
 
+    const cid = competitionId;
+    const sn = currentEquipage.startNumber;
     try {
       // Queued without signal, not awaited until the server answers: the
       // popup stayed open offline and the judge typed the time again
       const saveResult = await awaitWriteOrQueue(saveStageSnapshot(stage, payload), {
-        onLateError: () => showAlert(t('marathon_stages_manual_time_error'), false)
+        onLateError: (error) => {
+          showAlert(t('marathon_stages_manual_time_error'), false);
+          reportRejectedWrite(cid, { discipline: 'marathon', startNumber: sn, payloadSummary: { stage, durationMs: ms, manualDuration: true }, error, source: 'maraton-stages-input' });
+        }
       });
       close();
       if (saveResult === 'queued') showAlert(`Tiden sparades.${queuedNotice(saveResult)}`, 'offline');
@@ -1914,9 +1920,13 @@ async function editClock(stage, kind) {
     : { stopClock: iso };
 
   const equipage = currentEquipage;
+  const cid = competitionId;
   // Queued without signal (see saveStageDetails), not awaited to the server
   const saveResult = await awaitWriteOrQueue(saveStageSnapshot(stage, payload, equipage), {
-    onLateError: () => showAlert('Kunde inte uppdatera klockslaget (nekades av servern).', false)
+    onLateError: (error) => {
+      showAlert('Kunde inte uppdatera klockslaget (nekades av servern).', false);
+      reportRejectedWrite(cid, { discipline: 'marathon', startNumber: equipage.startNumber, payloadSummary: { stage, ...payload }, error, source: 'maraton-stages-input' });
+    }
   });
   if (saveResult === 'queued') showAlert(`Klockslaget sparades.${queuedNotice(saveResult)}`, 'offline');
   if (currentEquipage !== equipage) return;
@@ -1970,8 +1980,12 @@ async function saveStageDetails(stage) {
     trackWrite(`Sparar maraton #${equipage.startNumber}`, setDoc(maratonDocRef(equipage.startNumber), rootPayload, { merge: true })),
     saveStageSnapshot(stage, stagePayload, equipage)
   ]);
+  const cid = competitionId;
   const saveResult = await awaitWriteOrQueue(writes, {
-    onLateError: () => showAlert(t('marathon_stages_save_error'), false)
+    onLateError: (error) => {
+      showAlert(t('marathon_stages_save_error'), false);
+      reportRejectedWrite(cid, { discipline: 'marathon', startNumber: equipage.startNumber, payloadSummary: { stage, ...stagePayload, eliminated, otherPenalty }, error, source: 'maraton-stages-input' });
+    }
   });
 
   // Update the screen only if it still shows this equipage

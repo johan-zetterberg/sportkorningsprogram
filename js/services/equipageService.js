@@ -22,6 +22,11 @@ const PRIVATE_EQUIPAGE_FIELDS = new Set([
   'personnummer',
   'phone',
   'ssn',
+  'driverSSN',
+  'driverEmail',
+  // Emergency contact
+  'iceName',
+  'icePhone',
   // Payments and the secretariat's own notes (from the entry system import)
   'payment',
   'administrativeFees',
@@ -354,13 +359,12 @@ export async function deleteEquipage(competitionId, equipageId) {
     if (!archived) {
       const id = String(equipageId);
       const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
-      // A finalized lock is unlocked through the logged unlock (the lock
-      // documents are only deleted by superadmins)
-      const finalization = await import('./finalizationService.js');
-      const unlockers = { dressage: finalization.unfinalizeDressage, marathon: finalization.unfinalizeMarathon, precision: finalization.unfinalizePrecision };
-      for (const [discipline, unlock] of Object.entries(unlockers)) {
-        const lock = await getDoc(doc(db, `competitions/${competitionId}/${discipline}Finalization/${id}`));
-        if (lock.exists() && lock.data()?.finalized === true) await unlock(competitionId, id);
+      // The result locks are deleted (and logged) on the server: the rules
+      // let only superadmins delete lock documents
+      const anyLock = await Promise.all(['dressage', 'marathon', 'precision']
+        .map(discipline => getDoc(doc(db, `competitions/${competitionId}/${discipline}Finalization/${id}`))));
+      if (anyLock.some(lock => lock.exists())) {
+        await httpsCallable(functions, 'clearEquipageFinalizationLocks')({ competitionId, startNumber: id });
       }
       const resultDocs = ['precision', 'maraton', 'maraton-timing', 'maratonLive', 'dressageStatus']
         .map(name => doc(db, `${base}/${name}/${id}`));

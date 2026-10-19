@@ -68,9 +68,14 @@
                 ]
             },
             {
+                "regex": "^/(.*\\.html)?$",
+                "headers": [
+                    { "key": "Content-Security-Policy", "value": "default-src 'self'; script-src 'self' 'sha256-6caA9rCirR3PIgksdBPMhmwqsUy7YowTWLK7BaquhBc=' 'sha256-yTg61YszC0prZwcfgnpOhChUIcSVQ1rjG9/lZvBJZ6g=' 'sha256-PaT4R+YElXeyWS2Xl1x7BVeewNmiN1EW0GCbIyOwJHA=' 'sha256-P9Fr/TrDgaKWNR0mOLDienUSk4Wds6xPjN6yNbcjfXg=' https://www.gstatic.com https://unpkg.com https://cdnjs.cloudflare.com https://apis.google.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://unpkg.com https://cdnjs.cloudflare.com; font-src 'self' data: https://fonts.gstatic.com https://cdnjs.cloudflare.com; img-src 'self' data: blob: https:; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://firebasestorage.googleapis.com https://europe-west1-combined-driving.cloudfunctions.net; worker-src 'self' blob:; frame-src 'self' blob: https://combined-driving.firebaseapp.com https://apis.google.com; manifest-src 'self'; media-src 'self' blob: https://firebasestorage.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'" }
+                ]
+            },
+            {
                 "source": "**",
                 "headers": [
-                    { "key": "Content-Security-Policy", "value": "frame-ancestors 'self'" },
                     { "key": "X-Frame-Options", "value": "SAMEORIGIN" },
                     { "key": "X-Content-Type-Options", "value": "nosniff" },
                     { "key": "Referrer-Policy", "value": "strict-origin-when-cross-origin" },

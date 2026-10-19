@@ -525,7 +525,7 @@ function renderGeneralEditor(readOnly) {
       </label>
       <label class="block">
         <span class="block text-sm font-medium text-gray-700 dark:text-gray-200 mb-1">Kommentar</span>
-        <textarea id="dressageGeneralErrorComment" rows="3" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">${escapeHtml(general.errorComment || '')}</textarea>
+        <textarea id="dressageGeneralErrorComment" rows="3" maxlength="1000" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 p-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">${escapeHtml(general.errorComment || '')}</textarea>
       </label>
     </div>
   `;

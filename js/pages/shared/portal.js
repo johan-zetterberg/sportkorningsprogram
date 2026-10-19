@@ -2,7 +2,8 @@ import { getGlobalState, setGlobalState } from '../../main.js';
 import { getDoc, doc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
-import { autoClaimEquipages } from '../../services/authService.js';
+import { autoClaimEquipages, logoutUser } from '../../services/authService.js';
+import { renderAccountSettingsSection, wireAccountSettings } from '../../ui/accountSettings.js';
 import { getComputedResultForEquipage, getEquipagePrivateData, saveEquipage, updateEquipageDeclaration } from '../../services/equipageService.js';
 import { getMarathonTimingForEquipage, getMarathonLiveDocument } from '../../services/marathonService.js';
 import { getPrecisionResultForEquipage } from '../../services/precisionService.js';
@@ -42,6 +43,7 @@ import {
 } from './horseTemperatureUtils.js';
 
 import { joinCompetitionAsAdmin, getJudges } from '../../services/adminService.js';
+import { readJoinRequest } from '../../utils/officialAccessUtils.js';
 import { getCompetitionDocuments, getCompetitionMessages, getDriverInbox, isMessageVisibleToDriver, isDocumentVisibleToDriver } from '../../services/documentService.js';
 import { listenForConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
@@ -253,6 +255,7 @@ export async function load(options = {}) {
                 <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">${t('login_required_title')}</h2>
                 <p class="text-gray-600 dark:text-gray-400 mb-4">${t('login_required_msg')}</p>
                 <div id="portal-login-placeholder"></div>
+                <a href="#privacy" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">${t('account_privacy_link')}</a>
             </div>
         `;
         return;
@@ -315,7 +318,7 @@ export async function load(options = {}) {
                     <div class="mt-6 pt-6 border-t dark:border-gray-700">
                         <h3 class="font-medium text-gray-900 dark:text-gray-200 mb-2 text-sm md:text-base">${t('cant_find_comp')} / Extra rättigheter</h3>
                         <p class="text-xs md:text-sm text-gray-500 dark:text-gray-400 mb-3">
-                            Tryck på Synkronisera om en tävling saknas, eller Bli Funktionär om du fått en tillfällig PIN-kod.
+                            Tryck på Synkronisera om en tävling saknas, eller Bli funktionär om du fått en funktionärskod.
                         </p>
                         <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
                             <button id="manualSyncBtn" class="text-white bg-blue-600 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-700 w-full md:w-auto">🔄 ${t('sync_btn')}</button>
@@ -339,7 +342,9 @@ export async function load(options = {}) {
                     </div>
                 </section>
             </div>
+            ${renderAccountSettingsSection(user.email)}
     `;
+    wireAccountSettings(container, { onDeleted: logoutUser });
 
     // Hantera klick på tävlingskort
     container.onclick = (e) => {
@@ -557,25 +562,32 @@ export async function load(options = {}) {
 
     document.getElementById('portalHelpBtn')?.addEventListener('click', showDriverPortalHelpModal);
 
-    document.getElementById('joinAsAdminBtn')?.addEventListener('click', () => {
+    // The code dialog. A join link (index.html?id=<comp>#portal?join=<role>)
+    // opens it with the competition filled in, so the official types the code only
+    const openJoinModal = (joinRequest = null) => {
+        document.getElementById('officialJoinModal')?.remove();
+        const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: 'Precision', speaker: 'Speaker', vet: 'Veterinär' };
         const modal = document.createElement('div');
+        modal.id = 'officialJoinModal';
         modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in";
         modal.innerHTML = `
-        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col transform transition-all scale-100">
+        <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col transform transition-all scale-100" role="dialog" aria-modal="true" aria-labelledby="officialJoinTitle">
             <div class="p-5 border-b dark:border-gray-700 bg-blue-50 dark:bg-blue-900/30 flex justify-between items-center">
-                <h3 class="font-bold text-lg text-blue-900 dark:text-blue-100">🔐 Ange Funktionärskod</h3>
+                <h3 id="officialJoinTitle" class="font-bold text-lg text-blue-900 dark:text-blue-100">🔐 Ange funktionärskod</h3>
                 <button id="closePinModal" type="button" aria-label="Stäng" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none">&times;</button>
             </div>
             <div class="p-6">
-                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Ange den 6-siffriga koden du fått av arrangören för att låsa upp funktionärs-rättigheter.</p>
+                <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">${joinRequest?.role
+                    ? `Ange koden för ${escapeHtml(roleLabels[joinRequest.role] || joinRequest.role)} som du fått av arrangören.`
+                    : 'Ange koden du fått av arrangören för att låsa upp din funktionärsroll.'}</p>
                 <div class="space-y-4">
-                    <div>
-                        <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">Tävlings-ID (Finns i URLen)</label>
+                    <div ${joinRequest?.competitionId ? 'class="hidden"' : ''}>
+                        <label for="pinCompId" class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">Tävlings-ID (finns i länken)</label>
                         <input type="text" id="pinCompId" class="w-full border rounded-md p-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder="t.ex. my-competition-2026">
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">PIN-kod</label>
-                        <input type="text" id="pinCodeInput" class="w-full border rounded-md p-3 text-center text-2xl tracking-widest font-mono font-bold dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" maxlength="8" inputmode="numeric" autocomplete="one-time-code" placeholder="PIN-kod">
+                        <label for="pinCodeInput" class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">Kod</label>
+                        <input type="text" id="pinCodeInput" class="w-full border rounded-md p-3 text-center text-xl tracking-widest font-mono font-bold uppercase dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" maxlength="16" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" placeholder="ABCD-EFGH-JK">
                     </div>
                 </div>
             </div>
@@ -586,21 +598,30 @@ export async function load(options = {}) {
         `;
         document.body.appendChild(modal);
 
-        // Autofill CompID if available in URL hash #portal/compId ? Wait, we don't know it. But usually users just copy paste. 
-        // Better yet, if they already clicked on a comp card before, we could pre-fill it.
+        // The competition from the link, else the one the user last opened
         const currentComp = getGlobalState('currentCompetition');
-        if (currentComp && currentComp.id) {
-            modal.querySelector('#pinCompId').value = currentComp.id;
-        }
+        const prefilledId = joinRequest?.competitionId || currentComp?.id || '';
+        if (prefilledId) modal.querySelector('#pinCompId').value = prefilledId;
+        modal.querySelector(prefilledId ? '#pinCodeInput' : '#pinCompId')?.focus();
 
-        modal.querySelector('#closePinModal').onclick = () => modal.remove();
+        // The link's role is used once: a reload does not open the dialog again
+        const forgetJoinLink = () => {
+            if (joinRequest && /[?&]join=/.test(window.location.hash)) {
+                history.replaceState(null, '', `${window.location.pathname}${window.location.search}#portal`);
+            }
+        };
+        modal.querySelector('#closePinModal').onclick = () => { forgetJoinLink(); modal.remove(); };
+        modal.querySelector('#pinCodeInput').addEventListener('keydown', (event) => {
+            if (event.key === 'Enter') modal.querySelector('#submitPinBtn').click();
+        });
         modal.querySelector('#submitPinBtn').onclick = async () => {
             const btn = modal.querySelector('#submitPinBtn');
             const compId = modal.querySelector('#pinCompId').value.trim();
-            const pin = modal.querySelector('#pinCodeInput').value.trim();
+            // Case and dashes do not matter (the server normalizes too)
+            const pin = modal.querySelector('#pinCodeInput').value.replace(/[\s-]+/g, '').toUpperCase();
 
             if (!compId || !pin) {
-                showAlert('Fyll i både Tävlings-ID och PIN-kod.', false);
+                showAlert('Fyll i både tävlings-ID och kod.', false);
                 return;
             }
 
@@ -608,15 +629,15 @@ export async function load(options = {}) {
             btn.textContent = 'Verifierar...';
 
             try {
-                const joinedRole = await joinCompetitionAsAdmin(compId, pin, user);
-                const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: 'Precision', speaker: 'Speaker', vet: 'Veterinär' };
+                const joinedRole = await joinCompetitionAsAdmin(compId, pin, user, joinRequest?.role || '');
                 const roleStr = roleLabels[joinedRole] || joinedRole;
                 showAlert(`Rättigheter beviljade (${roleStr})! Synkroniserar...`, true);
+                forgetJoinLink();
                 modal.remove();
-                
+
                 // Kör autoClaimEquipages för att uppdatera användarens roller lokalt i firestore users dokumentet (claims)
                 await autoClaimEquipages(user);
-                
+
                 // Sätt aktiv tävling så att de slipper gå via Hubben
                 try {
                     const compDoc = await getDoc(doc(db, `artifacts/${appId}/public/data/competitions/${compId}`));
@@ -631,12 +652,16 @@ export async function load(options = {}) {
                 setTimeout(() => location.reload(), 1500);
             } catch (err) {
                 console.error(err);
-                showAlert(err.message || 'Fel PIN-kod eller Tävlings-ID.', false);
+                showAlert(err.message || 'Fel kod eller tävlings-ID.', false);
                 btn.disabled = false;
                 btn.textContent = t('unlock');
             }
         };
-    });
+    };
+
+    document.getElementById('joinAsAdminBtn')?.addEventListener('click', () => openJoinModal());
+    const joinRequest = readJoinRequest(window.location);
+    if (joinRequest) openJoinModal(joinRequest);
 
     document.getElementById('adminImpersonateBtn')?.addEventListener('click', () => {
         const cid = document.getElementById('adminImpersonateCompId').value.trim();
@@ -740,7 +765,14 @@ async function renderDashboard(container, compId, startNumber, user) {
             loadDressageProgramSettings(compId),
             getDressageResultsForEquipage(compId, startNumber).catch(() => []),
             ensureClubLogosLoaded(),
-            inboxPromise.then(inbox => inbox ? (inbox.documents || []) : getCompetitionDocuments(compId).catch(() => [])),
+            // Driver-only files are saved by path: a URL is asked for here (storage.rules)
+            inboxPromise.then(inbox => inbox ? (inbox.documents || []) : getCompetitionDocuments(compId).catch(() => []))
+                .then(async (docs) => {
+                    if (!docs.some(d => d && !d.url && d.storagePath)) return docs;
+                    const { resolveDocumentUrls } = await import('../../services/storageService.js');
+                    return resolveDocumentUrls(docs);
+                })
+                .catch(() => []),
             inboxPromise.then(inbox => inbox ? (inbox.messages || []) : getCompetitionMessages(compId).catch(() => [])),
             // Readable only by the competition's staff (rules): empty for a
             // driver, and the officials panel is then left out. Judge positions
@@ -1120,6 +1152,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                         ...writes,
                         ...migration.removeKeys.map(key => ({ horseKey: key, record: null }))
                     ];
+                    // A refusal is shown to the driver only: rejectedWrites holds
+                    // result writes, which drivers may not add to
                     await saveHorseTemperatureChanges(compId, startNumber, changes, {
                         onLateError: () => showAlert('Temperaturerna kunde inte sparas på servern. Kontrollera och spara igen.', false)
                     });

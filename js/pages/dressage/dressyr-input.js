@@ -26,6 +26,7 @@ import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
+import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { readNewestBackupData, writeMergedBackup } from '../../utils/fieldBackup.js';
 import { serverNow } from '../../utils/serverClock.js';
 import {
@@ -724,7 +725,7 @@ function renderProtocol(testKey) {
             </div>
 
             <div class="comment-wrapper">
-                <textarea rows="1" placeholder="${t('input_add_comment')}" aria-label="${escapeHtml(t('input_comment_button').replace('{no}', moment.no))}" class="comment-input w-full p-2 text-base border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                <textarea rows="1" maxlength="1000" placeholder="${t('input_add_comment')}" aria-label="${escapeHtml(t('input_comment_button').replace('{no}', moment.no))}" class="comment-input w-full p-2 text-base border border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
             </div>
         `;
     protocolBody.appendChild(card);
@@ -1018,8 +1019,18 @@ async function saveProtocol() {
       expectedPositions
     }));
 
+    const cid = competitionId;
     const result = await awaitWriteOrQueue(Promise.all(writes), {
-      onLateError: () => showAlert(`#${startNumber}: ${t('alert_protocol_save_error')}`, false)
+      onLateError: (error) => {
+        showAlert(`#${startNumber}: ${t('alert_protocol_save_error')}`, false);
+        reportRejectedWrite(cid, {
+          discipline: 'dressage',
+          startNumber,
+          payloadSummary: { judge: judge._pos || judge.id, testKey, eliminated, points: finalJudgeScorePayload.points, errorPoints: generalData?.errorPoints },
+          error,
+          source: 'dressyr-input'
+        });
+      }
     });
 
     // Saved or queued in Firestore's offline store (with the backup above):
@@ -1757,7 +1768,7 @@ export function load() {
           
           <div class="md:col-span-4">
             <label for="errorCommentInput" class="block text-xs font-medium text-gray-700 dark:text-gray-300">${t('input_error_comment')}</label>
-            <textarea id="errorCommentInput" rows="1" class="mt-1 block w-full p-2 border rounded-md text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+            <textarea id="errorCommentInput" rows="1" maxlength="1000" class="mt-1 block w-full p-2 border rounded-md text-base dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
           </div>
 
           <div class="md:col-span-2 flex items-center h-full pt-5">

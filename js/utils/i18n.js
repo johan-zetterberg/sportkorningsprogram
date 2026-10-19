@@ -906,7 +906,19 @@ export const DICTIONARY = {
     'pdf_duration': { sv: 'Varaktighet', en: 'Duration' },
     'pdf_comment_short': { sv: 'Komm.', en: 'Rem.' },
     'pdf_time_seconds': { sv: 'Tid / s', en: 'Time / s' },
-    'pdf_time_faults': { sv: 'Tidfel', en: 'Time pen.' }
+    'pdf_time_faults': { sv: 'Tidfel', en: 'Time pen.' },
+
+    // Account and personal data (portal, admin settings)
+    'account_title': { sv: 'Mitt konto', en: 'My account' },
+    'account_privacy_link': { sv: 'Så hanteras dina personuppgifter', en: 'How your personal data is handled' },
+    'account_delete_btn': { sv: 'Radera mitt konto', en: 'Delete my account' },
+    'account_delete_info': { sv: 'Inloggningen, dina roller och kopplingar till anmälningar tas bort. Publicerade resultat ligger kvar. Kontaktuppgifter i anmälningar i arkiverade tävlingar raderas; i pågående och kommande tävlingar finns de kvar hos arrangören tills de gallras. Äger du tävlingar måste de först överlåtas eller raderas.', en: 'Your login, your roles and your links to entries are removed. Published results remain. Contact details in entries of archived competitions are deleted; in ongoing and upcoming competitions the organiser keeps them until they are purged. If you own competitions, transfer or delete them first.' },
+    'account_delete_confirm_email': { sv: 'Skriv din e-postadress för att bekräfta', en: 'Type your email address to confirm' },
+    'account_delete_submit': { sv: 'Radera kontot permanent', en: 'Delete the account permanently' },
+    'account_delete_mismatch': { sv: 'E-postadressen stämmer inte med kontot.', en: 'The email address does not match the account.' },
+    'account_delete_wrong_password': { sv: 'Fel lösenord.', en: 'Wrong password.' },
+    'account_deleted': { sv: 'Ditt konto är raderat.', en: 'Your account has been deleted.' },
+    'account_delete_failed': { sv: 'Kontot kunde inte raderas:', en: 'The account could not be deleted:' }
 
 };
 

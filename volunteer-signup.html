@@ -72,9 +72,18 @@
                     <h2 class="text-xl font-semibold mb-4 text-gray-800 border-b pb-2">Logistik & Säkerhet</h2>
                     <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <div class="md:col-span-2">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Kost / Allergier</label>
-                            <input type="text" id="volDiet" placeholder="T.ex. Vegetarian, Gluten..."
-                                class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none">
+                            <label for="volDiet" class="block text-sm font-medium text-gray-700 mb-1">Kost / Allergier</label>
+                            <select id="volDiet" class="w-full p-2 border rounded-md bg-white">
+                                <option value="Ingen">Ingen specialkost</option>
+                                <option value="Vegetarisk">Vegetarisk</option>
+                                <option value="Vegansk">Vegansk</option>
+                                <option value="Glutenfri">Glutenfri</option>
+                                <option value="Laktosfri">Laktosfri</option>
+                                <option value="Annat">Annat</option>
+                            </select>
+                            <input type="text" id="volDietOther" maxlength="80" placeholder="Beskriv kort, t.ex. nötallergi"
+                                aria-label="Annan kost eller allergi"
+                                class="hidden w-full mt-2 p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none">
                         </div>
 
                         <div>
@@ -104,9 +113,13 @@
                             <option value="Sjukvård">Sjukvård</option>
                             <option value="Övrigt">Övrigt</option>
                         </select>
+                        <fieldset id="volAvailabilityBox" class="hidden mb-4">
+                            <legend class="block text-sm font-medium text-gray-700 mb-1">När kan du hjälpa till?</legend>
+                            <div id="volAvailability" class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm"></div>
+                        </fieldset>
                         <label class="block text-sm font-medium text-gray-700 mb-1">Notering / Kompetens</label>
                         <textarea id="volNotes" rows="3"
-                            placeholder="T.ex. Kan köra traktor, har sjukvårdsutbildning, kan bara lördag..."
+                            placeholder="T.ex. Kan köra traktor, har sjukvårdsutbildning..."
                             class="w-full p-2 border rounded-md focus:ring-2 focus:ring-blue-500 outline-none"></textarea>
                     </div>
                 </div>
@@ -116,6 +129,11 @@
                         <label for="volWebsite">Lämna detta fält tomt</label>
                         <input type="text" id="volWebsite" name="website" tabindex="-1" autocomplete="off">
                     </div>
+                    <label class="flex items-start gap-2 text-sm text-gray-700 mb-4">
+                        <input type="checkbox" id="volConsent" required class="mt-1">
+                        <span>Jag godkänner att arrangören sparar mina uppgifter (även anhörigs namn och telefon) för att planera funktionärer till tävlingen.
+                            Läs mer i <a href="index.html#privacy" target="_blank" rel="noopener" class="text-blue-600 underline">integritetspolicyn</a>. *</span>
+                    </label>
                     <button type="submit" id="btnSubmit"
                         class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-6 rounded-lg shadow-md transition-colors text-lg">
                         Skicka Anmälan

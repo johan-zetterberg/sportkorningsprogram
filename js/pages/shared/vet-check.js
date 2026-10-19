@@ -62,7 +62,9 @@ function byId(id) {
 
 const connectionBanner = createConnectionBanner(() => document.querySelector('#page-vet-check .container'));
 
-// A save the server refuses after the page moved on (offline queue)
+// A save the server refuses after the page moved on (offline queue). Not
+// recorded in rejectedWrites: that list holds result writes (dressage,
+// marathon, precision) and the vet role may not add to it
 const lateSaveError = (what) => () => showAlert(`${what} kunde inte sparas på servern. Kontrollera och försök igen.`, false);
 
 export function load() {

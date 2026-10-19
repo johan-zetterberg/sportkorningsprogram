@@ -21,6 +21,7 @@ const globalState = {
 
 import { db, appId } from './config/firebase-config.js';
 import { installErrorReporter } from './utils/errorReporter.js';
+import { installDomActions } from './utils/domActions.js';
 import { doc, getDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // Uncaught errors are reported (no personal data, see errorReportUtils.js)
@@ -413,6 +414,9 @@ function initialize() {
             menuToggle.setAttribute('aria-expanded', String(!navLinksContainer.classList.contains('hidden')));
         });
     }
+
+    // data-action handlers in rendered markup (no inline onclick: CSP)
+    installDomActions();
 
     // Klickbara element som inte är knappar (role="button" data-kbd-click, t.ex.
     // klockor att trycka på för att ändra tid) går att använda med Enter och mellanslag

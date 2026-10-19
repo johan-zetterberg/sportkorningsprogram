@@ -700,7 +700,7 @@ function renderDesktop() {
       <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm font-semibold">${r.isEliminated ? `<span class="text-red-600 font-semibold">${escapeHtml(r.elimReason || 'ELIM')}</span>`
         : (r.plac ?? '')
       }</td>
-      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm sticky-col-start">${r.startNumber ?? ''}</td>
+      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm sticky-col-start">${escapeHtml(r.startNumber ?? '')}</td>
          <td class="px-2 py-1.5 lg:px-3 lg:py-2 sticky-col-driver">
       <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight flex items-center gap-1.5 flex-wrap">
         <span>${escapeHtml(r.driverName || '')}</span>

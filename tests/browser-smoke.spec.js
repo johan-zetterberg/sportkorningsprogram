@@ -52,8 +52,64 @@ const ROUTE_PERMISSIONS = {
   official: ['funktionar', 'domare', 'admin']
 };
 
+// CSP: the static server sends the firebase.json headers. A violation of the
+// enforced policy (no inline code: handlers use data-action, see
+// js/utils/domActions.js) fails the test; report-only ones would only be listed
+const cspViolations = new WeakMap();
+
+function isReportOnlyMessage(text) {
+  return /\[Report Only\]|policy is report-only/i.test(text);
+}
+
+test.beforeEach(async ({ page }) => {
+  const found = { enforced: [], reportOnly: [] };
+  cspViolations.set(page, found);
+  const record = (v) => {
+    const line = `${v.directive} blocked ${v.blockedURI || '(inline)'} at ${v.sourceFile || '?'}:${v.lineNumber || 0}`;
+    (v.disposition === 'report' ? found.reportOnly : found.enforced).push(line);
+  };
+  await page.context().exposeBinding('__reportCspViolation', (_source, v) => record(v)).catch(() => { });
+  await page.context().addInitScript(() => {
+    document.addEventListener('securitypolicyviolation', (e) => {
+      window.__reportCspViolation?.({
+        directive: e.effectiveDirective || e.violatedDirective,
+        blockedURI: e.blockedURI,
+        sourceFile: e.sourceFile,
+        lineNumber: e.lineNumber,
+        disposition: e.disposition
+      });
+    });
+  });
+  page.on('console', msg => {
+    const text = msg.text();
+    if (!/Content Security Policy/i.test(text)) return;
+    (isReportOnlyMessage(text) ? found.reportOnly : found.enforced).push(`console: ${text}`);
+  });
+});
+
+test.afterEach(async ({ page }, testInfo) => {
+  const found = cspViolations.get(page);
+  if (!found) return;
+  const unique = (list) => [...new Set(list)];
+  if (found.reportOnly.length) {
+    testInfo.annotations.push({ type: 'csp-report-only', description: unique(found.reportOnly).slice(0, 20).join('\n') });
+  }
+  expect(unique(found.enforced), 'Content-Security-Policy violations').toEqual([]);
+});
+
+test('the pages are served with the Content-Security-Policy from firebase.json', async ({ request }) => {
+  const res = await request.get('/index.html');
+  const csp = res.headers()['content-security-policy'] || '';
+  expect(csp).toContain("object-src 'none'");
+  expect(csp).toContain("frame-ancestors 'self'");
+  const scriptSrc = csp.split(';').map(s => s.trim()).find(s => s.startsWith('script-src ')) || '';
+  expect(scriptSrc).toContain("'self'");
+  expect(scriptSrc).not.toContain("'unsafe-inline'");
+});
+
 test.beforeEach(async ({ page }, testInfo) => {
   if (testInfo.title.includes('quick guide keeps keyboard focus')) return;
+  if (testInfo.title.includes('served with the Content-Security-Policy')) return;
   await useFirebaseEmulators(page);
   await loginIfNeeded(page);
 });
@@ -855,7 +911,7 @@ test('PDF reports are generated with pages, headings and the equipages', async (
   expect(driverNames, 'the seed has the Unicode driver').toContain(UNICODE_DRIVER_NAME);
 
   await page.goto('/index.html#reports');
-  await expect(page.locator('button[onclick="window.reports_generateTotalPdf()"]')).toBeVisible({ timeout: 60000 });
+  await expect(page.locator(reportButtonSelector('reports_generateTotalPdf()'))).toBeVisible({ timeout: 60000 });
   await page.waitForTimeout(2000); // the page's results are computed after load
 
   const results = {};
@@ -891,7 +947,7 @@ test('PDF reports are generated with pages, headings and the equipages', async (
     await saveConfig(competitionId, 'competitionMeta', { isInternational: true });
   }, competitionId);
   await page.reload();
-  await expect(page.locator('button[onclick="window.reports_generateTotalPdf()"]')).toBeVisible({ timeout: 60000 });
+  await expect(page.locator(reportButtonSelector('reports_generateTotalPdf()'))).toBeVisible({ timeout: 60000 });
   await page.waitForTimeout(2000);
   for (const report of INTERNATIONAL_PDF_REPORTS) {
     const result = await downloadReportPdf(page, report);
@@ -915,9 +971,19 @@ const INTERNATIONAL_PDF_REPORTS = [
   { call: 'reports_generateTotalPdf()', headings: [/RESULTS/, /Rank/, /Dressage/, /Marathon/, /Cones/, /Total/], notSwedish: [/Dressyr/, /Maraton/, /Totalt/] }
 ];
 
+// The report button for a call like "fn('arg')": data-action and its JSON
+// arguments (no inline onclick, see js/utils/domActions.js)
+function reportButtonSelector(call) {
+  const [, name, rawArgs] = call.match(/^(\w+)\((.*)\)$/);
+  const args = rawArgs ? rawArgs.split(',').map(a => a.trim().replace(/^'|'$/g, '')) : [];
+  return args.length
+    ? `button[data-action="${name}"][data-action-args='${JSON.stringify(args)}']`
+    : `button[data-action="${name}"]:not([data-action-args])`;
+}
+
 // Clicks a report button, then reads the downloaded PDF with the app's pdf.js
 async function downloadReportPdf(page, report) {
-  const button = page.locator(`button[onclick="window.${report.call}"]`);
+  const button = page.locator(reportButtonSelector(report.call));
   if (await button.count() === 0) return { missing: !report.optional, skipped: true };
   const downloadPromise = page.waitForEvent('download', { timeout: 60000 });
   await button.first().click();
@@ -1135,6 +1201,8 @@ function collectBrowserErrors(page, browserErrors) {
   page.on('console', msg => {
     if (msg.type() === 'error') {
       if (msg.text().includes('Failed to load resource:')) return;
+      // The strict report-only CSP is listed by afterEach, not an error
+      if (isReportOnlyMessage(msg.text())) return;
       browserErrors.push(`console.error: ${msg.text()}`);
     }
   });
@@ -1209,3 +1277,45 @@ async function seedPublicAudienceFixtures(page) {
     });
   });
 }
+
+test('the privacy notice opens without login, in Swedish and English', async ({ page }) => {
+  await page.goto('/index.html#privacy');
+  await expect(page.locator('#page-privacy h1')).toHaveText('Integritetspolicy', { timeout: 30000 });
+  await expect(page.locator('#loginModal')).toBeHidden();
+  await expect(page.locator('#privacy-retention')).toContainText('12 månader');
+  await expect(page.locator('#privacy-delete-account')).toBeVisible();
+  await page.locator('#privacyLangBtn').click();
+  await expect(page.locator('#page-privacy h1')).toHaveText('Privacy notice');
+  // Linked from the login dialog and the footer
+  await expect(page.locator('#loginPrivacyLink')).toHaveAttribute('href', '#privacy');
+  await expect(page.locator('#footerPrivacyLink')).toHaveAttribute('href', '#privacy');
+});
+
+test('deleting a finalized equipage removes its result locks on the server and logs it', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const result = await page.evaluate(async (competitionId) => {
+    const { db } = await import('../js/config/firebase-config.js');
+    const { collection, getDocs } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const { deleteEquipage } = await import('../js/services/equipageService.js');
+    const locks = await getDocs(collection(db, `competitions/${competitionId}/dressageFinalization`));
+    const sn = locks.docs[0]?.id;
+    if (!sn) return { skipped: true };
+    await deleteEquipage(competitionId, sn);
+    const read = async (path) => {
+      const res = await fetch(`http://127.0.0.1:8080/v1/projects/demo-combined-driving/databases/(default)/documents/${path}`, {
+        headers: { Authorization: 'Bearer owner' }
+      });
+      return res.json();
+    };
+    const lock = await read(`competitions/${competitionId}/dressageFinalization/${sn}`);
+    const log = await read(`competitions/${competitionId}/finalizationLog`);
+    const reasons = (log.documents || [])
+      .filter((d) => d.fields?.startNumber?.stringValue === sn)
+      .map((d) => d.fields?.reason?.stringValue || '');
+    return { lockGone: !lock.fields, reasons };
+  }, competitionId);
+  test.skip(result.skipped === true, 'Seedern skapade inget dressyrlås.');
+  expect(result.lockGone).toBe(true);
+  expect(result.reasons.some((reason) => reason.includes('Ekipaget raderades'))).toBe(true);
+});

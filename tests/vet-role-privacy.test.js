@@ -117,9 +117,9 @@ test('a horse with a vet result on the equipage keeps its name and key in the de
   assert.equal(merged[1].name, 'Nils');
 });
 
-test('the vet role joins by its own PIN', () => {
-  const secrets = { accessCode: 'admin-pin', accessCode_speaker: 'speaker-pin', accessCode_vet: 'vet-pin' };
-  assert.equal(resolveJoinRoleForPin('vet-pin', secrets), 'vet');
+test('the vet role joins by its own code', () => {
+  const secrets = { accessCode_speaker: 'SPKRKEY234', accessCode_vet: 'VETKEY2345' };
+  assert.equal(resolveJoinRoleForPin('vetk-ey23-45', secrets), 'vet');
   assert.deepEqual(normalizeJoinRoles(['vet', 'speaker']), ['vet', 'speaker']);
 });
 

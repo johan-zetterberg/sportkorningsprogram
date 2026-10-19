@@ -22,6 +22,7 @@ import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { serverNow, startServerClockSync, stopServerClockSync, setServerClockHold, isServerClockSynced } from '../../utils/serverClock.js';
 import { readNewestBackupData, writeMergedBackup, pruneFieldBackups } from '../../utils/fieldBackup.js';
 import { queuedNotice } from '../../utils/offlineWrite.js';
+import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { obstacleLiveEntry, mergeMarathonObstacles, MARATHON_LIVE_DEFAULTS } from '../../core-engine/stateSelector.js';
 import {
   markObstacleUpdateInProgress,
@@ -1350,9 +1351,20 @@ async function saveResult(e) {
   // (the saved equipage moves down among the done ones), and "next" from the
   // re-sorted list kept the judge on the equipage just saved
   const orderAtSave = sortedEquipages.slice();
+  const competitionIdAtSave = competitionId;
   try {
     const saved = await saveMarathonObstacleResult(competitionId, equipageId, obstacleNumber, resultData, {
-      onLateError: () => showAlert(`Hinderresultatet för #${equipageId} (hinder ${obstacleNumber}) nekades av servern när det skickades – resultatet kan vara låst. Kontakta sekretariatet.`, false)
+      onLateError: (error) => {
+        showAlert(`Hinderresultatet för #${equipageId} (hinder ${obstacleNumber}) nekades av servern när det skickades – resultatet kan vara låst. Kontakta sekretariatet.`, false);
+        reportRejectedWrite(competitionIdAtSave, {
+          discipline: 'marathon',
+          startNumber: equipageId,
+          obstacle: obstacleNumber,
+          payloadSummary: { timeInSeconds, knockdowns, otherPenalty, holdTimeSec, penalty: totalObstaclePenalty, eliminated },
+          error,
+          source: 'maraton-input'
+        });
+      }
     });
 
     if (saved?.status === 'queued') {
@@ -2421,7 +2433,7 @@ export async function load() {
              </div>
           </div>
           <div class="comment-wrapper">
-            <textarea id="maratonComment" rows="1" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('marathon_comment_placeholder')}"></textarea>
+            <textarea id="maratonComment" rows="1" maxlength="1000" class="block w-full p-2 text-sm border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="${t('marathon_comment_placeholder')}"></textarea>
           </div>
         </div>
         

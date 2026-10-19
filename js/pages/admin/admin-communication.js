@@ -35,6 +35,11 @@ function getDocumentBadge(document) {
     return renderDocumentAudienceBadge(document, getDocumentAudience);
 }
 
+// Storage folder of an uploaded file (storage.rules): drivers only -> drivers/
+function documentFolderForMode(audienceMode) {
+    return audienceMode === 'drivers_only' ? 'drivers' : 'public';
+}
+
 export function renderCommunicationTab(container, competition) {
     container.innerHTML = renderCommunicationTabMarkup();
 
@@ -145,11 +150,14 @@ export function renderCommunicationTab(container, competition) {
 
     async function refreshDocuments(compId) {
         const list = document.getElementById('documentsList');
-        const items = await getCompetitionDocuments(compId);
+        // Driver-only files are saved by path: a URL for this view
+        const { resolveDocumentUrls } = await import('../../services/storageService.js');
+        const items = await resolveDocumentUrls(await getCompetitionDocuments(compId));
 
         list.innerHTML = renderDocumentsList(items, getDocumentBadge);
         list.querySelectorAll('[data-delete-document-id]').forEach((button) => {
-            button.addEventListener('click', () => handleDeleteDocument(compId, button.dataset.deleteDocumentId));
+            const item = items.find(entry => entry.id === button.dataset.deleteDocumentId);
+            button.addEventListener('click', () => handleDeleteDocument(compId, button.dataset.deleteDocumentId, item?.storagePath));
         });
     }
 
@@ -164,10 +172,15 @@ export function renderCommunicationTab(container, competition) {
         }
     }
 
-    async function handleDeleteDocument(compId, id) {
+    async function handleDeleteDocument(compId, id, storagePath) {
         if (!confirm('Ta bort dokument?')) return;
         try {
             await deleteCompetitionDocument(compId, id);
+            // The uploaded file too (documents saved with a storage path)
+            if (storagePath) {
+                const { deleteStoredDocument } = await import('../../services/storageService.js');
+                await deleteStoredDocument(storagePath).catch(err => console.warn('Could not remove the file:', err));
+            }
             await refreshDocuments(compId);
         } catch (err) {
             console.error(err);
@@ -220,14 +233,22 @@ export function renderCommunicationTab(container, competition) {
         urlInput.readOnly = true;
 
         try {
-            const { uploadCompetitionDocument } = await import('../../services/storageService.js');
-            const url = await uploadCompetitionDocument(competition.id, file);
+            // The folder follows the chosen audience; submit moves the file
+            // if the audience is changed afterwards
+            const { uploadCompetitionDocumentFile, getStoredDocumentUrl } = await import('../../services/storageService.js');
+            const folder = documentFolderForMode(document.getElementById('docAudienceMode').value);
+            const uploaded = await uploadCompetitionDocumentFile(competition.id, file, folder);
 
-            urlInput.value = url;
+            // Shown to the admin only; for drivers/ the URL is not saved
+            urlInput.value = uploaded.url || await getStoredDocumentUrl(uploaded.storagePath) || '';
             pendingUploadedFile = {
                 name: file.name,
                 size: file.size,
-                type: file.type || null
+                type: file.type || null,
+                file,
+                folder: uploaded.folder,
+                storagePath: uploaded.storagePath,
+                url: uploaded.url
             };
 
             const titleInput = document.getElementById('docTitle');
@@ -367,11 +388,28 @@ export function renderCommunicationTab(container, competition) {
                 ? (customCategoryInput.value.trim() || 'Övrigt')
                 : categorySelect.value;
 
+            // An uploaded file lies in the folder of its audience
+            // (storage.rules): moved when the audience changed after upload.
+            // Driver-only files are saved by path only, without a URL
+            let uploadedFile = type === 'url' ? pendingUploadedFile : null;
+            const folder = documentFolderForMode(audienceMode);
+            if (uploadedFile && uploadedFile.folder !== folder) {
+                const { uploadCompetitionDocumentFile, deleteStoredDocument } = await import('../../services/storageService.js');
+                const moved = await uploadCompetitionDocumentFile(competition.id, uploadedFile.file, folder);
+                await deleteStoredDocument(uploadedFile.storagePath).catch(err => console.warn('Could not remove the old file:', err));
+                uploadedFile = { ...uploadedFile, ...moved };
+                pendingUploadedFile = uploadedFile;
+            }
+            const linkUrl = uploadedFile
+                ? (uploadedFile.folder === 'public' ? uploadedFile.url : null)
+                : (type === 'url' ? document.getElementById('docUrl').value.trim() : null);
+
             const payload = {
                 title: document.getElementById('docTitle').value.trim(),
                 category,
                 type,
-                url: type === 'url' ? document.getElementById('docUrl').value.trim() : null,
+                url: linkUrl,
+                storagePath: uploadedFile?.storagePath || null,
                 content: type === 'html' ? document.getElementById('docHtmlContent').value.trim() : null,
                 audience: audienceByMode[audienceMode],
                 isUpload: type === 'url' && !!pendingUploadedFile,

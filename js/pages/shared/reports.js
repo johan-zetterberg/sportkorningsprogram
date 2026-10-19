@@ -350,20 +350,20 @@ function render() {
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Generera startlistor för hela tävlingen eller per klass.</p>
                 <div class="space-y-2">
                     <div class="grid grid-cols-1 gap-2">
-                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('dressage')">
+                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" data-action="reports_generateStartListPdf" data-action-args='["dressage"]'>
                             <span>📄 Startlista Dressyr</span>
                             <span>➔</span>
                         </button>
-                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('marathon')">
+                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" data-action="reports_generateStartListPdf" data-action-args='["marathon"]'>
                             <span>📄 Startlista Maraton</span>
                             <span>➔</span>
                         </button>
-                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" onclick="window.reports_generateStartListPdf('precision')">
+                        <button class="w-full bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-800/50 text-blue-800 dark:text-blue-100 font-semibold py-2 px-3 rounded text-sm text-left flex items-center justify-between gap-3" data-action="reports_generateStartListPdf" data-action-args='["precision"]'>
                             <span>📄 Startlista Precision</span>
                             <span>➔</span>
                         </button>
                     </div>
-                    <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateStartListCsv()">
+                    <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateStartListCsv">
                         <span>📊 CSV Startlista (Grund)</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -375,15 +375,15 @@ function render() {
                 <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Dressyr</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Resultatlistor för dressyren.</p>
                 <div class="space-y-2">
-                    <button class="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateDressagePdf()">
+                    <button class="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateDressagePdf">
                         <span>📄 PDF Resultat</span>
                         <span class="text-lg">➔</span>
                     </button>
-                    <button class="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateDressageOfficialsPdf()">
+                    <button class="w-full bg-slate-100 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600 text-slate-800 dark:text-slate-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateDressageOfficialsPdf">
                         <span>📄 Funktionärslista (Tider)</span>
                         <span class="text-lg">➔</span>
                     </button>
-                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateDressageCsv()">
+                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateDressageCsv">
                         <span>📊 CSV Resultat</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -395,20 +395,20 @@ function render() {
                 <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Maraton</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Resultat och tider för maraton.</p>
                 <div class="space-y-2">
-                    <button class="w-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateMarathonPdf()">
+                    <button class="w-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateMarathonPdf">
                         <span>📄 PDF Resultat</span>
                         <span class="text-lg">➔</span>
                     </button>
                     <!-- NYA FUNKTIONÄRSLISTOR -->
-                    <button class="w-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateMarathonFunctionaryPdf()">
+                    <button class="w-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateMarathonFunctionaryPdf">
                         <span>📄 Funktionärslista (Tider)</span>
                         <span class="text-lg">➔</span>
                     </button>
-                    <button class="w-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateMarathonObstaclePdf()">
+                    <button class="w-full bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:hover:bg-emerald-800/50 text-emerald-800 dark:text-emerald-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateMarathonObstaclePdf">
                         <span>📄 Funktionärslista (Hinder)</span>
                         <span class="text-lg">➔</span>
                     </button>
-                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateMarathonCsv()">
+                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateMarathonCsv">
                         <span>📊 CSV Resultat</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -420,19 +420,19 @@ function render() {
                 <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Precision</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Resultatlistor för precision.</p>
                 <div class="space-y-2">
-                    <button class="w-full bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-800 dark:text-indigo-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generatePrecisionPdf()">
+                    <button class="w-full bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-800 dark:text-indigo-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generatePrecisionPdf">
                         <span>📄 PDF Resultat</span>
                         <span class="text-lg">➔</span>
                     </button>
-                    <button class="w-full bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-800 dark:text-indigo-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generatePrecisionOfficialsPdf()">
+                    <button class="w-full bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-800 dark:text-indigo-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generatePrecisionOfficialsPdf">
                         <span>📄 Funktionärslista (Bana)</span>
                         <span class="text-lg">➔</span>
                     </button>
-                    <button class="w-full bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-800 dark:text-indigo-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generatePrecisionCourseSetupPdf()">
+                    <button class="w-full bg-indigo-100 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:hover:bg-indigo-800/50 text-indigo-800 dark:text-indigo-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generatePrecisionCourseSetupPdf">
                         <span>📐 Banlayout & portar (PDF)</span>
                         <span class="text-lg">➔</span>
                     </button>
-                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generatePrecisionCsv()">
+                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generatePrecisionCsv">
                         <span>📊 CSV Resultat</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -444,11 +444,11 @@ function render() {
                 <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Totalresultat</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Sammanställning av hela tävlingen.</p>
                 <div class="space-y-2">
-                    <button class="w-full bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:hover:bg-yellow-800/50 text-yellow-800 dark:text-yellow-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateTotalPdf()">
+                    <button class="w-full bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:hover:bg-yellow-800/50 text-yellow-800 dark:text-yellow-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateTotalPdf">
                         <span>📄 PDF Totalt</span>
                         <span class="text-lg">➔</span>
                     </button>
-                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateTotalCsv()">
+                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateTotalCsv">
                         <span>📊 CSV Totalt</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -461,11 +461,11 @@ function render() {
                 <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Lagresultat</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Resultat för lagtävlingen.</p>
                 <div class="space-y-2">
-                    <button class="w-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-800/50 text-purple-800 dark:text-purple-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateTeamPdf()">
+                    <button class="w-full bg-purple-100 hover:bg-purple-200 dark:bg-purple-900/30 dark:hover:bg-purple-800/50 text-purple-800 dark:text-purple-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateTeamPdf">
                         <span>📄 PDF Lag</span>
                         <span class="text-lg">➔</span>
                     </button>
-                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateTeamCsv()">
+                     <button class="w-full bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateTeamCsv">
                         <span>📊 CSV Lag</span>
                         <span class="text-lg">➔</span>
                     </button>
@@ -478,7 +478,7 @@ function render() {
                 <h3 class="text-xl font-bold mb-4 text-gray-800 dark:text-white">Veterinärbesiktning</h3>
                 <p class="text-gray-600 dark:text-gray-400 mb-4 text-sm">Protokoll och hästlista för besiktning (TR Mom 526 / FEI Art 948).</p>
                 <div class="space-y-2">
-                    <button class="w-full bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/30 dark:hover:bg-teal-800/50 text-teal-800 dark:text-teal-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" onclick="window.reports_generateVetCheckPdf()">
+                    <button class="w-full bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/30 dark:hover:bg-teal-800/50 text-teal-800 dark:text-teal-100 font-semibold py-2 px-4 rounded transition flex items-center justify-between gap-3 text-left" data-action="reports_generateVetCheckPdf">
                         <span>📄 PDF Besiktningsprotokoll</span>
                         <span class="text-lg">➔</span>
                     </button>

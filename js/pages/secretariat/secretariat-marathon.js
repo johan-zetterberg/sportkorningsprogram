@@ -399,7 +399,7 @@ function buildObstacleRows() {
           <input data-field="eliminated" type="checkbox" ${view.eliminated ? 'checked' : ''} ${readOnly ? 'disabled' : ''} class="h-4 w-4 rounded border-gray-300 text-red-600 disabled:opacity-60">
         </td>
         <td class="px-3 py-3 text-sm min-w-[14rem]">
-          <input data-field="comment" value="${escapeHtml(view.comment || '')}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+          <input data-field="comment" maxlength="1000" value="${escapeHtml(view.comment || '')}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">
           ${readOnly ? `

@@ -8,6 +8,7 @@ import {
   assertSucceeds
 } from '@firebase/rules-unit-testing';
 import {
+  arrayUnion,
   collection,
   deleteDoc,
   deleteField,
@@ -16,6 +17,7 @@ import {
   FieldPath,
   getDoc,
   getDocs,
+  increment,
   orderBy,
   query,
   serverTimestamp,
@@ -1051,8 +1053,83 @@ test('admin may write public config and secrets config', { skip: !HAS_EMULATOR }
   }));
 
   await assertSucceeds(setDoc(doc(db, compPath('config/secrets')), {
-    accessCode: 'updated-admin-pin'
+    accessCode_speaker: 'ABCDEFGHJK'
   }));
+});
+
+test('secrets: role codes must be strong, the admin PIN can only be removed, expiry is a day', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('config/secrets')), {
+      accessCode: '12345678',
+      accessCode_marathon: '87654321'
+    });
+  });
+  await seedCompetitionRole('admin-codes-1', 'admin', 'admin-codes@example.com');
+  const db = testEnv.authenticatedContext('admin-codes-1', { email_verified: true, email: 'admin-codes@example.com' }).firestore();
+  const ref = doc(db, compPath('config/secrets'));
+
+  // Strong codes (10-12 symbols, no 0/O/1/I), grouped dashes are not stored
+  await assertSucceeds(setDoc(ref, { accessCode_marathon: 'MNPQRSTUVW', accessCode_vet: 'ABCDEFGHJKLM' }, { merge: true }));
+  await assertFails(setDoc(ref, { accessCode_dressage: '12345678' }, { merge: true }));
+  await assertFails(setDoc(ref, { accessCode_dressage: 'ABCD-EFGH-JK' }, { merge: true }));
+  await assertFails(setDoc(ref, { accessCode_dressage: 'ABCDEFGHJ0' }, { merge: true }));
+  // Untouched old fields do not block other writes
+  await assertSucceeds(setDoc(ref, { updatedAt: 1 }, { merge: true }));
+  // The admin PIN: no new value, removing it is fine
+  await assertFails(setDoc(ref, { accessCode: 'NEWADMINPIN' }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { accessCode: deleteField() }, { merge: true }));
+  // Expiry: a day or nothing
+  await assertSucceeds(setDoc(ref, { accessCodesExpireAt: '2026-05-18' }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { accessCodesExpireAt: null }, { merge: true }));
+  await assertFails(setDoc(ref, { accessCodesExpireAt: 'tomorrow' }, { merge: true }));
+});
+
+test('admins/{uid} (code joins) are written by the server only; admins may delete them', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('admin-joins-1', 'admin', 'admin-joins@example.com');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('admins/joined-speaker')), { role: 'speaker', roles: ['speaker'], email: 's@example.com' });
+  });
+  const adminDb = testEnv.authenticatedContext('admin-joins-1', { email_verified: true, email: 'admin-joins@example.com' }).firestore();
+  const selfDb = testEnv.authenticatedContext('self-joiner', { email_verified: true, email: 'self@example.com' }).firestore();
+  await assertFails(setDoc(doc(selfDb, compPath('admins/self-joiner')), { role: 'admin', roles: ['admin'] }));
+  await assertFails(updateDoc(doc(adminDb, compPath('admins/joined-speaker')), { roles: ['speaker', 'admin'] }));
+  await assertSucceeds(deleteDoc(doc(adminDb, compPath('admins/joined-speaker'))));
+});
+
+test('an admins/{uid} doc without role or roles grants nothing', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('admins/no-role-user')), { email: 'norole@example.com', joinedAt: 1 });
+    await setDoc(doc(db, compPath('config/secrets')), { accessCode_speaker: 'ABCDEFGHJK' });
+  });
+  const db = testEnv.authenticatedContext('no-role-user', { email_verified: true, email: 'norole@example.com' }).firestore();
+  // Not an admin: no secrets, no private collections, no competition settings
+  await assertFails(getDoc(doc(db, compPath('config/secrets'))));
+  await assertFails(getDocs(collection(db, compPath('volunteerSignups'))));
+  await assertFails(setDoc(doc(db, compPath('config/display')), { title: 'x' }));
+  // Not staff either: no officials list
+  await assertFails(getDocs(collection(db, compPath('officials'))));
+  // The own doc stays readable (the hub lists it)
+  await assertSucceeds(getDoc(doc(db, compPath('admins/no-role-user'))));
+});
+
+test('volunteer signups: admins set the approval status only', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('volunteerSignups/signup-status')), {
+      name: 'Volunteer', email: 'v@example.com', status: 'new', createdAt: 1
+    });
+  });
+  await seedCompetitionRole('admin-signups-1', 'admin', 'admin-signups@example.com');
+  await seedCompetitionRole('speaker-signups-1', 'speaker', 'speaker-signups@example.com');
+  const adminDb = testEnv.authenticatedContext('admin-signups-1', { email_verified: true, email: 'admin-signups@example.com' }).firestore();
+  const speakerDb = testEnv.authenticatedContext('speaker-signups-1', { email_verified: true, email: 'speaker-signups@example.com' }).firestore();
+  const adminRef = doc(adminDb, compPath('volunteerSignups/signup-status'));
+
+  await assertFails(updateDoc(doc(speakerDb, compPath('volunteerSignups/signup-status')), { status: 'approved' }));
+  await assertFails(updateDoc(adminRef, { email: 'other@example.com' }));
+  await assertFails(updateDoc(adminRef, { status: 'whatever' }));
+  await assertFails(updateDoc(adminRef, { status: 'approved', statusBy: 'someone-else' }));
+  await assertSucceeds(updateDoc(adminRef, { status: 'approved', statusAt: 2, statusBy: 'admin-signups-1', officialId: 'off-1' }));
 });
 
 test('non-admin competition role may not write config documents', { skip: !HAS_EMULATOR }, async () => {
@@ -1520,4 +1597,261 @@ test('a co-admin in admins[] cannot take ownership or delete the competition', {
 test('rules test environment is using the intended project id', { skip: !HAS_EMULATOR }, () => {
   // A demo project (scripts/run-firestore-rules-tests.mjs): never the real one
   assert.equal(PROJECT_ID, 'demo-combined-driving');
+});
+
+// ---- Shape and size of result and live documents -------------------------
+
+function officialDb(uid) {
+  return testEnv.authenticatedContext(uid, { email_verified: true, email: `${uid}@example.com` }).firestore();
+}
+
+const movements = (n) => Array.from({ length: n }, (_, i) => ({ momentNo: i + 1, score: 7, comment: '' }));
+
+test('precision results take the fields the app writes, nothing else and nothing oversized', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('prec-shape-1', 'precision');
+  const db = officialDb('prec-shape-1');
+  const ref = doc(db, compPath(`precision/${START_NO}`));
+  // savePrecisionResult
+  await assertSucceeds(setDoc(ref, {
+    startNumber: 101, className: 'Häst', driverName: 'Anna', trackWidthCm: 140,
+    timeMs: 120000, liveTimeMs: 120000, livePausedMs: 0, liveStartEpoch: null,
+    obstaclePenalty: 3, timePenalty: 0, extraPenalty: 0, totalPenalty: 3,
+    liveObstaclePenalty: 3, liveTimePenalty: 0, liveTotalPenalty: 3,
+    eliminated: false, disqualified: false, running: false, inProgress: false, finalized: false,
+    status: 'Klar', comment: 'Bra', updatedAt: Date.now(), knocks: ['1', '4A'], timePenaltyOverride: false
+  }, { merge: true }));
+  // precision-input knock toggle, rebuild count, split timing
+  await assertSucceeds(setDoc(ref, {
+    startNumber: 101, className: 'Häst', knocks: arrayUnion('5'), knockDownTimes: { 5: 4100 },
+    obstaclePenalty: deleteField(), liveObstaclePenalty: 6, liveTotalPenalty: 6, extraPenalty: 0, updatedAt: Date.now()
+  }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { rebuildCount: increment(1), updatedAt: Date.now() }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { gateSplits: { start: Date.now() }, running: true, status: 'Pågår' }, { merge: true }));
+
+  await assertFails(setDoc(ref, { isAdmin: true }, { merge: true }));
+  await assertFails(setDoc(ref, { comment: 'x'.repeat(1001) }, { merge: true }));
+  await assertFails(setDoc(ref, { timeMs: '120000' }, { merge: true }));
+  await assertFails(setDoc(ref, { knocks: Array.from({ length: 101 }, (_, i) => String(i)) }, { merge: true }));
+  await assertFails(setDoc(doc(db, compPath('precision/102')), { startNumber: 102, html: '<img src=x onerror=alert(1)>' }));
+});
+
+test('dressage protocols, status and live documents are checked for shape and size', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('dre-shape-1', 'dressage');
+  const db = officialDb('dre-shape-1');
+  const judgeRef = doc(db, compPath(`dressage/${START_NO}/protocols/judge_j1`));
+  await assertSucceeds(setDoc(judgeRef, {
+    startNumber: START_NO, judgeId: 'j1', judgeName: 'Dora', judgePosition: 'C', position: 'C',
+    testKey: 'FEI_2star_HP2_2024', programKey: 'FEI_2star_HP2_2024', eliminated: false,
+    movements: movements(26), updatedAt: serverTimestamp()
+  }, { merge: true }));
+  await assertSucceeds(setDoc(doc(db, compPath(`dressage/${START_NO}/protocols/general`)), {
+    errorPoints: 2, errorComment: 'Fel väg', updatedAt: serverTimestamp()
+  }, { merge: true }));
+  await assertFails(setDoc(judgeRef, { movements: movements(61) }, { merge: true }));
+  await assertFails(setDoc(judgeRef, { finalScore: 99 }, { merge: true }));
+  await assertFails(setDoc(doc(db, compPath(`dressage/${START_NO}/protocols/general`)), { errorComment: 'x'.repeat(1001) }, { merge: true }));
+
+  const statusRef = doc(db, compPath(`dressageStatus/${START_NO}`));
+  await assertSucceeds(setDoc(statusRef, {
+    state: 'finished', judgeId: 'j1', judgeName: 'Dora', judgePosition: 'C', updatedAt: serverTimestamp(),
+    finishedAt: serverTimestamp(), protocol: null, lastUpdate: null,
+    finalJudgeScore: { judgeId: 'j1', judgeName: 'Dora', judgePosition: 'C', points: 180, totalPoints: 260, penalty: 30.8, percent: 69.2, eliminated: false },
+    judgesDone: { C: true }, judgeScores: { C: { points: 180 } }, expectedPositions: ['C', 'E']
+  }, { merge: true }));
+  await assertFails(setDoc(statusRef, { winner: true }, { merge: true }));
+  await assertFails(setDoc(statusRef, { judgesDone: Object.fromEntries(Array.from({ length: 21 }, (_, i) => [`J${i}`, true])) }, { merge: true }));
+
+  const liveRef = doc(db, compPath(`dressageStatus/${START_NO}/live/C`));
+  await assertSucceeds(setDoc(liveRef, {
+    state: 'ongoing',
+    protocol: { judgeId: 'j1', judgeName: 'Dora', judgePosition: 'C', testKey: 'x', eliminated: false, movements: movements(26) },
+    lastUpdate: { momentNo: 3, momentText: 'Halt', score: 7, judgeId: 'j1', judgeName: 'Dora', judgePosition: 'C' },
+    updatedAt: serverTimestamp()
+  }, { merge: true }));
+  await assertFails(setDoc(liveRef, { protocol: { movements: movements(61) } }, { merge: true }));
+  await assertFails(setDoc(liveRef, { other: 'x' }, { merge: true }));
+
+  // Older paths the app no longer writes
+  await assertFails(setDoc(doc(db, compPath(`dressageResults/${START_NO}/protocols/judge_j1`)), { movements: [] }));
+  await assertFails(setDoc(doc(db, compPath(`dressage/${START_NO}/meta/status`)), { state: 'x' }));
+});
+
+test('marathon summary, timing and obstacle documents are checked for shape and size', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('mar-shape-1', 'marathon');
+  const db = officialDb('mar-shape-1');
+  const ref = doc(db, compPath(`maraton/${START_NO}`));
+  const entry = {
+    number: 3, timeInSeconds: 95, timeSeconds: 95, timeMs: 95000, timePenalty: 0, knockdowns: 0,
+    knockdownPenalty: 0, otherPenalty: 0, penalty: 0, comment: '', eliminated: false, holdTimeSec: 0,
+    routeString: 'ABCDEF', gateSplits: [{ char: 'A', ts: 1000 }]
+  };
+  const live = {
+    running: false, inProgress: false, pausedByGlobalPause: false, liveObstacleTimeMs: 0, liveObstacleStartAt: null,
+    live_staticStartAt: null, live_routeString: '', live_knockdowns: '0', live_otherPenalty: '0', live_holdTimeSec: '',
+    live_comment: '', live_eliminated: false, live_gateSplits: [], updatedAt: serverTimestamp()
+  };
+  // saveMarathonObstacleResult (both documents in one batch)
+  const batch = writeBatch(db);
+  batch.set(ref, { obstacleResults: { 3: { ...entry, updatedAt: serverTimestamp() } }, obstacleLive: { 3: live }, updatedAt: serverTimestamp() }, { merge: true });
+  batch.set(doc(db, compPath(`maratonResults/${START_NO}/obstacles/3`)), { ...entry, obstacleNumber: 3, updatedAt: serverTimestamp() }, { merge: true });
+  await assertSucceeds(batch.commit());
+  // maraton-input live push and obstacle times
+  await assertSucceeds(setDoc(ref, { startNumber: 101, className: 'Häst', obstacleLive: { 4: { ...live, running: true } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { obstacleTimes: { 4: { enteredAt: serverTimestamp(), enteredAtClient: '2026-10-19T10:00:00Z' } } }, { merge: true }));
+  // maraton-stages-input (flat keys, the older spellings and literal dotted keys)
+  await assertSucceeds(setDoc(ref, {
+    startNumber: 101, className: 'Häst', start_A: '2026-10-19T10:00:00Z', start_TRANSPORT: null,
+    startClock_A: '2026-10-19T10:00:00Z', runningSince_A: '2026-10-19T10:00:00Z', commentStart_A: 'ok',
+    runningStage: 'A', 'stages.A.startClock': '2026-10-19T10:00:00Z', 'timing.A.startClock': '2026-10-19T10:00:00Z',
+    updatedAt: serverTimestamp()
+  }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { eliminated: false, otherPenalty: 5, otherPenaltySection: 'B', bitCheckOk: true, bettOk: true, bitCheckComment: '', bettComment: '', updatedAt: serverTimestamp() }, { merge: true }));
+  // observator-input
+  await assertSucceeds(setDoc(ref, { observerLog: { wrongGaitSeconds: increment(5), notes: 'Galopp vid B' }, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { observerLog: { halts: arrayUnion({ atSec: 30, durSec: 4 }) }, updatedAt: serverTimestamp() }, { merge: true }));
+
+  await assertFails(setDoc(ref, { hacked: true }, { merge: true }));
+  await assertFails(setDoc(ref, { commentStart_A: 'x'.repeat(1001) }, { merge: true }));
+  await assertFails(setDoc(ref, { observerLog: { notes: 'x'.repeat(2001) } }, { merge: true }));
+  await assertFails(setDoc(ref, { observerLog: { other: 1 } }, { merge: true }));
+  await assertFails(setDoc(ref, { obstacleResults: Object.fromEntries(Array.from({ length: 41 }, (_, i) => [String(i + 1), entry])) }, { merge: true }));
+  await assertFails(setDoc(ref, { otherPenalty: '5' }, { merge: true }));
+
+  const obsRef = doc(db, compPath(`maratonResults/${START_NO}/obstacles/3`));
+  await assertFails(setDoc(obsRef, { comment: 'x'.repeat(1001) }, { merge: true }));
+  await assertFails(setDoc(obsRef, { penalty: 'none' }, { merge: true }));
+  await assertFails(setDoc(obsRef, { extra: 1 }, { merge: true }));
+
+  const timingRef = doc(db, compPath(`maraton-timing/${START_NO}`));
+  await assertSucceeds(setDoc(timingRef, { startNumber: 101, className: 'Häst', duration_A: 1800000, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertFails(setDoc(timingRef, { duration_A: '30 min' }, { merge: true }));
+  await assertFails(setDoc(timingRef, { note: 'x' }, { merge: true }));
+
+  // Obstacle definitions (maraton-admin): a full overwrite
+  const defRef = doc(db, compPath('maratonObstacles/3'));
+  await assertSucceeds(setDoc(defRef, { number: 3, name: 'Vattnet', gateCount: 6, classOverrides: { Ponny: 5 }, knockdown: { enabled: true, penaltySec: 5 } }));
+  await assertFails(setDoc(defRef, { number: 3, name: 'x'.repeat(201) }));
+  await assertFails(setDoc(defRef, { number: 3, name: 'Vattnet', script: '<b>' }));
+  await assertSucceeds(deleteDoc(defRef));
+
+  // Older live documents: no writes
+  await assertFails(setDoc(doc(db, compPath(`maratonLive/${START_NO}`)), { running: true }));
+});
+
+test('equipage start numbers are digits equal to the document id, and private fields stay off', { skip: !HAS_EMULATOR }, async () => {
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(ownerDb, compPath('equipages/12')), { startNumber: 12, driverName: 'Anna', className: 'Häst' }));
+  await assertSucceeds(setDoc(doc(ownerDb, compPath('equipages/13')), { startNumber: '13', driverName: 'Bo', className: 'Häst' }));
+  await assertSucceeds(setDoc(doc(ownerDb, compPath('equipages/007')), { startNumber: 7, driverName: 'Cia', className: 'Häst' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('equipages/14')), { startNumber: 15, driverName: 'Fel' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('equipages/16')), { driverName: 'Inget nummer' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('equipages/17')), { startNumber: '17"><img src=x onerror=alert(1)>' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('equipages/x1')), { startNumber: 'x1' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('equipages/1234567')), { startNumber: 1234567 }));
+  // Private fields belong on equipagePrivate
+  for (const field of ['email', 'driverEmail', 'driverSSN', 'ssn', 'personnummer', 'phone', 'payment', 'icePhone']) {
+    await assertFails(setDoc(doc(ownerDb, compPath('equipages/18')), { startNumber: 18, [field]: 'x' }));
+    await assertFails(updateDoc(doc(ownerDb, compPath('equipages/12')), { [field]: 'x' }));
+  }
+  // Updates: the start number only checked when written
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath('equipages/12')), { clubName: 'Klubben' }));
+  await assertFails(updateDoc(doc(ownerDb, compPath('equipages/12')), { startNumber: '<b>12</b>' }));
+  // An older document holding a private field: other updates work, and the
+  // privacy migration may remove it
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('equipages/20')), { startNumber: 20, email: 'old@example.com' });
+  });
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath('equipages/20')), { clubName: 'Klubben' }));
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath('equipages/20')), { email: deleteField() }));
+  await assertFails(updateDoc(doc(ownerDb, compPath('equipages/20')), { email: 'new@example.com' }));
+});
+
+test('speaker notes from the speaker are capped like the driver\'s', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('speaker-cap-1', 'speaker');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath('equipages/30')), { startNumber: 30, driverName: 'Dan' });
+  });
+  const db = officialDb('speaker-cap-1');
+  await assertSucceeds(updateDoc(doc(db, compPath('equipages/30')), { speakerNotes: 'x'.repeat(2000) }));
+  await assertFails(updateDoc(doc(db, compPath('equipages/30')), { speakerNotes: 'x'.repeat(2001) }));
+});
+
+test('finalization locks of a draft competition are not public', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: true });
+    await setDoc(doc(db, compPath()), { published: false }, { merge: true });
+  });
+  const anonDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDoc(doc(anonDb, rootCompPath(`precisionFinalization/${START_NO}`))));
+  await assertFails(getDocs(collection(anonDb, rootCompPath('precisionFinalization'))));
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(getDoc(doc(ownerDb, rootCompPath(`precisionFinalization/${START_NO}`))));
+
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath()), { published: true }, { merge: true });
+  });
+  await assertSucceeds(getDoc(doc(anonDb, rootCompPath(`precisionFinalization/${START_NO}`))));
+  await assertSucceeds(getDocs(collection(anonDb, rootCompPath('dressageFinalization'))));
+  // No competition at all: nothing to show
+  await assertFails(getDoc(doc(anonDb, 'competitions/no-such-comp/marathonFinalization/1')));
+});
+
+test('finalization log names and claimed equipage lists are capped', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('prec-byname-1', 'precision');
+  const db = officialDb('prec-byname-1');
+  const lock = doc(db, rootCompPath(`precisionFinalization/${START_NO}`));
+  const logEntry = (byName) => {
+    const b = writeBatch(db);
+    const logRef = doc(collection(db, rootCompPath('finalizationLog')));
+    b.set(logRef, { discipline: 'precision', action: 'finalize', startNumber: START_NO, by: 'prec-byname-1', byName, at: serverTimestamp() });
+    b.set(lock, { finalized: true, lastLogId: logRef.id }, { merge: true });
+    return b.commit();
+  };
+  await assertFails(logEntry('x'.repeat(201)));
+  await assertFails(logEntry(42));
+  await assertSucceeds(logEntry('Anna Andersson'));
+
+  const userDb = testEnv.authenticatedContext('claim-cap-1', { email_verified: true, email: 'claim@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(userDb, 'users/claim-cap-1'), { email: 'claim@example.com', role: 'publik', claimedEquipages: [] }));
+  const claims = (n) => Array.from({ length: n }, (_, i) => ({ competitionId: `c${i}`, startNumber: i, competitionName: 'T' }));
+  await assertSucceeds(updateDoc(doc(userDb, 'users/claim-cap-1'), { claimedEquipages: claims(200) }));
+  await assertFails(updateDoc(doc(userDb, 'users/claim-cap-1'), { claimedEquipages: claims(201) }));
+});
+test('competition privacy settings: retentionMonths 1-120 whole months, short privacy contact', { skip: !HAS_EMULATOR }, async () => {
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { retentionMonths: 24, privacyContact: 'sekreterare@klubben.se' }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { retentionMonths: 0 }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { retentionMonths: 121 }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { retentionMonths: 6.5 }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { retentionMonths: '12' }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { privacyContact: 'x'.repeat(201) }));
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { retentionMonths: deleteField(), privacyContact: deleteField() }));
+});
+
+test('retention and account deletion records are server only', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'retentionRuns/r1'), { startedAt: 1 });
+    await setDoc(doc(db, 'personalDataRetention/a__b'), { purgedAt: 1 });
+    await setDoc(doc(db, 'accountDeletions/d1'), { deletedAt: 1 });
+  });
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), 'users/global-admin-r'), { email: 'ga@example.com', role: 'admin' });
+  });
+  const adminDb = testEnv.authenticatedContext('global-admin-r', { email_verified: true, email: 'ga@example.com' }).firestore();
+  for (const path of ['retentionRuns/r1', 'personalDataRetention/a__b', 'accountDeletions/d1']) {
+    await assertFails(getDoc(doc(adminDb, path)));
+    await assertFails(setDoc(doc(adminDb, path), { x: 1 }));
+    await assertFails(deleteDoc(doc(adminDb, path)));
+  }
+});
+
+test('competition admins may not delete result lock documents directly (clearEquipageFinalizationLocks does)', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('lock-admin-1', 'admin');
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), rootCompPath(`dressageFinalization/${START_NO}`)), { finalized: true });
+  });
+  const adminDb = testEnv.authenticatedContext('lock-admin-1', { email_verified: true, email: 'lock-admin-1@example.com' }).firestore();
+  await assertFails(deleteDoc(doc(adminDb, rootCompPath(`dressageFinalization/${START_NO}`))));
 });

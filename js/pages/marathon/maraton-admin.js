@@ -826,7 +826,8 @@ async function setupMapSettings() {
       if (key === 'transport') label = 'T';
       if (key === 'finish') label = 'F';
 
-      marker.bindTooltip(label, {
+      // Leaflet renders tooltip strings as HTML
+      marker.bindTooltip(escapeHtml(label), {
         permanent: true,
         direction: 'top',
         className: 'picker-tooltip'

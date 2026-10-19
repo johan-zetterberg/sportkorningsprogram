@@ -399,9 +399,12 @@ export function renderStarttiderActionButtons({
         precision: { shortLabel: 'P', mobileLabel: 'Precision:', color: 'bg-indigo-100', text: 'text-indigo-700' }
     };
     const style = disciplineStyles[discipline] || disciplineStyles.dressage;
-    const pauseTitle = labels.pause || 'Paus';
-    const moveUpTitle = labels.moveUp || 'Flytta upp';
-    const moveDownTitle = labels.moveDown || 'Flytta ner';
+    // Escaped once for attribute use below
+    const disciplineAttr = escapeHtml(discipline);
+    const snAttr = escapeHtml(startNumber);
+    const pauseTitle = escapeHtml(labels.pause || 'Paus');
+    const moveUpTitle = escapeHtml(labels.moveUp || 'Flytta upp');
+    const moveDownTitle = escapeHtml(labels.moveDown || 'Flytta ner');
     const upDisabled = index === 0 ? 'opacity-25' : '';
     const downDisabled = index === totalRows - 1 ? 'opacity-25' : '';
 
@@ -410,9 +413,9 @@ export function renderStarttiderActionButtons({
             <div class="flex items-center justify-between w-full gap-2 p-0.5 rounded ${style.color}">
                 <span class="font-bold text-[10px] text-gray-600 w-16 text-left">${style.mobileLabel}</span>
                 <div class="flex items-center gap-1">
-                    <button type="button" class="action-btn text-gray-600 hover:text-blue-600 min-w-[36px] min-h-[36px] px-1" data-action="pause" data-discipline="${discipline}" data-sn="${startNumber}" title="${pauseTitle}" aria-label="${pauseTitle}">☕</button>
-                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 min-w-[36px] min-h-[36px] px-1 ${upDisabled}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${startNumber}" title="${moveUpTitle}" aria-label="${moveUpTitle}">▲</button>
-                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 min-w-[36px] min-h-[36px] px-1 ${downDisabled}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${startNumber}" title="${moveDownTitle}" aria-label="${moveDownTitle}">▼</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-blue-600 min-w-[36px] min-h-[36px] px-1" data-action="pause" data-discipline="${disciplineAttr}" data-sn="${snAttr}" title="${pauseTitle}" aria-label="${pauseTitle}">☕</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 min-w-[36px] min-h-[36px] px-1 ${upDisabled}" data-action="move" data-discipline="${disciplineAttr}" data-dir="up" data-sn="${snAttr}" title="${moveUpTitle}" aria-label="${moveUpTitle}">▲</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 min-w-[36px] min-h-[36px] px-1 ${downDisabled}" data-action="move" data-discipline="${disciplineAttr}" data-dir="down" data-sn="${snAttr}" title="${moveDownTitle}" aria-label="${moveDownTitle}">▼</button>
                 </div>
             </div>`;
     }
@@ -421,9 +424,9 @@ export function renderStarttiderActionButtons({
             <div class="flex items-center justify-between w-full gap-1 py-1 pl-2 pr-1 rounded-full ${style.color}">
                 <span class="font-bold text-xs ${style.text} w-4 text-left">${style.shortLabel}</span>
                 <div class="flex items-center gap-1">
-                    <button type="button" class="action-btn text-gray-600 hover:text-blue-600" data-action="pause" data-discipline="${discipline}" data-sn="${startNumber}" title="${pauseTitle}" aria-label="${pauseTitle}">☕</button>
-                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 ${upDisabled}" data-action="move" data-discipline="${discipline}" data-dir="up" data-sn="${startNumber}" title="${moveUpTitle}" aria-label="${moveUpTitle}">▲</button>
-                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 ${downDisabled}" data-action="move" data-discipline="${discipline}" data-dir="down" data-sn="${startNumber}" title="${moveDownTitle}" aria-label="${moveDownTitle}">▼</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-blue-600" data-action="pause" data-discipline="${disciplineAttr}" data-sn="${snAttr}" title="${pauseTitle}" aria-label="${pauseTitle}">☕</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 ${upDisabled}" data-action="move" data-discipline="${disciplineAttr}" data-dir="up" data-sn="${snAttr}" title="${moveUpTitle}" aria-label="${moveUpTitle}">▲</button>
+                    <button type="button" class="action-btn text-gray-600 hover:text-green-600 ${downDisabled}" data-action="move" data-discipline="${disciplineAttr}" data-dir="down" data-sn="${snAttr}" title="${moveDownTitle}" aria-label="${moveDownTitle}">▼</button>
                 </div>
             </div>`;
 }

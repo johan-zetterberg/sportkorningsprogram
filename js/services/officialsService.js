@@ -17,7 +17,7 @@ import {
     deleteOfficial as deleteOfficialCore
 } from './adminService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
-import { functions } from '../config/firebase-config.js';
+import { functions, auth } from '../config/firebase-config.js';
 
 export { serverTimestamp };
 
@@ -69,10 +69,17 @@ export async function saveVolunteerSignup(competitionId, data) {
     return result?.data || { accepted: true };
 }
 
+// The signup stays, marked approved (the admin sees its status and can send
+// the volunteer a role join link); "Ta bort" deletes it
 export async function approveVolunteer(competitionId, signupId, officialData) {
     if (!competitionId || !signupId) return;
-    await saveOfficialCore(competitionId, officialData);
-    await deleteDoc(doc(db, `${getBasePath(competitionId)}/volunteerSignups`, signupId));
+    const officialId = await saveOfficialCore(competitionId, officialData);
+    await updateDoc(doc(db, `${getBasePath(competitionId)}/volunteerSignups`, signupId), {
+        status: 'approved',
+        statusAt: Date.now(),
+        statusBy: auth?.currentUser?.uid || null,
+        officialId: officialId ? String(officialId) : null
+    });
 }
 
 export async function rejectVolunteer(competitionId, signupId) {

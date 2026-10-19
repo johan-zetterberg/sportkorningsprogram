@@ -137,7 +137,7 @@ function renderLayout() {
           <div class="flex items-center gap-3 sm:gap-4">
             <img src="${escapeAttr(logoUrl)}" alt="${escapeAttr(name)} logotyp"
                  class="h-14 w-14 rounded-lg ring-1 ring-white/20 object-contain bg-white/5 p-1"
-                 onerror="this.style.display='none'">
+                 data-hide-on-error>
             <div>
               <h1 class="text-white text-2xl md:text-3xl font-semibold leading-tight">${t('hub_title')}</h1>
               <p class="text-white/70 text-sm">${t('hub_subtitle')}</p>
@@ -588,8 +588,8 @@ function renderCompetitionList(competitions) {
 
   sorted.forEach(comp => {
     const a = document.createElement('a');
-    a.href = 'javascript:void(0);';
-    a.href = 'javascript:void(0);';
+    // No javascript: URL (CSP); the click handler below navigates
+    a.href = '#';
     a.className = 'block p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 hover:bg-brand-lightblue/10 dark:hover:bg-gray-600 rounded-lg border dark:border-gray-600';
     const user = getCurrentUser();
     const allowAdmin = canAdminCompetition(user, comp);
@@ -619,6 +619,7 @@ function renderCompetitionList(competitions) {
     </div>
   `;
     a.onclick = (ev) => {
+      ev.preventDefault();
       const user = getCurrentUser();
       const allowAdmin = canAdminCompetition(user, comp);
 

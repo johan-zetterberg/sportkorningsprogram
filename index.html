@@ -31,10 +31,13 @@
   <link rel="stylesheet" href="css/tailwind.css">
   <link rel="stylesheet" href="css/style.css">
   <!-- Icons (<i class="fas fa-…">) used across the pages -->
+  <!-- Version-pinned CDN files carry SRI hashes. The Firebase SDK modules from
+       www.gstatic.com are ES module imports in js/, which cannot carry SRI -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css"
+    integrity="sha384-PPIZEGYM1v8zp5Py7UjFb79S58UeqCL9pYVnVPURKEqvioPROaVAJKKLzvH2rDnI"
     crossorigin="anonymous" referrerpolicy="no-referrer" />
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    integrity="sha384-sHL9NAb7lN7rfvG5lfHpm643Xkcjzp4jFvuavGOndn6pjVqS6ny56CAt3nsEVT4H" crossorigin="anonymous" />
 
   <style>
     #controlsContainer button span {
@@ -311,7 +314,12 @@
     <div id="page-dressyr-monitor" class="page"></div>
     <div id="page-manual" class="page"></div>
     <div id="page-speaker" class="page"></div>
+    <div id="page-privacy" class="page"></div>
   </main>
+
+  <footer class="app-footer text-center text-xs text-gray-500 dark:text-gray-400 py-4">
+    <a href="#privacy" id="footerPrivacyLink" class="hover:underline">Integritetspolicy / Privacy</a>
+  </footer>
 
   <div id="loginModal"
     class="fixed inset-0 bg-gray-800 bg-opacity-75 h-full w-full z-[100] flex items-center justify-center">
@@ -343,6 +351,9 @@
         <button type="button" id="toggleAuthMode" class="block w-full text-center text-sm text-blue-600 dark:text-blue-400 cursor-pointer hover:underline mt-4 py-2">
           Har du inget konto? Registrera dig här.
         </button>
+        <p class="text-center text-xs text-gray-500 dark:text-gray-400">
+          <a href="#privacy" id="loginPrivacyLink" class="hover:underline">Så hanteras dina personuppgifter / Privacy notice</a>
+        </p>
       </form>
     </div>
   </div>
@@ -484,30 +495,14 @@
     </div>
   </div>
 
-  <!-- PDF.js (self-hostad, ESM) -->
-  <script type="module">
-    const pdfjsLib = window.pdfjsLib;
-    // Gör biblioteket globalt för sidor som behöver det (t.ex. dressyr-admin):
-    // PDF.js is loaded on demand from the dressage import view.
+  <!-- PDF.js (self-hosted) is loaded on demand by dressyr-admin.js, which also sets its worker -->
 
-    // SÄTT WORKERN (mjs). Två fungerande varianter – välj EN:
-
-    // 1) Enkel: låt PDF.js hämta worker via URL till .mjs
-    if (pdfjsLib) {
-      pdfjsLib.GlobalWorkerOptions.workerSrc = './lib/pdfjs/build/pdf.worker.min.mjs';
-    }
-
-    // -- eller --
-
-    // 2) Explicit module worker (om du vill skapa workern själv):
-    // pdfjsLib.GlobalWorkerOptions.workerPort =
-    //   new Worker('./lib/pdfjs/build/pdf.worker.min.mjs', { type: 'module' });
-  </script>
-
+  <!-- Inline scripts are allowed by their sha256 hash in the CSP (firebase.json):
+       changing one means updating the hash there (tests/csp-headers.test.js checks it) -->
   <script type="module" src="js/main.js"></script>
   <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-    integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-  
+    integrity="sha384-cxOPjt7s7Iz04uaHJceBmS+qpjv2JkIHNVcuOrM+YHwZOmJGBXI00mdUXEq65HTH" crossorigin="anonymous"></script>
+
   <script>
     // Fix for Leaflet missing slash in image paths
     function configureLeafletIcons() {

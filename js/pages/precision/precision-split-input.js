@@ -19,6 +19,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
 import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
+import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 
 const connectionBanner = createConnectionBanner(
@@ -27,14 +28,21 @@ const connectionBanner = createConnectionBanner(
 
 // A split write: 'saved' or 'queued' after a short wait (offline), a refusal
 // shown to the judge, also one that comes after the page moved on
-async function writeSplit(startNumber, write) {
+async function writeSplit(startNumber, write, summary = null) {
+    const cid = competitionId;
     const onError = (error) => {
         console.warn('Split write failed:', error?.message || error);
         showAlert(`#${startNumber}: ${t('precision_split_save_error')}`, 'error');
     };
     try {
-        // Queued offline: the gate already shows it, no notice per tap
-        return await awaitWriteOrQueue(write, { onLateError: onError });
+        // Queued offline: the gate already shows it, no notice per tap. A late
+        // refusal is also recorded for the secretariat (rejectedWrites)
+        return await awaitWriteOrQueue(write, {
+            onLateError: (error) => {
+                onError(error);
+                reportRejectedWrite(cid, { discipline: 'precision', startNumber, payloadSummary: summary, error, source: 'precision-split-input' });
+            }
+        });
     } catch (error) {
         onError(error);
         return null;
@@ -143,7 +151,7 @@ async function logSplit(gateId) {
     }
 
     const sn = currentEquipage.startNumber;
-    await writeSplit(sn, setDoc(precisionDocRef(sn), updates, { merge: true }));
+    await writeSplit(sn, setDoc(precisionDocRef(sn), updates, { merge: true }), updates);
 }
 
 async function undoSplit(gateId) {
@@ -172,7 +180,7 @@ async function undoSplit(gateId) {
     }
 
     const sn = currentEquipage.startNumber;
-    await writeSplit(sn, updateDoc(precisionDocRef(sn), updates));
+    await writeSplit(sn, updateDoc(precisionDocRef(sn), updates), updates);
 }
 
 // Without the live map there are no gates to log here: say so once, clearly,

@@ -30,14 +30,14 @@ export function renderAdminEquipageTable(equipages, { onSelectEquipage, onRender
     </tr>`;
 
     body.innerHTML = sorted.map(equipage => `
-        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer dark:text-gray-200" id="row-${equipage.startNumber}">
-        <td class="p-3 font-bold">${equipage.startNumber}</td>
+        <tr class="hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer dark:text-gray-200" id="row-${escapeHtml(equipage.startNumber)}">
+        <td class="p-3 font-bold">${escapeHtml(equipage.startNumber)}</td>
         <td class="p-3">
             <div class="flex items-center gap-1.5 flex-wrap">
                 <span class="font-medium">${escapeHtml(equipage.driverName)}</span>
                 ${equipage.hasMultipleStarts ? `
-                    <span class="inline-flex items-center gap-1 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${equipage.driverStartCount} starter (TR Mom 535.4)">
-                        <i class="fa fa-clone text-[10px]"></i> ${equipage.driverStartCount} starter
+                    <span class="inline-flex items-center gap-1 rounded bg-indigo-100 dark:bg-indigo-900/40 px-1.5 py-0.5 text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${escapeHtml(equipage.driverStartCount)} starter (TR Mom 535.4)">
+                        <i class="fa fa-clone text-[10px]"></i> ${escapeHtml(equipage.driverStartCount)} starter
                     </span>
                 ` : ''}
             </div>

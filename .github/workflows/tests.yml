@@ -52,3 +52,78 @@ jobs:
         run: npm run test:rules
       - name: Storage rules
         run: npm run test:storage-rules
+
+  # The browser tests (Playwright) against the emulators, as test:smoke runs
+  # them locally: auth, Firestore, Functions and Storage in a demo project
+  smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # Traces, videos and screenshots of failed tests (uploaded below)
+      PLAYWRIGHT_OUTPUT_DIR: ${{ github.workspace }}/playwright-output
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      # The emulator downloads (jar files with the version in the name)
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-v1
+      - name: Install
+        run: |
+          npm ci
+          npm --prefix functions ci
+          npm install -g firebase-tools
+          npx playwright install --with-deps chromium
+      - name: Smoke tests
+        run: npm run test:smoke
+      - name: Upload Playwright traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            playwright-output/
+            playwright-report/
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # A competition exported, deleted and restored in the Firestore emulator
+  # (scripts/restore-competition.mjs), and the personal data retention run
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: actions/cache@v4
+        with:
+          path: ~/.cache/firebase/emulators
+          key: firebase-emulators-${{ runner.os }}-v1
+      # The restore script and test use firebase-admin from functions/
+      - name: Install
+        run: |
+          npm ci
+          npm --prefix functions ci
+          npm install -g firebase-tools
+      - name: Backup restore and retention tests
+        run: npm run test:restore

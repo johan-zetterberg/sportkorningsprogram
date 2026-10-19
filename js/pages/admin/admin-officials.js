@@ -15,7 +15,8 @@ import {
     listenForRoles,
     saveRoles
 } from '../../services/officialsService.js';
-import { migrateJudgesPrivacy, migrateOfficialsPrivacy } from '../../services/adminService.js';
+import { getSecretConfig, migrateJudgesPrivacy, migrateOfficialsPrivacy } from '../../services/adminService.js';
+import { PIN_JOIN_ROLES, ROLE_CODE_LABELS, buildRoleJoinLink, formatRoleCode, roleCodeField } from '../../utils/officialAccessUtils.js';
 
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -113,8 +114,28 @@ function sanitizeVolunteerSignup(signup = {}) {
         iceName: sanitizeText(signup.iceName || ''),
         icePhone: sanitizeText(signup.icePhone || ''),
         diet: sanitizeText(signup.diet || ''),
+        dietOther: sanitizeText(signup.dietOther || ''),
+        availability: Array.isArray(signup.availability) ? signup.availability.map(item => sanitizeText(item)).filter(Boolean) : [],
+        status: ['approved', 'rejected'].includes(signup.status) ? signup.status : 'new',
         shirtSize: sanitizeText(signup.shirtSize || '')
     };
+}
+
+// "Vegetarisk", or the volunteer's own text for "Annat"
+function signupDietText(signup) {
+    if (!signup.diet || signup.diet === 'Ingen') return signup.diet || '';
+    return signup.diet === 'Annat' ? (signup.dietOther || 'Annat') : signup.diet;
+}
+
+// "2026-05-15_fm" -> "15/5 fm"
+function formatAvailability(item) {
+    const match = /^(\d{4})-(\d{2})-(\d{2})(?:_(fm|em|heldag))?$/.exec(item);
+    if (!match) return item;
+    return `${Number(match[3])}/${Number(match[2])}${match[4] ? ` ${match[4]}` : ''}`;
+}
+
+function pendingSignupCount() {
+    return volunteerSignups.filter(s => s.status !== 'approved').length;
 }
 
 function getAssignmentPerson(assignment) {
@@ -316,7 +337,7 @@ function refreshUI(container, competition) {
                     👀 Översikt & Print
                 </button>
                 <button id="subtab-signups" class="w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${currentSubTab === 'signups' ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800' : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700'}">
-                    📥 Inkorg (${volunteerSignups.length})
+                    📥 Inkorg (${pendingSignupCount()})
                 </button>
                 <button id="subtab-reports" class="w-full text-left px-4 py-3 rounded-lg font-medium transition-colors ${currentSubTab === 'reports' ? 'bg-blue-50 text-blue-700 border border-blue-200 dark:bg-blue-900/40 dark:text-blue-300 dark:border-blue-800' : 'bg-white hover:bg-gray-50 text-gray-700 border border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-700 dark:hover:bg-gray-700'}">
                     🖨️ Rapporter
@@ -408,10 +429,10 @@ function renderCheckInView(competition) {
                 </div>
 
                 <div class="flex gap-2">
-                     <button onclick="window.toggleCheckInFilter('all')" class="px-3 py-1 text-sm rounded border ${checkInFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}">
+                     <button data-action="toggleCheckInFilter" data-action-args='["all"]' class="px-3 py-1 text-sm rounded border ${checkInFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}">
                         Visa Alla
                     </button>
-                    <button onclick="window.toggleCheckInFilter('not-checked-in')" class="px-3 py-1 text-sm rounded border ${checkInFilter === 'not-checked-in' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}">
+                    <button data-action="toggleCheckInFilter" data-action-args='["not-checked-in"]' class="px-3 py-1 text-sm rounded border ${checkInFilter === 'not-checked-in' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}">
                         Ej Incheckade (${total - checkedIn})
                     </button>
                 </div>
@@ -472,7 +493,26 @@ function renderPeopleView(_officials = officials, competition = {}) {
                     <input type="file" id="csvImportInput" accept=".csv" class="hidden">
                     <button id="btnImportCsv" class="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-medium text-sm">📂 Importera CSV</button>
                     <button id="btnAddOfficial" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 font-medium text-sm">+ Lägg till person</button>
+                    <button id="btnInviteAdmin" type="button" class="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 font-medium text-sm">Bjud in administratör</button>
                 </div>
+            </div>
+
+            <!-- Competition admins are invited by email (roleEmails): no PIN -->
+            <div id="inviteAdminForm" class="hidden bg-indigo-50 dark:bg-indigo-900/20 p-4 rounded border border-indigo-200 dark:border-indigo-800">
+                <h4 class="font-bold text-sm mb-1 text-indigo-900 dark:text-indigo-200">Bjud in administratör</h4>
+                <p class="text-xs text-indigo-800 dark:text-indigo-300 mb-3">
+                    Personen får rollen Sekretariat / Admin i den här tävlingen när hen loggar in med just den här e-postadressen och har bekräftat den.
+                    Inget mejl skickas automatiskt: använd länken nedan eller hör av dig själv.
+                </p>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <input type="text" id="inviteAdminName" placeholder="Namn (valfritt)" class="p-2 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
+                    <input type="email" id="inviteAdminEmail" placeholder="E-post *" autocomplete="off" class="p-2 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white dark:placeholder-gray-400">
+                    <div class="flex gap-2">
+                        <button id="btnSendAdminInvite" type="button" class="px-3 py-2 bg-indigo-600 text-white rounded text-sm hover:bg-indigo-700">Bjud in</button>
+                        <button id="btnCancelAdminInvite" type="button" class="px-3 py-2 bg-gray-300 text-gray-800 rounded text-sm hover:bg-gray-400 dark:bg-gray-600 dark:text-gray-200">Avbryt</button>
+                    </div>
+                </div>
+                <div id="inviteAdminResult" class="mt-3 text-sm" aria-live="polite"></div>
             </div>
 
             <!-- Add Form (Hidden by default, or simple inline) -->
@@ -784,10 +824,10 @@ function renderOverviewView() {
 
     const filterHtml = `
         <div class="flex gap-2 mb-4 print:hidden">
-            <button class="px-3 py-1 rounded border ${currentFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" onclick="document.getElementById('officialsOverview').dataset.filter='all'; window.renderOverviewView()">Alla</button>
-            <button class="px-3 py-1 rounded border ${currentFilter === 'marathon' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" onclick="document.getElementById('officialsOverview').dataset.filter='marathon'; window.renderOverviewView()">Maraton</button>
-            <button class="px-3 py-1 rounded border ${currentFilter === 'dressage' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" onclick="document.getElementById('officialsOverview').dataset.filter='dressage'; window.renderOverviewView()">Dressyr</button>
-            <button class="px-3 py-1 rounded border ${currentFilter === 'precision' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" onclick="document.getElementById('officialsOverview').dataset.filter='precision'; window.renderOverviewView()">Precision</button>
+            <button class="px-3 py-1 rounded border ${currentFilter === 'all' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["all"]'>Alla</button>
+            <button class="px-3 py-1 rounded border ${currentFilter === 'marathon' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["marathon"]'>Maraton</button>
+            <button class="px-3 py-1 rounded border ${currentFilter === 'dressage' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["dressage"]'>Dressyr</button>
+            <button class="px-3 py-1 rounded border ${currentFilter === 'precision' ? 'bg-blue-600 text-white' : 'bg-white hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 dark:hover:bg-gray-700'}" data-action="setOverviewFilter" data-action-args='["precision"]'>Precision</button>
         </div>
     `;
 
@@ -814,10 +854,10 @@ function renderOverviewView() {
                 <h3 class="text-lg font-bold dark:text-white">Funktionärsöversikt ${currentFilter !== 'all' ? `(${currentFilter})` : ''}</h3>
                 <p class="text-sm text-gray-500 dark:text-gray-400">Utskriftsvänlig vy grupperad per plats.</p>
             </div>
-             <button onclick="window.exportOverviewCsv()" class="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 border px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-600 print:hidden mr-2">
+             <button data-action="exportOverviewCsv" class="bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 border px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-50 dark:hover:bg-gray-600 print:hidden mr-2">
                 📂 CSV
             </button>
-             <button onclick="window.exportOverviewPdf()" class="bg-gray-800 dark:bg-gray-900 border border-transparent dark:border-gray-700 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-700 dark:hover:bg-gray-800 print:hidden">
+             <button data-action="exportOverviewPdf" class="bg-gray-800 dark:bg-gray-900 border border-transparent dark:border-gray-700 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-700 dark:hover:bg-gray-800 print:hidden">
                 📄 Skriv ut PDF
             </button>
         </div>
@@ -829,6 +869,12 @@ function renderOverviewView() {
 
     // Make render function available globally for the inline onclicks
     window.renderOverviewView = renderOverviewView;
+    // The discipline filter buttons (data-action, no inline code)
+    window.setOverviewFilter = (filter) => {
+        const overview = document.getElementById('officialsOverview');
+        if (overview) overview.dataset.filter = filter;
+        renderOverviewView();
+    };
     window.toggleOverviewMode = (mode) => {
         overviewMode = mode;
         renderOverviewView();
@@ -943,11 +989,11 @@ function renderOverviewView() {
                 <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700 text-sm">
                     <thead class="bg-gray-50 dark:bg-gray-700/50">
                         <tr>
-                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" onclick="window.sortOverview('location')">Plats <span class="text-xs text-gray-400">${sortIcon('location')}</span></th>
-                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" onclick="window.sortOverview('role')">Roll <span class="text-xs text-gray-400">${sortIcon('role')}</span></th>
-                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" onclick="window.sortOverview('person')">Person <span class="text-xs text-gray-400">${sortIcon('person')}</span></th>
-                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" onclick="window.sortOverview('date')">Datum <span class="text-xs text-gray-400">${sortIcon('date')}</span></th>
-                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" onclick="window.sortOverview('time')">Tid <span class="text-xs text-gray-400">${sortIcon('time')}</span></th>
+                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" data-action="sortOverview" data-action-args='["location"]'>Plats <span class="text-xs text-gray-400">${sortIcon('location')}</span></th>
+                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" data-action="sortOverview" data-action-args='["role"]'>Roll <span class="text-xs text-gray-400">${sortIcon('role')}</span></th>
+                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" data-action="sortOverview" data-action-args='["person"]'>Person <span class="text-xs text-gray-400">${sortIcon('person')}</span></th>
+                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" data-action="sortOverview" data-action-args='["date"]'>Datum <span class="text-xs text-gray-400">${sortIcon('date')}</span></th>
+                            <th class="px-4 py-3 text-left font-bold text-gray-700 dark:text-gray-200 cursor-pointer hover:bg-gray-100 dark:hover:bg-gray-600" data-action="sortOverview" data-action-args='["time"]'>Tid <span class="text-xs text-gray-400">${sortIcon('time')}</span></th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-gray-700">
@@ -1032,18 +1078,18 @@ function renderOverviewView() {
             <div class="flex gap-2 items-center">
                  <!-- View Toggle -->
                 <div class="inline-flex rounded-md shadow-sm role='group' mr-4 print:hidden">
-                    <button type="button" onclick="window.toggleOverviewMode('cards')" class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-l-lg ${overviewMode === 'cards' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'}">
+                    <button type="button" data-action="toggleOverviewMode" data-action-args='["cards"]' class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-l-lg ${overviewMode === 'cards' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'}">
                         🗳️ Kort
                     </button>
-                    <button type="button" onclick="window.toggleOverviewMode('table')" class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-r-lg ${overviewMode === 'table' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'}">
+                    <button type="button" data-action="toggleOverviewMode" data-action-args='["table"]' class="px-3 py-1.5 text-sm font-medium border border-gray-300 rounded-r-lg ${overviewMode === 'table' ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-700 hover:bg-gray-50 dark:bg-gray-800 dark:text-gray-300 dark:border-gray-600 dark:hover:bg-gray-700'}">
                         📄 Tabell
                     </button>
                 </div>
 
-                <button onclick="window.exportOverviewCsv()" class="bg-white border-gray-300 text-gray-700 border px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 print:hidden mr-2 text-sm">
+                <button data-action="exportOverviewCsv" class="bg-white border-gray-300 text-gray-700 border px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-300 dark:hover:bg-gray-700 print:hidden mr-2 text-sm">
                    📂 CSV
                 </button>
-                <button onclick="window.exportOverviewPdf()" class="bg-gray-800 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 print:hidden text-sm">
+                <button data-action="exportOverviewPdf" class="bg-gray-800 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-gray-700 dark:bg-gray-600 dark:hover:bg-gray-500 print:hidden text-sm">
                     📄 Skriv ut PDF
                 </button>
             </div>
@@ -1099,11 +1145,17 @@ function renderSignupsView(competition) {
                 </div>
             </div>
             <div class="grid grid-cols-1 gap-4">
-                ${volunteerSignups.map(signup => `
-                    <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
-                        <div class="flex justify-between items-start">
+                ${volunteerSignups.map(signup => {
+        const duplicate = signupDuplicateReason(signup);
+        const approved = signup.status === 'approved';
+        return `
+                    <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow ${approved ? 'opacity-90' : ''}">
+                        <div class="flex justify-between items-start gap-3 flex-wrap">
                             <div>
-                                <h4 class="font-bold text-lg dark:text-gray-100">${escapeHtml(signup.name || '')}</h4>
+                                <h4 class="font-bold text-lg dark:text-gray-100">${escapeHtml(signup.name || '')}
+                                    <span class="ml-2 align-middle text-xs px-2 py-0.5 rounded-full ${approved ? 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-200'}">${approved ? 'Godkänd' : 'Ny'}</span>
+                                    ${duplicate ? `<span class="ml-1 align-middle text-xs px-2 py-0.5 rounded-full bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200">${escapeHtml(duplicate)}</span>` : ''}
+                                </h4>
                                 <div class="text-sm text-gray-600 dark:text-gray-400 flex gap-4 mt-1">
                                     <span>📞 ${escapeHtml(signup.phone)}</span>
                                     <span>📧 <a href="${mailtoHref(signup.email)}" class="text-blue-600 dark:text-blue-400 hover:underline">${escapeHtml(signup.email)}</a></span>
@@ -1116,24 +1168,105 @@ function renderSignupsView(competition) {
 
                                 <div class="mt-3 grid grid-cols-2 gap-x-8 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
                                     <div><span class="font-bold">ICE:</span> ${escapeHtml(signup.iceName)} (${escapeHtml(signup.icePhone)})</div>
-                                    <div><span class="font-bold">Kost:</span> ${escapeHtml(signup.diet || '-')}</div>
+                                    <div><span class="font-bold">Kost:</span> ${escapeHtml(signupDietText(signup) || '-')}</div>
                                     <div><span class="font-bold">Tröja:</span> ${escapeHtml(signup.shirtSize || '-')}</div>
+                                    <div class="col-span-2"><span class="font-bold">Kan:</span> ${signup.availability.length ? escapeHtml(signup.availability.map(formatAvailability).join(', ')) : '-'}</div>
                                 </div>
                             </div>
                             <div class="flex flex-col gap-2">
+                                ${approved ? `
+                                <label class="text-xs text-gray-600 dark:text-gray-300">Anslutningslänk för roll
+                                    <select data-signup-join-role="${escapeHtml(signup.id)}" class="mt-1 block w-full p-1 border rounded text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                        ${PIN_JOIN_ROLES.map(role => `<option value="${role}">${escapeHtml(ROLE_CODE_LABELS[role])}</option>`).join('')}
+                                    </select>
+                                </label>
+                                <button data-copy-join-link="${escapeHtml(signup.id)}" class="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 whitespace-nowrap">
+                                    Kopiera länk + kod
+                                </button>` : `
                                 <button data-approve-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-green-600 text-white rounded text-sm hover:bg-green-700 font-bold whitespace-nowrap">
                                     ✅ Granska & Godkänn
-                                </button>
+                                </button>`}
                                 <button data-reject-signup="${escapeHtml(signup.id)}" class="px-3 py-1 bg-red-100 text-red-700 rounded text-sm hover:bg-red-200 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-800/60 whitespace-nowrap">
                                     🗑️ Ta bort
                                 </button>
                             </div>
                         </div>
                     </div>
-                `).join('')}
+                `;
+    }).join('')}
             </div>
         </div>
     `;
+}
+
+// "Bjud in administratör": the official register with the admin role and the
+// email, which saveOfficial turns into roleEmails/{email} (admin access once
+// the person signs in with that address, verified)
+function bindAdminInvite(container, competition) {
+    const form = container.querySelector('#inviteAdminForm');
+    const result = container.querySelector('#inviteAdminResult');
+    if (!form) return;
+    container.querySelector('#btnInviteAdmin')?.addEventListener('click', () => {
+        form.classList.remove('hidden');
+        container.querySelector('#inviteAdminEmail')?.focus();
+    });
+    container.querySelector('#btnCancelAdminInvite')?.addEventListener('click', () => {
+        form.classList.add('hidden');
+        if (result) result.innerHTML = '';
+    });
+    container.querySelector('#btnSendAdminInvite')?.addEventListener('click', async (event) => {
+        const email = String(container.querySelector('#inviteAdminEmail')?.value || '').trim().toLowerCase();
+        const name = String(container.querySelector('#inviteAdminName')?.value || '').trim();
+        if (!/^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(email)) {
+            showAlert('Ange en giltig e-postadress.', false);
+            return;
+        }
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+            const existing = officials.find((p) => String(p.email || '').trim().toLowerCase() === email);
+            if (existing) {
+                const roles = Array.from(new Set([...normalizeOfficialSystemRoles(existing, competition), 'admin'])).sort();
+                await saveOfficial(competition.id, { ...existing, roles });
+            } else {
+                await saveOfficial(competition.id, { name: name || email, email, role: 'Administratör', roles: ['admin'] });
+            }
+            const link = `${window.location.href.replace(/[?#].*$/, '').replace(/[^/]*$/, '')}index.html?id=${encodeURIComponent(competition.id)}#portal`;
+            const subject = `Inbjudan: administratör för ${competition.name || 'tävlingen'}`;
+            const body = `Hej!\n\nDu är inbjuden som administratör för ${competition.name || 'tävlingen'}.\nLogga in (eller skapa ett konto) med ${email} och bekräfta e-postadressen, öppna sedan:\n${link}\n`;
+            const mailto = `mailto:${encodeURIComponent(email)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+            if (result) {
+                result.innerHTML = `
+                    <p class="text-green-700 dark:text-green-400 font-medium">${escapeHtml(email)} är inbjuden som administratör.</p>
+                    <a href="${escapeHtml(mailto)}" class="text-indigo-700 dark:text-indigo-300 underline">Skicka inbjudan via e-post</a>`;
+            }
+            container.querySelector('#inviteAdminEmail').value = '';
+            container.querySelector('#inviteAdminName').value = '';
+        } catch (error) {
+            console.error('Kunde inte bjuda in administratören:', error);
+            showAlert('Kunde inte bjuda in administratören.', false);
+        } finally {
+            button.disabled = false;
+        }
+    });
+}
+
+// The join link for a role and its code, as text to send to an approved volunteer
+async function copyRoleJoinMessage(competition, role) {
+    const secrets = await getSecretConfig(competition.id);
+    const code = formatRoleCode(secrets?.[roleCodeField(role)] || '');
+    const link = buildRoleJoinLink(window.location.href, competition.id, role);
+    const text = `Anslut som ${ROLE_CODE_LABELS[role] || role} i ${competition.name || 'tävlingen'}:\n${link}\nKod: ${code || '(saknas, skapa koder under Inställningar)'}`;
+    await navigator.clipboard.writeText(text);
+}
+
+// Signups with the same email as another signup or an official already in the register
+function signupDuplicateReason(signup) {
+    const email = String(signup.email || '').toLowerCase();
+    if (!email) return '';
+    if (officials.some((p) => String(p.email || '').toLowerCase() === email)) return 'Finns redan i registret';
+    if (signup.possibleDuplicate || volunteerSignups.filter((s) => s.email === email).length > 1) return 'Möjlig dubblett';
+    return '';
 }
 
 // --- LOGIC BINDING ---
@@ -1181,6 +1314,7 @@ function bindContentEvents(container, competition) {
             setDriverContact(container, null);
             form.classList.add('hidden');
         };
+        bindAdminInvite(container, competition);
     }
 
     const btnSave = container.querySelector('#btnSaveNewOfficial'); // Re-query btnSave outside the if block
@@ -1478,7 +1612,7 @@ function bindContentEvents(container, competition) {
 
                         container.querySelector('#newOffIceName').value = signup.iceName || '';
                         container.querySelector('#newOffIcePhone').value = signup.icePhone || '';
-                        container.querySelector('#newOffDiet').value = signup.diet || '';
+                        container.querySelector('#newOffDiet').value = signupDietText(signup) === 'Ingen' ? '' : signupDietText(signup);
                         container.querySelector('#newOffShirt').value = signup.shirtSize || '';
                         setSelectedSystemRoles(container, []);
 
@@ -1488,6 +1622,20 @@ function bindContentEvents(container, competition) {
                         form.scrollIntoView({ behavior: 'smooth' });
                     }
                 }, 50);
+            };
+        });
+
+        container.querySelectorAll('[data-copy-join-link]').forEach(btn => {
+            btn.onclick = async (e) => {
+                const sId = e.currentTarget.dataset.copyJoinLink;
+                const select = Array.from(container.querySelectorAll('[data-signup-join-role]')).find(el => el.dataset.signupJoinRole === sId);
+                try {
+                    await copyRoleJoinMessage(competition, select?.value || 'marathon');
+                    showAlert('Länk och kod kopierade: skicka dem till funktionären.', true);
+                } catch (error) {
+                    console.error('Kunde inte kopiera anslutningslänken:', error);
+                    showAlert('Kunde inte kopiera länken.', false);
+                }
             };
         });
 

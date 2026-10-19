@@ -1,3 +1,4 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import { formatObstacleClock, formatObstacleSeconds } from './marathonResultFormatters.js';
 
 export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObstaclePlacement) {
@@ -31,7 +32,7 @@ export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObsta
       ? ` <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold" title="Uppehållsavdrag: -${holdSec.toFixed(1)}s">(-${Math.round(holdSec)}s)</span>`
       : '';
 
-    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${res.startNumber}" data-obs="${n}" title="${title}">
+    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${escapeHtml(res.startNumber)}" data-obs="${n}" title="${escapeHtml(title)}">
                     <span data-cell="obsVal">${label}</span>${holdMarkup}
                     ${placeMarkup}
                 </td>`;

@@ -1,3 +1,5 @@
+import { escapeHtml } from '../../utils/sharedUtils.js';
+
 export function buildArchiveSuccessMessage(result = {}) {
     const rows = Number(result.rows);
     const rowText = Number.isFinite(rows) && rows > 0
@@ -28,6 +30,6 @@ export function renderArchiveStatusMessage(statusEl, {
 
     statusEl.innerHTML = `
         ${spinner}
-        <p class="${colorClass}">${message}</p>
+        <p class="${colorClass}">${escapeHtml(message)}</p>
     `;
 }

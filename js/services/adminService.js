@@ -393,35 +393,50 @@ export async function deleteCompetitionAdmin(competitionId, uid) {
   })());
 }
 
-export async function joinCompetitionAsAdmin(competitionId, pinCode, user) {
+// roleHint: the role named by the join link (the server counts wrong codes per role)
+export async function joinCompetitionAsAdmin(competitionId, pinCode, user, roleHint = '') {
   if (!competitionId || !pinCode || !user) throw new Error("Missing params");
   const callable = httpsCallable(functions, 'joinCompetitionAsOfficial');
   try {
     const result = await callable({
       competitionId,
-      pinCode
+      pinCode,
+      ...(roleHint ? { role: roleHint } : {})
     });
     const successfulRole = String(result?.data?.role || '').trim();
     if (!successfulRole) {
-      throw new Error('Ogiltigt svar fran servern.');
+      throw new Error('Ogiltigt svar från servern.');
     }
     return successfulRole;
   } catch (error) {
     const message = String(error?.message || '');
+    // The server explains refusals (wrong code, expired codes, admin PIN, too many tries)
+    if (['functions/permission-denied', 'functions/resource-exhausted', 'functions/failed-precondition'].includes(error?.code) && message) {
+      throw new Error(message);
+    }
     if (error?.code === 'functions/permission-denied') {
-      throw new Error("Kunde inte ansluta. Kontrollera att PIN-koden ar korrekt.");
+      throw new Error("Kunde inte ansluta. Kontrollera att koden är korrekt.");
     }
     if (error?.code === 'functions/unauthenticated') {
-      throw new Error("Du maste vara inloggad for att ansluta.");
+      throw new Error("Du måste vara inloggad för att ansluta.");
     }
     if (error?.code === 'functions/not-found') {
-      throw new Error("Tavlingen kunde inte hittas.");
+      throw new Error("Tävlingen kunde inte hittas.");
     }
-    if (error?.code === 'functions/failed-precondition') {
-      throw new Error("Kontot saknar e-postadress och kan inte ansluta.");
-    }
-    throw new Error(message || "Kunde inte ansluta funktionarsrollen just nu.");
+    throw new Error(message || "Kunde inte ansluta funktionärsrollen just nu.");
   }
+}
+
+/**
+ * Takes a code-joined role away (revokeOfficialAccess): from one person with
+ * uid, else from everyone in the role (the role's code is replaced). Returns
+ * { removed, code }.
+ */
+export async function revokeOfficialAccess(competitionId, role, uid) {
+  if (!competitionId || !role) throw new Error("Missing params");
+  const callable = httpsCallable(functions, 'revokeOfficialAccess');
+  const result = await callable({ competitionId, role, ...(uid ? { uid } : {}) });
+  return { removed: Number(result?.data?.removed) || 0, code: result?.data?.code || null };
 }
 
 /**

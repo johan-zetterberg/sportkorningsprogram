@@ -13,7 +13,7 @@ import { buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUti
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
-import { EXPORT_FORMAT, EXPORT_FORMAT_VERSION, collectDocuments, redactExportDocuments } from "./src/competitionExport.js";
+import { EXPORT_FORMAT, EXPORT_FORMAT_VERSION, buildExportAuditEntry, canExportPersonalNumbers, collectDocuments, redactExportDocuments } from "./src/competitionExport.js";
 import { scrubClientPage, scrubClientText } from "./src/clientErrorReport.js";
 import {
     changedPauseWindows,
@@ -25,13 +25,23 @@ import {
 } from "./src/triggerFilters.js";
 import { getAuth } from "firebase-admin/auth";
 import { getStorage } from "firebase-admin/storage";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { nextCounter, VOLUNTEER_SIGNUP_LIMITS } from "./src/rateLimit.js";
 import {
     buildCompetitionDeletionPlan,
     canResumeCompetitionDeletion,
     isGlobalAdminIdentity
 } from "./src/competitionDeletion.js";
+import { onSchedule } from "firebase-functions/v2/scheduler";
+import {
+    DRIVER_EMAIL_FIELDS,
+    PERSON_SEARCH,
+    buildAccountDeletionPlan,
+    buildPersonExport,
+    isArchivedCompetitionData,
+    matchesPerson
+} from "./src/personalData.js";
+import { listAllCompetitions as listAllCompetitionsIn, runPersonalDataRetention } from "./src/retentionRunner.js";
 
 import { calculateTotalResult } from "./src/core-engine/calculation.js";
 import { RESULT_ENGINE_VERSION } from "./src/core-engine/version.js";
@@ -49,11 +59,26 @@ import {
 import {
     buildCompetitionAdminJoinPayload,
     checkPinAttempts,
+    generateRoleCode,
     isValidCompetitionId,
+    OFFICIAL_JOIN_ROLES,
     PIN_ATTEMPT_LIMITS,
+    PIN_JOIN_ROLES,
+    pinAttemptBucketId,
+    planRoleRemoval,
     recordPinFailure,
     resolveJoinRoleForPin,
+    roleCodesExpired,
+    secretFieldForRole,
 } from "./src/adminJoin.js";
+import {
+    VolunteerSignupError,
+    buildVolunteerSignupPayload,
+    hasRecentSignup,
+    isLikelyBotSignup,
+    isValidSignupEmail,
+    volunteerSignupResponse
+} from "./src/volunteerSignup.js";
 
 // A cap on instances for every function (a runaway client or loop cannot
 // scale up the bill); the public callables have lower caps of their own
@@ -68,8 +93,6 @@ initializeApp();
 const db = getFirestore();
 const adminAuth = getAuth();
 const OWNER_RECOVERY_EMAIL = 'johan.zetterberg@gmail.com';
-const VOLUNTEER_DUPLICATE_WINDOW_MS = 6 * 60 * 60 * 1000;
-const MAX_SIGNUP_TEXT_LENGTH = 500;
 
 async function getCompetitionArtifactsDoc(competitionId) {
     const appIdsToTry = ['combined-driving', 'drivelive'];
@@ -83,47 +106,7 @@ async function getCompetitionArtifactsDoc(competitionId) {
     return null;
 }
 
-function normalizeSignupText(value, maxLength = 160) {
-    return String(value || '')
-        .replace(/[<>"'`]/g, '')
-        .replace(/\s+/g, ' ')
-        .trim()
-        .slice(0, maxLength);
-}
-
-function normalizeSignupEmail(value) {
-    return normalizeSignupText(value, 200).toLowerCase();
-}
-
-function isValidEmail(value) {
-    return /^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$/i.test(String(value || ''));
-}
-
-function buildVolunteerSignupPayload(raw = {}) {
-    const payload = {
-        name: normalizeSignupText(raw.name, 120),
-        phone: normalizeSignupText(raw.phone, 40),
-        email: normalizeSignupEmail(raw.email),
-        club: normalizeSignupText(raw.club, 120),
-        shirtSize: normalizeSignupText(raw.shirtSize, 10),
-        diet: normalizeSignupText(raw.diet, 200),
-        iceName: normalizeSignupText(raw.iceName, 120),
-        icePhone: normalizeSignupText(raw.icePhone, 40),
-        role: normalizeSignupText(raw.role, 80),
-        notes: normalizeSignupText(raw.notes, MAX_SIGNUP_TEXT_LENGTH),
-        createdAt: Date.now()
-    };
-
-    if (!payload.name || !payload.phone || !payload.email || !payload.iceName || !payload.icePhone) {
-        throw new HttpsError('invalid-argument', 'Obligatoriska fält saknas.');
-    }
-
-    if (!isValidEmail(payload.email)) {
-        throw new HttpsError('invalid-argument', 'Ogiltig e-postadress.');
-    }
-
-    return payload;
-}
+const isValidEmail = isValidSignupEmail;
 
 // Load every configurable dependency used by the shared result engine.
 // These are the same inputs the browser feeds to buildCompetitionState.
@@ -596,6 +579,19 @@ export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' 
     const competition = await getCompetitionArtifactsDoc(competitionId);
     if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
     await assertCanMaintainResults(request, competition, 'Endast tävlingens ägare eller en full administratör får exportera tävlingen.');
+    // Personal identity numbers: only the owner or a global admin
+    if (includePersonalNumbers) {
+        const userSnap = await db.doc(`users/${request.auth.uid}`).get();
+        const allowed = canExportPersonalNumbers({
+            uid: request.auth.uid,
+            token: request.auth.token || {},
+            competitionData: competition.data || {},
+            userData: userSnap.exists ? userSnap.data() : {}
+        });
+        if (!allowed) {
+            throw new HttpsError('permission-denied', 'Endast tävlingens ägare eller en global administratör får exportera personnummer. Exportera utan personnummer.');
+        }
+    }
 
     const appId = competition.appId;
     let documents = [];
@@ -642,6 +638,13 @@ export const exportCompetition = onCall({ timeoutSeconds: 300, memory: '512MiB' 
     if (JSON.stringify(exportData).length > 25 * 1024 * 1024) {
         throw new HttpsError('resource-exhausted', 'Tävlingen är för stor att exportera på det här sättet.');
     }
+    // Every export in the private audit log (who, when, with personal numbers)
+    await db.collection(`artifacts/${appId}/private/data/competitions/${competitionId}/auditLog`).add(buildExportAuditEntry({
+        uid: request.auth.uid,
+        email: request.auth.token?.email,
+        includePersonalNumbers,
+        documentCount: documents.length
+    }));
     logger.info('Tävling exporterad', { competitionId, by: request.auth.uid, documents: documents.length, redacted: redacted.length, includePersonalNumbers });
     return exportData;
 });
@@ -849,73 +852,102 @@ export const recalculateCompetitionResults = onCall(
     }
 );
 
+// A role code (Admin > Inställningar > Funktionärskoder) gives one official
+// role in one competition. Competition admins are not joined this way: they are
+// invited by email (roleEmails, verified address).
+// TODO(App Check): add enforceAppCheck: true here (and on submitVolunteerSignup)
+// once App Check is set up in the Firebase console.
 export const joinCompetitionAsOfficial = onCall({ maxInstances: 5 }, async (request) => {
     if (!request.auth?.uid) {
-        throw new HttpsError('unauthenticated', 'Inloggning kravs.');
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
     }
 
     const competitionId = String(request.data?.competitionId || '').trim();
     const pinCode = String(request.data?.pinCode || '').trim();
+    // The role named by the join link (only picks the attempt counter)
+    const roleHint = String(request.data?.role || '').trim();
     const userEmail = String(request.auth.token?.email || '').trim().toLowerCase();
+    const emailVerified = request.auth.token?.email_verified === true;
 
     if (!competitionId) {
-        throw new HttpsError('invalid-argument', 'Competition ID saknas.');
+        throw new HttpsError('invalid-argument', 'Tävlings-ID saknas.');
     }
     if (!pinCode) {
-        throw new HttpsError('invalid-argument', 'PIN-kod saknas.');
+        throw new HttpsError('invalid-argument', 'Funktionärskod saknas.');
     }
     if (!userEmail) {
-        throw new HttpsError('failed-precondition', 'Anvandaren maste ha en e-postadress.');
+        throw new HttpsError('failed-precondition', 'Användaren måste ha en e-postadress.');
     }
 
     if (!isValidCompetitionId(competitionId)) {
-        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
+        throw new HttpsError('invalid-argument', 'Ogiltigt tävlings-ID.');
     }
 
     const competition = await getCompetitionArtifactsDoc(competitionId);
     if (!competition) {
-        throw new HttpsError('not-found', 'Tavlingen kunde inte hittas.');
+        throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
     }
 
     const secretsSnap = await competition.ref.collection('config').doc('secrets').get();
     const secrets = secretsSnap.exists ? secretsSnap.data() : {};
+    if (roleCodesExpired(secrets)) {
+        throw new HttpsError('failed-precondition', 'Funktionärskoderna för tävlingen har gått ut. Kontakta tävlingens administratör.');
+    }
 
-    // Limit wrong PINs per user and per competition. The counters live outside
-    // the public tree and have no client rules, so only this function sees them.
-    // Check and count in one transaction so parallel guesses cannot slip past.
+    // Officials the competition invited by email (verified address in
+    // roleEmails or the officials register) are not held by the shared
+    // counter, so nobody can lock them out with wrong codes
+    let invited = false;
+    if (emailVerified) {
+        const [roleEmailSnap, officialSnap] = await Promise.all([
+            competition.ref.collection('roleEmails').doc(userEmail).get(),
+            competition.ref.collection('officialsPrivate').where('email', '==', userEmail).limit(1).get()
+        ]);
+        invited = roleEmailSnap.exists || !officialSnap.empty;
+    }
+
+    // Limit wrong codes per user and per competition and role. The counters
+    // live outside the public tree and have no client rules, so only this
+    // function sees them. Check and count in one transaction so parallel
+    // guesses cannot slip past. Limits and reasoning: PIN_ATTEMPT_LIMITS.
     const userAttemptsRef = db.doc(`pinJoinAttempts/${competitionId}__${request.auth.uid}`);
-    const competitionAttemptsRef = db.doc(`pinJoinAttempts/${competitionId}`);
+    const competitionAttemptsRef = db.doc(`pinJoinAttempts/${pinAttemptBucketId(competitionId, roleHint)}`);
     const now = Date.now();
     const attempt = await db.runTransaction(async (tx) => {
         const [userSnap, competitionSnap] = await Promise.all([tx.get(userAttemptsRef), tx.get(competitionAttemptsRef)]);
         const userState = userSnap.exists ? userSnap.data() : null;
         const competitionState = competitionSnap.exists ? competitionSnap.data() : null;
-        const emailVerified = request.auth.token?.email_verified === true;
-        const check = checkPinAttempts(userState, competitionState, now, PIN_ATTEMPT_LIMITS, { emailVerified });
-        if (!check.allowed) return { locked: true, retryAfterMs: check.retryAfterMs, emailVerified };
+        const check = checkPinAttempts(userState, competitionState, now, PIN_ATTEMPT_LIMITS, { emailVerified, invited });
+        if (!check.allowed) return { locked: true, retryAfterMs: check.retryAfterMs };
 
         const role = resolveJoinRoleForPin(pinCode, secrets);
         if (!role) {
             tx.set(userAttemptsRef, recordPinFailure(userState, PIN_ATTEMPT_LIMITS.perUser.windowMs, now));
-            tx.set(competitionAttemptsRef, recordPinFailure(competitionState, PIN_ATTEMPT_LIMITS.perCompetition.windowMs, now));
+            if (!invited) {
+                tx.set(competitionAttemptsRef, recordPinFailure(competitionState, PIN_ATTEMPT_LIMITS.perCompetition.windowMs, now));
+            }
         }
         return { role };
     });
     if (attempt.locked) {
         const minutes = Math.max(1, Math.ceil(attempt.retryAfterMs / 60000));
-        throw new HttpsError('resource-exhausted', attempt.emailVerified
-            ? `För många felaktiga PIN-försök. Försök igen om ${minutes} min.`
-            : `För många felaktiga PIN-försök i tävlingen. Bekräfta din e-postadress för att fortsätta direkt, eller försök igen om ${minutes} min.`);
+        throw new HttpsError('resource-exhausted', emailVerified
+            ? `För många felaktiga kodförsök. Försök igen om ${minutes} min.`
+            : `För många felaktiga kodförsök i tävlingen. Bekräfta din e-postadress för att fortsätta direkt, eller försök igen om ${minutes} min.`);
     }
     const matchedRole = attempt.role;
+    if (matchedRole === 'admin') {
+        // The old admin PIN: no longer a way in
+        throw new HttpsError('permission-denied', 'Administratörer ansluts inte längre med kod. Be tävlingens ägare bjuda in dig med din e-postadress (Funktionärer > Bjud in administratör).');
+    }
     if (!matchedRole) {
-        throw new HttpsError('permission-denied', 'Fel PIN-kod.');
+        throw new HttpsError('permission-denied', 'Fel kod. Kontrollera koden och försök igen.');
     }
 
     const adminRef = competition.ref.collection('admins').doc(request.auth.uid);
     const adminSnap = await adminRef.get();
     const existingData = adminSnap.exists ? adminSnap.data() : {};
-    const payload = buildCompetitionAdminJoinPayload(existingData, matchedRole, userEmail, Date.now());
+    const payload = buildCompetitionAdminJoinPayload(existingData, matchedRole, userEmail, Date.now(), request.auth.token?.name);
 
     // The role doc and the staff listing together, or neither. Only staffUids
     // (lets the hub list the competition, drafts included): admin rights come
@@ -933,14 +965,67 @@ export const joinCompetitionAsOfficial = onCall({ maxInstances: 5 }, async (requ
     };
 });
 
+/**
+ * Takes a role joined with a code away (admins/{uid} docs). With `uid`: that
+ * person only. Without: everyone who joined the role, and the role's code is
+ * replaced (the old admin PIN is removed instead). The competition's admins
+ * only. Returns { removed, code } (code: the new one, grouped by the client).
+ */
+export const revokeOfficialAccess = onCall({ maxInstances: 5 }, async (request) => {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    const role = String(request.data?.role || '').trim();
+    const uid = request.data?.uid ? String(request.data.uid).trim() : '';
+    if (!isValidCompetitionId(competitionId)) {
+        throw new HttpsError('invalid-argument', 'Ogiltigt tävlings-ID.');
+    }
+    if (!OFFICIAL_JOIN_ROLES.includes(role)) {
+        throw new HttpsError('invalid-argument', 'Okänd roll.');
+    }
+    if (uid && !/^[A-Za-z0-9_-]{1,128}$/.test(uid)) {
+        throw new HttpsError('invalid-argument', 'Ogiltig användare.');
+    }
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+    await assertCanMaintainResults(request, competition, 'Endast tävlingens administratörer får dra tillbaka åtkomst.');
+
+    const adminsRef = competition.ref.collection('admins');
+    const docs = uid
+        ? [await adminsRef.doc(uid).get()].filter((snap) => snap.exists)
+        : (await adminsRef.get()).docs;
+    const batch = db.batch();
+    let removed = 0;
+    docs.forEach((snap) => {
+        const plan = planRoleRemoval(snap.data() || {}, role);
+        if (!plan) return;
+        removed += 1;
+        // Deleting the doc also takes the uid off staffUids (onCompetitionAdminDeleted)
+        if (plan.delete) batch.delete(snap.ref);
+        else batch.update(snap.ref, plan.update);
+    });
+
+    let code = null;
+    if (!uid) {
+        const secretsRef = competition.ref.collection('config').doc('secrets');
+        if (PIN_JOIN_ROLES.includes(role)) {
+            code = generateRoleCode(randomBytes);
+            batch.set(secretsRef, { [secretFieldForRole(role)]: code, updatedAt: Date.now() }, { merge: true });
+        } else {
+            batch.set(secretsRef, { accessCode: FieldValue.delete(), updatedAt: Date.now() }, { merge: true });
+        }
+    }
+    await batch.commit();
+    logger.info('Funktionärsåtkomst återkallad', { competitionId, role, uid: uid || null, removed, by: request.auth.uid });
+    return { removed, code };
+});
+
 export const ensureOwnerSuperadminAccess = onCall(async (request) => {
     if (!request.auth?.uid) {
-        throw new HttpsError('unauthenticated', 'Inloggning kravs.');
+        throw new HttpsError('unauthenticated', 'Inloggning krävs.');
     }
 
     const authEmail = String(request.auth.token?.email || '').trim().toLowerCase();
     if (!authEmail) {
-        throw new HttpsError('failed-precondition', 'Anvandaren maste ha en e-postadress.');
+        throw new HttpsError('failed-precondition', 'Användaren måste ha en e-postadress.');
     }
 
     if (authEmail !== OWNER_RECOVERY_EMAIL) {
@@ -1085,9 +1170,18 @@ export const getDriverInbox = onCall(async (request) => {
 
     const ownSnap = await comp.ref.collection('equipagePrivate').where('email', '==', authEmail).get();
     const startNumbers = ownSnap.docs.map(d => String(d.id).trim());
+    // Pointer for storage.rules (driver-only files): the rules check the
+    // verified email against this equipage's private doc on every read
+    const accessRef = db.doc(`users/${request.auth.uid}/driverCompetitions/${competitionId}`);
     if (!startNumbers.length) {
+        await accessRef.delete().catch(() => {});
         throw new HttpsError('permission-denied', 'Inget ekipage i tävlingen är kopplat till din e-postadress.');
     }
+    await accessRef.set({
+        appId: comp.appId,
+        startNumber: startNumbers[0],
+        updatedAt: FieldValue.serverTimestamp()
+    });
 
     const [messagesSnap, documentsSnap] = await Promise.all([
         comp.ref.collection('messages').get(),
@@ -1169,59 +1263,73 @@ export const reportClientError = onCall({ maxInstances: 2 }, (request) => {
     return { logged: true };
 });
 
+// Public volunteer sign-up form (volunteer-signup.html). The answer is the same
+// whether the email had signed up before, the sender looked like a bot or the
+// sign-up was stored, so the form cannot be used to find out who signed up;
+// the admin sees possible duplicates in the inbox instead.
+// TODO(App Check): add enforceAppCheck: true here once App Check is set up.
 export const submitVolunteerSignup = onCall({ maxInstances: 2 }, async (request) => {
     const competitionId = String(request.data?.competitionId || '').trim();
-    const honeypot = String(request.data?.website || '').trim();
 
     if (!competitionId) {
-        throw new HttpsError('invalid-argument', 'Competition ID saknas.');
+        throw new HttpsError('invalid-argument', 'Tävlings-ID saknas.');
     }
     if (!isValidCompetitionId(competitionId)) {
-        throw new HttpsError('invalid-argument', 'Ogiltigt Competition ID.');
+        throw new HttpsError('invalid-argument', 'Ogiltigt tävlings-ID.');
     }
 
     const competition = await getCompetitionArtifactsDoc(competitionId);
     // A draft is not public: no signups (as if it did not exist)
     if (!competition || competition.data?.published === false) {
-        throw new HttpsError('not-found', 'Tavlingen kunde inte hittas.');
+        throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
     }
 
-    if (honeypot) {
-        return { accepted: true, ignored: true };
+    // Hidden field filled in, or sent faster than a person can: nothing stored
+    if (isLikelyBotSignup(request.data || {})) {
+        return volunteerSignupResponse();
     }
 
-    const payload = buildVolunteerSignupPayload(request.data || {});
+    let payload;
+    try {
+        payload = buildVolunteerSignupPayload(request.data || {});
+    } catch (error) {
+        if (error instanceof VolunteerSignupError) throw new HttpsError('invalid-argument', error.message);
+        throw error;
+    }
     const signupRef = competition.ref.collection('volunteerSignups');
-    const duplicateSnapshot = await signupRef
+    const earlierSnapshot = await signupRef
         .where('email', '==', payload.email)
         .limit(5)
         .get();
-    const duplicateExists = duplicateSnapshot.docs.some((docSnap) => {
-        const createdAt = Number(docSnap.data()?.createdAt || 0);
-        return createdAt >= Date.now() - VOLUNTEER_DUPLICATE_WINDOW_MS;
-    });
+    // Stored anyway and marked, so the admin decides (merge or remove)
+    if (hasRecentSignup(earlierSnapshot.docs.map((docSnap) => docSnap.data()))) {
+        payload.possibleDuplicate = true;
+    }
 
-    // Rate limits (per network address and per competition), checked and
-    // counted in the same transaction as the sign-up: changing the email
-    // address on every call must not create unlimited documents. A repeated
-    // sign-up counts against the address too, so whether an email has signed
-    // up cannot be probed without limit.
+    // Rate limits (per network address, per competition and hour, per
+    // competition and day), checked and counted in the same transaction as the
+    // sign-up: changing the email address on every call must not create
+    // unlimited documents.
     const limits = VOLUNTEER_SIGNUP_LIMITS;
     const limitsRef = db.collection(`artifacts/${competition.appId}/private/data/competitions/${competitionId}/rateLimits`);
     const addressKey = createHash('sha256').update(callerAddress(request)).digest('hex').slice(0, 32);
     const addressRef = limitsRef.doc(`volunteerSignup_addr_${addressKey}`);
     const competitionLimitRef = limitsRef.doc('volunteerSignup_competition');
+    const competitionDayLimitRef = limitsRef.doc('volunteerSignup_competition_day');
     const now = Date.now();
 
     const accepted = await db.runTransaction(async (tx) => {
-        const [addressSnap, competitionSnap] = await Promise.all([tx.get(addressRef), tx.get(competitionLimitRef)]);
+        const [addressSnap, competitionSnap, daySnap] = await Promise.all([
+            tx.get(addressRef), tx.get(competitionLimitRef), tx.get(competitionDayLimitRef)
+        ]);
         const byAddress = nextCounter(addressSnap.exists ? addressSnap.data() : null, now, limits.perAddress, limits.windowMs);
         if (!byAddress.allowed) return false;
         tx.set(addressRef, byAddress.next);
-        if (duplicateExists) return true;
         const byCompetition = nextCounter(competitionSnap.exists ? competitionSnap.data() : null, now, limits.perCompetition, limits.windowMs);
-        if (!byCompetition.allowed) return false;
+        const byDay = nextCounter(daySnap.exists ? daySnap.data() : null, now, limits.perCompetitionDay, limits.dayWindowMs);
+        if (!byCompetition.allowed || !byDay.allowed) return false;
         tx.set(competitionLimitRef, byCompetition.next);
+        tx.set(competitionDayLimitRef, byDay.next);
         tx.set(signupRef.doc(), payload);
         return true;
     });
@@ -1229,8 +1337,215 @@ export const submitVolunteerSignup = onCall({ maxInstances: 2 }, async (request)
         logger.warn('Funktionärsanmälan stoppad av hastighetsgränsen.', { competitionId });
         throw new HttpsError('resource-exhausted', 'För många anmälningar just nu. Försök igen om en stund.');
     }
-    return {
-        accepted: true,
-        duplicate: duplicateExists
+    return volunteerSignupResponse();
+});
+
+// --- PERSONAL DATA (GDPR): retention, account deletion, access requests ---
+// Pure parts in src/personalData.js, the retention run in src/retentionRunner.js.
+// Run records go to retentionRuns, personalDataRetention and accountDeletions
+// (no client rules: server only).
+
+export const purgeExpiredPersonalData = onSchedule(
+    { schedule: 'every day 03:30', timeZone: 'Europe/Stockholm', timeoutSeconds: 540, memory: '512MiB', maxInstances: 1 },
+    async () => {
+        await runPersonalDataRetention({ db, FieldValue, logger, nowMs: Date.now() });
+    }
+);
+
+// A finalized result lock of an equipage being deleted (deleteEquipage):
+// the rules let only superadmins delete lock documents, so a competition admin
+// has them deleted here, while the competition is not archived. Logged in
+// finalizationLog as an unlock with the reason.
+export const clearEquipageFinalizationLocks = onCall(async (request) => {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    const startNumber = String(request.data?.startNumber ?? '').trim();
+    if (!isValidCompetitionId(competitionId) || !/^[\w-]{1,20}$/.test(startNumber)) {
+        throw new HttpsError('invalid-argument', 'Ogiltig tävling eller ogiltigt startnummer.');
+    }
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+    await assertCanMaintainResults(request, competition, 'Endast tävlingens administratörer får ta bort resultatlås.');
+    if (isArchivedCompetition(competition.data)) {
+        throw new HttpsError('failed-precondition', 'Tävlingen är arkiverad. Öppna tävlingen igen innan ekipage raderas.');
+    }
+    const uid = request.auth.uid;
+    const byName = String(request.auth.token?.name || request.auth.token?.email || '').slice(0, 200) || null;
+    const removed = [];
+    const batch = db.batch();
+    for (const discipline of ['dressage', 'marathon', 'precision']) {
+        const lockRef = db.doc(`competitions/${competitionId}/${discipline}Finalization/${startNumber}`);
+        const snap = await lockRef.get();
+        if (!snap.exists) continue;
+        batch.delete(lockRef);
+        batch.set(db.collection(`competitions/${competitionId}/finalizationLog`).doc(), {
+            discipline,
+            action: 'unfinalize',
+            startNumber,
+            by: uid,
+            byName,
+            at: FieldValue.serverTimestamp(),
+            reason: 'Ekipaget raderades: resultatlåset togs bort.'
+        });
+        removed.push(discipline);
+    }
+    if (removed.length) await batch.commit();
+    logger.info('Resultatlås borttagna för ekipage som raderas', { competitionId, startNumber, disciplines: removed, by: uid });
+    return { removed };
+});
+
+// Self-service account deletion ("Radera mitt konto"). Refused while the user
+// owns a competition. Removes the user's roles in competitions (admins docs,
+// roleEmails, admins[]/staffUids), the users doc and the Auth account, and
+// removes the contact details from the user's driver entries in archived
+// competitions. Results are never touched.
+const ACCOUNT_DELETION_MAX_AUTH_AGE_MS = 10 * 60 * 1000;
+export const deleteMyAccount = onCall({ timeoutSeconds: 300, maxInstances: 2 }, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    const uid = request.auth.uid;
+    const email = String(request.auth.token?.email || '').trim().toLowerCase();
+    const confirmEmail = String(request.data?.confirmEmail || '').trim().toLowerCase();
+    if (!email || confirmEmail !== email) {
+        throw new HttpsError('invalid-argument', 'Skriv din e-postadress exakt som den är registrerad för att bekräfta.');
+    }
+    const authTimeMs = Number(request.auth.token?.auth_time || 0) * 1000;
+    if (!authTimeMs || Date.now() - authTimeMs > ACCOUNT_DELETION_MAX_AUTH_AGE_MS) {
+        throw new HttpsError('failed-precondition', 'Logga in på nytt (lösenordet) och försök igen.', { reauthenticate: true });
+    }
+    // Email-based links count only for a verified address: someone else's
+    // unverified account with the address must not remove that person's roles
+    const emailVerified = request.auth.token?.email_verified === true;
+
+    const competitions = await listAllCompetitionsIn(db);
+    const owned = competitions.filter((c) => c.data?.createdBy === uid || c.data?.ownerId === uid);
+    if (owned.length) {
+        const plan = buildAccountDeletionPlan({ uid, email, ownedCompetitions: owned.map((c) => ({ path: c.ref.path, name: c.data?.name })) });
+        throw new HttpsError('failed-precondition',
+            `Du äger ${plan.ownedCompetitions.length} tävling(ar): ${plan.ownedCompetitions.join(', ')}. Överlåt eller radera dem först.`,
+            { ownedCompetitions: plan.ownedCompetitions });
+    }
+
+    const adminDocs = [];
+    const roleEmailDocs = [];
+    const driverEntries = [];
+    for (const competition of competitions) {
+        const archived = isArchivedCompetitionData(competition.data);
+        const reads = [competition.ref.collection('admins').doc(uid).get()];
+        if (emailVerified) {
+            reads.push(
+                competition.ref.collection('roleEmails').doc(email).get(),
+                competition.ref.collection('admins').where('email', '==', email).get(),
+                ...DRIVER_EMAIL_FIELDS.map((field) => competition.ref.collection('equipagePrivate').where(field, '==', email).get())
+            );
+        }
+        const [ownAdmin, roleEmail, adminsByEmail, ...entrySnaps] = await Promise.all(reads);
+        if (ownAdmin.exists) adminDocs.push({ path: ownAdmin.ref.path });
+        if (roleEmail?.exists) roleEmailDocs.push({ path: roleEmail.ref.path });
+        adminsByEmail?.docs.forEach((d) => adminDocs.push({ path: d.ref.path }));
+        const entries = new Map();
+        entrySnaps.flatMap((snap) => snap.docs).forEach((d) => entries.set(d.ref.path, d));
+        entries.forEach((d) => driverEntries.push({ path: d.ref.path, data: d.data(), archived }));
+    }
+    const plan = buildAccountDeletionPlan({
+        uid,
+        email: emailVerified ? email : '',
+        adminDocs,
+        roleEmailDocs,
+        memberCompetitions: competitions.map((c) => ({ path: c.ref.path, data: c.data })),
+        driverEntries
+    });
+
+    const writer = db.bulkWriter();
+    plan.deletePaths.forEach((path) => writer.delete(db.doc(path)));
+    plan.arrayRemovals.forEach(({ path, fields }) => writer.update(db.doc(path),
+        Object.fromEntries(fields.map((field) => [field, FieldValue.arrayRemove(uid)]))));
+    plan.anonymize.forEach(({ path, fields }) => writer.update(db.doc(path), {
+        ...Object.fromEntries(fields.map((field) => [field, FieldValue.delete()])),
+        contactRemovedAt: Date.now()
+    }));
+    await writer.close();
+    // users/{uid} with its subcollections (driverCompetitions/*: the Storage
+    // access pointers getDriverInbox writes)
+    await db.recursiveDelete(db.doc(plan.userDocPath));
+    // Last: a failure above leaves the account, so the user can try again
+    try {
+        await adminAuth.deleteUser(uid);
+    } catch (error) {
+        if (error?.code !== 'auth/user-not-found') throw error;
+    }
+
+    const summary = {
+        rolesRemoved: plan.deletePaths.length,
+        competitionsUnlisted: plan.arrayRemovals.length,
+        entriesAnonymized: plan.anonymize.length,
+        activeEntriesKept: plan.keptActiveEntries.length
     };
+    await db.collection('accountDeletions').add({
+        uidHash: createHash('sha256').update(uid).digest('hex').slice(0, 16),
+        deletedAt: Date.now(),
+        ...summary
+    });
+    logger.info('Konto raderat på användarens begäran', summary);
+    return { deleted: true, ...summary };
+});
+
+// An access request (GDPR Art. 15): everything the competitions the caller
+// administers hold about one email address (private collections and the
+// documents belonging to the same entry), as JSON for the admin to send on.
+const PERSON_EXPORT_MAX_COMPETITIONS = 300;
+export const exportPersonData = onCall({ timeoutSeconds: 300, memory: '512MiB', maxInstances: 2 }, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    const email = String(request.data?.email || '').trim().toLowerCase();
+    if (!isValidEmail(email)) throw new HttpsError('invalid-argument', 'Ogiltig e-postadress.');
+
+    const all = await listAllCompetitionsIn(db);
+    const managed = [];
+    for (const competition of all) {
+        try {
+            await assertCanMaintainResults(request, competition);
+            managed.push(competition);
+        } catch {
+            // Not one of the caller's competitions
+        }
+        if (managed.length >= PERSON_EXPORT_MAX_COMPETITIONS) break;
+    }
+    if (!managed.length) {
+        throw new HttpsError('permission-denied', 'Du administrerar ingen tävling.');
+    }
+
+    const competitions = [];
+    for (const competition of managed) {
+        const found = new Map();
+        for (const search of PERSON_SEARCH) {
+            const collectionRef = competition.ref.collection(search.collection);
+            const snaps = await Promise.all([
+                ...search.fields.map((field) => collectionRef.where(field, '==', email).get().then((s) => s.docs)),
+                search.byId ? collectionRef.doc(email).get().then((d) => (d.exists ? [d] : [])) : Promise.resolve([])
+            ]);
+            const docs = snaps.flat().filter((d) => search.byId && d.id === email ? true : matchesPerson(d.data(), search.fields, email));
+            for (const d of docs) {
+                found.set(d.ref.path, d.data());
+                const related = await Promise.all(search.related.map((name) => competition.ref.collection(name).doc(d.id).get()));
+                related.filter((r) => r.exists).forEach((r) => found.set(r.ref.path, r.data()));
+            }
+        }
+        competitions.push({
+            id: competition.id,
+            name: competition.data?.name || '',
+            documents: [...found.entries()].map(([path, data]) => ({ path, data }))
+        });
+    }
+    // The account itself, for a global admin (users are not listed otherwise)
+    let user = null;
+    const callerSnap = await db.doc(`users/${request.auth.uid}`).get();
+    if (isGlobalAdminIdentity(request.auth.token || {}, callerSnap.exists ? callerSnap.data() : {})) {
+        const usersSnap = await db.collection('users').where('email', '==', email).limit(5).get();
+        if (!usersSnap.empty) user = usersSnap.docs.map((d) => ({ uid: d.id, ...d.data() }));
+    }
+    const result = buildPersonExport({ email, competitions, user, exportedBy: request.auth.uid });
+    logger.info('Personuppgifter exporterade (registerutdrag)', {
+        by: request.auth.uid,
+        competitions: result.competitionCount,
+        documents: result.documentCount
+    });
+    return result;
 });

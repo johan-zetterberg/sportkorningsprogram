@@ -24,7 +24,7 @@ import { openEquipageModal } from '../../ui/equipage-modal.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
-import { escapeHtml, isWithdrawnEquipage, jsStringAttr, msToLabel } from '../../utils/sharedUtils.js';
+import { actionAttrs, escapeHtml, isWithdrawnEquipage, msToLabel } from '../../utils/sharedUtils.js';
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
@@ -481,7 +481,7 @@ function renderLayout() {
                             <h3 class="font-bold text-gray-800 dark:text-gray-200 uppercase tracking-wide text-xs">Hinderresultat (Fokus)</h3>
                              <div class="flex items-center gap-2">
                                 <label class="text-[10px] font-bold text-gray-500 dark:text-gray-400 uppercase">Välj Hinder:</label>
-                                <select onchange="window.setObstacleFocus(this.value)" class="text-xs border-gray-300 dark:border-gray-600 rounded shadow-sm focus:border-blue-500 focus:ring-blue-500 py-1 dark:bg-gray-700 dark:text-white">
+                                <select data-action="setObstacleFocus" data-action-on="change" class="text-xs border-gray-300 dark:border-gray-600 rounded shadow-sm focus:border-blue-500 focus:ring-blue-500 py-1 dark:bg-gray-700 dark:text-white">
                                     <option value="">- Göm -</option>
                                     ${[1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}" ${Number(obstacleFocusVal) === n ? 'selected' : ''}>Hinder ${n}</option>`).join('')}
                                 </select>
@@ -609,7 +609,7 @@ function renderLeaderboardSidebar() {
                 }
             } else {
                 badge.innerHTML = `
-                    <select onchange="window.setSidebarClassFocus(this.value)" class="bg-blue-800 text-white text-[10px] border-none rounded focus:ring-0 py-0.5 cursor-pointer pr-4">
+                    <select data-action="setSidebarClassFocus" data-action-on="change" class="bg-blue-800 text-white text-[10px] border-none rounded focus:ring-0 py-0.5 cursor-pointer pr-4">
                         ${uniqueClasses.map(c => `<option value="${escapeAttr(String(c ?? ''))}" ${c === className ? 'selected' : ''}>${escapeHtml(String(c ?? ''))}</option>`).join('')}
                     </select>
                 `;
@@ -659,7 +659,7 @@ function renderLeaderboardSidebar() {
         const club = eq?.clubName || '';
 
         return `
-        <div onclick="window.showRiderDetails(${jsStringAttr(r.sn)})" class="grid grid-cols-6 items-center p-2 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
+        <div ${actionAttrs('showRiderDetails', String(r.sn ?? ''))} class="grid grid-cols-6 items-center p-2 border-b border-gray-100 dark:border-gray-700 last:border-0 cursor-pointer transition-colors ${rowBg} ${selectedClass}">
             <div class="col-span-1 font-bold text-gray-500 dark:text-gray-400 text-xs">${r.isWithdrawn ? '–' : `${rank}.`}</div>
             <div class="col-span-3 min-w-0 pr-1">
                 <div class="font-bold text-gray-800 dark:text-gray-200 text-sm truncate leading-tight">${escapeHtml(r.name || '')}</div>
@@ -686,18 +686,18 @@ function updateDisciplineUI() {
         // Compact segmented control
         nav.className = "flex bg-gray-200 rounded-lg p-1 gap-1 text-xs font-bold items-center";
         nav.innerHTML = `
-            <button onclick="switchDiscipline('dressyr')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'dressyr' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Dressyr</button>
-            <button onclick="switchDiscipline('maraton')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'maraton' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Maraton</button>
-            <button onclick="switchDiscipline('precision')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'precision' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Precision</button>
-            <button onclick="switchDiscipline('totalt')" class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'totalt' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Totalt</button>
+            <button data-action="switchDiscipline" data-action-args='["dressyr"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'dressyr' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Dressyr</button>
+            <button data-action="switchDiscipline" data-action-args='["maraton"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'maraton' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Maraton</button>
+            <button data-action="switchDiscipline" data-action-args='["precision"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'precision' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Precision</button>
+            <button data-action="switchDiscipline" data-action-args='["totalt"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'totalt' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}">Totalt</button>
             
-            <button onclick="if(confirm('Starta Stress-test?')) window.startStressTest()" class="text-xs px-2 py-1 text-red-300 hover:text-red-500 hover:bg-red-50 rounded hidden" title="Simulera">⚡</button>
+            <button data-action="startStressTest" data-action-confirm="Starta Stress-test?" class="text-xs px-2 py-1 text-red-300 hover:text-red-500 hover:bg-red-50 rounded hidden" title="Simulera">⚡</button>
             
             <div class="flex items-center gap-2 ml-4 relative">
-                <input type="text" id="speaker-search-input" placeholder="Sök # eller namn..." class="px-2 py-1 text-xs border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900" onkeyup="if(event.key==='Enter') window.handleSpeakerSearch(this.value)">
-                <button onclick="window.handleSpeakerSearch(document.getElementById('speaker-search-input').value)" class="bg-blue-600 text-white px-2 py-1 text-xs rounded font-bold hover:bg-blue-700">Sök</button>
-                <button onclick="window.openSpeakerSearchDetails(document.getElementById('speaker-search-input').value)" class="bg-gray-700 text-white px-2 py-1 text-xs rounded font-bold hover:bg-gray-800" title="Öppna detaljer för sökt ekipage">Info</button>
-                <button id="speaker-clear-focus-btn" onclick="window.clearSpeakerFocus()" class="${manualFocusId ? 'block animate-pulse' : 'hidden'} absolute -right-[110px] bg-red-600 text-white px-2 py-1 text-xs rounded font-bold hover:bg-red-700 whitespace-nowrap z-50">Återgå till Live</button>
+                <input type="text" id="speaker-search-input" placeholder="Sök # eller namn..." class="px-2 py-1 text-xs border border-gray-300 rounded shadow-sm focus:outline-none focus:ring-1 focus:ring-blue-500 text-gray-900" data-action="handleSpeakerSearch" data-action-on="enter">
+                <button data-action="handleSpeakerSearch" data-action-value-from="speaker-search-input" class="bg-blue-600 text-white px-2 py-1 text-xs rounded font-bold hover:bg-blue-700">Sök</button>
+                <button data-action="openSpeakerSearchDetails" data-action-value-from="speaker-search-input" class="bg-gray-700 text-white px-2 py-1 text-xs rounded font-bold hover:bg-gray-800" title="Öppna detaljer för sökt ekipage">Info</button>
+                <button id="speaker-clear-focus-btn" data-action="clearSpeakerFocus" class="${manualFocusId ? 'block animate-pulse' : 'hidden'} absolute -right-[110px] bg-red-600 text-white px-2 py-1 text-xs rounded font-bold hover:bg-red-700 whitespace-nowrap z-50">Återgå till Live</button>
             </div>
 
         `;
@@ -1029,7 +1029,7 @@ function renderCurrentRiderCard() {
 
 
             return `
-                        <select id="compare-select" onchange="window.setComparisonRider(this.value)" class="ml-2 text-[10px] py-0.5 pl-2 pr-6 border-gray-200 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-600 focus:ring-0 cursor-pointer">
+                        <select id="compare-select" data-action="setComparisonRider" data-action-on="change" class="ml-2 text-[10px] py-0.5 pl-2 pr-6 border-gray-200 dark:border-gray-600 rounded-full bg-gray-50 dark:bg-gray-700 text-gray-800 dark:text-gray-200 hover:bg-white dark:hover:bg-gray-600 focus:ring-0 cursor-pointer">
                             <option value="">+ Jämför...</option>
                             ${others.map(r => `<option value="${escapeAttr(String(r.startNumber ?? ''))}" ${String(window.compareRiderId) === String(r.startNumber) ? 'selected' : ''}>#${escapeHtml(String(r.startNumber ?? ''))} ${escapeHtml(r.driverName || '')}</option>`).join('')}
                         </select>`;
@@ -1054,7 +1054,7 @@ function renderCurrentRiderCard() {
                 })()}
                 
                 <!-- CLICKABLE MAIN NAME -->
-                <div onclick="window.showRiderDetails(${jsStringAttr(eq.startNumber)})" class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded p-1 -ml-1 transition-colors group">
+                <div ${actionAttrs('showRiderDetails', String(eq.startNumber ?? ''))} class="flex flex-wrap gap-2 mb-4 items-center cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-700/50 rounded p-1 -ml-1 transition-colors group">
                     <div class="inline-block bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-100 text-sm font-bold px-3 py-1 rounded-full group-hover:bg-blue-200 dark:group-hover:bg-blue-800">
                         #${escapeHtml(String(eq.startNumber ?? ''))} • ${safeClassName}
                     </div>
@@ -1221,7 +1221,7 @@ function renderCurrentRiderCard() {
 
                 comparisonHtml = `
                 <div class="mb-4 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600 p-2 text-[10px] relative">
-                    <button type="button" onclick="window.setComparisonRider('')" aria-label="Ta bort jämförelsen" class="absolute top-1 right-2 text-gray-400 hover:text-red-500">×</button>
+                    <button type="button" data-action="setComparisonRider" data-action-args='[""]' aria-label="Ta bort jämförelsen" class="absolute top-1 right-2 text-gray-400 hover:text-red-500">×</button>
                     <div class="flex justify-around items-center">
                         <div class="text-center">
                             <span class="text-gray-500 dark:text-gray-400">${safeDriverName}:</span>
@@ -1528,7 +1528,7 @@ function renderCurrentRiderCard() {
                     </div>
                     <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
                         ${top3.length ? top3.map((r, i) => `
-                            <div onclick="window.showRiderDetails(${jsStringAttr(r.sn)})" class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
+                            <div ${actionAttrs('showRiderDetails', String(r.sn ?? ''))} class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
                                 <div class="flex items-center gap-2 overflow-hidden">
                                     <span class="font-bold text-gray-400 w-4 text-center">${r.plac}.</span>
                                     <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(r.name || '')}</span>
@@ -1546,7 +1546,7 @@ function renderCurrentRiderCard() {
                     </div>
                     <div class="divide-y divide-gray-100 dark:divide-gray-700 flex-1 overflow-y-auto max-h-[180px]">
                         ${totalRanking.slice(0, 3).map((r, i) => `
-                            <div onclick="window.showRiderDetails(${jsStringAttr(r.sn)})" class="flex justify-between items-center p-2 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}">
+                            <div ${actionAttrs('showRiderDetails', String(r.sn ?? ''))} class="flex justify-between items-center p-2 cursor-pointer hover:bg-yellow-50 dark:hover:bg-yellow-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}">
                                 <div class="flex items-center gap-2 overflow-hidden">
                                     <span class="font-bold text-yellow-600 w-4 text-center">${i + 1}.</span>
                                     <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(allEquipages.find(e => String(e.startNumber) === String(r.sn))?.driverName || '')}</span>

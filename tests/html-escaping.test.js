@@ -3,6 +3,12 @@ import assert from 'node:assert/strict';
 
 import { stackName, horseLabelStacked, isSafeImageUrl, escapeHtml, jsStringAttr } from '../js/utils/sharedUtils.js';
 import { getMomentHorseLabelStacked } from '../js/pages/marathon/marathonResultFormatters.js';
+import { rowObstacleCells } from '../js/pages/marathon/marathonResultTable.js';
+import { rowStageCellsHTML } from '../js/pages/marathon/marathonResultLiveTicker.js';
+import { renderMarathonMobileCards } from '../js/pages/marathon/marathonResultMobile.js';
+import { renderTeamMemberRow } from '../js/pages/shared/totalResultTeams.js';
+import { renderStarttiderActionButtons } from '../js/pages/admin/starttiderUtils.js';
+import { renderAdminEquipageTable } from '../js/pages/admin/adminParticipantEquipageTable.js';
 
 const evil = '<img src=x onerror=alert(1)>';
 
@@ -37,6 +43,72 @@ test('jsStringAttr survives HTML decoding as one JS string', () => {
     const decoded = attr.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
     assert.equal(JSON.parse(decoded), `12'); alert(1); //"`);
     assert.equal(jsStringAttr(7), '&quot;7&quot;');
+});
+
+// A start number that breaks out of an attribute and injects markup
+const evilSn = '1"><img src=x onerror=alert(1)>';
+
+function assertNoInjection(html, label) {
+    assert.ok(!html.includes('<img'), `${label}: raw <img> in output`);
+    assert.ok(!html.includes(evilSn) && !html.includes('1"&gt;'), `${label}: attribute break-out in output`);
+    assert.ok(html.includes('&lt;img'), `${label}: escaped start number missing`);
+}
+
+test('marathon result cells escape the start number', () => {
+    const res = {
+        startNumber: evilSn,
+        obstacles: { items: [{ number: 1, timeSec: 42.5, penalty: 1 }] },
+        stages: { A: { timePenalty: 0 } }
+    };
+    assertNoInjection(rowObstacleCells(res, 1), 'rowObstacleCells');
+    assertNoInjection(rowStageCellsHTML(res, ['A']), 'rowStageCellsHTML');
+});
+
+test('marathon mobile cards escape the start number', () => {
+    const cards = { innerHTML: '' };
+    const eq = { startNumber: evilSn, driverName: 'Kusk', className: 'Klass' };
+    renderMarathonMobileCards({
+        cards,
+        list: [eq],
+        viewMode: 'startorder',
+        placeMap: new Map(),
+        obstaclePlaceMap: new Map(),
+        getObstaclePlacement: () => null,
+        marathonMap: new Map(),
+        stageKeys: ['A'],
+        stageEnabled: () => true,
+        calculateResult: () => ({ status: 'Klar', totalPenalty: 1, eta: {}, stages: { A: { timePenalty: 0 } }, obstacles: { items: [] } }),
+        timingDocFor: () => ({}),
+        startTimeFor: () => null,
+        fmtClock: () => '',
+        getFlagHtml: () => '',
+        getClubLogoHtml: () => '',
+        startLiveTicker: () => {},
+        translate: (key) => key
+    });
+    assertNoInjection(cards.innerHTML, 'renderMarathonMobileCards');
+});
+
+test('team member rows escape the start number', () => {
+    assertNoInjection(renderTeamMemberRow({ startNumber: evilSn, name: 'Kusk' }), 'renderTeamMemberRow');
+});
+
+test('start time action buttons escape the start number', () => {
+    for (const variant of ['desktop', 'mobile']) {
+        assertNoInjection(renderStarttiderActionButtons({ discipline: 'dressage', startNumber: evilSn, variant }), variant);
+    }
+});
+
+test('admin equipage table escapes the start number', () => {
+    const body = { innerHTML: '', rows: [] };
+    const prevDocument = global.document;
+    global.document = { getElementById: (id) => (id === 'adminEquipageTableBody' ? body : { innerHTML: '' }) };
+    try {
+        renderAdminEquipageTable([{ startNumber: evilSn, driverName: 'Kusk', hasMultipleStarts: true, driverStartCount: evilSn }]);
+    } finally {
+        global.document = prevDocument;
+    }
+    assertNoInjection(body.innerHTML, 'renderAdminEquipageTable');
 });
 
 test('escapeHtml covers attribute breakouts', () => {

@@ -2,13 +2,15 @@ import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionById, deleteCompetition, downloadCompetitionExport, updateCompetition } from '../../services/competitionService.js';
 import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
-import { getSecretConfig, saveSecretConfig, listenForCompetitionAdmins, deleteCompetitionAdmin, migrateLegacyCompetitionRoleEmails, getOfficials, getJudges } from '../../services/adminService.js';
+import { getOfficials, getJudges } from '../../services/adminService.js';
+import { getOfficialAccessHtml, setupOfficialAccess, unloadOfficialAccess } from './adminOfficialAccess.js';
 import { competitionHasResults, getEquipages } from '../../services/equipageService.js';
 import {
     recalculateCompetitionResults,
     validateCompetitionResultRecalculation
 } from '../../services/resultMaintenanceService.js';
 import { uploadCompetitionLogo } from '../../services/storageService.js';
+import { getPrivacySettingsHtml, setupPrivacySettings } from './adminPrivacySettings.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -24,7 +26,6 @@ import {
 
 let mapInstance = null;
 let markerInstance = null;
-let activeAdminsUnsub = null;
 let latestSettingsChecklistContext = null;
 
 function renderRecalculationIssues(issues, emptyText) {
@@ -125,14 +126,7 @@ function setupResultMaintenance(competitionId) {
 
 export function unloadSettingsTab() {
     latestSettingsChecklistContext = null;
-    if (activeAdminsUnsub) {
-        try {
-            activeAdminsUnsub();
-        } catch (error) {
-            console.warn('Kunde inte stoppa installnings-lyssnare:', error);
-        }
-        activeAdminsUnsub = null;
-    }
+    unloadOfficialAccess();
 
     if (mapInstance) {
         try {
@@ -963,75 +957,7 @@ export function getSettingsHtml() {
         <div class="md:col-span-2 bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border dark:border-gray-700 mt-6">
             <h2 class="text-2xl font-semibold mb-4 border-b dark:border-gray-700 pb-2 dark:text-white">Behörigheter & Åtkomst</h2>
             
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                <!-- PIN Kod för inhoppare -->
-                <div class="bg-blue-50 dark:bg-blue-900/20 p-5 rounded-lg border border-blue-100 dark:border-blue-800">
-                    <h3 class="font-bold text-lg text-blue-900 dark:text-blue-300 mb-2">Funktionärskoder (Engångskoder)</h3>
-                    <p class="text-sm text-blue-800 dark:text-blue-200 mb-4">
-                        Dela ut rätt pinkod till rätt person (t.ex. maratonkoden till hinderdomaren). 
-                        När de knappar in koden via "Min Portal" får de enbart behörighet för den rollen.
-                    </p>
-                    <div class="space-y-4">
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium dark:text-gray-200">Admin/Sekretariat:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="pinCode_admin" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="admin">Ny</button>
-                            </div>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium dark:text-gray-200">Dressyr:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="pinCode_dressage" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="dressage">Ny</button>
-                            </div>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium dark:text-gray-200">Maraton:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="pinCode_marathon" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="marathon">Ny</button>
-                            </div>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium dark:text-gray-200">Precision:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="pinCode_precision" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="precision">Ny</button>
-                            </div>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium dark:text-gray-200">Speaker:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="pinCode_speaker" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="speaker">Ny</button>
-                            </div>
-                        </div>
-                        <div class="flex items-center justify-between">
-                            <span class="font-medium dark:text-gray-200">Veterinär:</span>
-                            <div class="flex items-center gap-2">
-                                <span id="pinCode_vet" class="font-mono font-bold tracking-widest text-brand-darkblue dark:text-brand-lightblue bg-white dark:bg-gray-800 px-2 py-1 rounded shadow-sm border dark:border-gray-700">------</span>
-                                <button class="btnGeneratePin text-xs bg-blue-100 text-blue-800 hover:bg-blue-200 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-800/60 px-2 py-1 rounded" data-role="vet">Ny</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Lista över anslutna -->
-                <div>
-                    <h3 class="font-bold text-lg text-gray-900 dark:text-gray-100 mb-2">Anslutna via kod</h3>
-                    <p class="text-sm text-gray-500 dark:text-gray-400 mb-4">
-                        Här listas de som knappat in koden ovan. Klicka på soptunnan för att dra in deras rättigheter.
-                        <br>
-                        <em>Tips: Föranmälda funktionärer syns i <a href="#admin?tab=officials&amp;focus=view-officials" class="text-blue-600 underline">Funktionärsregistret</a>.</em>
-                    </p>
-                    <div class="bg-gray-50 dark:bg-gray-900 border dark:border-gray-700 rounded-md max-h-60 overflow-y-auto">
-                        <ul id="pinAdminsList" class="divide-y divide-gray-200 dark:divide-gray-700">
-                            <li class="p-4 text-center text-gray-500 italic">Laddar...</li>
-                        </ul>
-                    </div>
-                </div>
-            </div>
+            ${getOfficialAccessHtml()}
         </div>
 
         <!-- DEMODATA -->
@@ -1076,7 +1002,8 @@ export function getSettingsHtml() {
                 Filen innehåller personuppgifter (kontaktuppgifter) och ska förvaras säkert. PIN-koder ingår aldrig.
                 Uppladdade filer (dokument, logotyper) ingår inte, bara deras namn.
             </p>
-            <label class="flex items-center gap-2 mb-3 text-sm text-gray-700 dark:text-gray-200">
+            <!-- Shown only to the owner or a global admin (as exportCompetition allows) -->
+            <label id="exportPersonalNumbersOption" class="flex items-center gap-2 mb-3 text-sm text-gray-700 dark:text-gray-200" style="display:none;">
                 <input type="checkbox" id="exportIncludePersonalNumbers" class="rounded">
                 Ta med personnummer
             </label>
@@ -1085,6 +1012,8 @@ export function getSettingsHtml() {
             </button>
             <span id="exportCompStatus" class="ml-3 text-sm text-gray-600 dark:text-gray-300" aria-live="polite"></span>
         </div>
+
+        ${getPrivacySettingsHtml()}
 
         <!-- DANGER ZONE -->
         <div id="dangerZone" class="md:col-span-2 mt-12 bg-red-50 dark:bg-red-900/10 p-6 rounded-xl shadow-md border border-red-200 dark:border-red-900" style="display:none;">
@@ -1114,6 +1043,16 @@ function canMaintainCompetition(user, comp) {
     if (comp && (comp.createdBy === user.uid || comp.ownerId === user.uid)) return true;
     if (Array.isArray(comp?.admins) && comp.admins.includes(user.uid)) return true;
     return Array.isArray(user.compRoles) && user.compRoles.includes('admin');
+}
+
+// Mirrors canExportPersonalNumbers (functions/src/competitionExport.js): the
+// owner or a global admin, not other competition admins
+function canExportPersonalNumbers(user, comp) {
+    if (!user?.uid) return false;
+    const roles = Array.isArray(user.roles) ? user.roles : [];
+    if (user.superadmin === true || user.role === 'admin' || user.role === 'superadmin'
+        || roles.includes('admin') || roles.includes('superadmin')) return true;
+    return !!comp && (comp.createdBy === user.uid || comp.ownerId === user.uid);
 }
 
 // The settings form as flat fields ('class:<name>' per class): a save writes
@@ -1547,137 +1486,8 @@ export async function setupSettingsLogic(competitionId) {
         if (isOwner) {
             setupResultMaintenance(competitionId);
 
-            // Hämta / Generera PIN-kod
-            let secretData = await getSecretConfig(competitionId);
-            
-            const generateAndSavePin = async (role) => {
-                // 8 digits from the cryptographic generator (Math.random is
-                // predictable, and 6 digits are few against guessing)
-                const digits = new Uint32Array(8);
-                crypto.getRandomValues(digits);
-                const newPin = String(1 + (digits[0] % 9)) + Array.from(digits.slice(1), d => String(d % 10)).join('');
-                const key = role === 'admin' ? 'accessCode' : `accessCode_${role}`;
-                const updateData = { updatedAt: Date.now() };
-                updateData[key] = newPin;
-                
-                await saveSecretConfig(competitionId, updateData);
-                const displayEl = document.getElementById(`pinCode_${role}`);
-                if (displayEl) displayEl.textContent = newPin;
-                return newPin;
-            };
-
-            const roles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
-            
-            if (!secretData) {
-                secretData = {};
-            }
-
-            // Rendera befintliga eller generera om de saknas
-            for (const role of roles) {
-                const key = role === 'admin' ? 'accessCode' : `accessCode_${role}`;
-                const displayEl = document.getElementById(`pinCode_${role}`);
-                if (!secretData[key]) {
-                    await generateAndSavePin(role);
-                } else {
-                    if (displayEl) displayEl.textContent = secretData[key];
-                }
-            }
-
-            document.querySelectorAll('.btnGeneratePin').forEach(btn => {
-                btn.onclick = async (e) => {
-                    const role = e.currentTarget.dataset.role;
-                    if (confirm(`Är du säker på att du vill byta koden för ${role}? De som redan använt gamla koden kommer behålla sina rättigheter, men nya funktionärer måste få den nya koden.`)) {
-                        const originalText = e.currentTarget.textContent;
-                        e.currentTarget.textContent = "...";
-                        await generateAndSavePin(role);
-                        e.currentTarget.textContent = originalText;
-                    }
-                };
-            });
-
-            // Lyssna på anslutna admins
-            if (activeAdminsUnsub) {
-                try { activeAdminsUnsub(); } catch { }
-                activeAdminsUnsub = null;
-            }
-            const adminListWrapper = document.getElementById('pinAdminsList')?.parentElement?.parentElement;
-            if (adminListWrapper && !document.getElementById('roleEmailMigrationPanel')) {
-                adminListWrapper.insertAdjacentHTML('beforeend', `
-                    <div id="roleEmailMigrationPanel" class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm dark:border-amber-800 dark:bg-amber-900/20">
-                        <div class="font-semibold text-amber-900 dark:text-amber-200">Migrera gamla rollmejl</div>
-                        <p class="mt-1 text-amber-800 dark:text-amber-300">
-                            Flytta legacy-listor med funktionarsmejl till privat lagring och rensa bort dem fran publika tavlingsdokument.
-                        </p>
-                        <button id="migrateRoleEmailsBtn" type="button" class="mt-3 rounded bg-amber-600 px-3 py-2 text-sm font-semibold text-white hover:bg-amber-700 dark:bg-amber-700 dark:hover:bg-amber-600">
-                            Migrera rollmejl
-                        </button>
-                    </div>
-                `);
-            }
-
-            document.getElementById('migrateRoleEmailsBtn')?.addEventListener('click', async (event) => {
-                if (!window.confirm('Detta flyttar legacy-rollmejl till privat lagring och rensar bort dem fran publika tavlingsdata. Fortsatta?')) {
-                    return;
-                }
-
-                const button = event.currentTarget;
-                const originalText = button.textContent;
-                button.disabled = true;
-                button.textContent = 'Migrerar...';
-                try {
-                    const result = await migrateLegacyCompetitionRoleEmails(competitionId);
-                    showAlert(`Rollmejl migrerade. ${result.migratedEmails} e-postposter uppdaterades.`, true);
-                } catch (error) {
-                    console.error('Kunde inte migrera rollmejl:', error);
-                    showAlert('Kunde inte migrera rollmejl.', false);
-                } finally {
-                    button.disabled = false;
-                    button.textContent = originalText;
-                }
-            });
-
-            const listEl = document.getElementById('pinAdminsList');
-            
-            const renderAdmins = (admins) => {
-                if (!listEl) return;
-                if (admins.length === 0) {
-                    listEl.innerHTML = '<li class="p-4 text-center text-gray-500 italic text-sm">Ingen har anslutit med koden ännu.</li>';
-                    return;
-                }
-
-                listEl.innerHTML = admins.map(a => {
-                    const dateStr = a.joinedAt ? new Date(a.joinedAt).toLocaleString('sv-SE', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'Okänt';
-                    return `
-                    <li class="p-3 flex items-center justify-between hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">
-                        <div>
-                            <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">${escapeHtml(a.email || 'Okänd användare')} ${
-                                (a.roles || [a.role || 'admin']).map(r => `<span class="text-xs ml-2 px-2 py-0.5 bg-gray-200 dark:bg-gray-700 rounded-full text-gray-700 dark:text-gray-300">${escapeHtml(r === 'vet' ? 'veterinär' : r)}</span>`).join('')
-                            }</p>
-                            <p class="text-xs text-gray-500 dark:text-gray-400">Anslöt: ${dateStr}</p>
-                        </div>
-                        <button class="delete-admin-btn text-red-500 hover:text-red-700 bg-red-50 dark:bg-red-900/20 p-2 rounded-md transition-colors" data-uid="${escapeHtml(a.uid)}" title="Ta bort åtkomst">
-                            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-                              <path fill-rule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                    </li>
-                    `;
-                }).join('');
-
-                // Koppla klick-event för borttagning
-                document.querySelectorAll('.delete-admin-btn').forEach(btn => {
-                    btn.onclick = async (e) => {
-                        const uid = e.currentTarget.dataset.uid;
-                        if (confirm("Vill du dra in åtkomsten för denna användare omedelbart?")) {
-                            e.currentTarget.disabled = true;
-                            e.currentTarget.classList.add('opacity-50');
-                            await deleteCompetitionAdmin(competitionId, uid);
-                        }
-                    };
-                });
-            };
-
-            activeAdminsUnsub = listenForCompetitionAdmins(competitionId, renderAdmins);
+            // Role codes, join links and who joined (adminOfficialAccess.js)
+            await setupOfficialAccess(competitionId, comp);
         }
     } catch (e) {
         console.warn("Kunde inte ladda behörigheter:", e);
@@ -1769,7 +1579,11 @@ export async function setupSettingsLogic(competitionId) {
         if (canMaintainCompetition(currentUser, comp)) {
             const backup = document.getElementById('backupSection');
             if (backup) backup.style.display = 'block';
+            const personalNumbersOption = document.getElementById('exportPersonalNumbersOption');
+            if (personalNumbersOption && canExportPersonalNumbers(currentUser, comp)) personalNumbersOption.style.display = 'flex';
             document.getElementById('btnExportComp')?.addEventListener('click', runExport);
+            // Retention, privacy contact and access request export (same users)
+            setupPrivacySettings(competitionId, comp);
         }
 
         if (isAllowed) {

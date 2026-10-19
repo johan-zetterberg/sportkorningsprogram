@@ -1,5 +1,5 @@
 import { getObstacleArray, stageStartTS, stageStopTS, analyzeSectorProgress } from '../../utils/marathonUtils.js';
-import { escapeHtml, jsStringAttr, msToLabel } from '../../utils/sharedUtils.js';
+import { actionAttrs, escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
 import { formatSpeakerPenalty } from './speakerFormatUtils.js';
 
 const escapeAttr = (value) => escapeHtml(value ?? '');
@@ -50,7 +50,7 @@ export function renderObstacleLeaderboard(obstacleNum, context) {
             </thead>
             <tbody>
                 ${top10.map((r, i) => `
-                <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" onclick="window.selectSpeakerRider(${jsStringAttr(r.sn)})">
+                <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 cursor-pointer" ${actionAttrs('selectSpeakerRider', String(r.sn ?? ''))}>
                     <td class="px-3 py-2 font-bold ${i < 3 ? 'text-brand-gold dark:text-yellow-500' : 'text-gray-400 dark:text-gray-500'}">${i + 1}</td>
                     <td class="px-3 py-2">
                         <div class="font-bold text-gray-800 dark:text-gray-200">${escapeHtml(r.name || '')}</div>
@@ -189,18 +189,18 @@ export function renderSectorAnalysis(context) {
         const realStart = stageStartTS(e.data, stageKey);
 
         const liveAttrs = a.isLive
-            ? `class="sector-live-timer font-bold tabular-nums tracking-wide px-3 py-2 text-right ${a.color} ${livePulse}" data-sn="${e.sn}" data-stage="${stageKey}" data-start="${realStart}" data-ideal="${a.ideal}"`
+            ? `class="sector-live-timer font-bold tabular-nums tracking-wide px-3 py-2 text-right ${a.color} ${livePulse}" data-sn="${escapeHtml(e.sn)}" data-stage="${escapeHtml(stageKey)}" data-start="${escapeHtml(realStart)}" data-ideal="${escapeHtml(a.ideal)}"`
             : `class="font-bold tabular-nums tracking-wide px-3 py-2 text-right ${a.color}"`;
 
         return `
-                    <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" onclick="window.selectSpeakerRider(${jsStringAttr(e.sn)})">
+                    <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" ${actionAttrs('selectSpeakerRider', String(e.sn ?? ''))}>
                         <td class="px-3 py-2">
                              <div class="font-bold text-gray-900 dark:text-white leading-tight">#${escapeHtml(String(e.sn ?? ''))} ${escapeHtml(e.eq?.driverName || '')}</div>
                              <div class="text-[10px] text-gray-400 capitalize">${escapeHtml(e.eq?.clubName || '')}</div>
                         </td>
-                        <td class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">${stageLabel}</td>
+                        <td class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">${escapeHtml(stageLabel)}</td>
                         <td class="px-3 py-2 text-right tabular-nums tracking-wide">${msToLabel(a.ideal * 1000, false)}</td>
-                        <td ${e.analysis.isLive ? `class="sector-live-elapsed px-3 py-2 text-right tabular-nums tracking-wide text-gray-900 dark:text-gray-200 font-bold" data-sn="${e.sn}" data-stage="${stageKey}" data-start="${realStart}"` : `class="px-3 py-2 text-right tabular-nums tracking-wide text-gray-400 dark:text-gray-500"`}>${formatMsLive(a.ms)}</td>
+                        <td ${e.analysis.isLive ? `class="sector-live-elapsed px-3 py-2 text-right tabular-nums tracking-wide text-gray-900 dark:text-gray-200 font-bold" data-sn="${escapeHtml(e.sn)}" data-stage="${escapeHtml(stageKey)}" data-start="${escapeHtml(realStart)}"` : `class="px-3 py-2 text-right tabular-nums tracking-wide text-gray-400 dark:text-gray-500"`}>${formatMsLive(a.ms)}</td>
                         <td ${liveAttrs}>
                              ${diffText}
                         </td>

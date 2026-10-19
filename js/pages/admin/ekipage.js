@@ -487,7 +487,7 @@ function renderList() {
         element.className = `p-3 rounded-lg flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between transition-colors duration-200 ${bgColor} hover:bg-gray-100 dark:hover:bg-gray-600`;
 
         // Skapa HTML för dropdown-menyn
-        let selectHtml = `<select class="status-select w-full sm:w-auto text-sm font-medium border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-gray-800 dark:bg-gray-800 dark:text-gray-100" data-start-number="${e.startNumber}">`;
+        let selectHtml = `<select class="status-select w-full sm:w-auto text-sm font-medium border-gray-300 dark:border-gray-600 rounded-md shadow-sm text-gray-800 dark:bg-gray-800 dark:text-gray-100" data-start-number="${escapeHtml(e.startNumber)}">`;
         statusOptions.forEach(opt => {
             const selected = opt.value === currentStatus ? 'selected' : '';
             // Justera textfärger i options om det behövs

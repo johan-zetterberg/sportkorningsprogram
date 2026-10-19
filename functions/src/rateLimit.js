@@ -5,7 +5,9 @@
 export const VOLUNTEER_SIGNUP_LIMITS = {
     windowMs: 60 * 60 * 1000,
     perAddress: 15,       // per hour from one network address (a club Wi-Fi or a mobile operator shares one)
-    perCompetition: 60    // sign-ups per hour to one competition
+    perCompetition: 20,   // sign-ups per hour to one competition
+    dayWindowMs: 24 * 60 * 60 * 1000,
+    perCompetitionDay: 200 // sign-ups per day to one competition
 };
 
 /**

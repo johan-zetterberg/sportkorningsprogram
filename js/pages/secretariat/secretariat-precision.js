@@ -104,7 +104,7 @@ function buildTableRows() {
           <input data-field="eliminated" type="checkbox" ${view.eliminated ? 'checked' : ''} ${readOnly ? 'disabled' : ''} class="h-4 w-4 rounded border-gray-300 text-red-600 disabled:opacity-60">
         </td>
         <td class="px-3 py-3 text-sm min-w-[12rem]">
-          <textarea data-field="comment" rows="1" ${readOnly ? 'disabled' : ''} class="secretariat-precision-comment w-full resize-none overflow-hidden rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 leading-5">${escapeHtml(view.comment || '')}</textarea>
+          <textarea data-field="comment" rows="1" maxlength="1000" ${readOnly ? 'disabled' : ''} class="secretariat-precision-comment w-full resize-none overflow-hidden rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60 leading-5">${escapeHtml(view.comment || '')}</textarea>
         </td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">${renderStatusBadge(view.status, row.finalized)}</td>
         <td class="px-3 py-3 text-sm whitespace-nowrap">

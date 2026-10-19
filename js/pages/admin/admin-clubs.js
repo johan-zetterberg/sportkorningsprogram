@@ -2,7 +2,7 @@ import { getGlobalState } from '../../main.js';
 import { getClubLogoHtml, getClubLogoUrl, saveCompetitionLogo, saveGlobalLogo, ensureClubLogosLoaded, updateClubLogo } from '../../services/logosService.js';
 import { uploadClubLogo } from '../../services/storageService.js';
 import { showAlert } from '../../ui/components.js';
-import { escapeHtml, isSafeImageUrl } from '../../utils/sharedUtils.js';
+import { actionAttrs, escapeHtml, isSafeImageUrl } from '../../utils/sharedUtils.js';
 
 export async function renderClubsTab(container, competitionId) {
     container.innerHTML = `<div class="text-center py-12"><div class="spinner"></div> Laddar klubbar...</div>`;
@@ -88,7 +88,7 @@ export async function renderClubs(container, competitionId, equipages = []) {
                     <input type="file" id="file-${btoa(encodeURIComponent(club))}" class="hidden" accept="image/png,image/jpeg,image/webp">
                     <button class="btn-upload px-3 py-1.5 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50 rounded text-xs font-semibold transition-colors" 
                             data-club="${escapeHtml(club)}"
-                            onclick="document.getElementById('file-${btoa(encodeURIComponent(club))}').click()">
+                            ${actionAttrs('clickById', `file-${btoa(encodeURIComponent(club))}`)}>
                         Ladda upp
                     </button>
                     ${hasLogo ? '' : '' /* Maybe add delete button later? */}
