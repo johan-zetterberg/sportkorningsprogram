@@ -375,7 +375,7 @@ export async function generateAdminChecklistPdf(competition = null) {
         '[ ] Finalize the results and wait out the protest time according to TR',
         '[ ] President of the Ground Jury approves the official results',
         '[ ] Print prize-giving protocol and rosettes / ribbon award lists',
-        '[ ] Report the results to TDB',
+        '[ ] Report the results to TDB by hand, using the TDB entry sheet (Report Center)',
         '[ ] Close the competition on the Archiving tab (End competition)'
       ]
     }
@@ -428,7 +428,7 @@ export async function generateAdminChecklistPdf(competition = null) {
         '[ ] Fastställ resultaten och invänta protesttiden enligt TR',
         '[ ] Överdomaren godkänner den officiella resultatlistan',
         '[ ] Skriv ut prisutdelningsprotokoll och hedersprislistor för prisceremoni',
-        '[ ] Rapportera resultaten till TDB',
+        '[ ] Rapportera resultaten till TDB för hand med TDB-underlaget (Rapportcenter)',
         '[ ] Avsluta tävlingen under fliken Arkivering (Avsluta Tävling)'
       ]
     }

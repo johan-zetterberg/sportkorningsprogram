@@ -29,6 +29,14 @@ import { generateMarathonListPdf, generateMarathonFunctionaryPdf, generateMarath
 import { generatePrecisionListPdf, generatePrecisionOfficialsPdf, generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import { generateTotalResultsPdf } from '../../pdf/totalResultsPdf.js';
 import { generateTeamResultsPdf } from '../../pdf/teamResultsPdf.js'; // [NEW]
+import { generateTdbSheetPdf } from '../../pdf/tdbSheetPdf.js';
+import { resolveResultListStatus } from '../../pdf/pdfResultStatus.js';
+import { RESULT_STATUS, requiredForTotalRows } from '../../pdf/resultStatusUtils.js';
+import { applyArchivedSnapshot, loadArchiveSnapshot } from './archivedResults.js';
+import { buildTdbSheet, deadlineFor, tdbListToText, TDB_REPORT_URL } from '../../services/tdbSheetUtils.js';
+import { isClearRoundClass } from '../../core-engine/marathon.js';
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
+import { showToast } from '../../ui/components.js';
 import { generateVetCheckPdf } from '../../pdf/vetCheckPdf.js';
 import { mergeVetPrivateData } from '../../pdf/vetCheckPdfUtils.js';
 import { getVetInspections, getVetNotes } from '../../services/vetInspectionService.js';
@@ -73,6 +81,22 @@ let marathonTimingMap = new Map();
 let marathonStateMap = new Map();
 let marathonObsMap = new Map();
 
+// Total placings per merged class (core-engine/ranking.js); withdrawn: no place
+function placeReportRows(rows) {
+    const reportTotalKey = (row) => (isWithdrawnEquipage(row) ? null : totalRankKey({
+        totalPenalty: row.totalPenalty,
+        isEliminated: row.isEliminated,
+        marathonPenalty: row.marathon?.totalPenalty,
+        dressagePenalty: row.dressage?.penalty,
+        isClearRound: row.marathon?.isClearRound === true
+    }));
+    assignPlaces(rows, {
+        key: reportTotalKey,
+        compare: compareTotalRank,
+        group: (row) => row._mergedKey || row.className || ''
+    });
+}
+
 async function safeReportFetch(label, promiseFactory, fallbackValue) {
     try {
         return await promiseFactory();
@@ -91,6 +115,10 @@ export async function load() {
     }
 
     dataLoaded = false;
+    tdbSeq++; // a sheet still being built for an earlier load is dropped
+    tdbLists = [];
+    tdbRows = [];
+    tdbProvisional = new Set();
     render(); // Initial render (loading state?)
 
     const eqs = await safeReportFetch('ekipage', () => getEquipages(competitionId), []);
@@ -273,18 +301,7 @@ export async function load() {
     // Total placings per class (core-engine/ranking.js), used by the total PDF and teams.
     // A merged class is placed as one class: the PDF lists it under one heading
     // Withdrawn: no place
-    const reportTotalKey = (row) => (isWithdrawnEquipage(row) ? null : totalRankKey({
-        totalPenalty: row.totalPenalty,
-        isEliminated: row.isEliminated,
-        marathonPenalty: row.marathon?.totalPenalty,
-        dressagePenalty: row.dressage?.penalty,
-        isClearRound: row.marathon?.isClearRound === true
-    }));
-    assignPlaces(reportRows, {
-        key: reportTotalKey,
-        compare: compareTotalRank,
-        group: (row) => row._mergedKey || row.className || ''
-    });
+    placeReportRows(reportRows);
 
     // Sort by class, then placing; unplaced rows by start number, eliminated last
     reportRows.sort((a, b) => {
@@ -305,7 +322,201 @@ export async function load() {
 
     dataLoaded = true;
     render();
+    refreshTdbSheet();
 }
+
+// --- TDB ENTRY SHEET ---
+
+let tdbLists = [];
+let tdbRows = [];
+let tdbProvisional = new Set(); // group keys with results that are not all finalized
+let tdbSeq = 0;
+
+function canUseTdbSheet() {
+    const user = getGlobalState('currentUser') || {};
+    const compRoles = Array.isArray(user.compRoles) ? user.compRoles : [];
+    return ['admin', 'superadmin', 'sekretariat'].includes(user.role)
+        || compRoles.some((role) => ['admin', 'td', 'sekretariat'].includes(role));
+}
+
+async function refreshTdbSheet() {
+    if (!canUseTdbSheet()) return;
+    const seq = ++tdbSeq;
+    const comp = getGlobalState('currentCompetition');
+    // An archived competition: the archived values and placings
+    const snapshot = await safeReportFetch('arkivresultat', () => loadArchiveSnapshot(comp), null);
+    let rows = reportRows;
+    if (snapshot) {
+        rows = reportRows.map((row) => ({ ...row }));
+        applyArchivedSnapshot(rows, snapshot);
+        placeReportRows(rows);
+    }
+    // Clear round per class: maraton settings or the dressage admin's class config
+    const dClassCfg = await safeReportFetch('dressyrklasskonfiguration', () => getConfig(competitionId, 'dressyrClassConfig'), {});
+    const dressyrClassConfig = dClassCfg?.value || dClassCfg || null;
+    const lists = buildTdbSheet(rows, {
+        competition: comp,
+        isClearRoundClass: (className) => isClearRoundClass(className, { marathonConfig, dressyrClassConfig })
+    });
+    const provisional = new Set();
+    await Promise.all(lists.map(async (list) => {
+        if (list.status !== 'ok') return;
+        const listRows = rows.filter((row) => String(row._mergedKey || `CLASS:${row.className || '-'}`) === list.groupKey);
+        const { status } = await resolveResultListStatus(comp, { required: requiredForTotalRows(listRows) });
+        if (status !== RESULT_STATUS.OFFICIAL) provisional.add(list.groupKey);
+    }));
+    if (seq !== tdbSeq) return;
+    tdbRows = rows;
+    tdbLists = lists;
+    tdbProvisional = provisional;
+    const host = document.getElementById('tdb-sheet-section');
+    if (host) host.innerHTML = tdbSectionInnerHtml();
+}
+
+function tdbCopyButton(value, title) {
+    const text = String(value ?? '').trim();
+    if (!text) return '';
+    return `<button type="button" class="ml-1 px-1 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700" title="${escapeHtml(title)}" aria-label="${escapeHtml(`${title}: ${text}`)}" data-action="reports_copyText" data-action-args='${escapeHtml(JSON.stringify([text]))}'>${escapeHtml(t('tdb_copy_value'))}</button>`;
+}
+
+function tdbDeadlineText(competition) {
+    const iso = deadlineFor(competition);
+    if (!iso) return t('tdb_deadline_unknown');
+    const locale = getCurrentLanguage() === 'en' ? 'en-GB' : 'sv-SE';
+    const date = new Date(`${iso}T00:00:00Z`).toLocaleDateString(locale, { day: 'numeric', month: 'long', timeZone: 'UTC' });
+    return t('tdb_deadline').replace('{date}', date);
+}
+
+function tdbListHtml(list, index) {
+    const classes = (list.tdbClasses || [])
+        .map((c) => (c.number !== null && c.number !== undefined ? `${c.number} ${c.label}`.trim() : c.label))
+        .filter(Boolean).join(', ');
+    const provisional = tdbProvisional.has(list.groupKey);
+    const notes = [list.zeroStar ? t('tdb_zero_star_note') : '', list.clearRound ? t('tdb_clear_round_note') : '']
+        .filter(Boolean).map((n) => `<p class="text-xs text-gray-600 dark:text-gray-400 italic">${escapeHtml(n)}</p>`).join('');
+    let body;
+    if (list.status === 'noResults') {
+        body = `<p class="text-sm text-amber-800 dark:text-amber-200">${escapeHtml(t('tdb_class_lapsed'))}</p>`;
+    } else {
+        const rows = list.entries.map((e) => {
+            const byMoment = Object.fromEntries((e.moments || []).map((m) => [m.moment, m]));
+            const cell = (k) => `<td class="px-2 py-1 text-right whitespace-nowrap">${escapeHtml(byMoment[k] ? byMoment[k].penaltyText : '')}</td>`;
+            const horses = (e.horses || []).map((h) => {
+                const lic = h.licence || h.regNo;
+                return `<div>${escapeHtml(h.name || '-')}${lic ? ` <span class="text-gray-500 dark:text-gray-400">(${escapeHtml(lic)})</span>${tdbCopyButton(lic, t('tdb_copy_value'))}` : ''}</div>`;
+            }).join('');
+            return `<tr class="border-t border-gray-200 dark:border-gray-700 align-top">
+                <td class="px-2 py-1 font-bold text-center">${escapeHtml(e.placingLabel || '?')}</td>
+                <td class="px-2 py-1"><div>${escapeHtml(e.driverName || '-')}${e.driverLicence ? ` <span class="text-gray-500 dark:text-gray-400">(${escapeHtml(e.driverLicence)})</span>${tdbCopyButton(e.driverLicence, t('tdb_copy_value'))}` : ''}</div></td>
+                <td class="px-2 py-1">${horses || '-'}</td>
+                ${cell('D')}${cell('M')}${cell('P')}
+                <td class="px-2 py-1 text-right font-semibold whitespace-nowrap">${escapeHtml(e.totalText || '')}</td>
+            </tr>`;
+        }).join('');
+        body = `<div class="overflow-x-auto"><table class="w-full text-sm">
+            <thead><tr class="text-left text-xs uppercase text-gray-600 dark:text-gray-300">
+                <th class="px-2 py-1">${escapeHtml(t('tdb_col_place'))}</th>
+                <th class="px-2 py-1">${escapeHtml(t('tdb_col_driver'))}</th>
+                <th class="px-2 py-1">${escapeHtml(t('tdb_col_horses'))}</th>
+                <th class="px-2 py-1 text-right">D</th><th class="px-2 py-1 text-right">M</th><th class="px-2 py-1 text-right">P</th>
+                <th class="px-2 py-1 text-right">${escapeHtml(t('total'))}</th>
+            </tr></thead><tbody>${rows}</tbody></table></div>
+            <button type="button" class="mt-2 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-semibold py-1 px-3 rounded text-sm" data-action="reports_copyTdbClass" data-action-args='[${index}]'>${escapeHtml(t('tdb_copy_class'))}</button>`;
+    }
+    return `<div class="mb-5" data-tdb-list="${index}">
+        <h4 class="font-bold text-gray-800 dark:text-white">${escapeHtml(list.groupLabel || '')}${provisional ? ` <span class="ml-2 text-xs font-semibold text-amber-700 dark:text-amber-300">${escapeHtml(t('tdb_provisional_badge'))}</span>` : ''}</h4>
+        ${classes ? `<p class="text-xs text-gray-600 dark:text-gray-400 mb-1">${escapeHtml(t('tdb_covers'))}: ${escapeHtml(classes)}</p>` : ''}
+        ${notes}${body}
+    </div>`;
+}
+
+function tdbSectionInnerHtml() {
+    const competition = getGlobalState('currentCompetition');
+    const names = (lists) => lists.map((l) => l.groupLabel).join(', ');
+    const noResults = tdbLists.filter((l) => l.status === 'noResults');
+    const provisional = tdbLists.filter((l) => l.status === 'ok' && tdbProvisional.has(l.groupKey));
+    const checks = [
+        `<li>${escapeHtml(tdbDeadlineText(competition))}</li>`,
+        noResults.length ? `<li>${escapeHtml(t('tdb_no_results_hint').replace('{lists}', names(noResults)))}</li>` : '',
+        provisional.length ? `<li class="text-amber-800 dark:text-amber-200 font-semibold">${escapeHtml(t('tdb_provisional_hint').replace('{lists}', names(provisional)))}</li>` : ''
+    ].join('');
+    return `
+        <h3 class="text-xl font-bold mb-2 text-gray-800 dark:text-white">${escapeHtml(t('tdb_title'))}</h3>
+        <p class="text-gray-600 dark:text-gray-400 mb-3 text-sm">${escapeHtml(t('tdb_intro'))}</p>
+        <div class="mb-4 p-3 rounded border border-sky-200 bg-sky-50 dark:bg-sky-900/20 dark:border-sky-800 text-sm text-gray-800 dark:text-gray-200">
+            <p class="font-semibold mb-1">${escapeHtml(t('tdb_checklist_title'))}</p>
+            <ul class="list-disc pl-5 space-y-1">${checks}</ul>
+        </div>
+        <div class="mb-4 text-sm text-gray-700 dark:text-gray-300">
+            <p class="font-semibold mb-1">${escapeHtml(t('tdb_howto_title'))}</p>
+            <p>${escapeHtml(t('tdb_howto_1'))}</p><p>${escapeHtml(t('tdb_howto_2'))}</p><p>${escapeHtml(t('tdb_howto_3'))}</p><p>${escapeHtml(t('tdb_howto_4'))}</p>
+            <p class="mt-1"><a class="text-blue-700 dark:text-blue-300 underline" href="${escapeHtml(TDB_REPORT_URL)}" target="_blank" rel="noopener noreferrer">${escapeHtml(t('tdb_howto_link'))}</a></p>
+            <p class="mt-2 text-xs text-gray-600 dark:text-gray-400">${escapeHtml(t('tdb_code_legend'))}</p>
+        </div>
+        <button class="mb-4 w-full sm:w-auto bg-yellow-100 hover:bg-yellow-200 dark:bg-yellow-900/30 dark:hover:bg-yellow-800/50 text-yellow-800 dark:text-yellow-100 font-semibold py-2 px-4 rounded transition text-left" data-action="reports_generateTdbSheetPdf">
+            <span>📄 ${escapeHtml(t('tdb_pdf_button'))}</span>
+        </button>
+        ${tdbLists.length ? tdbLists.map(tdbListHtml).join('') : `<p class="text-sm text-gray-500">${escapeHtml(t('tdb_empty'))}</p>`}
+    `;
+}
+
+function tdbSectionHtml() {
+    if (!canUseTdbSheet()) return '';
+    return `<div id="tdb-sheet-section" class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 border-t-4 border-sky-500 dark:border-sky-400 col-span-full">${tdbSectionInnerHtml()}</div>`;
+}
+
+async function copyTextToClipboard(text) {
+    try {
+        await navigator.clipboard.writeText(text);
+        return true;
+    } catch (_) {
+        // Older browsers / no permission: a temporary textarea
+        try {
+            const area = document.createElement('textarea');
+            area.value = text;
+            area.setAttribute('readonly', '');
+            area.style.position = 'fixed';
+            area.style.opacity = '0';
+            document.body.appendChild(area);
+            area.select();
+            const ok = document.execCommand('copy');
+            document.body.removeChild(area);
+            return ok;
+        } catch (_e) {
+            return false;
+        }
+    }
+}
+
+async function copyWithToast(text) {
+    const ok = await copyTextToClipboard(text);
+    if (ok) showToast(t('tdb_copied'), { type: 'success', timeout: 1500 });
+    else showToast(t('tdb_copy_failed'), { type: 'warning' });
+}
+
+window.reports_copyText = function (text) {
+    return copyWithToast(String(text ?? ''));
+};
+
+window.reports_copyTdbClass = function (index) {
+    const list = tdbLists[Number(index)];
+    if (!list) return undefined;
+    return copyWithToast(tdbListToText(list, {
+        headers: {
+            place: t('tdb_col_place'),
+            driver: t('driver'),
+            driverLicence: t('tdb_col_driver_licence'),
+            horses: t('horse'),
+            horseLicences: t('tdb_col_horse_licence'),
+            total: t('total')
+        }
+    }));
+};
+
+window.reports_generateTdbSheetPdf = function () {
+    if (!tdbLists.length) { alert(t('tdb_empty')); return undefined; }
+    return generateTdbSheetPdf(tdbLists, getGlobalState('currentCompetition'), { rows: tdbRows });
+};
 
 function render() {
     const page = document.getElementById('page-reports');
@@ -472,6 +683,9 @@ function render() {
                 </div>
             </div>
             ` : ''}
+
+            <!-- TDB ENTRY SHEET (typed into TDB by hand) -->
+            ${tdbSectionHtml()}
 
             <!-- VETERINÄRBESIKTNING -->
             <div class="bg-white dark:bg-gray-800 rounded-lg shadow p-4 md:p-6 border-t-4 border-teal-500 dark:border-teal-400">

@@ -1156,6 +1156,8 @@ const PDF_REPORTS = [
   { call: 'reports_generatePrecisionOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA – PRECISION/, /Maxtid/] },
   { call: 'reports_generatePrecisionCourseSetupPdf()', headings: [/BANA & PORTAR/, /Maxtid/] },
   { call: 'reports_generateTotalPdf()', names: true, unicodeName: true, headings: [/RESULTAT/, /Plac/, /Dressyr/, /Maraton/, /Precision/, /Totalt/, /PRELIMINÄRT RESULTAT/] },
+  // TDB entry sheet (typed into TDB by hand): placing codes and the equipages
+  { call: 'reports_generateTdbSheetPdf()', names: true, headings: [/TDB-UNDERLAG/, /Plac-kod/, /Kusk/, /PRELIMINÄRT RESULTAT/] },
   // Only when the competition has teams (the seeded one has none)
   { call: 'reports_generateTeamPdf()', optional: true },
   { call: 'reports_generateVetCheckPdf()', names: true, headings: [/VETERINÄRBESIKTNING/, /Häst/] }

@@ -1027,7 +1027,7 @@ function getTabContentSV(tab) {
                   <p><strong>1. Resultatgranskning:</strong> Kontrollera på grenarnas resultatsidor (Resultat Dressyr, Maraton och Precision) att alla resultat är finaliserade. Vid eventuella protester eller domarkorrigeringar häver en behörig användare finaliseringen med knappen <em>${btn('undo', 'sv')}</em> på respektive grens resultatsida, rättar (t.ex. i Sekretariat) och finaliserar igen. <em>Totalresultat</em> visar sammanställningen.</p>
                   <p><strong>2. Skriv ut resultatlistor:</strong> Skriv ut officiella resultatlistor (A4 PDF) inför prisutdelningen.</p>
                   <p><strong>3. Avsluta & Arkivera:</strong> När prisutdelningen är genomförd går du till fliken <em>📦 Arkivering</em> i Admin och klickar på <em>"🏁 Avsluta Tävling"</em>. Detta fryser resultaten och sparar en permanent kopia av resultatlistan. Ska något ändras efteråt måste tävlingen öppnas igen.</p>
-                  <p><strong>4. Rapportera till TDB:</strong> DriveLive skapar ingen resultatfil för TDB. Rapportera resultaten i TDB enligt förbundets rutin, med de utskrivna resultatlistorna som underlag.</p>
+                  <p><strong>4. Rapportera till TDB:</strong> TDB har ingen filimport för sportkörning, så DriveLive skapar ingen resultatfil. Öppna <em>Rapportcenter</em> -> <em>TDB-underlag</em>: där finns varje lista i TDB:s ordning med placeringskoder (99 = utesluten/utgått/struken efter start, 98/1 = clear round, 0 = ensam i klassen), licensnummer att kopiera och en PDF. Skriv in resultaten i TDB för hand och skicka dem för granskning senast 5 dagar efter tävlingen.</p>
                 </div>
               </details>
 
@@ -2182,7 +2182,7 @@ function getTabContentEN(tab) {
                   <p><strong>1. Final verification:</strong> Check on each discipline's result page (Dressage, Marathon and Cones results) that every result is finalized. If corrections are needed, an authorized user lifts the finalization with <em>${btn('undo', 'en')}</em> on that discipline's result page, corrects (e.g. in the Secretariat) and finalizes again. <em>Total Results</em> shows the overall standings.</p>
                   <p><strong>2. Official printouts:</strong> Print the official A4 result sheets for prizegiving.</p>
                   <p><strong>3. End & Archive:</strong> Open the <em>📦 Arkivering</em> (Archiving) tab in Admin and click <em>"🏁 Avsluta Tävling"</em> (End competition). This freezes the results and stores a permanent copy of the result list. To change anything afterwards the competition must be reopened.</p>
-                  <p><strong>4. Report to the federation:</strong> DriveLive does not create a result file for TDB. Report the results there following the federation's routine, using the printed result lists.</p>
+                  <p><strong>4. Report to the federation:</strong> TDB has no file import for combined driving, so DriveLive does not create a result file. Open <em>Report Center</em> -> <em>TDB entry sheet</em>: it lists every result list in TDB's order with placing codes (99 = eliminated/retired/withdrawn after the start, 98/1 = clear round, 0 = only ekipage in the class), licence numbers to copy and a PDF. Type the results into TDB by hand and submit them for review within 5 days after the competition.</p>
                 </div>
               </details>
 
