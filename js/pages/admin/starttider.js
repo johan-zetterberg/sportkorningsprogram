@@ -11,7 +11,17 @@ import { listenForDressageFinalizationCollection } from '../../services/dressage
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
-import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, showConfirm, renderNoCompetitionState } from '../../ui/components.js';
+import { saveCompetitionMessage } from '../../services/documentService.js';
+import { buildMessageAudience } from '../../utils/messageAudience.js';
+import {
+    applyTimeShift,
+    buildChangeStamps,
+    buildStartTimeChangeMessage,
+    clockOf,
+    detectPublishedTimeChanges,
+    planTimeShift
+} from './startTimeChangeUtils.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
 import { getFlagHtml, } from '../../services/flagsService.js';
 import {
@@ -31,7 +41,7 @@ import {
     MOBILE_BP
 } from '../../utils/sharedUtils.js';
 import { doc, getDoc, onSnapshot, updateDoc, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { db, appId } from '../../config/firebase-config.js';
+import { db, appId, auth } from '../../config/firebase-config.js';
 
 import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
 import { getPrograms, deduplicateAndFilterProtocols } from '../../utils/dressageUtils.js';
@@ -48,7 +58,7 @@ import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { pickMergeSource } from '../../services/mergeConfigService.js';
-import { t } from '../../utils/i18n.js';
+import { t, translateTo } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import {
     addPauseAfterStartNumber,
@@ -1503,12 +1513,21 @@ async function saveTimes() {
     savingTimes = true;
     if (button) button.disabled = true;
     try {
-        const result = await awaitWriteOrQueue(saveConfig(competitionId, 'startTimes', {
-            times: changed,
-            updatedAt: Date.now()
-        }));
+        // Times changed on a published list: stamped per start number (the
+        // driver portal shows "ändrad HH:MM"), and the drivers can be told
+        const publishedChanges = detectPublishedTimeChanges(
+            getTimesOnlyPayload(startTimes),
+            savedTimesBaseline,
+            startTimesPublishedFlags({ published: getPublishedState(startTimes) })
+        );
+        const payload = { times: changed, updatedAt: Date.now() };
+        if (publishedChanges.length) {
+            payload.changes = buildChangeStamps(publishedChanges, { at: Date.now(), by: auth?.currentUser?.uid || '' });
+        }
+        const result = await awaitWriteOrQueue(saveConfig(competitionId, 'startTimes', payload));
         savedTimesBaseline = JSON.parse(JSON.stringify(getTimesOnlyPayload(startTimes)));
         showAlert(`${t('times_saved')}${queuedNotice(result)}`, result === 'queued' ? 'offline' : 'success');
+        if (publishedChanges.length) offerStartTimeChangeMessage(publishedChanges);
     } catch (err) {
         console.error('Kunde inte spara starttider', err);
         showAlert(t('times_save_error'), 'error');
@@ -1516,6 +1535,161 @@ async function saveTimes() {
         savingTimes = false;
         if (button) button.disabled = false;
     }
+}
+
+/**
+ * After changed times on a published list: a ready message to the drivers
+ * concerned (chosen drivers = the changed start numbers), old → new time,
+ * in Swedish and English. Sent with one click; nothing is sent otherwise.
+ */
+async function offerStartTimeChangeMessage(changes) {
+    const message = buildStartTimeChangeMessage(changes, equipages, translateTo);
+    if (!message.startNumbers.length) return;
+    const ok = await showConfirm(`${t('starttime_offer_msg_lead').replace('{n}', String(message.startNumbers.length))}\n\n${message.body}`, {
+        title: t('starttime_offer_msg_title'),
+        confirmLabel: t('starttime_offer_msg_send'),
+        cancelLabel: t('starttime_offer_msg_skip')
+    });
+    if (!ok) return;
+    try {
+        await awaitWriteOrQueue(saveCompetitionMessage(competitionId, {
+            title: message.title,
+            body: message.body,
+            titleEn: message.titleEn,
+            bodyEn: message.bodyEn,
+            type: 'info',
+            ...buildMessageAudience('selected_drivers', { selectedDrivers: message.startNumbers })
+        }));
+        showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
+    } catch (err) {
+        console.error('Kunde inte skicka meddelandet om ändrade starttider', err);
+        showAlert(t('starttime_offer_msg_failed'), 'error');
+    }
+}
+
+// --- "Skjut resten X minuter" (preview first, then save) ---
+let pendingShift = null;
+
+function readShiftForm() {
+    const discipline = document.getElementById('shiftDiscipline')?.value || 'dressage';
+    const fromMode = document.getElementById('shiftFromMode')?.value || 'startnumber';
+    return {
+        discipline,
+        minutes: Number(document.getElementById('shiftMinutes')?.value || 0),
+        fromStartNumber: fromMode === 'startnumber' ? String(document.getElementById('shiftFromStartNumber')?.value || '').trim() : '',
+        fromTime: fromMode === 'time' ? String(document.getElementById('shiftFromTime')?.value || '') : '',
+        className: document.getElementById('bulkClass')?.value || ''
+    };
+}
+
+function syncShiftFromMode() {
+    const mode = document.getElementById('shiftFromMode')?.value || 'startnumber';
+    document.getElementById('shiftFromStartNumberWrap')?.classList.toggle('hidden', mode !== 'startnumber');
+    document.getElementById('shiftFromTimeWrap')?.classList.toggle('hidden', mode !== 'time');
+}
+
+function renderShiftPreview() {
+    const host = document.getElementById('shiftPreview');
+    if (!host) return;
+    if (!pendingShift) { host.innerHTML = ''; return; }
+    const { plan, discipline, minutes } = pendingShift;
+    if (!plan.length) {
+        host.innerHTML = `<p class="text-sm text-amber-900 dark:text-amber-200">${escapeHtml(t('shift_times_nothing'))}</p>`;
+        return;
+    }
+    const byNumber = new Map(equipages.map(e => [String(e.startNumber), e]));
+    const rows = plan.map(({ startNumber, from, to }) => `
+        <tr class="border-t border-amber-200 dark:border-amber-800">
+            <td class="py-1 pr-2 font-semibold">#${escapeHtml(startNumber)}</td>
+            <td class="py-1 pr-2">${escapeHtml(byNumber.get(startNumber)?.driverName || '')}</td>
+            <td class="py-1 pr-2 tabular-nums">${escapeHtml(clockOf(from))}</td>
+            <td class="py-1 tabular-nums font-semibold">→ ${escapeHtml(clockOf(to))}${String(to).slice(0, 10) !== String(from).slice(0, 10) ? ` <span class="text-xs">(${escapeHtml(String(to).slice(0, 10))})</span>` : ''}</td>
+        </tr>`).join('');
+    const published = startTimesPublishedFlags({ published: getPublishedState(startTimes) })[discipline] === true;
+    host.innerHTML = `
+        <p class="text-sm font-semibold text-amber-900 dark:text-amber-100">${escapeHtml(t('shift_times_preview_lead').replace('{n}', String(plan.length)).replace('{min}', (minutes > 0 ? '+' : '') + String(minutes)).replace('{disc}', t(`starttime_discipline_${discipline}`)))}</p>
+        ${published ? `<p class="text-xs text-amber-800 dark:text-amber-300">${escapeHtml(t('shift_times_published_note'))}</p>` : ''}
+        <div class="mt-2 max-h-64 overflow-y-auto">
+            <table class="w-full text-sm text-left text-gray-900 dark:text-gray-100" id="shiftPreviewTable">
+                <thead><tr class="text-xs uppercase text-gray-600 dark:text-gray-400"><th class="pr-2">${escapeHtml(t('startno'))}</th><th class="pr-2">${escapeHtml(t('driver'))}</th><th class="pr-2">${escapeHtml(t('shift_times_old'))}</th><th>${escapeHtml(t('shift_times_new'))}</th></tr></thead>
+                <tbody>${rows}</tbody>
+            </table>
+        </div>
+        <div class="mt-3 flex flex-col sm:flex-row gap-2">
+            <button type="button" id="shiftApplyBtn" class="min-h-[44px] px-4 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700">${escapeHtml(t('shift_times_apply'))}</button>
+            <button type="button" id="shiftCancelBtn" class="min-h-[44px] px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-sm text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700">${escapeHtml(t('btn_cancel'))}</button>
+        </div>`;
+    document.getElementById('shiftApplyBtn')?.addEventListener('click', applyPendingShift);
+    document.getElementById('shiftCancelBtn')?.addEventListener('click', () => { pendingShift = null; renderShiftPreview(); });
+}
+
+function previewShift() {
+    const form = readShiftForm();
+    if (!Number.isFinite(form.minutes) || Math.round(form.minutes) === 0) {
+        showAlert(t('shift_times_minutes_required'), 'warning');
+        return;
+    }
+    if (!form.fromStartNumber && !form.fromTime) {
+        showAlert(t('shift_times_from_required'), 'warning');
+        return;
+    }
+    if (form.fromStartNumber && !startTimes[form.fromStartNumber]?.[form.discipline]) {
+        showAlert(t('shift_times_unknown_start').replace('{sn}', form.fromStartNumber), 'warning');
+        return;
+    }
+    const plan = planTimeShift(getTimesOnlyPayload(startTimes), equipages, { ...form, now: new Date() });
+    pendingShift = { plan, discipline: form.discipline, minutes: Math.round(form.minutes) };
+    renderShiftPreview();
+}
+
+async function applyPendingShift() {
+    if (!pendingShift?.plan?.length) return;
+    applyTimeShift(startTimes, pendingShift.plan, pendingShift.discipline);
+    pendingShift = null;
+    render();
+    updateNextStartTimes();
+    // Saved at once: a published list gets its change stamps and the drivers
+    // concerned can be sent the ready message (saveTimes)
+    await saveTimes();
+}
+
+function renderShiftTimesCard() {
+    const disciplineOptions = ['dressage', 'marathon', 'precision']
+        .map(d => `<option value="${d}">${escapeHtml(t(`starttime_discipline_${d}`))}</option>`).join('');
+    return `
+<!-- 2b. SHIFT THE REST -->
+<div class="p-4 mb-4 bg-amber-50 dark:bg-amber-900/10 rounded-lg border border-amber-200 dark:border-amber-800 shadow-sm" id="shiftTimesCard">
+    <h4 class="text-xs font-bold uppercase tracking-wider text-amber-900 dark:text-amber-300 mb-1">${escapeHtml(t('shift_times_title'))}</h4>
+    <p class="text-xs text-gray-600 dark:text-gray-400 mb-3">${escapeHtml(t('shift_times_intro'))}</p>
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-2 items-end">
+        <div>
+            <label for="shiftDiscipline" class="text-xs font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('shift_times_discipline'))}</label>
+            <select id="shiftDiscipline" class="w-full mt-1 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">${disciplineOptions}</select>
+        </div>
+        <div>
+            <label for="shiftFromMode" class="text-xs font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('shift_times_from'))}</label>
+            <select id="shiftFromMode" class="w-full mt-1 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+                <option value="startnumber">${escapeHtml(t('shift_times_from_startnumber'))}</option>
+                <option value="time">${escapeHtml(t('shift_times_from_time'))}</option>
+            </select>
+        </div>
+        <div id="shiftFromStartNumberWrap">
+            <label for="shiftFromStartNumber" class="text-xs font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('startno'))}</label>
+            <input id="shiftFromStartNumber" type="text" inputmode="numeric" class="w-full mt-1 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+        </div>
+        <div id="shiftFromTimeWrap" class="hidden">
+            <label for="shiftFromTime" class="text-xs font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('shift_times_from_time'))}</label>
+            <input id="shiftFromTime" type="datetime-local" class="w-full mt-1 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+        </div>
+        <div>
+            <label for="shiftMinutes" class="text-xs font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('shift_times_minutes'))}</label>
+            <input id="shiftMinutes" type="number" step="1" min="-600" max="600" value="10" class="w-full mt-1 px-2 py-1.5 rounded-md border border-gray-300 dark:border-gray-600 dark:bg-gray-700 dark:text-white">
+        </div>
+        <button type="button" id="shiftPreviewBtn" class="min-h-[44px] col-span-2 md:col-span-1 px-3 py-2 rounded-md bg-amber-600 text-white text-sm font-semibold hover:bg-amber-700">${escapeHtml(t('shift_times_preview'))}</button>
+    </div>
+    <p class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">${escapeHtml(t('shift_times_class_hint'))}</p>
+    <div id="shiftPreview" class="mt-3" aria-live="polite"></div>
+</div>`;
 }
 
 async function clearDisciplineTimes(discipline) {
@@ -1585,7 +1759,7 @@ function bindAllControls() {
             ? 'published-incomplete'
             : (readiness && readiness.scheduledCount < equipages.length ? 'incomplete' : null);
         const warningText = warningState === 'published-incomplete'
-            ? 'Ofullstandig lista'
+            ? 'Ofullständig lista'
             : (warningState === 'incomplete'
                 ? `${readiness?.scheduledCount || 0}/${equipages.length} tider satta`
                 : '');
@@ -1695,6 +1869,8 @@ function bindAllControls() {
     </div>
 </div>
 
+${renderShiftTimesCard()}
+
 ${renderFeiStartOrderAssistant()}
 
 ${renderStarttiderPublishResetSection({
@@ -1729,6 +1905,9 @@ ${renderStarttiderToolbarSection({
     }
 
     document.getElementById('btnSaveTimes')?.addEventListener('click', saveTimes);
+    document.getElementById('shiftFromMode')?.addEventListener('change', syncShiftFromMode);
+    document.getElementById('shiftPreviewBtn')?.addEventListener('click', previewShift);
+    renderShiftPreview();
     document.getElementById('bulkDressage')?.addEventListener('click', () => doBulkFill('dressage'));
     document.getElementById('generateMarathonAdvancedBtn')?.addEventListener('click', generateMarathonAdvanced);
     document.getElementById('generatePrecisionAdvancedBtn')?.addEventListener('click', generatePrecisionAdvanced);

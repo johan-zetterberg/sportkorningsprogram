@@ -24,6 +24,10 @@ test('the declaration locks when archived, locked manually, or within the lock t
     assert.equal(declarationLockReason({ competition: { status: 'completed' }, startNumber: 7 }), 'archived');
     // No start time yet: open
     assert.equal(declarationLockReason({ startTimes, startNumber: 8, now: halfHourBefore }), null);
+    // An empty or missing lock time is the default (60), not 0
+    assert.equal(declarationLockReason({ startTimes, startNumber: 7, now: halfHourBefore, meta: { lockdownMinutes: '' } }), 'time');
+    assert.equal(declarationLockReason({ startTimes, startNumber: 7, now: halfHourBefore, meta: { lockdownMinutes: null } }), 'time');
+    assert.equal(declarationLockReason({ startTimes, startNumber: 7, now: halfHourBefore, meta: { lockdownMinutes: 0 } }), null);
 });
 
 test('unpublished (draft) start times do not lock the declaration', () => {

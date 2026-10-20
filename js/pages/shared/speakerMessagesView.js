@@ -2,6 +2,7 @@
 
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { timeValueToMs, formatClockTime } from '../../utils/timeValueUtils.js';
+import { localizedMessage } from '../../utils/messageAudience.js';
 
 /** Newest first, at most `limit` messages with a title or text */
 export function pickSpeakerMessages(messages = [], { limit = 3 } = {}) {
@@ -11,18 +12,24 @@ export function pickSpeakerMessages(messages = [], { limit = 3 } = {}) {
         .slice(0, limit);
 }
 
-/** The banner's HTML ('' when there is nothing to show); all text escaped */
-export function renderSpeakerMessagesHtml(messages = [], { title = 'Meddelanden från arrangören', limit = 3 } = {}) {
+/**
+ * The banner's HTML ('' when there is nothing to show); all text escaped.
+ * A message not for the public (officials only) gets internalLabel: not to
+ * be announced. lang picks the optional English text.
+ */
+export function renderSpeakerMessagesHtml(messages = [], { title = 'Meddelanden från arrangören', limit = 3, lang = 'sv', internalLabel = 'Internt' } = {}) {
     const list = pickSpeakerMessages(messages, { limit });
     if (!list.length) return '';
     const items = list.map(m => {
         const isAlert = m.type === 'alert';
+        const isInternal = m.audience?.public !== true && m.audience?.officials === true;
         const time = timeValueToMs(m.timestamp) !== null ? formatClockTime(m.timestamp) : '';
+        const text = localizedMessage(m, lang);
         return `<li class="flex items-start gap-2 py-1.5 border-t first:border-t-0 border-blue-100 dark:border-blue-800/60">
             <i class="fas ${isAlert ? 'fa-triangle-exclamation text-red-600 dark:text-red-400' : 'fa-circle-info text-blue-700 dark:text-blue-300'} mt-1" aria-hidden="true"></i>
             <div class="min-w-0 flex-1">
-                <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(m.title || '')}${time ? `<span class="ml-2 text-xs font-normal text-gray-600 dark:text-gray-300 tabular-nums">${escapeHtml(time)}</span>` : ''}</div>
-                ${m.body ? `<div class="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line line-clamp-3">${escapeHtml(m.body)}</div>` : ''}
+                <div class="font-semibold ${isAlert ? 'text-red-800 dark:text-red-200' : 'text-gray-900 dark:text-white'}">${escapeHtml(text.title || '')}${isInternal ? `<span class="ml-2 text-[10px] font-bold uppercase bg-violet-600 text-white px-1.5 py-0.5 rounded-full" data-speaker-internal>${escapeHtml(internalLabel)}</span>` : ''}${time ? `<span class="ml-2 text-xs font-normal text-gray-600 dark:text-gray-300 tabular-nums">${escapeHtml(time)}</span>` : ''}</div>
+                ${text.body ? `<div class="text-sm text-gray-800 dark:text-gray-200 whitespace-pre-line line-clamp-3">${escapeHtml(text.body)}</div>` : ''}
             </div>
         </li>`;
     }).join('');

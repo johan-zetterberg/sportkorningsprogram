@@ -1,5 +1,23 @@
 import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
+import { t } from '../../utils/i18n.js';
+import { OFFICIAL_ROLE_KEYS, messageAudienceMode } from '../../utils/messageAudience.js';
 
+// The admin's audience choices (messageAudience.buildMessageAudience)
+export function messageAudienceOptions() {
+    return [
+        { value: 'public', label: t('msg_aud_public') },
+        { value: 'drivers', label: t('msg_aud_drivers') },
+        { value: 'selected_drivers', label: t('msg_aud_selected_drivers') },
+        { value: 'officials', label: t('msg_aud_officials') },
+        ...OFFICIAL_ROLE_KEYS.map(role => ({ value: `official:${role}`, label: t(`msg_aud_official_${role}`) }))
+    ];
+}
+
+/** The audience's label for a stored message ("Publik (alla, även kuskar)") */
+export function messageAudienceLabel(message) {
+    const mode = messageAudienceMode(message);
+    return messageAudienceOptions().find(option => option.value === mode)?.label || mode;
+}
 
 function formatFileSize(bytes) {
     const size = Number(bytes);
@@ -10,20 +28,22 @@ function formatFileSize(bytes) {
 }
 
 export function renderMessageAudienceBadge(message, getMessageAudience, getMessageTargetStartNumbers) {
-    const audience = getMessageAudience(message);
     const targets = getMessageTargetStartNumbers(message);
+    const mode = messageAudienceMode(message);
+    const badge = (classes, text) => `<span class="${classes} text-[10px] uppercase px-1.5 py-0.5 rounded-full font-bold">${escapeHtml(text)}</span>`;
 
-    if (targets.length > 0) {
-        return `<span class="bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-100 text-[10px] uppercase px-1.5 py-0.5 rounded-full font-bold">Valda kuskar: ${targets.map(target => `#${escapeHtml(target)}`).join(', ')}</span>`;
+    if (mode === 'selected_drivers' && targets.length > 0) {
+        return badge('bg-slate-200 text-slate-700 dark:bg-slate-600 dark:text-slate-100',
+            `${t('msg_aud_selected_drivers')}: ${targets.map(target => `#${target}`).join(', ')}`);
     }
-    if (audience.public && audience.drivers) {
-        return '<span class="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 text-[10px] uppercase px-1.5 py-0.5 rounded-full font-bold">Publik och kuskar</span>';
+    if (mode === 'public') {
+        return badge('bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200', t('msg_aud_public'));
     }
-    if (audience.public) {
-        return '<span class="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 text-[10px] uppercase px-1.5 py-0.5 rounded-full font-bold">Endast publik</span>';
+    if (mode === 'drivers') {
+        return badge('bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200', t('msg_aud_drivers'));
     }
-    if (audience.drivers) {
-        return '<span class="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 text-[10px] uppercase px-1.5 py-0.5 rounded-full font-bold">Alla kuskar</span>';
+    if (mode === 'officials' || mode.startsWith('official:')) {
+        return badge('bg-violet-100 text-violet-800 dark:bg-violet-900/30 dark:text-violet-200', messageAudienceLabel(message));
     }
     return '';
 }
@@ -31,11 +51,9 @@ export function renderMessageAudienceBadge(message, getMessageAudience, getMessa
 export function renderDocumentAudienceBadge(document, getDocumentAudience) {
     const audience = getDocumentAudience(document);
 
-    if (audience.public && audience.drivers) {
-        return '<span class="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 px-1.5 py-0.5 rounded ml-1">Publik och kuskar</span>';
-    }
+    // Public documents reach the drivers too (documentService.isDocumentVisibleToDriver)
     if (audience.public) {
-        return '<span class="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200 px-1.5 py-0.5 rounded ml-1">Publik</span>';
+        return `<span class="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-200 px-1.5 py-0.5 rounded ml-1">${escapeHtml(t('msg_aud_public'))}</span>`;
     }
     if (audience.drivers) {
         return '<span class="bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200 px-1.5 py-0.5 rounded ml-1">Kuskar</span>';
@@ -167,34 +185,47 @@ export function renderCommunicationTabMarkup() {
                         Meddelanden
                     </h2>
                     <p class="text-sm text-gray-500 mb-4 dark:text-gray-400">
-                        Skicka information till publik, alla kuskar eller valda kuskar. Viktiga meddelanden markeras tydligare i portalen.
+                        ${escapeHtml(t('msg_form_intro'))}
                     </p>
 
                     <form id="commMetaForm" class="space-y-4">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Rubrik</label>
-                            <input type="text" id="msgTitle" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. Uppdaterad startlista" required>
+                        <input type="hidden" id="msgEditId" value="">
+                        <div id="msgEditNotice" class="hidden rounded-md border border-amber-300 bg-amber-50 dark:border-amber-700 dark:bg-amber-900/20 p-2 text-sm text-amber-900 dark:text-amber-200 flex items-center justify-between gap-2">
+                            <span>${escapeHtml(t('msg_editing_notice'))}</span>
+                            <button type="button" id="msgCancelEditBtn" class="text-xs font-semibold underline">${escapeHtml(t('btn_cancel'))}</button>
                         </div>
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Meddelande</label>
-                            <textarea id="msgBody" rows="3" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Skriv ditt meddelande här..." required></textarea>
+                            <label for="msgTitle" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Rubrik</label>
+                            <input type="text" id="msgTitle" maxlength="300" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="t.ex. Uppdaterad startlista" required>
                         </div>
+                        <div>
+                            <label for="msgBody" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Meddelande</label>
+                            <textarea id="msgBody" rows="3" maxlength="10000" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="Skriv ditt meddelande här..." required></textarea>
+                        </div>
+                        <details id="msgEnglishDetails" class="rounded-md border border-gray-200 dark:border-gray-700 p-2">
+                            <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('msg_english_optional'))}</summary>
+                            <div class="mt-2 space-y-2">
+                                <label for="msgTitleEn" class="block text-xs font-medium text-gray-600 dark:text-gray-400">${escapeHtml(t('msg_title_en'))}</label>
+                                <input type="text" id="msgTitleEn" maxlength="300" lang="en" class="block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                                <label for="msgBodyEn" class="block text-xs font-medium text-gray-600 dark:text-gray-400">${escapeHtml(t('msg_body_en'))}</label>
+                                <textarea id="msgBodyEn" rows="3" maxlength="10000" lang="en" class="block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></textarea>
+                                <p class="text-[11px] text-gray-500 dark:text-gray-400">${escapeHtml(t('msg_english_hint'))}</p>
+                            </div>
+                        </details>
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Typ</label>
+                                <label for="msgType" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Typ</label>
                                 <select id="msgType" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                                     <option value="info">Information</option>
                                     <option value="alert">Viktigt / varning</option>
                                 </select>
                             </div>
                             <div>
-                                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Målgrupp</label>
+                                <label for="msgAudienceMode" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Målgrupp</label>
                                 <select id="msgAudienceMode" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                                    <option value="public_and_drivers">Publik och alla kuskar</option>
-                                    <option value="public_only">Endast publik</option>
-                                    <option value="drivers_only">Endast alla kuskar</option>
-                                    <option value="selected_drivers">Valda kuskar</option>
+                                    ${messageAudienceOptions().map(option => `<option value="${escapeHtml(option.value)}">${escapeHtml(option.label)}</option>`).join('')}
                                 </select>
+                                <p id="msgAudienceHint" class="mt-1 text-[11px] text-gray-500 dark:text-gray-400"></p>
                             </div>
                         </div>
                         <div id="selectedDriversBox" class="hidden border rounded-lg p-3 bg-gray-50 dark:bg-gray-900/20 dark:border-gray-700">
@@ -206,8 +237,8 @@ export function renderCommunicationTabMarkup() {
                                 <div class="text-gray-400">Laddar kuskar...</div>
                             </div>
                         </div>
-                        <button type="submit" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition dark:bg-blue-700 dark:hover:bg-blue-600">
-                            Publicera meddelande
+                        <button type="submit" id="msgSubmitBtn" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition dark:bg-blue-700 dark:hover:bg-blue-600">
+                            ${escapeHtml(t('msg_publish_btn'))}
                         </button>
                     </form>
                 </div>
@@ -218,6 +249,8 @@ export function renderCommunicationTabMarkup() {
                         <div class="text-center py-4 dark:text-gray-400"><div class="spinner"></div></div>
                     </div>
                 </div>
+
+                ${renderContactListsCard()}
             </div>
 
             <div class="space-y-6">
@@ -257,8 +290,7 @@ export function renderCommunicationTabMarkup() {
                         <div>
                             <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">Målgrupp</label>
                             <select id="docAudienceMode" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                                <option value="public_and_drivers">Publik och kuskar</option>
-                                <option value="public_only">Endast publik</option>
+                                <option value="public_and_drivers">${escapeHtml(t('msg_aud_public'))}</option>
                                 <option value="drivers_only">Endast kuskar</option>
                             </select>
                         </div>
@@ -315,13 +347,38 @@ export function renderMessagesList(items, badgeRenderer) {
                     ${badgeRenderer(message)}
                 </div>
                 <p class="text-sm text-gray-600 mt-1 whitespace-pre-wrap dark:text-gray-300">${escapeHtml(message.body || '')}</p>
-                <div class="text-xs text-gray-400 mt-2">${escapeHtml(message._formattedTimestamp || '')}</div>
+                ${message.bodyEn || message.titleEn ? `<p class="text-xs text-gray-500 mt-1 whitespace-pre-wrap dark:text-gray-400" lang="en"><span class="font-semibold">EN:</span> ${escapeHtml([message.titleEn, message.bodyEn].filter(Boolean).join(' – '))}</p>` : ''}
+                <div class="text-xs text-gray-400 mt-2">${escapeHtml(message._formattedTimestamp || '')}${message._formattedEdited ? ` · ${escapeHtml(t('msg_edited_at').replace('{time}', message._formattedEdited))}` : ''}</div>
             </div>
-            <button class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1 self-end sm:self-auto" data-delete-message-id="${escapeHtml(message.id)}" type="button">
-                Ta bort
-            </button>
+            <div class="flex gap-1 self-end sm:self-auto">
+                <button class="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300 p-1" data-edit-message-id="${escapeHtml(message.id)}" type="button">
+                    ${escapeHtml(t('edit'))}
+                </button>
+                <button class="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 p-1" data-delete-message-id="${escapeHtml(message.id)}" type="button">
+                    Ta bort
+                </button>
+            </div>
         </div>
     `).join('');
+}
+
+// Contact lists (admins): e-mail addresses (BCC) and phone numbers per group
+export function renderContactListsCard() {
+    return `
+                <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border-l-4 border-teal-500 border dark:border-gray-700" id="contactListsCard">
+                    <h3 class="text-lg font-semibold mb-1 dark:text-white">${escapeHtml(t('contact_lists_title'))}</h3>
+                    <p class="text-sm text-gray-500 mb-3 dark:text-gray-400">${escapeHtml(t('contact_lists_intro'))}</p>
+                    <label for="contactListGroup" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${escapeHtml(t('contact_lists_group'))}</label>
+                    <select id="contactListGroup" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                        <option value="">${escapeHtml(t('loading_data'))}</option>
+                    </select>
+                    <p id="contactListSummary" class="mt-2 text-xs text-gray-600 dark:text-gray-300" aria-live="polite"></p>
+                    <div class="mt-3 flex flex-col sm:flex-row flex-wrap gap-2">
+                        <button type="button" id="copyContactEmailsBtn" class="min-h-[44px] px-3 py-2 rounded-md bg-teal-600 text-white text-sm font-semibold hover:bg-teal-700 disabled:opacity-50">${escapeHtml(t('contact_lists_copy_emails'))}</button>
+                        <button type="button" id="copyContactPhonesBtn" class="min-h-[44px] px-3 py-2 rounded-md border border-teal-600 text-teal-800 dark:text-teal-200 text-sm font-semibold hover:bg-teal-50 dark:hover:bg-teal-900/30 disabled:opacity-50">${escapeHtml(t('contact_lists_copy_phones'))}</button>
+                        <a id="contactMailtoLink" href="#" class="min-h-[44px] inline-flex items-center px-3 py-2 rounded-md text-sm font-semibold text-teal-800 dark:text-teal-200 hover:underline aria-disabled:opacity-50">${escapeHtml(t('contact_lists_mailto'))}</a>
+                    </div>
+                </div>`;
 }
 
 export function renderDocumentsList(items, badgeRenderer) {

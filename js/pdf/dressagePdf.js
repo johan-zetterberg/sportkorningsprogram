@@ -17,7 +17,9 @@ import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../
 import { getProgramMaxScore } from '../core-engine/dressage.js';
 import { isPrivileged, isWithdrawnEquipage } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
+import { resolveResultListStatus } from './pdfResultStatus.js';
+import { requiredForDiscipline } from './resultStatusUtils.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
@@ -547,9 +549,13 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
   const classTitle = (currentClass === 'Alla klasser' || !currentClass) ? t('all_classes', isInt) : currentClass;
   const titleStr = `${t('pdf_dressage_results_title', isInt)}: ${classTitle}`;
 
-  let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40);
   // Withdrawn (status or flag): not in the result list and no place
   const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status) && !isWithdrawnEquipage(eq));
+  // Official when every result on the list is finalized (or archived)
+  const resultStatus = await resolveResultListStatus(competition, {
+    required: requiredForDiscipline('dressage', printableEquipages.map(eq => eq.startNumber))
+  });
+  let y = drawStandardHeader(doc, competition, titleStr, srfLogo, 30, 40, { resultStatus, isInt });
 
   const allJudges = collectDressageJudges(printableEquipages, judgesList);
   const activePositions = [...new Set(allJudges.map(j => normalizeJudgePosition(j.position)).filter(Boolean))];
@@ -772,6 +778,7 @@ export async function generateDressageListPdf(equipages, currentClass, competiti
     }
   });
 
+  drawResultStatusFooter(doc, resultStatus, { isInt });
   doc.save(`dressyr_resultat_${currentClass || 'lista'}.pdf`);
 }
 

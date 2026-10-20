@@ -2,6 +2,7 @@ import {
     getCompetitionMessages,
     getCompetitionDocuments,
     saveCompetitionMessage,
+    updateCompetitionMessage,
     deleteCompetitionMessage,
     saveCompetitionDocument,
     deleteCompetitionDocument,
@@ -11,7 +12,13 @@ import {
 } from '../../services/documentService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig, saveConfig } from '../../services/competitionService.js';
-import { showAlert } from '../../ui/components.js';
+import { getJudges, getOfficials } from '../../services/adminService.js';
+import { showAlert, showConfirm } from '../../ui/components.js';
+import { t } from '../../utils/i18n.js';
+import { buildMessageAudience, messageAudienceMode } from '../../utils/messageAudience.js';
+import { buildContactGroups, mailtoBccHref } from '../../utils/contactLists.js';
+import { fillTemplate } from '../../utils/officialTaskUtils.js';
+import { escapeHtml } from '../../utils/sharedUtils.js';
 import {
     renderCommunicationTabMarkup,
     renderMessageAudienceBadge,
@@ -21,10 +28,32 @@ import {
     renderMessagesList,
     renderDocumentsList
 } from './admin-communication-view.js';
+import { mountEmergencyInfoAdmin } from './adminEmergencyInfo.js';
 
 function formatTimestamp(timestamp) {
     if (!timestamp?.seconds) return '';
     return new Date(timestamp.seconds * 1000).toLocaleString('sv-SE');
+}
+
+/** Copies text to the clipboard; the older select-and-copy where the API is missing */
+async function copyToClipboard(text) {
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch (_) { /* fall back below */ }
+    const area = document.createElement('textarea');
+    area.value = text;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (_) { ok = false; }
+    area.remove();
+    return ok;
 }
 
 function getMessageBadge(message) {
@@ -99,7 +128,115 @@ export function renderCommunicationTab(container, competition) {
     }
 
     function syncAudienceUi() {
-        selectedDriversBox.classList.toggle('hidden', messageAudienceSelect.value !== 'selected_drivers');
+        const mode = messageAudienceSelect.value;
+        selectedDriversBox.classList.toggle('hidden', mode !== 'selected_drivers');
+        const hint = document.getElementById('msgAudienceHint');
+        if (hint) {
+            const hintKey = mode === 'public' ? 'msg_aud_hint_public'
+                : (mode === 'officials' || mode.startsWith('official:')) ? 'msg_aud_hint_officials'
+                    : 'msg_aud_hint_drivers';
+            hint.textContent = t(hintKey);
+        }
+    }
+
+    let loadedMessages = [];
+
+    function setEditMode(message) {
+        const editing = !!message;
+        document.getElementById('msgEditId').value = editing ? message.id : '';
+        document.getElementById('msgEditNotice')?.classList.toggle('hidden', !editing);
+        const submit = document.getElementById('msgSubmitBtn');
+        if (submit) submit.textContent = t(editing ? 'msg_save_changes_btn' : 'msg_publish_btn');
+        if (!editing) return;
+        document.getElementById('msgTitle').value = message.title || '';
+        document.getElementById('msgBody').value = message.body || message.message || '';
+        document.getElementById('msgTitleEn').value = message.titleEn || '';
+        document.getElementById('msgBodyEn').value = message.bodyEn || '';
+        if (message.titleEn || message.bodyEn) document.getElementById('msgEnglishDetails').open = true;
+        document.getElementById('msgType').value = message.type === 'alert' ? 'alert' : 'info';
+        messageAudienceSelect.value = messageAudienceMode(message);
+        const targets = new Set(getMessageTargetStartNumbers(message));
+        document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
+            checkbox.checked = targets.has(checkbox.value);
+        });
+        syncAudienceUi();
+        messageForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        document.getElementById('msgTitle').focus({ preventScroll: true });
+    }
+
+    function resetMessageForm() {
+        messageForm.reset();
+        setEditMode(null);
+        document.getElementById('msgEnglishDetails').open = false;
+        document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
+            checkbox.checked = false;
+        });
+        syncAudienceUi();
+    }
+
+    // --- Contact lists (private contact data: admins only) ---
+    let contactGroups = null;
+    let contactGroupsLoading = null;
+
+    function selectedContactGroup() {
+        const id = document.getElementById('contactListGroup')?.value;
+        return (contactGroups || []).find(group => group.id === id) || null;
+    }
+
+    function contactGroupLabel(group) {
+        return fillTemplate(t(group.labelKey), group.labelParams);
+    }
+
+    function syncContactListUi() {
+        const group = selectedContactGroup();
+        const summary = document.getElementById('contactListSummary');
+        const phonesBtn = document.getElementById('copyContactPhonesBtn');
+        const emailsBtn = document.getElementById('copyContactEmailsBtn');
+        const mailto = document.getElementById('contactMailtoLink');
+        if (!group) return;
+        if (summary) {
+            summary.textContent = fillTemplate(t(group.kind === 'officials' ? 'contact_lists_summary_officials' : 'contact_lists_summary_drivers'), {
+                count: group.count,
+                emails: group.emails.length,
+                phones: group.phones.length,
+                missing: group.missingEmail
+            });
+        }
+        if (emailsBtn) emailsBtn.disabled = group.emails.length === 0;
+        // Phone numbers are copied for officials (the drivers are reached by e-mail and the portal)
+        if (phonesBtn) {
+            phonesBtn.disabled = group.kind !== 'officials' || group.phones.length === 0;
+            phonesBtn.classList.toggle('hidden', group.kind !== 'officials');
+        }
+        if (mailto) {
+            const href = mailtoBccHref(group.emails);
+            mailto.setAttribute('href', href || '#');
+            mailto.setAttribute('aria-disabled', href ? 'false' : 'true');
+        }
+    }
+
+    async function loadContactGroups(compId) {
+        if (contactGroups) return contactGroups;
+        if (!contactGroupsLoading) {
+            contactGroupsLoading = Promise.all([
+                getEquipages(compId, { includePrivate: true }).catch(() => []),
+                getOfficials(compId).catch(() => []),
+                getJudges(compId).catch(() => [])
+            ]).then(([equipages, officials, judges]) => {
+                contactGroups = buildContactGroups({ equipages, officials, judges });
+                const select = document.getElementById('contactListGroup');
+                if (select) {
+                    select.innerHTML = contactGroups.map(group => `<option value="${escapeHtml(group.id)}">${escapeHtml(contactGroupLabel(group))} (${group.count})</option>`).join('');
+                }
+                syncContactListUi();
+                return contactGroups;
+            }).catch((err) => {
+                console.warn('Kontaktlistorna kunde inte läsas:', err);
+                contactGroupsLoading = null;
+                return [];
+            });
+        }
+        return contactGroupsLoading;
     }
 
     async function loadPublicInfo(compId) {
@@ -137,14 +274,22 @@ export function renderCommunicationTab(container, competition) {
     async function refreshMessages(compId) {
         const list = document.getElementById('messagesList');
         const items = await getCompetitionMessages(compId);
+        loadedMessages = items;
         const withFormatting = items.map((item) => ({
             ...item,
-            _formattedTimestamp: formatTimestamp(item.timestamp)
+            _formattedTimestamp: formatTimestamp(item.timestamp),
+            _formattedEdited: formatTimestamp(item.editedAt)
         }));
 
         list.innerHTML = renderMessagesList(withFormatting, getMessageBadge);
         list.querySelectorAll('[data-delete-message-id]').forEach((button) => {
             button.addEventListener('click', () => handleDeleteMessage(compId, button.dataset.deleteMessageId));
+        });
+        list.querySelectorAll('[data-edit-message-id]').forEach((button) => {
+            button.addEventListener('click', () => {
+                const message = loadedMessages.find(item => item.id === button.dataset.editMessageId);
+                if (message) setEditMode(message);
+            });
         });
     }
 
@@ -162,9 +307,10 @@ export function renderCommunicationTab(container, competition) {
     }
 
     async function handleDeleteMessage(compId, id) {
-        if (!confirm('Ta bort meddelande?')) return;
+        if (!await showConfirm(t('msg_delete_confirm'), { danger: true, confirmLabel: t('msg_delete_btn') })) return;
         try {
             await deleteCompetitionMessage(compId, id);
+            if (document.getElementById('msgEditId')?.value === id) resetMessageForm();
             await refreshMessages(compId);
         } catch (err) {
             console.error(err);
@@ -204,6 +350,32 @@ export function renderCommunicationTab(container, competition) {
 
     categorySelect.addEventListener('change', syncCategoryUi);
     messageAudienceSelect.addEventListener('change', syncAudienceUi);
+    document.getElementById('msgCancelEditBtn')?.addEventListener('click', resetMessageForm);
+
+    document.getElementById('contactListGroup')?.addEventListener('change', syncContactListUi);
+    document.getElementById('copyContactEmailsBtn')?.addEventListener('click', async () => {
+        await loadContactGroups(competition.id);
+        const group = selectedContactGroup();
+        if (!group?.emails.length) { showAlert(t('contact_lists_none'), 'info'); return; }
+        // Separated by commas: a mail program's BCC field takes the list as it is
+        const ok = await copyToClipboard(group.emails.join(', '));
+        if (ok) showAlert(fillTemplate(t('contact_lists_copied_emails'), { count: group.emails.length, group: contactGroupLabel(group) }));
+        else showAlert(t('contact_lists_copy_failed'), false);
+    });
+    document.getElementById('copyContactPhonesBtn')?.addEventListener('click', async () => {
+        await loadContactGroups(competition.id);
+        const group = selectedContactGroup();
+        if (!group?.phones.length) { showAlert(t('contact_lists_none'), 'info'); return; }
+        const ok = await copyToClipboard(group.phones.join('\n'));
+        if (ok) showAlert(fillTemplate(t('contact_lists_copied_phones'), { count: group.phones.length, group: contactGroupLabel(group) }));
+        else showAlert(t('contact_lists_copy_failed'), false);
+    });
+    document.getElementById('contactMailtoLink')?.addEventListener('click', (event) => {
+        if (event.currentTarget.getAttribute('aria-disabled') === 'true') {
+            event.preventDefault();
+            showAlert(t('contact_lists_none'), 'info');
+        }
+    });
     document.getElementById('clearSelectedDriversBtn')?.addEventListener('click', () => {
         document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
             checkbox.checked = false;
@@ -329,38 +501,24 @@ export function renderCommunicationTab(container, competition) {
                 return;
             }
 
-            const payloadByMode = {
-                public_and_drivers: {
-                    audience: { public: true, drivers: true },
-                    targetStartNumbers: []
-                },
-                public_only: {
-                    audience: { public: true, drivers: false },
-                    targetStartNumbers: []
-                },
-                drivers_only: {
-                    audience: { public: false, drivers: true },
-                    targetStartNumbers: []
-                },
-                selected_drivers: {
-                    audience: { public: false, drivers: true },
-                    targetStartNumbers: selectedDrivers
-                }
-            };
-
-            await saveCompetitionMessage(competition.id, {
+            const payload = {
                 title: document.getElementById('msgTitle').value.trim(),
                 body: document.getElementById('msgBody').value.trim(),
+                titleEn: document.getElementById('msgTitleEn').value.trim(),
+                bodyEn: document.getElementById('msgBodyEn').value.trim(),
                 type: document.getElementById('msgType').value,
-                ...payloadByMode[audienceMode]
-            });
+                ...buildMessageAudience(audienceMode, { selectedDrivers })
+            };
+            const editId = document.getElementById('msgEditId').value;
 
-            showAlert('Meddelande publicerat.');
-            messageForm.reset();
-            syncAudienceUi();
-            document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
-                checkbox.checked = false;
-            });
+            if (editId) {
+                await updateCompetitionMessage(competition.id, editId, payload);
+                showAlert(t('msg_updated'));
+            } else {
+                await saveCompetitionMessage(competition.id, payload);
+                showAlert('Meddelande publicerat.');
+            }
+            resetMessageForm();
             await refreshMessages(competition.id);
         } catch (err) {
             console.error(err);
@@ -434,8 +592,11 @@ export function renderCommunicationTab(container, competition) {
     syncAudienceUi();
     setUploadState({ status: 'idle' });
     loadPublicInfo(competition.id);
+    // Emergency info (alarm number, first aid, persons on duty) after the public info form
+    mountEmergencyInfoAdmin(publicInfoForm, competition);
     refreshMessages(competition.id);
     refreshDocuments(competition.id);
     loadEquipages(competition.id);
+    loadContactGroups(competition.id);
 }
 

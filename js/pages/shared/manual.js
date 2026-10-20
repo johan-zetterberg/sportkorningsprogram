@@ -700,6 +700,22 @@ function getTabContentSV(tab) {
             </section>
 
             <section>
+                <h3 class="font-bold text-lg mb-2 text-violet-700 border-l-4 border-violet-500 pl-2">⚖️ Händelselogg, protester & domarkollegium</h3>
+                <div class="bg-violet-50 p-4 rounded-lg border border-violet-200 space-y-2 text-sm text-gray-700">
+                    <p>Menyn <strong>Admin &gt; Sekretariat &gt; Händelselogg &amp; protester</strong> (sidan <code>#incidents</code>) är tävlingens logg för TD-rapporten. Den är privat: admin, TD/domarkollegium och grenfunktionärer läser och skriver, veterinären läser och lägger till sina egna beslut. Den syns aldrig för publiken.</p>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Händelser:</strong> Typ (Protest, Incident, Domarkollegiets beslut, Veterinärbeslut, Övrigt), mottagen tid, startnummer, gren och hinder, beskrivning, beslut, beslutat av och status (Öppen/Beslutad/Avslutad). Varje post får ett nummer. Exportera som PDF eller CSV till TD-rapporten.</li>
+                        <li><strong>Korrigeringar:</strong> Sekretariatets rättelser med orsak och referens. Ange protestens eller beslutets nummer som referens vid rättelsen, så länkas rättelsen och händelsen till varandra.</li>
+                        <li><strong>Notiser:</strong> Veterinärens strykningar som väntar på domarkollegiet (Fastställ / Upphäv) och deklarationer som kuskar har ändrat ("Ändrad av kusk"; en ny häst efter besiktningen markeras för veterinären). Kvittera när du har sett dem.</li>
+                        <li><strong>Fältenheter:</strong> Varje enhet med en inmatningssida öppen rapporterar en gång i minuten: senast sedd (grön under 2 min, gul under 10, röd äldre), osända skrivningar, sida och hinder.</li>
+                    </ul>
+                    <p><strong>TD / Domarkollegium (rollen td):</strong> Lägg till i funktionärslistan (Systemrättigheter) eller ge rollkoden för TD. Rollen läser sekretariatssidorna, skriver i händelseloggen, kan finalisera och låsa upp resultat och fattar beslut om veterinärens strykningar.</p>
+                    <p><strong>Resultat-PDF:</strong> Resultatlistor märks <em>PRELIMINÄRT RESULTAT</em> tills alla resultat på listan är finaliserade (eller tävlingen arkiverad); då står <em>OFFICIELLT RESULTAT</em> och en rad för domarkollegiets ordförandes underskrift.</p>
+                    <p><strong>Nödinfo:</strong> Fyll i under <strong>Admin &gt; Kommunikation &gt; Publik info</strong>: larmnummer (112), sjukvård, jourveterinär, hovslagare, tävlingsledare och säkerhetsansvarig. Personernas telefonnummer visas bara för inloggade funktionärer och tävlingens kuskar; knappen <strong>Nöd</strong> i menyn visar kortet.</p>
+                </div>
+            </section>
+
+            <section>
                 <h3 class="font-bold text-lg mb-2 text-yellow-700 border-l-4 border-yellow-500 pl-2">Prisutdelning</h3>
                 <p class="text-gray-700 mb-2">En vy speciellt anpassad för prisutdelaren eller speakern vid ceremonin.</p>
                 
@@ -1836,6 +1852,22 @@ function getTabContentEN(tab) {
                         <li><strong>Field mode:</strong> Officials enter times and scores manually, and the secretariat corrects and finalizes if needed.</li>
                         <li><strong>Choose it in Admin &gt; Settings:</strong> The competition mode controls which pages are shown in the menu.</li>
                     </ul>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="font-bold text-lg mb-2 text-violet-700 border-l-4 border-violet-500 pl-2">⚖️ Incident log, protests & ground jury</h3>
+                <div class="bg-violet-50 p-4 rounded-lg border border-violet-200 space-y-2 text-sm text-gray-700">
+                    <p>The menu <strong>Admin &gt; Secretariat &gt; Incidents &amp; protests</strong> (page <code>#incidents</code>) is the competition's log for the TD report. It is private: admins, the TD / ground jury and discipline officials read and write it, the vet reads it and adds their own decisions. The public never sees it.</p>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Entries:</strong> Type (Protest, Incident, Ground jury decision, Veterinary decision, Other), time received, start number, discipline and obstacle, description, decision, decided by and status (Open/Decided/Closed). Each entry gets a number. Export as PDF or CSV for the TD report.</li>
+                        <li><strong>Corrections:</strong> The secretariat's corrections with reason and reference. Give the protest's or decision's number as the reference and the correction and the entry are linked.</li>
+                        <li><strong>Notifications:</strong> Vet withdrawals waiting for the ground jury (Confirm / Overturn) and declarations changed by drivers ("Changed by driver"; a new horse after the inspection is flagged for the vet). Acknowledge them once seen.</li>
+                        <li><strong>Field devices:</strong> Every device with an input page open reports once a minute: last seen (green under 2 min, amber under 10, red older), unsent writes, page and obstacle.</li>
+                    </ul>
+                    <p><strong>TD / Ground jury (role td):</strong> Add it in the officials list (system rights) or hand out the TD role code. The role reads the secretariat pages, writes the incident log, can finalize and unlock results and decides the vet's withdrawals.</p>
+                    <p><strong>Result PDFs:</strong> Result lists are marked <em>PROVISIONAL RESULTS</em> until every result on the list is finalized (or the competition archived); then they read <em>OFFICIAL RESULTS</em> with a signature line for the President of the Ground Jury.</p>
+                    <p><strong>Emergency info:</strong> Fill it in under <strong>Admin &gt; Communication &gt; Public info</strong>: emergency number (112), first aid, vet on duty, farrier, chief steward and safety officer. The persons' phone numbers are shown only to signed-in officials and the competition's drivers; the <strong>Emergency</strong> button in the menu opens the card.</p>
                 </div>
             </section>
 

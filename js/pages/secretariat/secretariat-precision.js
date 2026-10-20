@@ -4,6 +4,7 @@ import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
+import { createStaffNoticesHost } from '../../ui/staffNoticesPanel.js';
 import {
   askCorrectionReason,
   clearRowDirty,
@@ -32,6 +33,8 @@ let rootEl = null;
 let competitionId = null;
 let rows = [];
 let rejectedWrites = [];
+// Driver declaration changes and vet strikes for the ground jury (kept across renders)
+let noticesHost = null;
 let drafts = new Map();
 let teardownStickyHeaders = null;
 let filters = {
@@ -139,6 +142,7 @@ function render() {
         message: 'Tävlingen körs i fältläge. Registrera tider och straff manuellt här och använd sekretariatet för upplåsning och återfinalisering.',
       })}
       ${renderRejectedWritesPanel(rejectedWrites)}
+      ${noticesHost?.placeholder || ''}
       <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 p-4 mb-4">
         <div class="flex flex-col gap-1 md:flex-row md:items-end md:justify-between">
           <div>
@@ -182,6 +186,7 @@ function render() {
     </div>
   `;
 
+  noticesHost?.attach(rootEl);
   initializeToolbarInteractions(rootEl);
   wireEvents();
   teardownStickyHeaders = setupStickyTableHeaders(rootEl);
@@ -469,6 +474,8 @@ export async function load(container) {
     return;
   }
 
+  noticesHost?.destroy();
+  noticesHost = createStaffNoticesHost({ competitionId });
   rootEl.innerHTML = '<div class="max-w-4xl mx-auto p-6 text-center text-gray-500">Laddar sekretariat Precision...</div>';
 
   try {
@@ -486,6 +493,8 @@ export function unload() {
   competitionId = null;
   rows = [];
   rejectedWrites = [];
+  noticesHost?.destroy();
+  noticesHost = null;
   drafts = new Map();
   filters = { search: '', status: 'all', className: 'all' };
 }

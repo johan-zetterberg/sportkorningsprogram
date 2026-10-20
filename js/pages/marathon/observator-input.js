@@ -6,20 +6,23 @@ import { db, appId } from '../../config/firebase-config.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import {
-  doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, runTransaction,
+  doc, getDoc, serverTimestamp, onSnapshot, Timestamp,
   writeBatch, increment, arrayUnion, arrayRemove
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
-import { getCompetitionHeader, showAlert } from '../../ui/components.js';
-import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
+import { getCompetitionHeader, showAlert, showConfirm } from '../../ui/components.js';
+import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
-import { t } from '../../utils/i18n.js';
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
+import { currentPauseActor, globalStatusDocRef as pauseStatusDocRef, setGlobalPause } from '../../services/globalPauseService.js';
+import { describePauseEntry, formatPauseLogLine, openPause, pauseHeadline, pauseWhere } from '../../utils/globalPauseUtils.js';
+import { askPauseReason } from '../../ui/pauseReasonDialog.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { trackWrite } from '../../services/firestoreService.js';
 import { isFeiMarathonClass, wrongGaitIncidentPenalty } from '../../core-engine/marathon.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
-import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
+import { startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -67,125 +70,29 @@ let loadToken = 0;
 
 // Sökväg till vårt globala status-dokument
 function globalStatusDocRef() {
-  const cid = resolveCompetitionId();
-  if (!cid) throw new Error('competitionId saknas');
-  return doc(db, 'artifacts', appId, 'public', 'data', 'competitions', cid, 'config', 'globalStatus');
+  return pauseStatusDocRef(resolveCompetitionId());
 }
 
-// As saveMarathonObstacleResult: a transaction on weak signal can hang for long
-const PAUSE_TRANSACTION_TIMEOUT_MS = 5000;
-
-function withTimeout(promise, ms) {
-  let timer;
-  return Promise.race([
-    promise.finally(() => clearTimeout(timer)),
-    new Promise((_, reject) => {
-      timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'deadline-exceeded' })), ms);
-    })
-  ]);
+// Pausa och återuppta (globalPauseService: transaktion, kö utan nät). Pausen
+// sparar orsak, vem och var (observatörens sträcka) som språkneutrala koder
+async function pauseCompetition() {
+  const answer = await askPauseReason();
+  if (!answer) return;
+  await setGlobalPause(resolveCompetitionId(), true, {
+    reason: answer.reason,
+    note: answer.note,
+    by: currentPauseActor('observer'),
+    where: pauseWhere({ section: observerSection })
+  });
 }
 
-// No (usable) connection, as opposed to a refusal such as permission-denied
-function isConnectionError(error) {
-  return ['unavailable', 'deadline-exceeded', 'failed-precondition'].includes(error?.code)
-    || /offline|network/i.test(String(error?.message || ''));
-}
-
-// Funktioner för att pausa och återuppta.
-// Pausloggen dras av från etapptiderna, så den uppdateras i en transaktion:
-// två observatörer som trycker samtidigt kan inte skriva över varandra, och
-// "pausa" under en öppen paus (eller "återuppta" utan paus) ändrar ingenting.
-async function setGlobalPause(isPaused) {
-  try {
-    const statusRef = globalStatusDocRef();
-    // The pause log is subtracted from stage times stamped in server time
-    const now = new Date(serverNow());
-    const statusText = isPaused ? t('observer_pause_time').replace('{time}', now.toLocaleTimeString('sv-SE')) : t('observer_resume');
-
-    // Den nya pausloggen, eller null om inget ska ändras
-    const nextPauseLog = (data) => {
-      const pauseLog = (Array.isArray(data?.pauseLog) ? data.pauseLog : []).map(p => ({ ...p }));
-      const openPause = pauseLog.find(p => p && p.end == null);
-      if (isPaused) {
-        if (openPause) return null; // redan pausat
-        pauseLog.push({ start: now.toISOString(), end: null, durationSec: null });
-      } else {
-        if (!openPause) return null; // ingen pågående paus
-        openPause.end = now.toISOString();
-        openPause.durationSec = Math.round((now.getTime() - new Date(openPause.start).getTime()) / 1000);
-      }
-      return pauseLog;
-    };
-    const statusDoc = (pauseLog) => ({
-      isPaused: !!isPaused,
-      statusText: statusText,
-      pauseLog: pauseLog, // Spara den uppdaterade loggen
-      updatedAt: serverTimestamp()
-    });
-
-    // Transaktioner kräver nät. Offline: köa skrivningen som tidigare
-    // (läser senast kända status), så att pausen inte går förlorad.
-    const writeFromDeviceCopy = async () => {
-      const docSnap = await getDoc(statusRef);
-      const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
-      if (!pauseLog) return 'saved';
-      // Not awaited until the server answers: the observer gets feedback now
-      // Not reported to rejectedWrites: a pause belongs to no start number
-      return awaitWriteOrQueue(trackWrite('Sparar tävlingspaus', setDoc(statusRef, statusDoc(pauseLog), { merge: true })), {
-        onLateError: () => showAlert(t('observer_pause_error'), false)
-      });
-    };
-
-    let queued = false;
-    let slowSignal = false;
-    if (navigator.onLine === false) {
-      queued = (await writeFromDeviceCopy()) === 'queued';
-    } else {
-      const transactionDone = runTransaction(db, async (tx) => {
-        const docSnap = await tx.get(statusRef);
-        const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data() : {});
-        if (pauseLog) tx.set(statusRef, statusDoc(pauseLog), { merge: true });
-      });
-      try {
-        await withTimeout(transactionDone, PAUSE_TRANSACTION_TIMEOUT_MS);
-      } catch (e) {
-        if (!isConnectionError(e)) throw e;
-        if (e?.message === 'timeout') {
-          // Weak signal: the transaction is slow, not failed, and may still
-          // commit. The observer is told now (the pause button no longer
-          // hangs); the log is written from the device copy only if the
-          // transaction itself fails for lack of connection, since a second
-          // write of the whole log could erase another observer's entry
-          slowSignal = true;
-          transactionDone.catch(async (txError) => {
-            if (!isConnectionError(txError)) {
-              console.error('Kunde inte ändra paus-status:', txError);
-              showAlert(t('observer_pause_error'), false);
-              return;
-            }
-            try {
-              await writeFromDeviceCopy();
-            } catch (copyError) {
-              console.error('Kunde inte ändra paus-status:', copyError);
-              showAlert(t('observer_pause_error'), false);
-            }
-          });
-        } else {
-          queued = (await writeFromDeviceCopy()) === 'queued';
-        }
-      }
-    }
-
-    if (slowSignal) {
-      // Not on the device yet (a transaction is applied only when it commits)
-      showAlert(`${statusText} (svag täckning – skickas så snart förbindelsen räcker; kontrollera att pausknappen växlar)`, 'offline');
-      return;
-    }
-    showAlert(`${statusText}${queuedNotice(queued ? 'queued' : 'saved')}`, queued ? 'offline' : true);
-  } catch (e) {
-    console.error("Kunde inte ändra paus-status:", e);
-    showAlert(t('observer_pause_error'), false);
-  }
+async function resumeCompetition() {
+  const ok = await showConfirm(t('pause_resume_confirm'), {
+    title: t('observer_resume_all'),
+    confirmLabel: t('observer_resume_all')
+  });
+  if (!ok) return;
+  await setGlobalPause(resolveCompetitionId(), false, { by: currentPauseActor('observer') });
 }
 
 function listenForGlobalPause(root) {
@@ -193,33 +100,33 @@ function listenForGlobalPause(root) {
   const resumeBtn = qs('#btnEmergencyResume', root);
   const statusTextEl = qs('#pause-status-text', root);
   const logContainer = qs('#pause-log-container', root);
+  const locale = getCurrentLanguage() === 'en' ? 'en-GB' : 'sv-SE';
 
   return onSnapshot(globalStatusDocRef(), (docSnap) => {
     const data = docSnap.exists() ? docSnap.data() : {};
     const isPaused = data.isPaused === true;
+    const pauseLog = Array.isArray(data.pauseLog) ? data.pauseLog : [];
 
     if (pauseBtn) pauseBtn.classList.toggle('hidden', isPaused);
     if (resumeBtn) resumeBtn.classList.toggle('hidden', !isPaused);
 
     if (statusTextEl) {
-      statusTextEl.textContent = isPaused ? (data.statusText || t('observer_is_paused')) : '';
-      statusTextEl.className = isPaused ? 'text-sm font-semibold mt-2 text-red-800' : '';
+      // In the viewer's language, from the open entry's codes
+      const current = openPause(pauseLog);
+      const detail = describePauseEntry(current, t);
+      statusTextEl.textContent = isPaused
+        ? `${current ? pauseHeadline(current, t, locale) : t('observer_is_paused')}${detail ? ` – ${detail}` : ''}`
+        : '';
+      statusTextEl.className = isPaused ? 'text-sm font-semibold mt-2 text-red-800 dark:text-red-300' : '';
     }
 
     // Rendera historiken
-    if (logContainer && Array.isArray(data.pauseLog)) {
-      logContainer.innerHTML = data.pauseLog.map((p, i) => {
-        const startTime = new Date(p.start).toLocaleTimeString('sv-SE');
-        const endTime = p.end ? new Date(p.end).toLocaleTimeString('sv-SE') : t('observer_ongoing');
-        // A number only: the log is written by any marathon official
-        const durationSec = Math.round(Number(p.durationSec));
-        const duration = Number.isFinite(durationSec) && durationSec > 0 ? t('observer_seconds').replace('{sec}', String(durationSec)) : '-';
-        return `
-          <div class="text-[10px] text-gray-500 font-medium">
-            ${t('observer_pause_log_item').replace('{index}', i + 1).replace('{startTime}', startTime).replace('{endTime}', endTime).replace('{duration}', duration)}
+    if (logContainer) {
+      logContainer.innerHTML = pauseLog.map((p, i) => `
+          <div class="text-[10px] text-gray-500 dark:text-gray-400 font-medium">
+            ${escapeHtml(formatPauseLogLine(p, i, t, locale))}
           </div>
-        `;
-      }).join('');
+        `).join('');
     }
   });
 }
@@ -1180,8 +1087,9 @@ export async function load() {
   unsubscribeGlobalPause = listenForGlobalPause(root);
   const emPause = qs('#btnEmergencyPause', root);
   const emResume = qs('#btnEmergencyResume', root);
-  emPause?.addEventListener('click', () => { if (confirm(t('observer_pause_all_confirm'))) setGlobalPause(true); });
-  emResume?.addEventListener('click', () => setGlobalPause(false));
+  // The reason dialog is the confirmation for a pause; a resume is asked too
+  emPause?.addEventListener('click', pauseCompetition);
+  emResume?.addEventListener('click', resumeCompetition);
 
   try {
     const [raw, cfg] = await Promise.all([

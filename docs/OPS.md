@@ -65,6 +65,16 @@ and note the date.
   Google Cloud SDK and run `gcloud auth application-default login` (or set
   `GOOGLE_APPLICATION_CREDENTIALS` to a service-account key, kept out of the
   repository). Try a `--dry-run` against a copy before you need it.
+- [ ] **TTL for field device status**: Firebase Console → Firestore Database →
+  Time-to-live → Create policy: collection group `devices`, timestamp field
+  `expireAt` (or `gcloud firestore fields ttls update expireAt
+  --collection-group=devices --enable-ttl`). Each field device overwrites one
+  document while an input page is open; the policy deletes it 7 days after
+  its last report (the retention job also removes the collection with the
+  competition's other private data).
+- [ ] **TD role code**: existing competitions have no `accessCode_td` yet:
+  Admin → Inställningar → role codes → create new codes (or generate only the
+  TD one) before handing it to the technical delegate / ground jury.
 
 ## Access and authentication
 

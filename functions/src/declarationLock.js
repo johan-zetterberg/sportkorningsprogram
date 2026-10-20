@@ -66,6 +66,10 @@ export function declarationLockReason({ competition = {}, meta = {}, startTimes 
     const starts = publishedStartTimeValues(startTimes, startNumber)
         .map((value) => parseCompetitionLocalTime(value)).filter(Number.isFinite).sort((a, b) => a - b);
     if (!starts.length) return null;
-    const lockdownMinutes = Number.isFinite(Number(meta?.lockdownMinutes)) ? Number(meta.lockdownMinutes) : DEFAULT_LOCKDOWN_MINUTES;
+    // Missing or empty = the default (Number('') and Number(null) are 0, which
+    // would turn the lock off); as js/utils/lockdownMinutes.js
+    const raw = meta?.lockdownMinutes;
+    const isUnset = raw === null || raw === undefined || (typeof raw === 'string' && raw.trim() === '');
+    const lockdownMinutes = !isUnset && Number.isFinite(Number(raw)) && Number(raw) >= 0 ? Number(raw) : DEFAULT_LOCKDOWN_MINUTES;
     return (starts[0] - now) / 60000 < lockdownMinutes ? 'time' : null;
 }

@@ -16,7 +16,9 @@ import {
   setMarathonConfig,
 } from '../utils/marathonUtils.js';
 import { calculateMarathonResult } from '../services/calculationService.js';
-import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
+import { resolveResultListStatus } from './pdfResultStatus.js';
+import { requiredForDiscipline } from './resultStatusUtils.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
@@ -336,7 +338,13 @@ export async function generateMarathonListPdf(equipages, competition) {
 
   const srfLogo = await loadStandardHeaderLogos(competition);
   const title = t('pdf_marathon_results_title', isInternational);
-  let y = drawStandardHeader(doc, competition, title, srfLogo, 30, 40);
+  // Official when every result on the list is finalized (or archived)
+  const resultStatus = await resolveResultListStatus(competition, {
+    required: requiredForDiscipline('marathon', equipages
+      .filter(eq => !/struken|withdrawn/i.test(String(eq.status || '')))
+      .map(eq => eq.startNumber))
+  });
+  let y = drawStandardHeader(doc, competition, title, srfLogo, 30, 40, { resultStatus, isInt: isInternational });
 
   // -- DYNAMIC COLUMNS --
   let maxObstacles = 0;
@@ -502,6 +510,7 @@ export async function generateMarathonListPdf(equipages, competition) {
     }
   });
 
+  drawResultStatusFooter(doc, resultStatus, { isInt: isInternational });
   doc.save('maraton_resultatlista.pdf');
 }
 

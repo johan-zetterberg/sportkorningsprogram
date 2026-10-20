@@ -3,6 +3,7 @@ import { getPublicCompetitionViewModel } from '../../services/publicCompetitionS
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
 import { t } from '../../utils/i18n.js';
+import { mountEmergencyInfoCard } from '../../ui/emergencyInfoCard.js';
 
 let expandedClasses = new Set();
 let venueMapInstance = null;
@@ -561,6 +562,8 @@ function renderPage(container, competition, vm, publish) {
         ${renderVisitInfo(publicInfo)}
       </section>
 
+      <div id="competition-center-emergency" class="mb-4"></div>
+
       ${remainingPublicMessages.length ? `
         <section class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm mb-6">
           <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
@@ -613,6 +616,9 @@ function renderPage(container, competition, vm, publish) {
   bindLocalScrollActions(container);
   bindShareActions(container, competition);
   scheduleVenueMap(vm.venueMap?.coordinates);
+  // Alarm number, first aid, persons on duty (their phones for signed-in staff and drivers)
+  mountEmergencyInfoCard(container.querySelector('#competition-center-emergency'), competition.id, { onlyConfigured: true })
+    .catch((error) => console.warn('Nödinfo kunde inte visas:', error));
 }
 
 export async function load(container) {

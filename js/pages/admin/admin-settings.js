@@ -18,6 +18,7 @@ import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/compe
 import { t } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { diffFormFields, findFormConflicts, formConflictMessage } from '../../utils/formDiff.js';
+import { MAX_LOCKDOWN_MINUTES, effectiveLockdownMinutes, parseLockdownMinutesInput } from '../../utils/lockdownMinutes.js';
 import { getPublishedState, parseDateTime } from './starttiderUtils.js';
 import {
     normalizeHorseTemperatureConfig,
@@ -846,10 +847,10 @@ export function getSettingsHtml() {
             <div class="mb-4">
                 <label for="lockdownMinutesInput" class="block text-sm font-medium text-gray-700 dark:text-gray-300">Låsändring (minuter innan start)</label>
                 <div class="flex items-center gap-2 mt-1">
-                    <input type="number" id="lockdownMinutesInput" class="block w-32 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="60">
+                    <input type="number" id="lockdownMinutesInput" min="0" max="10080" step="1" inputmode="numeric" class="block w-32 p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white" placeholder="60">
                     <span class="text-sm text-gray-500 dark:text-gray-400">minuter</span>
                 </div>
-                <p class="text-xs text-gray-500 mt-1 dark:text-gray-400">Standard: 60 minuter. Sätt till 0 för att alltid tillåta, eller ett högt värde för att låsa tidigare.</p>
+                <p class="text-xs text-gray-500 mt-1 dark:text-gray-400">Standard: 60 minuter (även när fältet lämnas tomt). Sätt till 0 för att alltid tillåta, eller ett högt värde för att låsa tidigare.</p>
             </div>
 
             <div class="flex items-center gap-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md">
@@ -1087,7 +1088,8 @@ function readSettingsForm() {
     const values = {
         competitionMode: document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live',
         isInternational: !!document.getElementById('isInternationalToggle')?.checked,
-        lockdownMinutes: Number(document.getElementById('lockdownMinutesInput')?.value ?? 60),
+        // Empty = not set = the default (Number('') was 0: the lock went off)
+        lockdownMinutes: parseLockdownMinutesInput(document.getElementById('lockdownMinutesInput')?.value).value,
         manualLockdown: !!document.getElementById('manualLockdownCheckbox')?.checked
     };
     const horseTemperature = normalizeHorseTemperatureConfig({
@@ -1119,7 +1121,7 @@ function settingsFromStored({ compDoc, meta, horseTemperature, classSettings, ma
     const values = {
         competitionMode: compDoc?.competitionMode === 'field' ? 'field' : 'live',
         isInternational: !!meta?.isInternational,
-        lockdownMinutes: meta?.lockdownMinutes ?? 60,
+        lockdownMinutes: effectiveLockdownMinutes(meta?.lockdownMinutes),
         manualLockdown: !!meta?.manualLockdown,
         coordinates: mapConfig?.coordinates || null
     };
@@ -1185,7 +1187,7 @@ export async function setupSettingsLogic(competitionId) {
         // Lockdown
         const ldInput = document.getElementById('lockdownMinutesInput');
         if (ldInput) {
-            ldInput.value = (meta.lockdownMinutes !== undefined) ? meta.lockdownMinutes : 60;
+            ldInput.value = effectiveLockdownMinutes(meta?.lockdownMinutes);
         }
         const ldCheck = document.getElementById('manualLockdownCheckbox');
         if (ldCheck) {
@@ -1336,6 +1338,12 @@ export async function setupSettingsLogic(competitionId) {
             btn.onclick = async () => {
                 if (settingsUnreadable) {
                     showAlert('Inställningarna kunde inte läsas (ingen uppkoppling?). Ladda om sidan med uppkoppling innan du sparar, annars skrivs standardvärden över de riktiga.', 'warning');
+                    return;
+                }
+                const lockdownCheck = parseLockdownMinutesInput(document.getElementById('lockdownMinutesInput')?.value);
+                if (lockdownCheck.error) {
+                    showAlert(t('lockdown_minutes_invalid').replace('{max}', String(MAX_LOCKDOWN_MINUTES)), 'warning');
+                    document.getElementById('lockdownMinutesInput')?.focus();
                     return;
                 }
                 btn.textContent = 'Sparar...';

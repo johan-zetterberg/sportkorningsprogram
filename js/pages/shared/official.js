@@ -10,6 +10,7 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 import { mergeUserRoles } from '../../utils/roleAccess.js';
 import { roleLabel } from '../../services/authService.js';
 import { TASK_ICONS, buildOfficialTasks, fillTemplate, findMyRecords, mergeObstacleLocations } from '../../utils/officialTaskUtils.js';
+import { mountEmergencyInfoCard } from '../../ui/emergencyInfoCard.js';
 
 let unsubscribers = [];
 let loadToken = 0;
@@ -79,6 +80,8 @@ export async function load() {
                 </div>
             </section>
 
+            <div id="official-emergency" class="mt-4 md:mt-6"></div>
+
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mt-4 md:mt-6">
                 <!-- Status widgets -->
                 <section class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 lg:col-span-1 space-y-4" aria-label="${escapeHtml(t('official_status_title'))}">
@@ -108,6 +111,7 @@ export async function load() {
                 <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-3">${escapeHtml(t('official_shortcuts_title'))}</h3>
                 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     ${tile('#reports', '📄', t('menu_reports'), t('official_tile_reports_desc'))}
+                    ${tile('#incidents', '⚖️', t('menu_incidents'), t('official_tile_incidents_desc'))}
                     ${tile('#speaker', TASK_ICONS.speaker, t('menu_speaker'), t('official_tile_speaker_desc'))}
                     ${tile('#vet-check', TASK_ICONS.vet, t('menu_vet'), t('official_tile_vet_desc'))}
                     ${tile('#dressyr-monitor', TASK_ICONS.dressage, `${t('menu_dressage')} – ${t('menu_monitor')}`, t('official_tile_monitor_desc'))}
@@ -128,6 +132,9 @@ export async function load() {
 
     loadTasks(competition, user, token);
     loadDashboard(competition.id, user, token);
+    // Nödinfo with the persons' phone numbers (officials may read them)
+    mountEmergencyInfoCard(document.getElementById('official-emergency'), competition.id)
+        .catch((error) => console.warn('Nödinfo kunde inte visas:', error));
 }
 
 function renderTask(task) {

@@ -5,7 +5,7 @@
 
 export const ROLE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export const ROLE_CODE_LENGTH = 10;
-export const PIN_JOIN_ROLES = ['dressage', 'marathon', 'precision', 'speaker', 'vet'];
+export const PIN_JOIN_ROLES = ['dressage', 'marathon', 'precision', 'speaker', 'vet', 'td'];
 
 export const ROLE_CODE_LABELS = {
     admin: 'Admin (gammal PIN-anslutning)',
@@ -13,7 +13,8 @@ export const ROLE_CODE_LABELS = {
     marathon: 'Maraton',
     precision: 'Precision',
     speaker: 'Speaker',
-    vet: 'Veterinär'
+    vet: 'Veterinär',
+    td: 'TD / Domarkollegium'
 };
 
 export function roleCodeField(role) {

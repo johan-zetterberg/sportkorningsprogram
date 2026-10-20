@@ -49,7 +49,8 @@ const ROUTE_PERMISSIONS = {
   reports: ['funktionar', 'domare', 'admin'],
   'vet-check': ['vet', 'admin'],
   manual: ['publik', 'funktionar', 'domare', 'admin'],
-  official: ['funktionar', 'domare', 'admin']
+  official: ['funktionar', 'domare', 'admin'],
+  incidents: ['admin', 'td', 'dressage', 'marathon', 'precision', 'vet']
 };
 
 // CSP: the static server sends the firebase.json headers. A violation of the
@@ -592,6 +593,67 @@ test('marathon input loads a seeded equipage with obstacle data without errors',
   expect(browserErrors).toEqual([]);
 });
 
+test('an official sees a message for the officials as a banner on a field page', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.evaluate(async (competitionId) => {
+    const { saveCompetitionMessage } = await import('../js/services/documentService.js');
+    const { buildMessageAudience } = await import('../js/utils/messageAudience.js');
+    await saveCompetitionMessage(competitionId, { title: 'Smoke till maraton', body: 'Hinder 3 stängt', type: 'alert', ...buildMessageAudience('official:marathon') });
+    await saveCompetitionMessage(competitionId, { title: 'Smoke till veterinär', body: '-', type: 'info', ...buildMessageAudience('official:vet') });
+  }, competitionId);
+
+  await page.goto('/index.html#maraton-input');
+  const banner = page.locator('#fieldMessagesHost [data-field-messages]');
+  await expect(banner).toContainText('Smoke till maraton', { timeout: 30000 });
+  await expect(banner).toContainText('Hinder 3 stängt');
+  // Only the messages for the page's (and the viewer's) roles
+  await expect(banner).not.toContainText('Smoke till veterinär');
+  // Dismissed on this device
+  await banner.locator('[data-dismiss-field-message]').first().click();
+  await expect(page.locator('#fieldMessagesHost')).not.toContainText('Smoke till maraton');
+  // Not on a public page
+  await page.goto('/index.html#maraton-results');
+  await expect(page.locator('#fieldMessagesHost [data-field-messages]')).toHaveCount(0);
+});
+
+test('shifting the rest of the start times shows a preview before saving', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const numbers = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    // Replaced, not merged: only these three times
+    const saveConfig = (id, name, data) => setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${id}/config/${name}`), data);
+    const eqs = (await getEquipages(competitionId)).sort((a, b) => Number(a.startNumber) - Number(b.startNumber)).slice(0, 3);
+    const day = new Date(Date.now() + 2 * 86400000);
+    const pad = (n) => String(n).padStart(2, '0');
+    const date = `${day.getFullYear()}-${pad(day.getMonth() + 1)}-${pad(day.getDate())}`;
+    const times = {};
+    eqs.forEach((e, i) => { times[String(e.startNumber)] = { dressage: `${date}T09:${pad(i * 10)}` }; });
+    await saveConfig(competitionId, 'startTimes', { times, published: { dressage: false } });
+    // Through the service too: it clears the device's config cache
+    const service = await import('../js/services/competitionService.js');
+    await service.saveConfig(competitionId, 'startTimes', { updatedAt: Date.now() });
+    return eqs.map(e => String(e.startNumber));
+  }, competitionId);
+
+  await page.goto('/index.html#starttider');
+  await expect(page.locator('#shiftTimesCard')).toBeVisible({ timeout: 30000 });
+  await page.locator('#shiftDiscipline').selectOption('dressage');
+  await page.locator('#shiftFromStartNumber').fill(numbers[1]);
+  await page.locator('#shiftMinutes').fill('15');
+  await page.locator('#shiftPreviewBtn').click();
+  const rows = page.locator('#shiftPreviewTable tbody tr');
+  await expect(rows).toHaveCount(2);
+  await expect(rows.first()).toContainText('09:10');
+  await expect(rows.first()).toContainText('09:25');
+  // Nothing is changed before saving
+  await page.locator('#shiftCancelBtn').click();
+  await expect(page.locator('#shiftPreviewTable')).toHaveCount(0);
+});
+
 test('two obstacles saving the same equipage, one without signal, keep both results', async ({ page, context }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
@@ -717,7 +779,8 @@ test('all main pages navigate without browser errors @mobile', async ({ page }) 
     'total-resultat',
     'competition-center',
     'portal',
-    'manual'
+    'manual',
+    'incidents'
   ];
 
   for (const route of routes) {
@@ -934,15 +997,16 @@ const PDF_REPORTS = [
   { call: 'reports_generateStartListPdf(\'dressage\')', names: true, unicodeName: true, headings: [/DRESSYR – STARTLISTA/, /Kusk \/ Häst/, /Klass/] },
   { call: 'reports_generateStartListPdf(\'marathon\')', names: true, headings: [/MARATON – STARTLISTA/, /Kusk \/ Häst/] },
   { call: 'reports_generateStartListPdf(\'precision\')', names: true, headings: [/PRECISION – STARTLISTA/, /Kusk \/ Häst/] },
-  { call: 'reports_generateDressagePdf()', names: true, unicodeName: true, headings: [/DRESSYR – RESULTATLISTA/, /Plac/, /%/, /Straff/] },
+  // Result lists carry their status: nothing in the seed is finalized yet
+  { call: 'reports_generateDressagePdf()', names: true, unicodeName: true, headings: [/DRESSYR – RESULTATLISTA/, /Plac/, /%/, /Straff/, /PRELIMINÄRT RESULTAT/, /Utskriven: \d{4}-\d{2}-\d{2} \d{2}:\d{2}/] },
   { call: 'reports_generateDressageOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA DRESSYR/, /Program/] },
-  { call: 'reports_generateMarathonPdf()', names: true, headings: [/RESULTAT/, /Straff A/, /Straff B/, /Totalt/] },
+  { call: 'reports_generateMarathonPdf()', names: true, headings: [/RESULTAT/, /Straff A/, /Straff B/, /Totalt/, /PRELIMINÄRT RESULTAT/] },
   { call: 'reports_generateMarathonFunctionaryPdf()', headings: [/FUNKTIONÄRSLISTA MARATON \(TIDER\)/, /Start A/, /Mål A/] },
   { call: 'reports_generateMarathonObstaclePdf()', headings: [/FUNKTIONÄRSLISTA MARATON \(HINDER\)/, /Vagnbredd/] },
-  { call: 'reports_generatePrecisionPdf()', names: true, headings: [/PRECISION – RESULTATLISTA/, /Hinder/, /Tidfel/, /Totalt/] },
+  { call: 'reports_generatePrecisionPdf()', names: true, headings: [/PRECISION – RESULTATLISTA/, /Hinder/, /Tidfel/, /Totalt/, /PRELIMINÄRT RESULTAT/] },
   { call: 'reports_generatePrecisionOfficialsPdf()', headings: [/FUNKTIONÄRSLISTA – PRECISION/, /Maxtid/] },
   { call: 'reports_generatePrecisionCourseSetupPdf()', headings: [/BANA & PORTAR/, /Maxtid/] },
-  { call: 'reports_generateTotalPdf()', names: true, unicodeName: true, headings: [/RESULTAT/, /Plac/, /Dressyr/, /Maraton/, /Precision/, /Totalt/] },
+  { call: 'reports_generateTotalPdf()', names: true, unicodeName: true, headings: [/RESULTAT/, /Plac/, /Dressyr/, /Maraton/, /Precision/, /Totalt/, /PRELIMINÄRT RESULTAT/] },
   // Only when the competition has teams (the seeded one has none)
   { call: 'reports_generateTeamPdf()', optional: true },
   { call: 'reports_generateVetCheckPdf()', names: true, headings: [/VETERINÄRBESIKTNING/, /Häst/] }
@@ -1017,7 +1081,7 @@ test('PDF reports are generated with pages, headings and the equipages', async (
 
 const INTERNATIONAL_PDF_REPORTS = [
   { call: 'reports_generateStartListPdf(\'dressage\')', headings: [/DRESSAGE – START LIST/, /Driver \/ Horse/, /Class/], notSwedish: [/STARTLISTA/, /Kusk \/ Häst/] },
-  { call: 'reports_generateDressagePdf()', headings: [/DRESSAGE – RESULT LIST/, /Rank/, /Penalty/], notSwedish: [/RESULTATLISTA/, /Kusk \/ Häst/, /Straff/] },
+  { call: 'reports_generateDressagePdf()', headings: [/DRESSAGE – RESULT LIST/, /Rank/, /Penalty/, /PROVISIONAL RESULTS/], notSwedish: [/RESULTATLISTA/, /Kusk \/ Häst/, /Straff/, /PRELIMINÄRT/] },
   { call: 'reports_generateMarathonPdf()', headings: [/MARATHON – RESULTS/, /Pen A/, /Total/], notSwedish: [/Straff/, /Totalt/] },
   { call: 'reports_generatePrecisionPdf()', headings: [/CONES – RESULT LIST/, /Obstacles/, /Time pen\./], notSwedish: [/RESULTATLISTA/, /Tidfel/, /Totalt/] },
   { call: 'reports_generateTotalPdf()', headings: [/RESULTS/, /Rank/, /Dressage/, /Marathon/, /Cones/, /Total/], notSwedish: [/Dressyr/, /Maraton/, /Totalt/] }
@@ -1056,6 +1120,53 @@ async function downloadReportPdf(page, report) {
   if (process.env.PDF_TEST_DUMP) console.log(`\n=== ${report.call} (${parsed.pages} p) ${download.suggestedFilename()}\n${parsed.text.slice(0, 400)}`);
   return { file: download.suggestedFilename(), header: bytes.subarray(0, 5).toString('latin1'), ...parsed };
 }
+
+// The incident / protest log: an entry is saved, listed and exported for the
+// TD report (CSV and PDF); the other tabs open
+test('incident log: an entry is created, listed and exported as CSV and PDF', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+
+  await page.goto('/index.html#incidents');
+  await expect(page.locator('#incident-form')).toBeVisible({ timeout: 60000 });
+  await page.selectOption('#inc-type', 'protest');
+  await page.fill('#inc-sn', '1');
+  await page.selectOption('#inc-discipline', 'marathon');
+  await page.fill('#inc-obstacle', 'Hinder 3');
+  await page.fill('#inc-description', 'Smoke-protest mot hinder 3');
+  await page.locator('#incident-form button[type="submit"]').click();
+  await expect(page.locator('#incident-list')).toContainText('Smoke-protest mot hinder 3', { timeout: 30000 });
+  await expect(page.locator('#incident-list')).toContainText('Nr 1');
+
+  const csvDownload = page.waitForEvent('download', { timeout: 60000 });
+  await page.locator('[data-incident-export="csv"]').click();
+  const csv = readFileSync(await (await csvDownload).path(), 'utf8');
+  expect(csv).toContain('Nr;Typ;Mottagen');
+  expect(csv).toMatch(/1;Protest;[^;]*;#1;Maraton;Hinder 3;Smoke-protest mot hinder 3/);
+
+  const pdfDownload = page.waitForEvent('download', { timeout: 60000 });
+  await page.locator('[data-incident-export="pdf"]').click();
+  const bytes = readFileSync(await (await pdfDownload).path());
+  expect(bytes.subarray(0, 5).toString('latin1')).toBe('%PDF-');
+  const text = await page.evaluate(async (b64) => {
+    const pdfjs = await import('/lib/pdfjs/build/pdf.min.mjs');
+    pdfjs.GlobalWorkerOptions.workerSrc = '/lib/pdfjs/build/pdf.worker.min.mjs';
+    const doc = await pdfjs.getDocument({ data: Uint8Array.from(atob(b64), c => c.charCodeAt(0)) }).promise;
+    let out = '';
+    for (let i = 1; i <= doc.numPages; i++) out += (await (await doc.getPage(i)).getTextContent()).items.map(item => item.str).join(' ') + '\n';
+    return out;
+  }, bytes.toString('base64'));
+  expect(text).toMatch(/HÄNDELSELOGG/);
+  expect(text).toContain('Smoke-protest mot hinder 3');
+
+  await page.locator('[data-incident-tab="devices"]').click();
+  await expect(page.locator('#field-devices-table')).toBeVisible();
+  await page.locator('[data-incident-tab="corrections"]').click();
+  await expect(page.locator('#incident-tab-body table')).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
 
 // Judges enter results on phones, and drivers and spectators read the results
 // there: no page may need sideways scrolling (tables scroll inside their own box)

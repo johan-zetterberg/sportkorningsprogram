@@ -70,10 +70,12 @@ import {
     getSpeakerPenaltyOrNull,
     speakerLeaderboardRanks
 } from './speakerFormatUtils.js';
-import { t } from '../../utils/i18n.js';
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
+import { mergeUserRoles } from '../../utils/roleAccess.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from './tvMode.js';
-import { listenForPublicMessages, renderSpeakerMessagesHtml } from './speakerMessages.js';
+import { listenForSpeakerMessages, renderSpeakerMessagesHtml } from './speakerMessages.js';
+import { mountStaffNoticesPanel } from '../../ui/staffNoticesPanel.js';
 import { getLeaderToBeat, getDressageLeaderInClass, calculateLiveInjection, getTotalRanking } from './speakerCalculations.js';
 import {
     getChasingTarget as renderListChasingTarget,
@@ -461,6 +463,7 @@ function renderLayout() {
                 ${getCompetitionHeader(comp, t('speaker_dashboard_title'), true)}
                 <div class="mt-2 flex justify-end">${tvModeLinkHtml('speaker', { canSee: true })}</div>
                 <div id="speaker-messages" class="mt-3 hidden" aria-live="polite"></div>
+                <div id="speaker-staff-notices" class="mt-3"></div>
                 <div id="discipline-switcher" class="mt-4 mb-4 shrink-0"></div>
                 <div id="speaker-page-content"></div>
             </div>
@@ -2000,6 +2003,9 @@ export async function load() {
     if (speakerRoot) speakerRoot.innerHTML = '';
     renderLayout();
     updateDisciplineUI();
+    // "Ändrad av kusk" and vet strikes waiting for the ground jury (read only)
+    try { unmountStaffNotices?.(); } catch { }
+    unmountStaffNotices = mountStaffNoticesPanel(document.getElementById('speaker-staff-notices'), { competitionId });
 
     let equipagesRaw; // Define outside try/catch for use in verify
     try {
@@ -2065,12 +2071,18 @@ function renderActiveListNew() {
 // The organisers' messages (admin → Kommunikation, those for the public),
 // newest first, as a compact banner above the tabs
 let messagesUnsub = null;
+let unmountStaffNotices = null;
 function listenSpeakerMessages() {
     try { messagesUnsub?.(); } catch { }
-    messagesUnsub = listenForPublicMessages(competitionId, (messages) => {
+    // Public ones and those for the officials that reach the speaker (marked internal)
+    messagesUnsub = listenForSpeakerMessages(competitionId, mergeUserRoles(getGlobalState('currentUser')), (messages) => {
         const host = document.getElementById('speaker-messages');
         if (!host) return;
-        const html = renderSpeakerMessagesHtml(messages, { title: t('speaker_messages_title') });
+        const html = renderSpeakerMessagesHtml(messages, {
+            title: t('speaker_messages_title'),
+            lang: getCurrentLanguage(),
+            internalLabel: t('speaker_message_internal')
+        });
         host.innerHTML = html;
         host.classList.toggle('hidden', !html);
     });
@@ -2100,6 +2112,8 @@ export function __unload() {
     exitTvMode();
     try { messagesUnsub?.(); } catch { }
     messagesUnsub = null;
+    try { unmountStaffNotices?.(); } catch { }
+    unmountStaffNotices = null;
 
     if (liveClockInterval) clearInterval(liveClockInterval);
     liveClockInterval = null;

@@ -10,9 +10,10 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { getMarathonActiveState } from '../../services/competitionStatusService.js';
-import { t } from '../../utils/i18n.js';
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
+import { describePauseEntry, openPause, pauseHeadline } from '../../utils/globalPauseUtils.js';
 import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
 import { compareByTimeThenStartNumber, compareStartNumbers } from '../../utils/startNumberSort.js';
 import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from '../shared/tvMode.js';
@@ -326,8 +327,9 @@ function renderLayout() {
         ${getCompetitionHeader(comp, t('marathon_monitor_title'))}
         <div class="mt-2 flex justify-end">${tvModeLinkHtml('maraton-monitor')}</div>
     </div>
-      <div id="pause-status-banner" class="hidden p-4 mb-4 text-center font-bold text-white bg-red-600 rounded-lg">
-        ${t('paused_banner')}
+      <div id="pause-status-banner" role="status" aria-live="assertive" class="hidden p-4 mb-4 text-center font-bold text-white bg-red-600 rounded-lg">
+        <div id="pause-status-headline" class="text-xl md:text-2xl font-black uppercase tracking-wide">${t('paused_banner')}</div>
+        <div id="pause-status-detail" class="text-sm md:text-base font-semibold opacity-95"></div>
       </div>
 
       <div id="summary-stats" class="grid grid-cols-3 gap-4 mb-6 text-center"></div>
@@ -1070,8 +1072,14 @@ export async function load() {
         const banner = document.getElementById('pause-status-banner');
         if (banner) {
           if (isGloballyPaused) {
+            // In the viewer's language, with why, who and where (globalPauseUtils)
+            const current = openPause(d.pauseLog);
+            const locale = getCurrentLanguage() === 'en' ? 'en-GB' : 'sv-SE';
             banner.classList.remove('hidden');
-            banner.textContent = `TÄVLINGEN PAUSAD SEDAN ${toTimeLabel(pauseStartTime)} `;
+            const headline = document.getElementById('pause-status-headline');
+            const detail = document.getElementById('pause-status-detail');
+            if (headline) headline.textContent = current ? pauseHeadline(current, t, locale) : t('paused_banner');
+            if (detail) detail.textContent = describePauseEntry(current, t);
           } else {
             banner.classList.add('hidden');
           }

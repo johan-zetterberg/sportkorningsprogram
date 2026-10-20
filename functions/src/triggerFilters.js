@@ -14,7 +14,10 @@ const EQUIPAGE_NON_RESULT_FIELDS = new Set([
     // The vet's per-phase results (the equipage status, which the vet also
     // sets in the first inspection, does count)
     'vetInspection_initial', 'vetInspection_harness', 'vetInspection_restArea', 'vetInspection_final',
-    'vetUnfitStageB'
+    'vetUnfitStageB',
+    // The driver's declaration change log and the vet strike awaiting the
+    // ground jury (a confirmed strike changes the status, which counts)
+    'declarationChanges', 'declarationChangedAt', 'vetStrikePending', 'vetStrikeDecision'
 ]);
 
 // Live state of the marathon obstacle input on maraton/{sn}. The engine reads

@@ -571,6 +571,7 @@ function renderPeopleView(_officials = officials, competition = {}) {
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="precision" class="rounded"> Precision</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="speaker" class="rounded"> Speaker</label>
                                 <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="vet" class="rounded"> Veterinär</label>
+                                <label class="inline-flex items-center gap-2"><input type="checkbox" name="sysRole" value="td" class="rounded"> TD / Domarkollegium</label>
                             </div>
                             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Styr vilka sidor personen får komma åt. Kan vara tomt för funktionärer utan inloggningsbehörighet.</p>
                         </div>

@@ -4,6 +4,8 @@ import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition } from './pdfCompetitionUtils.js';
 import { loadPdfFontData, installPdfFont } from './pdfFonts.js';
+import { RESULT_STATUS, formatPrintedAt, resultStatusKeys } from './resultStatusUtils.js';
+import { t } from '../utils/i18n.js';
 
 function loadScriptTag(src, integrity = '') {
   return new Promise((resolve, reject) => {
@@ -120,7 +122,74 @@ export async function loadStandardHeaderLogos(competition) {
   return headerLogo;
 }
 
-export function drawStandardHeader(doc, competition, titleText, srfLogo, startY = 30, margin = 40) {
+/**
+ * The status line of a result list under the grey bar: PRELIMINÄRT /
+ * OFFICIELLT RESULTAT and when it was printed (statusInfo from
+ * resolveResultListStatus). Returns the y below it.
+ */
+export function drawResultStatusLine(doc, statusInfo, y, { margin = 40, isInt = false } = {}) {
+  if (!statusInfo?.status) return y;
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const keys = resultStatusKeys(statusInfo.status);
+  const official = statusInfo.status === RESULT_STATUS.OFFICIAL;
+  const label = t(keys.title, isInt);
+  const printed = `${t(keys.printed, isInt)}: ${formatPrintedAt(statusInfo.printedAt || new Date())}`;
+  doc.setFontSize(10);
+  doc.setFont(undefined, 'bold');
+  if (official) doc.setTextColor(21, 101, 52); else doc.setTextColor(180, 83, 9);
+  doc.text(label, margin, y + 4);
+  doc.setFont(undefined, 'normal');
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
+  doc.text(printed, pageWidth - margin, y + 4, { align: 'right' });
+  doc.setTextColor(0, 0, 0);
+  return y + 14;
+}
+
+/**
+ * Every page's footer (status, printed time, page x of n) and, on an official
+ * list, the ground jury president's signature line after the last table.
+ * Call it last, before save.
+ */
+export function drawResultStatusFooter(doc, statusInfo, { margin = 40, isInt = false } = {}) {
+  if (!statusInfo?.status) return;
+  const keys = resultStatusKeys(statusInfo.status);
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const pageHeight = doc.internal.pageSize.getHeight();
+
+  if (keys.signature) {
+    let y = (doc.lastAutoTable?.finalY || 0) + 40;
+    if (y > pageHeight - 70) {
+      doc.addPage();
+      y = 60;
+    }
+    doc.setFontSize(10);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(0, 0, 0);
+    doc.text(`${t(keys.signature, isInt)}: ____________________________________`, margin, y);
+  }
+
+  const pages = doc.internal.getNumberOfPages();
+  const printed = `${t(keys.printed, isInt)}: ${formatPrintedAt(statusInfo.printedAt || new Date())}`;
+  for (let page = 1; page <= pages; page++) {
+    doc.setPage(page);
+    doc.setFontSize(7);
+    doc.setFont(undefined, 'bold');
+    if (statusInfo.status === RESULT_STATUS.OFFICIAL) doc.setTextColor(21, 101, 52); else doc.setTextColor(180, 83, 9);
+    doc.text(t(keys.title, isInt), margin, pageHeight - 18);
+    doc.setFont(undefined, 'normal');
+    doc.setTextColor(110, 110, 110);
+    doc.text(`${printed} • ${t('pdf_page', isInt)} ${page}/${pages}`, pageWidth - margin, pageHeight - 18, { align: 'right' });
+  }
+  doc.setTextColor(0, 0, 0);
+}
+
+/**
+ * options.resultStatus: { status, printedAt } of a result list
+ * (resolveResultListStatus): a status line under the grey bar.
+ * options.isInt: English labels.
+ */
+export function drawStandardHeader(doc, competition, titleText, srfLogo, startY = 30, margin = 40, options = {}) {
   const pageWidth = doc.internal.pageSize.getWidth();
   let y = startY;
 
@@ -175,5 +244,8 @@ export function drawStandardHeader(doc, competition, titleText, srfLogo, startY 
   
   // Advance Y
   y += 30;
+  if (options?.resultStatus) {
+    y = drawResultStatusLine(doc, options.resultStatus, y - 4, { margin, isInt: options.isInt === true });
+  }
   return y;
 }

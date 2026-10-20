@@ -2,9 +2,11 @@
 // (removed: competition admins are invited by email, roleEmails); kept here so
 // such entries can still be listed and revoked.
 // 'vet' is a limited role: the vet inspection page and the vet's private data
-const OFFICIAL_JOIN_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
+// 'td': technical delegate / ground jury (reads the secretariat, keeps the
+// incident log, approves finalizations)
+const OFFICIAL_JOIN_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet', 'td'];
 // Roles that can be joined with a role code
-const PIN_JOIN_ROLES = ['dressage', 'marathon', 'precision', 'speaker', 'vet'];
+const PIN_JOIN_ROLES = ['dressage', 'marathon', 'precision', 'speaker', 'vet', 'td'];
 
 const SECRET_FIELD_BY_ROLE = {
   admin: 'accessCode',
@@ -12,7 +14,8 @@ const SECRET_FIELD_BY_ROLE = {
   marathon: 'accessCode_marathon',
   precision: 'accessCode_precision',
   speaker: 'accessCode_speaker',
-  vet: 'accessCode_vet'
+  vet: 'accessCode_vet',
+  td: 'accessCode_td'
 };
 
 // Role codes: no 0/O/1/I look-alikes, shown in uppercase (so no l either;

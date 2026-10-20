@@ -1531,6 +1531,94 @@ test('marathon officials may record the global pause, other roles may not', { sk
   await assertSucceeds(setDoc(doc(ownerDb, compPath('config/globalStatus')), { isPaused: false, pauseLog: [closed] }, { merge: true }));
 });
 
+test('a pause records why, who and where; only the writer may be named and the record cannot be changed on resume', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-pause-2', 'marathon');
+  await seedCompetitionRole('admin-pause-2', 'admin');
+  await seedCompetitionRole('dressage-pause-2', 'dressage');
+  const ref = (db) => doc(db, compPath('config/globalStatus'));
+  const marathonDb = testEnv.authenticatedContext('marathon-pause-2', { email_verified: true, email: 'marathon-pause-2@example.com' }).firestore();
+  const entry = {
+    start: '2026-10-11T10:00:00.000Z', end: null, durationSec: null,
+    reason: 'accident', note: 'Häst omkullkörd vid hinder 3',
+    by: { uid: 'marathon-pause-2', name: 'Anna', role: 'observer' }, where: 'section:B'
+  };
+
+  // Not someone else as the one who pressed, no unknown reason, no long text
+  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, by: { uid: 'someone-else', role: 'observer' } }] }, { merge: true }));
+  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, reason: 'lunch' }] }, { merge: true }));
+  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, note: 'x'.repeat(201) }] }, { merge: true }));
+  await assertSucceeds(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [entry] }, { merge: true }));
+
+  // The dressage role does not pause the marathon
+  const dressageDb = testEnv.authenticatedContext('dressage-pause-2', { email_verified: true, email: 'dressage-pause-2@example.com' }).firestore();
+  const closedByDressage = { ...entry, end: '2026-10-11T10:05:00.000Z', durationSec: 300, endedBy: { uid: 'dressage-pause-2' } };
+  await assertFails(setDoc(ref(dressageDb), { isPaused: false, pauseLog: [closedByDressage] }, { merge: true }));
+
+  // The secretariat (a competition admin) resumes; the reason cannot be rewritten on the way
+  const adminDb = testEnv.authenticatedContext('admin-pause-2', { email_verified: true, email: 'admin-pause-2@example.com' }).firestore();
+  const closed = { ...entry, end: '2026-10-11T10:05:00.000Z', durationSec: 300, endedBy: { uid: 'admin-pause-2', role: 'sekretariat' } };
+  await assertSucceeds(setDoc(ref(adminDb), { isPaused: false, pauseLog: [closed] }, { merge: true }));
+
+  // A marathon official may not rewrite why when closing a pause
+  const second = { start: '2026-10-11T11:00:00.000Z', end: null, durationSec: null, reason: 'weather', by: { uid: 'marathon-pause-2', role: 'observer' } };
+  await assertSucceeds(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [closed, second] }, { merge: true }));
+  const rewritten = { ...second, reason: 'other', end: '2026-10-11T11:10:00.000Z', durationSec: 600, endedBy: { uid: 'marathon-pause-2', role: 'observer' } };
+  await assertFails(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [closed, rewritten] }, { merge: true }));
+  await assertSucceeds(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [closed, { ...rewritten, reason: 'weather' }] }, { merge: true }));
+
+  // The technical delegate pauses from the secretariat's marathon page
+  await seedCompetitionRole('td-pause-2', 'td');
+  const tdDb = testEnv.authenticatedContext('td-pause-2', { email_verified: true, email: 'td-pause-2@example.com' }).firestore();
+  const third = { start: '2026-10-11T12:00:00.000Z', end: null, durationSec: null, reason: 'course', by: { uid: 'td-pause-2', role: 'sekretariat' }, where: 'secretariat' };
+  await assertSucceeds(setDoc(ref(tdDb), { isPaused: true, pauseLog: [closed, { ...rewritten, reason: 'weather' }, third] }, { merge: true }));
+});
+
+test('messages for officials are read by the competition officials only', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, compPath('messages/msg-officials-1')), {
+      title: 'Lunch 12:30', timestamp: '2026-06-08T10:00:00Z',
+      audience: { public: false, drivers: false, officials: true, officialRoles: [] }
+    });
+    await setDoc(doc(db, compPath('messages/msg-vet-1')), {
+      title: 'Veterinär till hinder 3', timestamp: '2026-06-08T10:01:00Z', type: 'alert',
+      audience: { public: false, drivers: false, officials: true, officialRoles: ['vet'] }
+    });
+  });
+  const officialsQuery = (db) => query(collection(db, compPath('messages')), where('audience.officials', '==', true));
+
+  await seedCompetitionRole('speaker-msg-1', 'speaker');
+  const speakerDb = testEnv.authenticatedContext('speaker-msg-1', { email_verified: true, email: 'speaker-msg-1@example.com' }).firestore();
+  await assertSucceeds(getDocs(officialsQuery(speakerDb)));
+  await assertSucceeds(getDoc(doc(speakerDb, compPath('messages/msg-officials-1'))));
+  // ...but not driver or other non-official messages
+  await assertFails(getDocs(query(collection(speakerDb, compPath('messages')), orderBy('timestamp', 'desc'))));
+
+  // An official through a verified role e-mail
+  await seedRoleEmail('vet-msg@example.com', ['vet']);
+  const vetDb = testEnv.authenticatedContext('vet-msg-1', { email_verified: true, email: 'vet-msg@example.com' }).firestore();
+  await assertSucceeds(getDocs(officialsQuery(vetDb)));
+
+  // The public and any signed-in account (anyone can register one) cannot
+  const anonymousDb = testEnv.unauthenticatedContext().firestore();
+  await assertFails(getDocs(officialsQuery(anonymousDb)));
+  await assertFails(getDoc(doc(anonymousDb, compPath('messages/msg-officials-1'))));
+  const accountDb = testEnv.authenticatedContext('driver-msg-1', { email_verified: true, email: 'driver-msg@example.com' }).firestore();
+  await assertFails(getDocs(officialsQuery(accountDb)));
+  await assertFails(getDoc(doc(accountDb, compPath('messages/msg-vet-1'))));
+
+  // Admins write and edit them; the shape is checked
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(setDoc(doc(ownerDb, compPath('messages/msg-officials-2')), {
+    title: 'Banan öppnar', body: 'Kl 9', titleEn: 'Course opens', bodyEn: 'At 9', type: 'info',
+    audience: { public: false, drivers: false, officials: true, officialRoles: ['marathon'] }, targetStartNumbers: []
+  }));
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath('messages/msg-officials-2')), { body: 'Kl 9.30' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('messages/msg-bad-type')), { title: 'x', type: 'html' }));
+  await assertFails(setDoc(doc(ownerDb, compPath('messages/msg-bad-audience')), { title: 'x', audience: { public: true, everyone: true } }));
+  await assertFails(setDoc(doc(speakerDb, compPath('messages/msg-officials-3')), { title: 'Nope', audience: { officials: true } }));
+});
+
 test('PIN join attempt counters are not readable or writable by clients', { skip: !HAS_EMULATOR }, async () => {
   const db = testEnv.authenticatedContext('pin-guesser-1', { email_verified: true, email: 'pin-guesser@example.com' }).firestore();
   await assertFails(getDoc(doc(db, `pinJoinAttempts/${COMP_ID}`)));

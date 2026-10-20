@@ -259,7 +259,9 @@ export async function finalizeCompetition(competitionId, { allowIncomplete = fal
         await generateTotalResultsPdf(archiveData.rows, competition, {
             viewMode: 'byclass',
             officials: '',
-            throwOnMissingPdfLib: true
+            throwOnMissingPdfLib: true,
+            // The archive's result list is the official one
+            resultStatus: 'official'
         });
 
         // Snapshot, lock and declaration lock together: never locked without

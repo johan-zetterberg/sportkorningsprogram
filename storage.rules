@@ -67,7 +67,7 @@ service firebase.storage {
 
     // Every competition role (as hasStaffRoleInComp in firestore.rules)
     function isStaffInApp(appId, competitionId) {
-      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
+      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet', 'td'];
       let adminPath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/admins/$(request.auth.uid);
       return firestore.exists(adminPath) && (
         firestore.get(adminPath).data.get('role', '') in staffRoles ||
@@ -79,7 +79,7 @@ service firebase.storage {
     }
 
     function isStaffInAppByEmail(appId, competitionId) {
-      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
+      let staffRoles = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet', 'td'];
       let email = request.auth.token.email != null ? request.auth.token.email.lower() : '';
       let rolePath = /databases/(default)/documents/artifacts/$(appId)/public/data/competitions/$(competitionId)/roleEmails/$(email);
       return request.auth.token.get('email_verified', false) == true

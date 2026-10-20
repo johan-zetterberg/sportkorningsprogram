@@ -23,8 +23,11 @@ function messageTargets(message = {}) {
     return [];
 }
 
+// "public" means everyone, drivers included (the admin page says so); a
+// message for the officials only (audience.officials) reaches no driver
 export function isMessageForDriver(message, startNumbers = []) {
     const audience = messageAudience(message);
+    if (message?.audience?.officials === true && !audience.public && message.audience.drivers !== true) return false;
     const targets = messageTargets(message);
     if (targets.length) {
         return audience.drivers && targets.some(t => startNumbers.includes(t));

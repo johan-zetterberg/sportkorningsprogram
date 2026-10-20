@@ -9,7 +9,8 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
-import { buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUtils.js";
+import { appendDeclarationChange, buildDeclarationChangeEntry, buildDeclarationNotice, buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUtils.js";
+import { buildVetDecisionDriverMessage } from "./src/vetDecisionNotify.js";
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
@@ -476,6 +477,24 @@ export const onEquipageUpdate = onDocumentWritten(
         // Speaker notes, temperatures and the like do not change the result
         if (!equipageWriteAffectsResults(beforeData(event), afterData(event))) return;
         await recalculateEquipage(appId, compId, startNo);
+    }
+);
+
+// A vet decision in the incident log reaches the driver's inbox: when the vet
+// reports it to the ground jury and when the ground jury decides it. The rules
+// let only admins write messages, so the server writes them (a message
+// addressed to the equipage, see driverInbox.js).
+export const onIncidentWritten = onDocumentWritten(
+    "artifacts/{appId}/private/data/competitions/{compId}/incidents/{incidentId}",
+    async (event) => {
+        const message = buildVetDecisionDriverMessage(beforeData(event), afterData(event));
+        if (!message) return;
+        const { appId, compId, incidentId } = event.params;
+        await db.collection(`artifacts/${appId}/public/data/competitions/${compId}/messages`).add({
+            ...message,
+            incidentId,
+            timestamp: FieldValue.serverTimestamp()
+        });
     }
 );
 
@@ -1123,20 +1142,41 @@ export const updateEquipageDeclaration = onCall(async (request) => {
     }
 
     const equipageRef = comp.ref.collection('equipages').doc(startNumber);
+    let changed = false;
     await db.runTransaction(async (transaction) => {
         const snap = await transaction.get(equipageRef);
         if (!snap.exists) throw new HttpsError('not-found', 'Ekipaget finns inte.');
+        const before = snap.data() || {};
         let update;
         try {
             // The vet's results are per horse key on the equipage: inspected
             // horses keep their name and id
-            update = buildDeclarationUpdate(request.data || {}, snap.data()?.horses, inspectedHorseKeys(snap.data()));
+            update = buildDeclarationUpdate(request.data || {}, before.horses, inspectedHorseKeys(before));
         } catch (error) {
             throw new HttpsError('failed-precondition', error.message);
         }
-        transaction.set(equipageRef, { ...update, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        // What changed, on the equipage (capped list) and in the staff
+        // notifications: the secretariat, vet and speaker see it until
+        // acknowledged; a horse added after the vet inspection is flagged
+        const entry = buildDeclarationChangeEntry(before, update);
+        changed = !!entry;
+        const extra = entry ? {
+            declarationChangedAt: FieldValue.serverTimestamp(),
+            declarationChanges: appendDeclarationChange(before.declarationChanges, entry)
+        } : {};
+        transaction.set(equipageRef, { ...update, ...extra, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        if (entry) {
+            const notice = buildDeclarationNotice(entry, { startNumber, driverName: before.driverName });
+            const noticeRef = db.collection(`artifacts/${comp.appId}/private/data/competitions/${competitionId}/staffNotifications`).doc();
+            transaction.set(noticeRef, {
+                ...notice,
+                createdAt: FieldValue.serverTimestamp(),
+                createdBy: request.auth.uid,
+                createdByName: String(before.driverName || '').slice(0, 200)
+            });
+        }
     });
-    return { ok: true };
+    return { ok: true, changed };
 });
 
 // The server's clock, so timing devices can correct their own: a marathon

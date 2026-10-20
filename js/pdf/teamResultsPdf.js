@@ -1,7 +1,10 @@
 import { getClubLogoUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
+import { resolvePdfLanguage } from './pdfCompetitionUtils.js';
+import { resolveResultListStatus } from './pdfResultStatus.js';
+import { requiredForTotalRows } from './resultStatusUtils.js';
 import { formatPdfPenalty } from './resultPdfFormatUtils.js';
 import { formatTeamMemberDisciplineCell } from './teamResultsPdfUtils.js';
 
@@ -23,8 +26,17 @@ export async function generateTeamResultsPdf(teams, competition) {
     // 1. ASSET LOADING (Logos & Flags)
     const srfLogo = await loadStandardHeaderLogos(competition);
 
-    // 2. HEADER
-    let y = drawStandardHeader(doc, competition, "LAGTÄVLING - TOTALRESULTAT", srfLogo, 30, mx);
+    // 2. HEADER, with the status: official when every member's results are
+    // finalized (or the competition is archived)
+    const { isInt } = await resolvePdfLanguage(competition);
+    const memberRows = teams.flatMap(team => (team.members || []).map(m => ({
+        startNumber: m.startNumber,
+        dressage: m.dressage,
+        marathon: m.marathon,
+        precision: m.precision
+    })));
+    const resultStatus = await resolveResultListStatus(competition, { required: requiredForTotalRows(memberRows) });
+    let y = drawStandardHeader(doc, competition, "LAGTÄVLING - TOTALRESULTAT", srfLogo, 30, mx, { resultStatus, isInt });
     y += 5;
 
     await ensureClubLogosLoaded();
@@ -166,6 +178,7 @@ export async function generateTeamResultsPdf(teams, competition) {
     doc.setTextColor(110, 110, 110);
     doc.text('* = Räknas i lagresultatet   (str) = Struket resultat per moment   (Lagstr) = 500 straff enligt lagreglemente', mx, finalY + 16);
 
+    drawResultStatusFooter(doc, resultStatus, { margin: mx, isInt });
     const ts = new Date().toISOString().split('T')[0];
     doc.save(`lagresultat_${ts}.pdf`);
 }

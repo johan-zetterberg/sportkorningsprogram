@@ -4,6 +4,7 @@ import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
+import { createStaffNoticesHost } from '../../ui/staffNoticesPanel.js';
 import {
   askCorrectionReason,
   clearRowDirty,
@@ -34,6 +35,8 @@ let rootEl = null;
 let competitionId = null;
 let rows = [];
 let rejectedWrites = [];
+// Driver declaration changes and vet strikes for the ground jury (kept across renders)
+let noticesHost = null;
 let timingDrafts = new Map();
 let obstacleDrafts = new Map();
 let obstacleRows = [];
@@ -487,11 +490,13 @@ function render() {
         message: 'Tävlingen körs i fältläge. Etapptider och hinder registreras manuellt, och sekretariatet används för kontroll, korrigering och finalisering.',
       })}
       ${renderRejectedWritesPanel(rejectedWrites)}
+      ${noticesHost?.placeholder || ''}
       ${renderTabs()}
       ${activeTab === 'timing' ? renderTimingTab() : renderObstacleTab()}
     </div>
   `;
 
+  noticesHost?.attach(rootEl);
   initializeToolbarInteractions(rootEl);
   wireEvents();
   syncDraftUiState();
@@ -983,6 +988,8 @@ export async function load(container) {
     return;
   }
 
+  noticesHost?.destroy();
+  noticesHost = createStaffNoticesHost({ competitionId });
   rootEl.innerHTML = '<div class="max-w-4xl mx-auto p-6 text-center text-gray-500">Laddar sekretariat Maraton...</div>';
 
   try {
@@ -1001,6 +1008,8 @@ export function unload() {
   competitionId = null;
   rows = [];
   rejectedWrites = [];
+  noticesHost?.destroy();
+  noticesHost = null;
   timingDrafts = new Map();
   obstacleDrafts = new Map();
   obstacleRows = [];

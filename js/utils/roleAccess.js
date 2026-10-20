@@ -12,6 +12,9 @@ export const ROLE_HIERARCHY = Object.freeze({
     speaker: ['speaker', 'funktionar', 'publik'],
     // Limited: the vet page and public pages, not the general official pages
     vet: ['vet', 'publik'],
+    // Technical delegate / ground jury: the official pages (secretariat read,
+    // incident log, finalization approval), not the input pages
+    td: ['td', 'funktionar', 'publik'],
     publik: ['publik']
 });
 

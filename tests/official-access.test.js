@@ -52,7 +52,7 @@ test('the settings page replaces missing and short codes', () => {
     accessCode_dressage: 'ABCDEFGHJK',
     accessCode_marathon: '12345678',
     accessCode_speaker: 'ABCD-EFGH-JK'
-  }), ['marathon', 'precision', 'vet']);
+  }), ['marathon', 'precision', 'vet', 'td']);
 });
 
 test('codes expire after the given day, Swedish time', () => {

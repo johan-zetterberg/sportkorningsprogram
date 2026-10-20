@@ -469,14 +469,14 @@ export const GUIDES = {
       sv: [
         '🟢 <strong>Godkänd:</strong> Hästen är i fullgott skick och godkänd för start.',
         '🟡 <strong>Holding Box (Återbesiktning):</strong> Hästen skickas till Holding Box för fördjupad kontroll före slutligt beslut.',
-        '🔴 <strong>Ej godkänd / Struken:</strong> Hästen får ej starta.',
+        '🔴 <strong>Ej godkänd / Struken:</strong> Hästen får ej starta. Beslutet rapporteras direkt till domarkollegiets ordförande (händelseloggen) och ekipaget stryks när domarkollegiet fastställt det.',
         '<strong>Vilobox:</strong> Registrera puls, andning och allmäntillstånd i fliken Vilobox. Dessa fält visas inte i övriga kontroller.',
         '<strong>Spara:</strong> Hästens status sparas direkt när du trycker på statusknappen. För en ändrad veterinärnotering visas en separat knapp märkt Spara.'
       ],
       en: [
         '🟢 <strong>Passed:</strong> Fit to compete.',
         '🟡 <strong>Holding Box:</strong> Referred for re-inspection before final verdict.',
-        '🔴 <strong>Not fit / Withdrawn:</strong> Not permitted to start.',
+        '🔴 <strong>Not fit / Withdrawn:</strong> Not permitted to start. The decision is reported at once to the President of the Ground Jury (incident log); the equipage is withdrawn when the ground jury confirms it.',
         '<strong>Rest Area:</strong> Record pulse, respiration, and general condition on the Rest Area tab. These fields are not shown for the other inspections.',
         '<strong>Saving:</strong> The horse status is saved immediately when you press its status button. A separate Save button appears after you edit the veterinary note.'
       ]
@@ -538,13 +538,15 @@ export const GUIDES = {
         '<strong>Statusmärken:</strong> Orange "Pågår" = ritten pågår, blå "Klar" = klar men inte finaliserad, grön "Finaliserad" = låst officiellt resultat. Grå = ej startad.',
         '<strong>Granskning före finalisering:</strong> Kontrollera att alla domarbetyg och etapptider inkommit innan knappen "Finalisera" klickas.',
         '<strong>Lås upp vid protest / korrigering:</strong> Om ett domarprotokoll behöver korrigeras, lås upp raden, gör ändringen tillsammans med överdomaren och spara om.',
-        '<strong>PDF & Utskrift:</strong> Skapa officiella resultatlistor, protokoll och speakerunderlag via Rapportcenter.'
+        '<strong>PDF & Utskrift:</strong> Skapa officiella resultatlistor, protokoll och speakerunderlag via Rapportcenter.',
+        '<strong>Händelselogg:</strong> Protester, incidenter och domarkollegiets beslut i <strong>Händelselogg &amp; protester</strong>; där finns också notiserna (veterinärbeslut, "Ändrad av kusk") och <strong>Fältenheter</strong> (vilka inmatningsenheter som lever).'
       ],
       en: [
         '<strong>Status badges:</strong> Amber "Running" = in progress, blue "Finished" = done but not finalized, green "Finalized" = locked official result. Grey = not started.',
         '<strong>Review before finalizing:</strong> Verify that all judges and timing points reported in before finalizing.',
         '<strong>Unlock on query / protest:</strong> If correction is required, unlock the record, update with Ground Jury and re-save.',
-        '<strong>PDF & Printouts:</strong> Generate official result sheets, protocols and speaker material via Report Center.'
+        '<strong>PDF & Printouts:</strong> Generate official result sheets, protocols and speaker material via Report Center.',
+        '<strong>Incident log:</strong> Protests, incidents and ground jury decisions in <strong>Incidents &amp; protests</strong>; it also holds the notifications (vet decisions, "Changed by driver") and <strong>Field devices</strong> (which input devices are alive).'
       ]
     },
     troubleshooting: {

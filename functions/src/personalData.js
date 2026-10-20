@@ -20,10 +20,14 @@ export const RETENTION_PUBLIC_TREE_COLLECTIONS = [
     'vetNotes'
 ];
 // ...and under artifacts/{appId}/private/data/competitions/{id}
-export const RETENTION_PRIVATE_TREE_COLLECTIONS = ['rejectedWrites', 'rateLimits'];
-// Logs that are kept, without names and email addresses
+// (field device status, staff notifications, emergency phone numbers too)
+export const RETENTION_PRIVATE_TREE_COLLECTIONS = ['rejectedWrites', 'rateLimits', 'devices',
+    'staffNotifications', 'emergencyPrivate'];
+// Logs that are kept, without names and email addresses (the incident log is
+// the ground jury's record: kept, without who typed the entries)
 export const RETENTION_ANONYMIZED_LOGS = [
     { tree: 'private', name: 'auditLog' },
+    { tree: 'private', name: 'incidents' },
     { tree: 'public', name: 'maintenanceRuns' },
     { tree: 'root', name: 'finalizationLog' }
 ];
@@ -38,7 +42,9 @@ export const PERSONAL_LOG_FIELDS = [
     'displayName',
     'reportedByName',
     'reportedByEmail',
-    'initiatedBy.email'
+    'initiatedBy.email',
+    'createdByName',
+    'updatedByName'
 ];
 
 /** Milliseconds from a number, Date, ISO string or Firestore Timestamp; else null */

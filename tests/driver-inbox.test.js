@@ -15,6 +15,14 @@ test('a driver sees public messages, messages for all drivers and their own', ()
     assert.equal(isMessageForDriver({}, mine), true);
 });
 
+test('messages for the officials reach no driver', () => {
+    const mine = ['12'];
+    assert.equal(isMessageForDriver({ audience: { public: false, drivers: false, officials: true, officialRoles: [] } }, mine), false);
+    assert.equal(isMessageForDriver({ audience: { public: false, officials: true, officialRoles: ['vet'] } }, mine), false);
+    // Public means everyone: drivers too
+    assert.equal(isMessageForDriver({ audience: { public: true, drivers: true, officials: false } }, mine), true);
+});
+
 test('documents: public or for drivers, legacy documents for everyone', () => {
     assert.equal(isDocumentForDriver({ audience: { public: false, drivers: true } }), true);
     assert.equal(isDocumentForDriver({ audience: { public: false, drivers: false } }), false);

@@ -6,6 +6,10 @@ import { getCompetitionById, getConfig } from '../../services/competitionService
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
+import { newIncidentId } from '../../services/incidentService.js';
+import { reportVetStrike } from '../../services/vetDecisionService.js';
+import { gateVetStrikePayload, vetStrikeStateOf } from '../../services/vetDecisionUtils.js';
+import { mountStaffNoticesPanel } from '../../ui/staffNoticesPanel.js';
 import {
     buildHorseTemperatureSlots,
     getHorseTemperatureRecord,
@@ -47,6 +51,9 @@ let currentSearchTerm = '';
 let currentPhase = 'initial'; // 'initial' | 'harness' | 'restArea' | 'final'
 let horseTemperatureConfig = normalizeHorseTemperatureConfig();
 let competitionDates = '';
+// Staff notifications not yet acknowledged, per start number (staffNoticesPanel)
+let unmountNotices = null;
+let unackedDeclarations = new Map();
 
 const statusConfig = {
     'anmäld': { label: 'Väntar', color: 'bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-300', border: 'border-gray-200 dark:border-gray-600' },
@@ -84,6 +91,18 @@ export function load() {
     renderPage(pageContainer, competition);
     attachPageHandlers();
     loadTemperatureSettings(competition);
+    // Declarations changed by drivers (a new horse after the inspection) and
+    // strikes waiting for the ground jury
+    unmountNotices = mountStaffNoticesPanel(byId('vet-staff-notices'), {
+        competitionId,
+        kinds: ['declarationChange', 'vetStrike', 'vetDecision'],
+        highlightNewHorse: true,
+        onUnacked: (byStartNumber) => {
+            unackedDeclarations = byStartNumber;
+            if (isTypingInCard()) cardRefreshPending = true;
+            else renderCard();
+        }
+    });
 
     // Each listener subscribes again after an error, keeping what is shown
     // (an empty list would hide every equipage) and showing a banner meanwhile
@@ -160,6 +179,9 @@ function refreshAfterPrivateUpdate() {
 export function __unload() {
     if (unsubscribe) unsubscribe();
     unsubscribe = null;
+    unmountNotices?.();
+    unmountNotices = null;
+    unackedDeclarations = new Map();
     if (unsubscribeTemperatures) unsubscribeTemperatures();
     unsubscribeTemperatures = null;
     if (unsubscribeClinical) unsubscribeClinical();
@@ -232,6 +254,7 @@ function renderPage(pageContainer, competition) {
 
         <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-3xl">
             ${getCompetitionHeader(competition, 'Veterinärbesiktning', { quickGuideRole: 'vet-check' })}
+            <div id="vet-staff-notices" class="mb-3"></div>
             <div class="bg-white dark:bg-gray-800 rounded-xl shadow-lg border border-gray-200 dark:border-gray-700 overflow-hidden flex flex-col h-[85vh]">
                 <div class="vet-header shrink-0 p-4 bg-white dark:bg-gray-900 border-b dark:border-gray-700 z-30 shadow-sm space-y-3">
                     <div id="vet-phase-tabs-container">
@@ -639,6 +662,24 @@ function renderTemperatureReport(eq = {}) {
     `;
 }
 
+// The strike waiting for the ground jury, its decision, and a declaration the
+// driver changed (a new horse after the inspection) not yet acknowledged
+function renderVetDecisionBadges(eq = {}) {
+    const badges = [];
+    const strike = vetStrikeStateOf(eq);
+    if (strike === 'pending') {
+        badges.push('<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100">Väntar på domarkollegiet</span>');
+    } else if (strike === 'overturned') {
+        badges.push('<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-sky-300 bg-sky-100 text-sky-900 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-100">Strykning ej fastställd</span>');
+    }
+    const notice = unackedDeclarations.get(String(eq.startNumber));
+    if (notice) {
+        const label = notice.newHorseAfterVet ? 'Ny häst efter besiktning' : 'Ändrad av kusk';
+        badges.push(`<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-fuchsia-300 bg-fuchsia-100 text-fuchsia-900 dark:border-fuchsia-700 dark:bg-fuchsia-900/40 dark:text-fuchsia-100" title="${escapeHtml(notice.summary || '')}">${escapeHtml(label)}</span>`);
+    }
+    return badges.join('');
+}
+
 function renderVetCard(eq = {}) {
     const status = deriveVetStatusFromHorses(eq.horses, eq.status, currentPhase);
     const conf = statusConfig[status] || statusConfig['anmäld'];
@@ -670,8 +711,9 @@ function renderVetCard(eq = {}) {
                 <div class="flex flex-col gap-1">
                     <div class="flex items-start justify-between gap-3">
                         <span class="text-4xl font-black text-gray-900 dark:text-white tracking-tighter">#${escapeHtml(eq.startNumber)}</span>
-                        <div class="flex items-center gap-2">
+                        <div class="flex flex-wrap items-center justify-end gap-2">
                             <span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border ${conf.border} ${conf.color}">${conf.label}</span>
+                            ${renderVetDecisionBadges(eq)}
                         </div>
                     </div>
                     <div class="mt-1">
@@ -847,29 +889,73 @@ async function saveVetNote(startNumber, note, saveBtn) {
     }
 }
 
+// A vet's "Ej godkänd / Struken" waits for the ground jury: the equipage gets
+// vetStrikePending instead of the status 'struken' (vetDecisionUtils), and
+// the decision is reported to the incident log and the secretariat at once
+function strikeGate(phase, horseKeys = null) {
+    const incidentId = competitionId ? newIncidentId(competitionId) : '';
+    const state = { struck: false, incidentId };
+    const gate = (eq, payload) => {
+        const result = gateVetStrikePayload(payload, {
+            equipage: eq,
+            phase,
+            uid: getGlobalState('currentUser')?.uid || null,
+            horseKeys,
+            incidentId
+        });
+        state.struck = result.strike;
+        return result.payload;
+    };
+    return { state, gate };
+}
+
+async function reportStrikeIfAny(state, eq, phase, horseKeys = null) {
+    if (!state.struck || !competitionId) return;
+    const phaseInfo = VET_PHASES[phase] || VET_PHASES.initial;
+    const horses = Array.isArray(eq.horses) ? eq.horses : [];
+    const horseNames = horseKeys
+        ? horses.filter((horse, index) => horseKeys.includes(getHorseStableKey(horse, index))).map(h => h.name || h.horseName || '')
+        : [];
+    const result = await reportVetStrike(competitionId, {
+        incidentId: state.incidentId,
+        equipage: eq,
+        phase,
+        phaseLabel: phaseInfo.shortLabel,
+        horseNames,
+        note: eq.vetNotesByPhase?.[phase] || ''
+    });
+    if (result.ok) {
+        showAlert(`Ekipage #${eq.startNumber}: beslutet är rapporterat till domarkollegiets ordförande (händelse nr ${result.number}). Ekipaget stryks när beslutet fastställts.`, 'info', { timeout: 9000 });
+    } else {
+        showAlert(`Beslutet för #${eq.startNumber} är sparat men kunde inte rapporteras till domarkollegiet. Meddela sekretariatet.`, 'warning');
+    }
+}
+
 async function setVetStatus(startNumber, status) {
     if (!competitionId) return;
     const phaseInfo = VET_PHASES[currentPhase] || VET_PHASES.initial;
-    if (status === 'struken' && !confirm(`Är du säker på att ekipage #${startNumber} ska strykas / få startförbud i ${phaseInfo.shortLabel}?`)) {
+    if (status === 'struken' && !confirm(`Ska ekipage #${startNumber} underkännas / få startförbud i ${phaseInfo.shortLabel}?\n\nBeslutet rapporteras till domarkollegiets ordförande, som fastställer strykningen.`)) {
         return;
     }
 
     const phase = currentPhase;
     try {
         const local = latestLocalEquipage(startNumber);
+        const { state, gate } = strikeGate(phase);
         // Only the decision, to the public equipage. The findings are saved
         // field by field as they are entered (saveHorseClinicalField): sending
         // every horse's fields from this screen would overwrite what another
         // vet saved meanwhile.
         // Built from the latest copy of the equipage (see updateEquipageFromLatest)
-        const buildPayload = (eq) => buildVetStatusUpdate(eq, phase, { status }).payload;
+        const buildPayload = (eq) => gate(eq, buildVetStatusUpdate(eq, phase, { status }).payload);
 
         // Done with this equipage: the next snapshot moves on in the queue
         advanceAfterOwnSave = true;
         await updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), storedCopy(local), {
             onLateError: lateSaveError(`Status för #${startNumber}`)
         });
-        showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
+        if (state.struck) await reportStrikeIfAny(state, local, phase);
+        else showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet update failed', error);
         showAlert('Kunde inte uppdatera status', false);
@@ -879,13 +965,14 @@ async function setVetStatus(startNumber, status) {
 async function setHorseVetStatus(eq = {}, horseKey, status) {
     if (!competitionId || !eq.startNumber) return;
     const phaseInfo = VET_PHASES[currentPhase] || VET_PHASES.initial;
-    if (status === 'struken' && !confirm(`Ska vald häst i ekipage #${eq.startNumber} underkännas / få startförbud i ${phaseInfo.shortLabel}?`)) {
+    if (status === 'struken' && !confirm(`Ska vald häst i ekipage #${eq.startNumber} underkännas / få startförbud i ${phaseInfo.shortLabel}?\n\nBeslutet rapporteras till domarkollegiets ordförande, som fastställer det.`)) {
         return;
     }
 
     const phase = currentPhase;
     try {
         const local = latestLocalEquipage(eq.startNumber, eq);
+        const { state, gate } = strikeGate(phase, [horseKey]);
         // The decision to the public equipage, built from the latest copy:
         // another vet may have saved another horse
         await updateEquipageFromLatest(competitionId, eq.startNumber, buildOnLocal(local, (latest) => {
@@ -894,9 +981,10 @@ async function setHorseVetStatus(eq = {}, horseKey, status) {
             // otherwise stay on the card for the next horse
             advanceAfterOwnSave = horses.length > 0
                 && horses.every(horse => !!horse?.inspections?.[phase]?.status);
-            return payload;
+            return gate(latest, payload);
         }), storedCopy(local), { onLateError: lateSaveError(`Hästens status (#${eq.startNumber})`) });
-        showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
+        if (state.struck) await reportStrikeIfAny(state, local, phase, [horseKey]);
+        else showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
     } catch (error) {
         console.error('Vet horse update failed', error);
         showAlert('Kunde inte uppdatera häststatus', false);

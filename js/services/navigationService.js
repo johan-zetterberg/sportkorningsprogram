@@ -5,6 +5,13 @@ import { closeLoginModal, openLoginModal, updateUIVisibility } from './authServi
 import { closeAlertModal, dismissToasts } from '../ui/components.js';
 import { isRouteBoundToast } from '../ui/toastQueue.js';
 import { hasRoleAccess, mergeUserRoles } from '../utils/roleAccess.js';
+import { syncFieldHeartbeat } from './deviceHeartbeatService.js';
+
+// The emergency info sheet from the menu ("Nöd", officials): loaded on demand
+window.openEmergencyInfo = async () => {
+  const { openEmergencyInfoSheet } = await import('../ui/emergencyInfoCard.js');
+  openEmergencyInfoSheet();
+};
 
 // Input pages used in the field: no red logout button in the header there
 const JUDGE_PAGES = new Set([
@@ -70,9 +77,12 @@ const pagePermissions = {
   'page-precision-split-input': ['precision', 'domare', 'admin'],
   'page-precision-results': ['publik', 'funktionar', 'domare', 'admin'],
   'page-precision-admin': ['admin'],
-  'page-sekretariat-precision': ['admin', 'precision'],
-  'page-sekretariat-maraton': ['admin', 'marathon'],
-  'page-sekretariat-dressyr': ['admin', 'dressage'],
+  // The TD / ground jury reads the secretariat pages (the rules decide writes)
+  'page-sekretariat-precision': ['admin', 'precision', 'td'],
+  'page-sekretariat-maraton': ['admin', 'marathon', 'td'],
+  'page-sekretariat-dressyr': ['admin', 'dressage', 'td'],
+  // Incident / protest / ground jury log, corrections, field devices
+  'page-incidents': ['admin', 'td', 'dressage', 'marathon', 'precision', 'vet'],
   'page-dressyr-monitor': ['publik', 'funktionar', 'domare', 'admin'],
   'page-dressyr-admin': ['admin'],
   'page-maraton-admin': ['admin'],
@@ -120,6 +130,7 @@ const pageLoaders = {
   'sekretariat-precision': () => import('../pages/secretariat/secretariat-precision.js'),
   'sekretariat-maraton': () => import('../pages/secretariat/secretariat-marathon.js'),
   'sekretariat-dressyr': () => import('../pages/secretariat/secretariat-dressage.js'),
+  'incidents': () => import('../pages/shared/incidents.js'),
   'dressyr-monitor': () => import('../pages/dressage/dressyr-monitor.js'),
   'vagnbredd': () => import('../pages/shared/vagnbredd.js'),
   'total-resultat': () => import('../pages/shared/total-resultat.js'),
@@ -232,6 +243,8 @@ export async function navigateTo(hash) {
 
   document.body.classList.toggle('judge-page', JUDGE_PAGES.has(pageKey));
   document.body.dataset.route = pageKey;
+  // Field input pages report the device's status to the secretariat
+  try { syncFieldHeartbeat(JUDGE_PAGES.has(pageKey) ? pageKey : null); } catch (_) { }
   loadCompetitionFeatures(getGlobalState('currentCompetition'));
 
   const requiredMode = pageModeRequirements[pageKey];

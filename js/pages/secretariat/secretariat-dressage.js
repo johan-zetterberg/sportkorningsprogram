@@ -6,6 +6,7 @@ import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
+import { createStaffNoticesHost } from '../../ui/staffNoticesPanel.js';
 import {
   askCorrectionReason,
   deriveDressageStatus,
@@ -31,6 +32,8 @@ let rootEl = null;
 let competitionId = null;
 let rows = [];
 let rejectedWrites = [];
+// Driver declaration changes and vet strikes for the ground jury (kept across renders)
+let noticesHost = null;
 let selectedStartNumber = null;
 let selectedProtocolId = 'general';
 let detailData = null;
@@ -673,6 +676,7 @@ function render() {
         message: 'Tävlingen körs i fältläge. Protokoll och allmänna fel hanteras manuellt här innan ekipagen åter finaliseras.',
       })}
       ${renderRejectedWritesPanel(rejectedWrites)}
+      ${noticesHost?.placeholder || ''}
       ${renderToolbar({
         searchValue: filters.search,
         statusValue: filters.status,
@@ -708,6 +712,7 @@ function render() {
     </div>
   `;
 
+  noticesHost?.attach(rootEl);
   initializeToolbarInteractions(rootEl);
   wireEvents();
   teardownStickyHeaders = setupStickyTableHeaders(rootEl);
@@ -920,6 +925,8 @@ export async function load(container) {
     return;
   }
 
+  noticesHost?.destroy();
+  noticesHost = createStaffNoticesHost({ competitionId });
   rootEl.innerHTML = '<div class="max-w-4xl mx-auto p-6 text-center text-gray-500">Laddar sekretariat Dressyr...</div>';
 
   try {
@@ -942,6 +949,8 @@ export function unload() {
   competitionId = null;
   rows = [];
   rejectedWrites = [];
+  noticesHost?.destroy();
+  noticesHost = null;
   selectedStartNumber = null;
   selectedProtocolId = 'general';
   detailData = null;

@@ -1,8 +1,9 @@
 import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
-import { collection, doc, getDocs, addDoc, deleteDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, doc, getDocs, addDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { isOfficialMessage } from '../utils/messageAudience.js';
 
 function normalizeStartNumberList(value) {
   if (!Array.isArray(value)) return [];
@@ -41,10 +42,12 @@ export function isMessageVisibleToPublic(message) {
 }
 
 // As getDriverInbox on the server (functions/src/driverInbox.js): a message
-// for everyone (public) reaches the drivers too, even when it is not marked
-// for drivers; a targeted one only the drivers it names
+// for everyone (public) reaches the drivers too - "public" means everyone,
+// drivers included; a targeted one only the drivers it names; one for the
+// officials no driver
 export function isMessageVisibleToDriver(message, startNumber) {
   const audience = getMessageAudience(message);
+  if (isOfficialMessage(message) && !audience.public && message?.audience?.drivers !== true) return false;
   const targets = getMessageTargetStartNumbers(message);
   if (targets.length) return audience.drivers && targets.includes(String(startNumber).trim());
   return audience.public || audience.drivers;
@@ -144,6 +147,26 @@ export async function saveCompetitionMessage(competitionId, msgData) {
     timestamp: serverTimestamp()
   };
   await addDoc(colRef, payload);
+}
+
+/**
+ * Live messages for the competition's officials (audience.officials): the
+ * rules let every official of the competition read them. Returns the
+ * unsubscribe; an account that may not read them gets [].
+ */
+export function listenForOfficialMessages(competitionId, callback) {
+  if (!competitionId) { callback([]); return () => { }; }
+  const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/messages`);
+  return onSnapshot(query(colRef, where('audience.officials', '==', true)),
+    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
+    (err) => { console.warn('Official messages could not be read:', err?.code || err); callback([]); });
+}
+
+/** Changes a sent message (the admin's edit); editedAt marks it changed */
+export async function updateCompetitionMessage(competitionId, messageId, msgData) {
+  if (!competitionId || !messageId) throw new Error("Missing params");
+  const docRef = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/messages`, messageId);
+  await updateDoc(docRef, { ...msgData, editedAt: serverTimestamp() });
 }
 
 export async function deleteCompetitionMessage(competitionId, messageId) {

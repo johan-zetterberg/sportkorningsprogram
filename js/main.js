@@ -7,6 +7,8 @@ import { initLanguageToggle, setCompetitionLanguageContext, t } from './utils/i1
 import { initTheme } from './services/themeService.js';
 import './ui/syncQueue.js'; // Registers <sync-queue>
 import { activateCompetitionSettings, installWindowSettingAccessors } from './services/competitionSettingsStore.js';
+import { initFieldMessages } from './ui/fieldMessages.js';
+import { initGlobalPauseBanner } from './ui/globalPauseBanner.js';
 
 // window.klassProgramMapping, window.dressageJudgeMapping, ... read and write the
 // active competition's settings (see competitionSettingsStore.js)
@@ -212,7 +214,10 @@ export function isFieldMode(comp = globalState.currentCompetition) {
 
 // --- Behörighet: får användaren finalisera resultat? ---
 export function canFinalize() {
-    const role = (getGlobalState('currentUser')?.role) || 'publik';
+    const user = getGlobalState('currentUser');
+    const role = user?.role || 'publik';
+    // The competition's technical delegate / ground jury approves results too
+    if (Array.isArray(user?.compRoles) && user.compRoles.includes('td')) return true;
     // Endast domare, admin eller superadmin får finalisera
     return role === 'domare' || role === 'admin' || role === 'sekretariat' || role === 'superadmin';
 }
@@ -347,6 +352,10 @@ function initialize() {
 
     // 1. Initiera autentiseringen. Vi skickar med en callback-funktion.
     initAuth(async () => {
+        // Banners above the page per route (officials' messages, the pause);
+        // they follow the router's app-route-change event
+        initFieldMessages();
+        initGlobalPauseBanner();
         initRouter();
 
         // 1. Bestäm målsida (nuvarande URL, sparad sida eller hubben)

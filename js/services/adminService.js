@@ -5,7 +5,7 @@ import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebas
 import { trackWrite, getCompCollectionRef, getCompDocRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 
-const OFFICIAL_SYSTEM_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet'];
+const OFFICIAL_SYSTEM_ROLES = ['admin', 'dressage', 'marathon', 'precision', 'speaker', 'vet', 'td'];
 const LEGACY_ROLE_EMAIL_FIELDS = {
   admin: ['adminEmails', 'officialEmails'],
   dressage: ['dressageEmails'],

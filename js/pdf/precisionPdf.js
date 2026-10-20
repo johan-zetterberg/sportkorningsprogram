@@ -3,7 +3,9 @@ import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService
 import { getClubLogoUrl, fetchImageDataUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
 import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName, precisionFormatWarning } from '../utils/precisionUtils.js';
-import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
+import { resolveResultListStatus } from './pdfResultStatus.js';
+import { requiredForDiscipline } from './resultStatusUtils.js';
 import { fitImageDimensions } from './pdfImageUtils.js';
 import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils.js';
 import { t } from '../utils/i18n.js';
@@ -238,7 +240,11 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
 
   // English for international competitions (flag in config/competitionMeta)
   const { isInt } = await resolvePdfLanguage(competition);
-  let y = drawStandardHeader(doc, competition, t('pdf_precision_results_title', isInt), srfLogo, 30, 40);
+  // Official when every result on the list is finalized (or archived)
+  const resultStatus = await resolveResultListStatus(competition, {
+    required: requiredForDiscipline('precision', equipages.filter(eq => !isWithdrawnStatus(eq.status)).map(eq => eq.startNumber))
+  });
+  let y = drawStandardHeader(doc, competition, t('pdf_precision_results_title', isInt), srfLogo, 30, 40, { resultStatus, isInt });
 
   // Officials / Judges (Below grey bar, Left aligned)
   y += 35;
@@ -353,6 +359,7 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
     }
   });
 
+  drawResultStatusFooter(doc, resultStatus, { isInt });
   doc.save('precision_resultatlista.pdf');
 }
 

@@ -3,7 +3,9 @@ import { getClubLogoUrl, ensureClubLogosLoaded } from '../services/logosService.
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { t } from '../utils/i18n.js';
-import { loadPdfLibs, loadImg, drawStandardHeader, loadStandardHeaderLogos } from './pdfBase.js';
+import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
+import { resolveResultListStatus } from './pdfResultStatus.js';
+import { requiredForTotalRows } from './resultStatusUtils.js';
 import { formatTotalDisciplinePdfPenalty, formatTotalPdfPenalty } from './resultPdfFormatUtils.js';
 import { resolveTotalResultsJsPdf } from './totalResultsPdfUtils.js';
 import { resolvePdfLanguage } from './pdfCompetitionUtils.js';
@@ -19,7 +21,8 @@ function formatPrecisionTimePdfLabel(timeMs, eliminated = false) {
  * Generates a professional PDF report of total results.
  * @param {Array} rows - The data rows to display (already filtered and sorted).
  * @param {Object} competition - Competition metadata.
- * @param {Object} options - { viewMode: 'startorder'|'byclass', officials: String }
+ * @param {Object} options - { viewMode: 'startorder'|'byclass', officials: String,
+ *   resultStatus: 'official'|'provisional' to decide the status (else from the finalizations) }
  */
 export async function generateTotalResultsPdf(rows, competition, options = {}) {
     await loadPdfLibs();
@@ -53,7 +56,13 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
 
     // 2. HEADER (English for international competitions)
     const { isInt, isEn } = await resolvePdfLanguage(competition);
-    y = drawStandardHeader(doc, competition, t('results', isInt).toUpperCase(), srfLogo, 30, mx);
+    // Official when every result on the list is finalized, the competition
+    // is archived, or the caller says so (the archive's own PDF)
+    const resultStatus = await resolveResultListStatus(competition, {
+        required: requiredForTotalRows(rows),
+        override: options.resultStatus || null
+    });
+    y = drawStandardHeader(doc, competition, t('results', isInt).toUpperCase(), srfLogo, 30, mx, { resultStatus, isInt });
 
     // 3. OFFICIALS (Optional)
     if (options.officials) {
@@ -153,6 +162,7 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
         }
     });
 
+    drawResultStatusFooter(doc, resultStatus, { margin: mx, isInt });
     const ts = new Date().toISOString().split('T')[0];
     doc.save(`totalresultat_${ts}.pdf`);
 }

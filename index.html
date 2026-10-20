@@ -220,7 +220,7 @@
 
             <div class="relative dropdown-container">
               <button type="button" aria-expanded="false" class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
-                data-role-required="funktionar,domare,admin,vet"><span data-i18n="menu_admin">Admin</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
+                data-role-required="funktionar,domare,admin,vet,td"><span data-i18n="menu_admin">Admin</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#official" class="nav-link block px-4 py-2 font-bold text-blue-600 dark:text-blue-400"
@@ -250,9 +250,10 @@
                   </div>
                   <div class="nav-group">
                     <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_secretariat">Sekretariat</div>
-                <a href="#sekretariat-precision" class="nav-link block px-4 py-2" data-role-required="admin,precision" data-i18n="menu_secretariat_precision">Sekretariat Precision</a>
-                <a href="#sekretariat-maraton" class="nav-link block px-4 py-2" data-role-required="admin,marathon" data-i18n="menu_secretariat_marathon">Sekretariat Maraton</a>
-                <a href="#sekretariat-dressyr" class="nav-link block px-4 py-2" data-role-required="admin,dressage" data-i18n="menu_secretariat_dressage">Sekretariat Dressyr</a>
+                <a href="#sekretariat-precision" class="nav-link block px-4 py-2" data-role-required="admin,precision,td" data-i18n="menu_secretariat_precision">Sekretariat Precision</a>
+                <a href="#sekretariat-maraton" class="nav-link block px-4 py-2" data-role-required="admin,marathon,td" data-i18n="menu_secretariat_marathon">Sekretariat Maraton</a>
+                <a href="#sekretariat-dressyr" class="nav-link block px-4 py-2" data-role-required="admin,dressage,td" data-i18n="menu_secretariat_dressage">Sekretariat Dressyr</a>
+                <a href="#incidents" class="nav-link block px-4 py-2" data-role-required="admin,td,dressage,marathon,precision,vet" data-i18n="menu_incidents">Händelselogg &amp; protester</a>
                   </div>
                   <div class="nav-group">
                     <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_ceremony">Ceremoni</div>
@@ -270,6 +271,11 @@
             <a href="#manual"
               class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium text-gray-500 hover:text-gray-900"
               data-role-required="publik,funktionar,domare,admin" data-i18n="menu_manual">Hjälp / Manual</a>
+
+            <!-- Emergency info for officials (alarm number, first aid, persons on duty) -->
+            <button type="button" id="emergencyMenuButton" data-action="openEmergencyInfo"
+              class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-bold text-left text-red-700 dark:text-red-400"
+              data-role-required="funktionar,domare,admin,vet,td" data-i18n="menu_emergency">Nöd</button>
 
             <!-- Language Toggle (Desktop: Far Right / Mobile: Bottom) -->
             <div id="langToggle"
@@ -322,6 +328,7 @@
     <div id="page-sekretariat-precision" class="page"></div>
     <div id="page-sekretariat-maraton" class="page"></div>
     <div id="page-sekretariat-dressyr" class="page"></div>
+    <div id="page-incidents" class="page"></div>
     <div id="page-total-resultat" class="page"></div>
     <div id="page-maraton-monitor" class="page"></div>
     <div id="page-precision-monitor" class="page"></div>

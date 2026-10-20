@@ -49,11 +49,15 @@ import { getCompetitionDocuments, getCompetitionMessages, getDriverInbox, isMess
 import { listenForConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getDriverContacts, getOfficials } from '../../services/adminService.js';
+import { mountEmergencyInfoCard } from '../../ui/emergencyInfoCard.js';
 import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
-import { t } from '../../utils/i18n.js';
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
 import { escapeHtml, sanitizeRichHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
+import { addStateKeys, countUnread, localizedMessage, messageStateKey, readStoredKeys, writeStoredKeys } from '../../utils/messageAudience.js';
+import { buildMyStartTimes, renderMyStartTimesCard } from './portalStartTimes.js';
+import { effectiveLockdownMinutes } from '../../utils/lockdownMinutes.js';
 
 let messageUnsub = null;
 let dashboardUnsub = null;
@@ -112,7 +116,7 @@ export function showDriverPortalHelpModal() {
         {
             icon: '🏁',
             title: 'Start Times & Live Scores',
-            desc: 'Your start times for dressage, cones and the marathon sections appear under each discipline tab (<em>Dressage</em>, <em>Marathon</em>, <em>Cones</em>). Your scores and the standings update live as the officials save them.'
+            desc: 'Your published start times for dressage, marathon and cones are shown under <em>My start times</em> on the <em>Info</em> tab, marked "changed" when the organiser moves a time. The organiser can also send you a message about it. Your scores and the standings update live as the officials save them.'
         },
         {
             icon: '🩺',
@@ -143,7 +147,7 @@ export function showDriverPortalHelpModal() {
         {
             icon: '🏁',
             title: 'Starttider & Live-resultat',
-            desc: 'Dina starttider för dressyr, precision och maratonens delsträckor visas under respektive gren (<em>Dressyr</em>, <em>Maraton</em>, <em>Precision</em>). Resultat och totalställning uppdateras live när funktionärerna sparar dem.'
+            desc: 'Dina publicerade starttider för dressyr, maraton och precision visas under <em>Mina starttider</em> på fliken <em>Info</em>, markerade "ändrad" när arrangören flyttar en tid. Arrangören kan också skicka ett meddelande om ändringen. Resultat och totalställning uppdateras live när funktionärerna sparar dem.'
         },
         {
             icon: '🩺',
@@ -346,10 +350,13 @@ export async function load(options = {}) {
 
                 <!-- Status / Notiser (Aggregated Messages) -->
                 <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 md:p-6 flex flex-col h-full">
-                    <h2 class="text-lg md:text-xl font-semibold mb-4 flex items-center gap-2 dark:text-gray-100">
-                        📬 ${t('messages')}
-                        <span id="msg-badge" class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs font-bold px-2 py-0.5 rounded-full hidden">0</span>
-                    </h2>
+                    <div class="mb-4 flex items-center justify-between gap-2 flex-wrap">
+                        <h2 class="text-lg md:text-xl font-semibold flex items-center gap-2 dark:text-gray-100">
+                            📬 ${t('messages')}
+                            <span id="msg-badge" class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100 text-xs font-bold px-2 py-0.5 rounded-full hidden" aria-live="polite">0</span>
+                        </h2>
+                        <button type="button" id="markAllMessagesReadBtn" class="hidden text-xs font-semibold text-blue-700 dark:text-blue-300 hover:underline min-h-[44px] px-1">${escapeHtml(t('portal_mark_all_read'))}</button>
+                    </div>
                     <div id="aggregated-messages" class="flex-1 overflow-y-auto max-h-[300px] md:max-h-[400px] space-y-3 pr-1 custom-scrollbar">
                         <div class="text-center py-8 text-gray-400">
                            <div class="spinner mb-2"></div>
@@ -402,6 +409,8 @@ export async function load(options = {}) {
         const isForMe = (m, cid) => (startNumbersByComp.get(cid) || []).some(sn => isMessageVisibleToDriver(m, sn));
         const allMessagesMap = new Map(); // compId -> msgs[]
         const knownMsgIds = new Set();
+        const readStorageKey = `portalReadMessages:${user?.uid || 'anon'}`;
+        let latestPortalMessages = [];
         let isFirstLoad = true;
 
         // Each competition document once (name, and whether it is archived)
@@ -435,48 +444,70 @@ export async function load(options = {}) {
             }
 
             allMsgs = sortPortalItemsByTimestampDesc(allMsgs, 'timestamp');
+            latestPortalMessages = allMsgs;
+
+            // Unread on this device (localStorage, per account): the badge
+            // counts these; a message is read when tapped or with "mark all"
+            const readKeys = new Set(readStoredKeys(readStorageKey));
+            const keyOf = (m) => messageStateKey(m, m._compId);
+            const unreadCount = countUnread(allMsgs, readKeys, keyOf);
+            badge.textContent = String(unreadCount);
+            badge.classList.toggle('hidden', unreadCount === 0);
+            badge.setAttribute('aria-label', t('portal_unread_count').replace('{n}', String(unreadCount)));
+            document.getElementById('markAllMessagesReadBtn')?.classList.toggle('hidden', unreadCount === 0);
 
             if (allMsgs.length === 0) {
                 msgContainer.innerHTML = `<p class="text-gray-500 dark:text-gray-400 italic text-center py-8">${t('no_new_messages')}</p>`;
-                badge.textContent = '0';
-                badge.classList.add('hidden');
                 return;
             }
 
-            // Update Badge
-            badge.textContent = allMsgs.length;
-            badge.classList.remove('hidden');
-
-            // Render
+            const lang = getCurrentLanguage();
             msgContainer.innerHTML = allMsgs.map(m => {
                 const isUrgent = m.severity === 'urgent' || m.type === 'alert';
+                const isUnread = !readKeys.has(keyOf(m));
                 const colorClass = isUrgent ? 'bg-red-50 border-red-200 dark:bg-red-900/20 dark:border-red-800' : 'bg-gray-50 border-gray-100 dark:bg-gray-700/50 dark:border-gray-600';
                 const icon = isUrgent ? '⚠️' : '📢';
                 const time = formatPortalTimestamp(m.timestamp, 'sv-SE', { dateStyle: 'short', timeStyle: 'short' });
                 const compName = escapeHtml(m._compName || '');
-                const title = escapeHtml(m.title || t('message_default_title'));
-                const body = escapeHtml(m.body || m.message || '');
+                const localized = localizedMessage(m, lang);
+                const title = escapeHtml(localized.title || t('message_default_title'));
+                const body = escapeHtml(localized.body || '');
                 const safeTime = escapeHtml(time || '');
 
                 return `
-                    <div class="p-4 rounded-lg border ${colorClass} relative group transition-all hover:shadow-sm animate-fade-in">
-                        <div class="flex justify-between items-start mb-1">
+                    <button type="button" data-portal-msg-key="${escapeAttr(keyOf(m))}" class="block w-full text-left p-4 rounded-lg border ${colorClass} ${isUnread ? 'ring-2 ring-blue-400 dark:ring-blue-500' : ''} relative group transition-all hover:shadow-sm animate-fade-in">
+                        <div class="flex justify-between items-start mb-1 gap-2">
                             <span class="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wide bg-white dark:bg-gray-700 px-1.5 py-0.5 rounded border border-gray-200 dark:border-gray-600">
                                 ${compName}
                             </span>
-                            <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums">${safeTime}</span>
+                            <span class="flex items-center gap-2">
+                                ${isUnread ? `<span class="text-[10px] font-bold uppercase bg-blue-600 text-white px-1.5 py-0.5 rounded-full">${escapeHtml(t('portal_message_new'))}</span>` : ''}
+                                <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums">${safeTime}</span>
+                            </span>
                         </div>
                         <div class="flex gap-3 mt-2">
-                             <div class="text-xl shrink-0 select-none">${icon}</div>
+                             <div class="text-xl shrink-0 select-none" aria-hidden="true">${icon}</div>
                              <div class="min-w-0">
                                 <h4 class="font-bold text-gray-900 dark:text-gray-100 text-sm leading-tight mb-1">${title}</h4>
                                 <p class="text-sm text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-wrap">${body}</p>
                              </div>
                         </div>
-                    </div>
+                    </button>
                 `;
             }).join('');
         };
+
+        const markRead = (keys) => {
+            writeStoredKeys(readStorageKey, addStateKeys(readStoredKeys(readStorageKey), keys));
+            renderAllMessages();
+        };
+        msgContainer.addEventListener('click', (event) => {
+            const card = event.target.closest('[data-portal-msg-key]');
+            if (card) markRead([card.dataset.portalMsgKey]);
+        });
+        document.getElementById('markAllMessagesReadBtn')?.addEventListener('click', () => {
+            markRead(latestPortalMessages.map(m => messageStateKey(m, m._compId)));
+        });
 
         const pollers = new Map(); // compId -> poll()
         uniqueCompIds.forEach(cid => {
@@ -507,7 +538,7 @@ export async function load(options = {}) {
 
                         if (isRelevant && !knownMsgIds.has(m.id)) {
                             // Toast!
-                            showAlert(`${t('new_message_alert')}: ${m.title || ''}`, false);
+                            showAlert(`${t('new_message_alert')}: ${localizedMessage(m, getCurrentLanguage()).title || ''}`, false);
                         }
                     });
                 }
@@ -913,10 +944,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                             <div class="text-2xl pt-1">${icon}</div>
                             <div class="flex-1 min-w-0">
                                 <div class="flex justify-between items-start mb-1 flex-wrap gap-2">
-                                    <h4 class="font-bold text-sm md:text-base break-words">${escapeHtml(msg.title || 'Meddelande')}</h4>
+                                    <h4 class="font-bold text-sm md:text-base break-words">${escapeHtml(localizedMessage(msg, getCurrentLanguage()).title || t('message_default_title'))}</h4>
                                     <span class="text-xs opacity-75 whitespace-nowrap">${escapeHtml(time || '')}</span>
                                 </div>
-                                <div class="text-sm opacity-90 leading-relaxed break-words">${escapeHtml(msg.body || msg.message || '')}</div>
+                                <div class="text-sm opacity-90 leading-relaxed break-words whitespace-pre-wrap">${escapeHtml(localizedMessage(msg, getCurrentLanguage()).body)}</div>
                             </div>
                         </div>
                         `;
@@ -1208,8 +1239,21 @@ async function renderDashboard(container, compId, startNumber, user) {
             // If compMeta is not loaded yet, default to safe open or cached defaults.
             // We no longer return early, so "Laddar data..." doesn't stick.
 
+            // Published times only (publishedStartTimes.js), with "ändrad HH:MM"
+            const myStartTimesHtml = renderMyStartTimesCard(buildMyStartTimes(startTimes || {}, startNumber, eq), {
+                title: t('portal_my_start_times'),
+                empty: t('portal_my_start_times_empty'),
+                changed: t('portal_start_time_changed'),
+                class: t('class', compConfig?.isInternational),
+                discipline_dressage: t('starttime_discipline_dressage'),
+                discipline_marathon: t('starttime_discipline_marathon'),
+                discipline_precision: t('starttime_discipline_precision')
+            }, {
+                formatDate: (d) => new Date(`${d}T12:00`).toLocaleDateString(getCurrentLanguage() === 'en' ? 'en-GB' : 'sv-SE', { weekday: 'short', day: 'numeric', month: 'short' })
+            });
             contentEl.innerHTML = `
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    ${myStartTimesHtml}
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm relative group">
                         <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
                             <h3 class="text-lg font-bold text-gray-900 dark:text-white">${t('equipage_info', compConfig?.isInternational)}</h3>
@@ -1220,7 +1264,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         return `<span class="text-xs font-bold text-red-600 bg-red-100 dark:text-red-300 dark:bg-red-900/40 px-2 py-1 rounded" title="Sekretariatet har låst portalen">🔒 ${t('locked_manual', compConfig?.isInternational)}</span>`;
                     }
 
-                    if (minutesToStart < (compMeta.lockdownMinutes ?? 60)) {
+                    if (minutesToStart < effectiveLockdownMinutes(compMeta.lockdownMinutes)) {
                         return `<span class="text-xs font-bold text-orange-600 bg-orange-100 dark:text-orange-300 dark:bg-orange-900/40 px-2 py-1 rounded" title="Start om mindre än 1h">🔒 ${t('locked_time', compConfig?.isInternational)}</span>`;
                     }
 
@@ -1295,6 +1339,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                 })()}
                         </div>
                     </div>
+
+                    <div id="portal-emergency" class="col-span-1 md:col-span-2"></div>
 
                     ${contactPersons.length ? `
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
@@ -1372,6 +1418,10 @@ async function renderDashboard(container, compId, startNumber, user) {
                     </div>
                 </div>
             `;
+
+            // Nödinfo: the persons' phones for the competition's drivers (rules)
+            mountEmergencyInfoCard(document.getElementById('portal-emergency'), compId)
+                .catch((error) => console.warn('Nödinfo kunde inte visas:', error));
 
             attachHorseTemperatureHandlers();
 
