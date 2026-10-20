@@ -378,6 +378,7 @@ const urlsToCache = [
   abs('/js/utils/offlineWrite.js'),
   abs('/js/utils/personalDataUtils.js'),
   abs('/js/utils/precisionCalculation.js'),
+  abs('/js/utils/precisionRounds.js'),
   abs('/js/utils/precisionUtils.js'),
   abs('/js/utils/publishedStartTimes.js'),
   abs('/js/utils/roleAccess.js'),

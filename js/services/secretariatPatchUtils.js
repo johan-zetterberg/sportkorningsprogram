@@ -84,9 +84,10 @@ export function mergeProtocolEdits(edited = {}, loaded = {}, current = {}) {
     };
 }
 
-/** A result that is still being timed must not be saved over or finalized */
+/** A result that is still being timed must not be saved over or finalized (precision: any round) */
 export function isStillRunning(doc = {}) {
-    return doc?.running === true || !!doc?.runningStage;
+    return doc?.running === true || !!doc?.runningStage
+        || doc?.rounds?.phase2?.running === true || doc?.rounds?.driveOff?.running === true;
 }
 
 const toNumber = (value, fallback = 0) => {

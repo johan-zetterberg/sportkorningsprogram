@@ -1,6 +1,6 @@
 import { calculatePrecisionLiveResult, calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { precisionElapsedMs } from '../../utils/precisionCalculation.js';
-import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
+import { assignPlaces, comparePrecisionRank, precisionGroupContext } from '../../core-engine/ranking.js';
 
 function isFiniteNumber(value) {
   return typeof value === 'number' && Number.isFinite(value);
@@ -42,12 +42,23 @@ export function calculatePrecisionLiveRank(currentTotal, currentSn, currentEquip
 
     const data = precisionMap.get(sn);
     if (!data) continue;
-    rows.push({ startNumber: equipage.startNumber, key: precisionRankKey(calculatePrecisionLiveResult(data, equipage, config, now)) });
+    rows.push({ startNumber: equipage.startNumber, result: calculatePrecisionLiveResult(data, equipage, config, now) });
   }
 
-  const me = { startNumber: currentSn, key: { penalty: currentTotal, timeMs: isFiniteNumber(currentTimeMs) ? currentTimeMs : null } };
+  // The running equipage: in phase 2 / a drive-off by its round (tiers), in
+  // phase 1 by the live total and time as before
+  const myData = precisionMap.get(String(currentSn));
+  const myResult = myData ? calculatePrecisionLiveResult(myData, currentEquipage, config, now) : null;
+  const me = { startNumber: currentSn, result: myResult };
   rows.push(me);
-  const { placeOf } = assignPlaces(rows, { key: r => r.key, compare: comparePrecisionRank, outField: null });
+  const ctx = precisionGroupContext(rows, r => r.result);
+  const phase1Key = { penalty: currentTotal, timeMs: isFiniteNumber(currentTimeMs) ? currentTimeMs : null };
+  const myRound = myResult?.activeRound || 'phase1';
+  const { placeOf } = assignPlaces(rows, {
+    key: r => (r === me && myRound === 'phase1' ? phase1Key : ctx.rankKey(r)),
+    compare: comparePrecisionRank,
+    outField: null
+  });
   return placeOf.get(me);
 }
 

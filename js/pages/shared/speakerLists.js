@@ -24,7 +24,7 @@ import {
     comparePrecisionRank,
     dressageRankKey,
     marathonRankKey,
-    precisionRankKey
+    precisionGroupContext
 } from '../../core-engine/ranking.js';
 import { formatSpeakerPenalty, getSpeakerPenaltyOrNull, isFiniteSpeakerNumber } from './speakerFormatUtils.js';
 
@@ -71,12 +71,16 @@ export function renderTop3List(className, discipline, ctx) {
                     eq: eq,
                     startNumber: eq.startNumber,
                     penalty: result.penalty,
-                    rankKey: result.eliminated ? null : (isMarathon
-                        ? marathonRankKey(result.result, { requireFinished: false })
-                        : precisionRankKey(result.result))
+                    rankKey: (result.eliminated || !isMarathon) ? null : marathonRankKey(result.result, { requireFinished: false }),
+                    rankResult: (result.eliminated || isMarathon) ? null : result.result
                 });
             }
         });
+        if (!isMarathon) {
+            // Two phases / drive-off: tiers and the class's drive-off qualifiers
+            const precisionCtx = precisionGroupContext(results, r => r.rankResult);
+            results.forEach(r => { r.rankKey = r.rankResult ? precisionCtx.rankKey(r) : null; });
+        }
         results = assignPlaces(results, {
             key: r => r.rankKey,
             compare: isMarathon ? compareMarathonRank : comparePrecisionRank

@@ -1723,6 +1723,87 @@ test('precision results take the fields the app writes, nothing else and nothing
   await assertFails(setDoc(doc(db, compPath('precision/102')), { startNumber: 102, html: '<img src=x onerror=alert(1)>' }));
 });
 
+test('precision rounds (two phases, drive-off) take the round fields only', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('prec-rounds-1', 'precision');
+  const db = officialDb('prec-rounds-1');
+  const ref = doc(db, compPath(`precision/${START_NO}`));
+  // Phase-1 finish line starting phase 2 in the same write (precisionInputUtils.buildPhase1FinishWrite)
+  await assertSucceeds(setDoc(ref, {
+    startNumber: 101, className: 'Häst', running: false, timeMs: 150000, totalPenalty: 0, status: 'Klar',
+    activeRound: 'phase2',
+    rounds: { phase2: { running: true, inProgress: true, liveStartEpoch: Date.now(), livePausedMs: 0, liveTimeMs: 0, status: 'Pågår', updatedAt: Date.now() } }
+  }, { merge: true }));
+  // Knock and rebuild in phase 2 (precisionRounds builders)
+  await assertSucceeds(setDoc(ref, {
+    startNumber: 101, className: 'Häst', updatedAt: Date.now(),
+    rounds: { phase2: { knocks: arrayUnion('3'), knockDownTimes: { 3: 4100 }, obstaclePenalty: deleteField(), updatedAt: Date.now() } }
+  }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { rounds: { phase2: { rebuildCount: increment(1) } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { rounds: { driveOff: { retired: true, running: false, status: 'Utgått' } }, activeRound: 'driveOff' }, { merge: true }));
+
+  await assertFails(setDoc(ref, { rounds: { phase3: { timeMs: 1 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { phase2: { isAdmin: true } } }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { phase2: { timeMs: '1' } } }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { phase2: { comment: 'x'.repeat(1001) } } }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { driveOff: { knocks: Array.from({ length: 101 }, (_, i) => String(i)) } } }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: 'x' }, { merge: true }));
+  await assertFails(setDoc(ref, { activeRound: 'phase3' }, { merge: true }));
+  // With a top-level change a round may only have its clock started
+  await assertFails(setDoc(ref, { timeMs: 151000, rounds: { phase2: { timeMs: 1 } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { timeMs: 151000, rounds: { phase2: { running: true, liveStartEpoch: Date.now() } } }, { merge: true }));
+});
+
+test('a finalized precision result takes drive-off writes only until the drive-off is finalized', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('prec-do-1', 'precision', 'prec-do@example.com');
+  const db = testEnv.authenticatedContext('prec-do-1', { email_verified: true, email: 'prec-do@example.com' }).firestore();
+  const ref = doc(db, compPath(`precision/${START_NO}`));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, compPath(`precision/${START_NO}`)), {
+      startNumber: Number(START_NO), timeMs: 150000, totalPenalty: 0, finalized: true,
+      rounds: { phase2: { timeMs: 70000 } }
+    });
+    await setDoc(doc(adminDb, rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: true });
+  });
+
+  // Drive-off writes (rounds.driveOff, activeRound) are allowed
+  await assertSucceeds(setDoc(ref, { activeRound: 'driveOff', updatedAt: Date.now(), rounds: { driveOff: { running: true, inProgress: true, liveStartEpoch: Date.now(), livePausedMs: 0 } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { rounds: { driveOff: { knocks: arrayUnion('2'), running: false, timeMs: 75000, liveTimeMs: 75000, status: 'Klar' } } }, { merge: true }));
+  // The initial round and phase 2 stay locked
+  await assertFails(setDoc(ref, { timeMs: 1 }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { phase2: { timeMs: 1 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { totalPenalty: 3, rounds: { driveOff: { timeMs: 1 } } }, { merge: true }));
+
+  // Finalizing the drive-off: result and lock (driveOffFinalized) with its log entry in one batch
+  const lock = doc(db, rootCompPath(`precisionFinalization/${START_NO}`));
+  const logEntry = (action) => ({ discipline: 'precision', action, startNumber: START_NO, by: 'prec-do-1', byName: null, at: serverTimestamp() });
+  // A log entry saying 'finalize' does not fit a drive-off lock change
+  const wrong = writeBatch(db);
+  const wrongLog = doc(collection(db, rootCompPath('finalizationLog')));
+  wrong.set(wrongLog, logEntry('finalize'));
+  wrong.set(lock, { driveOffFinalized: true, lastLogId: wrongLog.id }, { merge: true });
+  await assertFails(wrong.commit());
+
+  const fin = writeBatch(db);
+  const finLog = doc(collection(db, rootCompPath('finalizationLog')));
+  fin.set(finLog, logEntry('finalizeDriveOff'));
+  fin.set(lock, { driveOffFinalized: true, lastLogId: finLog.id }, { merge: true });
+  fin.set(ref, { rounds: { driveOff: { finalized: true } } }, { merge: true });
+  await assertSucceeds(fin.commit());
+  // Now the drive-off is locked too
+  await assertFails(setDoc(ref, { rounds: { driveOff: { timeMs: 1 } } }, { merge: true }));
+
+  // Unlocking the drive-off alone, logged
+  const unfin = writeBatch(db);
+  const unfinLog = doc(collection(db, rootCompPath('finalizationLog')));
+  unfin.set(unfinLog, logEntry('unfinalizeDriveOff'));
+  unfin.set(lock, { driveOffFinalized: false, lastLogId: unfinLog.id }, { merge: true });
+  unfin.set(ref, { rounds: { driveOff: { finalized: false } } }, { merge: true });
+  await assertSucceeds(unfin.commit());
+  await assertSucceeds(setDoc(ref, { rounds: { driveOff: { timeMs: 76000 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { timeMs: 1 }, { merge: true }));
+});
+
 test('dressage protocols, status and live documents are checked for shape and size', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('dre-shape-1', 'dressage');
   const db = officialDb('dre-shape-1');

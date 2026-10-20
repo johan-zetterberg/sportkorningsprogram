@@ -13,7 +13,7 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { showDetailsModal } from '../../ui/precisionModal.js'; // NYTT
 import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionResult, calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
-import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
+import { assignPlaces, comparePrecisionRank, precisionGroupContext } from '../../core-engine/ranking.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
@@ -769,8 +769,9 @@ function listenForUpdates() {
         const eq = allEquipages.find(e => String(e.startNumber) === sn);
         if (eq && classGroupOf(eq) === classGroupOf(currentDriver.eq)) finished.push({ startNumber: eq.startNumber, eq, result: calculatePrecisionResult(data, eq, precisionConfig) });
       }
+      const precisionCtx = precisionGroupContext(finished, row => row.result);
       const leader = assignPlaces(finished, {
-        key: row => precisionRankKey(row.result),
+        key: row => precisionCtx.rankKey(row),
         compare: comparePrecisionRank,
         outField: null
       }).ranked[0];

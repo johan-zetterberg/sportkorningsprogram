@@ -400,6 +400,7 @@ export const DICTIONARY = {
     'prize_speaker_script_title': { sv: 'Att läsa upp', en: 'For the speaker' },
     'prize_speaker_script': { sv: 'Vi ber alla placerade ekipage att göra sig redo för prisutdelningen. Vinnaren, {name}, ombeds komma fram först och leda ärevarvet.', en: 'Would all placed competitors please get ready for the prize giving. The winner, {name}, is asked to come forward first and lead the lap of honour.' },
     'prize_no_equipages_in_class': { sv: 'Inga ekipage i denna klass.', en: 'No equipages in this class.' },
+    'prize_precision_driveoff_pending': { sv: 'Omkörning återstår – prisutdelningen i precision väntar tills omkörningen är klar.', en: 'Drive-off pending – the cones prize giving waits until the drive-off is finished.' },
     'prize_save_failed': { sv: 'Kunde inte spara närvaron.', en: 'Could not save the attendance.' },
     'cc_no_documents': { sv: 'Inga publicerade dokument ännu.', en: 'No documents published yet.' },
     'cc_document': { sv: 'Dokument', en: 'Document' },

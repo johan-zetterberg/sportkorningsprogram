@@ -130,6 +130,10 @@ export const klassProgramMapping = {
 
 /**
  * Definierar tempon (m/min) för precision och maraton (Sträcka E).
+ * precisionPhase2: TR V 2025 Bilaga 5 "Fas 2" (A med två faser, TR 530.1.3);
+ * missing where Bilaga 5 gives none (Lätt B, Lätt C, Barn, Lätt A Para): the
+ * admin enters the phase-2 tempo. FEI classes drive phase 2 at the phase-1
+ * speed unless the Schedule says otherwise (FEI 979.1.1).
  */
 export const klassTempoData = {
   // --- LÄTTA KLASSER (TR V 2025 Bilaga 5) ---
@@ -137,42 +141,42 @@ export const klassTempoData = {
   "Lätt C Enbet Häst": { maraton: 230, precision: 180 },
   "Lätt B Enbet Ponny": { maraton: 220, precision: 160 },
   "Lätt B Enbet Häst": { maraton: 230, precision: 180 },
-  "Lätt A Enbet Ponny": { maraton: 220, precision: 200 },
-  "Lätt A Enbet Häst": { maraton: 230, precision: 210 },
-  "Lätt A Par Ponny": { maraton: 220, precision: 200 },
-  "Lätt A Par Häst": { maraton: 230, precision: 210 },
+  "Lätt A Enbet Ponny": { maraton: 220, precision: 200, precisionPhase2: 210 },
+  "Lätt A Enbet Häst": { maraton: 230, precision: 210, precisionPhase2: 220 },
+  "Lätt A Par Ponny": { maraton: 220, precision: 200, precisionPhase2: 210 },
+  "Lätt A Par Häst": { maraton: 230, precision: 210, precisionPhase2: 220 },
 
   // --- MEDELSVÅRA KLASSER (TR V 2025 Bilaga 5) ---
-  "MSV 2 Enbet Ponny": { maraton: 230, precision: 230 }, // MSV C
-  "MSV 2 Enbet Häst": { maraton: 240, precision: 230 },
-  "MSV 3 Enbet Ponny": { maraton: 240, precision: 230 }, // MSV B
-  "MSV 3 Enbet Häst": { maraton: 250, precision: 230 },
-  "MSV 3 Par Ponny": { maraton: 240, precision: 230 },
-  "MSV 3 Par Häst": { maraton: 250, precision: 230 },
-  "MSV 4 Enbet Ponny": { maraton: 240, precision: 230 }, // MSV A
-  "MSV 4 Enbet Häst": { maraton: 250, precision: 230 },
-  "MSV 4 Par Ponny": { maraton: 240, precision: 230 },
-  "MSV 4 Par Häst": { maraton: 250, precision: 230 },
+  "MSV 2 Enbet Ponny": { maraton: 230, precision: 230, precisionPhase2: 240 }, // MSV C
+  "MSV 2 Enbet Häst": { maraton: 240, precision: 230, precisionPhase2: 240 },
+  "MSV 3 Enbet Ponny": { maraton: 240, precision: 230, precisionPhase2: 240 }, // MSV B
+  "MSV 3 Enbet Häst": { maraton: 250, precision: 230, precisionPhase2: 240 },
+  "MSV 3 Par Ponny": { maraton: 240, precision: 230, precisionPhase2: 240 },
+  "MSV 3 Par Häst": { maraton: 250, precision: 230, precisionPhase2: 240 },
+  "MSV 4 Enbet Ponny": { maraton: 240, precision: 230, precisionPhase2: 240 }, // MSV A
+  "MSV 4 Enbet Häst": { maraton: 250, precision: 230, precisionPhase2: 240 },
+  "MSV 4 Par Ponny": { maraton: 240, precision: 230, precisionPhase2: 240 },
+  "MSV 4 Par Häst": { maraton: 250, precision: 230, precisionPhase2: 240 },
 
   // --- SVÅRA KLASSER (TR V 2025 Bilaga 5 / FEI Art 975) ---
-  "Svår Enbet Ponny": { maraton: 250, precision: 260 },
-  "Svår Enbet Häst": { maraton: 260, precision: 250 },
-  "Svår Par Ponny": { maraton: 250, precision: 250 },
-  "Svår Par Häst": { maraton: 260, precision: 250 },
+  "Svår Enbet Ponny": { maraton: 250, precision: 260, precisionPhase2: 260 },
+  "Svår Enbet Häst": { maraton: 260, precision: 250, precisionPhase2: 250 },
+  "Svår Par Ponny": { maraton: 250, precision: 250, precisionPhase2: 250 },
+  "Svår Par Häst": { maraton: 260, precision: 250, precisionPhase2: 250 },
 
   // --- FYRSPANN (TR V 2025 Bilaga 5 / FEI Art 975) ---
-  "MSV Fyrspann Ponny": { maraton: 230, precision: 230 },
-  "MSV Fyrspann Häst": { maraton: 240, precision: 230 },
-  "Svår Fyrspann Ponny": { maraton: 240, precision: 240 },
-  "Svår Fyrspann Häst": { maraton: 250, precision: 240 },
+  "MSV Fyrspann Ponny": { maraton: 230, precision: 230, precisionPhase2: 240 },
+  "MSV Fyrspann Häst": { maraton: 240, precision: 230, precisionPhase2: 240 },
+  "Svår Fyrspann Ponny": { maraton: 240, precision: 240, precisionPhase2: 240 },
+  "Svår Fyrspann Häst": { maraton: 250, precision: 240, precisionPhase2: 240 },
 
   // --- PARAKLASSER (TR V 2025 Bilaga 5) ---
   "Lätt A Para Häst": { maraton: 220, precision: 210 },
   "Lätt A Para Ponny": { maraton: 200, precision: 200 },
-  "Msv Para Häst": { maraton: 240, precision: 220 },
-  "Msv Para Ponny": { maraton: 220, precision: 210 },
-  "Svår Para Häst": { maraton: 240, precision: 230 },
-  "Svår Para Ponny": { maraton: 220, precision: 230 },
+  "Msv Para Häst": { maraton: 240, precision: 220, precisionPhase2: 230 },
+  "Msv Para Ponny": { maraton: 220, precision: 210, precisionPhase2: 220 },
+  "Svår Para Häst": { maraton: 240, precision: 230, precisionPhase2: 230 },
+  "Svår Para Ponny": { maraton: 220, precision: 230, precisionPhase2: 230 },
 
   // --- BARNKLASSER (TR V 2025 Bilaga 5) ---
   "Lätt C Barn Ponny": { maraton: 200, precision: 100 },
@@ -199,14 +203,14 @@ export const klassTempoData = {
   // hitch word is skipped when matching (getClassTempoMpm)
   "Lätt C Ponny": { precision: 160 }, "Lätt C Häst": { precision: 180 },
   "Lätt B Ponny": { precision: 160 }, "Lätt B Häst": { precision: 180 },
-  "Lätt A Ponny": { precision: 200 }, "Lätt A Häst": { precision: 210 },
-  "Lätt A J Ponny": { precision: 200 }, "Lätt A J Häst": { precision: 210 },
-  "Lätt A U25 Ponny": { precision: 200 }, "Lätt A U25 Häst": { precision: 210 },
-  "Msv Ponny": { precision: 230 }, "Msv Häst": { precision: 230 },
-  "Msv J Ponny": { precision: 230 }, "Msv J Häst": { precision: 230 },
-  "Msv U25 Ponny": { precision: 230 }, "Msv U25 Häst": { precision: 230 },
-  "Svår J Ponny": { precision: 260 }, "Svår J Häst": { precision: 250 },
-  "Svår U25 Ponny": { precision: 260 }, "Svår U25 Häst": { precision: 250 },
+  "Lätt A Ponny": { precision: 200, precisionPhase2: 210 }, "Lätt A Häst": { precision: 210, precisionPhase2: 220 },
+  "Lätt A J Ponny": { precision: 200, precisionPhase2: 210 }, "Lätt A J Häst": { precision: 210, precisionPhase2: 220 },
+  "Lätt A U25 Ponny": { precision: 200, precisionPhase2: 210 }, "Lätt A U25 Häst": { precision: 210, precisionPhase2: 220 },
+  "Msv Ponny": { precision: 230, precisionPhase2: 240 }, "Msv Häst": { precision: 230, precisionPhase2: 240 },
+  "Msv J Ponny": { precision: 230, precisionPhase2: 240 }, "Msv J Häst": { precision: 230, precisionPhase2: 240 },
+  "Msv U25 Ponny": { precision: 230, precisionPhase2: 240 }, "Msv U25 Häst": { precision: 230, precisionPhase2: 240 },
+  "Svår J Ponny": { precision: 260, precisionPhase2: 260 }, "Svår J Häst": { precision: 250, precisionPhase2: 250 },
+  "Svår U25 Ponny": { precision: 260, precisionPhase2: 260 }, "Svår U25 Häst": { precision: 250, precisionPhase2: 250 },
   // FEI 974.1 table: Children cones 220 m/min, horse or pony, any hitch
   "CAI Children": { precision: 220 }, "FEI Children": { precision: 220 }
 };

@@ -13,7 +13,7 @@ import {
     compareTotalRank,
     dressageRankKey,
     marathonRankKey,
-    precisionRankKey,
+    precisionGroupContext,
     totalRankKey
 } from '../core-engine/ranking.js';
 import { isWithdrawnEquipage } from '../utils/sharedUtils.js';
@@ -67,8 +67,10 @@ function buildPlacements(rows) {
         group: archiveGroupOf,
         outField: 'posMar'
     });
+    // Two phases / drive-off: tiers and the drive-off qualifiers per group
+    const precisionCtx = precisionGroupContext(rows, (row) => row.precision, archiveGroupOf, { requireFinished: true });
     assignPlaces(rows, {
-        key: (row) => (isUnplacedRow(row) ? null : precisionRankKey(row.precision, { requireFinished: true })),
+        key: (row) => (isUnplacedRow(row) ? null : precisionCtx.rankKey(row)),
         compare: comparePrecisionRank,
         group: archiveGroupOf,
         outField: 'posPrec'
@@ -97,6 +99,29 @@ function sortRowsForPdf(rows) {
     });
 }
 
+// The rounds of an archived precision row, only what placing and display need
+function archiveRound(r) {
+    if (!r) return null;
+    return {
+        totalPenalty: r.totalPenalty ?? null,
+        timeMs: r.timeMs ?? null,
+        penaltySec: r.penaltySec ?? null,
+        scoring: r.scoring || 'fault',
+        eliminated: r.eliminated === true,
+        retired: r.retired === true,
+        status: r.status || null,
+        hasData: r.hasData === true,
+        finished: r.finished === true,
+        out: r.out === true,
+        decided: r.decided === true
+    };
+}
+
+function archivePrecisionRounds(rounds) {
+    if (!rounds) return null;
+    return { phase2: archiveRound(rounds.phase2), driveOff: archiveRound(rounds.driveOff) };
+}
+
 export function buildArchiveRowsFromData({
     equipages = [],
     dressageProtocols = new Map(),
@@ -117,6 +142,12 @@ export function buildArchiveRowsFromData({
     const normalizedMarathonConfig = marathonConfig?.value || marathonConfig || {};
     const normalizedPrecisionConfig = precisionConfig?.value || precisionConfig || {};
     const normalizedPrograms = allPrograms?.value || allPrograms || dressagePrograms;
+    // The class's rule profile (TR/FEI) decides how precision rounds are
+    // scored: the archive's marathon config, not only the class name
+    const hasMarathonClassData = !!(normalizedMarathonConfig.marathonClassData || normalizedMarathonConfig.maratonClassData);
+    const precisionOptions = hasMarathonClassData
+        ? { marathonConfig: normalizedMarathonConfig, dressyrClassConfig: dressyrClassConfig?.value || dressyrClassConfig || null }
+        : {};
 
     const precisionMap = new Map(
         (precisionRows || []).map(row => [String(row.startNumber || row.id), row])
@@ -150,7 +181,7 @@ export function buildArchiveRowsFromData({
 
         const dressage = calculateDressageResult(eq, protocols, judges, normalizedPrograms);
         const marathon = calculateMarathonResult(eq, marathonDoc, timingDoc, normalizedMarathonConfig);
-        const precision = calculatePrecisionResult(precisionDoc, eq, normalizedPrecisionConfig);
+        const precision = calculatePrecisionResult(precisionDoc, eq, normalizedPrecisionConfig, precisionOptions);
         const total = calculateTotalResult(
             eq,
             protocols,
@@ -210,7 +241,16 @@ export function buildArchiveRowsFromData({
                 running: !!precision.running,
                 eliminated: !!precision.eliminated,
                 isClearRound,
-                status: precision.status
+                status: precision.status,
+                // pen/totalPenalty/timeMs stay phase 1 (the total, TR 533.2 /
+                // FEI 971); the placing of two phases / drive-off from these
+                format: precision.precisionFormat || 'normal',
+                formatUnsupported: precision.formatUnsupported === true,
+                placing: precision.placing || null,
+                driveOffScheduled: precision.driveOffScheduled === true,
+                phase2Qualified: precision.phase2Qualified === true,
+                phase2Ignored: precision.phase2Ignored === true,
+                rounds: archivePrecisionRounds(precision.rounds)
             },
             totalPenalty: total.totalPenalty,
             isEliminated: total.isEliminated,

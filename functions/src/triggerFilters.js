@@ -34,8 +34,10 @@ const MARATHON_NON_RESULT_FIELDS = new Set([
 const isMarathonLiveField = (key) => MARATHON_NON_RESULT_FIELDS.has(key)
     || key.startsWith('live_') || key.startsWith('liveObstacle');
 
-// Precision fields the engine does not read
-const PRECISION_NON_RESULT_FIELDS = new Set(['gateSplits', 'updatedAt', 'lastUpdated']);
+// Precision fields the engine does not read. The rounds of two phases /
+// drive-off (rounds, activeRound) never change the stored result: only
+// phase 1 counts for the total (TR 533.2, FEI 971.3.1, 977.1.1)
+const PRECISION_NON_RESULT_FIELDS = new Set(['gateSplits', 'updatedAt', 'lastUpdated', 'rounds', 'activeRound']);
 // Ticking values of a running round; the server does not tick running rounds,
 // so their updates while the round keeps running change nothing that lasts
 const PRECISION_TICK_FIELDS = new Set([

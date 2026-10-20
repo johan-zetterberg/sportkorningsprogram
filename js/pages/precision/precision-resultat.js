@@ -50,7 +50,7 @@ function precisionFormatWarningsHtml(equipages = [], config = {}) {
       ${[...warnings.entries()].map(([label, text]) => `<div><strong>${escapeHtml(label)}:</strong> ${escapeHtml(text)}</div>`).join('')}
     </div>`;
 }
-import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
+import { assignPlaces, comparePrecisionRank, precisionGroupContext } from '../../core-engine/ranking.js';
 import { archivedDisciplineDetails, archivedDisciplinePenalty, archivedNoticeHtml, loadArchiveSnapshot } from '../shared/archivedResults.js';
 
 // IMPORTERA NYA MODALEN
@@ -288,23 +288,27 @@ function archivedPrecision(sn, calcEliminated) {
 // archived with (the time still breaks ties)
 function precisionPlaceMap(rows) {
   if (!archiveSnapshot) return buildPlaceMap(rows, precision_precisionMap, precision_precisionConfig);
+  const groupOf = (r) => r._mergedKey || `CLASS:${r.className || '—'}`;
+  // The archived phase-1 penalty and time on the calculated result (the
+  // placing tiers of two phases / drive-off come from the result)
+  const precisionCtx = precisionGroupContext(rows, (r) => {
+    const sn = String(r.startNumber);
+    const calc = calculatePrecisionResult(precision_precisionMap.get(sn) || {}, r, precision_precisionConfig || {});
+    const archived = archivedPrecision(sn, calc.eliminated);
+    if (!archived) return calc;
+    return {
+      ...calc,
+      totalPenalty: archived.penalty,
+      ...(archived.timeMs !== null ? { timeMs: archived.timeMs } : {}),
+      eliminated: archived.eliminated,
+      running: false,
+      finalized: true
+    };
+  }, groupOf, { requireFinished: true });
   const { placeOf } = assignPlaces(rows, {
-    key: (r) => {
-      const sn = String(r.startNumber);
-      const calc = calculatePrecisionResult(precision_precisionMap.get(sn) || {}, r, precision_precisionConfig || {});
-      const archived = archivedPrecision(sn, calc.eliminated);
-      if (!archived) return precisionRankKey(calc, { requireFinished: true });
-      return precisionRankKey({
-        ...calc,
-        totalPenalty: archived.penalty,
-        ...(archived.timeMs !== null ? { timeMs: archived.timeMs } : {}),
-        eliminated: archived.eliminated,
-        running: false,
-        finalized: true
-      }, { requireFinished: true });
-    },
+    key: (r) => precisionCtx.rankKey(r),
     compare: comparePrecisionRank,
-    group: (r) => r._mergedKey || `CLASS:${r.className || '—'}`,
+    group: groupOf,
     outField: null
   });
   const placeMap = new Map();

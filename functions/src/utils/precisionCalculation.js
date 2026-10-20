@@ -90,14 +90,15 @@ export function formatPrecisionAddedTime(rebuildCount) {
 // --- Precision formats ---
 
 /**
- * Precision competition formats (precisionConfig.courses[cls].format). Only
- * 'normal' is calculated: a fault competition with penalties then time (TR V
- * 530.1.1 clear round, 530.1.2 A:0; FEI 976). The others are selectable so a
- * class can be marked, but get no placing (calculate by hand):
+ * Precision competition formats (precisionConfig.courses[cls].format).
+ * Calculated: 'normal', a fault competition with penalties then time (TR V
+ * 530.1.1 clear round, 530.1.2 A:0; FEI 976), 'twoPhase' and 'driveOff' (the
+ * rounds on precision/{sn}.rounds, see calculatePrecisionResult). The others
+ * are selectable so a class can be marked, but get no placing (by hand):
  *   time         – TR 510.4 tidstävling, FEI 978 Time Competition
  *   twoPhase     – TR 530.1.3 A med två faser, FEI 979 Competition in Two Phases
  *   winningRound – FEI 980 Competition with a Winning Round
- *   driveOff     – FEI 977 Drive-Off
+ *   driveOff     – FEI 977 Drive-Off (TR: an organiser's variant, TR 510)
  *   youngHorse   – FEI Annex 13 Young Horses/Ponies (marks; 1/10 deductions,
  *                  0.1 penalty per second over the Time Allowed, Art. 6.4)
  * excludesTotal: the cones result of a time competition (FEI 971.2.1 "only to
@@ -109,9 +110,9 @@ export function formatPrecisionAddedTime(rebuildCount) {
 export const PRECISION_FORMATS = {
     normal: { label: 'Normal (fel)', supported: true, excludesTotal: false },
     time: { label: 'Tidstävling (TR 510.4 / FEI 978)', supported: false, excludesTotal: true },
-    twoPhase: { label: 'Två faser (TR 530.1.3 / FEI 979)', supported: false, excludesTotal: false },
+    twoPhase: { label: 'Två faser (TR 530.1.3 / FEI 979)', supported: true, excludesTotal: false },
     winningRound: { label: 'Med vinnarrunda (FEI 980)', supported: false, excludesTotal: false },
-    driveOff: { label: 'Med omkörning / Drive-Off (FEI 977)', supported: false, excludesTotal: false },
+    driveOff: { label: 'Med omkörning / Drive-Off (FEI 977)', supported: true, excludesTotal: false },
     youngHorse: { label: 'FEI Young Horse/Pony (Annex 13, reducerade avdrag)', supported: false, excludesTotal: true }
 };
 
@@ -199,11 +200,16 @@ const TR_PARA_CONES_TEMPO_MPM = {
     Msv: { pony: 210, horse: 220 },
     'Svår': { pony: 230, horse: 230 }
 };
-export function trParaDriverTempoMpm(cls) {
+// Bilaga 5 "Fas 2" of the same rows (A med två faser)
+export const TR_PARA_PHASE2_TEMPO_MPM = {
+    Msv: { pony: 220, horse: 230 },
+    'Svår': { pony: 230, horse: 230 }
+};
+export function trParaDriverTempoMpm(cls, table = TR_PARA_CONES_TEMPO_MPM) {
     if (!cls || typeof cls !== 'object' || cls.isPara !== true) return null;
     const className = getClassName(cls);
     // A para class ("Msv Para Ponny") has its own table entry
-    const row = TR_PARA_CONES_TEMPO_MPM[normalizeClassKey(className)];
+    const row = table[normalizeClassKey(className)];
     if (!row) return null;
     if (row.pony === row.horse) return row.pony;
     const s = className.toLowerCase();
@@ -267,22 +273,29 @@ export function getClassTempoMpm(cls, config = {}, { ruleProfile = null } = {}) 
         if (para) return para;
     }
 
+    // A tempo the admin set for the merged class applies to all in it
+    const mergedTempo = tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
+    return tableTempoMpm(cls, 'precision', mergedTempo);
+}
+
+// The class table's tempo (field 'precision' or 'precisionPhase2'); mergedTempo
+// comes after the table rows and before the horse/pony category
+function tableTempoMpm(cls, field, mergedTempo = null) {
+    const className = getClassName(cls);
     const keys = Object.keys(klassTempoData || {});
     // Whole words only (see matchClassTableKey): "Barnklass" is Lätt B Barn;
     // else by level and horse/pony without the hitch ("Lätt B Par Ponny")
     const key = tempoTableKey(className, keys);
-    if (key && klassTempoData[key]?.precision) return klassTempoData[key].precision;
+    if (key && klassTempoData[key]?.[field]) return klassTempoData[key][field];
     // A name the table only has longer keys for ("Barnklass" -> "Lätt B Barn
     // Ponny"): their tempo when they all agree (TR V Bilaga 5: LB "Barn" 100)
     const words = classNameWords(className);
     const longer = keys.filter((candidate) => {
         const w = classNameWords(candidate);
         return words.length > 0 && w.length > words.length && words.every((x, i) => w[i] === x);
-    }).map((candidate) => klassTempoData[candidate]?.precision).filter(Boolean);
+    }).map((candidate) => klassTempoData[candidate]?.[field]).filter(Boolean);
     if (longer.length > 0 && longer.every((v) => v === longer[0])) return longer[0];
 
-    // A tempo the admin set for the merged class applies to all in it
-    const mergedTempo = tryNum(mergedCourses.tempo ?? mergedCourses.tempoMpm ?? mergedCourses.mPerMin);
     if (mergedTempo) return mergedTempo;
 
     // A class for ponies and horses together ("Lätt B Enbet", TR 535.1): each
@@ -294,7 +307,7 @@ export function getClassTempoMpm(cls, config = {}, { ruleProfile = null } = {}) 
         : null;
     if (category) {
         const byCategory = tempoTableKey(`${className} ${category === 'horse' ? 'Häst' : 'Ponny'}`, keys);
-        if (byCategory && klassTempoData[byCategory]?.precision) return klassTempoData[byCategory].precision;
+        if (byCategory && klassTempoData[byCategory]?.[field]) return klassTempoData[byCategory][field];
     }
 
     return null;
@@ -323,18 +336,143 @@ export function computeMaxSecondsForClass(cls, config = {}, { ruleProfile = null
     return null;
 }
 
+// --- Rounds: phase 2 (two phases) and drive-off ---
+
+/**
+ * Rounds of a precision doc. 'phase1' is the doc's top level (phase 1 of two
+ * phases, the initial round of a drive-off, the only round otherwise);
+ * 'phase2' and 'driveOff' live under doc.rounds with the same field names.
+ */
+export const PRECISION_ROUNDS = ['phase1', 'phase2', 'driveOff'];
+
+/**
+ * How a round is scored: 'fault' (penalties, then time) or 'time' (time plus
+ * penalty seconds). TR phase 2 is a fault round (TR 530.1.3 "lägst
+ * straffpoäng i fas 2"); FEI phase 2 a time competition (FEI 979.2.1, 979.4.3);
+ * a drive-off is against the clock (FEI 977.2.1, also as a TR variant).
+ */
+export function precisionRoundScoring(round, ruleProfile = 'TR') {
+    if (round === 'driveOff') return 'time';
+    if (round === 'phase2') return ruleProfile === 'FEI' ? 'time' : 'fault';
+    return 'fault';
+}
+
+const tryPositive = (value) => {
+    const num = Number(value);
+    return Number.isFinite(num) && num > 0 ? num : null;
+};
+
+/** The course settings of a round: courses[cls] for phase 1, courses[cls][round] otherwise ({} when none) */
+export function getPrecisionRoundCourse(cls, config = {}, round = 'phase1') {
+    const courses = config?.courses || {};
+    for (const key of getCourseCandidates(cls)) {
+        const course = courses[key];
+        if (!course) continue;
+        if (!round || round === 'phase1') return course;
+        if (course[round] && typeof course[round] === 'object') return course[round];
+    }
+    return {};
+}
+
+/**
+ * The round's tempo (m/min): the configured one (courses[cls][round].tempo),
+ * else phase 2: TR Bilaga 5 "Fas 2" (para drivers by their para row, TR
+ * 534.9), FEI the phase-1 speed (979.1.1 "identical or different speed");
+ * drive-off: the phase-1 tempo. null when unknown (TR Lätt B: the admin
+ * enters it).
+ */
+export function getPrecisionRoundTempoMpm(cls, config = {}, round = 'phase1', { ruleProfile = null } = {}) {
+    if (!round || round === 'phase1') return getClassTempoMpm(cls, config, { ruleProfile });
+    const course = getPrecisionRoundCourse(cls, config, round);
+    const configured = tryPositive(course.tempo ?? course.tempoMpm ?? course.mPerMin);
+    if (configured) return configured;
+    const profile = ruleProfile === 'FEI' || ruleProfile === 'TR'
+        ? ruleProfile
+        : getClassRuleProfile(getClassName(cls), null);
+    if (round === 'phase2' && profile !== 'FEI') {
+        const para = trParaDriverTempoMpm(cls, TR_PARA_PHASE2_TEMPO_MPM);
+        if (para) return para;
+        return tableTempoMpm(cls, 'precisionPhase2');
+    }
+    return getClassTempoMpm(cls, config, { ruleProfile: profile });
+}
+
+/**
+ * The round's max time / Time Allowed in whole seconds (rounded up as in
+ * computeMaxSecondsForClass), null without a track length or tempo. A drive-off
+ * without its own length is driven over the same course (FEI 977.2.1).
+ */
+export function computePrecisionRoundMaxSec(cls, config = {}, round = 'phase1', { ruleProfile = null } = {}) {
+    if (!round || round === 'phase1') return computeMaxSecondsForClass(cls, config, { ruleProfile });
+    const course = getPrecisionRoundCourse(cls, config, round);
+    let lengthMeters = tryPositive(course.trackLengthMeters ?? course.length ?? course.trackLength);
+    if (!lengthMeters && round === 'driveOff') lengthMeters = getTrackLengthMeters(cls, config);
+    const tempoMpm = getPrecisionRoundTempoMpm(cls, config, round, { ruleProfile });
+    if (lengthMeters > 0 && tempoMpm > 0) return Math.ceil((lengthMeters * 60) / tempoMpm - 1e-9);
+    return null;
+}
+
+/** The round's obstacle labels (courses[cls][round].obstacleLabels), else phase 1's for a drive-off */
+export function getPrecisionRoundObstacleLabels(cls, config = {}, round = 'phase1') {
+    const own = getPrecisionRoundCourse(cls, config, round)?.obstacleLabels;
+    if (Array.isArray(own) && own.length) return own.slice();
+    if (round === 'driveOff' || round === 'phase1' || !round) {
+        const base = getPrecisionRoundCourse(cls, config, 'phase1')?.obstacleLabels;
+        return Array.isArray(base) ? base.slice() : [];
+    }
+    return [];
+}
+
+/**
+ * Whether the class has a drive-off in its schedule: format 'driveOff' unless
+ * courses[cls].driveOff.scheduled is false; two phases only with scheduled true
+ * (FEI 979.5.3). Without one, equal penalties go by time (TR 530.1.2, FEI 977.2.3).
+ */
+export function isPrecisionDriveOffScheduled(cls, config = {}) {
+    const format = getPrecisionFormat(cls, config);
+    const scheduled = getPrecisionRoundCourse(cls, config, 'driveOff')?.scheduled;
+    if (format === 'driveOff') return scheduled !== false;
+    if (format === 'twoPhase') return scheduled === true;
+    return false;
+}
+
+function resolveTimePenaltyRate(config, comp) {
+    if (Number.isFinite(config?.timePenaltyRate)) return config.timePenaltyRate;
+    if (Number.isFinite(comp?.ruleSettings?.precisionTimePenaltyRate)) return comp.ruleSettings.precisionTimePenaltyRate;
+    return PRECISION_TIME_PENALTY_RATE;
+}
+
 // Run time of a live precision doc at nowMs (paused time + time since the clock (re)started)
 export function precisionElapsedMs(d, nowMs = Date.now()) {
     if (!d?.liveStartEpoch) return null;
     return (Number(d.livePausedMs) || 0) + (nowMs - Number(d.liveStartEpoch));
 }
 
+// The doc with each running round's ticking time; null when none runs
+function withLiveRounds(d, nowMs) {
+    const rounds = d?.rounds;
+    if (!rounds || typeof rounds !== 'object') return null;
+    let changed = null;
+    for (const key of ['phase2', 'driveOff']) {
+        const r = rounds[key];
+        if (!r || !(r.running === true || r.inProgress === true)) continue;
+        const elapsed = precisionElapsedMs(r, nowMs);
+        if (!isNum(elapsed)) continue;
+        changed = changed || { ...rounds };
+        changed[key] = { ...r, running: true, finalized: false, liveTimeMs: elapsed, _elapsedMs: elapsed };
+    }
+    return changed ? { ...d, rounds: changed } : null;
+}
+
 /**
  * Result for a doc that may be running: the ticking time at nowMs is used as
- * the live time. Not-running docs give the normal result.
+ * the live time (phase 1 on the top level, a running phase 2 / drive-off in
+ * result.rounds[round], with rounds[round].elapsedMs). Not-running docs give
+ * the normal result.
  */
 export function calculatePrecisionLiveResult(data, equipage, config = {}, options = {}, nowMs = Date.now()) {
-    const d = data || {};
+    const base = data || {};
+    const d = withLiveRounds(base, nowMs) || base;
     const elapsed = (d.running === true || d.inProgress === true) ? precisionElapsedMs(d, nowMs) : null;
     if (!isNum(elapsed)) return calculatePrecisionResult(d, equipage, config, options);
     const result = calculatePrecisionResult(
@@ -346,24 +484,42 @@ export function calculatePrecisionLiveResult(data, equipage, config = {}, option
     return { ...result, elapsedMs: elapsed };
 }
 
-export function calculatePrecisionResult(data, equipage, config = {}, options = {}) {
-    const d = data || {};
+/**
+ * One round's result. scoring 'fault' is the precision math of TR 530 / FEI
+ * 975-976 (unchanged for phase 1). scoring 'time' (FEI 978) adds
+ * score = time (incl. +10 s per rebuild) + knock seconds + extra seconds +
+ * 0.5 s per second over the Time Allowed (FEI 981 table, owner Q6); the
+ * round's totalPenalty is then that score in seconds and penaltySec the
+ * penalty seconds alone (the drive-off tie-break, FEI 978.4.1).
+ *
+ * @param {object} roundDoc - the top-level doc (phase 1) or doc.rounds[round]
+ * @param {object} [opts] - { maxSec, scoring, timeLimitFactor, finalized,
+ *        ruleProfile, rate, timeFallback, knockdownPenalty }
+ */
+export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
+    maxSec = null,
+    scoring = 'fault',
+    timeLimitFactor = null,
+    finalized = null,
+    rate = null,
+    timeFallback = false
+} = {}) {
+    const d = roundDoc || {};
     const safeConfig = config || {};
-
-    const finalized = d.finalized === true;
+    const isFinal = finalized == null ? d.finalized === true : finalized === true;
     const eliminated = !!d.eliminated;
+    const retired = d.retired === true;
     const running = d.running === true;
-
-    // Rule profile (TR / FEI) from the marathon class settings when the caller
-    // has them (options.marathonConfig), else from the class name
-    const ruleProfile = getClassRuleProfile(getClassName(equipage), options.marathonConfig || null);
 
     // The driven time in hundredths (truncated, FEI 975.10.3 / TR 530.8),
     // plus 10 s per obstacle rebuild (TR 530.15/530.19, FEI 975.4.4/975.5.1/
     // 975.8.5): the time used for the time penalty, the time limit and ranking
     const liveMs = isNum(d.liveTimeMs) ? truncatePrecisionTimeMs(d.liveTimeMs) : null;
     const finalMs = isNum(d.timeMs) ? truncatePrecisionTimeMs(d.timeMs) : null;
-    const drivenTimeMs = finalized ? finalMs : (liveMs ?? null);
+    // timeFallback (rounds): a time written by the secretariat alone counts too
+    const drivenTimeMs = timeFallback
+        ? (isFinal ? (finalMs ?? liveMs) : (liveMs ?? finalMs))
+        : (isFinal ? finalMs : (liveMs ?? null));
     const rebuildCount = precisionRebuildCount(d);
     const addedTimeMs = precisionAddedTimeMs(d);
     const timeMs = isNum(drivenTimeMs) && drivenTimeMs > 0 ? drivenTimeMs + addedTimeMs : drivenTimeMs;
@@ -377,16 +533,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         : (isNum(inferredObstacle) ? inferredObstacle
             : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
 
-    const maxSec = isNum(options.maxSec) && options.maxSec > 0
-        ? options.maxSec
-        : computeMaxSecondsForClass(equipage, safeConfig, { ruleProfile });
-    const comp = options.currentCompetition || null;
-    let rate = PRECISION_TIME_PENALTY_RATE;
-    if (Number.isFinite(safeConfig?.timePenaltyRate)) {
-        rate = safeConfig.timePenaltyRate;
-    } else if (Number.isFinite(comp?.ruleSettings?.precisionTimePenaltyRate)) {
-        rate = comp.ruleSettings.precisionTimePenaltyRate;
-    }
+    const penaltyRate = Number.isFinite(rate) ? rate : PRECISION_TIME_PENALTY_RATE;
 
     // Time penalty: calculated from the time when the max time is known, unless
     // the secretariat set it manually (timePenaltyOverride). Without a max time
@@ -397,7 +544,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     if (d.timePenaltyOverride === true && isNum(d.timePenalty)) {
         timePenalty = d.timePenalty;
     } else if (isNum(maxSec) && maxSec > 0) {
-        timePenalty = calculatePrecisionTimePenalty(timeMs, maxSec, rate);
+        timePenalty = calculatePrecisionTimePenalty(timeMs, maxSec, penaltyRate);
     } else {
         timePenalty = storedTimePenalty;
     }
@@ -410,7 +557,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     const hasPerformance = (isNum(timeMs) && timeMs > 0)
         || (isNum(obstaclePenalty) && obstaclePenalty > 0)
         || (isNum(extraPenalty) && extraPenalty !== 0);
-    const hasValidResult = hasPerformance || (finalized && !eliminated) || running;
+    const hasValidResult = hasPerformance || (isFinal && !eliminated) || running;
     const sumParts = hasValidResult
         ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
         : null;
@@ -424,7 +571,7 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
 
     let totalPenalty = configMissing ? null : sumParts;
     if (totalPenalty === null && !configMissing) {
-        if (finalized) {
+        if (isFinal) {
             totalPenalty = isNum(d.totalPenalty) ? d.totalPenalty : null;
         } else if (running) {
             totalPenalty = isNum(d.liveTotalPenalty) ? d.liveTotalPenalty : null;
@@ -434,8 +581,10 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     let autoEliminated = false;
     // Lätt B Barn: the time is the time allowed itself; exceeding it stops the
     // equipage (TR Bilaga 5 #). Other classes: twice the time allowed (TR 529.10)
-    const timeLimitFactor = isLattBBarnClass(equipage) ? 1 : 2;
-    if (isNum(timeMs) && isNum(maxSec) && timeMs > (maxSec * timeLimitFactor * 1000)) {
+    const limitFactor = isNum(timeLimitFactor) && timeLimitFactor > 0
+        ? timeLimitFactor
+        : (isLattBBarnClass(equipage) ? 1 : 2);
+    if (isNum(timeMs) && isNum(maxSec) && timeMs > (maxSec * limitFactor * 1000)) {
         autoEliminated = true;
     }
 
@@ -444,7 +593,8 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     if (equipage?.status === 'struken') status = 'Struken';
     else if (running) status = 'Pågår';
     else if (isInitiallyEliminated) status = 'Utesluten';
-    else if (finalized || (isNum(timeMs) && timeMs > 0)) {
+    else if (retired) status = 'Utgått';
+    else if (isFinal || (isNum(timeMs) && timeMs > 0)) {
         status = configMissing ? 'Pågår' : 'Klar';
     }
 
@@ -452,34 +602,23 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         ? Math.abs(timeMs - (maxSec * 1000))
         : Infinity;
 
-    // A format the engine does not calculate: no placing (precisionRankKey),
-    // and for a time competition / Young Horse no combined total either
-    const precisionFormat = getPrecisionFormat(equipage, safeConfig);
-    const formatInfo = PRECISION_FORMATS[precisionFormat] || PRECISION_FORMATS.normal;
-
-    return {
-        finalized,
+    const round = {
+        finalized: isFinal,
         eliminated: isInitiallyEliminated,
         autoEliminated,
         running,
         status,
-        timeMs, // driven time (hundredths) + added rebuild time
-        drivenTimeMs, // the clock's time, truncated to hundredths
-        rebuildCount, // obstacle rebuilds, +10 s each
+        timeMs,
+        drivenTimeMs,
+        rebuildCount,
         addedTimeMs,
         liveMs,
         finalMs,
-        ruleProfile,
-        precisionFormat,
-        formatUnsupported: formatInfo.supported !== true,
-        formatExcludesTotal: formatInfo.excludesTotal === true,
         timeDiffFromAllowed,
         maxTimeSec: isNum(maxSec) ? maxSec : null,
-        timePenaltyRate: rate,
+        timePenaltyRate: penaltyRate,
         timePenaltyOverride: d.timePenaltyOverride === true,
-        configMissing, // no max time for the class: totalPenalty withheld
-        // Clear round class (TR V 509.3, isClearRoundClass): the caller knows the configs
-        isClearRound: options.isClearRound === true,
+        configMissing,
         knocks: knocksArr,
         knockDownTimes: d.knockDownTimes || {},
         knocksCount: knocksCount || (isNum(d.liveObstaclePenalty) ? Math.floor(d.liveObstaclePenalty / knockdownPenalty) : 0),
@@ -488,4 +627,209 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
         extraPenalty: round2(extraPenalty),
         totalPenalty: isNum(totalPenalty) ? round2(totalPenalty) : null
     };
+    if (scoring !== 'time') return round;
+
+    // Time competition: everything in seconds (FEI 978.1.1, 978.4.1)
+    const penaltySec = (obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0);
+    const score = (!configMissing && isNum(timeMs) && timeMs > 0)
+        ? round2(timeMs / 1000 + penaltySec)
+        : null;
+    return {
+        ...round,
+        totalPenalty: score,
+        score,
+        penaltySec: round2(penaltySec)
+    };
+}
+
+// Whether a rounds.* sub-doc holds anything (a started, driven or judged round)
+function roundHasData(r) {
+    if (!r || typeof r !== 'object') return false;
+    return r.running === true || r.inProgress === true || r.eliminated === true || r.retired === true
+        || (isNum(r.timeMs) && r.timeMs > 0) || (isNum(r.liveTimeMs) && r.liveTimeMs > 0)
+        || (Array.isArray(r.knocks) && r.knocks.length > 0)
+        || (isNum(r.extraPenalty) && r.extraPenalty !== 0)
+        || (isNum(r.rebuildCount) && r.rebuildCount > 0);
+}
+
+// The result of rounds[round] with the round's settings, and its state flags
+function roundResult(doc, round, equipage, config, { ruleProfile, rate, topFinalized }) {
+    const rd = doc?.rounds?.[round];
+    const scoring = precisionRoundScoring(round, ruleProfile);
+    // Phase 2 is closed with the whole result (finalizePrecision); a drive-off
+    // after the initial round is finalized on its own (rounds.driveOff.finalized)
+    const finalized = rd?.finalized === true
+        || (round === 'phase2' && topFinalized === true && rd?.running !== true);
+    const maxSec = computePrecisionRoundMaxSec(equipage, config, round, { ruleProfile });
+    const r = calculatePrecisionRound(rd || {}, equipage, config, { maxSec, scoring, rate, finalized, timeFallback: true });
+    const hasData = roundHasData(rd);
+    const live = rd?.running === true || rd?.inProgress === true;
+    const out = hasData && !live && (r.eliminated || rd?.retired === true);
+    const finished = hasData && !live && !out && r.status === 'Klar' && isNum(r.totalPenalty);
+    return {
+        ...r,
+        round,
+        scoring,
+        retired: rd?.retired === true,
+        hasData,
+        live,
+        out, // eliminated or retired in this round
+        finished,
+        decided: finished || out,
+        ...(isNum(rd?._elapsedMs) ? { elapsedMs: rd._elapsedMs } : {})
+    };
+}
+
+/**
+ * Placing input of one result, without the class context (see
+ * core-engine/ranking.js precisionGroupContext for the drive-off). Tiers,
+ * lower first:
+ *   2 phase 2 finished: TR phase-2 penalties, then phase-2 time (owner Q5);
+ *     FEI phase-2 score in seconds, then shared (FEI 979.5.1)
+ *   3 phase 2 eliminated / retired / not driven (owner Q2, FEI 979.5.4):
+ *     phase-1 time
+ *   4 phase 1 / initial round only: penalties, then time (TR 530.1.2/530.1.3,
+ *     FEI 977.2.3, 979.5.2)
+ * tier null: not placed. unfinished: no place in a result list
+ * (requireFinished), provisional in a live one.
+ */
+function precisionPlacing({ p1, p2, format, phase2Qualified, topFinalized, placeable }) {
+    if (!placeable) return { tier: null, stage: 'none', penalty: null, timeMs: null, provisional: false, unfinished: false };
+    const phase1 = { tier: 4, stage: 'phase1', penalty: p1.totalPenalty, timeMs: p1.timeMs, provisional: false, unfinished: false };
+    if (format !== 'twoPhase' || !phase2Qualified || !p2) return phase1;
+    const fault = p2.scoring !== 'time';
+    if (p2.finished) {
+        return { tier: 2, stage: 'phase2', penalty: p2.totalPenalty, timeMs: fault ? p2.timeMs : null, provisional: false, unfinished: false };
+    }
+    if (p2.out) {
+        return { tier: 3, stage: 'phase2Out', penalty: p1.totalPenalty, timeMs: p1.timeMs, provisional: false, unfinished: false };
+    }
+    if (p2.live && isNum(p2.totalPenalty)) {
+        return { tier: 2, stage: 'phase2Live', penalty: p2.totalPenalty, timeMs: fault ? p2.timeMs : null, provisional: true, unfinished: true };
+    }
+    // Clear in phase 1, phase 2 not driven: once finalized it did not continue
+    if (topFinalized) {
+        return { tier: 3, stage: 'phase2NotStarted', penalty: p1.totalPenalty, timeMs: p1.timeMs, provisional: false, unfinished: false };
+    }
+    return { tier: 3, stage: 'phase2Pending', penalty: p1.totalPenalty, timeMs: p1.timeMs, provisional: true, unfinished: true };
+}
+
+/**
+ * The precision result of one equipage. All existing top-level fields are
+ * phase 1 / the initial round, which alone counts for the combined total
+ * (TR 533.2 "precisionsstraffen från fas 1", FEI 971.1.1, 971.3.1, 977.1.1).
+ * Added:
+ *   activeRound    - doc.activeRound ('phase1' | 'phase2' | 'driveOff')
+ *   rounds         - { phase1, phase2, driveOff }: each round's result
+ *                    (calculatePrecisionRound plus round, scoring, hasData,
+ *                    live, out, finished, decided), null when the format has
+ *                    no such round
+ *   phase2Qualified - two phases: phase 1 finished clear (0 penalties, TR
+ *                    530.1.3, FEI 979.4.2)
+ *   phase2Ignored  - phase-2 data on an equipage not (or no longer) qualified
+ *   driveOffScheduled - isPrecisionDriveOffScheduled
+ *   formatWarnings - codes: 'trDriveOffVariant', 'phase2Ignored',
+ *                    'phase2ConfigMissing', 'driveOffConfigMissing'
+ *   placing        - { tier, stage, penalty, timeMs, provisional, unfinished }
+ *                    (precisionPlacing; the drive-off tiers 0/1 come from the
+ *                    class context in ranking.js)
+ */
+export function calculatePrecisionResult(data, equipage, config = {}, options = {}) {
+    const d = data || {};
+    const safeConfig = config || {};
+
+    // Rule profile (TR / FEI) from the marathon class settings when the caller
+    // has them (options.marathonConfig), else from the class name
+    const ruleProfile = getClassRuleProfile(getClassName(equipage), options.marathonConfig || null);
+
+    const maxSec = isNum(options.maxSec) && options.maxSec > 0
+        ? options.maxSec
+        : computeMaxSecondsForClass(equipage, safeConfig, { ruleProfile });
+    const rate = resolveTimePenaltyRate(safeConfig, options.currentCompetition || null);
+    const p1 = calculatePrecisionRound(d, equipage, safeConfig, { maxSec, scoring: 'fault', rate });
+
+    // A format the engine does not calculate: no placing (precisionRankKey),
+    // and for a time competition / Young Horse no combined total either
+    const precisionFormat = getPrecisionFormat(equipage, safeConfig);
+    const formatInfo = PRECISION_FORMATS[precisionFormat] || PRECISION_FORMATS.normal;
+    const isClearRound = options.isClearRound === true;
+
+    const base = {
+        finalized: p1.finalized,
+        eliminated: p1.eliminated,
+        autoEliminated: p1.autoEliminated,
+        running: p1.running,
+        status: p1.status,
+        timeMs: p1.timeMs, // driven time (hundredths) + added rebuild time
+        drivenTimeMs: p1.drivenTimeMs, // the clock's time, truncated to hundredths
+        rebuildCount: p1.rebuildCount, // obstacle rebuilds, +10 s each
+        addedTimeMs: p1.addedTimeMs,
+        liveMs: p1.liveMs,
+        finalMs: p1.finalMs,
+        ruleProfile,
+        precisionFormat,
+        formatUnsupported: formatInfo.supported !== true,
+        formatExcludesTotal: formatInfo.excludesTotal === true,
+        timeDiffFromAllowed: p1.timeDiffFromAllowed,
+        maxTimeSec: p1.maxTimeSec,
+        timePenaltyRate: p1.timePenaltyRate,
+        timePenaltyOverride: p1.timePenaltyOverride,
+        configMissing: p1.configMissing, // no max time for the class: totalPenalty withheld
+        // Clear round class (TR V 509.3, isClearRoundClass): the caller knows the configs
+        isClearRound,
+        knocks: p1.knocks,
+        knockDownTimes: p1.knockDownTimes,
+        knocksCount: p1.knocksCount,
+        obstaclePenalty: p1.obstaclePenalty,
+        timePenalty: p1.timePenalty,
+        extraPenalty: p1.extraPenalty,
+        totalPenalty: p1.totalPenalty
+    };
+
+    const driveOffScheduled = formatInfo.supported === true && isPrecisionDriveOffScheduled(equipage, safeConfig);
+    const ctx = { ruleProfile, rate, topFinalized: p1.finalized };
+    const phase1 = { ...p1, round: 'phase1', scoring: 'fault', hasData: true, live: p1.running, out: p1.eliminated };
+    const p2 = precisionFormat === 'twoPhase' ? roundResult(d, 'phase2', equipage, safeConfig, ctx) : null;
+    const dOff = (driveOffScheduled || precisionFormat === 'driveOff' || roundHasData(d.rounds?.driveOff))
+        ? roundResult(d, 'driveOff', equipage, safeConfig, ctx)
+        : null;
+
+    const phase1Done = !p1.running && !p1.configMissing && isNum(p1.totalPenalty)
+        && (p1.finalized || p1.status === 'Klar');
+    const phase2Qualified = precisionFormat === 'twoPhase' && phase1Done && !p1.eliminated
+        && Math.abs(p1.totalPenalty) <= 1e-6;
+    const phase2Ignored = precisionFormat === 'twoPhase' && !phase2Qualified && !p1.running && !!p2?.hasData;
+
+    const formatWarnings = [];
+    if (precisionFormat === 'driveOff' && ruleProfile !== 'FEI') formatWarnings.push('trDriveOffVariant');
+    if (phase2Ignored) formatWarnings.push('phase2Ignored');
+    if (p2?.configMissing) formatWarnings.push('phase2ConfigMissing');
+    if (dOff?.configMissing) formatWarnings.push('driveOffConfigMissing');
+
+    const placeable = !base.formatUnsupported && !isClearRound && !p1.eliminated && isNum(p1.totalPenalty);
+    const placing = precisionPlacing({ p1, p2, format: precisionFormat, phase2Qualified, topFinalized: p1.finalized, placeable });
+
+    return {
+        ...base,
+        activeRound: PRECISION_ROUNDS.includes(d.activeRound) ? d.activeRound : 'phase1',
+        rounds: { phase1, phase2: p2, driveOff: dOff },
+        phase2Qualified,
+        phase2Ignored,
+        driveOffScheduled,
+        formatWarnings,
+        placing
+    };
+}
+
+/**
+ * One round's result alone, with the round's max time and scoring (for an
+ * input page's save: calculate(data) of buildPrecisionSavePayload). roundDoc
+ * is the top-level doc for 'phase1', else doc.rounds[round].
+ */
+export function calculatePrecisionRoundResult(roundDoc, equipage, config = {}, round = 'phase1', options = {}) {
+    if (!round || round === 'phase1') return calculatePrecisionResult(roundDoc, equipage, config, options);
+    const safeConfig = config || {};
+    const ruleProfile = getClassRuleProfile(getClassName(equipage), options.marathonConfig || null);
+    const rate = resolveTimePenaltyRate(safeConfig, options.currentCompetition || null);
+    return roundResult({ rounds: { [round]: roundDoc || {} } }, round, equipage, safeConfig, { ruleProfile, rate, topFinalized: false });
 }

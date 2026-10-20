@@ -6,7 +6,7 @@ import {
   comparePrecisionRank,
   totalRankKey,
   marathonRankKey,
-  precisionRankKey
+  precisionGroupContext
 } from '../../core-engine/ranking.js';
 import { compareStartNumbers } from '../../utils/startNumberSort.js';
 
@@ -124,11 +124,13 @@ export function applyTotalDisciplinePlacements(rows = []) {
     group: byClass,
     outField: 'posMar'
   });
+  // Two phases / drive-off: tiers and the drive-off qualifiers per group
+  const precisionCtx = precisionGroupContext(rows, (row) => ({
+    ...row.precision,
+    totalPenalty: row.precision?.pen ?? row.precision?.totalPenalty
+  }), byClass);
   assignPlaces(rows, {
-    key: (row) => ((isClearRoundRow(row) || row?.precision?.eliminated || (row.isEliminated && (row.precision?.pen ?? row.precision?.totalPenalty) == null)) ? null : precisionRankKey({
-      ...row.precision,
-      totalPenalty: row.precision?.pen ?? row.precision?.totalPenalty
-    })),
+    key: (row) => ((isClearRoundRow(row) || row?.precision?.eliminated || (row.isEliminated && (row.precision?.pen ?? row.precision?.totalPenalty) == null)) ? null : precisionCtx.rankKey(row)),
     compare: comparePrecisionRank,
     group: byClass,
     outField: 'posPrec'

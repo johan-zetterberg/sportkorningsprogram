@@ -15,9 +15,10 @@ import {
     comparePrecisionRank,
     totalRankKey,
     marathonRankKey,
-    precisionRankKey,
+    precisionGroupContext,
     isClearRoundClass
 } from '../../core-engine/ranking.js';
+import { isAnyPrecisionRoundRunning } from '../../utils/precisionRounds.js';
 
 export function getLeaderToBeat(className, discipline, context) {
     const { allEquipages, precisionStatusMap, precisionConfig, startTimes } = context;
@@ -108,15 +109,19 @@ export function calculateLiveInjection(eq, context) {
     const pSt = precisionStatusMap.get(sn);
     
     // 1. Precision Live
-    if (pSt && (pSt.running || pSt.inProgress)) {
-        // Live penalty at this moment, from the result engine
+    if (pSt && (pSt.running || pSt.inProgress || isAnyPrecisionRoundRunning(pSt))) {
+        // Live penalty at this moment, from the result engine (phase 1, the
+        // total's precision); the placing follows a running phase 2 / drive-off
         const live = calculatePrecisionLiveResult(pSt, eq, precisionConfig);
         return {
             sn: eq.startNumber,
             discipline: 'precision',
             disciplinePenalty: toFiniteNumberOrZero(live.totalPenalty),
             timeMs: toFiniteNumberOrZero(live.elapsedMs ?? live.timeMs),
-            eliminated: live.eliminated === true
+            eliminated: live.eliminated === true,
+            placing: live.placing || null,
+            rounds: live.rounds || null,
+            driveOffScheduled: live.driveOffScheduled === true
         };
     }
     
@@ -240,6 +245,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         let pPen = getSpeakerPenaltyOrNull(pResult.penalty);
         let pTimeMs = toFiniteNumberOrZero(pResult.timeMs);
         const isElimP = pResult.eliminated;
+        // Two phases / drive-off placing (precision position only)
+        let pRounds = pResult.result || null;
 
         let totalEliminated = elimD || isElimM || isElimP;
 
@@ -248,6 +255,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             if (currentRiderInfo.discipline === 'precision') {
                 pPen = getSpeakerPenaltyOrNull(currentRiderInfo.disciplinePenalty);
                 pTimeMs = toFiniteNumberOrZero(currentRiderInfo.timeMs) || pTimeMs;
+                if (currentRiderInfo.placing) pRounds = currentRiderInfo;
             } else if (currentRiderInfo.discipline === 'maraton') {
                 mPen = getSpeakerPenaltyOrNull(currentRiderInfo.disciplinePenalty);
             } else if (currentRiderInfo.discipline === 'dressyr') {
@@ -291,7 +299,12 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             isClearRound,
             dressage: { penalty: dPen, percentAvg: dPct, eliminated: elimD, isClearRound },
             marathon: { totalPenalty: mPen, eliminated: isElimM, bTimePenalty: mResult.result?.stages?.B?.timePenalty ?? 0, bPenalty: mResult.result?.bPenalty ?? null, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound },
-            precision: { pen: pPen, eliminated: isElimP, isClearRound }
+            precision: {
+                pen: pPen, eliminated: isElimP, isClearRound,
+                placing: pRounds?.placing || null,
+                rounds: pRounds?.rounds || null,
+                driveOffScheduled: pRounds?.driveOffScheduled === true
+            }
         });
     });
 
@@ -313,13 +326,17 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         compare: compareMarathonRank,
         outField: 'posMar'
     });
+    const precisionCtx = precisionGroupContext(results, (r) => ({
+        totalPenalty: r.precision.pen,
+        eliminated: r.precision.eliminated,
+        timeMs: r.tieBreakerTime,
+        isClearRound: r.precision.isClearRound,
+        placing: r.precision.placing,
+        rounds: r.precision.rounds,
+        driveOffScheduled: r.precision.driveOffScheduled
+    }));
     assignPlaces(results, {
-        key: (r) => (r.isWithdrawn ? null : precisionRankKey({
-            totalPenalty: r.precision.pen,
-            eliminated: r.precision.eliminated,
-            timeMs: r.tieBreakerTime,
-            isClearRound: r.precision.isClearRound
-        })),
+        key: (r) => (r.isWithdrawn ? null : precisionCtx.rankKey(r)),
         compare: comparePrecisionRank,
         outField: 'posPrec'
     });

@@ -20,7 +20,7 @@ import {
     compareTotalRank,
     dressageRankKey,
     marathonRankKey,
-    precisionRankKey,
+    precisionGroupContext,
     totalRankKey
 } from '../../core-engine/ranking.js';
 import { getPrograms } from '../../utils/dressageUtils.js';
@@ -373,7 +373,13 @@ function recalcAndRender() {
         .map(row => applyArchivedPrizeGivingRow(row, archiveSnapshot, activeDiscipline));
 
     // Placings (shared places on ties) from core-engine/ranking.js
-    const { ranked } = assignPlaces(rows, prizeGivingRanking(activeDiscipline));
+    const ranking = prizeGivingRanking(activeDiscipline, rows);
+    // A drive-off still to be driven: no precision prize giving yet (owner Q13)
+    if (ranking.driveOffPending) {
+        content.innerHTML = `<div class="text-center p-12 text-amber-700 dark:text-amber-300 text-xl font-bold">${escapeHtml(t('prize_precision_driveoff_pending'))}</div>`;
+        return;
+    }
+    const { ranked } = assignPlaces(rows, ranking);
     const unplaced = rows
         .filter(r => r.plac == null)
         .sort((a, b) => (a.isEliminated === b.isEliminated ? 0 : (a.isEliminated ? 1 : -1))
@@ -384,7 +390,7 @@ function recalcAndRender() {
     renderPodiumList(rows, content);
 }
 
-function prizeGivingRanking(discipline) {
+function prizeGivingRanking(discipline, rows = []) {
     // Clear round is set for the whole class (TR V 509.3): no place in any
     // phase or the total; all who drove get a rosette instead
     const unlessEliminated = (fn) => (row) => (row.isEliminated || row.isClearRound || !isPrizeGivingScore(row.score)) ? null : fn(row);
@@ -393,8 +399,11 @@ function prizeGivingRanking(discipline) {
             return { key: unlessEliminated(r => dressageRankKey({ penalty: r.dPen })), compare: compareDressageRank };
         case 'marathon':
             return { key: unlessEliminated(r => marathonRankKey(r.mRes, { requireFinished: false })), compare: compareMarathonRank };
-        case 'precision':
-            return { key: unlessEliminated(r => precisionRankKey(r.pCalc)), compare: comparePrecisionRank };
+        case 'precision': {
+            // Two phases / drive-off: tiers and the class's drive-off qualifiers
+            const ctx = precisionGroupContext(rows, r => r.pCalc);
+            return { key: unlessEliminated(r => ctx.rankKey(r)), compare: comparePrecisionRank, driveOffPending: ctx.pending };
+        }
         default:
             return {
                 key: unlessEliminated(r => totalRankKey({ totalPenalty: r.score, marathonPenalty: r.mPen, dressagePenalty: r.dPen, isClearRound: r.isClearRound === true })),

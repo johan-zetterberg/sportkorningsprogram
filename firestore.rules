@@ -270,6 +270,21 @@ service cloud.firestore {
         || (existsAfter(finPath) && getAfter(finPath).data.get('finalized', false) != true);
     }
 
+    // A drive-off held after the initial round was finalized (owner Q12b):
+    // while the result is locked, a write touching only rounds.driveOff (and
+    // activeRound) is allowed until the lock's driveOffFinalized is set; the
+    // batch that sets or clears it is allowed too (as above)
+    function isPrecisionDriveOffOnlyWrite(compId, startNo) {
+      let finPath = /databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo);
+      let d = request.resource.data;
+      return resource != null
+        && d.diff(resource.data).affectedKeys().hasOnly(['rounds', 'activeRound', 'updatedAt'])
+        && d.get('rounds', {}) is map
+        && d.get('rounds', {}).diff(resource.data.get('rounds', {})).affectedKeys().hasOnly(['driveOff'])
+        && (get(finPath).data.get('driveOffFinalized', false) != true
+          || (existsAfter(finPath) && getAfter(finPath).data.get('driveOffFinalized', false) != true));
+    }
+
     function isMarathonResultUnlocked(compId, startNo) {
       let finPath = /databases/$(database)/documents/competitions/$(compId)/marathonFinalization/$(startNo);
       return !exists(finPath)
@@ -288,7 +303,16 @@ service cloud.firestore {
         && existsAfter(logPath)
         && log.discipline == discipline
         && log.startNumber == startNo
-        && log.action == (request.resource.data.get('finalized', false) == true ? 'finalize' : 'unfinalize');
+        && log.action == lockChangeAction(request.resource.data);
+    }
+
+    // A precision lock may also change only its drive-off lock
+    // (driveOffFinalized, finalizationService.finalizePrecisionDriveOff)
+    function lockChangeAction(after) {
+      let before = resource == null ? {} : resource.data;
+      return after.get('driveOffFinalized', false) != before.get('driveOffFinalized', false)
+        ? (after.get('driveOffFinalized', false) == true ? 'finalizeDriveOff' : 'unfinalizeDriveOff')
+        : (after.get('finalized', false) == true ? 'finalize' : 'unfinalize');
     }
 
     function isLockNamingLogEntry(compId, discipline, startNo, entryId) {
@@ -534,19 +558,70 @@ service cloud.firestore {
     // finalizationService, the secretariat)
     function isPrecisionResultWrite() {
       let d = request.resource.data;
+      let changed = d.diff(resource == null ? {} : resource.data).affectedKeys();
+      // A write to a round only (phase 2, drive-off: knocks, clock, save)
+      // skips the top-level checks; a top-level write may only start phase 2
+      // with it (the rules' limit of 1000 expressions)
+      return changed.hasOnly(['rounds', 'activeRound', 'updatedAt', 'startNumber', 'className'])
+        ? (isPrecisionRoundsWrite(d) && optString(d, 'className', 200))
+        : (isPrecisionTopLevelWrite(d)
+          && (!changed.hasAny(['rounds', 'activeRound']) || isPrecisionRoundStartWrite(d)));
+    }
+
+    // The phase-1 finish line of two phases (precisionInputUtils
+    // buildPhase1FinishWrite): the phase-1 save and phase 2's clock started
+    function isPrecisionRoundStartWrite(d) {
+      let rounds = d.get('rounds', {});
+      let before = resource == null ? {} : resource.data.get('rounds', {});
+      return rounds is map && before is map
+        && (!rounds.diff(before).affectedKeys().hasAny(['phase2', 'driveOff'])
+          || (rounds.diff(before).affectedKeys().hasOnly(['phase2'])
+            && rounds.phase2 is map
+            && rounds.phase2.diff(before.get('phase2', {})).affectedKeys()
+              .hasOnly(['running', 'inProgress', 'liveStartEpoch', 'livePausedMs', 'liveTimeMs', 'status', 'updatedAt'])))
+        && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff']);
+    }
+
+    function isPrecisionTopLevelWrite(d) {
       return writesOnlyKeys(['startNumber', 'className', 'driverName', 'trackWidthCm',
           'timeMs', 'liveTimeMs', 'liveStartEpoch', 'livePausedMs',
           'obstaclePenalty', 'timePenalty', 'extraPenalty', 'totalPenalty',
           'liveObstaclePenalty', 'liveTimePenalty', 'liveTotalPenalty',
           'eliminated', 'disqualified', 'running', 'inProgress', 'finalized', 'status', 'comment',
           'knocks', 'knockDownTimes', 'timePenaltyOverride', 'rebuildCount', 'gateSplits',
-          'prioritized', 'finalizedAt', 'finalizedBy', 'unfinalizedAt', 'unfinalizedBy', 'updatedAt'])
+          'prioritized', 'finalizedAt', 'finalizedBy', 'unfinalizedAt', 'unfinalizedBy', 'updatedAt',
+          'rounds', 'activeRound'])
         && optNumber(d, 'timeMs') && optNumber(d, 'liveTimeMs') && optNumber(d, 'livePausedMs')
         && optNumber(d, 'obstaclePenalty') && optNumber(d, 'timePenalty') && optNumber(d, 'extraPenalty')
         && optNumber(d, 'totalPenalty') && optNumber(d, 'liveTotalPenalty') && optNumber(d, 'rebuildCount')
         && optString(d, 'comment', 1000) && optString(d, 'status', 100)
         && optString(d, 'className', 200) && optString(d, 'driverName', 200)
         && optList(d, 'knocks', 100) && optMap(d, 'knockDownTimes', 100) && optMap(d, 'gateSplits', 120);
+    }
+
+    // rounds.phase2 and rounds.driveOff, the same fields as the top level
+    // (js/utils/precisionRounds.js); only the round the write changes is checked
+    function isPrecisionRoundsWrite(d) {
+      let rounds = d.get('rounds', {});
+      let before = resource == null ? {} : resource.data.get('rounds', {});
+      let changed = rounds is map && before is map ? rounds.diff(before).affectedKeys() : ['phase2', 'driveOff'];
+      return rounds is map
+        && rounds.keys().hasOnly(['phase2', 'driveOff'])
+        && (!changed.hasAny(['phase2']) || optPrecisionRound(rounds, 'phase2'))
+        && (!changed.hasAny(['driveOff']) || optPrecisionRound(rounds, 'driveOff'))
+        && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff']);
+    }
+
+    function optPrecisionRound(rounds, key) {
+      let r = rounds.get(key, null);
+      return r == null || (r is map
+        && r.keys().hasOnly(['timeMs', 'liveTimeMs', 'liveStartEpoch', 'livePausedMs', 'running', 'inProgress',
+            'knocks', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired', 'timePenalty',
+            'timePenaltyOverride', 'obstaclePenalty', 'totalPenalty', 'liveObstaclePenalty', 'liveTimePenalty',
+            'liveTotalPenalty', 'status', 'comment', 'finalized', 'updatedAt'])
+        && optNumber(r, 'timeMs') && optNumber(r, 'liveTimeMs') && optNumber(r, 'extraPenalty')
+        && optList(r, 'knocks', 100) && optMap(r, 'knockDownTimes', 100)
+        && optString(r, 'comment', 1000) && optString(r, 'status', 100));
     }
 
     // dressage/{startNo}/protocols/{judge_<id> | general} (dressageService)
@@ -772,7 +847,7 @@ service cloud.firestore {
         || canAdminThisArtifactsComp('drivelive', compId)
         || canAdminThisArtifactsComp('combined-driving', compId));
       allow create: if request.resource.data.discipline in ['dressage', 'marathon', 'precision']
-        && request.resource.data.action in ['finalize', 'unfinalize']
+        && request.resource.data.action in ['finalize', 'unfinalize', 'finalizeDriveOff', 'unfinalizeDriveOff']
         && request.resource.data.by == request.auth.uid
         && request.resource.data.at == request.time
         && request.resource.data.startNumber is string
@@ -892,10 +967,11 @@ service cloud.firestore {
           canWriteResultsAs(appId, compId, 'precision')
           // The TD finalizes/unlocks (finalizationService), nothing else
           || isTdFinalizeWrite(appId, compId, ['prioritized', 'finalized', 'finalizedAt', 'finalizedBy',
-            'unfinalizedAt', 'unfinalizedBy'])
+            'unfinalizedAt', 'unfinalizedBy', 'rounds'])
         )
         && (
           isPrecisionResultUnlocked(compId, docId)
+          || isPrecisionDriveOffOnlyWrite(compId, docId)
         );
     }
 

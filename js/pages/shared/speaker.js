@@ -25,7 +25,7 @@ import { getCompetitionHeader } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { actionAttrs, escapeHtml, isWithdrawnEquipage, msToLabel } from '../../utils/sharedUtils.js';
-import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
+import { assignPlaces, comparePrecisionRank, precisionGroupContext } from '../../core-engine/ranking.js';
 import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 import {
@@ -1451,23 +1451,31 @@ function renderCurrentRiderCard() {
             let pen = null;
             let timeMs = null;
             let isElimP = false;
+            // Two phases / drive-off: the placing tiers from the result engine
+            let rounds = null;
             if (liveInjection && String(liveInjection.sn) === sn && liveInjection.discipline === 'precision') {
                 pen = liveInjection.disciplinePenalty;
                 timeMs = liveInjection.timeMs;
                 isElimP = !!liveInjection.eliminated;
+                rounds = liveInjection;
             } else if (pSt) {
                 const pRes = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
                 pen = pRes.totalPenalty;
                 timeMs = pRes.timeMs;
                 isElimP = !!pRes.eliminated;
+                rounds = pRes;
             }
 
-            return { sn, startNumber: e.startNumber, name: e.driverName, penalty: pen, timeMs, eliminated: elimD || elimM || isElimP };
+            return {
+                sn, startNumber: e.startNumber, name: e.driverName, penalty: pen, timeMs, eliminated: elimD || elimM || isElimP,
+                rankResult: { totalPenalty: pen, timeMs, placing: rounds?.placing || null, rounds: rounds?.rounds || null, driveOffScheduled: rounds?.driveOffScheduled === true }
+            };
         });
 
-        // Precision placings (penalty, then time; ties share the place)
+        // Precision placings (tier, penalty, then time; ties share the place)
+        const precisionCtx = precisionGroupContext(classRows, r => r.rankResult);
         const allInClass = assignPlaces(classRows, {
-            key: r => (r.eliminated ? null : precisionRankKey({ totalPenalty: r.penalty, timeMs: r.timeMs })),
+            key: r => (r.eliminated ? null : precisionCtx.rankKey(r)),
             compare: comparePrecisionRank
         }).ranked;
 

@@ -224,6 +224,49 @@ export async function finalizePrecision(competitionId, startNumber) {
   })());
 }
 
+// The drive-off's own lock (owner Q12b): while the initial round is
+// finalized, the rules let the judges write rounds.driveOff until the lock
+// document's driveOffFinalized is true. Logged like any lock change.
+function setDriveOffLock(batch, competitionId, startNumber, finalized) {
+  const user = getGlobalState('currentUser') || {};
+  const logRef = doc(collection(db, `competitions/${competitionId}/finalizationLog`));
+  batch.set(logRef, {
+    discipline: 'precision',
+    action: finalized ? 'finalizeDriveOff' : 'unfinalizeDriveOff',
+    startNumber: String(startNumber),
+    by: user.uid || null,
+    byName: user.displayName || user.email || null,
+    at: serverTimestamp()
+  });
+  const lockRef = doc(db, `competitions/${competitionId}/precisionFinalization/${String(startNumber)}`);
+  batch.set(lockRef, finalized
+    ? { driveOffFinalized: true, driveOffFinalizedAt: Date.now(), driveOffFinalizedBy: getUid(), lastLogId: logRef.id }
+    : { driveOffFinalized: false, driveOffUnfinalizedAt: Date.now(), driveOffUnfinalizedBy: getUid(), lastLogId: logRef.id },
+  { merge: true });
+}
+
+export async function finalizePrecisionDriveOff(competitionId, startNumber) {
+  return trackWrite(`Finaliserar omkörning precision #${startNumber}`, (async () => {
+    const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
+    await assertNotRunning(ref, startNumber);
+    // Result (rounds.driveOff only) and lock in one batch
+    const batch = writeBatch(db);
+    batch.set(ref, { rounds: { driveOff: { finalized: true, updatedAt: Date.now() } } }, { merge: true });
+    setDriveOffLock(batch, competitionId, startNumber, true);
+    await batch.commit();
+  })());
+}
+
+export async function unfinalizePrecisionDriveOff(competitionId, startNumber) {
+  return trackWrite(`Ångrar finalisering omkörning precision #${startNumber}`, (async () => {
+    const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
+    const batch = writeBatch(db);
+    setDriveOffLock(batch, competitionId, startNumber, false);
+    batch.set(ref, { rounds: { driveOff: { finalized: false, updatedAt: Date.now() } } }, { merge: true });
+    await batch.commit();
+  })());
+}
+
 export async function unfinalizePrecision(competitionId, startNumber) {
   return trackWrite(`Ångrar finalisering precision #${startNumber}`, (async () => {
     // Lock and result in one batch (see unfinalizeMarathon)

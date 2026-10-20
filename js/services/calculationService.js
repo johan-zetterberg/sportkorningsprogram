@@ -125,10 +125,11 @@ export function calculateMarathonResult(equipage, obstacleData, timingData, mara
  * @param {Object} data - The raw precision result data (from DB).
  * @param {Object} equipage - The equipage object.
  * @param {Object} config - Precision configuration (max time, widths, etc).
+ * @param {Object} [options] - e.g. { marathonConfig } for the class's rule profile
  * @returns {Object} Standardized precision result object.
  */
-export function calculatePrecisionResult(data, equipage, config) {
-    return _calcPrecision(data, equipage, config);
+export function calculatePrecisionResult(data, equipage, config, options = {}) {
+    return _calcPrecision(data, equipage, config, options);
 }
 
 // --- TOTAL ---

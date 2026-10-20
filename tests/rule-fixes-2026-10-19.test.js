@@ -301,12 +301,18 @@ test('unsupported precision formats get no placing; time competition and Young H
   assert.equal(normal.formatUnsupported, false);
   assert.deepEqual(precisionRankKey(normal), { penalty: 0, timeMs: 140000 });
 
-  for (const format of ['time', 'twoPhase', 'winningRound', 'driveOff', 'youngHorse']) {
+  // Two phases and drive-off are calculated since 2026-10-21 (tests/precision-rounds.test.js)
+  for (const format of ['time', 'winningRound', 'youngHorse']) {
     const r = calculatePrecisionResult({ finalized: true, timeMs: sec(140) }, eq, withFormat(format));
     assert.equal(r.precisionFormat, format);
     assert.equal(r.formatUnsupported, true, format);
     assert.equal(precisionRankKey(r), null, format);
     assert.equal(r.formatExcludesTotal, format === 'time' || format === 'youngHorse', format);
+  }
+  for (const format of ['twoPhase', 'driveOff']) {
+    const r = calculatePrecisionResult({ finalized: true, timeMs: sec(140) }, eq, withFormat(format));
+    assert.equal(r.formatUnsupported, false, format);
+    assert.equal(r.formatExcludesTotal, false, format);
   }
   // A Young Horse/Pony class is flagged by its name (FEI Annex 13), Young Drivers is not
   assert.equal(isYoungHorseClass('CAI-YH 6 years'), true);

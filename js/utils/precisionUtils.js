@@ -28,7 +28,7 @@ import {
     PRECISION_FORMATS
 } from './precisionCalculation.js';
 import { getClassRuleProfile } from '../core-engine/marathon.js';
-import { assignPlaces, comparePrecisionRank, precisionRankKey, isClearRoundClass } from '../core-engine/ranking.js';
+import { assignPlaces, comparePrecisionRank, precisionGroupContext, isClearRoundClass } from '../core-engine/ranking.js';
 import { getMarathonEngineConfig } from './marathonUtils.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../core-engine/rules-ledger.js';
 
@@ -452,6 +452,14 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
         // A precision format the engine does not calculate: no placing
         formatUnsupported: calc.formatUnsupported === true,
         precisionFormat: calc.precisionFormat || 'normal',
+        // Two phases / drive-off (precisionRankKey reads placing and rounds)
+        placing: calc.placing || null,
+        rounds: calc.rounds || null,
+        activeRound: calc.activeRound || 'phase1',
+        phase2Qualified: calc.phase2Qualified === true,
+        phase2Ignored: calc.phase2Ignored === true,
+        driveOffScheduled: calc.driveOffScheduled === true,
+        formatWarnings: calc.formatWarnings || [],
         rebuildCount: calc.rebuildCount || 0,
         timeLabel, // NYTT: Skicka med timeLabel på toppnivå för modalen
 
@@ -593,21 +601,40 @@ export function getToBeatInfo(sn, standings) {
     };
 }
 
-// Placings per class/merged group from the engine result (penalty, then
-// fastest time; see core-engine/ranking.js)
-export function buildPlaceMap(rows, precisionMap, config = {}) {
-    const results = new Map(rows.map((r) => [
-        r,
-        calculatePrecisionResult(precisionMap.get(String(r.startNumber)) || {}, r, config || {})
-    ]));
+const precisionPlaceGroupOf = (r) => r._mergedKey || `CLASS:${r.className || '—'}`;
+
+/**
+ * Placings per class/merged group from the engine result (tiers for two
+ * phases / drive-off, then penalty, then fastest time; see
+ * core-engine/ranking.js). Returns { placeMap: Map sn -> place,
+ * provisional: Set sn (drive-off pending, owner Q13), context
+ * (precisionGroupContext: groups, pending, warnings) }.
+ */
+export function buildPrecisionPlaceInfo(rows, precisionMap, config = {}) {
+    const context = precisionGroupContext(
+        rows,
+        (r) => calculatePrecisionResult(precisionMap.get(String(r.startNumber)) || {}, r, config || {}),
+        precisionPlaceGroupOf,
+        { requireFinished: true }
+    );
     const { placeOf } = assignPlaces(rows, {
-        key: (r) => precisionRankKey(results.get(r), { requireFinished: true }),
+        key: (r) => context.rankKey(r),
         compare: comparePrecisionRank,
-        group: (r) => r._mergedKey || `CLASS:${r.className || '—'}`,
+        group: precisionPlaceGroupOf,
         outField: null
     });
 
     const placeMap = new Map();
-    rows.forEach((r) => placeMap.set(String(r.startNumber), placeOf.get(r)));
-    return placeMap;
+    const provisional = new Set();
+    rows.forEach((r) => {
+        const sn = String(r.startNumber);
+        placeMap.set(sn, placeOf.get(r));
+        if (placeOf.get(r) != null && context.isProvisional(r)) provisional.add(sn);
+    });
+    return { placeMap, provisional, context };
+}
+
+// Placings per class/merged group (Map sn -> place); see buildPrecisionPlaceInfo
+export function buildPlaceMap(rows, precisionMap, config = {}) {
+    return buildPrecisionPlaceInfo(rows, precisionMap, config).placeMap;
 }
