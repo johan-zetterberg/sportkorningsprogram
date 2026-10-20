@@ -54,7 +54,7 @@ export function renderObstacleLeaderboard(obstacleNum, context) {
                     <td class="px-3 py-2 font-bold ${i < 3 ? 'text-brand-gold dark:text-yellow-500' : 'text-gray-400 dark:text-gray-500'}">${i + 1}</td>
                     <td class="px-3 py-2">
                         <div class="font-bold text-gray-800 dark:text-gray-200">${escapeHtml(r.name || '')}</div>
-                        <div class="text-[10px] text-gray-500 dark:text-gray-400">${escapeHtml(r.class || '')} • ${escapeHtml(r.club || '')}</div>
+                        <div class="text-xs text-gray-600 dark:text-gray-300">${escapeHtml(r.class || '')} • ${escapeHtml(r.club || '')}</div>
                     </td>
                     <td class="px-3 py-2 text-right tabular-nums tracking-wide font-black text-gray-900 dark:text-white">${formatSpeakerPenalty(r.penalty)}</td>
                 </tr>
@@ -162,7 +162,7 @@ export function renderSectorAnalysis(context) {
     const html = `
     <div class="overflow-x-auto">
         <table class="w-full text-xs text-left text-gray-600 dark:text-gray-300">
-            <thead class="text-[10px] text-gray-500 dark:text-gray-400 uppercase bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
+            <thead class="text-xs text-gray-600 dark:text-gray-300 uppercase bg-gray-50 dark:bg-gray-700 border-b dark:border-gray-600">
                 <tr>
                     <th class="px-3 py-2"># Ekipage</th>
                     <th class="px-3 py-2">Etapp</th>
@@ -196,9 +196,9 @@ export function renderSectorAnalysis(context) {
                     <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" ${actionAttrs('selectSpeakerRider', String(e.sn ?? ''))}>
                         <td class="px-3 py-2">
                              <div class="font-bold text-gray-900 dark:text-white leading-tight">#${escapeHtml(String(e.sn ?? ''))} ${escapeHtml(e.eq?.driverName || '')}</div>
-                             <div class="text-[10px] text-gray-400 capitalize">${escapeHtml(e.eq?.clubName || '')}</div>
+                             <div class="text-xs text-gray-400 capitalize">${escapeHtml(e.eq?.clubName || '')}</div>
                         </td>
-                        <td class="px-3 py-2 text-[10px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">${escapeHtml(stageLabel)}</td>
+                        <td class="px-3 py-2 text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">${escapeHtml(stageLabel)}</td>
                         <td class="px-3 py-2 text-right tabular-nums tracking-wide">${msToLabel(a.ideal * 1000, false)}</td>
                         <td ${e.analysis.isLive ? `class="sector-live-elapsed px-3 py-2 text-right tabular-nums tracking-wide text-gray-900 dark:text-gray-200 font-bold" data-sn="${escapeHtml(e.sn)}" data-stage="${escapeHtml(stageKey)}" data-start="${escapeHtml(realStart)}"` : `class="px-3 py-2 text-right tabular-nums tracking-wide text-gray-400 dark:text-gray-500"`}>${formatMsLive(a.ms)}</td>
                         <td ${liveAttrs}>

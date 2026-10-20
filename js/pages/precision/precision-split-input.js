@@ -77,7 +77,7 @@ export function renderLayout() {
             <div class="mb-4">
                 ${getCompetitionHeader(comp, isFieldMode
                     ? 'Precision - manuell passagerapportering'
-                    : t('precision_split_header'))}
+                    : t('precision_split_header'), { quickGuideRole: 'precision-split' })}
             </div>
             ${renderCompetitionModeBanner(comp, {
                 message: 'Tävlingen körs i fältläge. Passager och delhändelser kan rapporteras manuellt här utan full livekarta.'
@@ -353,7 +353,7 @@ async function autoSelectRunningDriver(silent = false) {
             // Only when it was actually selected: a running start number not in
             // the list left nothing selected, and every poll announced it again
             if (currentEquipage && String(currentEquipage.startNumber) === String(startNumber)) {
-                showAlert(t('precision_split_autofocus').replace('{startNumber}', startNumber));
+                showAlert(t('precision_split_autofocus').replace('{startNumber}', startNumber), 'info');
             }
         } else if (!silent) {
             showAlert(t('precision_split_no_started'), 'info');

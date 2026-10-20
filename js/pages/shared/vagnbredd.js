@@ -2,8 +2,9 @@
 
 import { getGlobalState } from '../../main.js';
 import { getEquipages, saveEquipage } from '../../services/equipageService.js';
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { t } from '../../utils/i18n.js';
 import {
     buildVagnbreddDropdownItems,
     buildVagnbreddSavePayload,
@@ -288,7 +289,7 @@ function navigateToEquipage(delta) {
     } else {
         const newIndex = currentIndex + delta;
         if (newIndex < 0 || newIndex >= sortedEquipages.length) {
-            showAlert(delta > 0 ? 'Du är vid slutet av listan.' : 'Du är vid början av listan.');
+            showAlert(delta > 0 ? t('marathon_end_of_startlist') : t('marathon_start_of_startlist'), 'info');
             return;
         }
         currentIndex = newIndex;
@@ -301,7 +302,7 @@ function navigateToEquipage(delta) {
 function renderPage(page, competition) {
     page.innerHTML = `
         <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-lg">
-            ${getCompetitionHeader(competition, 'Funktionskontroll & Vagnbredd')}
+            ${getCompetitionHeader(competition, 'Funktionskontroll & Vagnbredd', { quickGuideRole: 'vagnbredd' })}
             <div class="bg-white dark:bg-gray-800 p-4 sm:p-5 md:p-6 rounded-xl shadow-md space-y-5 sm:space-y-6">
                 <div>
                     <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">1. Välj ekipage</label>
@@ -386,7 +387,7 @@ function renderPage(page, competition) {
                     </div>
                 </div>
 
-                <button id="saveVagnbreddBtn" class="w-full bg-brand-darkblue text-white font-semibold py-3 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-lg dark:bg-blue-600 dark:hover:bg-blue-500 dark:hover:text-white transition-colors">Spara & gå till nästa</button>
+                <button id="saveVagnbreddBtn" class="w-full bg-emerald-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-emerald-700 text-lg transition-colors">Spara & gå till nästa</button>
             </div>
             <div id="progressIndicator" class="text-center text-gray-600 dark:text-gray-400 mt-4"></div>
         </div>
@@ -420,7 +421,7 @@ export async function load() {
     }
 
     if (!competition) {
-        page.innerHTML = '<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>';
+        page.innerHTML = renderNoCompetitionState();
         return;
     }
 

@@ -117,3 +117,16 @@ test('hub.js includes organizer guide banner linking to admin manual', () => {
   assert.ok(hubCode.includes('href="#manual?tab=admin"'), 'Should link directly to admin manual');
   assert.ok(hubCode.includes('hub_guide_banner_title'), 'Should use i18n title for organizer guide banner');
 });
+
+test('manual matches the current input pages and access model', () => {
+  assert.ok(!manualCode.includes('SPARA RESULTAT</span> när du är klar'), 'Obstacle save button is SPARA & NÄSTA (from i18n)');
+  assert.ok(manualCode.includes("btn('marathon_save_and_next', 'sv')"));
+  assert.ok(!manualCode.includes('Antal rivningar'), 'The obstacle field is Rivning/boll (from i18n)');
+  assert.ok(!manualCode.includes('väntetiden i sekunder'), 'Hold time is entered in minutes');
+  assert.ok(!manualCode.includes('Spara Slutgiltigt Resultat'));
+  assert.ok(manualCode.includes('+10 s (ombyggnad)'));
+  assert.ok(!manualCode.includes('Välj en specifik kusk i rullistan'), 'Targeted messages use a checklist');
+  assert.ok(!manualCode.includes('Kontrollera på <em>Totalresultat</em> att alla domare'), 'Unfinalize is on the discipline result pages');
+  assert.ok(manualCode.includes('10 tecken') && manualCode.includes('ingen admin-PIN'));
+  assert.ok(!/REGISTRERA HALT|REGISTER HALT/.test(manualCode), 'Halts use START/STOPP');
+});

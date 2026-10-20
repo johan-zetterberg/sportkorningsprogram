@@ -5,6 +5,9 @@ import { auth, db, appId, functions } from '../config/firebase-config.js';
 import { findClaimableEquipagesByEmail } from './equipageService.js';
 import { setGlobalState, getGlobalState, getCompetitionMode } from '../main.js'; // <-- NYTT: Importera setGlobalState
 import { t } from '../utils/i18n.js';
+import { hasRoleAccess, mergeUserRoles } from '../utils/roleAccess.js';
+import { activateDialog } from '../ui/dialogA11y.js';
+import { showConfirm } from '../ui/components.js';
 // Lokal state för denna modul
 let currentUserRole = 'publik'; // 'publik' är standardrollen
 let currentUserId = null;
@@ -132,76 +135,134 @@ function renderEmailVerificationBanner(user) {
 /**
  * Uppdaterar synligheten för olika UI-element baserat på användarens roll och inloggningsstatus.
  */
+/** A role's name for the header ("Dressyr", "Superadmin") */
+export function roleLabel(role) {
+    const key = `role_${role}`;
+    const label = t(key);
+    return label && label !== key ? label : String(role || '').charAt(0).toUpperCase() + String(role || '').slice(1);
+}
+
 export function updateUIVisibility() {
     const competitionMode = getCompetitionMode();
-    // --- NYTT: Hämta användaren från global state istället för lokala variabler ---
     const currentUser = getGlobalState('currentUser');
-    const userCompRoles = currentUser?.compRoles && currentUser.compRoles.length > 0 ? currentUser.compRoles : [];
+    const userCompRoles = Array.isArray(currentUser?.compRoles) ? currentUser.compRoles : [];
     const globalRole = currentUser?.role || 'publik';
-    const rolesToCheck = userCompRoles.length > 0 ? userCompRoles : [globalRole];
-    // --------------------------------------------------------------------------
+    // Global and competition roles together: a global admin who also holds a
+    // competition role keeps the admin links
+    const rolesToCheck = mergeUserRoles(currentUser);
+    const features = getGlobalState('competitionFeatures') || {};
 
     const userInfoDiv = document.getElementById('userInfo');
     const userRoleSpan = document.getElementById('userRole');
     const logoutButton = document.getElementById('logoutButton');
+    const menuLogoutButton = document.getElementById('menuLogoutButton');
+    const menuUserInfo = document.getElementById('menuUserInfo');
     const loginButton = document.getElementById('loginButton');
     const navLinks = document.querySelectorAll('.nav-link');
     const menuToggle = document.getElementById('menu-toggle');
 
     if (currentUser) { // Användaren är inloggad
+        let label = currentUser.email || '';
+        if (globalRole !== 'publik') label = roleLabel(globalRole);
+        else if (userCompRoles.length > 0) label = userCompRoles.map(roleLabel).join(', ');
         userInfoDiv.style.display = 'flex';
-        if (globalRole !== 'publik') {
-            userRoleSpan.textContent = globalRole.charAt(0).toUpperCase() + globalRole.slice(1);
-        } else if (userCompRoles.length > 0) {
-            userRoleSpan.textContent = userCompRoles.map(r => r.charAt(0).toUpperCase() + r.slice(1)).join(', ');
-        } else {
-            userRoleSpan.textContent = currentUser.email;
-        }
+        userRoleSpan.textContent = label;
+        if (menuUserInfo) menuUserInfo.textContent = [currentUser.email, label !== currentUser.email ? label : ''].filter(Boolean).join(' · ');
         logoutButton.style.display = 'block';
+        menuLogoutButton?.classList.remove('hidden');
         loginButton.style.display = 'none';
     } else { // Användaren är utloggad
         userInfoDiv.style.display = 'none';
+        if (menuUserInfo) menuUserInfo.textContent = '';
         logoutButton.style.display = 'none';
+        menuLogoutButton?.classList.add('hidden');
         loginButton.style.display = 'block';
     }
 
     navLinks.forEach(link => {
         const requiredRoles = (link.dataset.roleRequired || 'publik,funktionar,domare,admin').split(',');
         const requiredMode = (link.dataset.competitionMode || '').trim();
-        
-        // Mappa specifika funktionärsroller till den generella "funktionar"-nivån
-        const roleHierarchy = {
-            'superadmin': ['superadmin', 'admin', 'funktionar', 'publik'],
-            'admin': ['admin', 'funktionar', 'publik'],
-            'dressage': ['dressage', 'funktionar', 'publik'],
-            'marathon': ['marathon', 'funktionar', 'publik'],
-            'precision': ['precision', 'funktionar', 'publik'],
-            'speaker': ['speaker', 'funktionar', 'publik'],
-            // Limited: the vet page and public pages (as in navigationService)
-            'vet': ['vet', 'publik'],
-            'publik': ['publik']
-        };
-        
-        let hasAccess = false;
-        for (const r of rolesToCheck) {
-            const expandedRoles = roleHierarchy[r] || [r, 'publik'];
-            if (requiredRoles.some(req => expandedRoles.includes(req))) {
-                hasAccess = true;
-                break;
-            }
-        }
+        const requiredFeature = (link.dataset.requiresFeature || '').trim();
 
-        if (hasAccess && requiredMode && requiredMode !== competitionMode) {
-            hasAccess = false;
-        }
-        
+        let hasAccess = hasRoleAccess(rolesToCheck, requiredRoles);
+        if (hasAccess && requiredMode && requiredMode !== competitionMode) hasAccess = false;
+        // A feature the competition has turned off (false; unknown keeps the link)
+        if (hasAccess && requiredFeature && features[requiredFeature] === false) hasAccess = false;
+
         link.style.display = hasAccess ? 'block' : 'none';
+    });
+
+    // Groups and their headings only with a visible link in them
+    const isShown = (el) => el.style.display !== 'none';
+    document.querySelectorAll('#nav-links .nav-group').forEach(group => {
+        const any = Array.from(group.querySelectorAll('a.nav-link')).some(isShown);
+        group.style.display = any ? '' : 'none';
+    });
+    document.querySelectorAll('#nav-links .dropdown-container').forEach(container => {
+        const toggle = container.querySelector('.dropdown-toggle');
+        const any = Array.from(container.querySelectorAll('.dropdown-menu a.nav-link')).some(isShown);
+        if (toggle && !any) toggle.style.display = 'none';
+        container.style.display = toggle && isShown(toggle) ? '' : 'none';
     });
 
     if (menuToggle) {
         const visibleLinks = Array.from(navLinks).some(link => link.style.display !== 'none');
-        menuToggle.style.display = visibleLinks ? 'block' : 'none';
+        menuToggle.style.display = visibleLinks ? '' : 'none';
     }
+}
+
+// --- Login modal ---
+
+let releaseLoginDialog = null;
+
+/**
+ * Opens the login modal. reason 'protected': the user was sent here from a
+ * page that needs a login (then the lead says so); otherwise a neutral lead.
+ */
+export function openLoginModal({ reason = 'manual' } = {}) {
+    const modal = document.getElementById('loginModal');
+    if (!modal) return;
+    modal.dataset.reason = reason;
+    const lead = document.getElementById('loginModalLead');
+    if (lead) lead.textContent = reason === 'protected' ? t('login_required_page') : t('login_modal_lead');
+    try { document.dispatchEvent(new CustomEvent('app-overlay-open')); } catch (_) { }
+    modal.style.display = 'flex';
+    const panel = modal.querySelector('[data-login-panel]') || modal.firstElementChild;
+    releaseLoginDialog = activateDialog(panel, {
+        labelledBy: 'loginModalTitle',
+        initialFocus: '#email',
+        onEscape: () => closeLoginModal()
+    });
+}
+
+/**
+ * Closes the login modal. onlyReason: close it only when it was opened for
+ * that reason (the router closes its own "log in to see this page" modal, not
+ * one the user opened with Logga in while the app was still starting).
+ */
+export function closeLoginModal({ onlyReason = null } = {}) {
+    const modal = document.getElementById('loginModal');
+    if (!modal || modal.style.display !== 'flex') return;
+    if (onlyReason && modal.dataset.reason !== onlyReason) return;
+    modal.style.display = 'none';
+    delete modal.dataset.reason;
+    const release = releaseLoginDialog;
+    releaseLoginDialog = null;
+    release?.();
+}
+
+/** Logout with a confirmation: the device's data goes with it */
+export async function requestLogout() {
+    const offline = typeof navigator !== 'undefined' && navigator.onLine === false;
+    const message = offline
+        ? `${t('logout_confirm_msg')}\n\n${t('logout_confirm_offline')}`
+        : t('logout_confirm_msg');
+    const ok = await showConfirm(message, {
+        title: t('logout_confirm_title'),
+        confirmLabel: t('logout'),
+        danger: true
+    });
+    if (ok) await logoutUser();
 }
 
 export async function resetPassword(email) {
@@ -323,8 +384,9 @@ export function initAuth(callback) {
     const loginButton = document.getElementById('loginButton');
     const closeLoginModalButton = document.getElementById('closeLoginModal');
     const toggleAuthModeBtn = document.getElementById('toggleAuthMode');
-    const modalTitle = document.querySelector('#loginModal h2');
-    const modalLead = document.querySelector('#loginModal p.text-center.text-gray-600');
+    const modalTitle = document.getElementById('loginModalTitle');
+    const modalLead = document.getElementById('loginModalLead');
+    const closeLabel = t('close_btn');
     const emailLabel = document.querySelector('label[for="email"]');
     const passwordLabel = document.querySelector('label[for="password"]');
     const forgotPwBtn = document.getElementById('forgotPasswordLink');
@@ -333,7 +395,9 @@ export function initAuth(callback) {
     let isRegisterMode = false;
 
     const syncAuthUiTexts = () => {
-        if (modalLead) modalLead.textContent = t('login_required_page');
+        const reason = document.getElementById('loginModal')?.dataset.reason;
+        if (modalLead) modalLead.textContent = reason === 'protected' ? t('login_required_page') : t('login_modal_lead');
+        if (closeLoginModalButton) closeLoginModalButton.setAttribute('aria-label', closeLabel);
         if (emailLabel) emailLabel.textContent = t('email_address');
         if (passwordLabel) passwordLabel.textContent = t('password');
         if (forgotPwBtn) forgotPwBtn.textContent = t('forgot_password');
@@ -400,14 +464,17 @@ export function initAuth(callback) {
         });
     }
 
-    if (logoutButton) logoutButton.addEventListener('click', logoutUser);
+    if (logoutButton) logoutButton.addEventListener('click', requestLogout);
+    document.getElementById('menuLogoutButton')?.addEventListener('click', requestLogout);
     if (loginButton) loginButton.addEventListener('click', () => {
-        const m = document.getElementById('loginModal');
-        if (m) m.style.display = 'flex';
+        isRegisterMode = false;
+        openLoginModal({ reason: 'manual' });
+        syncAuthUiTexts();
     });
+    // Pages (e.g. the portal) open it with data-action="openLoginModal"
+    window.openLoginModal = () => { openLoginModal({ reason: 'manual' }); syncAuthUiTexts(); };
     if (closeLoginModalButton) closeLoginModalButton.addEventListener('click', () => {
-        const m = document.getElementById('loginModal');
-        if (m) m.style.display = 'none';
+        closeLoginModal();
 
         // Reset to login mode
         isRegisterMode = false;
@@ -433,7 +500,7 @@ export function initAuth(callback) {
                     role: prevSameUser?.role || 'publik' // Temporärt
                 }
             });
-            document.getElementById('loginModal').style.display = 'none';
+            closeLoginModal();
             updateUIVisibility();
             renderEmailVerificationBanner(user);
 

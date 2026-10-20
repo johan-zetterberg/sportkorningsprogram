@@ -30,6 +30,7 @@
 
   <link rel="stylesheet" href="css/tailwind.css">
   <link rel="stylesheet" href="css/style.css">
+  <link rel="stylesheet" href="css/app-shell.css">
   <!-- Icons (<i class="fas fa-…">) used across the pages -->
   <!-- Version-pinned CDN files carry SRI hashes. The Firebase SDK modules from
        www.gstatic.com are ES module imports in js/, which cannot carry SRI -->
@@ -62,8 +63,9 @@
 
   <!-- Global Offline Banner -->
   <div id="offline-banner"
-    class="app-offline-banner hidden bg-yellow-500 text-white text-center py-2 px-4 shadow-md sticky top-0 z-[60] font-bold">
-    ⚠️ Du är offline. Ändringar sparas lokalt och synkas när anslutningen återkommer.
+    class="app-offline-banner hidden bg-yellow-500 text-white text-center py-2 px-4 shadow-md sticky top-0 z-[60] font-bold"
+    role="status">
+    <span aria-hidden="true">⚠️</span> <span data-i18n="offline_banner">Du är offline. Ändringar sparas lokalt och synkas när anslutningen återkommer.</span>
   </div>
 
   <nav class="app-main-nav bg-white shadow-md sticky top-0 z-50 dark:bg-gray-800 dark:border-gray-700">
@@ -103,10 +105,11 @@
             class="hidden items-center mr-2 text-sm font-semibold capitalize text-blue-700 dark:text-blue-400">
             <span id="userRole"></span>
           </div>
-          <button id="loginButton"
+          <button id="loginButton" type="button" data-i18n="login"
             class="app-nav-auth-btn hidden bg-blue-500 hover:bg-brand-darkblue text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga in</button>
-          <button id="logoutButton"
-            class="app-nav-auth-btn hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga ut</button>
+          <!-- Hidden on phones and on the judge pages: there it is in the menu -->
+          <button id="logoutButton" type="button" data-i18n="logout"
+            class="app-nav-auth-btn app-header-logout hidden bg-red-500 hover:bg-red-600 text-white text-sm font-bold py-1 px-3 rounded-md transition-colors">Logga ut</button>
           <!-- Offline-badge -->
           <span id="net-badge"
             style="display:none; padding:2px 6px; border-radius:6px; background:#444; color:#fff; font-size:12px; margin-left:8px;">
@@ -114,8 +117,8 @@
           </span>
 
           <div class="xl:hidden ml-2">
-            <button id="menu-toggle" type="button" aria-label="Meny" aria-controls="nav-links" class="app-menu-toggle text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white focus:outline-none">
-              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            <button id="menu-toggle" type="button" aria-label="Meny" aria-controls="nav-links" aria-expanded="false" class="app-menu-toggle text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-white focus:outline-none">
+              <svg class="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"
                 xmlns="http://www.w3.org/2000/svg">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16">
                 </path>
@@ -123,8 +126,17 @@
             </button>
           </div>
         </div>
+        <!-- Phones and tablets: a sheet under the header with a backdrop -->
+        <div id="nav-backdrop" class="app-nav-backdrop hidden" aria-hidden="true"></div>
         <div id="nav-links"
           class="hidden absolute top-16 right-0 w-auto min-w-[200px] max-h-[calc(100vh-4rem)] overflow-y-auto bg-white dark:bg-gray-800 shadow-lg rounded-bl-lg xl:static xl:flex xl:w-auto xl:shadow-none xl:bg-transparent xl:dark:bg-transparent xl:max-h-none xl:overflow-visible xl:rounded-none">
+          <div class="app-nav-sheet-head">
+            <div class="min-w-0">
+              <div class="app-nav-sheet-title" data-i18n="menu_open">Meny</div>
+              <div id="menuUserInfo" class="app-nav-sheet-user"></div>
+            </div>
+            <button id="menu-close" type="button" class="app-nav-sheet-close" aria-label="Stäng menyn">&times;</button>
+          </div>
           <div class="app-nav-link-list flex flex-col xl:flex-row xl:flex-nowrap xl:items-center text-sm">
             <a href="#hub" class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
               data-role-required="publik,funktionar,domare,admin" data-i18n="menu_hub">Hub</a>
@@ -134,12 +146,12 @@
 
             <a href="#competition-center"
               class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
-              data-role-required="publik,funktionar,domare,admin">Publik Info</a>
+              data-role-required="publik,funktionar,domare,admin" data-i18n="menu_public_info">Publik Info</a>
 
             <div class="relative dropdown-container">
-              <button
+              <button type="button" aria-expanded="false"
                 class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700"
-                data-role-required="publik,funktionar,domare,admin" data-i18n="menu_participants">Deltagare ▼</button>
+                data-role-required="publik,funktionar,domare,admin"><span data-i18n="menu_participants">Deltagare</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#deltagare"
@@ -156,8 +168,8 @@
               data-role-required="publik,funktionar,domare,admin" data-i18n="menu_start_times">Starttider</a>
 
             <div class="relative dropdown-container">
-              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
-                data-role-required="publik,funktionar,domare,admin" data-i18n="menu_dressage">Dressyr ▼</button>
+              <button type="button" aria-expanded="false" class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin"><span data-i18n="menu_dressage">Dressyr</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#dressyr-monitor" class="nav-link block px-4 py-2"
@@ -171,8 +183,8 @@
             </div>
 
             <div class="relative dropdown-container">
-              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
-                data-role-required="publik,funktionar,domare,admin" data-i18n="menu_marathon">Maraton ▼</button>
+              <button type="button" aria-expanded="false" class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin"><span data-i18n="menu_marathon">Maraton</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#maraton-monitor" class="nav-link block px-4 py-2"
@@ -191,63 +203,62 @@
             </div>
 
             <div class="relative dropdown-container">
-              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
-                data-role-required="publik,funktionar,domare,admin" data-i18n="menu_precision">Precision ▼</button>
+              <button type="button" aria-expanded="false" class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
+                data-role-required="publik,funktionar,domare,admin"><span data-i18n="menu_precision">Precision</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#precision-monitor" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
                 <a href="#precision-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin"
                   data-i18n="menu_input">Inmatning Precision</a>
-                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin">Inmatning (Observer/Karta)</a>
+                <a href="#precision-split-input" class="nav-link block px-4 py-2" data-role-required="precision,domare,admin"
+                  data-requires-feature="precisionLiveMap" data-i18n="menu_precision_split">Inmatning (Observer/Karta)</a>
                 <a href="#precision-results" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Precision</a>
               </div>
             </div>
 
             <div class="relative dropdown-container">
-              <button class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
-                data-role-required="funktionar,domare,admin,vet" data-i18n="menu_admin">Admin ▼</button>
+              <button type="button" aria-expanded="false" class="dropdown-toggle nav-link w-full text-left px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
+                data-role-required="funktionar,domare,admin,vet"><span data-i18n="menu_admin">Admin</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
                 <a href="#official" class="nav-link block px-4 py-2 font-bold text-blue-600 dark:text-blue-400"
-                  data-role-required="funktionar,domare,admin">Funktionärsportal</a>
+                  data-role-required="funktionar,domare,admin" data-i18n="menu_official_portal">Funktionärsportal</a>
                 <div class="grid grid-cols-1 xl:grid-cols-2 gap-x-6 gap-y-4 p-2 xl:p-4">
-                  <div>
-                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Portal &amp; Drift</div>
+                  <div class="nav-group">
+                    <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_portal_ops">Portal &amp; drift</div>
                 <a href="#admin" class="nav-link block px-4 py-2" data-role-required="admin"
                   data-i18n="menu_admin_dashboard">Admin Dashboard</a>
                 <a href="#reports" class="nav-link block px-4 py-2" data-role-required="funktionar,domare,admin"
                   data-i18n="menu_reports">Rapportcenter</a>
                   </div>
-                  <div>
-                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Administration</div>
+                  <div class="nav-group">
+                    <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_administration">Administration</div>
                 <a href="#ekipage" class="nav-link block px-4 py-2" data-role-required="admin"
                   data-i18n="menu_manage_equipage">Hantera Ekipage</a>
                 <a href="#vet-check" class="nav-link block px-4 py-2"
-                  data-role-required="admin,vet">Veterinär</a>
+                  data-role-required="admin,vet" data-i18n="menu_vet">Veterinär</a>
                 <a href="#vagnbredd" class="nav-link block px-4 py-2"
-                  data-role-required="precision,domare,admin">Mätning Vagnbredd</a>
+                  data-role-required="precision,domare,admin" data-i18n="menu_carriage_width">Mätning vagnbredd</a>
                   </div>
-                  <div>
-                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Grenadmin</div>
-                <a href="#dressyr-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin Dressyr</a>
-                <a href="#maraton-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin Maraton</a>
-                <a href="#precision-admin" class="nav-link block px-4 py-2" data-role-required="admin">Admin
-                  Precision</a>
+                  <div class="nav-group">
+                    <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_discipline_admin">Grenadmin</div>
+                <a href="#dressyr-admin" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_dressage">Admin Dressyr</a>
+                <a href="#maraton-admin" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_marathon">Admin Maraton</a>
+                <a href="#precision-admin" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_precision">Admin Precision</a>
                   </div>
-                  <div>
-                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Sekretariat</div>
-                <a href="#sekretariat-precision" class="nav-link block px-4 py-2" data-role-required="admin,precision">Sekretariat Precision</a>
-                <a href="#sekretariat-maraton" class="nav-link block px-4 py-2" data-role-required="admin,marathon">Sekretariat Maraton</a>
-                <a href="#sekretariat-dressyr" class="nav-link block px-4 py-2" data-role-required="admin,dressage">Sekretariat Dressyr</a>
+                  <div class="nav-group">
+                    <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_secretariat">Sekretariat</div>
+                <a href="#sekretariat-precision" class="nav-link block px-4 py-2" data-role-required="admin,precision" data-i18n="menu_secretariat_precision">Sekretariat Precision</a>
+                <a href="#sekretariat-maraton" class="nav-link block px-4 py-2" data-role-required="admin,marathon" data-i18n="menu_secretariat_marathon">Sekretariat Maraton</a>
+                <a href="#sekretariat-dressyr" class="nav-link block px-4 py-2" data-role-required="admin,dressage" data-i18n="menu_secretariat_dressage">Sekretariat Dressyr</a>
                   </div>
-                  <div>
-                    <div class="px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500">Ceremoni</div>
-                <a href="#speaker" class="nav-link block px-4 py-2" data-role-required="speaker,domare,admin">Speaker
-                  Dashboard</a>
+                  <div class="nav-group">
+                    <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_ceremony">Ceremoni</div>
+                <a href="#speaker" class="nav-link block px-4 py-2" data-role-required="speaker,domare,admin" data-i18n="menu_speaker">Speaker Dashboard</a>
                 <a href="#prize-giving" class="nav-link block px-4 py-2"
-                  data-role-required="funktionar,domare,admin,speaker">Prisutdelning 🏆</a>
+                  data-role-required="funktionar,domare,admin,speaker" data-i18n="menu_prize_giving">Prisutdelning 🏆</a>
                   </div>
                 </div>
               </div>
@@ -263,9 +274,12 @@
             <!-- Language Toggle (Desktop: Far Right / Mobile: Bottom) -->
             <div id="langToggle"
               class="app-lang-toggle ml-3 flex items-center gap-1.5"
-              title="Byt språk / Switch Language">
+              role="group" aria-label="Språk / Language">
               <!-- Content injected by JS -->
             </div>
+
+            <!-- Log out from the menu (phones, tablets and the judge pages) -->
+            <button id="menuLogoutButton" type="button" class="app-menu-logout hidden" data-i18n="logout">Logga ut</button>
 
 
           </div>
@@ -323,11 +337,11 @@
 
   <div id="loginModal"
     class="fixed inset-0 bg-gray-800 bg-opacity-75 h-full w-full z-[100] flex items-center justify-center">
-    <div class="w-full max-w-md p-8 space-y-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg relative">
+    <div class="w-full max-w-md p-6 sm:p-8 space-y-6 bg-white dark:bg-gray-800 rounded-xl shadow-lg relative max-h-[100dvh] overflow-y-auto" data-login-panel>
       <button id="closeLoginModal" type="button" aria-label="Stäng"
-        class="absolute top-4 right-4 text-3xl font-light text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">&times;</button>
-      <h2 class="text-3xl font-bold text-center text-gray-900 dark:text-white">Logga in</h2>
-      <p class="text-center text-gray-600 dark:text-gray-300">Du måste logga in för att se denna sida.</p>
+        class="absolute top-3 right-3 w-11 h-11 flex items-center justify-center text-3xl font-light text-gray-400 hover:text-gray-800 dark:hover:text-gray-200">&times;</button>
+      <h2 id="loginModalTitle" class="text-3xl font-bold text-center text-gray-900 dark:text-white">Logga in</h2>
+      <p id="loginModalLead" class="text-center text-gray-600 dark:text-gray-300">Logga in för att se din portal, dina uppdrag eller administrera tävlingar.</p>
       <form id="loginForm" class="space-y-6">
         <div>
           <label for="email" class="text-sm font-bold text-gray-600 dark:text-gray-300 block">E-postadress</label>
@@ -352,7 +366,7 @@
           Har du inget konto? Registrera dig här.
         </button>
         <p class="text-center text-xs text-gray-500 dark:text-gray-400">
-          <a href="#privacy" id="loginPrivacyLink" class="hover:underline">Så hanteras dina personuppgifter / Privacy notice</a>
+          <a href="#privacy" id="loginPrivacyLink" class="hover:underline" data-i18n="account_privacy_link">Så hanteras dina personuppgifter</a>
         </p>
       </form>
     </div>
@@ -476,17 +490,18 @@
 
   <div id="alertModal"
     class="fixed inset-0 bg-gray-600 bg-opacity-50 h-full w-full z-[100] flex items-center justify-center hidden">
-    <div class="relative mx-auto p-5 border w-96 max-w-[calc(100%-2rem)] shadow-lg rounded-md bg-white dark:bg-gray-800 dark:border-gray-700">
+    <div class="relative mx-auto p-5 border w-96 max-w-[calc(100%-2rem)] max-h-[90dvh] overflow-y-auto shadow-lg rounded-md bg-white dark:bg-gray-800 dark:border-gray-700"
+      data-alert-panel role="alertdialog" aria-modal="true" aria-labelledby="alertModalTitle" aria-describedby="alertModalMessage">
       <div class="mt-3 text-center">
         <div id="alertModalIcon"
           class="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900">
         </div>
-        <h3 id="alertModalTitle" class="text-lg leading-6 font-medium text-gray-900 dark:text-white mt-2">Klart!</h3>
-        <div class="mt-2 px-7 py-3">
-          <p class="text-sm text-gray-500 dark:text-gray-400" id="alertModalMessage">Aktionen har utförts.</p>
+        <h2 id="alertModalTitle" class="text-lg leading-6 font-medium text-gray-900 dark:text-white mt-2">Klart!</h2>
+        <div class="mt-2 px-4 sm:px-7 py-3">
+          <p class="text-sm text-gray-600 dark:text-gray-300 whitespace-pre-line" id="alertModalMessage"></p>
         </div>
         <div class="items-center px-4 py-3">
-          <button id="closeAlertModal"
+          <button id="closeAlertModal" type="button"
             class="px-4 py-2 bg-green-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500">
             OK
           </button>

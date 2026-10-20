@@ -24,11 +24,20 @@ import { getGlobalState } from '../../main.js';
 import { generateOfficialsPdf, exportOfficialsCsv, exportAssignmentsCsv } from '../../pdf/officialsReports.js';
 import { normalizeOfficialTimestamp } from './adminOfficialDateUtils.js';
 import { formConflictMessage, planFormSave } from '../../utils/formDiff.js';
+import { mergeObstacleLocations } from '../../utils/officialTaskUtils.js';
+import { listenForMarathonObstacles } from '../../services/marathonService.js';
 
 let officials = [];
 let volunteerSignups = [];
 let assignments = [];
 let locations = [];
+// Stored locations; "locations" has the real marathon obstacles merged in
+let storedLocations = [];
+let marathonObstacles = [];
+
+function recomputeLocations() {
+    locations = mergeObstacleLocations(storedLocations, marathonObstacles, assignments);
+}
 let customRoles = [];
 let currentSubTab = 'people'; // 'people' | 'assign' | 'overview'
 let lastSelectedDate = ''; // Persist date during session
@@ -243,17 +252,26 @@ export function renderOfficialsTab(container, competition) {
 
         addOfficialsUnsubscriber(listenForAssignments(competition.id, (data) => {
             assignments = data;
+            recomputeLocations();
             refreshUI(container, competition);
         }));
 
         addOfficialsUnsubscriber(listenForLocations(competition.id, (data) => {
             if (!data || data.length === 0) {
                 // Default generation if empty
-                locations = generateDefaultLocations();
-                saveLocations(competition.id, locations);
+                storedLocations = generateDefaultLocations();
+                saveLocations(competition.id, storedLocations);
             } else {
-                locations = data;
+                storedLocations = data;
             }
+            recomputeLocations();
+            refreshUI(container, competition);
+        }));
+
+        // Obstacle places come from the competition's real obstacle list
+        addOfficialsUnsubscriber(listenForMarathonObstacles(competition.id, (data) => {
+            marathonObstacles = Array.isArray(data) ? data : [];
+            recomputeLocations();
             refreshUI(container, competition);
         }));
 
@@ -293,7 +311,8 @@ function generateDefaultLocations() {
     locs.push({ id: 'WARMUP_M', label: 'Uppvärmning (Maraton)', type: 'warmup_m' });
     locs.push({ id: 'TRANSPORT_M', label: 'Transport (Maraton)', type: 'transport_m' });
 
-    // Generate Obstacles 1-8
+    // Obstacles 1-8 until the course has obstacles: then the real list
+    // replaces them (mergeObstacleLocations)
     for (let i = 1; i <= 8; i++) {
         locs.push({ id: `OBSTACLE_${i}`, label: `Hinder ${i}`, type: 'obstacle' });
     }
@@ -1533,8 +1552,9 @@ function bindContentEvents(container, competition) {
                 else if (discipline === 'precision') newType = 'course_p_custom';
 
                 const newLoc = { id: newId, label: newLabel, type: newType, isCustom: true };
-                locations.push(newLoc);
-                await saveLocations(competition.id, locations);
+                storedLocations.push(newLoc);
+                await saveLocations(competition.id, storedLocations);
+                recomputeLocations();
                 locationId = newId;
             }
 

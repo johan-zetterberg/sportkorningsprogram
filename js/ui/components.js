@@ -2,6 +2,8 @@ import { escapeHtml } from '../utils/sharedUtils.js';
 import { getCompetitionLogoHtml } from '../utils/competitionLogo.js';
 import { t } from '../utils/i18n.js';
 import { renderQuickGuideButton, openQuickGuide } from './quickGuideDrawer.js';
+import { activateDialog } from './dialogA11y.js';
+import { createToastQueue, normalizeAlertOptions, normalizeAlertType, shouldUseToast, toastTimeout } from './toastQueue.js';
 
 export { renderQuickGuideButton, openQuickGuide };
 
@@ -16,7 +18,7 @@ export { renderQuickGuideButton, openQuickGuide };
 export function getCompetitionHeader(competition, pageTitle, options = {}) {
     // Om inget tävlingsobjekt finns, visa en standard-header
     if (!competition) {
-        return `<header class="bg-brand-darkblue p-4 rounded-t-lg text-white">Ingen tävling vald</header>`;
+        return `<header class="bg-brand-darkblue p-4 rounded-t-lg text-white">${escapeHtml(t('no_comp_selected'))}</header>`;
     }
 
     // --- Datumformatering (robust) ---
@@ -177,74 +179,231 @@ export function createSearchableDropdown(container, data, onSelect) {
     };
 }
 
+// --- Feedback: toasts (no answer needed) and the alert modal (errors) ---
+
+const WARNING_ICON = `<svg class="h-6 w-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
+const SUCCESS_ICON = `<svg class="h-6 w-6 text-green-600 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
+const ERROR_ICON = `<svg class="h-6 w-6 text-red-600 dark:text-red-300" stroke="currentColor" fill="none" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
+const INFO_ICON = `<svg class="h-6 w-6 text-blue-600 dark:text-blue-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>`;
+
+const ALERT_STYLES = {
+    success: { icon: SUCCESS_ICON, iconBg: 'bg-green-100 dark:bg-green-900', button: 'bg-green-600 hover:bg-green-700 focus:ring-green-500', title: 'alert_title_success' },
+    info: { icon: INFO_ICON, iconBg: 'bg-blue-100 dark:bg-blue-900', button: 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500', title: 'alert_title_info' },
+    warning: { icon: WARNING_ICON, iconBg: 'bg-yellow-100 dark:bg-yellow-900', button: 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500', title: 'alert_title_warning' },
+    queued: { icon: WARNING_ICON, iconBg: 'bg-yellow-100 dark:bg-yellow-900', button: 'bg-yellow-600 hover:bg-yellow-700 focus:ring-yellow-500', title: 'alert_title_queued' },
+    error: { icon: ERROR_ICON, iconBg: 'bg-red-100 dark:bg-red-900', button: 'bg-red-600 hover:bg-red-700 focus:ring-red-500', title: 'alert_title_error' }
+};
+
+const toastQueue = createToastQueue({ max: 3 });
+const toastTimers = new Map();
+let releaseAlertDialog = null;
+
+// Overlays tell the shell (main.js) so it can close the phone menu first
+function announceOverlay() {
+    try { document.dispatchEvent(new CustomEvent('app-overlay-open')); } catch (_) { }
+}
+
+function ensureToastRegion() {
+    let region = document.getElementById('toastRegion');
+    if (region) return region;
+    region = document.createElement('div');
+    region.id = 'toastRegion';
+    region.className = 'app-toast-region';
+    // Polite: read out after what the user is doing; errors use the modal
+    region.setAttribute('role', 'status');
+    region.setAttribute('aria-live', 'polite');
+    region.setAttribute('aria-atomic', 'false');
+    document.body.appendChild(region);
+    return region;
+}
+
+function removeToastElement(item) {
+    if (!item) return;
+    clearTimeout(toastTimers.get(item.id));
+    toastTimers.delete(item.id);
+    const el = document.querySelector(`#toastRegion [data-toast-id="${item.id}"]`);
+    if (!el) return;
+    el.classList.remove('is-visible');
+    setTimeout(() => el.remove(), 200);
+}
+
+export function dismissToast(id) {
+    removeToastElement(toastQueue.remove(Number(id)));
+}
+
+/** Removes the toasts on screen: all, or those matching predicate(item) */
+export function dismissToasts(predicate) {
+    toastQueue.clear(predicate).forEach(removeToastElement);
+}
+
 /**
- * Visar en modal för meddelanden (t.ex. "Sparat!").
- * @param {string} message - Meddelandet som ska visas.
- * @param {boolean} isSuccess - Om det är ett framgångs- eller felmeddelande.
+ * A short message that needs no answer, shown near the bottom of the screen
+ * (above the phone's safe area) and read out politely by screen readers.
+ * options: { type: 'success'|'info'|'warning'|'queued', title, timeout (ms) }
  */
-export function showAlert(message, isSuccess = true) {
+export function showToast(message, options = {}) {
+    if (typeof document === 'undefined' || !document.body) return null;
+    const type = ALERT_STYLES[options.type] && options.type !== 'error' ? options.type : 'success';
+    const text = String(message ?? '');
+    const title = options.title ?? t(ALERT_STYLES[type].title);
+    const region = ensureToastRegion();
+    const { item, removed } = toastQueue.push({ type, message: text, title });
+    removed.forEach(removeToastElement);
+
+    const el = document.createElement('div');
+    el.className = `app-toast app-toast--${type}`;
+    el.dataset.toastId = String(item.id);
+    el.dataset.toastType = type;
+    el.innerHTML = `
+        <span class="app-toast-icon" aria-hidden="true">${ALERT_STYLES[type].icon}</span>
+        <div class="app-toast-body">
+            ${title ? `<div class="app-toast-title">${escapeHtml(title)}</div>` : ''}
+            <div class="app-toast-message">${escapeHtml(text)}</div>
+        </div>
+        <button type="button" class="app-toast-close" aria-label="${escapeHtml(t('toast_dismiss'))}">&times;</button>
+    `;
+    el.querySelector('.app-toast-close').addEventListener('click', () => dismissToast(item.id));
+    region.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('is-visible'));
+
+    const timeout = toastTimeout(text, type, options.timeout);
+    const start = () => {
+        clearTimeout(toastTimers.get(item.id));
+        toastTimers.set(item.id, setTimeout(() => dismissToast(item.id), timeout));
+    };
+    // Kept while the pointer or keyboard is on it
+    el.addEventListener('pointerenter', () => clearTimeout(toastTimers.get(item.id)));
+    el.addEventListener('pointerleave', start);
+    el.addEventListener('focusin', () => clearTimeout(toastTimers.get(item.id)));
+    el.addEventListener('focusout', start);
+    start();
+    return item.id;
+}
+
+/** Closes the alert modal if it is open (e.g. on a route change) */
+export function closeAlertModal({ restoreFocus = true } = {}) {
     const modal = document.getElementById('alertModal');
-    const iconDiv = document.getElementById('alertModalIcon');
-    const titleEl = document.getElementById('alertModalTitle');
-    const messageEl = document.getElementById('alertModalMessage');
-    const closeModal = () => {
-        if (!modal) return;
+    if (modal) {
         modal.style.display = 'none';
         modal.style.pointerEvents = 'none';
         modal.setAttribute('aria-hidden', 'true');
         modal.classList.add('hidden');
-    };
+    }
+    const release = releaseAlertDialog;
+    releaseAlertDialog = null;
+    release?.({ restoreFocus });
+}
 
-    if (!modal || !iconDiv || !titleEl || !messageEl) return;
-    const button = document.getElementById('closeAlertModal');
-
-    // Callers pass true/false or a type: 'error' and 'warning' are not
-    // successes even though a non-empty string is truthy
-    if (isSuccess === 'error') isSuccess = false;
-    else if (isSuccess === 'success' || isSuccess === 'info') isSuccess = true;
-
-    if (isSuccess === 'warning') {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 dark:bg-yellow-900';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
-        titleEl.textContent = 'Observera';
-        button.className = "px-4 py-2 bg-yellow-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500";
-    } else if (isSuccess === 'offline') {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-yellow-100 dark:bg-yellow-900';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-yellow-600 dark:text-yellow-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>`;
-        titleEl.textContent = 'Sparad till kö';
-        button.className = "px-4 py-2 bg-yellow-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-yellow-700 focus:outline-none focus:ring-2 focus:ring-yellow-500";
-    } else if (isSuccess) {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-green-100 dark:bg-green-900';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-green-600 dark:text-green-300" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>`;
-        titleEl.textContent = 'Klart!';
-        button.className = "px-4 py-2 bg-green-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500";
-    } else {
-        iconDiv.className = 'mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100 dark:bg-red-900';
-        iconDiv.innerHTML = `<svg class="h-6 w-6 text-red-600 dark:text-red-300" stroke="currentColor" fill="none" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>`;
-        titleEl.textContent = 'Fel!';
-        button.className = "px-4 py-2 bg-red-600 text-white text-base font-medium rounded-md w-full shadow-sm hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500";
+/**
+ * Feedback to the user. Successes, information and saves queued offline are
+ * shown as a toast that needs no tap; errors and warnings stay in a modal
+ * (role="alertdialog") that must be closed.
+ * @param {string} message
+ * @param {boolean|string} type true/'success', 'info', 'offline', 'warning', false/'error'
+ * @param {number|object} options a timeout in ms, or { modal: true } to force
+ *   the modal, { timeout, title }
+ */
+export function showAlert(message, type = true, options = {}) {
+    const kind = normalizeAlertType(type);
+    const opts = normalizeAlertOptions(options);
+    if (shouldUseToast(kind, opts)) {
+        return showToast(message, { type: kind, timeout: opts.timeout, title: opts.title });
     }
 
+    const modal = document.getElementById('alertModal');
+    const iconDiv = document.getElementById('alertModalIcon');
+    const titleEl = document.getElementById('alertModalTitle');
+    const messageEl = document.getElementById('alertModalMessage');
+    const button = document.getElementById('closeAlertModal');
+    if (!modal || !iconDiv || !titleEl || !messageEl || !button) return null;
+
+    const style = ALERT_STYLES[kind];
+    iconDiv.className = `mx-auto flex items-center justify-center h-12 w-12 rounded-full ${style.iconBg}`;
+    iconDiv.innerHTML = style.icon;
+    titleEl.textContent = opts.title || t(style.title);
+    button.className = `px-4 py-3 text-white text-base font-medium rounded-md w-full shadow-sm focus:outline-none focus:ring-2 ${style.button}`;
+    button.textContent = t('btn_ok');
     messageEl.textContent = message;
+
+    announceOverlay();
     modal.classList.remove('hidden');
     modal.style.display = 'flex';
     modal.style.pointerEvents = 'auto';
     modal.setAttribute('aria-hidden', 'false');
-    const actionButton =
-        modal.querySelector('[data-alert-close]') ||
-        document.getElementById('alertOkBtn') ||
-        modal.querySelector('button');
-    if (actionButton) {
-        actionButton.onclick = closeModal;
-    }
+    button.onclick = () => closeAlertModal();
     modal.onclick = (event) => {
-        if (event.target === modal) closeModal();
+        if (event.target === modal) closeAlertModal();
     };
+    const panel = modal.querySelector('[data-alert-panel]') || modal.firstElementChild;
+    releaseAlertDialog = activateDialog(panel, {
+        role: 'alertdialog',
+        labelledBy: 'alertModalTitle',
+        initialFocus: button,
+        onEscape: () => closeAlertModal()
+    });
+    return null;
+}
 
-    // Se till att knappen har en lyssnare
-    button.onclick = () => {
-        modal.style.display = 'none';
-    };
+/**
+ * A yes/no question in a modal (role="alertdialog"). Resolves true when the
+ * user confirms, false on cancel, Escape or a tap outside.
+ * options: { title, confirmLabel, cancelLabel, danger }
+ */
+export function showConfirm(message, options = {}) {
+    return new Promise((resolve) => {
+        if (typeof document === 'undefined' || !document.body) { resolve(false); return; }
+        document.getElementById('confirmModal')?.remove();
+        const overlay = document.createElement('div');
+        overlay.id = 'confirmModal';
+        overlay.className = 'app-confirm-modal fixed inset-0 bg-gray-800/60 flex items-end sm:items-center justify-center p-4';
+        const confirmClass = options.danger
+            ? 'bg-red-600 hover:bg-red-700 focus:ring-red-500'
+            : 'bg-blue-600 hover:bg-blue-700 focus:ring-blue-500';
+        overlay.innerHTML = `
+            <div class="w-full max-w-md rounded-xl bg-white dark:bg-gray-800 shadow-xl p-5 text-left" data-confirm-panel>
+                <h2 id="confirmModalTitle" class="text-lg font-semibold text-gray-900 dark:text-white">${escapeHtml(options.title || t('confirm_title'))}</h2>
+                <p id="confirmModalMessage" class="mt-2 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-line">${escapeHtml(message)}</p>
+                <div class="mt-5 flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+                    <button type="button" id="confirmModalCancel" class="min-h-[44px] px-4 py-2 rounded-md border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-100 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 font-medium">${escapeHtml(options.cancelLabel || t('btn_cancel'))}</button>
+                    <button type="button" id="confirmModalOk" class="min-h-[44px] px-4 py-2 rounded-md text-white font-semibold focus:outline-none focus:ring-2 ${confirmClass}">${escapeHtml(options.confirmLabel || t('btn_ok'))}</button>
+                </div>
+            </div>
+        `;
+        const panel = overlay.querySelector('[data-confirm-panel]');
+        panel.setAttribute('aria-describedby', 'confirmModalMessage');
+        let release = null;
+        const finish = (answer) => {
+            release?.();
+            overlay.remove();
+            resolve(answer);
+        };
+        overlay.querySelector('#confirmModalCancel').addEventListener('click', () => finish(false));
+        overlay.querySelector('#confirmModalOk').addEventListener('click', () => finish(true));
+        overlay.addEventListener('click', (event) => { if (event.target === overlay) finish(false); });
+        announceOverlay();
+        document.body.appendChild(overlay);
+        release = activateDialog(panel, {
+            role: 'alertdialog',
+            labelledBy: 'confirmModalTitle',
+            initialFocus: '#confirmModalCancel',
+            onEscape: () => finish(false)
+        });
+    });
+}
+
+/**
+ * A page that needs a competition when none is chosen: says so and offers
+ * the way to the hub instead of a dead end.
+ */
+export function renderNoCompetitionState({ message = '' } = {}) {
+    return `
+        <div class="app-empty-state max-w-md mx-auto my-8 p-6 text-center bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
+            <div class="text-3xl mb-2" aria-hidden="true">🏁</div>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">${escapeHtml(message || t('no_comp_selected'))}</h2>
+            <p class="mt-1 text-sm text-gray-600 dark:text-gray-300">${escapeHtml(t('no_comp_selected_hint'))}</p>
+            <a href="#hub" class="mt-4 inline-flex items-center justify-center min-h-[44px] px-5 py-2 rounded-lg bg-brand-darkblue hover:bg-blue-900 text-white font-semibold dark:bg-blue-600 dark:hover:bg-blue-500">${escapeHtml(t('btn_choose_competition'))}</a>
+        </div>
+    `;
 }
 
 /**

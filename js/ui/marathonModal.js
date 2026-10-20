@@ -25,6 +25,7 @@ import {
 // Importera PDF-funktionen från din nya plats
 import { printMarathonPdf } from '../pdf/marathonPdf.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
+import { activateDialog, releaseDialog } from './dialogA11y.js';
 
 
 function getMomentHorseLabel(equipage) {
@@ -508,6 +509,16 @@ export async function showDetailsModal(sn, equipages, marathonMap, opts = {}) {
     inner.innerHTML = `<div style="padding:16px">Hämtar detaljer för startnr <b>${escapeHtml(String(sn))}</b>…</div>`;
     inner.dataset.isModal = 'true'; // Flagga för att visa stäng-knapp
 
+    // Closing releases the dialog (focus back to the row that opened it)
+    const close = () => {
+      releaseDialog(modal);
+      modal.classList.remove('visible');
+      setTimeout(() => { modal.classList.add('hidden'); modal.style.display = 'none'; }, 200);
+    };
+    const panel = document.getElementById('marathonDetailsModalContent') || inner;
+    const dialogOptions = { labelledBy: 'marathonModalTitle', panel, onEscape: close };
+    activateDialog(modal, dialogOptions);
+
     // Hämta data
     const id = String(sn);
     let d = marathonMap.get(id) || {};
@@ -542,7 +553,7 @@ export async function showDetailsModal(sn, equipages, marathonMap, opts = {}) {
       <div class="p-4 md:p-6 pb-0">
         <div class="flex justify-between items-start mb-4">
           <div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
+            <h3 id="marathonModalTitle" class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
             <div class="text-sm text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
                ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} ${escapeHtml(eq.clubName || '—')}
             </div>
@@ -571,7 +582,7 @@ export async function showDetailsModal(sn, equipages, marathonMap, opts = {}) {
                 `}
             </div>
           </div>
-          <button id="closeMarathonModalBtn" class="text-2xl leading-none text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" aria-label="Stäng">&times;</button>
+          <button id="closeMarathonModalBtn" type="button" class="text-2xl leading-none min-w-[44px] min-h-[44px] text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" aria-label="${escapeHtml(t('close_btn'))}">&times;</button>
         </div>
       </div>
       <div id="marathon-content-container"></div>
@@ -608,12 +619,9 @@ export async function showDetailsModal(sn, equipages, marathonMap, opts = {}) {
     renderMarathonContent(contentContainer, eq, d, obstaclePlacementMap);
 
     // Events
-    const close = () => {
-      modal.classList.remove('visible');
-      setTimeout(() => { modal.classList.add('hidden'); modal.style.display = 'none'; }, 200);
-    };
     inner.querySelector('#closeMarathonModalBtn')?.addEventListener('click', close);
     modal.onclick = (e) => { if (e.target === modal) close(); };
+    activateDialog(modal, { ...dialogOptions, initialFocus: '#closeMarathonModalBtn' });
 
   } catch (err) {
     console.error("Fel i modal:", err);

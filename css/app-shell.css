@@ -1,0 +1,318 @@
+/* css/app-shell.css: the app shell (header, menu sheet, toasts, dialogs) */
+
+/* Dialogs above the sticky header (it has a very high z-index) */
+#loginModal,
+#detailsModal,
+#compInfoModal {
+    z-index: 2147483300 !important;
+}
+
+#alertModal,
+#confirmModal {
+    z-index: 2147483400 !important;
+}
+
+/* --- Toasts: feedback that needs no tap --- */
+.app-toast-region {
+    position: fixed;
+    left: 1rem;
+    right: 1rem;
+    bottom: calc(env(safe-area-inset-bottom, 0px) + 1rem);
+    z-index: 2147483350;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    pointer-events: none;
+}
+
+@media (min-width: 768px) {
+    .app-toast-region {
+        left: auto;
+        right: 1.5rem;
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 1.5rem);
+        align-items: flex-end;
+        width: 24rem;
+    }
+}
+
+.app-toast {
+    pointer-events: auto;
+    width: 100%;
+    max-width: 28rem;
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    padding: 0.75rem 0.5rem 0.75rem 0.875rem;
+    border-radius: 0.75rem;
+    border: 1px solid #d1d5db;
+    border-left-width: 6px;
+    background: #ffffff;
+    color: #111827;
+    box-shadow: 0 10px 25px rgba(15, 23, 42, 0.18);
+    opacity: 0;
+    transform: translateY(0.5rem);
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+
+.app-toast.is-visible {
+    opacity: 1;
+    transform: none;
+}
+
+.app-toast--success { border-left-color: #16a34a; }
+.app-toast--info { border-left-color: #2563eb; }
+.app-toast--warning,
+.app-toast--queued { border-left-color: #d97706; background: #fffbeb; }
+
+.app-toast-icon {
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+}
+
+.app-toast-body {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.app-toast-title {
+    font-weight: 700;
+    font-size: 0.95rem;
+}
+
+.app-toast-message {
+    font-size: 0.875rem;
+    white-space: pre-line;
+    overflow-wrap: anywhere;
+}
+
+.app-toast-close {
+    flex-shrink: 0;
+    width: 2.75rem;
+    height: 2.75rem;
+    margin: -0.5rem -0.25rem -0.5rem 0;
+    border: 0;
+    background: transparent;
+    font-size: 1.5rem;
+    line-height: 1;
+    color: #6b7280;
+    border-radius: 0.5rem;
+    cursor: pointer;
+}
+
+.app-toast-close:hover { background: rgba(0, 0, 0, 0.05); }
+
+html.dark .app-toast {
+    background: #1f2937;
+    color: #f3f4f6;
+    border-color: #374151;
+}
+
+html.dark .app-toast--warning,
+html.dark .app-toast--queued { background: #2d230f; }
+html.dark .app-toast--success { border-left-color: #22c55e; }
+html.dark .app-toast--info { border-left-color: #60a5fa; }
+html.dark .app-toast--warning,
+html.dark .app-toast--queued { border-left-color: #f59e0b; }
+html.dark .app-toast-close { color: #9ca3af; }
+html.dark .app-toast-close:hover { background: rgba(255, 255, 255, 0.08); }
+
+/* --- Menu: the sheet head and logout are for the phone/tablet menu --- */
+.app-nav-sheet-head {
+    display: none;
+}
+
+.app-nav-backdrop {
+    display: none;
+}
+
+.app-menu-logout {
+    display: block;
+    margin: 0.75rem 1rem 1rem;
+    min-height: 44px;
+    padding: 0.5rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid #fca5a5;
+    background: #fef2f2;
+    color: #b91c1c;
+    font-weight: 700;
+    text-align: center;
+}
+
+.app-menu-logout:hover { background: #fee2e2; }
+
+html.dark .app-menu-logout {
+    border-color: #7f1d1d;
+    background: rgba(127, 29, 29, 0.25);
+    color: #fca5a5;
+}
+
+.app-menu-logout.hidden { display: none; }
+
+/* The language flags: big enough to tap (44 px) */
+.lang-flag-btn {
+    width: 2.75rem;
+    height: 2.75rem;
+}
+
+@media (max-width: 1279px) {
+    .app-menu-toggle {
+        min-width: 44px;
+        min-height: 44px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+    }
+
+    .app-main-nav #nav-links:not(.hidden) {
+        position: fixed;
+        top: var(--app-nav-bottom, 4rem);
+        right: 0;
+        bottom: 0;
+        left: auto;
+        width: min(24rem, 100vw);
+        max-height: none;
+        overflow-y: auto;
+        overscroll-behavior: contain;
+        border-radius: 0;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+    }
+
+    .app-nav-backdrop:not(.hidden) {
+        display: block;
+        position: fixed;
+        top: var(--app-nav-bottom, 4rem);
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(15, 23, 42, 0.45);
+        z-index: 2147482900;
+    }
+
+    .app-nav-sheet-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.5rem 0.5rem 0.5rem 1rem;
+        border-bottom: 1px solid #e5e7eb;
+        position: sticky;
+        top: 0;
+        background: inherit;
+        z-index: 1;
+    }
+
+    html.dark .app-nav-sheet-head { border-bottom-color: #374151; }
+
+    .app-nav-sheet-title {
+        font-weight: 700;
+        font-size: 1rem;
+    }
+
+    .app-nav-sheet-user {
+        font-size: 0.75rem;
+        color: #6b7280;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    html.dark .app-nav-sheet-user { color: #9ca3af; }
+
+    .app-nav-sheet-close {
+        width: 44px;
+        height: 44px;
+        font-size: 1.75rem;
+        line-height: 1;
+        border-radius: 0.5rem;
+        color: #4b5563;
+    }
+
+    html.dark .app-nav-sheet-close { color: #d1d5db; }
+
+    /* Groups are always open in the sheet; their toggles read as headings */
+    .app-main-nav #nav-links .dropdown-menu,
+    .app-main-nav #nav-links .dropdown-menu.hidden {
+        display: block;
+        box-shadow: none;
+        border: 0;
+        background: transparent;
+    }
+
+    .app-main-nav #nav-links .dropdown-toggle {
+        pointer-events: none;
+        margin-top: 0.5rem;
+        padding-top: 0.75rem !important;
+        padding-bottom: 0.25rem !important;
+        border-top: 1px solid #e5e7eb;
+        border-radius: 0;
+        font-size: 0.7rem;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #6b7280 !important;
+        background: transparent !important;
+    }
+
+    html.dark .app-main-nav #nav-links .dropdown-toggle {
+        border-top-color: #374151;
+        color: #9ca3af !important;
+    }
+
+    .app-main-nav #nav-links .nav-caret { display: none; }
+
+    .app-main-nav #nav-links .nav-link:not(.dropdown-toggle) {
+        min-height: 44px;
+        display: flex;
+        align-items: center;
+    }
+
+    .app-main-nav #nav-links .nav-link[style*="display: none"] { display: none !important; }
+
+    .app-main-nav #nav-links .dropdown-menu .grid { padding: 0 !important; gap: 0.25rem !important; }
+
+    .app-main-nav #nav-links .nav-group-heading {
+        padding: 0.5rem 1rem 0.125rem !important;
+    }
+
+    .app-main-nav #nav-links .app-lang-toggle {
+        margin: 0.75rem 1rem 0 !important;
+        gap: 0.75rem !important;
+    }
+}
+
+@media (min-width: 1280px) {
+    /* Desktop: logout sits in the header, except on the judge pages */
+    .app-menu-logout { display: none; }
+
+    body.judge-page .app-menu-logout:not(.hidden) {
+        display: inline-flex;
+        align-items: center;
+        margin: 0 0 0 0.5rem;
+        min-height: 36px;
+        padding: 0.25rem 0.75rem;
+        font-size: 0.85rem;
+    }
+
+    .lang-flag-btn {
+        width: 2.25rem;
+        height: 2.25rem;
+    }
+}
+
+/* Judge pages: no red logout button in the header (it is in the menu) */
+body.judge-page .app-header-logout { display: none !important; }
+
+/* Phones (e.g. iPhone SE 375 px): no wordmark, no role label, no header logout */
+@media (max-width: 400px) {
+    .app-header-logout,
+    .app-brand-wordmark,
+    #userInfo,
+    .app-nav-divider {
+        display: none !important;
+    }
+
+    .app-nav-bar { gap: 0.5rem; }
+    .app-nav-actions { gap: 0.25rem !important; }
+    .app-nav-shell { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+}

@@ -33,7 +33,7 @@ function cleanPdfText(text, lang = 'sv') {
     .replace(/⚪/g, en ? 'Gate: ' : 'Port: ')
     .replace(/⏱️/g, en ? 'Time: ' : 'Tid: ')
     .replace(/🔄/g, en ? 'Reset: ' : 'Nollställ: ')
-    .replace(/🚨/g, en ? 'STOP: ' : 'NÖD: ')
+    .replace(/🚨/g, en ? 'PAUSE: ' : 'PAUS: ')
     .replace(/🐎/g, en ? 'Gait: ' : 'Gångart: ')
     .replace(/🛑/g, en ? 'Stop: ' : 'Halt: ')
     .replace(/🩺/g, '')
@@ -356,7 +356,7 @@ export async function generateAdminChecklistPdf(competition = null) {
       items: [
         '[ ] Generate dressage start order and auto-calculate start time intervals',
         '[ ] Measure carriage track widths and save them on the Track width page',
-        '[ ] Hand out the 8-digit role codes to judges, timekeepers and obstacle officials',
+        '[ ] Hand out the 10-character role codes (or join link / QR) to judges, timekeepers and obstacle officials; invite admins by email',
         '[ ] Print 1-page A4 field cheat sheets for the morning official briefing'
       ]
     },
@@ -409,7 +409,7 @@ export async function generateAdminChecklistPdf(competition = null) {
       items: [
         '[ ] Generera dressyrens startordning och beräkna automatiska startintervaller',
         '[ ] Kontrollmät vagnarnas spårvidd och spara den på sidan Vagnbredd',
-        '[ ] Dela ut de 8-siffriga rollkoderna till domare, tidtagare och hinderpersonal',
+        '[ ] Dela ut rollkoderna (10 tecken, eller länk/QR-kod) till domare, tidtagare och hinderpersonal; bjud in admins via e-post',
         '[ ] Skriv ut 1-sidiga A4-lathundar för funktionärsmötet på morgonen'
       ]
     },

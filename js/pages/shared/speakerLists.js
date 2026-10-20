@@ -14,6 +14,9 @@ import {
 } from '../../utils/marathonUtils.js';
 import { actionAttrs, escapeHtml, isWithdrawnEquipage } from '../../utils/sharedUtils.js';
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
+import { t as translate } from '../../utils/i18n.js';
+import { timeValueToMs } from '../../utils/timeValueUtils.js';
+import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
 import {
     assignPlaces,
     compareDressageRank,
@@ -154,8 +157,8 @@ export function renderLeaderToBeat(className, ctx) {
     }
 
     return `
-    <div class="mt-2 text-sm text-gray-500 dark:text-gray-400 border-l-2 border-gray-300 dark:border-gray-600 pl-2">
-        <div class="uppercase font-bold text-[10px] tracking-wider text-gray-400 dark:text-gray-500">${label}:</div>
+    <div class="mt-2 text-sm text-gray-600 dark:text-gray-300 border-l-2 border-gray-300 dark:border-gray-600 pl-2">
+        <div class="uppercase font-bold text-xs tracking-wider text-gray-400 dark:text-gray-500">${label}:</div>
         <div>
             <span class="tabular-nums tracking-wide font-bold text-lg text-gray-800 dark:text-gray-200">${val}</span> ${diffHtml}
         </div>
@@ -200,27 +203,26 @@ export function getChasingTarget(className, currentPenalty, ctx) {
     return { ...target, isLeader: target === finished[0] };
 }
 
-export function getStartTimeForSort(sn, ctx) {
-    const s = String(sn);
-    let val = null;
-    if (ctx.currentDiscipline === 'dressyr') val = ctx.startTimes[s]?.dressage;
-    else if (ctx.currentDiscipline === 'maraton') val = ctx.startTimes[s]?.maraton;
-    else if (ctx.currentDiscipline === 'precision') val = ctx.startTimes[s]?.precision;
+// The start time of the speaker's discipline ("marathon", older docs "maraton")
+function speakerStartValue(sn, ctx) {
+    const row = ctx.startTimes?.[String(sn)] || {};
+    if (ctx.currentDiscipline === 'dressyr') return row.dressage || null;
+    if (ctx.currentDiscipline === 'maraton') return row.marathon || row.maraton || null;
+    if (ctx.currentDiscipline === 'precision') return row.precision || null;
+    return null;
+}
 
+export function getStartTimeForSort(sn, ctx) {
+    const val = speakerStartValue(sn, ctx);
     if (!val) return Number.MAX_SAFE_INTEGER;
-    if (val.includes('T')) return new Date(val).getTime();
-    return new Date('1970-01-01T' + (val.length === 5 ? val + ':00' : val)).getTime();
+    if (typeof val === 'string' && /^\d{1,2}:\d{2}(:\d{2})?$/.test(val)) {
+        return new Date('1970-01-01T' + (val.length === 5 ? val + ':00' : val.padStart(8, '0'))).getTime();
+    }
+    return timeValueToMs(val) ?? Number.MAX_SAFE_INTEGER;
 }
 
 export function getStartTimeForDisplay(sn, ctx) {
-    const s = String(sn);
-    let val = null;
-    if (ctx.currentDiscipline === 'dressyr') val = ctx.startTimes[s]?.dressage;
-    else if (ctx.currentDiscipline === 'maraton') val = ctx.startTimes[s]?.maraton;
-    else if (ctx.currentDiscipline === 'precision') val = ctx.startTimes[s]?.precision;
-    if (!val) return '—';
-    if (val.includes('T')) return formatTime(val);
-    return val;
+    return formatTime(speakerStartValue(sn, ctx));
 }
 
 export function renderUpcomingList(ctx) {
@@ -252,14 +254,15 @@ export function renderUpcomingList(ctx) {
         if (ctx.recentResults.some(r => String(r.sn) === sn)) isFinished = true;
 
         return !isFinished && !isWithdrawnOrExcluded(state, { ...eq });
-    }).sort((a, b) => {
-        const tA = getStartTimeForSort(a.startNumber, ctx);
-        const tB = getStartTimeForSort(b.startNumber, ctx);
-        return tA - tB;
-    }).slice(0, 10);
+    }).sort((a, b) => compareByTimeThenStartNumber(
+        getStartTimeForSort(a.startNumber, ctx),
+        getStartTimeForSort(b.startNumber, ctx),
+        a.startNumber,
+        b.startNumber
+    )).slice(0, 10);
 
     if (upcoming.length === 0) {
-        el.innerHTML = '<div class="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">Inga fler starter.</div>';
+        el.innerHTML = `<div class="p-4 text-center text-gray-600 dark:text-gray-300 text-sm">${escapeHtml(translate('speaker_no_more_starts'))}</div>`;
         return;
     }
 
@@ -270,9 +273,9 @@ export function renderUpcomingList(ctx) {
             <div class="min-w-0">
                 <div class="font-bold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
                     <span>#${escapeHtml(String(eq.startNumber ?? ''))} ${escapeHtml(eq.driverName || '')}</span>
-                    ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300" title="Kusken har flera starter (TR Mom 535.4)">${eq.driverStartCount || 2} st</span>` : ''}
+                    ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300" title="${escapeHtml(translate('speaker_multiple_starts_title'))}">${eq.driverStartCount || 2} ${escapeHtml(translate('starts_short'))}</span>` : ''}
                 </div>
-                <div class="text-xs text-gray-500 dark:text-gray-400 truncate">${escapeHtml(eq.clubName || '')}</div>
+                <div class="text-xs text-gray-600 dark:text-gray-300 truncate">${escapeHtml(eq.clubName || '')}</div>
             </div>
             <div class="text-right shrink-0">
                  <div class="tabular-nums tracking-wide font-bold text-brand-darkblue dark:text-blue-300">${escapeHtml(t)}</div>
@@ -280,10 +283,7 @@ export function renderUpcomingList(ctx) {
         </div>
     `}).join('');
 
-    el.innerHTML = `
-        <div class="h-full overflow-y-auto pr-2 flex flex-col gap-1" style="max-height: 250px;">
-            ${listHtml}
-        </div>`;
+    el.innerHTML = `<div class="flex flex-col gap-1">${listHtml}</div>`;
 }
 
 export function renderRecentResultsList(ctx) {
@@ -293,7 +293,7 @@ export function renderRecentResultsList(ctx) {
     const list = [...ctx.recentResults].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 
     if (list.length === 0) {
-        el.innerHTML = '<div class="p-4 text-center text-gray-500 dark:text-gray-400 text-sm">Inga resultat ännu.</div>';
+        el.innerHTML = '<div class="p-4 text-center text-gray-600 dark:text-gray-300 text-sm">Inga resultat ännu.</div>';
         return;
     }
 
@@ -312,9 +312,9 @@ export function renderRecentResultsList(ctx) {
                 const best = Math.min(...classResults.map(cr => cr.finalPenalty));
                 const diff = r.finalPenalty - best;
                 if (diff > 0.001) {
-                    gapHtml = `<span class="text-[10px] text-red-500 tabular-nums tracking-wide ml-2">(+${diff.toFixed(2)})</span>`;
+                    gapHtml = `<span class="text-xs text-red-500 tabular-nums tracking-wide ml-2">(+${diff.toFixed(2)})</span>`;
                 } else {
-                    gapHtml = `<span class="text-[10px] text-green-600 font-bold ml-2">LEDER</span>`;
+                    gapHtml = `<span class="text-xs text-green-600 font-bold ml-2">LEDER</span>`;
                 }
             }
         }
@@ -328,7 +328,7 @@ export function renderRecentResultsList(ctx) {
                 </div>
                 <span class="font-bold text-blue-600 dark:text-blue-400">${Number.isFinite(r.finalPenalty) ? r.finalPenalty.toFixed(2) : '-'} p</span>
             </div>
-            <div class="flex justify-between items-center text-xs text-gray-500 dark:text-gray-400">
+            <div class="flex justify-between items-center text-xs text-gray-600 dark:text-gray-300">
                 <span>${escapeHtml(r.clubName || '')}</span>
                 <span>${Number.isFinite(r.finalPercent) && ctx.currentDiscipline === 'dressyr' ? r.finalPercent.toFixed(1) + '%' : ''}</span>
             </div>
@@ -390,7 +390,7 @@ export function renderActiveListNew(ctx) {
     });
 
     if (hotList.length === 0 && onCourseList.length === 0) {
-        el.innerHTML = '<div class="text-xs text-gray-500 dark:text-gray-400 text-center p-8 bg-gray-50 dark:bg-gray-800 rounded italic">Inga aktiva på banan (Väntar på start). <br>Klicka ⚡ för test.</div>';
+        el.innerHTML = '<div class="text-xs text-gray-600 dark:text-gray-300 text-center p-8 bg-gray-50 dark:bg-gray-800 rounded italic">Inga aktiva på banan (Väntar på start). <br>Klicka ⚡ för test.</div>';
         return;
     }
 
@@ -407,7 +407,7 @@ export function renderActiveListNew(ctx) {
             if (stats && stats.bestTime) {
                 statsHtml = `
                  <div class="flex items-center gap-2 mt-1 bg-white/50 dark:bg-gray-800/50 p-1 rounded">
-                    <span class="text-[10px] text-gray-500 dark:text-gray-400 uppercase font-bold">Mål att slå:</span>
+                    <span class="text-xs text-gray-600 dark:text-gray-300 uppercase font-bold">Mål att slå:</span>
                     <span class="tabular-nums tracking-wide font-bold text-green-700 dark:text-green-400">${stats.bestTime.toFixed(2)}s</span>
                  </div>`;
             }
@@ -461,7 +461,7 @@ export function renderActiveListNew(ctx) {
                         }
                     }
 
-                    return `<span class="text-[10px] tabular-nums tracking-wide ml-1 ${colorClass}" title="${title}">(${escapeHtml(s.char)}:${Number.isFinite(displayTime) ? displayTime.toFixed(1) : '-'})</span>`;
+                    return `<span class="text-xs tabular-nums tracking-wide ml-1 ${colorClass}" title="${title}">(${escapeHtml(s.char)}:${Number.isFinite(displayTime) ? displayTime.toFixed(1) : '-'})</span>`;
                 }).join('');
             }
 
@@ -489,7 +489,7 @@ export function renderActiveListNew(ctx) {
 
     if (onCourseList.length > 0) {
         if (hotList.length > 0) {
-            html += `<div class="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1 mt-3 px-1">Övriga på banan</div>`;
+            html += `<div class="text-xs font-bold text-gray-400 dark:text-gray-500 uppercase tracking-wider mb-1 mt-3 px-1">Övriga på banan</div>`;
         }
 
         html += `<div class="space-y-1">`;
@@ -515,7 +515,7 @@ export function renderActiveListNew(ctx) {
                         const remaining = allowedMs - ms;
                         if (remaining < 60000 && remaining > 0) color = 'text-amber-600 dark:text-amber-400';
 
-                        limitsHtml = `<span class="text-[10px] ${color} ml-1">/ ${allowedTxt}</span>`;
+                        limitsHtml = `<span class="text-xs ${color} ml-1">/ ${allowedTxt}</span>`;
                     }
                 }
             }
@@ -527,7 +527,7 @@ export function renderActiveListNew(ctx) {
                     <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${escapeHtml(c.eq?.driverName || '')}</span>
                 </div>
                 <div class="flex items-center gap-3">
-                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${escapeHtml(c.task.name)}</span>
+                    <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${escapeHtml(c.task.name)}</span>
                     <div class="text-right">
                          <span class="text-xs tabular-nums tracking-wide font-bold text-gray-800 dark:text-gray-200" id="maraton-timer-${escapeAttr(String(c.sn ?? ''))}">${timeTxt}</span>
                          ${limitsHtml}

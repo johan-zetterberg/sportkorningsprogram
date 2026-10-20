@@ -3,8 +3,8 @@ import { escapeHtml } from '../../utils/sharedUtils.js';
 const SORT_ICON_HTML = '<span class="ml-1 inline-block align-middle sort-icon"></span>';
 
 export function renderPrecisionTableHead(labels = {}) {
-  const thClass = 'px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase cursor-pointer bg-white dark:bg-gray-800';
-  const thNoClass = 'px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase bg-white dark:bg-gray-800';
+  const thClass = 'px-2 py-2 lg:px-3 lg:py-3 text-left text-xs lg:text-xs font-medium text-gray-600 dark:text-gray-300 uppercase cursor-pointer bg-white dark:bg-gray-800';
+  const thNoClass = 'px-2 py-2 lg:px-3 lg:py-3 text-left text-xs lg:text-xs font-medium text-gray-600 dark:text-gray-300 uppercase bg-white dark:bg-gray-800';
 
   return `<thead><tr>
         <th data-col="place" class="${thClass}">${labels.rank} ${SORT_ICON_HTML}</th>

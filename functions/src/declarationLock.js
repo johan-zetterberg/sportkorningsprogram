@@ -34,17 +34,37 @@ export function parseCompetitionLocalTime(value, timeZone = COMPETITION_TIME_ZON
     return guess - (asLocal - guess);
 }
 
+// Start-time keys per discipline ("maraton" is an older alias of "marathon")
+const START_TIME_DISCIPLINE_OF = { dressage: 'dressage', marathon: 'marathon', maraton: 'marathon', precision: 'precision' };
+
+/**
+ * The equipage's start times that count for the lock: only disciplines whose
+ * start list the admin has published (config/startTimes.published.<discipline>).
+ * Unpublished times are a draft the driver cannot see, so they do not lock.
+ * Same rule as js/utils/publishedStartTimes.js on the client.
+ */
+export function publishedStartTimeValues(startTimes = {}, startNumber) {
+    const times = startTimes?.times && typeof startTimes.times === 'object' ? startTimes.times : (startTimes?.value?.times || {});
+    const published = startTimes?.published || startTimes?.value?.published || {};
+    const row = times?.[String(startNumber)] || {};
+    return Object.entries(row && typeof row === 'object' ? row : {})
+        .filter(([key]) => {
+            const discipline = START_TIME_DISCIPLINE_OF[String(key).toLowerCase()];
+            return !!discipline && (published[discipline] === true || (discipline === 'marathon' && published.maraton === true));
+        })
+        .map(([, value]) => value);
+}
+
 /**
  * Why the declaration is locked, or null when it may be changed:
  * the competition is archived, the secretariat locked the portal, or the
- * equipage's first start is less than lockdownMinutes away (or has passed).
+ * equipage's first published start is less than lockdownMinutes away (or has passed).
  */
 export function declarationLockReason({ competition = {}, meta = {}, startTimes = {}, startNumber, now = Date.now() } = {}) {
     if (competition?.locked === true || competition?.status === 'completed') return 'archived';
     if (meta?.manualLockdown === true) return 'manual';
-    const times = startTimes?.times && typeof startTimes.times === 'object' ? startTimes.times : (startTimes?.value?.times || {});
-    const row = times?.[String(startNumber)] || {};
-    const starts = Object.values(row).map((value) => parseCompetitionLocalTime(value)).filter(Number.isFinite).sort((a, b) => a - b);
+    const starts = publishedStartTimeValues(startTimes, startNumber)
+        .map((value) => parseCompetitionLocalTime(value)).filter(Number.isFinite).sort((a, b) => a - b);
     if (!starts.length) return null;
     const lockdownMinutes = Number.isFinite(Number(meta?.lockdownMinutes)) ? Number(meta.lockdownMinutes) : DEFAULT_LOCKDOWN_MINUTES;
     return (starts[0] - now) / 60000 < lockdownMinutes ? 'time' : null;

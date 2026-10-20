@@ -16,7 +16,7 @@ export function renderPrecisionLiveStatusPanel({
   // Escaped for the HTML below (text and attributes)
   const sn = escapeHtml(String(equipage.startNumber ?? ''));
   const toBeatLabel = toBeat
-    ? `<div class="text-[10px] text-emerald-500 font-bold mt-1">För ${toBeat.targetP < 0 ? 'vinst' : 'nästa'}: < ${toBeat.targetP.toFixed(1)}</div>`
+    ? `<div class="text-xs text-emerald-500 font-bold mt-1">För ${toBeat.targetP < 0 ? 'vinst' : 'nästa'}: < ${toBeat.targetP.toFixed(1)}</div>`
     : '';
 
   return `
@@ -32,7 +32,7 @@ export function renderPrecisionLiveStatusPanel({
 
            <div class="min-w-0">
              <div class="flex items-center gap-2 mb-1">
-               <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-[10px] font-bold uppercase tracking-wider border border-emerald-500/30">
+               <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase tracking-wider border border-emerald-500/30">
                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                  På banan
                </span>
@@ -79,31 +79,31 @@ export function renderPrecisionLiveStatusPanel({
              <div class="min-w-0">
                <h2 class="text-lg font-bold truncate leading-tight">${escapeHtml(equipage.driverName)}</h2>
                <div class="flex items-center gap-2">
-                 <span class="inline-flex items-center gap-1 rounded bg-emerald-500/20 text-emerald-300 text-[9px] font-bold uppercase tracking-wider border border-emerald-500/30 px-1">
+                 <span class="inline-flex items-center gap-1 rounded bg-emerald-500/20 text-emerald-300 text-xs font-bold uppercase tracking-wider border border-emerald-500/30 px-1">
                    <span class="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
                    Live
                  </span>
-                 <span class="text-slate-400 text-[10px] truncate">${escapeHtml(equipage.className)}</span>
+                 <span class="text-slate-400 text-xs truncate">${escapeHtml(equipage.className)}</span>
                </div>
              </div>
            </div>
            <div class="text-right">
              <div id="livePanelTimer-mob-${sn}" class="text-3xl font-black tabular-nums leading-none text-white tracking-tight">00:00,00</div>
-             <div class="text-[9px] text-slate-400 uppercase font-bold tracking-widest mt-0.5">Löpande tid</div>
+             <div class="text-xs text-slate-400 uppercase font-bold tracking-widest mt-0.5">Löpande tid</div>
            </div>
         </div>
 
         <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
            <div class="bg-white/5 p-2 rounded text-center">
-             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Straff</div>
+             <div class="text-xs text-slate-400 uppercase font-bold mb-0.5">Straff</div>
              <div class="text-lg font-bold text-blue-300" id="livePanelPenalty-mob-${sn}">${formatPanelPenalty(totalPenalty)}</div>
            </div>
            <div class="bg-white/5 p-2 rounded text-center">
-             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Delplac.</div>
+             <div class="text-xs text-slate-400 uppercase font-bold mb-0.5">Delplac.</div>
              <div class="text-lg font-bold text-yellow-400" id="livePanelRank-mob-${sn}">-</div>
            </div>
            <div class="bg-white/5 p-2 rounded text-center">
-             <div class="text-[9px] text-slate-400 uppercase font-bold mb-0.5">Totalp.</div>
+             <div class="text-xs text-slate-400 uppercase font-bold mb-0.5">Totalp.</div>
              <div class="text-lg font-bold text-emerald-400">${overallRank || '-'}</div>
            </div>
         </div>

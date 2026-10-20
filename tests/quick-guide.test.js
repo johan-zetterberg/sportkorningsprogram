@@ -124,6 +124,49 @@ test('quick guides describe offline writes as a conditional local queue', async 
   assert.ok(!serializedGuides.includes('The app works offline'));
 });
 
+test('quick guides match the current input pages', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  const { translateTo } = await import('../js/utils/i18n.js');
+  const all = (role, lang) => [...GUIDES[role].steps[lang], ...GUIDES[role].during[lang], ...GUIDES[role].troubleshooting[lang].map(i => i.a)].join(' ');
+
+  // Marathon obstacle: equipage first, the real save button, hold time in minutes, no gate knockdowns
+  const obstacle = all('marathon-obstacle', 'sv');
+  assert.match(GUIDES['marathon-obstacle'].steps.sv[0], /Ekipage/);
+  assert.ok(obstacle.includes(translateTo('marathon_save_and_next', 'sv')));
+  assert.ok(!obstacle.includes('SPARA RESULTAT'));
+  assert.ok(!obstacle.includes('Rivningar (Bollar)'));
+  assert.match(obstacle, /minuter/);
+  assert.ok(all('marathon-obstacle', 'en').includes(translateTo('marathon_save_and_next', 'en')));
+
+  // One name for the pause button, and no promise that anyone is alerted
+  const serialized = JSON.stringify(GUIDES);
+  assert.ok(!/NÖD-PAUS|EMERGENCY PAUSE|STOPPA ALLT/.test(serialized));
+  assert.ok(serialized.includes(translateTo('observer_stop_all', 'sv')));
+  assert.ok(!serialized.includes('larmar funktionärer'));
+
+  // Precision rebuild button, secretariat badge colours
+  assert.match(all('precision', 'sv'), /\+10 s \(ombyggnad\)/);
+  assert.match(GUIDES.secretariat.during.sv.join(' '), /blå "Klar" = klar men inte finaliserad/);
+
+  // Dressage summary bar
+  assert.match(all('dressage', 'sv'), /ifyllda/);
+});
+
+test('carriage width and gate observer pages have a cheat sheet', async () => {
+  const { GUIDES } = await import('../js/ui/quickGuideDrawer.js');
+  for (const role of ['vagnbredd', 'precision-split']) {
+    const guide = GUIDES[role];
+    assert.ok(guide?.title?.sv && guide?.title?.en, `${role} has titles`);
+    for (const lang of ['sv', 'en']) {
+      assert.ok(guide.steps[lang].length >= 3 && guide.during[lang].length >= 3, `${role} ${lang} content`);
+      assert.ok(guide.troubleshooting[lang].length >= 2 && guide.symbols[lang].length >= 2, `${role} ${lang} help`);
+    }
+  }
+  const fsMod = await import('node:fs');
+  assert.ok(fsMod.readFileSync('js/pages/shared/vagnbredd.js', 'utf8').includes("quickGuideRole: 'vagnbredd'"));
+  assert.ok(fsMod.readFileSync('js/pages/precision/precision-split-input.js', 'utf8').includes("quickGuideRole: 'precision-split'"));
+});
+
 test('quick guide dialog implements keyboard focus management', async () => {
   const source = await import('node:fs').then(fs => fs.readFileSync('js/ui/quickGuideDrawer.js', 'utf8'));
 

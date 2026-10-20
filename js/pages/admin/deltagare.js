@@ -4,7 +4,7 @@ import { listenForDressageStatusCollection } from '../../services/dressageServic
 import { listenForPrecisionResults } from '../../services/precisionService.js';
 import { calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { getMarathonTimingForEquipage } from '../../services/marathonService.js';
-import { getCompetitionHeader } from '../../ui/components.js';
+import { getCompetitionHeader, renderNoCompetitionState } from '../../ui/components.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { db, appId } from '../../config/firebase-config.js';
 import { doc, getDoc } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
@@ -930,7 +930,7 @@ export async function load() {
   await ensureClubLogosLoaded(); //
 
   if (!competition) {
-    page.innerHTML = `<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>`;
+    page.innerHTML = renderNoCompetitionState();
     return;
   }
 

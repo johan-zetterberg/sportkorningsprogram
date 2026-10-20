@@ -17,6 +17,7 @@ import {
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../services/calculationService.js';
 import { injectProviders, generateDressagePdf } from '../pdf/dressagePdf.js';
 import { t, translateDressageString } from '../utils/i18n.js';
+import { activateDialog, releaseDialog } from './dialogA11y.js';
 
 import {
   escapeHtml,
@@ -132,6 +133,7 @@ export function setupDressageModalOnce() {
 
 export function closeDetailsModal() {
   const modal = document.getElementById('dressageDetailsModal'); if (!modal) return;
+  releaseDialog(modal);
   modal.classList.remove('visible'); document.body.classList.remove('modal-open');
   setTimeout(() => { modal.classList.add('hidden'); }, 200);
 }
@@ -157,6 +159,8 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
   void modal.offsetHeight;
   modal.classList.add('visible');
   document.body.classList.add('modal-open');
+  const dialogOptions = { labelledBy: 'dressageModalTitle', panel: content, onEscape: closeDetailsModal };
+  activateDialog(modal, dialogOptions);
 
   try {
     const sn = String(startNumber);
@@ -412,6 +416,7 @@ export async function openDetails(startNumber, arg2 = {}, arg3 = null) {
         computeFinalFromSaved: computeFinalFromSaved
       }
     });
+    activateDialog(modal, { ...dialogOptions, initialFocus: '#closeModalBtn' });
 
   } catch (e) {
     console.error('Modal Error:', e);
@@ -531,7 +536,7 @@ function renderModalUI(content, data, judgesPresent, program, pdfContext) {
       <div id="modalCard" class="p-4 md:p-6">
         <div class="flex justify-between items-start gap-3">
           <div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(data.startNumber)} ${escapeHtml(data.driverName || '')}</h3>
+            <h3 id="dressageModalTitle" class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(data.startNumber)} ${escapeHtml(data.driverName || '')}</h3>
             <div class="text-sm text-gray-500 dark:text-gray-400 italic">${horseLabel}</div>
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(data)}
@@ -547,7 +552,7 @@ function renderModalUI(content, data, judgesPresent, program, pdfContext) {
             </div>
           </div>
           <div class="flex items-center gap-2">
-            <button id="closeModalBtn" class="px-2 py-1 text-2xl leading-none" aria-label="Stäng">&times;</button>
+            <button id="closeModalBtn" type="button" class="px-2 py-1 text-2xl leading-none min-w-[44px] min-h-[44px]" aria-label="${escapeHtml(t('close_btn'))}">&times;</button>
           </div>
         </div>
         <div id="dressageContentContainer"></div>

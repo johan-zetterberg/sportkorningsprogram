@@ -2,8 +2,9 @@ import { getGlobalState, setGlobalState } from '../../main.js';
 import { createCompetition, listenForCompetitions, saveConfig, updateCompetition, isGlobalCompetitionAdmin } from '../../services/competitionService.js';
 import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
 import { showAlert } from '../../ui/components.js';
-import { t } from '../../utils/i18n.js';
+import { getCurrentLanguage, t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { competitionDateRange, matchesCompetitionSearch, sortCompetitionsForVisitors } from './hubCompetitionUtils.js';
 
 const escapeAttr = (value) => escapeHtml(value ?? '');
 
@@ -55,6 +56,42 @@ function getBranding() {
 /** Hjälpare */
 function getUserRole() {
   return getGlobalState('currentUser')?.role || 'publik';
+}
+function isSignedIn() {
+  return Boolean(getGlobalState('currentUser')?.uid);
+}
+// Organiser tools (create, Admin buttons, guide) only for global admins;
+// visitors get the competitions and a search
+function isAdminView() {
+  return isGlobalCompetitionAdmin(getGlobalState('currentUser'));
+}
+function hubViewKey() {
+  return `${isSignedIn()}|${isAdminView()}`;
+}
+let renderedViewKey = '';
+
+const STATUS_BADGES = {
+  live: 'bg-red-600 text-white',
+  today: 'bg-amber-500 text-white',
+  upcoming: 'bg-blue-100 text-blue-800 dark:bg-blue-900/50 dark:text-blue-200',
+  finished: 'bg-gray-200 text-gray-700 dark:bg-gray-700 dark:text-gray-200',
+  unknown: ''
+};
+
+function statusBadge(status) {
+  if (!STATUS_BADGES[status]) return '';
+  const dot = status === 'live' ? '<span class="inline-block w-2 h-2 rounded-full bg-white mr-1 animate-pulse" aria-hidden="true"></span>' : '';
+  return `<span class="inline-flex items-center shrink-0 rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide ${STATUS_BADGES[status]}">${dot}${escapeHtml(t(`hub_status_${status}`))}</span>`;
+}
+
+function formatRange({ start, end }) {
+  if (!start) return '';
+  const fmt = (day, opts) => {
+    const [y, m, d] = day.split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString(getCurrentLanguage() === 'en' ? 'en-GB' : 'sv-SE', opts);
+  };
+  if (!end || end === start) return fmt(start, { day: 'numeric', month: 'short', year: 'numeric' });
+  return `${fmt(start, { day: 'numeric', month: 'short' })} – ${fmt(end, { day: 'numeric', month: 'short', year: 'numeric' })}`;
 }
 function saveLastOpened(comp) {
   try {
@@ -140,14 +177,14 @@ function renderLayout() {
                  data-hide-on-error>
             <div>
               <h1 class="text-white text-2xl md:text-3xl font-semibold leading-tight">${t('hub_title')}</h1>
-              <p class="text-white/70 text-sm">${t('hub_subtitle')}</p>
+              <p id="hubSubtitle" class="text-white/80 text-sm">${t(isAdminView() ? 'hub_subtitle' : 'hub_subtitle_public')}</p>
             </div>
           </div>
         </div>
       </div>
 
-      <!-- Arrangörs- och funktionärsguide banner -->
-      <div class="mb-6 rounded-xl border border-blue-200 dark:border-blue-900 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
+      <!-- Arrangörs- och funktionärsguide banner (signed in only) -->
+      <div id="hubGuideBanner" class="${isSignedIn() ? '' : 'hidden '}mb-6 rounded-xl border border-blue-200 dark:border-blue-900 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/40 dark:to-indigo-950/30 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
         <div class="flex items-center gap-3.5">
           <div class="p-2.5 bg-blue-600 text-white rounded-xl text-xl shrink-0 shadow-sm">📋</div>
           <div>
@@ -168,14 +205,14 @@ function renderLayout() {
       </div>
 
       <!--Innehåll -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 md:gap-6 mb-6">
+      <div id="hubTopGrid" class="grid grid-cols-1 ${isSignedIn() ? 'lg:grid-cols-3' : ''} gap-4 md:gap-6 mb-6">
         <!-- Sök -->
-        <section class="lg:col-span-2 bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-5">
+        <section class="${isSignedIn() ? 'lg:col-span-2 ' : ''}bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-5">
           <label for="hubSearch" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">${t('hub_search_label')}</label>
           <div class="relative">
             <input id="hubSearch" type="search" placeholder="${t('hub_search_curr_ph')}"
-              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 pl-10 pr-3 py-2 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-lightblue" />
-            <svg class="absolute left-3 top-2.5 h-5 w-5 text-gray-400" viewBox="0 0 24 24" fill="none">
+              class="w-full rounded-lg border border-gray-300 dark:border-gray-600 pl-10 pr-3 py-2.5 text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-brand-lightblue" />
+            <svg class="absolute left-3 top-3 h-5 w-5 text-gray-400" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M21 21l-4.35-4.35M10.5 18a7.5 7.5 0 1 1 0-15 7.5 7.5 0 0 1 0 15z"
                     stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
@@ -183,14 +220,25 @@ function renderLayout() {
           <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">${t('hub_search_tip')}</p>
         </section>
 
-        <!-- Senaste -->
-        <aside class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-5 flex flex-col justify-center" id="latestBox">
+        <!-- Senaste (signed in: where they were) -->
+        <aside class="${isSignedIn() ? '' : 'hidden '}bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-5 flex flex-col justify-center" id="latestBox">
           <h2 class="text-base font-semibold text-gray-900 dark:text-white mb-2">${t('hub_latest_title')}</h2>
           <div id="latestContent" class="text-sm text-gray-600 dark:text-gray-300">${t('hub_no_comp_selected')}</div>
         </aside>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6">
+      <div id="hubMainGrid" class="grid grid-cols-1 ${isAdminView() ? 'md:grid-cols-2' : ''} gap-4 md:gap-6">
+        <!-- Tävlingar: live/idag och kommande först -->
+        <section class="bg-white dark:bg-gray-800 p-4 sm:p-5 rounded-xl shadow md:order-2" aria-labelledby="hubListTitle">
+          <div class="flex items-center justify-between gap-3 mb-3">
+            <h2 id="hubListTitle" class="text-xl font-semibold text-gray-900 dark:text-white">${t(isAdminView() ? 'hub_choose_title' : 'hub_public_list_title')}</h2>
+            <button id="clearSearchBtn" type="button" class="text-xs px-3 py-2 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 dark:text-white">${t('hub_btn_clear')}</button>
+          </div>
+          <div id="competitionList" class="space-y-3">
+            <p class="text-center text-gray-500 dark:text-gray-400">${t('hub_loading_comps')}</p>
+          </div>
+        </section>
+
         <!-- Skapa ny (visas bara för admin) -->
         <section id="create-competition-container" class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow">
           <div class="mb-4 border-b dark:border-gray-700 pb-3">
@@ -318,17 +366,6 @@ function renderLayout() {
               class="w-full font-semibold py-2.5 px-4 rounded-lg text-white hover:opacity-95 shadow-sm"
               style="background:${darkBlue};">${t('hub_btn_create')}</button>
           </form>
-        </section>
-
-        <!-- Lista -->
-        <section class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow">
-          <div class="flex items-center justify-between mb-3">
-            <h2 class="text-xl font-semibold border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('hub_choose_title')}</h2>
-            <button id="clearSearchBtn" class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 dark:text-white">${t('hub_btn_clear')}</button>
-          </div>
-          <div id="competitionList" class="space-y-3">
-            <p class="text-center text-gray-500 dark:text-gray-400">${t('hub_loading_comps')}</p>
-          </div>
         </section>
       </div>
       </div>
@@ -550,71 +587,61 @@ function renderCompetitionList(competitions) {
   const listEl = document.getElementById('competitionList');
   if (!listEl) return;
 
-  const q = (document.getElementById('hubSearch')?.value || '').trim().toLowerCase();
+  const q = (document.getElementById('hubSearch')?.value || '').trim();
+  const user = getCurrentUser();
   const filtered = _allCompetitions.filter(c => {
-    const name = String(c.name || '').toLowerCase();
-    const place = String(c.place || '').toLowerCase();
-    const dates = String(c.dates || c.date || '').toLowerCase();
-    const club = String(c.club || '').toLowerCase();
-
-    // Check publish status
-    // published is true if undefined (legacy) or explicitly true
-    const isPublished = (c.published !== false);
-    const user = getCurrentUser();
-    const allowAdmin = canAdminCompetition(user, c);
-
-    // If not published AND not an admin for this comp -> Hide
-    if (!isPublished && !allowAdmin) return false;
-
-    if (!q) return true;
-    return name.includes(q) || place.includes(q) || dates.includes(q) || club.includes(q);
+    // published is true if undefined (legacy) or explicitly true; drafts only
+    // for those who may administer them
+    if (c.published === false && !canAdminCompetition(user, c)) return false;
+    return matchesCompetitionSearch(c, q);
   });
 
   listEl.innerHTML = '';
+  updateImportDropdown(_allCompetitions); // all competitions, not only the matches
   if (filtered.length === 0) {
-    listEl.innerHTML = `<p class="text-center text-gray-500 dark:text-gray-400">${t('hub_no_matches')}</p>`;
+    listEl.innerHTML = `<p class="text-center text-gray-500 dark:text-gray-400 py-4">${escapeHtml(t(q ? 'hub_no_matches' : 'hub_empty_public'))}</p>`;
     updateLatestBox();
-    updateImportDropdown(_allCompetitions); // <-- Populate dropdown even if filtered list is empty? No, filtered list is for display.
-    // Actually, we want ALL competitions for the dropdown, not just filtered ones.
-    // _allCompetitions has all of them.
     return;
   }
 
-  updateImportDropdown(_allCompetitions); // <-- Update dropdown options
+  // On now first, then upcoming, then finished (with a heading per group)
+  let lastGroup = '';
+  sortCompetitionsForVisitors(filtered).forEach(({ comp, status, range }) => {
+    const group = status === 'live' || status === 'today' ? 'now' : status;
+    if (group !== lastGroup) {
+      lastGroup = group;
+      const heading = document.createElement('h3');
+      heading.className = 'pt-2 text-xs font-bold uppercase tracking-[0.14em] text-gray-500 dark:text-gray-400';
+      heading.textContent = t(`hub_group_${group}`);
+      listEl.appendChild(heading);
+    }
 
-  const sorted = filtered.sort((a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0));
-  const role = getUserRole();
-  const dest = role === 'admin' ? '#admin' : '#deltagare';
-
-  sorted.forEach(comp => {
     const a = document.createElement('a');
     // No javascript: URL (CSP); the click handler below navigates
     a.href = '#';
-    a.className = 'block p-3 sm:p-4 bg-gray-50 dark:bg-gray-700 hover:bg-brand-lightblue/10 dark:hover:bg-gray-600 rounded-lg border dark:border-gray-600';
-    const user = getCurrentUser();
+    a.className = `block p-3 sm:p-4 rounded-lg border hover:bg-brand-lightblue/10 dark:hover:bg-gray-600 ${status === 'live' ? 'bg-red-50/60 border-red-200 dark:bg-red-900/10 dark:border-red-900/60' : 'bg-gray-50 dark:bg-gray-700 dark:border-gray-600'}`;
     const allowAdmin = canAdminCompetition(user, comp);
-    const safeCompName = escapeHtml(comp.name || 'Namnlös tävling');
-    const safePlace = escapeHtml(comp.place || '—');
-    const safeDates = escapeHtml(comp.dates || '');
-    const safeClub = escapeHtml(comp.club || '');
+    const safeCompName = escapeHtml(comp.name || t('hub_unnamed_competition'));
+    const dateText = formatRange(range) || (typeof comp.dates === 'string' ? comp.dates : '');
+    const meta = [comp.place, dateText].filter(Boolean).map(escapeHtml).join(' · ');
 
     a.innerHTML = `
-    <div class="flex items-center justify-between">
-      <div>
-        <h3 class="font-semibold text-lg text-gray-900 dark:text-white">
-            ${safeCompName}
-            ${(comp.published === false) ? '<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">UTKAST</span>' : ''}
-        </h3>
-        <p class="text-sm text-gray-600 dark:text-gray-300">${safePlace} ${comp.dates ? ' | ' + safeDates : ''}</p>
-        ${comp.club ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-1">${safeClub}</p>` : ''}
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-center gap-2">
+          ${statusBadge(status)}
+          ${(comp.published === false) ? `<span class="inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200">${escapeHtml(t('hub_status_draft'))}</span>` : ''}
+        </div>
+        <h4 class="mt-1 font-semibold text-lg text-gray-900 dark:text-white break-words">${safeCompName}</h4>
+        ${meta ? `<p class="text-sm text-gray-600 dark:text-gray-300">${meta}</p>` : ''}
+        ${comp.club ? `<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">${escapeHtml(comp.club)}</p>` : ''}
       </div>
-      <div class="flex gap-2">
-        <button class="text-xs px-2 py-1 rounded bg-white dark:bg-gray-800 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 open-info" title="Visa info & karta">Info</button>
+      <div class="flex gap-2 shrink-0">
+        <button type="button" class="min-h-[40px] text-sm px-3 py-1.5 rounded-md bg-white dark:bg-gray-800 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 open-info" aria-label="${escapeHtml(`${t('hub_btn_info')}: ${comp.name || ''}`)}">${escapeHtml(t('hub_btn_info'))}</button>
         ${allowAdmin
-        ? `<button class="text-xs px-2 py-1 rounded bg-white dark:bg-gray-800 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 open-admin">${t('btn_admin')}</button>`
-        : `<button class="text-xs px-2 py-1 rounded bg-gray-100 dark:bg-gray-900 border dark:border-gray-700 cursor-not-allowed opacity-60 text-gray-500 dark:text-gray-600" title="Endast skaparen eller superadmin kan öppna Admin" disabled>${t('btn_admin')}</button>`
-      }
-        <button class="text-xs px-2 py-1 rounded text-white" style="background:${getBranding().darkBlue};">${t('btn_open')}</button>
+        ? `<button type="button" class="min-h-[40px] text-sm px-3 py-1.5 rounded-md bg-white dark:bg-gray-800 border dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-900 dark:text-gray-200 open-admin">${t('btn_admin')}</button>`
+        : ''}
+        <span class="min-h-[40px] inline-flex items-center text-sm font-semibold px-4 py-1.5 rounded-md text-white" style="background:${getBranding().darkBlue};">${t('btn_open')}</span>
       </div>
     </div>
   `;
@@ -624,7 +651,7 @@ function renderCompetitionList(competitions) {
       const allowAdmin = canAdminCompetition(user, comp);
 
       // Klick på Info?
-      if (ev.target && ev.target.classList.contains('open-info')) {
+      if (ev.target && ev.target.closest('.open-info')) {
         if (typeof window.openCompetitionInfo === 'function') {
           window.openCompetitionInfo(comp);
         }
@@ -633,9 +660,9 @@ function renderCompetitionList(competitions) {
       }
 
       // Klick på Admin?
-      if (ev.target && ev.target.classList.contains('open-admin')) {
+      if (ev.target && ev.target.closest('.open-admin')) {
         if (!allowAdmin) {
-          showAlert('Du har inte behörighet att öppna Admin för denna tävling.');
+          showAlert(t('hub_admin_not_allowed'), false);
           ev.stopPropagation();
           return;
         }
@@ -684,7 +711,7 @@ function updateLatestBox() {
 
   const role = getUserRole();
   const dest = role === 'admin' ? '#admin' : '#deltagare';
-  const title = escapeHtml(last.name || 'Namnlös tävling');
+  const title = escapeHtml(last.name || t('hub_unnamed_competition'));
   const place = escapeHtml(last.place || '—');
   const dates = escapeHtml(last.dates || '—');
 
@@ -699,8 +726,8 @@ function updateLatestBox() {
       <div class="text-gray-600 dark:text-gray-300 text-xs">${place} • ${dates}</div>
     </div>
     <div class="flex gap-2">
-      <button id="latestOpenPublic" class="text-sm px-3 py-1.5 rounded-md text-white" style="background:${getBranding().darkBlue};">${t('btn_open')}</button>
-      <button id="latestOpenAdmin"  class="text-sm px-3 py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 border dark:border-gray-600 dark:text-white">${t('btn_admin')}</button>
+      <button id="latestOpenPublic" type="button" class="text-sm px-3 py-1.5 rounded-md text-white" style="background:${getBranding().darkBlue};">${t('btn_open')}</button>
+      ${allowAdmin ? `<button id="latestOpenAdmin" type="button" class="text-sm px-3 py-1.5 rounded-md bg-gray-100 dark:bg-gray-800 border dark:border-gray-600 dark:text-white">${t('btn_admin')}</button>` : ''}
     </div>
   </div>
     `;
@@ -725,15 +752,10 @@ function updateLatestBox() {
 
   const adminBtn = document.getElementById('latestOpenAdmin');
   if (adminBtn) {
-    if (!allowAdmin) {
-      adminBtn.disabled = true;
-      adminBtn.classList.add('cursor-not-allowed', 'opacity-60');
-      adminBtn.title = 'Endast skaparen eller superadmin kan öppna Admin';
-    }
     adminBtn.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!allowAdmin) {
-        showAlert('Du har inte behörighet att öppna Admin för denna tävling.');
+        showAlert(t('hub_admin_not_allowed'), false);
         return;
       }
       setGlobalState({ key: 'currentCompetition', value: comp });
@@ -757,14 +779,11 @@ function setupEventListeners() {
     search.addEventListener('input', () => renderCompetitionList(_allCompetitions));
     search.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        const q = (search.value || '').trim().toLowerCase();
-        const first = _allCompetitions.find(c => {
-          const name = String(c.name || '').toLowerCase();
-          const place = String(c.place || '').toLowerCase();
-          const dates = String(c.dates || c.date || '').toLowerCase();
-          const club = String(c.club || '').toLowerCase();
-          return !q || name.includes(q) || place.includes(q) || dates.includes(q) || club.includes(q);
-        });
+        // The first card shown (live and upcoming come first)
+        const user = getCurrentUser();
+        const visible = _allCompetitions.filter(c => (c.published !== false || canAdminCompetition(user, c))
+          && matchesCompetitionSearch(c, search.value));
+        const first = sortCompetitionsForVisitors(visible)[0]?.comp;
         if (first) {
           const role = getUserRole();
           const dest = role === 'admin' ? '#admin' : '#deltagare';
@@ -827,7 +846,7 @@ function setupEventListeners() {
         window.location.hash = '#admin';
       } catch (err) {
         console.error('Fel vid skapande av demotävling:', err);
-        showAlert('Kunde inte skapa demotävling: ' + err.message);
+        showAlert('Kunde inte skapa demotävling: ' + err.message, false);
         if (btn) {
           btn.disabled = false;
           btn.textContent = '✨ Skapa demotävling';
@@ -931,12 +950,20 @@ export function load() {
   selectedTemplateId = 'live_3day';
   templateEndDateDirty = false;
   renderLayout();
+  renderedViewKey = hubViewKey();
   setupEventListeners();
   refreshCreateBox(); // säkerställ initialt läge
 
   // uppdatera när global state ändras (t.ex. efter login)
   globalStateChangeHandler = (e) => {
     if (e?.detail?.key === 'currentUser') {
+      // Signed in or out, or admin rights changed: the visitor and the
+      // organiser views differ, render the hub again
+      if (hubViewKey() !== renderedViewKey) {
+        __unload();
+        load();
+        return;
+      }
       refreshCreateBox();
       // The list depends on who is signed in (drafts, global admin): listen
       // again when the user or their role changes, e.g. once auth resolves

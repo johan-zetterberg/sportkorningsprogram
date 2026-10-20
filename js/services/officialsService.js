@@ -118,6 +118,10 @@ export async function saveAssignment(competitionId, assignment) {
         startTime: assignment.startTime || '',
         endTime: assignment.endTime || '',
         dateString: assignment.dateString || '',
+        // The official portal's "Din uppgift" reads these
+        discipline: assignment.discipline || 'all',
+        meetingPoint: assignment.meetingPoint || '',
+        briefing: assignment.briefing || '',
         updatedAt: Date.now()
     };
 

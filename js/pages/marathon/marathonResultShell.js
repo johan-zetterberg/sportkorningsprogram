@@ -1,6 +1,7 @@
 import { getCompetitionHeader } from '../../ui/components.js';
 import { t as translate } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { scrollHintTextHtml } from '../shared/scrollHint.js';
 
 const MOBILE_BP = 500;
 
@@ -107,13 +108,13 @@ export function renderActiveMerges({
       <span class="inline-flex items-center gap-2 px-2 py-1 rounded-full
                   bg-blue-50 border border-blue-200 text-blue-700">
         ${escapeHtml(lbl)}
-        <span class="text-xs text-blue-600">(${count} ekipage)</span>
+        <span class="text-xs text-blue-600">(${count} ${escapeHtml(translate('equipages_lower'))})</span>
       </span>`;
   }).join('');
 
   host.innerHTML = `
     <div class="flex flex-wrap items-center gap-2 text-sm">
-      <span class="font-semibold text-gray-700 dark:text-gray-300">Aktiva sammanslagningar:</span>
+      <span class="font-semibold text-gray-700 dark:text-gray-300">${escapeHtml(translate('active_merges'))}:</span>
       ${chips}
     </div>`;
 }
@@ -154,7 +155,7 @@ export function ensureMarathonResultShell({
         <div id="${shellId}" class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 pt-3 pb-8 md:py-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
           <div class="competition-page-header-shell mb-4 md:mb-8">
              ${getCompetitionHeader(currentCompetition, t('marathon_results_title'))}
-             <h3 id="maratonDateHeader" class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center"></h3>
+             <h3 id="maratonDateHeader" class="text-lg text-gray-600 dark:text-gray-300 mt-1 font-medium text-center"></h3>
           </div>
           <div id="resultSettingsNotice"></div>
 
@@ -172,6 +173,7 @@ export function ensureMarathonResultShell({
             <div class="relative w-[150px] flex-shrink-0">
                  <select id="marSortSelect" class="block w-full py-1.5 pl-2 pr-7 border border-gray-300 dark:border-gray-600 rounded bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-200 focus:outline-none focus:ring-1 focus:ring-blue-500 text-xs md:text-sm appearance-none">
                      <option value="startorder">${t('start_order')}</option>
+                     <option value="place">${t('sort_by_place')}</option>
                      <option value="byclass">${t('view_by_class_short')}</option>
                  </select>
                  <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
@@ -188,7 +190,7 @@ export function ensureMarathonResultShell({
                  </div>
             </div>
 
-            <button id="marToggleOnB" class="px-2 py-1.5 md:px-3 text-xs md:text-sm font-medium rounded border transition-colors flex-shrink-0"></button>
+            <button id="marToggleOnB" type="button" aria-pressed="false" class="px-3 py-1.5 text-sm font-medium rounded border transition-colors flex-shrink-0 bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200">${t('on_b_filter')}</button>
             <label class="flex items-center gap-1.5 text-xs md:text-sm text-gray-700 dark:text-gray-200 cursor-pointer flex-shrink-0 whitespace-nowrap">
                  <input type="checkbox" id="marFinalizedCheck" class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 w-4 h-4" />
                  <span>${t('finalized_short')}</span>
@@ -196,12 +198,12 @@ export function ensureMarathonResultShell({
 
             <div class="flex-shrink-0 flex items-center gap-2 justify-end md:ml-auto w-auto">
                 <button id="marBtnExportCsv"
-                  class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
-                   <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
+                  class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+                   <i class="fas fa-file-csv mr-1.5 text-gray-600 dark:text-gray-300"></i>
                    CSV
                 </button>
                 <button id="marBtnExportMarathonPdf"
-                  class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
+                  class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-xs md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
                   <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                    PDF
                 </button>
@@ -211,11 +213,14 @@ export function ensureMarathonResultShell({
           <div id="activeMerges" class="mb-4"></div>
 
           <div id="marathonTableWrapper" class="bg-white dark:bg-gray-800 shadow-lg rounded-lg border border-gray-200 dark:border-gray-700">
-             <div id="marathon-x-wrap" class="x-scroll-wrap bg-white dark:bg-gray-900 w-full overflow-x-auto">
-                <table class="pr-table min-w-full divide-y divide-gray-200 dark:divide-gray-700" id="marathonTable">
-                    <thead class="bg-gray-50 dark:bg-gray-700" id="marathonTableHead"></thead>
-                    <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="marathonBody"></tbody>
-                </table>
+             ${scrollHintTextHtml(escapeHtml(t('scroll_for_more_columns')), 'marathonScrollHint')}
+             <div id="marathonScrollHintWrap" class="rounded-lg">
+               <div id="marathon-x-wrap" class="x-scroll-wrap bg-white dark:bg-gray-900 w-full overflow-x-auto">
+                  <table class="pr-table min-w-full divide-y divide-gray-200 dark:divide-gray-700" id="marathonTable">
+                      <thead class="bg-gray-50 dark:bg-gray-700" id="marathonTableHead"></thead>
+                      <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="marathonBody"></tbody>
+                  </table>
+               </div>
              </div>
           </div>
 

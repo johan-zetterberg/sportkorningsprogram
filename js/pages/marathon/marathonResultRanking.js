@@ -1,6 +1,16 @@
 import { isNum } from '../../utils/sharedUtils.js';
 import { safeLower } from './marathonResultFormatters.js';
 import { assignPlaces, compareMarathonRank, marathonRankKey } from '../../core-engine/ranking.js';
+import { timeValueToMs } from '../../utils/timeValueUtils.js';
+import { compareStartNumbers } from '../../utils/startNumberSort.js';
+
+// The result list's sort menu: what each choice sorts by. "startorder" is the
+// start-number order its label promises; "place" and "byclass" rank by place.
+export function sortStateForViewMode(viewMode) {
+  return viewMode === 'startorder'
+    ? { key: 'startNumber', dir: 'asc' }
+    : { key: 'place', dir: 'asc' };
+}
 
 export function isFinalizedMarathonDoc(d) {
   return d?.finalized === true || d?.status === 'finalized' || d?.isFinal === true;
@@ -116,10 +126,11 @@ export function filterAndSortMarathonEquipages({
     if (k === 'driverName') return (eq.driverName || '').toLowerCase();
     if (k === 'className') return (eq._mergedLabel || eq.className || '').toLowerCase();
     if (k === 'clubName') return (eq.clubName || '').toLowerCase();
-    if (k === 'startTime') return startTimeFor(sn) || '99:99';
+    // Start times can be Firestore Timestamps or {seconds}: compare as ms
+    if (k === 'startTime') return timeValueToMs(startTimeFor(sn)) ?? 9999999999999;
     if (k === 'eta') {
-      const eta = res.eta.B || res.eta.A;
-      return eta ? new Date(eta).getTime() : 9999999999999;
+      const eta = timeValueToMs(res.eta.B || res.eta.A);
+      return eta ?? 9999999999999;
     }
     if (k === 'live') return 0;
     if (k === 'obsSum') return isNum(res.obstacles.sum) ? res.obstacles.sum : 9999;
@@ -151,10 +162,15 @@ export function filterAndSortMarathonEquipages({
     const va = getVal(a, key);
     const vb = getVal(b, key);
 
-    if (typeof va === 'string' && typeof vb === 'string') return va.localeCompare(vb, 'sv') * dir;
-    if (va < vb) return -1 * dir;
-    if (va > vb) return 1 * dir;
-    return 0;
+    if (typeof va === 'string' && typeof vb === 'string') {
+      const cmp = va.localeCompare(vb, 'sv');
+      if (cmp !== 0) return cmp * dir;
+    } else {
+      if (va < vb) return -1 * dir;
+      if (va > vb) return 1 * dir;
+    }
+    // Ties (e.g. all unplaced rows) in numeric start-number order: 2 before 10
+    return compareStartNumbers(a.startNumber, b.startNumber);
   });
 
   return list;

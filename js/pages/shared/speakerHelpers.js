@@ -1,13 +1,8 @@
 import { stageStartTS } from '../../utils/marathonUtils.js';
+import { formatClockTime } from '../../utils/timeValueUtils.js';
 
-export const formatTime = (iso) => {
-    if (!iso) return '—';
-    try {
-        return new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-    } catch {
-        return '—';
-    }
-};
+// ISO strings, Firestore Timestamps, {seconds} objects and ms numbers
+export const formatTime = (iso) => formatClockTime(iso);
 
 export function isWithdrawnOrExcluded(state, eqLikeObj) {
     const toStr = v => String(v || '').toLowerCase();

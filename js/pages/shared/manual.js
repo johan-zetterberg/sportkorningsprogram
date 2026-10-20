@@ -1,4 +1,8 @@
 import { isMobile, escapeHtml } from '../../utils/sharedUtils.js';
+import { translateTo } from '../../utils/i18n.js';
+
+// Button names as the pages show them (same i18n keys), in the manual's own language
+const btn = (key, lang) => escapeHtml(translateTo(key, lang));
 
 let currentSearchQuery = '';
 
@@ -1004,7 +1008,7 @@ function getTabContentSV(tab) {
                   <span class="text-gray-400 text-xs">▼</span>
                 </summary>
                 <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
-                  <p><strong>1. Resultatgranskning:</strong> Kontrollera på <em>Totalresultat</em> att alla domare har grön bock (klara). Vid eventuella protester eller domarkorrigeringar kan sekretariatet öppna protokollet med knappen <em>Ångra</em>.</p>
+                  <p><strong>1. Resultatgranskning:</strong> Kontrollera på grenarnas resultatsidor (Resultat Dressyr, Maraton och Precision) att alla resultat är finaliserade. Vid eventuella protester eller domarkorrigeringar häver en behörig användare finaliseringen med knappen <em>${btn('undo', 'sv')}</em> på respektive grens resultatsida, rättar (t.ex. i Sekretariat) och finaliserar igen. <em>Totalresultat</em> visar sammanställningen.</p>
                   <p><strong>2. Skriv ut resultatlistor:</strong> Skriv ut officiella resultatlistor (A4 PDF) inför prisutdelningen.</p>
                   <p><strong>3. Avsluta & Arkivera:</strong> När prisutdelningen är genomförd går du till fliken <em>📦 Arkivering</em> i Admin och klickar på <em>"🏁 Avsluta Tävling"</em>. Detta fryser resultaten och sparar en permanent kopia av resultatlistan. Ska något ändras efteråt måste tävlingen öppnas igen.</p>
                   <p><strong>4. Rapportera till TDB:</strong> DriveLive skapar ingen resultatfil för TDB. Rapportera resultaten i TDB enligt förbundets rutin, med de utskrivna resultatlistorna som underlag.</p>
@@ -1031,7 +1035,8 @@ function getTabContentSV(tab) {
 
                 <h5 class="text-sm font-bold text-gray-700 mt-4 mb-1">Domare & Funktionärer</h5>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                  <li><strong>Obligatorisk registrering:</strong> Personer som ska döma dressyr eller ta tid i maraton måste finnas inlagda här för att kunna logga in och kopplas till rätt position.</li>
+                  <li><strong>Behörighet:</strong> Funktionärer ansluter med sin rolls kod (10 tecken) under <em>Admin > Inställningar</em>. Skicka helst länken eller QR-koden, då är tävlingen redan ifylld. Koderna kan bytas och åtkomsten återkallas. Administratörer ansluts inte med kod (det finns ingen admin-PIN): bjud in dem med e-post under <em>Funktionärer > Bjud in administratör</em>.</li>
+                  <li><strong>Registrering:</strong> Lägg in domare och funktionärer här så att de kan kopplas till rätt position och uppdrag.</li>
                   <li><strong>Säkerhet & Logistik:</strong> Lägg in ICE-telefonnummer, kostavvikelser/allergier och tröjstorlek.</li>
                   <li><strong>Utskriftsrapporter:</strong> Under <em>Rapporter</em> kan du exportera telefonlistor, funktionärslistor per hinder/plats, incheckningslistor och sammanställning för catering (PDF och CSV).</li>
                 </ul>
@@ -1043,7 +1048,7 @@ function getTabContentSV(tab) {
                 <p class="text-sm text-gray-600 mb-2">Skicka realtidsmeddelanden till kuskarnas personliga portaler:</p>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1 mb-3">
                   <li><strong>Broadcast (Alla):</strong> Skicka en notis till samtliga deltagare (t.ex. vid tidsförskjutning eller banändring).</li>
-                  <li><strong>Privat Meddelande:</strong> Välj en specifik kusk i rullistan för riktad information (t.ex. påminnelse om pass/vaccinationskontroll).</li>
+                  <li><strong>Riktat meddelande:</strong> Välj målgruppen <em>"Valda kuskar"</em> och bocka i en eller flera kuskar i checklistan för riktad information (t.ex. påminnelse om pass/vaccinationskontroll).</li>
                   <li><strong>Dokument & Banskisser:</strong> Länka in publika PDF-filer eller Google Drive-länkar som kuskarna kan öppna direkt i sin mobilapp under <em>Dokument</em>.</li>
                 </ul>
               </div>
@@ -1234,27 +1239,28 @@ function getTabContentSV(tab) {
               <h4 class="font-semibold text-blue-800">Steg-för-steg:</h4>
               <ol class="list-decimal list-inside space-y-2 text-gray-700">
                 <li>Gå till <strong>Inmatning Hinder</strong>.</li>
-                <li>Välj <strong>Hinder nr</strong> (det hinder du bevakar).</li>
+                <li>Välj <strong>Ekipage</strong> (sökfältet överst eller pilarna « ») när ekipaget närmar sig.</li>
+                <li>Kontrollera att ditt <strong>Hinder</strong> är valt i listan bredvid (appen minns hindret du valde senast).</li>
                 <li>
-                  <strong>När ekipaget startar (passerar startlinjerna):</strong>
-                  <br><span class="ml-4">Tryck på <span class="font-bold text-white bg-green-600 px-2 py-0.5 rounded text-xs">START</span>. Klockan börjar ticka.</span>
+                  <strong>När ekipaget kör in i hindret:</strong>
+                  <br><span class="ml-4">Tryck på <span class="font-bold text-white bg-emerald-600 px-2 py-0.5 rounded text-xs">START</span>. Klockan börjar ticka.</span>
                 </li>
                 <li>
                   <strong>Vid målgång (ut ur hindret):</strong>
                   <br><span class="ml-4">Tryck på <span class="font-bold text-white bg-red-600 px-2 py-0.5 rounded text-xs">STOPP</span>. Tiden stannar.</span>
                 </li>
                 <li>
-                  <strong>Rapportera fel (Rivningar/Väg):</strong>
+                  <strong>Väg, rivningar och hålltid:</strong>
                   <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
-                    <li><strong>Väg:</strong> Om kusk kör fel, ange vilken port de missade. Systemet varnar för felkörning.</li>
-                    <li><strong>Rivning:</strong> Ange antal nedslagna bollar i fältet "Antal rivningar".</li>
-                    <li><strong>Uppehåll:</strong> Om ekipaget måste vänta innan det får gå in i hindret, ange väntetiden i sekunder i fältet <strong>Uppehåll</strong>. Skriv alltid en kort kommentar som förklarar varför tiden ska dras av.</li>
-                    <li><strong>Eliminering:</strong> Kryssa i rutan "Eliminerad" om ekipaget utesluts.</li>
+                    <li><strong>${btn('marathon_route_through_obstacle', 'sv')}:</strong> Tryck på portarna i den ordning ekipaget kör dem. Appen varnar om en port kommer i fel ordning. ${btn('marathon_undo', 'sv')} tar bort senaste porten.</li>
+                    <li><strong>${btn('marathon_knockdowns', 'sv')}:</strong> Fältet finns bara på hinder med rivningsbara element. Ange antal nedslagna element eller bollar (2 straffpoäng per element).</li>
+                    <li><strong>${btn('marathon_hold_time', 'sv')}:</strong> Om ekipaget måste vänta innan det får köra in i hindret, ange väntetiden i <strong>minuter</strong> (snabbknappar +½, +1, +2 eller t.ex. 2,5) och välj eller skriv orsaken.</li>
+                    <li><strong>Eliminering:</strong> Kryssa i rutan "${btn('marathon_elim', 'sv')}" om ekipaget utesluts.</li>
                   </ul>
                 </li>
                 <li>
                   <strong>Slutför:</strong>
-                  <br><span class="ml-4">Tryck <span class="font-bold text-white bg-blue-900 px-2 py-0.5 rounded text-xs">SPARA RESULTAT</span> när du är klar. Datan skickas till sekretariatet.</span>
+                  <br><span class="ml-4">Tryck <span class="font-bold text-white bg-emerald-600 px-2 py-0.5 rounded text-xs">${btn('marathon_save_and_next', 'sv')}</span>. Resultatet skickas till sekretariatet och nästa ekipage i startordningen väljs.</span>
                 </li>
               </ol>
               <div class="mt-2 text-sm text-blue-900 bg-blue-100 p-2 rounded">
@@ -1286,9 +1292,10 @@ function getTabContentSV(tab) {
                   <ul class="list-disc list-inside ml-4 mt-1 space-y-1">
                     <li>Klicka på knapparna för de hinder som rivs (t.ex. <span class="border px-1 bg-white text-xs rounded">1</span>, <span class="border px-1 bg-white text-xs rounded">5A</span>).</li>
                     <li>Varje klick lägger till/tar bort 3 straffpoäng.</li>
+                    <li>Måste ett hinder byggas om under ritten: tryck <strong>+10 s (ombyggnad)</strong> under klockan (10 sekunder per ombyggnad, −1 ångrar).</li>
                   </ul>
                 </li>
-                <li>Tryck på <strong>Spara Slutgiltigt Resultat</strong> för att publicera.</li>
+                <li>Tryck på <strong>${btn('precision_save_results', 'sv')}</strong> för att spara.</li>
               </ol>
             </div>
           </section>
@@ -1320,9 +1327,9 @@ function getTabContentSV(tab) {
                     <h4 class="font-bold text-gray-800 flex items-center gap-2">⚖️ Vagn & Funktion</h4>
                     <p class="text-sm text-gray-600 mb-2">Mätning av vagnbredd och säkerhetskoll.</p>
                     <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
-                        <li><strong>Mätning:</strong> Fyll i bredden för Precision och Maraton. Systemet varnar om vagnen är för smal enligt reglerna (Vagnbredd + 20cm).</li>
-                        <li><strong>Säkerhetskoll:</strong> Kryssa i rutan "Vagn Godkänd" om utrustningen är korrekt.</li>
-                        <li><strong>Spara:</strong> Tryck Enter eller klicka Spara för att hoppa till nästa ekipage i listan.</li>
+                        <li><strong>Mätning:</strong> Fyll i bredden för dressyr/precision och maraton. Systemet varnar om vagnen är smalare än klassens minimimått (TR Bilaga 2).</li>
+                        <li><strong>Säkerhetskoll:</strong> Kryssa i rutan "Vagn godkänd" om utrustningen är korrekt.</li>
+                        <li><strong>Spara:</strong> Tryck <strong>Spara &amp; gå till nästa</strong> för att spara och hoppa till nästa ekipage i listan.</li>
                     </ul>
                 </div>
             </div>
@@ -1375,22 +1382,23 @@ function getTabContentSV(tab) {
         <div class="space-y-8">
             
             <section>
-                <h3 class="font-bold text-lg mb-2 text-red-700 border-l-4 border-red-500 pl-2">STOPPA TÄVLINGEN (Nödläge)</h3>
+                <h3 class="font-bold text-lg mb-2 text-red-700 border-l-4 border-red-500 pl-2">PAUSA TÄVLINGEN (Nödläge)</h3>
                 <div class="bg-red-100 p-4 rounded-lg border-2 border-red-500">
                     <p class="font-bold text-red-900 text-lg mb-2">⚠️ VARNING</p>
                     <p class="text-red-900 mb-2">
                         Om en olycka sker eller om tävlingen måste pausas akut av annan anledning:
                     </p>
                     <ol class="list-decimal list-inside font-bold text-red-900 ml-2 text-lg">
-                        <li>Tryck på den STORA RÖDA KNAPPEN "PAUSA TÄVLINGEN".</li>
+                        <li>Öppna panelen "${btn('observer_emergency_pause', 'sv')}" på observatörssidan.</li>
+                        <li>Tryck på den röda knappen "${btn('observer_stop_all', 'sv')}".</li>
                         <li>Bekräfta i rutan som dyker upp.</li>
                     </ol>
                     <p class="text-red-800 mt-4 text-sm">
                         <strong>Vad händer då?</strong><br>
-                        Alla klockor i hela systemet (start, mål, hinder) stoppas tillfälligt. En stor röd skylt visas för alla funktionärer.
+                        Alla tävlingsklockor (etapper, hinder, precision) pausas och tiden under pausen räknas inte. Sidor som är öppna visar att tävlingen är pausad, men ingen larmas: meddela tävlingsledningen via radio eller telefon.
                     </p>
                     <p class="text-green-800 mt-4 font-bold">
-                        För att återuppta: Tryck på den GRÖNA knappen "ÅTERUPPTA TÄVLINGEN" när banan är fri.
+                        För att återuppta: Tryck på den gröna knappen "${btn('observer_resume_all', 'sv')}" när banan är fri.
                     </p>
                 </div>
             </section>
@@ -1421,9 +1429,9 @@ function getTabContentSV(tab) {
                         <div class="bg-blue-50 p-3 rounded">
                             <strong class="block text-blue-900 mb-2">🛑 Halt (Straff)</strong>
                             <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
-                                <li>Tryck <span class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">REGISTRERA HALT</span> om ekipaget stannar <strong>utanför</strong> hinderområde (ej tillåtet).</li>
-                                <li>Ett fönster öppnas där du kan skriva en kommentar.</li>
-                                <li>Klicka "Spara". Straffpoäng läggs till.</li>
+                                <li>Tryck <span class="bg-emerald-600 text-white px-2 py-0.5 rounded font-bold">START</span> under Halt när ekipaget stannar <strong>utanför</strong> hinderområde (ej tillåtet), och <span class="bg-rose-600 text-white px-2 py-0.5 rounded font-bold">STOPP</span> när det kör igen.</li>
+                                <li>Varje halt hamnar i halt-loggen. Med "${btn('observer_manual_add', 'sv')}" lägger du in en halt i efterhand (mm:ss eller sekunder).</li>
+                                <li>Noteringarna sparas automatiskt; skriv gärna en kort anteckning.</li>
                             </ul>
                         </div>
                     </div>
@@ -1463,15 +1471,15 @@ function getTabContentSV(tab) {
                 <li>
                   <strong>Förberedelser:</strong>
                   <ul class="list-disc list-inside ml-4 mt-1 text-sm">
-                    <li>Välj din <strong>Domarprofil</strong> (t.ex. "C – Anna Andersson") i listan.</li>
-                    <li>Välj aktuellt <strong>Ekipage</strong> som ska bedömas.</li>
-                    <li>Kontrollera att rätt <strong>Program</strong> laddas automatiskt.</li>
+                    <li>Välj aktuellt <strong>Ekipage</strong> (sökfältet eller pilarna « »).</li>
+                    <li>Program och domare fylls i från klassens domarschema. Kontrollera att rätt <strong>Program</strong> och din <strong>Domare</strong> (t.ex. "C – Anna Andersson") visas, annars byt i listan.</li>
                   </ul>
                 </li>
                 <li>
                   <strong>Under körningen:</strong>
                   <ul class="list-disc list-inside ml-4 mt-1 text-sm">
                     <li>Fyll i poäng (0-10) för varje moment. Använd HEL- eller HALV-poäng (t.ex. 6, 6.5, 7).</li>
+                    <li>Raden högst upp följer med när du skrollar och visar ekipaget, procent, poäng, straff och hur många moment som är ifyllda (t.ex. "${btn('input_filled_count', 'sv').replace('{n}', '12').replace('{total}', '20')}").</li>
                     <li>Poängen du skriver visas live för publiken medan du dömer, men protokollet sparas först när du trycker på <strong>Spara Protokoll</strong>.</li>
                     <li>Lägg till <strong>Kommentarer</strong> vid behov genom att klicka på "💬".</li>
                   </ul>
@@ -2139,7 +2147,7 @@ function getTabContentEN(tab) {
                   <span class="text-gray-400 text-xs">▼</span>
                 </summary>
                 <div class="manual-accordion-content text-xs text-gray-700 dark:text-gray-300 space-y-2">
-                  <p><strong>1. Final verification:</strong> Ensure all protocols show green checks in Total Results. Secretariat can reopen a score via <em>Undo</em> if corrections are needed.</p>
+                  <p><strong>1. Final verification:</strong> Check on each discipline's result page (Dressage, Marathon and Cones results) that every result is finalized. If corrections are needed, an authorized user lifts the finalization with <em>${btn('undo', 'en')}</em> on that discipline's result page, corrects (e.g. in the Secretariat) and finalizes again. <em>Total Results</em> shows the overall standings.</p>
                   <p><strong>2. Official printouts:</strong> Print the official A4 result sheets for prizegiving.</p>
                   <p><strong>3. End & Archive:</strong> Open the <em>📦 Arkivering</em> (Archiving) tab in Admin and click <em>"🏁 Avsluta Tävling"</em> (End competition). This freezes the results and stores a permanent copy of the result list. To change anything afterwards the competition must be reopened.</p>
                   <p><strong>4. Report to the federation:</strong> DriveLive does not create a result file for TDB. Report the results there following the federation's routine, using the printed result lists.</p>
@@ -2163,7 +2171,8 @@ function getTabContentEN(tab) {
 
                 <h5 class="text-sm font-bold text-gray-700 mt-4 mb-1">Judges & Crew</h5>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
-                  <li><strong>Required registration:</strong> Anyone judging or timing must exist in the system to log in.</li>
+                  <li><strong>Access:</strong> Officials join with their role's code (10 characters) from <em>Admin > Settings</em>. Preferably send the join link or QR code, which fills in the competition. Codes can be changed and access revoked. Admins do not join with a code (there is no admin PIN): invite them by email under <em>Officials > Invite administrator</em>.</li>
+                  <li><strong>Registration:</strong> Add judges and officials here so they can be linked to their position and assignments.</li>
                   <li><strong>Safety & Catering:</strong> Track ICE contact, allergies, and shirt sizes for logistical reports.</li>
                   <li><strong>Reports:</strong> Under <em>Reports</em>, export phone lists, station assignment sheets, check-in lists, and catering summaries (PDF and CSV).</li>
                 </ul>
@@ -2174,7 +2183,7 @@ function getTabContentEN(tab) {
                 <h4 class="font-bold text-gray-800 text-base mb-2">📢 Communication & Course Maps</h4>
                 <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
                   <li><strong>Broadcast:</strong> Send urgent notifications to all participant portals (e.g. weather delays).</li>
-                  <li><strong>Private message:</strong> Message an individual driver regarding passports or inspections.</li>
+                  <li><strong>Targeted message:</strong> Choose the audience <em>"Valda kuskar"</em> (selected drivers) and tick one or more drivers in the checklist, e.g. about passports or inspections.</li>
                   <li><strong>Documents:</strong> Link external PDF course maps that drivers open in their app under <em>Documents</em>.</li>
                 </ul>
               </div>
@@ -2304,21 +2313,22 @@ function getTabContentEN(tab) {
             <p class="text-gray-700 mb-2">For obstacle judges.</p>
             <ol class="list-decimal list-inside space-y-2 text-gray-700 bg-white p-4 border rounded shadow-sm">
                 <li><strong>Select View:</strong> Choose <strong>Obstacle Input</strong> in the menu.</li>
-                <li><strong>Select Obstacle:</strong> Choose your obstacle number (e.g., "Hinder 1").</li>
+                <li><strong>Select the equipage:</strong> Use the search box at the top or the « » arrows as the turnout approaches.</li>
+                <li><strong>Check the obstacle:</strong> Your obstacle number is selected in the list next to it (the app remembers the one you chose last).</li>
                 <li><strong>Timing:</strong>
                      <ul class="list-disc list-inside ml-5 mt-1">
-                        <li>Tap <strong>START</strong> when the horse's nose enters the entry gate ("A-port").</li>
-                        <li>Tap <strong>STOP</strong> when the horse's nose leaves the exit gate ("B-port").</li>
+                        <li>Tap <strong>START</strong> when the horse's nose crosses the entry flags.</li>
+                        <li>Tap <strong>STOP</strong> when the turnout crosses the exit flags.</li>
                     </ul>
                 </li>
-                <li><strong>Penalties:</strong>
+                <li><strong>Route, knockdowns and hold time:</strong>
                      <ul class="list-disc list-inside ml-5 mt-1">
-                        <li><strong>Groom Down/Knockdown:</strong> Tap the buttons to log incidents.</li>
-                        <li><strong>Wrong Course:</strong> If they drive wrong, mark "Vägfel".</li>
-                        <li><strong>Hold time:</strong> If the entry must wait before entering the obstacle, enter the waiting time in seconds in <strong>Hold</strong> and add a short comment explaining why.</li>
+                        <li><strong>${btn('marathon_route_through_obstacle', 'en')}:</strong> Tap the gates in the order they are driven. The app warns when a gate comes out of order; ${btn('marathon_undo', 'en')} removes the last one.</li>
+                        <li><strong>${btn('marathon_knockdowns', 'en')}:</strong> Shown only on obstacles with breakable elements. Enter the number knocked down (2 penalties each).</li>
+                        <li><strong>${btn('marathon_hold_time', 'en')}:</strong> If the entry must wait before entering the obstacle, enter the waiting time in <strong>minutes</strong> (quick buttons +½, +1, +2 or e.g. 2.5) and pick or type the reason.</li>
                     </ul>
                 </li>
-                <li><strong>SAVE:</strong> Click "Save Result". The row turns green in the list.</li>
+                <li><strong>Save:</strong> Click "${btn('marathon_save_and_next', 'en')}". The result is sent and the next turnout in the start order is selected.</li>
             </ol>
             <div class="mt-2 text-sm text-blue-900 bg-blue-50 p-3 rounded border border-blue-100">
               <strong>Important:</strong> Hold time is deducted from Section B and is shown in result modals/PDFs so the secretariat and driver can see where, when and why the deduction was made.
@@ -2331,7 +2341,8 @@ function getTabContentEN(tab) {
                 <li>Select <strong>Precision Input</strong>.</li>
                 <li><strong>Timer:</strong> Works like a stopwatch. Start when nose crosses start, Stop when nose crosses finish.</li>
                 <li><strong>Balls Down:</strong> Tap the ball numbers (1, 2, 3...) that correspond to the cone numbers knocked down. Each tap adds +3 points.</li>
-                <li><strong>Save:</strong> Click Save to publish the result live to the scoreboard.</li>
+                <li><strong>Rebuild:</strong> If an obstacle has to be rebuilt during the round, tap <strong>+10 s (ombyggnad)</strong> under the clock (10 seconds per rebuild, −1 undoes one).</li>
+                <li><strong>Save:</strong> Click "${btn('precision_save_results', 'en')}" to save the result.</li>
              </ul>
           </section>
 
@@ -2361,9 +2372,9 @@ function getTabContentEN(tab) {
                     <h4 class="font-bold text-gray-800 flex items-center gap-2">⚖️ Carriage & Function</h4>
                     <p class="text-sm text-gray-600 mb-2">Measuring carriage width and safety check.</p>
                     <ul class="list-disc list-inside text-sm text-gray-700 space-y-1">
-                        <li><strong>Measurement:</strong> Enter width for Precision and Marathon. System warns if width is too narrow according to rules (Width + 20cm).</li>
-                        <li><strong>Safety Check:</strong> Check "Carriage Approved" if equipment is correct.</li>
-                        <li><strong>Save:</strong> Press Enter or click Save to jump to the next entry.</li>
+                        <li><strong>Measurement:</strong> Enter the width for dressage/cones and marathon. The system warns when the carriage is narrower than the class minimum (TR Annex 2).</li>
+                        <li><strong>Safety Check:</strong> Tick "Vagn godkänd" (carriage approved) if the equipment is correct.</li>
+                        <li><strong>Save:</strong> Click "Spara &amp; gå till nästa" (save &amp; next) to save and jump to the next entry.</li>
                     </ul>
                 </div>
             </div>
@@ -2421,10 +2432,11 @@ function getTabContentEN(tab) {
                 <ol class="list-decimal list-inside space-y-2 text-gray-700 text-sm">
                     <li><strong>Log in:</strong> You will receive a login from the organizer (or select your name in the list if open).</li>
                     <li><strong>Select View:</strong> Choose <strong>"Judge Dressage"</strong>.</li>
-                    <li><strong>Select Current Drive:</strong> Click on the equipage currently on track.</li>
+                    <li><strong>Select Current Drive:</strong> Pick the equipage on track (search box or « » arrows). Test and judge are filled in from the class judging plan; check that your judge position is shown.</li>
                     <li><strong>Scoring:</strong>
                         <ul class="list-disc list-inside ml-5 mt-1">
                             <li><strong>Points:</strong> Enter 0-10. Decimals (e.g., 6.5) work fine.</li>
+                            <li><strong>Summary bar:</strong> The bar at the top stays visible while you scroll and shows the equipage, percent, points, penalties and how many movements are filled (e.g. "${btn('input_filled_count', 'en').replace('{n}', '12').replace('{total}', '20')}").</li>
                             <li><strong>Comments:</strong> Type comments in the text box.</li>
                             <li><strong>Navigation:</strong> Use the <code>TAB</code> key to jump to comment, and <code>ENTER</code> to jump to the next movement.</li>
                         </ul>
@@ -2609,10 +2621,11 @@ function getTabContentEN(tab) {
                     
                     <p class="text-red-900 font-bold mb-2">If a serious accident occurs:</p>
                     <ol class="list-decimal list-inside text-red-900 font-semibold space-y-1">
-                        <li>Press the BIG RED BUTTON available in your view.</li>
+                        <li>Open the "${btn('observer_emergency_pause', 'en')}" panel on the observer page.</li>
+                        <li>Press the red "${btn('observer_stop_all', 'en')}" button.</li>
                         <li>Confirm the action.</li>
                     </ol>
-                    <p class="text-red-800 mt-2 text-sm italic">Stops all timers system-wide.</p>
+                    <p class="text-red-800 mt-2 text-sm italic">All competition clocks pause and the paused time does not count. Pages that are open show that the competition is paused, but nobody is alerted: tell the competition management by radio or phone. Resume with "${btn('observer_resume_all', 'en')}".</p>
                 </div>
             </section>
 
@@ -2642,9 +2655,9 @@ function getTabContentEN(tab) {
                         <div class="bg-blue-50 p-3 rounded">
                             <strong class="block text-blue-900 mb-2">🛑 Halt (Penalty)</strong>
                             <ul class="list-disc list-inside text-sm text-gray-700 space-y-2">
-                                <li>Press <span class="bg-blue-600 text-white px-2 py-0.5 rounded font-bold">REGISTER HALT</span> if entry stops.</li>
-                                <li>Add a comment/reason in the popup.</li>
-                                <li>Click "Save". Penalty points are added.</li>
+                                <li>Press <span class="bg-emerald-600 text-white px-2 py-0.5 rounded font-bold">START</span> under Halt when the entry stops outside an obstacle, and <span class="bg-rose-600 text-white px-2 py-0.5 rounded font-bold">STOP</span> when it moves on.</li>
+                                <li>Each halt is listed in the halt log. "${btn('observer_manual_add', 'en')}" adds one afterwards (mm:ss or seconds).</li>
+                                <li>Notes are saved automatically; add a short remark if useful.</li>
                             </ul>
                         </div>
                     </div>

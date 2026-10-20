@@ -10,7 +10,7 @@ import { replaceConfig, updateConfigEntries } from '../../services/competitionSe
 import { listenForJudges } from '../../services/adminService.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { guessProgramKeyFromClass } from '../../utils/dressageUtils.js';
-import { getCompetitionHeader } from '../../ui/components.js';
+import { getCompetitionHeader, renderNoCompetitionState } from '../../ui/components.js';
 import { isClearRoundClass, getClassSettings, getClassSettingsKey } from '../../core-engine/marathon.js';
 import {
   formatDressageProgramOptionLabel,
@@ -1226,7 +1226,7 @@ export async function load() {
   const comp = getGlobalState('currentCompetition');
   competitionId = comp?.id || window.currentCompetitionId || window.competitionId || localStorage.getItem('lastCompetitionId') || null;
   if (!competitionId) {
-    root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-300">Ingen tävling vald.</p>';
+    root.innerHTML = renderNoCompetitionState();
     return;
   }
 

@@ -2,6 +2,7 @@ import { getGlobalState } from '../../main.js';
 import { getPublicCompetitionViewModel } from '../../services/publicCompetitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
+import { t } from '../../utils/i18n.js';
 
 let expandedClasses = new Set();
 let venueMapInstance = null;
@@ -41,18 +42,18 @@ function renderEmpty(container, title, body) {
   `;
 }
 
-function renderDocCards(docs, emptyMessage = 'Inga publicerade dokument ännu.') {
+function renderDocCards(docs, emptyMessage = t('cc_no_documents')) {
   if (!docs.length) {
-    return `<p class="text-sm text-gray-500 dark:text-gray-400">${escapeHtml(emptyMessage)}</p>`;
+    return `<p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(emptyMessage)}</p>`;
   }
 
   return `
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       ${docs.map((doc) => `
         <div class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-          <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${escapeHtml(doc.category || doc.type || 'Dokument')}</div>
-          <div class="mt-1 font-semibold text-gray-900 dark:text-white">${escapeHtml(doc.title || 'Dokument')}</div>
-          ${doc.url ? `<div class="mt-2"><a href="${escapeHtml(sanitizeUrl(doc.url))}" target="_blank" rel="noopener noreferrer" class="text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">Öppna dokument</a></div>` : ''}
+          <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${escapeHtml(doc.category || doc.type || t('cc_document'))}</div>
+          <div class="mt-1 font-semibold text-gray-900 dark:text-white">${escapeHtml(doc.title || t('cc_document'))}</div>
+          ${doc.url ? `<div class="mt-2"><a href="${escapeHtml(sanitizeUrl(doc.url))}" target="_blank" rel="noopener noreferrer" class="text-sm font-medium text-blue-700 dark:text-blue-300 hover:underline">${t('cc_open_document')}</a></div>` : ''}
           ${!doc.url && doc.content ? `<div class="mt-2 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">${escapeHtml(doc.content)}</div>` : ''}
         </div>
       `).join('')}
@@ -71,26 +72,26 @@ function renderDocs(documents, mapDocuments, publish = {}) {
       ${showMaps ? `<div>
         <div class="flex items-center justify-between gap-3 mb-2">
           <div>
-            <h3 class="font-semibold text-gray-900 dark:text-white">Kartor och banskisser</h3>
-            <p class="text-xs text-gray-500 dark:text-gray-400">Det här letar publik oftast efter först.</p>
+            <h3 class="font-semibold text-gray-900 dark:text-white">${t('cc_maps_title')}</h3>
+            <p class="text-xs text-gray-600 dark:text-gray-300">${t('cc_maps_hint')}</p>
           </div>
-          <div class="rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-2.5 py-1 text-[11px] font-semibold">
+          <div class="rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-2.5 py-1 text-xs font-semibold">
             ${mapDocuments.length}
           </div>
         </div>
-        ${renderDocCards(mapDocuments, 'Inga kartor eller banskisser publicerade ännu.')}
+        ${renderDocCards(mapDocuments, t('cc_no_maps'))}
       </div>` : ''}
       ${showDocuments ? `<div class="${showMaps ? 'border-t dark:border-gray-700 pt-4' : ''}">
         <div class="flex items-center justify-between gap-3 mb-2">
           <div>
-            <h3 class="font-semibold text-gray-900 dark:text-white">Övriga dokument</h3>
-            <p class="text-xs text-gray-500 dark:text-gray-400">PM, texter och övrig publikinfo.</p>
+            <h3 class="font-semibold text-gray-900 dark:text-white">${t('cc_other_documents')}</h3>
+            <p class="text-xs text-gray-600 dark:text-gray-300">${t('cc_other_documents_hint')}</p>
           </div>
-          <div class="rounded-full bg-gray-100 text-gray-700 dark:bg-gray-900/40 dark:text-gray-200 px-2.5 py-1 text-[11px] font-semibold">
+          <div class="rounded-full bg-gray-100 text-gray-700 dark:bg-gray-900/40 dark:text-gray-200 px-2.5 py-1 text-xs font-semibold">
             ${regularDocuments.length}
           </div>
         </div>
-        ${renderDocCards(regularDocuments, 'Inga övriga dokument publicerade ännu.')}
+        ${renderDocCards(regularDocuments, t('cc_no_other_documents'))}
       </div>` : ''}
     </div>
   `;
@@ -98,14 +99,14 @@ function renderDocs(documents, mapDocuments, publish = {}) {
 
 function renderMessages(messages) {
   if (!messages.length) {
-    return '<p class="text-sm text-gray-500 dark:text-gray-400">Inga publika meddelanden just nu.</p>';
+    return `<p class="text-sm text-gray-600 dark:text-gray-300">${t('cc_no_messages')}</p>`;
   }
 
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
       ${messages.slice(0, 6).map((message) => `
         <article class="rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-3">
-          <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(message.title || 'Information')}</div>
+          <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(message.title || t('cc_information'))}</div>
           <div class="mt-1 text-sm text-gray-600 dark:text-gray-300 whitespace-pre-wrap">${escapeHtml(message.body || message.message || '')}</div>
         </article>
       `).join('')}
@@ -115,17 +116,17 @@ function renderMessages(messages) {
 
 function renderHeroMessages(messages) {
   if (!messages.length) {
-    return '<p class="rounded-lg border border-dashed dark:border-gray-700 bg-white/70 dark:bg-gray-900/20 p-3 text-sm text-gray-500 dark:text-gray-400">Inga nya publikmeddelanden just nu.</p>';
+    return `<p class="rounded-lg border border-dashed dark:border-gray-700 bg-white/70 dark:bg-gray-900/20 p-3 text-sm text-gray-600 dark:text-gray-300">${t('cc_no_new_messages')}</p>`;
   }
 
   return `
     <div class="space-y-2">
       ${messages.slice(0, 2).map((message, index) => `
         <article class="rounded-xl border ${index === 0 ? 'border-amber-300 dark:border-amber-700/60 bg-amber-50/90 dark:bg-amber-900/15' : 'dark:border-gray-700 bg-white dark:bg-gray-800'} p-3">
-          <div class="text-[10px] uppercase tracking-[0.18em] font-semibold ${index === 0 ? 'text-amber-700 dark:text-amber-200' : 'text-gray-500 dark:text-gray-400'}">
-            ${index === 0 ? 'Senaste nytt' : 'Info'}
+          <div class="text-xs uppercase tracking-[0.18em] font-semibold ${index === 0 ? 'text-amber-700 dark:text-amber-200' : 'text-gray-600 dark:text-gray-300'}">
+            ${index === 0 ? t('cc_latest_news') : t('cc_info_short')}
           </div>
-          <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">${escapeHtml(message.title || 'Information')}</div>
+          <div class="mt-1 text-sm font-semibold text-gray-900 dark:text-white">${escapeHtml(message.title || t('cc_information'))}</div>
           <div class="mt-1 text-sm text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-5">${escapeHtml(message.body || message.message || '')}</div>
         </article>
       `).join('')}
@@ -137,25 +138,25 @@ function renderAudienceActions(competition, mapLink, showDocumentsSection) {
   const safeMapLink = mapLink ? sanitizeUrl(mapLink) : null;
   const actions = [
     {
-      label: 'Starttider',
-      description: 'När startar ekipagen?',
+      label: t('cc_action_start_times'),
+      description: t('cc_action_start_times_desc'),
       href: getCompetitionPageLink('starttider', competition),
       emphasis: true
     },
     {
-      label: 'Resultat',
-      description: 'Följ ställningen',
+      label: t('cc_action_results'),
+      description: t('cc_action_results_desc'),
       href: getCompetitionPageLink('total-resultat', competition)
     },
     safeMapLink ? {
-      label: 'Vägbeskrivning',
-      description: 'Öppna karta',
+      label: t('cc_directions'),
+      description: t('cc_open_map'),
       href: safeMapLink,
       external: true
     } : null,
     showDocumentsSection ? {
-      label: 'Kartor & PM',
-      description: 'Banskisser och info',
+      label: t('cc_action_maps'),
+      description: t('cc_action_maps_desc'),
       targetId: 'competition-center-documents'
     } : null
   ].filter(Boolean);
@@ -168,7 +169,7 @@ function renderAudienceActions(competition, mapLink, showDocumentsSection) {
           : 'border-brand-darkblue/20 dark:border-gray-700 bg-white/90 dark:bg-gray-800 text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-gray-900/50';
         const descriptionClass = action.emphasis
           ? 'text-blue-100'
-          : 'text-gray-500 dark:text-gray-400';
+          : 'text-gray-600 dark:text-gray-300';
         const externalAttrs = action.external ? ' target="_blank" rel="noopener noreferrer"' : '';
         const content = `
           <div class="text-sm font-semibold">${escapeHtml(action.label)}</div>
@@ -201,20 +202,20 @@ function renderAudienceActions(competition, mapLink, showDocumentsSection) {
 
 function renderSecondaryLinks(competition) {
   const links = [
-    { label: 'Deltagare', href: getCompetitionPageLink('deltagare', competition) },
-    { label: 'Dressyr', href: getCompetitionPageLink('dressyr-results', competition) },
-    { label: 'Maraton', href: getCompetitionPageLink('maraton-results', competition) },
-    { label: 'Precision', href: getCompetitionPageLink('precision-results', competition) }
+    { label: t('cc_link_participants'), href: getCompetitionPageLink('deltagare', competition) },
+    { label: t('dressage'), href: getCompetitionPageLink('dressyr-results', competition) },
+    { label: t('marathon'), href: getCompetitionPageLink('maraton-results', competition) },
+    { label: t('precision'), href: getCompetitionPageLink('precision-results', competition) }
   ];
 
   return `
     <div class="rounded-xl border dark:border-gray-700 bg-white/70 dark:bg-gray-900/25 p-3">
-      <div class="mb-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Fler vyer</div>
+      <div class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-600 dark:text-gray-300">${t('cc_more_views')}</div>
       <div class="flex flex-wrap gap-1.5">
         ${links.map((link) => `
           <a
             href="${escapeHtml(link.href)}"
-            class="inline-flex items-center justify-center rounded-full border border-brand-darkblue/20 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-[11px] font-semibold text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-gray-900/50 transition"
+            class="inline-flex items-center justify-center rounded-full border border-brand-darkblue/20 dark:border-gray-700 bg-white dark:bg-gray-800 px-3 py-1.5 text-xs font-semibold text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-gray-900/50 transition"
           >
             ${escapeHtml(link.label)}
           </a>
@@ -227,23 +228,23 @@ function renderSecondaryLinks(competition) {
 function renderSharePanel(publicLink) {
   return `
     <div class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Dela publiksidan</h2>
-      <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">Använd länken eller QR-koden på anslag, sociala medier eller vid sekretariatet.</p>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white">${t('cc_share_title')}</h2>
+      <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">${t('cc_share_hint')}</p>
       <div class="mt-3 rounded-lg bg-gray-50 dark:bg-gray-900/30 p-3 border dark:border-gray-700">
-        <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Publik länk</div>
+        <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">${t('cc_public_link')}</div>
         <div class="text-xs font-medium text-gray-900 dark:text-white break-all" title="${escapeHtml(publicLink)}">${escapeHtml(publicLink)}</div>
       </div>
       <div class="mt-3 grid grid-cols-2 gap-2">
         <button type="button" id="copy-public-link-btn" class="inline-flex items-center justify-center rounded-lg bg-brand-darkblue text-white px-3 py-2 text-xs font-semibold">
-          Kopiera länk
+          ${t('cc_copy_link')}
         </button>
         <button type="button" id="toggle-public-qr-btn" class="inline-flex items-center justify-center rounded-lg border border-brand-darkblue text-brand-darkblue dark:text-white px-3 py-2 text-xs font-semibold">
-          Visa QR
+          ${t('cc_show_qr')}
         </button>
       </div>
       <div id="competition-center-qr-panel" class="hidden mt-3 rounded-xl border dark:border-gray-700 bg-white dark:bg-gray-900/30 p-3">
-        <img id="competition-center-qr-image" alt="QR-kod till publiksidan" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="w-32 h-32 max-w-full rounded-lg border dark:border-gray-700 bg-white p-1.5 mx-auto">
-        <p class="mt-2 text-[11px] text-gray-500 dark:text-gray-400 text-center">Visa på plats.</p>
+        <img id="competition-center-qr-image" alt="${t('cc_qr_alt')}" loading="lazy" decoding="async" referrerpolicy="no-referrer" class="w-32 h-32 max-w-full rounded-lg border dark:border-gray-700 bg-white p-1.5 mx-auto">
+        <p class="mt-2 text-xs text-gray-600 dark:text-gray-300 text-center">${t('cc_qr_hint')}</p>
       </div>
     </div>
   `;
@@ -251,23 +252,23 @@ function renderSharePanel(publicLink) {
 
 function renderVisitInfo(publicInfo) {
   const items = [
-    publicInfo.spectatorInfo?.parking ? { label: 'Parkering', marker: 'P', value: publicInfo.spectatorInfo.parking } : null,
-    publicInfo.spectatorInfo?.entrance ? { label: 'Entré', marker: 'IN', value: publicInfo.spectatorInfo.entrance } : null,
-    publicInfo.spectatorInfo?.kiosk ? { label: 'Kiosk', marker: 'MAT', value: publicInfo.spectatorInfo.kiosk } : null,
-    publicInfo.spectatorInfo?.toilets ? { label: 'Toaletter', marker: 'WC', value: publicInfo.spectatorInfo.toilets } : null
+    publicInfo.spectatorInfo?.parking ? { label: t('cc_parking'), marker: 'P', value: publicInfo.spectatorInfo.parking } : null,
+    publicInfo.spectatorInfo?.entrance ? { label: t('cc_entrance'), marker: 'IN', value: publicInfo.spectatorInfo.entrance } : null,
+    publicInfo.spectatorInfo?.kiosk ? { label: t('cc_kiosk'), marker: t('cc_kiosk_marker'), value: publicInfo.spectatorInfo.kiosk } : null,
+    publicInfo.spectatorInfo?.toilets ? { label: t('cc_toilets'), marker: 'WC', value: publicInfo.spectatorInfo.toilets } : null
   ].filter(Boolean);
 
   if (!items.length) {
-    return '<p class="text-sm text-gray-500 dark:text-gray-400">Ingen extra besöksinformation publicerad ännu.</p>';
+    return `<p class="text-sm text-gray-600 dark:text-gray-300">${t('cc_no_visit_info')}</p>`;
   }
 
   return `
     <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-2">
       ${items.map((item) => `
         <div class="flex items-start gap-3 rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 px-3 py-3">
-          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-darkblue/10 text-[11px] font-bold text-brand-darkblue dark:text-blue-100">${escapeHtml(item.marker)}</div>
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-brand-darkblue/10 text-xs font-bold text-brand-darkblue dark:text-blue-100">${escapeHtml(item.marker)}</div>
           <div class="min-w-0">
-            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${escapeHtml(item.label)}</div>
+            <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${escapeHtml(item.label)}</div>
             <div class="mt-1 text-sm font-medium leading-5 text-gray-900 dark:text-white">${escapeHtml(item.value)}</div>
           </div>
         </div>
@@ -281,38 +282,43 @@ function renderClassDetails(row) {
   const precision = row.precisionDetails || {};
   const obstacleText = (marathon.drivenObstacles || []).length
     ? marathon.drivenObstacles.map((obstacle) => escapeHtml(
-      `#${displayOrDash(obstacle.number)}${obstacle.name ? ` ${obstacle.name}` : ''}${obstacle.gateCount ? ` (${obstacle.gateCount} portar)` : ''}`
+      `#${displayOrDash(obstacle.number)}${obstacle.name ? ` ${obstacle.name}` : ''}${obstacle.gateCount ? ` (${obstacle.gateCount} ${t('cc_gates_lower')})` : ''}`
     )).join(', ')
-    : 'Ingen hinderinformation sparad';
+    : t('cc_no_obstacle_info');
   const precisionGates = (precision.obstacleLabels || []).length
     ? precision.obstacleLabels.join(', ')
-    : 'Inga gate-etiketter sparade';
+    : t('cc_no_gate_labels');
 
   return `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
       <div class="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5">
-        <h3 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">Maraton</h3>
+        <h3 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">${t('marathon')}</h3>
         <div class="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
-          <div><strong>Körda hinder:</strong> ${obstacleText}</div>
-          ${marathon.gateCount ? `<div><strong>Portar/hinder:</strong> ${escapeHtml(marathon.gateCount)}</div>` : ''}
-          ${(marathon.distanceA || marathon.distanceB || marathon.distanceT) ? `<div><strong>Distanser:</strong> A ${escapeHtml(displayOrDash(marathon.distanceA))} m, T ${escapeHtml(displayOrDash(marathon.distanceT))} m, B ${escapeHtml(displayOrDash(marathon.distanceB))} m</div>` : ''}
+          <div><strong>${t('cc_driven_obstacles')}:</strong> ${obstacleText}</div>
+          ${marathon.gateCount ? `<div><strong>${t('cc_gates_per_obstacle')}:</strong> ${escapeHtml(marathon.gateCount)}</div>` : ''}
+          ${(marathon.distanceA || marathon.distanceB || marathon.distanceT) ? `<div><strong>${t('cc_distances')}:</strong> A ${escapeHtml(displayOrDash(marathon.distanceA))} m, T ${escapeHtml(displayOrDash(marathon.distanceT))} m, B ${escapeHtml(displayOrDash(marathon.distanceB))} m</div>` : ''}
         </div>
       </div>
       <div class="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5">
-        <h3 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">Precision</h3>
+        <h3 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">${t('precision')}</h3>
         <div class="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
-          <div><strong>Hinder/gates:</strong> ${escapeHtml(precisionGates)}</div>
-          ${precision.trackLengthMeters ? `<div><strong>Banlängd:</strong> ${escapeHtml(precision.trackLengthMeters)} m</div>` : ''}
-          ${precision.tempo ? `<div><strong>Tempo:</strong> ${escapeHtml(precision.tempo)} m/min</div>` : ''}
+          <div><strong>${t('cc_precision_obstacles')}:</strong> ${escapeHtml(precisionGates)}</div>
+          ${precision.trackLengthMeters ? `<div><strong>${t('cc_track_length')}:</strong> ${escapeHtml(precision.trackLengthMeters)} m</div>` : ''}
+          ${precision.tempo ? `<div><strong>${t('cc_tempo')}:</strong> ${escapeHtml(precision.tempo)} m/min</div>` : ''}
         </div>
       </div>
     </div>
   `;
 }
 
+// formatPublicTimeWindow says 'Ej publicerad' when a discipline has no published times
+function windowLabel(value) {
+  return value === 'Ej publicerad' ? t('cc_not_published') : value;
+}
+
 function renderClassSummary(rows) {
   if (!rows.length) {
-    return '<p class="text-sm text-gray-500 dark:text-gray-400">Inga klasser att visa ännu.</p>';
+    return `<p class="text-sm text-gray-600 dark:text-gray-300">${t('cc_no_classes')}</p>`;
   }
 
   return `
@@ -325,26 +331,26 @@ function renderClassSummary(rows) {
               <div class="flex items-start justify-between gap-2">
                 <div class="min-w-0 flex-1">
                   <div class="font-semibold text-gray-900 dark:text-white text-base leading-5">${escapeHtml(row.className)}</div>
-                  <div class="mt-1 inline-flex rounded-full bg-white dark:bg-gray-800 border dark:border-gray-700 px-2 py-0.5 text-[11px] text-gray-600 dark:text-gray-300">
-                    ${row.starters} starter
+                  <div class="mt-1 inline-flex rounded-full bg-white dark:bg-gray-800 border dark:border-gray-700 px-2 py-0.5 text-xs text-gray-600 dark:text-gray-300">
+                    ${row.starters} ${t('cc_starters')}
                   </div>
                 </div>
-                <span class="inline-flex items-center justify-center rounded-full px-2 py-0.5 text-[10px] font-semibold ${isOpen ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200' : 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}">
-                  ${isOpen ? 'Dölj' : 'Visa'}
+                <span class="inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-semibold ${isOpen ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200' : 'bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300'}">
+                  ${isOpen ? t('cc_hide') : t('cc_show')}
                 </span>
               </div>
               <div class="grid grid-cols-3 gap-1.5 mt-2">
                 <div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
-                  <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Dressyr</div>
-                  <div class="mt-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(row.dressageWindow)}</div>
+                  <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('dressage')}</div>
+                  <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(windowLabel(row.dressageWindow))}</div>
                 </div>
                 <div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
-                  <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Maraton</div>
-                  <div class="mt-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(row.marathonWindow)}</div>
+                  <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('marathon')}</div>
+                  <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(windowLabel(row.marathonWindow))}</div>
                 </div>
                 <div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
-                  <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Precision</div>
-                  <div class="mt-0.5 text-[11px] font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(row.precisionWindow)}</div>
+                  <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('precision')}</div>
+                  <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(windowLabel(row.precisionWindow))}</div>
                 </div>
               </div>
             </button>
@@ -379,7 +385,7 @@ function initVenueMap(coordinates) {
   if (typeof window.L === 'undefined') {
     mapEl.innerHTML = `
       <div class="flex h-full items-center justify-center bg-gray-50 dark:bg-gray-800 text-sm text-gray-500 dark:text-gray-300 px-4 text-center">
-        Karta kunde inte laddas. Använd vägbeskrivningslänken i stället.
+        ${t('cc_map_failed')}
       </div>
     `;
     return;
@@ -449,13 +455,13 @@ function bindShareActions(container, competition) {
     try {
       if (navigator.clipboard?.writeText) {
         await navigator.clipboard.writeText(publicLink);
-        showAlert('Publiklänken är kopierad.');
+        showAlert(t('cc_link_copied'));
       } else {
-        window.prompt('Kopiera publiklänken:', publicLink);
+        window.prompt(t('cc_copy_prompt'), publicLink);
       }
     } catch (err) {
       console.error(err);
-      window.prompt('Kopiera publiklänken:', publicLink);
+      window.prompt(t('cc_copy_prompt'), publicLink);
     }
   });
 
@@ -494,32 +500,32 @@ function renderPage(container, competition, vm, publish) {
   const visibleDocuments = [...visibleMapDocuments, ...visibleRegularDocuments];
   const classSummarySection = showClassSummary ? `
     <div id="competition-center-overview" class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1.5">Tävlingsöversikt</h2>
-      <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Tider per gren. Öppna detaljer vid behov.</p>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-1.5">${t('cc_overview_title')}</h2>
+      <p class="text-xs text-gray-600 dark:text-gray-300 mb-3">${t('cc_overview_hint')}</p>
       ${renderClassSummary(vm.classSummary)}
     </div>
   ` : '';
   const documentsSection = showDocumentsSection ? `
     <div id="competition-center-documents" class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">Dokument och kartor</h2>
+      <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-3">${t('cc_documents_title')}</h2>
       ${renderDocs(visibleDocuments, visibleMapDocuments, publish)}
     </div>
   ` : '';
 
   container.innerHTML = `
     <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-screen-xl">
-      ${getCompetitionHeader(competition, 'Publik Info')}
+      ${getCompetitionHeader(competition, t('cc_page_title'))}
 
       <section class="rounded-2xl border dark:border-gray-700 bg-gradient-to-br from-white to-blue-50/70 dark:from-gray-800 dark:to-gray-900/80 p-4 md:p-5 shadow-sm mb-4 overflow-hidden">
         <div class="grid grid-cols-1 lg:grid-cols-[1.18fr_0.82fr] gap-4 items-start">
           <div class="space-y-4">
             <div class="min-w-0">
-              <div class="inline-flex rounded-full bg-brand-darkblue text-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]">Publikguide</div>
-              <h2 class="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-gray-950 dark:text-white">Snabb koll för publik</h2>
+              <div class="inline-flex rounded-full bg-brand-darkblue text-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]">${t('cc_guide_badge')}</div>
+              <h2 class="mt-3 text-2xl md:text-3xl font-bold tracking-tight text-gray-950 dark:text-white">${t('cc_hero_title')}</h2>
               <div class="mt-2 max-w-2xl text-sm md:text-base text-gray-700 dark:text-gray-300 leading-6">
                 ${publicInfo.introHtml
                   ? `<div class="whitespace-pre-wrap">${escapeHtml(publicInfo.introHtml)}</div>`
-                  : '<div>Här hittar du tider, resultat, karta och praktisk information inför besöket.</div>'}
+                  : `<div>${t('cc_hero_intro')}</div>`}
               </div>
             </div>
             ${renderAudienceActions(competition, mapLink, showDocumentsSection)}
@@ -529,12 +535,12 @@ function renderPage(container, competition, vm, publish) {
             <div class="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-white/90 dark:bg-gray-900/35 p-3 md:p-4 shadow-sm">
               <div class="flex items-start justify-between gap-3 mb-3">
                 <div>
-                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Senaste info</h2>
-                  <p class="text-xs text-gray-500 dark:text-gray-400">Arrangörens senaste publikmeddelanden.</p>
+                  <h2 class="text-lg font-semibold text-gray-900 dark:text-white">${t('cc_latest_info')}</h2>
+                  <p class="text-xs text-gray-600 dark:text-gray-300">${t('cc_latest_info_hint')}</p>
                 </div>
                 ${leadPublicMessages.length ? `
-                  <div class="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/35 dark:text-amber-100 px-2.5 py-1 text-[11px] font-semibold whitespace-nowrap">
-                    ${leadPublicMessages.length} nya
+                  <div class="rounded-full bg-amber-100 text-amber-800 dark:bg-amber-900/35 dark:text-amber-100 px-2.5 py-1 text-xs font-semibold whitespace-nowrap">
+                    ${leadPublicMessages.length} ${t('cc_new_count')}
                   </div>
                 ` : ''}
               </div>
@@ -547,10 +553,10 @@ function renderPage(container, competition, vm, publish) {
       <section id="competition-center-visit" class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm mb-4">
         <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-3">
           <div>
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Praktiskt på plats</h2>
-            <p class="text-xs text-gray-500 dark:text-gray-400">Information för publik och anhöriga under besöket.</p>
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">${t('cc_visit_title')}</h2>
+            <p class="text-xs text-gray-600 dark:text-gray-300">${t('cc_visit_hint')}</p>
           </div>
-          ${mapLink ? `<a href="${escapeHtml(sanitizeUrl(mapLink))}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-3 py-1.5 text-xs font-semibold whitespace-nowrap w-full sm:w-auto">Vägbeskrivning</a>` : ''}
+          ${mapLink ? `<a href="${escapeHtml(sanitizeUrl(mapLink))}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-full bg-brand-darkblue text-white px-3 py-1.5 text-xs font-semibold whitespace-nowrap w-full sm:w-auto">${t('cc_directions')}</a>` : ''}
         </div>
         ${renderVisitInfo(publicInfo)}
       </section>
@@ -559,11 +565,11 @@ function renderPage(container, competition, vm, publish) {
         <section class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm mb-6">
           <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-3">
             <div>
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Fler meddelanden</h2>
-              <p class="text-xs text-gray-500 dark:text-gray-400">Tidigare utskick och extra information.</p>
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">${t('cc_more_messages')}</h2>
+              <p class="text-xs text-gray-600 dark:text-gray-300">${t('cc_more_messages_hint')}</p>
             </div>
-            <div class="rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-2.5 py-1 text-[11px] font-semibold">
-              ${remainingPublicMessages.length} till
+            <div class="rounded-full bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200 px-2.5 py-1 text-xs font-semibold">
+              ${remainingPublicMessages.length} ${t('cc_more_count')}
             </div>
           </div>
           ${renderMessages(remainingPublicMessages)}
@@ -580,19 +586,19 @@ function renderPage(container, competition, vm, publish) {
           <div id="competition-center-map" class="rounded-2xl border dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
             <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 mb-3">
               <div>
-                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Hitta hit</h2>
-                <p class="text-xs text-gray-500 dark:text-gray-400">Plats, karta och vägbeskrivning.</p>
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">${t('cc_find_us')}</h2>
+                <p class="text-xs text-gray-600 dark:text-gray-300">${t('cc_find_us_hint')}</p>
               </div>
-              ${mapLink ? `<a href="${escapeHtml(sanitizeUrl(mapLink))}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-full border border-brand-darkblue text-brand-darkblue dark:text-white px-3 py-1.5 text-xs font-semibold whitespace-nowrap">Öppna karta</a>` : ''}
+              ${mapLink ? `<a href="${escapeHtml(sanitizeUrl(mapLink))}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center justify-center rounded-full border border-brand-darkblue text-brand-darkblue dark:text-white px-3 py-1.5 text-xs font-semibold whitespace-nowrap">${t('cc_open_map')}</a>` : ''}
             </div>
             <div class="space-y-3">
               ${vm.venueMap?.coordinates
                 ? '<div id="competition-center-venue-map" class="h-72 rounded-xl border dark:border-gray-700 overflow-hidden"></div>'
-                : '<div class="h-56 rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-center text-sm text-gray-500 dark:text-gray-400 p-6 text-center">Ingen kartposition sparad ännu. Lägg till koordinater på tävlingen för att visa en publik karta här.</div>'}
+                : '<div class="h-56 rounded-xl border dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 flex items-center justify-center text-sm text-gray-600 dark:text-gray-300 p-6 text-center">' + t('cc_no_map_position') + '</div>'}
               <div class="grid grid-cols-1 gap-2">
                 <div class="rounded-lg bg-gray-50 dark:bg-gray-900/30 p-3 border dark:border-gray-700">
-                  <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">Tävlingsplats</div>
-                  <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(venueAddress || 'Ingen plats angiven')}</div>
+                  <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-1">${t('cc_venue')}</div>
+                  <div class="font-semibold text-gray-900 dark:text-white">${escapeHtml(venueAddress || t('cc_no_venue'))}</div>
                 </div>
               </div>
             </div>
@@ -614,16 +620,16 @@ export async function load(container) {
 
   const competition = getGlobalState('currentCompetition');
   if (!competition?.id) {
-    renderEmpty(container, 'Ingen tävling vald', 'Välj en tävling i hubben först för att visa publik information.');
+    renderEmpty(container, t('no_competition_selected'), t('cc_choose_competition'));
     return;
   }
 
   container.innerHTML = `
     <div class="container mx-auto p-4 md:p-8 max-w-screen-xl">
-      ${getCompetitionHeader(competition, 'Publik Info')}
+      ${getCompetitionHeader(competition, t('cc_page_title'))}
       <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border dark:border-gray-700 p-8 text-center">
         <div class="spinner mx-auto mb-3"></div>
-        <p class="text-gray-600 dark:text-gray-300">Laddar publik information...</p>
+        <p class="text-gray-600 dark:text-gray-300">${t('cc_loading')}</p>
       </div>
     </div>
   `;
@@ -633,7 +639,7 @@ export async function load(container) {
   const publish = publicInfo.publish || {};
 
   if (publicInfo.enabled === false) {
-    renderEmpty(container, competition.name || 'Publik info', 'Den publika informationssidan är inte aktiverad för denna tävling.');
+    renderEmpty(container, competition.name || t('cc_page_title'), t('cc_not_enabled'));
     return;
   }
 

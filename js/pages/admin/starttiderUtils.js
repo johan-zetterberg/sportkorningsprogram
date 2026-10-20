@@ -1,4 +1,5 @@
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { compareStartNumbers } from '../../utils/startNumberSort.js';
 
 export function buildStarttiderMergeMap(raw) {
     const mergeMap = new Map();
@@ -42,6 +43,16 @@ export function resolveStarttiderMergeGrouping(e, mergeMap = new Map()) {
 export function getPublishedState(startTimes = {}) {
     return startTimes.published || { dressage: false, marathon: false, precision: false };
 }
+
+// Published start times for every page outside the admin pages (public info
+// page, driver portal, result pages, monitors): see publishedStartTimes.js
+export {
+    isStartTimePublished,
+    publishedStartTimes,
+    publishedTimesFor,
+    startTimeDiscipline,
+    startTimesPublishedFlags
+} from '../../utils/publishedStartTimes.js';
 
 export function getTimesOnlyPayload(startTimes = {}) {
     const timesOnly = { ...startTimes };
@@ -204,7 +215,7 @@ export function renderStarttiderToolbarSection({
 }
 
 export function byStartNumberAsc(a, b) {
-    return (a.startNumber || 0) - (b.startNumber || 0);
+    return compareStartNumbers(a?.startNumber, b?.startNumber);
 }
 
 function getBulkClassLabel(row) {
@@ -327,7 +338,7 @@ export function renderStarttiderStatusBadge(state, {
     runningLabel = 'Pågår',
     notStartedLabel = 'Ej startad'
 } = {}) {
-    const base = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium';
+    const base = 'inline-flex items-center px-2 py-0.5 rounded text-xs font-medium';
     if (state === 'done') return `<span class="${base} bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300">${doneLabel}</span>`;
     if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300">${runningLabel}</span>`;
     return `<span class="${base} bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200">${notStartedLabel}</span>`;
@@ -337,7 +348,7 @@ export function renderStarttiderNowNextChip(discipline, startNumber, liveStatus 
     nowLabel = 'Nu',
     nextLabel = 'Nästa'
 } = {}) {
-    const base = 'inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium';
+    const base = 'inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium';
     if (liveStatus.current?.sn === startNumber && liveStatus.current?.discipline === discipline) {
         return `<span class="${base} bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300">${nowLabel}</span>`;
     }
@@ -570,6 +581,115 @@ export function renderStarttiderMobileCard({
                 ` : ''}
             </div>
         `;
+}
+
+// ---- Public start list (everyone but an editing admin) ----
+
+const PUBLIC_DISCIPLINE_SHORT = { dressage: 'D', marathon: 'M', precision: 'P' };
+
+/**
+ * One notice for the whole list when some start times are not published yet
+ * (instead of "Ej publicerad" in every cell). '' when all are published.
+ */
+export function renderPublicStartListNotice(publishedFlags = {}, {
+    disciplineLabels = { dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' },
+    noneText = 'Starttiderna är inte publicerade ännu.',
+    someText = 'Starttider är inte publicerade ännu för:'
+} = {}) {
+    const missing = ['dressage', 'marathon', 'precision'].filter(d => !publishedFlags[d]);
+    if (!missing.length) return '';
+    const text = missing.length === 3
+        ? escapeHtml(noneText)
+        : `${escapeHtml(someText)} <strong>${missing.map(d => escapeHtml(disciplineLabels[d] || d)).join(', ')}</strong>`;
+    return `<div class="mb-3 flex items-start gap-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100" role="status" data-startlist-unpublished>
+        <i class="fas fa-clock mt-0.5" aria-hidden="true"></i><span>${text}</span>
+    </div>`;
+}
+
+/** The published disciplines in display order */
+export function publishedDisciplineList(publishedFlags = {}) {
+    return ['dressage', 'marathon', 'precision'].filter(d => !!publishedFlags[d]);
+}
+
+/**
+ * A compact public card (phone): number, driver and class on the first line,
+ * horse and club on the second, the published start times on the third.
+ */
+export function renderPublicStartListCard({
+    equipage,
+    startTimes = {},
+    disciplines = [],
+    isEliminated = false,
+    classHeaderHtml = '',
+    getHorseLabel = () => '—',
+    getFlagHtml = () => '',
+    renderTime = () => '',
+    disciplineLabels = {}
+} = {}) {
+    const e = equipage || {};
+    const st = startTimes[String(e.startNumber)] || {};
+    const horse = getHorseLabel(e);
+    const club = String(e.clubName || e.club || '').trim();
+    const second = [horse !== '—' ? horse : '', club].filter(Boolean);
+    const times = disciplines.map(d => `
+            <span class="inline-flex items-center gap-1 whitespace-nowrap">
+                <span class="font-semibold text-gray-600 dark:text-gray-300" title="${escapeHtml(disciplineLabels[d] || d)}">${PUBLIC_DISCIPLINE_SHORT[d]}</span>
+                ${renderTime(d, e.startNumber, st[d] || (d === 'marathon' ? st.maraton : ''))}
+            </span>`).join('');
+    const tone = isEliminated ? 'bg-red-50 dark:bg-red-900/20 border-red-200 dark:border-red-800' : 'bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700';
+    return `
+        ${classHeaderHtml}
+        <div class="mb-1.5 rounded-lg border ${tone} px-3 py-2 shadow-sm" data-public-start-card="${escapeHtml(e.startNumber)}">
+            <div class="flex items-baseline gap-2 min-w-0">
+                <span class="w-9 shrink-0 text-base font-bold tabular-nums text-gray-900 dark:text-white">${escapeHtml(e.startNumber ?? '')}</span>
+                <span class="min-w-0 flex-1 truncate text-[15px] font-semibold text-gray-900 dark:text-white">${escapeHtml(e.driverName || '')}</span>
+                <span class="shrink-0 max-w-[40%] truncate text-xs font-medium text-gray-600 dark:text-gray-300">${escapeHtml(e._mergedLabel || e.className || '')}</span>
+            </div>
+            <div class="ml-11 flex items-center gap-1.5 min-w-0 text-sm text-gray-700 dark:text-gray-300">
+                <span class="shrink-0">${getFlagHtml(e)}</span>
+                <span class="truncate">${second.map(escapeHtml).join(' · ') || '—'}</span>
+            </div>
+            ${times ? `<div class="ml-11 mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">${times}</div>` : ''}
+        </div>`;
+}
+
+/** A compact public table row (desktop): one line per equipage, horse under the driver */
+export function renderPublicStartListRow({
+    equipage,
+    startTimes = {},
+    disciplines = [],
+    isEliminated = false,
+    getHorseLabel = () => '—',
+    getFlagHtml = () => '',
+    getClubLogoHtml = () => '',
+    renderTime = () => ''
+} = {}) {
+    const e = equipage || {};
+    const st = startTimes[String(e.startNumber)] || {};
+    const horse = getHorseLabel(e);
+    const club = String(e.clubName || e.club || '').trim();
+    const tone = isEliminated ? 'bg-red-50 dark:bg-red-900/20' : 'hover:bg-gray-50 dark:hover:bg-gray-700/60';
+    const cell = 'px-3 py-1.5 align-middle';
+    return `
+            <tr class="${tone} border-b border-gray-100 dark:border-gray-700 last:border-0" data-public-start-row="${escapeHtml(e.startNumber)}">
+                <td class="${cell} text-center font-bold tabular-nums text-gray-900 dark:text-white whitespace-nowrap">${escapeHtml(e.startNumber ?? '')}</td>
+                <td class="${cell} min-w-0">
+                    <div class="font-semibold text-gray-900 dark:text-white truncate max-w-[260px] xl:max-w-[340px]" title="${escapeHtml(e.driverName || '')}">${escapeHtml(e.driverName || '')}</div>
+                    <div class="text-sm text-gray-600 dark:text-gray-300 truncate max-w-[260px] xl:max-w-[340px]" title="${escapeHtml(horse)}">${escapeHtml(horse)}</div>
+                </td>
+                <td class="${cell} text-gray-700 dark:text-gray-200"><div class="truncate max-w-[160px]" title="${escapeHtml(e._mergedLabel || e.className || '')}">${escapeHtml(e._mergedLabel || e.className || '')}</div></td>
+                <td class="${cell} text-gray-700 dark:text-gray-200">
+                    <div class="flex items-center gap-1.5 whitespace-nowrap" title="${escapeHtml(club)}">${getFlagHtml(e)}${getClubLogoHtml(e)}<span class="truncate max-w-[200px]">${escapeHtml(club || '—')}</span></div>
+                </td>
+                ${disciplines.map(d => `<td class="${cell} whitespace-nowrap">${renderTime(d, e.startNumber, st[d] || (d === 'marathon' ? st.maraton : ''))}</td>`).join('')}
+            </tr>`;
+}
+
+/** A start time in the public list: the time, then the now/next chip and status */
+export function renderPublicStartTime({ value, nowNextHtml = '', statusHtml = '' } = {}) {
+    const date = parseDateTime(value);
+    const label = date ? formatDateTime(date) : '—';
+    return `<span class="inline-flex flex-wrap items-center gap-1"><span class="font-semibold tabular-nums text-gray-900 dark:text-white">${escapeHtml(label)}</span>${nowNextHtml}${statusHtml}</span>`;
 }
 
 export function renderStarttiderDesktopHeader(headers = [], sortConfig = {}) {

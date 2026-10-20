@@ -622,8 +622,8 @@ function render(container) {
         <div class="mb-6">
           <button id="toggleEmergency" class="w-full flex items-center justify-between p-3 rounded-xl bg-red-50 dark:bg-red-900/10 border border-red-200 dark:border-red-900/30 text-red-700 dark:text-red-400 font-bold transition-all hover:bg-red-100/50">
             <span class="flex items-center gap-2 text-sm text-red-800 dark:text-red-300">
-              <i class="fas fa-exclamation-triangle"></i>
-              NÖD-PAUS / TÄVLINGSSTATUS
+              <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+              ${t('observer_emergency_pause')}
             </span>
             <i class="fas fa-chevron-down transition-transform"></i>
           </button>
@@ -656,7 +656,7 @@ function render(container) {
               <div class="relative" role="combobox" aria-expanded="false">
                 <div class="flex gap-2">
                   <button id="prevEqBtn" type="button" aria-label="Föregående ekipage" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
-                    <i class="fas fa-chevron-left text-gray-500 dark:text-gray-300" aria-hidden="true"></i>
+                    <span class="text-xl font-bold text-gray-600 dark:text-gray-200" aria-hidden="true">«</span>
                   </button>
                   <div class="relative flex-1">
                     <input id="eqComboInput" type="text" aria-label="${t('observer_select_startnumber')}"
@@ -665,7 +665,7 @@ function render(container) {
                     <div id="eqComboList" class="absolute mt-2 left-0 right-0 bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-2xl shadow-2xl max-h-80 overflow-auto hidden z-50 overflow-hidden"></div>
                   </div>
                   <button id="nextEqBtn" type="button" aria-label="Nästa ekipage" class="w-12 h-12 flex items-center justify-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-700 hover:bg-gray-100 dark:hover:bg-gray-600 transition-all active:scale-90">
-                    <i class="fas fa-chevron-right text-gray-500 dark:text-gray-300" aria-hidden="true"></i>
+                    <span class="text-xl font-bold text-gray-600 dark:text-gray-200" aria-hidden="true">»</span>
                   </button>
                 </div>
               </div>

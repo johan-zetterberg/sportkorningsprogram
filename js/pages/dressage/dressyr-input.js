@@ -19,7 +19,7 @@ import {
   isDressageProgramSelectable,
   sortDressageProgramKeys
 } from './dressageAdminProgramOptions.js';
-import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 
@@ -1462,7 +1462,7 @@ export function load() {
   const competition = getGlobalState('currentCompetition');
   const page = document.getElementById('page-dressyr-input');
   if (!competition) {
-    page.innerHTML = `<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>`;
+    page.innerHTML = renderNoCompetitionState();
     return;
   }
   competitionId = competition.id;
@@ -1780,7 +1780,7 @@ export function load() {
           
           <div class="md:col-span-3">
             <label class="block text-xs font-medium text-transparent select-none">${t('input_save')}</label>
-            <button id="saveProtocol" class="dr-touch dressage-save-btn w-full mt-1 bg-brand-darkblue text-white font-semibold py-2 px-4 rounded-lg hover:bg-brand-gold hover:text-brand-darkblue text-base shadow-md transition-colors dark:bg-blue-700 dark:hover:bg-blue-600">
+            <button id="saveProtocol" class="dr-touch dressage-save-btn w-full mt-1 bg-emerald-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-emerald-700 text-base shadow-md transition-colors">
               ${t('input_save_protocol')}
             </button>
           </div>

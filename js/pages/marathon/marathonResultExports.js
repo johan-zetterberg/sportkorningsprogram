@@ -15,7 +15,8 @@ import {
   formatMarathonExternalOtherPenalty,
   formatMarathonPenaltyExportValue
 } from '../../utils/marathonExportUtils.js';
-import { getMomentHorseLabel } from './marathonResultFormatters.js';
+import { formatStartTimeLabel, getMomentHorseLabel } from './marathonResultFormatters.js';
+import { t as translate } from '../../utils/i18n.js';
 
 export function setupMarathonResultExportButtons({
   getEquipages,
@@ -56,7 +57,7 @@ export function setupMarathonResultExportButtons({
         await generateMarathonListPdf(list, freshComp);
       } catch (err) {
         console.error(err);
-        alert('Kunde inte skapa PDF: ' + err.message);
+        alert(translate('pdf_export_error'));
       }
     };
   }
@@ -91,12 +92,13 @@ export function setupMarathonResultExportButtons({
       const res = calculateResult(eq, d, t);
 
       const startTimeValue = startTimeFor(sn);
-      const startLabel = startTimeValue ? (startTimeValue.split('T')[1] || '-') : '-';
+      // A stage start can be a Firestore Timestamp (no .split)
+      const startLabel = formatStartTimeLabel(startTimeValue, '-');
       const etaLabel = res.eta.B ? fmtClock(res.eta.B) : (res.eta.A ? fmtClock(res.eta.A) : '-');
 
       const place = placeMap.get(sn);
       const totalLabel = res.isClearRound && !res.eliminated && res.totalPenalty != null
-        ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+        ? translate(res.clearRoundApproved ? 'clear_round_ok' : 'clear_round_not_ok')
         : formatMarathonPenaltyExportValue(res.totalPenalty, {
             equipage: eq,
             marathonResult: res,
@@ -142,7 +144,7 @@ export function setupMarathonResultExportButtons({
         formatMarathonExternalOtherPenalty(res, { equipage: eq, empty: '0.00' }),
         totalLabel,
         res.isClearRound && !res.eliminated && res.totalPenalty != null
-          ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+          ? translate(res.clearRoundApproved ? 'clear_round_ok' : 'clear_round_not_ok')
           : (res.status || '-')
       );
 

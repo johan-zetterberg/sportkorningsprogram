@@ -306,8 +306,8 @@ function initMap(container) {
         <div class="flex w-full h-[400px] lg:h-[700px]">
             <div class="relative z-0 w-full h-full bg-gray-100 rounded-xl overflow-hidden shadow-inner border border-gray-200">
                 <div id="precision-live-map" class="w-full h-full"></div>
-                <div id="precision-map-legend" class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-white/20 text-[10px] min-w-[120px]">
-                    <h4 class="font-bold mb-2 uppercase tracking-tight text-gray-400 border-b pb-1 text-[9px]">Klasser</h4>
+                <div id="precision-map-legend" class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-white/20 text-xs min-w-[120px]">
+                    <h4 class="font-bold mb-2 uppercase tracking-tight text-gray-400 border-b pb-1 text-xs">Klasser</h4>
                     <div id="prec-legend-items" class="flex flex-col gap-2"></div>
                 </div>
             </div>
@@ -464,7 +464,7 @@ function updateMarkersInterpolated() {
                         <span class="font-black text-white text-sm" style="text-shadow: 0 1px 2px rgba(0,0,0,0.5);">#${escapeHtml(sn)}</span>
                     </div>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[5000]">
-                        <div class="bg-gray-900/95 backdrop-blur text-white text-[11px] py-1.5 px-3 rounded-lg whitespace-nowrap shadow-2xl border border-white/20">
+                        <div class="bg-gray-900/95 backdrop-blur text-white text-xs py-1.5 px-3 rounded-lg whitespace-nowrap shadow-2xl border border-white/20">
                             <div class="font-bold flex items-center gap-2">
                                 ${escapeHtml(sn)}. ${escapeHtml(active.equipageInfo.driverName)}
                             </div>
@@ -609,7 +609,7 @@ function updateStaticMarkers() {
 
         const iconHtml = `
             <div class="flex items-center justify-center w-full h-full">
-                <div class="flex items-center justify-center w-7 h-7 rounded-full border-2 shadow-md font-bold text-[11px] ${colorClass} transition-transform hover:scale-125">
+                <div class="flex items-center justify-center w-7 h-7 rounded-full border-2 shadow-md font-bold text-xs ${colorClass} transition-transform hover:scale-125">
                     ${escapeHtml(label)}
                 </div>
             </div>

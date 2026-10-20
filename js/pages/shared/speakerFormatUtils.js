@@ -11,6 +11,21 @@ export function formatSpeakerPercent(value, { empty = '—', decimals = 1 } = {}
     return isFiniteSpeakerNumber(value) ? `${value.toFixed(decimals)}%` : empty;
 }
 
+/**
+ * Leaderboard positions for rows in ranking order ({ total, isWithdrawn }):
+ * only a row with a result (finite total, not withdrawn) gets a position;
+ * rows without a result, eliminated (Infinity) and withdrawn rows get null.
+ * The ranking's order already holds the tie-breaks, so positions run 1, 2, 3.
+ */
+export function speakerLeaderboardRanks(rows = []) {
+    let counted = 0;
+    return rows.map((row) => {
+        if (!row || row.isWithdrawn || !isFiniteSpeakerNumber(row.total)) return null;
+        counted += 1;
+        return counted;
+    });
+}
+
 export function getSpeakerPenaltyOrNull(value) {
     return isFiniteSpeakerNumber(value) ? value : null;
 }

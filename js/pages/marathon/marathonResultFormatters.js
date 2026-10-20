@@ -1,4 +1,5 @@
-import { escapeHtml } from '../../utils/sharedUtils.js';
+import { escapeHtml, horseLabel } from '../../utils/sharedUtils.js';
+import { formatClockTime } from '../../utils/timeValueUtils.js';
 
 export const safeLower =(x) => (x == null ? '' : String(x)).toLowerCase();
 
@@ -25,16 +26,10 @@ export function formatObstacleClock(seconds) {
   return `${mm}:${ss},${cs}`;
 }
 
-export function formatStartTimeLabel(val) {
-  if (!val) return '\u2014';
-  if (typeof val === 'string' && /^\d{2}:\d{2}$/.test(val)) return val;
-  try {
-    const d = new Date(val);
-    if (!isNaN(d.getTime())) {
-      return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-    }
-  } catch (_) { }
-  return String(val);
+// Firestore Timestamps, {seconds, nanoseconds}, ms numbers and date strings
+// all become "HH:MM" (never "Timestamp(seconds=\u2026)"); the result is plain text
+export function formatStartTimeLabel(val, fallback = '—') {
+  return formatClockTime(val, { fallback });
 }
 
 export function statusClass(s) {
@@ -62,7 +57,8 @@ export function getMomentHorseLabel(equipage, moment) {
     allHorses = [allHorsesRaw];
   }
 
-  if (allHorses.length === 0) return '\u2014';
+  // Equipages with only horseName (participant import, seed): the shared label
+  if (allHorses.length === 0) return horseLabel(equipage);
 
   const horseMap = new Map(allHorses.map(h => [h.id || h.name, h.name]));
   let horseIdsToShow = [];
@@ -87,6 +83,17 @@ export function getMomentHorseLabelStacked(equipage, moment) {
   if (label === '\u2014') return '\u2014';
   const names = label.split(/\s*&\s*/);
   return names.map(n => `<span class="block">${escapeHtml(n)}</span>`).join('');
+}
+
+/**
+ * The club column's text (shown next to the flag): the club name, else the
+ * country code, else "—". Plain text; escape it when inserting.
+ */
+export function clubLabel(eq) {
+  const club = String(eq?.clubName || eq?.club || eq?.organisation || '').trim();
+  if (club) return club;
+  const country = String(eq?.country || eq?.nation || eq?.nationality || '').trim();
+  return country ? country.slice(0, 3).toUpperCase() : '—';
 }
 
 export function shortClubOrCountry(eq) {

@@ -14,7 +14,7 @@ import {
   setMarathonConfig,
   shouldShowObstacleKnockdowns,
 } from '../../utils/marathonUtils.js';
-import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
@@ -1902,9 +1902,9 @@ function navigateEquipage(delta, order = sortedEquipages) {
   if (nextIndex >= 0 && nextIndex < order.length) {
     equipageSearchDropdownMar.setValue(order[nextIndex].startNumber);
   } else if (delta > 0) {
-    showAlert(t('marathon_end_of_startlist'));
+    showAlert(t('marathon_end_of_startlist'), 'info');
   } else {
-    showAlert(t('marathon_start_of_startlist'));
+    showAlert(t('marathon_start_of_startlist'), 'info');
   }
 }
 
@@ -2100,7 +2100,7 @@ export async function load() {
   const page = pageRoot();
 
   if (!competition) {
-    page.innerHTML = `<p class="p-8 text-center text-red-500 dark:text-red-400">${t('marathon_no_competition')}</p>`;
+    page.innerHTML = renderNoCompetitionState();
     return;
   }
   competitionId = competition.id;
@@ -2328,7 +2328,7 @@ export async function load() {
             ${competition?.competitionMode === 'field'
               ? `<button id="btnManualOpenMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[12rem] px-4 py-3 rounded-lg bg-brand-darkblue text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
               : `<button id="btnStartMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-emerald-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-emerald-700">Start</button>
-            <button id="btnStopMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">Stopp</button>`}
+            <button id="btnStopMar" type="button" class="control-btn marathon-main-btn flex-1 min-w-[8rem] px-4 py-3 rounded-lg bg-red-600 text-white font-bold text-lg active:scale-95 transition-all shadow-sm hover:bg-red-700">${t('judge_stop')}</button>`}
             </div>
             <button id="btnResetMar" type="button" aria-label="Nollställ hindertid och formulär" title="Nollställ hindertid och formulär" class="control-btn marathon-reset-btn ml-4 w-12 h-12 flex items-center justify-center rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-100 text-gray-700 active:scale-95 transition-all hover:bg-gray-200 dark:bg-gray-700 dark:text-white"><span aria-hidden="true">🔄</span></button>
           </div>

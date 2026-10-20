@@ -3,7 +3,7 @@ import { listenForEquipages, updateEquipageFromLatest } from '../../services/equ
 import { listenForHorseTemperatures } from '../../services/horseTemperatureService.js';
 import { listenForVetInspections, listenForVetNotes, saveVetClinicalFindings, saveVetNote as saveVetNoteDoc } from '../../services/vetInspectionService.js';
 import { getCompetitionById, getConfig } from '../../services/competitionService.js';
-import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import {
@@ -73,7 +73,7 @@ export function load() {
 
     if (!pageContainer) return;
     if (!competition) {
-        pageContainer.innerHTML = '<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>';
+        pageContainer.innerHTML = renderNoCompetitionState();
         return;
     }
 

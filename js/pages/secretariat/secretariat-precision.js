@@ -1,5 +1,5 @@
 import { getGlobalState } from '../../main.js';
-import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
@@ -465,7 +465,7 @@ export async function load(container) {
 
   if (!rootEl) return;
   if (!competitionId) {
-    rootEl.innerHTML = '<div class="max-w-4xl mx-auto p-6 text-center text-gray-500">Ingen tävling vald.</div>';
+    rootEl.innerHTML = renderNoCompetitionState();
     return;
   }
 

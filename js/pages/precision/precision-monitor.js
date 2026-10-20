@@ -16,6 +16,10 @@ import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, tr
 import { assignPlaces, comparePrecisionRank, precisionRankKey } from '../../core-engine/ranking.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
+import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
+import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
+import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from '../shared/tvMode.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import { renderMap, destroyMap } from './precision-monitor-map.js';
 import {
@@ -51,22 +55,8 @@ const formatMsLive = (ms) => {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')},${String(cs).padStart(2, '0')}`;
 };
 
-const formatTime = (isoOrTs) => {
-  if (!isoOrTs) return '—';
-  try {
-    const value = (typeof isoOrTs === 'object' && isoOrTs.seconds)
-      ? new Date(isoOrTs.seconds * 1000)
-      : new Date(isoOrTs);
-
-    if (isNaN(value.getTime())) {
-      return '—';
-    }
-
-    return value.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-  } catch {
-    return '—';
-  }
-};
+// Strings, Firestore Timestamps, {seconds} objects and ms numbers
+const formatTime = (isoOrTs) => formatClockTime(isoOrTs);
 
 function getBestSplitExcept(className, gateId, excludeSn) {
     let bestElapsed = Infinity;
@@ -140,15 +130,16 @@ function renderLayout() {
   if (!root) return;
 
   root.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8">
+    <div class="container mx-auto p-4 md:p-8 tv-page">
       ${getCompetitionHeader(comp, t('precision_monitor_title'))}
+      <div class="mb-2 flex justify-end">${tvModeLinkHtml('precision-monitor')}</div>
       
         <div class="flex justify-end mb-4">
             <div class="bg-gray-200 dark:bg-gray-700 p-1 rounded-lg inline-flex shadow-inner">
-                <button id="prec-btn-view-list" class="${currentView === 'list' ? 'bg-white dark:bg-gray-600 shadow text-brand-darkblue dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'} px-4 py-1.5 rounded-md text-sm font-bold transition-all">
+                <button id="prec-btn-view-list" class="${currentView === 'list' ? 'bg-white dark:bg-gray-600 shadow text-brand-darkblue dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:text-gray-700'} px-4 py-1.5 rounded-md text-sm font-bold transition-all">
                     <i class="fas fa-list mr-1"></i> Lista
                 </button>
-                <button id="prec-btn-view-map" class="${currentView === 'map' ? 'bg-white dark:bg-gray-600 shadow text-brand-darkblue dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'} px-4 py-1.5 rounded-md text-sm font-bold transition-all">
+                <button id="prec-btn-view-map" class="${currentView === 'map' ? 'bg-white dark:bg-gray-600 shadow text-brand-darkblue dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:text-gray-700'} px-4 py-1.5 rounded-md text-sm font-bold transition-all">
                     <i class="fas fa-map mr-1"></i> Karta
                 </button>
             </div>
@@ -183,12 +174,12 @@ function setView(view) {
     
     if (view === 'list') {
         btnList.className = "bg-white dark:bg-gray-600 shadow text-brand-darkblue dark:text-white px-4 py-1.5 rounded-md text-sm font-bold transition-all";
-        btnMap.className = "text-gray-500 dark:text-gray-400 hover:text-gray-700 px-4 py-1.5 rounded-md text-sm font-bold transition-all";
+        btnMap.className = "text-gray-600 dark:text-gray-300 hover:text-gray-700 px-4 py-1.5 rounded-md text-sm font-bold transition-all";
         document.getElementById('precision-list-view').classList.remove('hidden');
         document.getElementById('precision-map-view').classList.add('hidden');
     } else {
         btnMap.className = "bg-white dark:bg-gray-600 shadow text-brand-darkblue dark:text-white px-4 py-1.5 rounded-md text-sm font-bold transition-all";
-        btnList.className = "text-gray-500 dark:text-gray-400 hover:text-gray-700 px-4 py-1.5 rounded-md text-sm font-bold transition-all";
+        btnList.className = "text-gray-600 dark:text-gray-300 hover:text-gray-700 px-4 py-1.5 rounded-md text-sm font-bold transition-all";
         document.getElementById('precision-list-view').classList.add('hidden');
         document.getElementById('precision-map-view').classList.remove('hidden');
     }
@@ -248,7 +239,7 @@ function renderCurrentDriver() {
   if (!panel) return;
 
   if (!currentDriver) {
-    panel.innerHTML = `<div class="text-center p-8 text-gray-500 dark:text-gray-400 text-xl">${t('monitor_waiting')}</div>`;
+    panel.innerHTML = `<div class="text-center p-8 text-gray-600 dark:text-gray-300 text-xl">${t('monitor_waiting')}</div>`;
     return;
   }
 
@@ -288,7 +279,7 @@ function renderCurrentDriver() {
                 </div>
                 <div id="leader-in-class-slot" class="text-left md:text-right w-full md:w-auto bg-gray-50 dark:bg-gray-700 md:bg-transparent md:dark:bg-transparent p-3 md:p-0 rounded-lg md:rounded-none">
                     ${leaderInClass ? `
-                    <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
+                    <div class="text-sm text-gray-600 dark:text-gray-300">${t('leader_in_class')}</div>
                     <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
                     <div class="font-bold text-blue-700 dark:text-brand-lightblue">
                         ${leaderInClass.totalPenalty.toFixed(2)} p
@@ -300,29 +291,29 @@ function renderCurrentDriver() {
 
             <div class="grid md:grid-cols-2 gap-6 items-center">
                 <div>
-                    <div class="text-sm text-gray-500 dark:text-gray-400 uppercase">${showFinal ? t('finish_time') : t('live_time')}</div>
+                    <div class="text-sm text-gray-600 dark:text-gray-300 uppercase">${showFinal ? t('finish_time') : t('live_time')}</div>
                     <div id="live-timer-main" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums dark:text-white ${displayTimePenalty > 0 ? 'text-red-600 dark:text-red-400' : ''}">${formatMsLive(elapsedMs)}</div>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-sm mt-2">
-                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(maxSec) ? formatMsLive(maxSec * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-500 dark:text-gray-400">${t('max_time')}</div></div>
-                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(maxSec) ? formatMsLive(maxSec * 2 * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-500 dark:text-gray-400">Maximaltid</div></div>
-                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(trackLength) ? trackLength + 'm' : '–'}</div><div class="text-xs text-gray-500 dark:text-gray-400">${t('track_len')}</div></div>
-                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${portDisplay}</div><div class="text-xs text-gray-500 dark:text-gray-400">${t('obstacle_width')}</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(maxSec) ? formatMsLive(maxSec * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-600 dark:text-gray-300">${t('max_time')}</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(maxSec) ? formatMsLive(maxSec * 2 * 1000).slice(0, 5) : '–'}</div><div class="text-xs text-gray-600 dark:text-gray-300">Maximaltid</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${isNum(trackLength) ? trackLength + 'm' : '–'}</div><div class="text-xs text-gray-600 dark:text-gray-300">${t('track_len')}</div></div>
+                        <div class="bg-gray-100 dark:bg-gray-700 p-2 rounded-lg"><div class="font-bold dark:text-white">${portDisplay}</div><div class="text-xs text-gray-600 dark:text-gray-300">${t('obstacle_width')}</div></div>
                     </div>
                 </div>
 
                 <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg mt-4 md:mt-0">
                     <div class="text-center mb-4">
-                        <div class="text-sm text-gray-500 dark:text-gray-400 uppercase">${t('total_penalty')} ${showFinal ? '' : t('preliminary_suffix')}</div>
+                        <div class="text-sm text-gray-600 dark:text-gray-300 uppercase">${t('total_penalty')} ${showFinal ? '' : t('preliminary_suffix')}</div>
                         <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-blue-700 dark:text-brand-lightblue">${formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated })}</div>
                     </div>
                     <div class="grid grid-cols-3 gap-2 text-center text-sm border-t dark:border-gray-600 pt-2 dark:text-gray-300">
-                        <div><div class="text-gray-500 dark:text-gray-400">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
-                        <div><div class="text-gray-500 dark:text-gray-400">${t('obs_penalty')}</div><div id="live-obstacle-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayObstaclePenalty}</div></div>
-                        <div><div class="text-gray-500 dark:text-gray-400">${t('other_penalty')}</div><div id="live-extra-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayExtra}</div></div>
+                        <div><div class="text-gray-600 dark:text-gray-300">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
+                        <div><div class="text-gray-600 dark:text-gray-300">${t('obs_penalty')}</div><div id="live-obstacle-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayObstaclePenalty}</div></div>
+                        <div><div class="text-gray-600 dark:text-gray-300">${t('other_penalty')}</div><div id="live-extra-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayExtra}</div></div>
                     </div>
                     <div id="live-knocks-container" class="border-t dark:border-gray-600 mt-3 pt-2">
                         ${(Array.isArray(data.knocks) && data.knocks.length > 0) ? `
-                        <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">${t('knocked_gates')}</div>
+                        <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">${t('knocked_gates')}</div>
                         <div class="flex flex-wrap gap-2">
                             ${data.knocks.map(gate => {
       const timeMs = data.knockDownTimes?.[gate];
@@ -371,7 +362,7 @@ function renderCurrentDriver() {
                             }
                             
                             return `
-                                <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Senaste passering</div>
+                                <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">Senaste passering</div>
                                 <div class="inline-flex ${compHtml.colorClass} font-semibold px-3 py-1.5 rounded-lg items-center gap-2 border">
                                     <i class="fas fa-map-marker-alt"></i>
                                     <span>${escapeHtml(label)}</span>
@@ -389,7 +380,7 @@ function renderCurrentDriver() {
     const leaderSlot = document.getElementById('leader-in-class-slot');
     if (leaderSlot) {
       leaderSlot.innerHTML = leaderInClass ? `
-                <div class="text-sm text-gray-500 dark:text-gray-400">${t('leader_in_class')}</div>
+                <div class="text-sm text-gray-600 dark:text-gray-300">${t('leader_in_class')}</div>
                 <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
                 <div class="font-bold text-blue-700 dark:text-brand-lightblue">
                     ${leaderInClass.totalPenalty.toFixed(2)} p
@@ -414,7 +405,7 @@ function renderCurrentDriver() {
     if (knocksEl) {
       if (Array.isArray(data.knocks) && data.knocks.length > 0) {
         knocksEl.innerHTML = `
-                <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">${t('knocked_gates')}</div>
+                <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">${t('knocked_gates')}</div>
                 <div class="flex flex-wrap gap-2">
                     ${data.knocks.map(gate => {
           const timeMs = data.knockDownTimes?.[gate];
@@ -467,7 +458,7 @@ function renderCurrentDriver() {
             }
             
             splitsEl.innerHTML = `
-                <div class="text-sm text-gray-500 dark:text-gray-400 mb-1">Senaste passering</div>
+                <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">Senaste passering</div>
                 <div class="inline-flex ${compHtml.colorClass} font-semibold px-3 py-1.5 rounded-lg items-center gap-2 border">
                     <i class="fas fa-map-marker-alt"></i>
                     <span>${escapeHtml(label)}</span>
@@ -489,11 +480,12 @@ function renderUpcomingPanel() {
 
   const upcoming = allEquipages
     .filter(eq => !allPrecisionData.has(String(eq.startNumber)))
-    .sort((a, b) => {
-      const aT = startTimes[String(a.startNumber)]?.precision || '99:99';
-      const bT = startTimes[String(b.startNumber)]?.precision || '99:99';
-      return aT.localeCompare(bT);
-    })
+    .sort((a, b) => compareByTimeThenStartNumber(
+      timeValueToMs(startTimes[String(a.startNumber)]?.precision),
+      timeValueToMs(startTimes[String(b.startNumber)]?.precision),
+      a.startNumber,
+      b.startNumber
+    ))
     .slice(0, 5);
 
   const currentHash = upcoming.map(eq => `${eq.startNumber}:${startTimes[String(eq.startNumber)]?.precision}`).join('|');
@@ -502,7 +494,7 @@ function renderUpcomingPanel() {
 
   let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('next_start')}</h3>`;
   if (upcoming.length === 0) {
-    content += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('all_started')}</p>`;
+    content += `<p class="text-sm text-gray-600 dark:text-gray-300">${t('all_started')}</p>`;
   } else {
     content += upcoming.map(eq => {
       const startTime = formatTime(startTimes[String(eq.startNumber)]?.precision);
@@ -544,7 +536,7 @@ function renderResultsPanel() {
   let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('latest_results')}</h3>`;
 
   if (recentResults.length === 0) {
-    content += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('no_results_yet')}</p>`;
+    content += `<p class="text-sm text-gray-600 dark:text-gray-300">${t('no_results_yet')}</p>`;
   } else {
     content += recentResults.map(res => {
       // ✅ Fallbacks så vi aldrig får "#undefined"
@@ -860,7 +852,9 @@ export async function load() {
 
     allEquipages = equipagesRaw;
     precisionConfig = configRaw || {}; // Spara config
-    startTimes = startTimesData?.times || {};
+    // Only published start times (a draft list is not shown on the public monitor)
+    startTimes = publishedStartTimes(startTimesData || {});
+    enterTvModeIfRequested();
     
     renderLayout(); // NU HAR VI precisionConfig!
     
@@ -885,6 +879,7 @@ export function __unload() {
   loadToken++;
   stopTicker();
   destroyMap();
+  exitTvMode();
   unsubscribes.forEach(unsub => {
     try { unsub(); } catch { }
   });

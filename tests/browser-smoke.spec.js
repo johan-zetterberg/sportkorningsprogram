@@ -309,6 +309,56 @@ test('archiving saves a snapshot and locks results until the competition is reop
   expect(outcome.reopenLogged).toBe(1);
 });
 
+test('app shell: login modal, toasts, error dialog and the phone menu @mobile', async ({ page }) => {
+  await page.goto('/index.html#hub');
+  await expect(page.locator('#loginButton:visible, #logoutButton:visible').first()).toBeVisible({ timeout: 30000 });
+  if (await page.locator('#logoutButton').isVisible()) {
+    // Logout asks first, then clears the device and reloads
+    await page.locator('#logoutButton').click();
+    await expect(page.locator('#confirmModal [role="alertdialog"]')).toBeVisible();
+    await Promise.all([
+      page.waitForEvent('load', { timeout: 30000 }),
+      page.locator('#confirmModalOk').click()
+    ]);
+  }
+  // Logged out: Logga in opens the modal at once (the start-up navigation
+  // used to close it again) with a lead that is not "you must log in"
+  const loginButton = page.locator('#loginButton');
+  await expect(loginButton).toBeVisible({ timeout: 30000 });
+  await loginButton.click();
+  await expect(page.locator('#email')).toBeVisible({ timeout: 1500 });
+  await expect(page.locator('#loginModalLead')).not.toContainText(/måste logga in|must log in/);
+  await page.waitForTimeout(1500);
+  await expect(page.locator('#email')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#email')).toBeHidden();
+
+  await loginIfNeeded(page);
+
+  // Success: a toast that needs no tap; error: a dialog closed with Escape
+  await page.evaluate(() => window.showAlert('Smoke sparad', true));
+  await expect(page.locator('#toastRegion .app-toast')).toContainText('Smoke sparad');
+  await expect(page.locator('#alertModal')).toBeHidden();
+  await page.evaluate(() => window.showAlert('Smoke fel', false));
+  await expect(page.locator('#alertModal [role="alertdialog"]')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.locator('#alertModal')).toBeHidden();
+
+  // The phone menu: a sheet that closes on navigation and on Escape
+  const toggle = page.locator('#menu-toggle');
+  if (await toggle.isVisible()) {
+    await toggle.click();
+    await expect(page.locator('#nav-links')).toBeVisible();
+    await expect(page.locator('#menuLogoutButton')).toBeVisible();
+    await page.evaluate(() => { window.location.hash = '#starttider'; });
+    await expect(page.locator('#nav-links')).toBeHidden();
+    await toggle.click();
+    await expect(page.locator('#nav-links')).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(page.locator('#nav-links')).toBeHidden();
+  }
+});
+
 test('logout leaves no competition data on a shared device', async ({ page }) => {
   await page.goto('/index.html#hub');
   await expect(page.locator('#logoutButton')).toBeVisible({ timeout: 30000 });
@@ -319,7 +369,9 @@ test('logout leaves no competition data on a shared device', async ({ page }) =>
   });
   // Logout ends with a reload: check after it
   const reloaded = page.waitForEvent('load', { timeout: 30000 });
+  // Logout asks first (the device's data is cleared)
   await page.locator('#logoutButton').click();
+  await page.locator('#confirmModalOk').click();
   await reloaded;
   await expect(page.locator('#loginButton')).toBeVisible({ timeout: 30000 });
   const left = await page.evaluate(() => Object.keys(localStorage));
@@ -1109,9 +1161,10 @@ async function forceLogin(page) {
   if (await logoutButton.isVisible().catch(() => false)) {
     // Logout clears the device's data and then reloads the page; continuing
     // before that reload races it
+    await logoutButton.click();
     await Promise.all([
       page.waitForEvent('load', { timeout: 20000 }),
-      logoutButton.click()
+      page.locator('#confirmModalOk').click()
     ]);
     await expect(page.locator('#loginButton')).toBeVisible();
   }

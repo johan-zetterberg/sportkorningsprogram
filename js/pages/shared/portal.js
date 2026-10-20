@@ -31,6 +31,7 @@ import {
     resolvePortalDisciplinePenalties,
     sortPortalItemsByTimestampDesc
 } from './portalDataUtils.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import {
     buildHorseTemperatureChanges,
     buildHorseTemperatureKeyMigration,
@@ -250,14 +251,29 @@ export async function load(options = {}) {
     // 1. Kontrollera inloggning
     const user = getGlobalState('currentUser');
     if (!user) {
+        // Logged out: what the portal is for, and a real login button
         container.innerHTML = `
-            <div class="p-8 text-center">
-                <h2 class="text-xl font-bold text-gray-800 dark:text-gray-100 mb-2">${t('login_required_title')}</h2>
-                <p class="text-gray-600 dark:text-gray-400 mb-4">${t('login_required_msg')}</p>
-                <div id="portal-login-placeholder"></div>
-                <a href="#privacy" class="text-xs text-blue-600 dark:text-blue-400 hover:underline">${t('account_privacy_link')}</a>
+            <div class="container mx-auto p-3 md:p-8">
+                <section class="max-w-xl mx-auto bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-5 md:p-8 text-center">
+                    <div class="text-4xl mb-2" aria-hidden="true">🐴</div>
+                    <h1 class="text-2xl font-bold text-gray-900 dark:text-white">${escapeHtml(t('portal_public_title'))}</h1>
+                    <p class="mt-2 text-gray-600 dark:text-gray-300">${escapeHtml(t('portal_public_intro'))}</p>
+                    <ul class="mt-4 space-y-2 text-left text-sm text-gray-700 dark:text-gray-300">
+                        <li class="flex gap-2"><span aria-hidden="true">🏁</span><span>${escapeHtml(t('portal_public_point_starts'))}</span></li>
+                        <li class="flex gap-2"><span aria-hidden="true">✏️</span><span>${escapeHtml(t('portal_public_point_declare'))}</span></li>
+                        <li class="flex gap-2"><span aria-hidden="true">📬</span><span>${escapeHtml(t('portal_public_point_messages'))}</span></li>
+                        <li class="flex gap-2"><span aria-hidden="true">🔐</span><span>${escapeHtml(t('portal_public_point_officials'))}</span></li>
+                    </ul>
+                    <button type="button" data-action="openLoginModal" class="mt-6 w-full sm:w-auto min-h-[48px] px-8 py-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-bold text-base shadow-sm">${escapeHtml(t('login'))}</button>
+                    <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t('portal_public_register_hint'))}</p>
+                    <div class="mt-4 flex flex-wrap justify-center gap-x-4 gap-y-2 text-sm">
+                        <button type="button" id="portalPublicHelpBtn" class="text-blue-700 dark:text-blue-300 hover:underline min-h-[44px]">${escapeHtml(t('portal_help_btn'))}</button>
+                        <a href="#privacy" class="text-blue-700 dark:text-blue-300 hover:underline inline-flex items-center min-h-[44px]">${escapeHtml(t('account_privacy_link'))}</a>
+                    </div>
+                </section>
             </div>
         `;
+        container.querySelector('#portalPublicHelpBtn')?.addEventListener('click', showDriverPortalHelpModal);
         return;
     }
 
@@ -281,11 +297,11 @@ export async function load(options = {}) {
         const compId = getGlobalState('currentCompetition')?.id || '';
         adminImpersonateHtml = `
             <div class="mt-6 pt-6 border-t dark:border-gray-700">
-                <h3 class="font-bold text-purple-900 dark:text-purple-300 mb-2 flex items-center gap-2">🛡️ Admin: Granska portal</h3>
+                <h3 class="font-bold text-purple-900 dark:text-purple-300 mb-2 flex items-center gap-2">🛡️ ${t('portal_admin_review')}</h3>
                 <div class="flex gap-2">
-                    <input type="text" id="adminImpersonateCompId" placeholder="Tävlings-ID" class="px-3 py-2 border rounded-md text-sm flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeHtml(compId || '')}">
-                    <input type="text" id="adminImpersonateStartNo" placeholder="Startnr" class="px-3 py-2 border rounded-md text-sm w-24 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                    <button id="adminImpersonateBtn" class="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-purple-700 transition-colors">Granska</button>
+                    <input type="text" id="adminImpersonateCompId" placeholder="${escapeHtml(t('portal_competition_id'))}" aria-label="${escapeHtml(t('portal_competition_id'))}" class="px-3 py-2 border rounded-md text-sm flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeHtml(compId || '')}">
+                    <input type="text" id="adminImpersonateStartNo" placeholder="${escapeHtml(t('startno'))}" aria-label="${escapeHtml(t('startno'))}" class="px-3 py-2 border rounded-md text-sm w-24 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <button id="adminImpersonateBtn" class="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-purple-700 transition-colors">${t('portal_review_btn')}</button>
                 </div>
             </div>
         `;
@@ -316,13 +332,13 @@ export async function load(options = {}) {
                     ${renderCompetitionList(claims)}
                     
                     <div class="mt-6 pt-6 border-t dark:border-gray-700">
-                        <h3 class="font-medium text-gray-900 dark:text-gray-200 mb-2 text-sm md:text-base">${t('cant_find_comp')} / Extra rättigheter</h3>
+                        <h3 class="font-medium text-gray-900 dark:text-gray-200 mb-2 text-sm md:text-base">${t('cant_find_comp')} / ${t('portal_extra_rights')}</h3>
                         <p class="text-xs md:text-sm text-gray-500 dark:text-gray-400 mb-3">
-                            Tryck på Synkronisera om en tävling saknas, eller Bli funktionär om du fått en funktionärskod.
+                            ${t('portal_sync_hint')}
                         </p>
                         <div class="flex flex-col sm:flex-row gap-3 sm:gap-4">
                             <button id="manualSyncBtn" class="text-white bg-blue-600 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-700 w-full md:w-auto">🔄 ${t('sync_btn')}</button>
-                            <button id="joinAsAdminBtn" class="text-blue-600 bg-blue-50 border border-blue-200 dark:text-blue-300 dark:bg-blue-900/30 dark:border-blue-800 dark:hover:bg-blue-900/50 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-100 w-full md:w-auto transition-colors">🔐 Bli funktionär</button>
+                            <button id="joinAsAdminBtn" class="text-blue-600 bg-blue-50 border border-blue-200 dark:text-blue-300 dark:bg-blue-900/30 dark:border-blue-800 dark:hover:bg-blue-900/50 px-4 py-2 rounded-md font-medium text-xs md:text-sm hover:bg-blue-100 w-full md:w-auto transition-colors">🔐 ${t('portal_become_official')}</button>
                         </div>
                     </div>
                     ${adminImpersonateHtml}
@@ -800,7 +816,8 @@ async function renderDashboard(container, compId, startNumber, user) {
                 phone: o.driverContact.phone ? (o.mobile || o.phone || '') : '',
                 email: o.driverContact.email ? (o.email || '') : ''
             }));
-        const portalStartTimes = normalizePortalStartTimesConfig(startTimes);
+        // Draft (unpublished) start times are not shown and do not lock the declaration
+    const portalStartTimes = normalizePortalStartTimesConfig({ times: publishedStartTimes(startTimes || {}) });
         const horseTemperatureConfig = normalizeHorseTemperatureConfig(horseTemperatureConfigRaw);
         const horseTemperatureSlots = buildHorseTemperatureSlots(compConfig?.dates, horseTemperatureConfig);
 
@@ -1009,7 +1026,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                 return `
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
                         <h3 class="text-lg font-bold mb-2 text-gray-900 dark:text-white">Hästtemperatur</h3>
-                        <p class="text-sm text-gray-600 dark:text-gray-400">Inga hästar finns registrerade på ekipaget.</p>
+                        <p class="text-sm text-gray-600 dark:text-gray-400">${t('portal_no_horses')}</p>
                     </div>
                 `;
             }
@@ -1172,7 +1189,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         migration.removeKeys.forEach(key => { delete local[key]; });
                         eq.horseTemperatures = local;
                     }
-                    showAlert(changes.length ? 'Temperaturer sparade.' : 'Inga ändringar att spara.', true);
+                    showAlert(changes.length ? t('portal_temperatures_saved') : t('no_changes_to_save'), changes.length ? true : 'info');
                     renderInfo();
                 } catch (error) {
                     console.error('Could not save horse temperatures', error);
@@ -1540,7 +1557,7 @@ async function renderDashboard(container, compId, startNumber, user) {
         renderInfo();
 
         const renderDressage = async () => {
-            contentEl.innerHTML = '<div class="text-center py-12"><div class="spinner"></div> Laddar dressyr...</div>';
+            contentEl.innerHTML = `<div class="text-center py-12"><div class="spinner"></div> ${t('portal_loading_dressage')}</div>`;
             const programs = getPrograms();
             const program = programKey ? programs[programKey] : null;
 
@@ -1627,7 +1644,7 @@ async function renderDashboard(container, compId, startNumber, user) {
         };
 
         const renderMarathon = async () => {
-            contentEl.innerHTML = '<div class="text-center py-12"><div class="spinner"></div> Laddar maraton...</div>';
+            contentEl.innerHTML = `<div class="text-center py-12"><div class="spinner"></div> ${t('portal_loading_marathon')}</div>`;
 
             const [liveDoc, storedObstacles] = await Promise.all([
                 getMarathonLiveDocument(compId, String(startNumber)).catch(() => null),
@@ -1676,7 +1693,7 @@ async function renderDashboard(container, compId, startNumber, user) {
         };
 
         const renderPrecision = async () => {
-            contentEl.innerHTML = '<div class="text-center py-12"><div class="spinner"></div> Laddar precision...</div>';
+            contentEl.innerHTML = `<div class="text-center py-12"><div class="spinner"></div> ${t('portal_loading_precision')}</div>`;
             const latest = await getPrecisionResultForEquipage(compId, startNumber).catch(() => precisionResult);
             renderPrecisionContent(contentEl, eq, latest || {}, precisionConfig, portalStartTimes, equipages);
         };
@@ -1891,6 +1908,7 @@ function renderCompetitionList(claims) {
         return `
             <div class="text-center py-8 bg-gray-50 dark:bg-gray-800/50 rounded-lg border dark:border-gray-700 border-dashed">
                 <p class="text-gray-500 dark:text-gray-400 font-medium">${t('no_comps_linked')}</p>
+                <p class="mt-1 px-4 text-xs text-gray-500 dark:text-gray-400">${t('portal_no_comps_hint')}</p>
             </div>
             `;
     }

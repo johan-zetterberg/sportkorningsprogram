@@ -2,6 +2,32 @@
 // Kontextuell snabbhjälp och 60-sekunderslathundar för funktionärer och domare.
 
 import { escapeHtml } from '../utils/sharedUtils.js';
+import { translateTo } from '../utils/i18n.js';
+
+// Button names come from the same i18n keys as the pages, so the guide says what the screen says
+const LABEL = {
+  saveProtocol: { sv: translateTo('input_save_protocol', 'sv'), en: translateTo('input_save_protocol', 'en') },
+  err1: { sv: translateTo('input_error_1', 'sv'), en: translateTo('input_error_1', 'en') },
+  err2: { sv: translateTo('input_error_2', 'sv'), en: translateTo('input_error_2', 'en') },
+  err3: { sv: translateTo('input_error_3', 'sv'), en: translateTo('input_error_3', 'en') },
+  eliminated: { sv: translateTo('input_eliminated', 'sv'), en: translateTo('input_eliminated', 'en') },
+  saveAndNext: { sv: translateTo('marathon_save_and_next', 'sv'), en: translateTo('marathon_save_and_next', 'en') },
+  route: { sv: translateTo('marathon_route_through_obstacle', 'sv'), en: translateTo('marathon_route_through_obstacle', 'en') },
+  routeUndo: { sv: translateTo('marathon_undo', 'sv'), en: translateTo('marathon_undo', 'en') },
+  routeClear: { sv: translateTo('marathon_clear', 'sv'), en: translateTo('marathon_clear', 'en') },
+  knockdowns: { sv: translateTo('marathon_knockdowns', 'sv'), en: translateTo('marathon_knockdowns', 'en') },
+  holdTime: { sv: translateTo('marathon_hold_time', 'sv'), en: translateTo('marathon_hold_time', 'en') },
+  marathonElim: { sv: translateTo('marathon_elim', 'sv'), en: translateTo('marathon_elim', 'en') },
+  precisionSave: { sv: translateTo('precision_save_results', 'sv'), en: translateTo('precision_save_results', 'en') },
+  precisionExtra: { sv: translateTo('precision_extra_penalty', 'sv'), en: translateTo('precision_extra_penalty', 'en') },
+  pause: { sv: translateTo('observer_stop_all', 'sv'), en: translateTo('observer_stop_all', 'en') },
+  splitAutoFind: { sv: translateTo('precision_split_auto_find_btn', 'sv'), en: translateTo('precision_split_auto_find_btn', 'en') }
+};
+
+// A button name as a coloured chip
+function chip(text, color = 'bg-blue-600') {
+  return `<span class="${color} text-white px-2 py-0.5 rounded text-xs font-bold">${escapeHtml(text)}</span>`;
+}
 
 // Rolldefinitioner med guider på både svenska och engelska
 export const GUIDES = {
@@ -11,14 +37,14 @@ export const GUIDES = {
     icon: '📝',
     steps: {
       sv: [
-        'Välj din <strong>Domarposition</strong> (t.ex. C, B, E) och kontrollera att rätt namn visas.',
-        'Välj <strong>Startnummer / Ekipage</strong> i sökfältet eller med pilarna. Kontrollera att rätt program laddas automatiskt.',
-        'Börja döma när ekipaget hälsar och klockan ringer. Poäng registreras fortlöpande.'
+        'Välj <strong>Ekipage</strong> i sökfältet eller med pilarna « ». Program och domare fylls i från klassens domarschema.',
+        'Kontrollera att rätt <strong>Program</strong> och <strong>Domare</strong> (din position, t.ex. C, E, B) visas. Byt i listan om det inte stämmer.',
+        'Börja döma när ekipaget hälsar. Raden högst upp följer med när du skrollar och visar ekipage, procent, poäng och hur många moment som är ifyllda (t.ex. "12/20 ifyllda").'
       ],
       en: [
-        'Select your <strong>Judge Position</strong> (e.g. C, B, E) and verify your name.',
-        'Select <strong>Start Number / Equipage</strong>. Verify the correct test loads automatically.',
-        'Start judging when the equipage enters and salutes. Enter marks continuously.'
+        'Select the <strong>Equipage</strong> in the search box or with the « » arrows. Test and judge are filled in from the class judging plan.',
+        'Check that the right <strong>Test</strong> and <strong>Judge</strong> (your position, e.g. C, E, B) are shown. Change them in the list if not.',
+        'Start judging when the equipage salutes. The bar at the top stays visible while you scroll and shows the equipage, percent, points and how many movements are filled (e.g. "12/20 filled").'
       ]
     },
     during: {
@@ -26,17 +52,15 @@ export const GUIDES = {
         '<strong>Betyg 0–10:</strong> Skriv siffran direkt. Halva poäng är tillåtna (t.ex. 6, 6.5, 7.5).',
         '<strong>Tangentbordsgenvägar:</strong> Tryck <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Enter</kbd> för att hoppa till nästa rörelse. Tryck <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Tab</kbd> för att öppna och skriva kommentar för aktuell rörelse.',
         '<strong>Kommentarer:</strong> Klicka på <span class="text-blue-600 font-semibold">💬</span> vid behov för att motivera poängen.',
-        '<strong>Felkörning / Avdrag:</strong> Första felkörningen ger 5 straffpoäng, den andra ger ytterligare 10 straffpoäng (15 totalt) och den tredje innebär uteslutning. Använd knapparna "1:a fel (+5)", "2:a fel (+10)" och "3:e fel" (frågar innan ekipaget markeras som eliminerat), eller fyll i övriga straff längst ner i protokollet.',
-        '<strong>Spara:</strong> Protokollet sparas när du trycker på Spara Protokoll. Poängen du skriver visas live för publiken under tiden, men det är inget sparat protokoll.',
-        '<strong>Spara:</strong> Klicka på <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA PROTOKOLL</span> när sista momentet är bedömt. Protokollet blir inte låst eller officiellt förrän resultatet finaliseras på resultatsidan.'
+        `<strong>Felkörning / Avdrag:</strong> Första felkörningen ger 5 straffpoäng, den andra ger ytterligare 10 straffpoäng (15 totalt) och den tredje innebär uteslutning. Använd knapparna "${LABEL.err1.sv}", "${LABEL.err2.sv}" och "${LABEL.err3.sv}" (frågar innan ekipaget markeras som eliminerat), eller fyll i övriga straff längst ner i protokollet.`,
+        `<strong>Spara:</strong> Tryck på ${chip(LABEL.saveProtocol.sv)} när sista momentet är bedömt. Saknar något moment poäng frågar appen först. Poängen du skriver visas live för publiken under tiden, men det är inget sparat protokoll. Protokollet blir inte låst eller officiellt förrän resultatet finaliseras på resultatsidan.`
       ],
       en: [
         '<strong>Marks 0–10:</strong> Type marks directly. Half points allowed (e.g. 6.5, 7.5).',
         '<strong>Keyboard navigation:</strong> Press <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Enter</kbd> to move to next movement. Press <kbd class="px-1.5 py-0.5 bg-gray-100 dark:bg-gray-700 rounded border text-xs font-mono">Tab</kbd> to jump to comments for the current movement.',
         '<strong>Comments:</strong> Click <span class="text-blue-600 font-semibold">💬</span> to add explanatory notes.',
-        '<strong>Errors of course:</strong> The first error gives 5 penalty points, the second adds 10 more (15 total), and the third results in elimination. Use the "1st error (+5)", "2nd error (+10)" and "3rd error" buttons (the third asks before marking the turnout eliminated), or enter other penalties at the bottom.',
-        '<strong>Saving:</strong> The protocol is saved when you press Save Protocol. The scores you type are shown live to spectators meanwhile, but that is not a saved protocol.',
-        '<strong>Save:</strong> Click <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE PROTOCOL</span> once the test is finished. The protocol is not locked or official until the result is finalized on the results page.'
+        `<strong>Errors of course:</strong> The first error gives 5 penalty points, the second adds 10 more (15 total), and the third results in elimination. Use the "${LABEL.err1.en}", "${LABEL.err2.en}" and "${LABEL.err3.en}" buttons (the third asks before marking the turnout eliminated), or enter other penalties at the bottom.`,
+        `<strong>Save:</strong> Press ${chip(LABEL.saveProtocol.en)} once the last movement is marked. If a movement has no mark, the app asks first. The marks you type are shown live to spectators meanwhile, but that is not a saved protocol. The protocol is not locked or official until the result is finalized on the results page.`
       ]
     },
     troubleshooting: {
@@ -83,14 +107,14 @@ export const GUIDES = {
         { sym: '⌨️ Tab', desc: 'Öppna och skriv kommentar' },
         { sym: '☁️ Bock', desc: 'Synkad med servern' },
         { sym: '☁️ Siffra', desc: 'Sparad lokalt (köad offline)' },
-        { sym: '🟢 Grön', desc: 'Godkänt / klart' }
+        { sym: '📊 x/N ifyllda', desc: 'Moment med poäng av alla moment' }
       ],
       en: [
         { sym: '⌨️ Enter', desc: 'Jump to next movement' },
         { sym: '⌨️ Tab', desc: 'Open and type comment' },
         { sym: '☁️ Check', desc: 'Synced with server' },
         { sym: '☁️ Count', desc: 'Stored locally in offline queue' },
-        { sym: '🟢 Green', desc: 'Completed and verified' }
+        { sym: '📊 x/N filled', desc: 'Movements with a mark, of all movements' }
       ]
     }
   },
@@ -101,32 +125,32 @@ export const GUIDES = {
     icon: '🚩',
     steps: {
       sv: [
-        'Välj ditt <strong>Hinder nr</strong> i listan (det hinder du är placerad vid).',
-        'Välj <strong>Startnummer / Ekipage</strong> när ekipaget närmar sig hindret.',
-        'Stå redo med blicken på de röda och vita startflaggorna.'
+        'Välj <strong>Ekipage</strong> (sökfältet överst eller pilarna « ») när ekipaget närmar sig hindret.',
+        'Kontrollera att ditt <strong>Hinder</strong> är valt i listan bredvid (appen minns hindret du valde senast).',
+        'Stå redo med blicken på hindrets in- och utfartsflaggor.'
       ],
       en: [
-        'Select your <strong>Obstacle number</strong> in the dropdown.',
-        'Select the <strong>Start Number / Equipage</strong> as they approach the obstacle.',
-        'Stand ready watching the red/white entry flags.'
+        'Select the <strong>Equipage</strong> (search box at the top or the « » arrows) as it approaches the obstacle.',
+        'Check that your <strong>Obstacle</strong> is selected in the list next to it (the app remembers the one you chose last).',
+        'Stand ready watching the obstacle entry and exit flags.'
       ]
     },
     during: {
       sv: [
-        '<strong>Starta klockan:</strong> Tryck på <span class="bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> exakt när första hästens nos skär linjen mellan startflaggorna.',
-        '<strong>Portmarkering (A, B, C...):</strong> Klicka på respektive portknapp när porten passeras för att verifiera korrekt körväg.',
-        '<strong>Rivningar (Bollar):</strong> Om en boll trillar av en port, klicka på porten eller öka antalet rivningar (2 straffpoäng per rivet element, TR V 525.5).',
-        '<strong>Stoppa klockan:</strong> Tryck på <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOPP</span> exakt när ekipaget passerar ut mellan de röda och vita målflaggorna.',
-        '<strong>Uppehåll i hinder:</strong> Om ekipaget tvingas stanna på grund av hinderblockering eller tekniskt fel: Klicka på Uppehåll, ange sekunder och orsak. Tiden dras då av från sträcktiden.',
-        '<strong>Spara:</strong> Klicka på <span class="bg-blue-900 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA RESULTAT</span>.'
+        `<strong>Starta klockan:</strong> Tryck på ${chip('START', 'bg-emerald-600')} exakt när första hästens nos skär linjen mellan infartsflaggorna.`,
+        `<strong>${LABEL.route.sv}:</strong> Tryck på portarna (A, B, C …) i den ordning ekipaget kör dem. Appen varnar om en port kommer i fel ordning. ${LABEL.routeUndo.sv} tar bort den senaste porten, ${LABEL.routeClear.sv} tömmer vägen.`,
+        `<strong>Stoppa klockan:</strong> Tryck på ${chip('STOPP', 'bg-red-600')} exakt när ekipaget passerar ut mellan utfartsflaggorna.`,
+        `<strong>${LABEL.knockdowns.sv}:</strong> Fältet finns bara på hinder med rivningsbara element. Ange antal nedslagna element eller bollar (2 straffpoäng per rivet element, TR V 525.5).`,
+        `<strong>${LABEL.holdTime.sv}:</strong> Om ekipaget hålls kvar (t.ex. föregående ekipage i hindret eller hinderreparation): ange hålltiden i <strong>minuter</strong> med snabbknapparna +½, +1, +2 eller skriv t.ex. 2,5, och välj orsak. Tiden dras av från sträcka B.`,
+        `<strong>Spara:</strong> Tryck på ${chip(LABEL.saveAndNext.sv, 'bg-emerald-600')}. Resultatet sparas och nästa ekipage i startordningen väljs.`
       ],
       en: [
-        '<strong>Start clock:</strong> Press <span class="bg-green-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> the instant the first horse\'s nose crosses the entry flags.',
-        '<strong>Gate tracking (A, B, C...):</strong> Tap gate buttons as they are negotiated to track the correct route.',
-        '<strong>Knockdowns (Balls):</strong> If a ball falls, tap the gate or increment balls (2 penalty points per element knocked down).',
-        '<strong>Stop clock:</strong> Press <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOP</span> the instant the turnout crosses the exit flags.',
-        '<strong>Hold time / Delay:</strong> If held by officials or obstruction, record hold time in seconds and enter note. This time is deducted from Phase B.',
-        '<strong>Save:</strong> Click <span class="bg-blue-900 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE RESULT</span>.'
+        `<strong>Start clock:</strong> Press ${chip('START', 'bg-emerald-600')} the instant the first horse's nose crosses the entry flags.`,
+        `<strong>${LABEL.route.en}:</strong> Tap the gates (A, B, C …) in the order the turnout drives them. The app warns when a gate comes out of order. ${LABEL.routeUndo.en} removes the last gate, ${LABEL.routeClear.en} empties the route.`,
+        `<strong>Stop clock:</strong> Press ${chip('STOP', 'bg-red-600')} the instant the turnout crosses the exit flags.`,
+        `<strong>${LABEL.knockdowns.en}:</strong> Shown only on obstacles with breakable elements. Enter the number of elements or balls knocked down (2 penalty points per element knocked down).`,
+        `<strong>${LABEL.holdTime.en}:</strong> If the turnout is held (e.g. previous turnout still in the obstacle, obstacle repair): enter the hold time in <strong>minutes</strong> with the +½, +1, +2 quick buttons or type e.g. 2.5, and pick a reason. It is deducted from section B.`,
+        `<strong>Save:</strong> Press ${chip(LABEL.saveAndNext.en, 'bg-emerald-600')}. The result is saved and the next turnout in the start order is selected.`
       ]
     },
     troubleshooting: {
@@ -136,8 +160,8 @@ export const GUIDES = {
           a: 'Klicka direkt på tidssiffrorna på skärmen för att öppna den manuella tidsredigeraren. Där kan du korrigera tiden exakt.'
         },
         {
-          q: 'Råkade klicka på fel port eller fel rivning?',
-          a: 'Klicka bara på knappen en gång till för att avmarkera och nollställa.'
+          q: 'Råkade trycka på fel port?',
+          a: `Tryck ${LABEL.routeUndo.sv} för att ta bort den senaste porten, eller ${LABEL.routeClear.sv} för att börja om vägen. Antalet rivningar ändrar du direkt i fältet.`
         },
         {
           q: 'Dålig täckning / Mobilnätet svajar ute i skogen?',
@@ -145,7 +169,7 @@ export const GUIDES = {
         },
         {
           q: 'Ekipaget kör fel väg eller välter?',
-          a: 'Markera "Eliminerad" med kryssrutan, skriv en kort förklarande kommentar och klicka på Spara.'
+          a: `Kryssa i "${LABEL.marathonElim.sv}", skriv en kort förklarande kommentar och tryck ${LABEL.saveAndNext.sv}.`
         },
         {
           q: 'Skärmen släcker sig mitt i en ritt?',
@@ -158,8 +182,8 @@ export const GUIDES = {
           a: 'Tap the large timer digits on screen to open the manual time editor and adjust the exact time.'
         },
         {
-          q: 'Accidentally tapped the wrong gate or knockdown?',
-          a: 'Tap the button once more to toggle and clear it.'
+          q: 'Tapped the wrong gate?',
+          a: `Press ${LABEL.routeUndo.en} to remove the last gate, or ${LABEL.routeClear.en} to start the route over. Change the knockdown count directly in its field.`
         },
         {
           q: 'Poor mobile coverage in the woods?',
@@ -167,7 +191,7 @@ export const GUIDES = {
         },
         {
           q: 'Turnout goes wrong course or overturns?',
-          a: 'Check "Eliminated", write a concise remark, and save.'
+          a: `Check "${LABEL.marathonElim.en}", write a concise remark, and press ${LABEL.saveAndNext.en}.`
         },
         {
           q: 'Screen dims or locks during a round?',
@@ -179,13 +203,13 @@ export const GUIDES = {
       sv: [
         { sym: '🟢 START', desc: 'Passage av startflaggor' },
         { sym: '🔴 STOPP', desc: 'Passage av målflaggor' },
-        { sym: '⚪ Port A–F', desc: 'Grön = passerad, Röd = rivning' },
+        { sym: '⚪ Port A–F', desc: 'Tryck i körordning; fel ordning varnas' },
         { sym: '⏱️ Tidsjustering', desc: 'Klicka på siffrorna för manuell tid' }
       ],
       en: [
         { sym: '🟢 START', desc: 'Crossing entry flags' },
         { sym: '🔴 STOP', desc: 'Crossing exit flags' },
-        { sym: '⚪ Gate A–F', desc: 'Green = cleared, Red = knockdown' },
+        { sym: '⚪ Gate A–F', desc: 'Tap in driving order; wrong order is flagged' },
         { sym: '⏱️ Manual time', desc: 'Tap timer digits to edit' }
       ]
     }
@@ -197,12 +221,12 @@ export const GUIDES = {
     icon: '⏱️',
     steps: {
       sv: [
-        'Välj aktiv <strong>Etapp</strong> i flikarna (Warmup, Sträcka A, Transfer eller Sträcka B).',
+        'Välj aktiv <strong>Etapp</strong> i flikarna (Warm-up, A, Transp. eller B).',
         'Välj <strong>Startnummer / Ekipage</strong> i rullistan när ekipaget närmar sig tidskontrollen.',
         'Kontrollera ekipagets idealtid och tidsfönster (min/max) på skärmen.'
       ],
       en: [
-        'Select active <strong>Phase</strong> in tabs (Warmup, Section A, Transfer or Section B).',
+        'Select active <strong>Phase</strong> in the tabs (Warm-up, A, Transp. or B).',
         'Select <strong>Start Number / Equipage</strong> as turnout approaches the timing station.',
         'Check time window (min/optimum/max) displayed on screen.'
       ]
@@ -213,14 +237,14 @@ export const GUIDES = {
         '<strong>Automatisk beräkning:</strong> Systemet räknar automatiskt ut förfluten tid och eventuella tidsstraff mot gällande tidsfönster.',
         '<strong>Manuell tid:</strong> Om tiden tagits med ett officiellt tidtagarur: tryck på etappens tid och skriv in den körda tiden som mmsscc (t.ex. 251530 = 25:15,30).',
         '<strong>Aktiva ekipage:</strong> Fäll ut listan "Aktiva ekipage" för att se vilka som befinner sig på sträckan just nu.',
-        '<strong>Tävlingspaus:</strong> En global paus sätts från observatörssidan (NÖD-PAUS). Den här sidan pausar då automatiskt, och tiden under pausen räknas inte.'
+        `<strong>Tävlingspaus:</strong> En global paus sätts från observatörssidan (${LABEL.pause.sv}). Klockorna på den här sidan pausas då automatiskt, och tiden under pausen räknas inte.`
       ],
       en: [
         '<strong>Passage timing:</strong> Tap the clock icon at Start or Finish the moment the equipage passes.',
         '<strong>Automatic calculation:</strong> Elapsed time and penalties are computed automatically according to rules ledger.',
         '<strong>Manual time:</strong> If the time was taken with an official stopwatch: tap the section time and enter the driven time as mmsscc (e.g. 251530 = 25:15.30).',
         '<strong>Active turnouts:</strong> Expand "Active Timers" to monitor all equipages currently on the phase.',
-        '<strong>Competition pause:</strong> A global pause is set from the observer page (EMERGENCY PAUSE). This page then pauses automatically, and the paused time does not count.'
+        `<strong>Competition pause:</strong> A global pause is set from the observer page (${LABEL.pause.en}). The clocks on this page then pause automatically, and the paused time does not count.`
       ]
     },
     troubleshooting: {
@@ -289,16 +313,18 @@ export const GUIDES = {
       sv: [
         '<strong>Start:</strong> Klicka på <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> när ekipaget korsar startlinjen.',
         '<strong>Rivningar (Bollar):</strong> Klicka på motsvarande portknapp (t.ex. 1, 4, 12A) så fort en boll trillar. Knappen blir röd och 3 straff läggs till direkt. Klicka igen om bollen dömdes fel för att ångra.',
-        '<strong>Målgång:</strong> Klicka på <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOPP</span> när ekipaget skär mållinjen.',
-        '<strong>Övriga straff:</strong> Ange eventuella straff (t.ex. 5 straff för groom avstigen) i fältet "Övriga straff".',
-        '<strong>Spara:</strong> Klicka på <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SPARA RESULTAT</span>.'
+        '<strong>Ombyggnad:</strong> Måste ett hinder byggas om under ritten, tryck på <strong>+10 s (ombyggnad)</strong> under klockan. 10 sekunder läggs på tiden per ombyggnad; −1 ångrar en.',
+        `<strong>Målgång:</strong> Klicka på ${chip('STOPP', 'bg-red-600')} när ekipaget skär mållinjen.`,
+        `<strong>${LABEL.precisionExtra.sv}:</strong> Ange eventuella övriga straff (t.ex. groom avstigen) i fältet "${LABEL.precisionExtra.sv}".`,
+        `<strong>Spara:</strong> Klicka på ${chip(LABEL.precisionSave.sv, 'bg-brand-darkblue')}.`
       ],
       en: [
         '<strong>Start:</strong> Press <span class="bg-emerald-600 text-white px-2 py-0.5 rounded text-xs font-bold">START</span> when crossing the start line.',
         '<strong>Knockdowns:</strong> Tap the gate button (e.g. 1, 4, 12A) immediately when a ball falls. Button turns red (+3 penalties). Tap again to toggle/undo.',
-        '<strong>Finish:</strong> Press <span class="bg-red-600 text-white px-2 py-0.5 rounded text-xs font-bold">STOP</span> when crossing finish line.',
-        '<strong>Other penalties:</strong> Enter additional penalties (e.g. groom dismounting, 5 pts) in "Other Penalties".',
-        '<strong>Save:</strong> Click <span class="bg-blue-600 text-white px-2 py-0.5 rounded text-xs font-bold">SAVE RESULT</span>.'
+        '<strong>Rebuild:</strong> If an obstacle has to be rebuilt during the round, press <strong>+10 s (ombyggnad)</strong> under the clock. 10 seconds are added per rebuild; −1 undoes one.',
+        `<strong>Finish:</strong> Press ${chip('STOP', 'bg-red-600')} when crossing the finish line.`,
+        `<strong>${LABEL.precisionExtra.en}:</strong> Enter any other penalties (e.g. groom dismounting) in "${LABEL.precisionExtra.en}".`,
+        `<strong>Save:</strong> Click ${chip(LABEL.precisionSave.en, 'bg-brand-darkblue')}.`
       ]
     },
     troubleshooting: {
@@ -376,13 +402,13 @@ export const GUIDES = {
         '<strong>Fel gångart (Galopp i skritt):</strong> Klicka på START vid första galoppsprånget. Klicka på STOPP när hästen skrittar igen. Varje start–stopp blir ett eget tillfälle: rättat inom 5 s ger inget straff, annars 1 straffpoäng per påbörjad 5-sekundersperiod (TR V 523.1).',
         '<strong>Otillåten halt:</strong> Klicka START när ekipaget stannar olovligen och STOPP när det rör sig framåt igen.',
         '<strong>Noteringar / Kommentarer:</strong> Skriv en kort förklaring vid behov (t.ex. "Galopp ca 15 m").',
-        '<strong>Nödstopp (Global Paus):</strong> Vid allvarlig incident eller blockerat spår: Klicka på den röda knappen <strong>NÖD-PAUS</strong>. Detta fryser officiell tid för hela sträckan och larmar funktionärer omedelbart.'
+        `<strong>Tävlingspaus:</strong> Vid allvarlig incident eller blockerat spår: öppna panelen för paus och tryck på den röda knappen <strong>${LABEL.pause.sv}</strong>. Alla tävlingsklockor pausas. Sidor som är öppna visar då att tävlingen är pausad, men ingen larmas: meddela tävlingsledningen via radio eller telefon.`
       ],
       en: [
         '<strong>Wrong gait (Canter in walk):</strong> Click START on first canter stride. Click STOP when back to walk. Each start–stop is one incident: corrected within 5 s gives no penalty, otherwise 1 penalty per commenced 5-second period.',
         '<strong>Unauthorized halt:</strong> Click START on halt and STOP when moving forward.',
         '<strong>Remarks:</strong> Type explanatory notes (e.g. "Cantered approx 15 m").',
-        '<strong>Emergency pause:</strong> If track is blocked or in an emergency, hit <strong>EMERGENCY PAUSE</strong> to freeze race clocks and alert officials.'
+        `<strong>Competition pause:</strong> If the track is blocked or in an emergency, open the pause panel and press the red <strong>${LABEL.pause.en}</strong> button. All competition clocks pause. Pages that are open then show that the competition is paused, but nobody is alerted: tell the competition management by radio or phone.`
       ]
     },
     troubleshooting: {
@@ -409,12 +435,12 @@ export const GUIDES = {
     },
     symbols: {
       sv: [
-        { sym: '🚨 Nöd-Paus', desc: 'Pausar tidtagning för alla ekipage' },
+        { sym: '🚨 Pausa tävlingen', desc: 'Pausar tidtagning för alla ekipage' },
         { sym: '🐎 Gångart', desc: 'Mäter sekunder i otillåten gångart' },
         { sym: '🛑 Halt', desc: 'Registrerar otillåten stillastående tid' }
       ],
       en: [
-        { sym: '🚨 Emergency', desc: 'Freezes timing for all equipages' },
+        { sym: '🚨 Pause competition', desc: 'Pauses timing for all equipages' },
         { sym: '🐎 Gait', desc: 'Tracks seconds in unauthorized gait' },
         { sym: '🛑 Halt', desc: 'Logs unauthorized stationary time' }
       ]
@@ -509,13 +535,13 @@ export const GUIDES = {
     },
     during: {
       sv: [
-        '<strong>Realtidsöversikt:</strong> Gula rader visar pågående eller oavslutade ritter; gröna rader är klara.',
+        '<strong>Statusmärken:</strong> Orange "Pågår" = ritten pågår, blå "Klar" = klar men inte finaliserad, grön "Finaliserad" = låst officiellt resultat. Grå = ej startad.',
         '<strong>Granskning före finalisering:</strong> Kontrollera att alla domarbetyg och etapptider inkommit innan knappen "Finalisera" klickas.',
         '<strong>Lås upp vid protest / korrigering:</strong> Om ett domarprotokoll behöver korrigeras, lås upp raden, gör ändringen tillsammans med överdomaren och spara om.',
         '<strong>PDF & Utskrift:</strong> Skapa officiella resultatlistor, protokoll och speakerunderlag via Rapportcenter.'
       ],
       en: [
-        '<strong>Live Overview:</strong> Yellow rows indicate in-progress or unfinalized entries; green rows are finalized.',
+        '<strong>Status badges:</strong> Amber "Running" = in progress, blue "Finished" = done but not finalized, green "Finalized" = locked official result. Grey = not started.',
         '<strong>Review before finalizing:</strong> Verify that all judges and timing points reported in before finalizing.',
         '<strong>Unlock on query / protest:</strong> If correction is required, unlock the record, update with Ground Jury and re-save.',
         '<strong>PDF & Printouts:</strong> Generate official result sheets, protocols and speaker material via Report Center.'
@@ -553,6 +579,136 @@ export const GUIDES = {
         { sym: '🔒 Finalized', desc: 'Official result locked from tampering' },
         { sym: '🔓 Unlocked', desc: 'Open for verification and editing' },
         { sym: '🖨️ PDF Export', desc: 'Generate official notices and reports' }
+      ]
+    }
+  },
+
+  'vagnbredd': {
+    title: { sv: 'Funktionskontroll & Vagnbredd', en: 'Carriage Check & Track Width' },
+    badge: { sv: 'Vagnmätning', en: 'Carriage measuring' },
+    icon: '📏',
+    steps: {
+      sv: [
+        'Välj <strong>Ekipage</strong> i sökfältet eller med pilarna « ».',
+        'Mät vagnens spårvidd (yttermått mellan hjulen vid marken) för dressyr/precision och, om en annan vagn används, för maraton.',
+        'Kontrollera vagnens utrustning (bromsar, reflexer, baksele) enligt "Vagnregler för godkännande".'
+      ],
+      en: [
+        'Select the <strong>Equipage</strong> in the search box or with the « » arrows.',
+        'Measure the track width (outside of the wheels at ground level) for dressage/cones and, if another carriage is used, for marathon.',
+        'Check the carriage equipment (brakes, reflectors, breeching) against "Vagnregler för godkännande".'
+      ]
+    },
+    during: {
+      sv: [
+        '<strong>Bredd dressyr/precision (cm):</strong> Bredden styr portbredden i precision (spårvidd + klassens tillägg). Appen varnar om vagnen är smalare än TR Bilaga 2 tillåter.',
+        '<strong>Bredd maraton (cm):</strong> Fyll i om ekipaget kör maraton med en annan vagn.',
+        '<strong>Tidigare vagn:</strong> Har kusken mätts tidigare föreslår appen de sparade måtten; tryck Använd om vagnen är densamma.',
+        '<strong>Funktionskontroll:</strong> Kryssa i "Vagn godkänd" och skriv en anmärkning vid behov (t.ex. bromsar, reflexer).',
+        `<strong>Spara:</strong> Tryck på ${chip('Spara & gå till nästa', 'bg-brand-darkblue')}. Nästa ekipage väljs direkt.`
+      ],
+      en: [
+        '<strong>Width dressage/cones (cm):</strong> It sets the cone width in precision (track width + the class allowance). The app warns when the carriage is narrower than TR Annex 2 allows.',
+        '<strong>Width marathon (cm):</strong> Fill in when the turnout drives marathon with another carriage.',
+        '<strong>Earlier carriage:</strong> If the driver was measured before, the app suggests the saved widths; press Använd (Use) when it is the same carriage.',
+        '<strong>Function check:</strong> Tick "Vagn godkänd" (carriage approved) and add a remark if needed (e.g. brakes, reflectors).',
+        `<strong>Save:</strong> Press ${chip('Spara & gå till nästa', 'bg-brand-darkblue')} (save & next). The next turnout is selected.`
+      ]
+    },
+    troubleshooting: {
+      sv: [
+        {
+          q: 'Mätte fel?',
+          a: 'Välj ekipaget igen, rätta måttet och spara på nytt. Precisionens portbredd räknas om från det sparade måttet.'
+        },
+        {
+          q: 'Vagnen är för smal?',
+          a: 'Varningen visar klassens minimimått. Vagnen kan sparas ändå; kontakta teknisk delegat eller överdomare innan start.'
+        }
+      ],
+      en: [
+        {
+          q: 'Measured wrong?',
+          a: 'Select the turnout again, correct the width and save again. The cone width in precision is recalculated from the saved width.'
+        },
+        {
+          q: 'Carriage too narrow?',
+          a: 'The warning shows the minimum width of the class. It can still be saved; contact the technical delegate or the president of the ground jury before the start.'
+        }
+      ]
+    },
+    symbols: {
+      sv: [
+        { sym: '« / »', desc: 'Föregående / nästa ekipage' },
+        { sym: 'x av N', desc: 'Antal kontrollerade ekipage (under knappen)' }
+      ],
+      en: [
+        { sym: '« / »', desc: 'Previous / next turnout' },
+        { sym: 'x av N', desc: 'Turnouts checked so far (below the button)' }
+      ]
+    }
+  },
+
+  'precision-split': {
+    title: { sv: 'Precision – Gate Observer (livekarta)', en: 'Cones – Gate Observer (live map)' },
+    badge: { sv: 'Passager', en: 'Passages' },
+    icon: '📍',
+    steps: {
+      sv: [
+        `Välj <strong>Ekipage</strong> i sökfältet, eller tryck ${chip(LABEL.splitAutoFind.sv, 'bg-emerald-600')} för att hitta ekipaget som är startat.`,
+        'Kontrollera att rätt ekipage visas under "Aktuellt Ekipage".',
+        'Ställ dig så att du ser start, mål och de portar som är utplacerade på kartan.'
+      ],
+      en: [
+        `Select the <strong>Equipage</strong> in the search box, or press ${chip(LABEL.splitAutoFind.en, 'bg-emerald-600')} to find the turnout that has started.`,
+        'Check that the right turnout is shown under "Current Equipage".',
+        'Stand where you can see the start, the finish and the gates placed on the map.'
+      ]
+    },
+    during: {
+      sv: [
+        '<strong>Passage:</strong> Tryck på start, porten eller mål när ekipaget passerar. Tiden stämplas direkt.',
+        '<strong>Ångra:</strong> Tryck på en redan loggad passage för att ta bort den (appen frågar först).',
+        '<strong>Påverkar inte resultatet:</strong> Passagerna driver bara animeringen på monitorkartan. Tid och rivningar registreras på sidan Inmatning Precision.',
+        '<strong>Finaliserat resultat:</strong> Passager kan inte ändras förrän resultatet är upplåst.'
+      ],
+      en: [
+        '<strong>Passage:</strong> Tap start, the gate or finish when the turnout passes. The time is stamped at once.',
+        '<strong>Undo:</strong> Tap a logged passage to remove it (the app asks first).',
+        '<strong>Does not affect the result:</strong> Passages only drive the animation on the monitor map. Time and knockdowns are entered on the Precision input page.',
+        '<strong>Finalized result:</strong> Passages cannot be changed until the result is unlocked.'
+      ]
+    },
+    troubleshooting: {
+      sv: [
+        {
+          q: 'Sidan säger att live-kartan inte är aktiverad?',
+          a: 'Live-kartan slås på av admin i precisionsinställningarna. Utan den behövs inga passager.'
+        },
+        {
+          q: 'Dålig täckning vid banan?',
+          a: 'På en redan laddad vy köas passagerna lokalt. Håll fliken öppen tills köindikatorn är borta.'
+        }
+      ],
+      en: [
+        {
+          q: 'The page says the live map is not enabled?',
+          a: 'The admin turns the live map on in the precision settings. Without it no passages are needed.'
+        },
+        {
+          q: 'Poor coverage at the arena?',
+          a: 'On an already loaded view passages are queued locally. Keep the tab open until the queue indicator is gone.'
+        }
+      ]
+    },
+    symbols: {
+      sv: [
+        { sym: '📍 Port', desc: 'Tryck vid passage' },
+        { sym: '⏱️ Tid', desc: 'Loggad passage – tryck för att ångra' }
+      ],
+      en: [
+        { sym: '📍 Gate', desc: 'Tap on passage' },
+        { sym: '⏱️ Time', desc: 'Logged passage – tap to undo' }
       ]
     }
   }

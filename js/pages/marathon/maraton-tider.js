@@ -3,7 +3,7 @@
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { getGlobalState } from '../../main.js';
-import { getCompetitionHeader, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { ensureClubLogosLoaded, getClubLogoUrl, getClubLogoHtml } from '../../services/logosService.js';
 import { fetchFlagDataUrl, getFlagHtml, normalizeCountryCode } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
@@ -803,7 +803,7 @@ export async function load() {
   const competition = getGlobalState('currentCompetition');
   const page = document.getElementById('page-maraton-tider');
   if (!competition) {
-    page.innerHTML = `<p class="p-8 text-center text-red-500">${t('no_competition_selected')}</p>`;
+    page.innerHTML = renderNoCompetitionState();
     return;
   }
 

@@ -634,3 +634,80 @@ html.dark :is(a, button, summary, [role="button"], [role="tab"], input[type="che
         padding-bottom: 0.55rem !important;
     }
 }
+
+/* ==== Result pages and big screens (results, monitors, speaker, prize-giving) ==== */
+
+/* Wide tables: a right-edge shadow and a hint while more columns are off-screen
+   (js/pages/shared/scrollHint.js sets data-scroll-more on the wrapper) */
+.scroll-hint-wrap {
+    position: relative;
+}
+
+.scroll-hint-wrap::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: 2.5rem;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .2s ease;
+    background: linear-gradient(to left, rgba(15, 23, 42, .22), rgba(15, 23, 42, 0));
+    border-top-right-radius: inherit;
+    border-bottom-right-radius: inherit;
+    z-index: 25;
+}
+
+.scroll-hint-wrap[data-scroll-more="right"]::after {
+    opacity: 1;
+}
+
+html.dark .scroll-hint-wrap::after {
+    background: linear-gradient(to left, rgba(0, 0, 0, .6), rgba(0, 0, 0, 0));
+}
+
+.scroll-hint-text {
+    display: none;
+}
+
+.scroll-hint-wrap[data-scroll-more="right"] + .scroll-hint-text,
+.scroll-hint-text[data-visible="1"] {
+    display: flex;
+}
+
+/* TV / kiosk mode (?tv=1, js/pages/shared/tvMode.js): no app header or footer,
+   full width, large text (rem scales with the root: base ≥ 24 px at 1920 px),
+   high-contrast dark theme */
+html.tv-mode {
+    font-size: max(24px, 1.25vw);
+}
+
+html.tv-mode body {
+    background: #030712 !important;
+    color: #f9fafb;
+}
+
+html.tv-mode .app-main-nav,
+html.tv-mode .app-footer {
+    display: none !important;
+}
+
+html.tv-mode .tv-page {
+    max-width: none !important;
+    width: 100% !important;
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+}
+
+html.tv-mode .tv-hide {
+    display: none !important;
+}
+
+html:not(.tv-mode) .tv-only {
+    display: none !important;
+}
+
+html.tv-mode .tv-map-h {
+    height: 62vh !important;
+}

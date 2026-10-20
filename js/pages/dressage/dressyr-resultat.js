@@ -72,6 +72,8 @@ import {
     resolveCurrentCompId,
     debounce
 } from '../../utils/sharedUtils.js';
+import { formatClockTime } from '../../utils/timeValueUtils.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 
 import { injectScrollStyles, initializeScrollSync, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
@@ -249,7 +251,7 @@ function patchFinalizeBadge(startNo, finalized) {
         if (!badge) {
             const b = document.createElement('span');
             b.id = `badge-final-${startNo}`;
-            b.className = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300';
+            b.className = 'inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300';
             b.textContent = 'Finaliserad';
             // Sätt den bredvid knapparna
             const holder = row.querySelector('[data-finalize-slot]') || row.querySelector('.flex.items-center.gap-2');
@@ -403,18 +405,9 @@ function headerLabelWithSort(label, key) {
     return `${label} ${arrow}`;
 }
 
+// HH:MM for strings, Firestore Timestamps and {seconds} objects; '—' otherwise
 function formatStartTimeLabel(val) {
-    if (!val) return '—';
-    try {
-        // Försök skapa ett giltigt datum-objekt
-        const d = new Date(String(val).replace(' ', 'T'));
-        if (isNaN(d.getTime())) return '—'; // Om datumet är ogiltigt, returnera '—'
-
-        // Formatera till svenskt klockslag (HH:mm)
-        return d.toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' });
-    } catch {
-        return '—'; // Om något går fel, returnera '—'
-    }
+    return formatClockTime(val);
 }
 
 function matchesSearch(row, q) {
@@ -598,7 +591,7 @@ function statusBadgeForDressage(sn) {
         }
     }
 
-    const base = 'inline-flex items-center px-2 py-1 rounded text-[11px] font-medium';
+    const base = 'inline-flex items-center px-2 py-1 rounded text-xs font-medium';
     if (state === 'done') return `<span class="${base} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">${t('status_done')}</span>`;
     if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100">${t('status_running')}</span>`;
     if (state === 'eliminated') return `<span class="${base} bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100">${t('status_eliminated')}</span>`;
@@ -1061,7 +1054,7 @@ function renderMobile(judgesPresent) {
     lastStructuralHash = structuralHash;
 
     if (rows.length === 0) {
-        container.innerHTML = `<div class="p-6 text-center text-gray-500 dark:text-gray-400">Inga ekipage att visa ännu.</div>`;
+        container.innerHTML = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">Inga ekipage att visa ännu.</div>`;
         return;
     }
     let html = '';
@@ -1106,18 +1099,18 @@ function renderMobile(judgesPresent) {
         }
 
         let placBlock = `
-     <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
+     <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
      <div class="text-base font-black ${placColor} leading-none">${r.plac ?? '—'}</div>
   `;
         if (r.isClearRound) {
             if (r.crApproved) {
                 placBlock = `
-            <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Status</div>
-            <div class="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 leading-none">Godkänd</div>
+            <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5">Status</div>
+            <div class="inline-flex items-center px-1 py-0.5 rounded text-xs font-bold bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 leading-none">Godkänd</div>
           `;
             } else {
                 placBlock = `
-             <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Status</div>
+             <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5">Status</div>
              <div class="text-base font-bold text-gray-300 dark:text-gray-600 leading-none">–</div>
           `;
             }
@@ -1130,19 +1123,19 @@ function renderMobile(judgesPresent) {
                   <!-- Left: Name & Flags -->
                   <div class="flex flex-col min-w-0 pr-1">
                       <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                         <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${escapeHtml(r.startNumber)}</span> 
+                         <span class="text-gray-600 dark:text-gray-300 text-xs">#${escapeHtml(r.startNumber)}</span> 
                          <span class="truncate">${escapeHtml(r.driverName)}</span>
                       </div>
                       <div class="flex items-center gap-1 mt-0.5">
                          ${getFlagHtml(eq)} ${getClubLogoHtml(eq)}
-                         ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(currentClassLabel)}</span>` : ''}
+                         ${viewMode === 'startorder' ? `<span class="text-xs text-gray-600 dark:text-gray-300 truncate ml-1">${escapeHtml(currentClassLabel)}</span>` : ''}
                       </div>
                   </div>
                   
                   <!-- Right: Stats & Plac -->
                   <div class="flex items-center gap-2 shrink-0">
                       <div class="text-right">
-                          <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Straff</div>
+                          <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5">Straff</div>
                           <div class="font-bold text-[13px] text-blue-800 dark:text-blue-300 leading-none">${penaltyLabel}</div>
                       </div>
                       <div class="text-right border-l dark:border-gray-300 dark:border-gray-600 pl-2">
@@ -1154,14 +1147,14 @@ function renderMobile(judgesPresent) {
               <!-- Second Row: Chips & Actions -->
               <div class="px-1.5 py-1 flex items-center justify-between gap-1 bg-white dark:bg-gray-800">
                   <div class="flex flex-wrap gap-1.5 items-center">
-                     <span class="text-[9px] text-gray-500 dark:text-gray-400 font-medium">%: <span class="${r.isBestTotalPercent ? 'text-emerald-700 dark:text-emerald-400 font-black' : 'dark:text-gray-200'}">${percentLabel}</span></span>
+                     <span class="text-xs text-gray-600 dark:text-gray-300 font-medium">%: <span class="${r.isBestTotalPercent ? 'text-emerald-700 dark:text-emerald-400 font-black' : 'dark:text-gray-200'}">${percentLabel}</span></span>
                      ${uniqueJudgesPositions.length > 0 ? `<div class="flex gap-0.5 ml-1 border-l dark:border-gray-100 dark:border-gray-700 pl-1">` + uniqueJudgesPositions.map(pos => {
                          const match = Object.values(r.judges || {}).find(j => j.position === pos || (expandDressagePosition(j) === pos));
-                         return `<div class="flex items-center gap-0.5"><span class="text-[8px] font-bold text-gray-400 dark:text-gray-500">${escapeHtml(pos)}</span>${judgeChip(match, r.startNumber)}</div>`;
+                         return `<div class="flex items-center gap-0.5"><span class="text-xs font-bold text-gray-400 dark:text-gray-500">${escapeHtml(pos)}</span>${judgeChip(match, r.startNumber)}</div>`;
                      }).join('') + `</div>` : ''}
                   </div>
                   <div class="shrink-0 flex items-center gap-1" data-finalize-slot>
-                      ${!r.eliminated && !isFinalized(r.startNumber) && r.isDone ? `<span class="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 leading-none">Klar</span>` : statusText}
+                      ${!r.eliminated && !isFinalized(r.startNumber) && r.isDone ? `<span class="inline-flex items-center px-1 py-0.5 rounded text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 leading-none">Klar</span>` : statusText}
                       ${(() => {
                 const canFinalizeCheck = window.canFinalize || (() => isPrivileged());
                 const can = canFinalizeCheck();
@@ -1170,10 +1163,10 @@ function renderMobile(judgesPresent) {
                 if (!can) return '';
                 if (finalized) {
                     return `
-                                <span id="badge-final-${escapeHtml(r.startNumber)}" class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 mr-0.5 leading-none">Finaliserad</span>
+                                <span id="badge-final-${escapeHtml(r.startNumber)}" class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300 mr-0.5 leading-none">Finaliserad</span>
                                 <button type="button"
                                         data-action="unfinalize" data-sn="${escapeHtml(r.startNumber)}"
-                                        class="px-1.5 py-0.5 text-[9px] rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 leading-none"
+                                        class="px-1.5 py-0.5 text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20 leading-none"
                                         >
                                     Ångra
                                 </button>
@@ -1182,7 +1175,7 @@ function renderMobile(judgesPresent) {
                     return `
                                  <button type="button"
                                          data-action="finalize" data-sn="${escapeHtml(r.startNumber)}"
-                                         class="px-1.5 py-0.5 text-[9px] rounded bg-emerald-600 text-white hover:bg-emerald-700 leading-none"
+                                         class="px-1.5 py-0.5 text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700 leading-none"
                                          >
                                      Lås
                                  </button>
@@ -1416,10 +1409,10 @@ function renderLiveHeader() {
         return `
       <div class="bg-indigo-900/40 rounded-md px-1 py-1 text-center border border-indigo-500/30 flex flex-col items-center min-w-[60px] relative group h-full justify-between">
            <!-- Pos -->
-           <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-[8px] font-bold px-1 rounded-bl-sm opacity-90">${escapeHtml(j.position || '?')}</div>
+           <div class="absolute top-0 right-0 bg-indigo-950/80 text-indigo-200 text-xs font-bold px-1 rounded-bl-sm opacity-90">${escapeHtml(j.position || '?')}</div>
            
            <!-- Name -->
-           <div class="text-[8px] font-semibold text-indigo-300 truncate w-full mt-2.5 mb-0.5 leading-tight max-w-[55px]" title="${escapeHtml(displayName)}">
+           <div class="text-xs font-semibold text-indigo-300 truncate w-full mt-2.5 mb-0.5 leading-tight max-w-[55px]" title="${escapeHtml(displayName)}">
              ${stackName(displayName)}
            </div>
 
@@ -1427,7 +1420,7 @@ function renderLiveHeader() {
            <div class="text-xl font-black ${scoreClass} leading-none mb-0.5">${mScore}</div>
            
            <!-- Pct -->
-           <div class="text-[8px] text-indigo-200 font-medium border-t border-indigo-500/30 w-full pt-0.5 mt-0.5">${pPct}</div>
+           <div class="text-xs text-indigo-200 font-medium border-t border-indigo-500/30 w-full pt-0.5 mt-0.5">${pPct}</div>
       </div>`;
     }).join('');
 
@@ -1459,9 +1452,9 @@ function renderLiveHeader() {
              <!-- Driver & Horse (Flexible + Truncate) -->
              <div class="flex flex-col min-w-0">
                 <div class="flex items-center gap-2 mb-0.5 opacity-80">
-                     <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] font-bold uppercase tracking-widest bg-red-600 text-white animate-pulse shadow-sm">Live</span>
-                     <span class="text-[10px] font-medium text-indigo-200 truncate">${escapeHtml(activeRes.startNumber)} ${escapeHtml(activeRes.className)}</span>
-                     <span class="hidden sm:inline italic text-indigo-300 text-[10px]">• ${escapeHtml(getMomentHorseLabel(activeRes, 'dressage'))}</span>
+                     <span class="inline-flex items-center px-1 py-0.5 rounded text-xs font-bold uppercase tracking-widest bg-red-600 text-white animate-pulse shadow-sm">Live</span>
+                     <span class="text-xs font-medium text-indigo-200 truncate">${escapeHtml(activeRes.startNumber)} ${escapeHtml(activeRes.className)}</span>
+                     <span class="hidden sm:inline italic text-indigo-300 text-xs">• ${escapeHtml(getMomentHorseLabel(activeRes, 'dressage'))}</span>
                 </div>
                 <div class="text-lg font-black text-white leading-none tracking-tight truncate">
                     ${escapeHtml(activeRes.driverName)}
@@ -1471,15 +1464,15 @@ function renderLiveHeader() {
             <!-- Main Stats (Fixed Width to prevent wiggle) -->
             <div class="flex bg-indigo-900/40 rounded border border-indigo-500/30 divide-x divide-indigo-500/30 flex-shrink-0 overflow-hidden h-[32px]">
                  <div class="px-2 py-0.5 text-center w-[52px] flex flex-col justify-center">
-                    <div class="text-[7px] uppercase font-bold text-indigo-300 leading-tight">${t('dressage_monitor_moment_label')}</div>
+                    <div class="text-xs uppercase font-bold text-indigo-300 leading-tight">${t('dressage_monitor_moment_label')}</div>
                     <div class="text-base font-black text-yellow-400 leading-none">${momentAvg}</div>
                  </div>
                  <div class="px-2 py-0.5 text-center w-[52px] bg-indigo-500/10 flex flex-col justify-center">
-                    <div class="text-[7px] uppercase font-bold text-indigo-200 leading-tight">Total %</div>
+                    <div class="text-xs uppercase font-bold text-indigo-200 leading-tight">Total %</div>
                     <div class="text-base font-black text-white leading-none">${percent}</div>
                  </div>
                  <div class="px-2 py-0.5 text-center w-[52px] flex flex-col justify-center">
-                    <div class="text-[7px] uppercase font-bold text-indigo-300 leading-tight">${t('dressage_penalty_header')}</div>
+                    <div class="text-xs uppercase font-bold text-indigo-300 leading-tight">${t('dressage_penalty_header')}</div>
                     <div class="text-base font-black text-blue-300 leading-none">${penalty}</div>
                  </div>
             </div>
@@ -1488,7 +1481,7 @@ function renderLiveHeader() {
         <!-- Row 2: Moment (Left) + Judges (Right) -->
         <div class="grid grid-cols-[1fr_max-content] items-center gap-3 border-t border-white/5 pt-1">
             <!-- Moment Text (Flexible + Truncate) -->
-            <div class="text-[11px] font-medium text-white/90 flex items-center min-w-0 pr-2">
+            <div class="text-xs font-medium text-white/90 flex items-center min-w-0 pr-2">
                <div class="w-1.5 h-1.5 rounded-full bg-yellow-400 animate-pulse mr-2 flex-shrink-0"></div>
                <span class="truncate italic">${(momentText || '').replace(/<[^>]+>/g, '')}</span>
             </div>
@@ -1546,11 +1539,11 @@ function renderTableHead(thead, judgesPresent) {
         <tr>
             ${allHeaders.map(h => `
               <th scope="col"
-                  class="px-2 py-2 lg:px-3 lg:py-3 ${h.align ? 'text-' + h.align : 'text-left'} text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider cursor-pointer group hover:bg-gray-100 dark:hover:bg-gray-600 ${h.key === 'startNumber' ? 'sticky-col-start bg-gray-50 dark:bg-gray-700' : ''} ${h.key === 'driverName' ? 'sticky-col-driver bg-gray-50 dark:bg-gray-700' : ''}"
+                  class="px-2 py-2 lg:px-3 lg:py-3 ${h.align ? 'text-' + h.align : 'text-left'} text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider cursor-pointer group hover:bg-gray-100 dark:hover:bg-gray-600 ${h.key === 'startNumber' ? 'sticky-col-start bg-gray-50 dark:bg-gray-700' : ''} ${h.key === 'driverName' ? 'sticky-col-driver bg-gray-50 dark:bg-gray-700' : ''}"
                   data-sort-key="${h.key}" title="${escapeHtml(h.title || h.label)}">
                 ${headerLabelWithSort(h.label, h.key)}
               </th>`).join('')}
-             <th class="px-2 py-2 lg:px-4 lg:py-2 text-center text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">${t('finalize')}</th>
+             <th class="px-2 py-2 lg:px-4 lg:py-2 text-center text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider">${t('finalize')}</th>
         </tr>
     `;
 
@@ -1688,14 +1681,14 @@ function renderDesktop(judgesPresent) {
                 if (Number.isFinite(projPen)) {
                     penaltyHtml = `<div class="flex flex-col items-end leading-tight">
                         <span class="text-sm font-bold text-brand-darkblue dark:text-blue-300 italic">${projPen.toFixed(2)}</span>
-                        <span class="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Prognos</span>
+                        <span class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">Prognos</span>
                     </div>`;
                     penaltyClass = '';
                 }
                 if (Number.isFinite(projPre)) {
                     percentHtml = `<div class="flex flex-col items-end leading-tight">
                         <span class="text-sm font-bold text-brand-darkblue dark:text-blue-300 italic">${projPre.toFixed(2)}%</span>
-                        <span class="text-[9px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Prognos</span>
+                        <span class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">Prognos</span>
                     </div>`;
                     percentClass = '';
                 }
@@ -1718,7 +1711,7 @@ function renderDesktop(judgesPresent) {
 
         let statusHtml = statusBadgeForDressage(sn);
         if (!isFin && !isEliminated && isDone) {
-            statusHtml = `<span class="inline-flex items-center px-2 py-1 rounded text-[11px] font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 mr-2">Klar</span>`;
+            statusHtml = `<span class="inline-flex items-center px-2 py-1 rounded text-xs font-medium bg-green-100 dark:bg-green-900/30 text-green-800 dark:text-green-300 border border-green-200 dark:border-green-800 mr-2">Klar</span>`;
         }
 
         html += `
@@ -1727,17 +1720,17 @@ function renderDesktop(judgesPresent) {
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-xs lg:text-sm text-gray-900 dark:text-gray-300 sticky-col-start ${rowClass || ''}">${escapeHtml(sn)}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowClass || ''}" style="min-width: 120px;">
                 <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight truncate" title="${escapeHtml(res.driverName || '')}">${escapeHtml(res.driverName || '')}</div>
-                <div class="text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 leading-tight whitespace-normal hidden lg:block mb-0.5 mt-0.5">${getMomentHorseLabelStacked(res, 'dressage')}</div>
+                <div class="text-xs lg:text-xs text-gray-600 dark:text-gray-300 leading-tight whitespace-normal hidden lg:block mb-0.5 mt-0.5">${getMomentHorseLabelStacked(res, 'dressage')}</div>
             </td>
-            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400">${escapeHtml(currentClassLabel)}</td>
+            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm text-gray-600 dark:text-gray-300">${escapeHtml(currentClassLabel)}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap">
                 <div class="flex items-center gap-1.5 lg:gap-2" title="${escapeHtml(res.clubName || '')}">
                     ${getFlagHtml(res)}
                     ${getClubLogoHtml(res)}
-                    <span class="hidden lg:inline-block text-[11px] lg:text-sm text-gray-700 dark:text-gray-300">${escapeHtml(res.clubName || '')}</span>
+                    <span class="hidden lg:inline-block text-xs lg:text-sm text-gray-700 dark:text-gray-300">${escapeHtml(res.clubName || '')}</span>
                 </div>
             </td>
-            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-[11px] lg:text-sm text-gray-900 dark:text-gray-300">${formatStartTimeLabel(res.startTime) || '–'}</td>
+            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 whitespace-nowrap text-center text-xs lg:text-sm text-gray-900 dark:text-gray-300">${formatStartTimeLabel(res.startTime) || '–'}</td>
             ${uniquePositions.map(pos => {
             const classExpectedPos = getDisplayedJudgesForClass(res.className);
             if (classExpectedPos && !classExpectedPos.includes(pos)) {
@@ -1747,15 +1740,15 @@ function renderDesktop(judgesPresent) {
             return `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm" title="${match ? escapeHtml(match.name || match.id) : ''}">${judgeChip(match, sn)}</td>`;
         }).join('')}
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right text-xs lg:text-sm ${percentClass}">${percentHtml}</td>
-            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm text-gray-500 dark:text-gray-400">${res.errorPoints > 0 ? res.errorPoints : '—'}</td>
+            <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm text-gray-600 dark:text-gray-300">${res.errorPoints > 0 ? res.errorPoints : '—'}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-right text-xs lg:text-sm font-bold ${penaltyClass}">${penaltyHtml}</td>
             <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center whitespace-nowrap">${statusHtml}</td>
             <td class="px-1.5 py-1.5 lg:px-4 lg:py-2">
                 <div class="flex items-center justify-center gap-1 lg:gap-2 flex-wrap" data-finalize-slot>
                     ${can ? `
-                    <span id="badge-final-${escapeHtml(sn)}" class="inline-flex items-center px-1.5 py-0.5 lg:px-2 lg:py-1 rounded text-[10px] lg:text-[11px] font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300" style="${finalized ? '' : 'display:none'}">Finaliserad</span>
-                    <button type="button" data-action="finalize" data-sn="${escapeHtml(sn)}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"  style="${finalized ? 'display:none' : ''}">Finalisera</button>
-                    <button type="button" data-action="unfinalize" data-sn="${escapeHtml(sn)}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-[10px] lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"  style="${finalized ? '' : 'display:none'}">Ångra</button>
+                    <span id="badge-final-${escapeHtml(sn)}" class="inline-flex items-center px-1.5 py-0.5 lg:px-2 lg:py-1 rounded text-xs lg:text-xs font-medium bg-emerald-100 dark:bg-emerald-900/30 text-emerald-800 dark:text-emerald-300" style="${finalized ? '' : 'display:none'}">Finaliserad</span>
+                    <button type="button" data-action="finalize" data-sn="${escapeHtml(sn)}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-xs lg:text-xs rounded bg-emerald-600 text-white hover:bg-emerald-700"  style="${finalized ? 'display:none' : ''}">Finalisera</button>
+                    <button type="button" data-action="unfinalize" data-sn="${escapeHtml(sn)}" class="px-1.5 py-0.5 lg:px-2 lg:py-1 text-xs lg:text-xs rounded border border-emerald-600 dark:border-emerald-500 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-900/20"  style="${finalized ? '' : 'display:none'}">Ångra</button>
                     ` : ''}
                 </div>
             </td>
@@ -1764,7 +1757,7 @@ function renderDesktop(judgesPresent) {
 
     // No equipages: a message row instead of an empty table
     if (rows.length === 0) {
-        html = `<tr><td colspan="20" class="p-6 text-center text-gray-500 dark:text-gray-400">Inga ekipage att visa ännu.</td></tr>`;
+        html = `<tr><td colspan="20" class="p-6 text-center text-gray-600 dark:text-gray-300">Inga ekipage att visa ännu.</td></tr>`;
     }
 
     tbody.innerHTML = html;
@@ -2340,7 +2333,8 @@ export async function load() {
         // === STEG 2: Bearbeta grunddata ===
         // Programs and class mapping are stored by loadDressageProgramSettings
         // (the built-in list itself is never changed: it is shared by every competition)
-        window.startTimes = (startCfg?.times) || (startCfg?.value?.times) || {};
+        // Public page: only published start times
+        window.startTimes = publishedStartTimes(startCfg || {});
 
         allCompetitionJudges = judges || []; //
         dressage_displayConfig = displayCfg || {};
@@ -2432,12 +2426,12 @@ export async function load() {
         <!-- Export Buttons -->
         <div class="flex-shrink-0 flex items-center gap-2 md:ml-auto w-auto justify-end">
             <button id="btnExportDressageCsv" 
-              class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
-               <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
+              class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+               <i class="fas fa-file-csv mr-1.5 text-gray-600 dark:text-gray-300"></i>
                CSV
             </button>
             <button id="btnPrintResultsList" 
-              class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
+              class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-xs md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
               <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                PDF
             </button>

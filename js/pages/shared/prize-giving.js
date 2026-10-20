@@ -36,6 +36,9 @@ import {
 } from './prizeGivingUtils.js';
 import { archivedNoticeHtml, loadArchiveSnapshot } from './archivedResults.js';
 import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
+import { compareStartNumbers } from '../../utils/startNumberSort.js';
+import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from './tvMode.js';
+import { prizeGivingPlacedBadgeText, prizeGivingSpeakerScript } from './prizeGivingUtils.js';
 
 let competitionId = null;
 let equipages = [];
@@ -63,15 +66,17 @@ export async function load(container) {
     const comp = getGlobalState('currentCompetition');
     competitionId = comp?.id;
     if (!competitionId) {
-        container.innerHTML = '<p class="p-8 text-center text-gray-500 dark:text-gray-400">Ingen tävling vald.</p>';
+        container.innerHTML = `<p class="p-8 text-center text-gray-600 dark:text-gray-300">${escapeHtml(t('no_competition_selected'))}</p>`;
         return;
     }
 
+    enterTvModeIfRequested();
     container.innerHTML = `
-    <div class="container mx-auto p-3 sm:p-4 md:p-8">
-        <div class="flex justify-between items-center mb-6">
-             ${getCompetitionHeader(comp, 'Prisutdelning 🏆')}
-             <div id="prize-giving-mode" class="text-sm text-gray-500 dark:text-gray-400 italic">Visar preliminära resultat</div>
+    <div class="container mx-auto p-3 sm:p-4 md:p-8 tv-page">
+        ${getCompetitionHeader(comp, `${t('prize_giving_title')} 🏆`)}
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-6">
+             <div id="prize-giving-mode" class="text-sm text-gray-600 dark:text-gray-300 italic">${escapeHtml(t('prize_giving_preliminary'))}</div>
+             ${tvModeLinkHtml('prize-giving', { canSee: true })}
         </div>
         
         <div id="prize-giving-tabs" class="flex flex-wrap gap-2 mb-4 md:mb-6 border-b dark:border-gray-700 pb-3 md:pb-4 overflow-x-auto">
@@ -79,7 +84,7 @@ export async function load(container) {
         </div>
 
         <div id="prize-giving-content" class="min-h-[400px]">
-            <div class="text-center p-8 text-gray-400 dark:text-gray-500">Laddar resultat...</div>
+            <div class="text-center p-8 text-gray-600 dark:text-gray-300">${escapeHtml(t('loading_results'))}</div>
         </div>
     </div>
     `;
@@ -134,7 +139,7 @@ export async function load(container) {
     } catch (err) {
         if (currentLoadToken !== loadToken) return;
         console.error("Error loading prize giving:", err);
-        container.innerHTML += `<p class="text-red-500 text-center">Ett fel uppstod: ${escapeHtml(err.message)}</p>`;
+        container.innerHTML += `<p class="text-red-600 dark:text-red-400 text-center">${escapeHtml(t('error_loading_data'))}</p>`;
     }
 }
 
@@ -143,7 +148,7 @@ function renderTabs() {
     if (!tabContainer) return;
 
     // Render Classes (with support for merged labels)
-    const classes = [...new Set(equipages.map(e => e._mergedLabel || e.className || 'Okänd'))].sort();
+    const classes = [...new Set(equipages.map(e => e._mergedLabel || e.className || t('unknown_class')))].sort((a, b) => a.localeCompare(b, 'sv', { numeric: true }));
     if (activeClass === 'all' && classes.length > 0) activeClass = classes[0];
 
     tabContainer.innerHTML = `
@@ -151,12 +156,12 @@ function renderTabs() {
             <!-- Disciplines -->
             <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide no-scrollbar">
                 ${['total', 'dressage', 'marathon', 'precision'].map(d => {
-                    const label = { total: 'Totalt 🏆', dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' }[d];
+                    const label = { total: `${t('total')} 🏆`, dressage: t('dressage'), marathon: t('marathon'), precision: t('precision') }[d];
                     const active = activeDiscipline === d;
                     return `
                     <button 
                         data-discipline="${d}"
-                        class="px-3 py-1.5 rounded-lg text-xs font-black whitespace-nowrap transition-all border-2 ${active ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-500 border-gray-100 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700'}"
+                        aria-pressed="${active}" class="px-3 py-2 rounded-lg text-sm font-black whitespace-nowrap transition-all border-2 ${active ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:border-gray-600'}"
                     >
                         ${escapeHtml(label)}
                     </button>`;
@@ -170,7 +175,7 @@ function renderTabs() {
                     return `
                     <button 
                         data-class="${escapeHtml(cls)}"
-                        class="px-3 py-1.5 rounded-lg text-[10px] font-bold uppercase tracking-tight transition-all border ${active ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-gray-50 text-gray-400 border-gray-200 dark:bg-gray-900 dark:text-gray-500 dark:border-gray-800'}"
+                        aria-pressed="${active}" class="px-3 py-2 rounded-lg text-sm font-bold uppercase tracking-tight transition-all border ${active ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm' : 'bg-gray-50 text-gray-700 border-gray-200 dark:bg-gray-900 dark:text-gray-200 dark:border-gray-700'}"
                     >
                         ${escapeHtml(cls)}
                     </button>`;
@@ -295,7 +300,7 @@ function recalcAndRender() {
     const classEquipages = equipages.filter(e => (e._mergedLabel || e.className) === activeClass && !isWithdrawnEquipage(e));
 
     if (classEquipages.length === 0) {
-        content.innerHTML = `<div class="text-center p-12 text-gray-400 dark:text-gray-500 text-xl">Inga ekipage i denna klass.</div>`;
+        content.innerHTML = `<div class="text-center p-12 text-gray-600 dark:text-gray-300 text-xl">${escapeHtml(t('prize_no_equipages_in_class'))}</div>`;
         return;
     }
 
@@ -372,7 +377,7 @@ function recalcAndRender() {
     const unplaced = rows
         .filter(r => r.plac == null)
         .sort((a, b) => (a.isEliminated === b.isEliminated ? 0 : (a.isEliminated ? 1 : -1))
-            || (Number(a.startNumber) - Number(b.startNumber)));
+            || compareStartNumbers(a.startNumber, b.startNumber));
     rows.splice(0, rows.length, ...ranked, ...unplaced);
 
     // Render
@@ -408,7 +413,9 @@ function renderPodiumList(rows, container) {
     const configuredPlaced = classSettings[activeClass]?.placedCount;
     const numPlaced = configuredPlaced ?? defaultPlaced;
 
-    const disciplineLabel = { total: 'Totalt', dressage: 'Dressyr', marathon: 'Maraton', precision: 'Precision' }[activeDiscipline];
+    const disciplineLabel = { total: t('total'), dressage: t('dressage'), marathon: t('marathon'), precision: t('precision') }[activeDiscipline];
+    // The number to be placed only once there are placings to show
+    const placedBadge = prizeGivingPlacedBadgeText(numPlaced, validRows.length, t('prize_giving_placed_count'));
 
     let html = `
     <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 md:gap-4">
@@ -416,12 +423,10 @@ function renderPodiumList(rows, container) {
         <div class="space-y-3">
             <div class="flex flex-wrap items-center justify-between gap-2 mb-2 p-3 bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 shadow-sm">
                 <div class="flex flex-col">
-                    <span class="text-[10px] text-gray-400 dark:text-gray-500 font-bold uppercase tracking-widest">${disciplineLabel}</span>
-                    <h2 class="text-base font-black dark:text-white leading-tight">${escapeHtml(activeClass)}</h2>
+                    <span class="text-xs text-gray-600 dark:text-gray-300 font-bold uppercase tracking-widest">${escapeHtml(disciplineLabel)}</span>
+                    <h2 class="text-lg font-black dark:text-white leading-tight">${escapeHtml(activeClass)}</h2>
                 </div>
-                <div class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 text-[10px] font-black rounded border border-blue-100 dark:border-blue-800">
-                    ${numPlaced} PLACERADE
-                </div>
+                ${placedBadge ? `<div class="px-2 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-black rounded border border-blue-100 dark:border-blue-800">${escapeHtml(placedBadge)}</div>` : ''}
             </div>
     `;
 
@@ -441,24 +446,24 @@ function renderPodiumList(rows, container) {
                     <div class="absolute top-2 right-2 bg-yellow-400 dark:bg-yellow-500 text-white w-10 h-10 flex items-center justify-center rounded-full font-black text-xl shadow-lg border-2 border-white dark:border-gray-800 z-10">1</div>
                     <div class="flex flex-col gap-4 relative z-0">
                         <div class="w-full">
-                            <div class="text-[10px] text-yellow-700 dark:text-yellow-400 font-black tracking-widest uppercase mb-1">Segrare</div>
+                            <div class="text-xs text-yellow-800 dark:text-yellow-300 font-black tracking-widest uppercase mb-1">${escapeHtml(t('prize_winner'))}</div>
                             <h3 class="text-2xl font-black text-gray-900 dark:text-white leading-none mb-1 truncate">${escapeHtml(row.driverName)}</h3>
                              <div class="flex items-center gap-2 mb-3">
-                                <div class="text-[11px] font-bold text-gray-500 dark:text-gray-400 opacity-80">${escapeHtml(row.clubName)}</div>
-                                ${row.className && row.className !== activeClass ? `<div class="text-[9px] bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter border border-blue-200/50 dark:border-blue-700/50 shadow-sm">${escapeHtml(row.className)}</div>` : ''}
+                                <div class="text-sm font-bold text-gray-700 dark:text-gray-200">${escapeHtml(row.clubName || '')}</div>
+                                ${row.className && row.className !== activeClass ? `<div class="text-xs bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-1.5 py-0.5 rounded-md font-black uppercase tracking-tighter border border-blue-200/50 dark:border-blue-700/50 shadow-sm">${escapeHtml(row.className)}</div>` : ''}
                              </div>
                             
-                            <div class="inline-flex items-center gap-2 bg-white/60 dark:bg-black/20 px-3 py-1.5 rounded-lg text-xs text-gray-700 dark:text-gray-300 mb-4">
+                            <div class="inline-flex items-center gap-2 bg-white/60 dark:bg-black/20 px-3 py-1.5 rounded-lg text-sm text-gray-800 dark:text-gray-200 mb-4">
                                 ${getFlagHtml(row)} <span class="font-medium truncate">${escapeHtml(horseLabel(row))}</span>
                             </div>
 
                             <div class="flex items-end gap-2">
                                 <span class="text-4xl font-black text-blue-900 dark:text-blue-300 tabular-nums leading-none tracking-tighter">${formatPrizeGivingScore(row.score)}</span>
-                                <span class="text-[10px] text-gray-500 dark:text-gray-500 uppercase font-black tracking-tighter mb-1">Straff</span>
+                                <span class="text-xs text-gray-600 dark:text-gray-300 uppercase font-black tracking-tighter mb-1">${escapeHtml(t('penalty'))}</span>
                             </div>
                         </div>
                         <div class="flex justify-between items-center gap-3 bg-white/40 dark:bg-black/20 p-2 px-3 rounded-xl border border-white/20">
-                            <span class="text-[10px] font-black text-gray-500 dark:text-gray-400 uppercase">Kontrollera status:</span>
+                            <span class="text-xs font-black text-gray-700 dark:text-gray-200 uppercase">${escapeHtml(t('prize_presence'))}</span>
                             ${getPresetCheckbox(row)}
                         </div>
                     </div>
@@ -469,13 +474,13 @@ function renderPodiumList(rows, container) {
                 html += `
                 <div class="bg-white dark:bg-gray-800 border dark:border-gray-700 rounded-xl p-3 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 transition-all hover:shadow-md ${isPlaced ? 'border-l-4 border-emerald-500 dark:border-emerald-600 bg-emerald-50/10' : ''}">
                     <div class="flex items-center gap-3 min-w-0">
-                        <div class="font-black text-lg ${isPlaced ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-300 dark:text-gray-600'} w-7 text-center">${place}</div>
+                        <div class="font-black text-lg ${isPlaced ? 'text-emerald-700 dark:text-emerald-400' : 'text-gray-600 dark:text-gray-300'} w-7 text-center">${place}</div>
                         <div class="truncate">
-                             <div class="font-bold text-sm leading-none dark:text-white mb-0.5 ${isPlaced ? 'text-emerald-900 dark:text-emerald-100' : ''}">
+                             <div class="font-bold text-base leading-tight dark:text-white mb-0.5 ${isPlaced ? 'text-emerald-900 dark:text-emerald-100' : ''}">
                                  ${escapeHtml(row.driverName)}
-                                 ${row.className && row.className !== activeClass ? `<span class="ml-1.5 text-[8px] font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-widest border border-blue-100/30 dark:border-blue-800/30">${escapeHtml(row.className)}</span>` : ''}
+                                 ${row.className && row.className !== activeClass ? `<span class="ml-1.5 text-xs font-black bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 px-1.5 py-0.5 rounded uppercase tracking-widest border border-blue-100/30 dark:border-blue-800/30">${escapeHtml(row.className)}</span>` : ''}
                              </div>
-                             <div class="text-[10px] text-gray-500 dark:text-gray-400 truncate">${escapeHtml(row.clubName)}</div>
+                             <div class="text-sm text-gray-600 dark:text-gray-300 truncate">${escapeHtml(row.clubName || '')}</div>
                         </div>
                     </div>
                     <div class="flex items-center gap-3 shrink-0">
@@ -489,7 +494,7 @@ function renderPodiumList(rows, container) {
         });
         html += `</div>`;
     } else {
-        html += `<p class="text-gray-500 dark:text-gray-400 italic">Inga godkända resultat ännu.</p>`;
+        html += `<p class="text-gray-600 dark:text-gray-300 italic">${escapeHtml(t('prize_no_results'))}</p>`;
     }
 
     html += `
@@ -497,36 +502,35 @@ function renderPodiumList(rows, container) {
     
     <!-- DETAILS & OTHERS -->
     <div class="bg-gray-50 dark:bg-gray-700/30 p-3 sm:p-4 rounded-xl h-fit border dark:border-gray-700/50">
-        <h3 class="font-black text-gray-400 dark:text-gray-500 uppercase text-[10px] tracking-widest mb-3">Övriga / Eliminerade</h3>
+        <h3 class="font-black text-gray-600 dark:text-gray-300 uppercase text-xs tracking-widest mb-3">${escapeHtml(t('prize_others_title'))}</h3>
         <div class="space-y-1.5">`;
 
     if (others.length > 0) {
         others.forEach(row => {
             const status = getPrizeGivingStatus(row);
             html += `
-             <div class="flex justify-between items-center text-[11px] p-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700 opacity-80">
+             <div class="flex justify-between items-center text-sm p-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
                 <div class="flex gap-2 items-center min-w-0">
-                     <span class="text-[9px] font-black text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900/50 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-800">#${escapeHtml(row.startNumber)}</span>
+                     <span class="text-xs font-black text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900/50 px-1 py-0.5 rounded border border-gray-100 dark:border-gray-800">#${escapeHtml(row.startNumber)}</span>
                       <span class="dark:text-gray-300 truncate font-semibold">${escapeHtml(row.driverName)}</span>
-                      ${row.className && row.className !== activeClass ? `<span class="text-[8px] text-gray-400 dark:text-gray-500 uppercase font-black tracking-tighter bg-gray-100/50 dark:bg-gray-700/50 px-1 rounded ml-1 border border-gray-100 dark:border-gray-700">${escapeHtml(row.className)}</span>` : ''}
+                      ${row.className && row.className !== activeClass ? `<span class="text-xs text-gray-600 dark:text-gray-300 uppercase font-black tracking-tighter bg-gray-100/50 dark:bg-gray-700/50 px-1 rounded ml-1 border border-gray-100 dark:border-gray-700">${escapeHtml(row.className)}</span>` : ''}
                   </div>
-                <div class="font-black text-red-500 dark:text-red-400 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded text-[9px] uppercase">${escapeHtml(status)}</div>
+                <div class="font-black text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20 px-1.5 py-0.5 rounded text-xs uppercase">${escapeHtml(status)}</div>
              </div>`;
         });
     } else {
-        html += `<p class="text-[10px] text-gray-400 dark:text-gray-500 italic text-center py-2">Inga övriga.</p>`;
+        html += `<p class="text-sm text-gray-600 dark:text-gray-300 italic text-center py-2">${escapeHtml(t('prize_no_others'))}</p>`;
     }
 
     html += `
         </div>
         
-        <div class="mt-6 p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100/50 dark:border-blue-800/30">
-            <h4 class="font-black text-blue-800/60 dark:text-blue-400/60 mb-1 text-[10px] uppercase tracking-tighter">Säg till speakern:</h4>
-            <p class="text-xs text-blue-700 dark:text-blue-300 leading-tight italic">
-                "Vi ber alla placerade ekipage att göra sig redo för prisutdelning.
-                Segraren ${escapeHtml(validRows[0]?.driverName || '...')} ombeds köra in för ärevarv!"
+        ${validRows.length ? `<div class="mt-6 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-100 dark:border-blue-800">
+            <h4 class="font-black text-blue-900 dark:text-blue-200 mb-1 text-xs uppercase tracking-wide">${escapeHtml(t('prize_speaker_script_title'))}</h4>
+            <p class="text-sm text-blue-900 dark:text-blue-100 leading-snug italic">
+                "${escapeHtml(prizeGivingSpeakerScript(t('prize_speaker_script'), validRows[0]?.driverName))}"
             </p>
-        </div>
+        </div>` : ''}
     </div>
     </div>`;
 
@@ -541,7 +545,7 @@ function renderPodiumList(rows, container) {
 function getPresetCheckbox(row) {
     return `
     <label class="flex items-center gap-2 cursor-pointer group">
-        <span class="text-[9px] text-gray-400 dark:text-gray-500 group-hover:text-gray-600 dark:group-hover:text-gray-300 uppercase font-black tracking-tighter">PÅ PLATS</span>
+        <span class="text-xs text-gray-700 dark:text-gray-200 uppercase font-black tracking-tight">${escapeHtml(t('prize_present'))}</span>
         <input type="checkbox" class="presence-check w-5 h-5 text-emerald-600 rounded focus:ring-emerald-500 border-gray-300 dark:border-gray-600 dark:bg-gray-700"
             data-sn="${escapeHtml(row.startNumber)}"
             ${row.present ? 'checked' : ''}>
@@ -569,12 +573,13 @@ async function togglePresence(sn, isChecked) {
         }
     } catch (e) {
         console.error("Failed to update presence:", e);
-        alert("Kunde inte spara status.");
+        alert(t('prize_save_failed'));
     }
 }
 
 export function __unload() {
     loadToken++;
+    exitTvMode();
     unsubscribes.forEach(u => {
         try { u && u(); } catch { }
     });

@@ -4,6 +4,7 @@ import { getGlobalState } from '../main.js';
 import { getClubLogoHtml } from '../services/logosService.js';
 import { getFlagHtml } from '../services/flagsService.js';
 import { t } from '../utils/i18n.js';
+import { activateDialog, releaseDialog } from './dialogA11y.js';
 
 // HÄR VAR FELET: statusClass ska importeras härifrån
 import {
@@ -224,13 +225,14 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       content.innerHTML = `
           <div class="p-4 md:p-6">
             <div class="flex justify-between items-start">
-              <h3 class="text-xl font-bold">#${escapeHtml(id)} – ${t('equipage_not_found')}</h3>
-              <button id="closePrecModalBtn" class="px-2 py-1 text-2xl leading-none" aria-label="Stäng">&times;</button>
+              <h3 id="precisionModalTitle" class="text-xl font-bold">#${escapeHtml(id)} – ${t('equipage_not_found')}</h3>
+              <button id="closePrecModalBtn" type="button" class="px-2 py-1 text-2xl leading-none min-w-[44px] min-h-[44px]" aria-label="${escapeHtml(t('close_btn'))}">&times;</button>
             </div>
           </div>`;
 
       document.getElementById('closePrecModalBtn')?.addEventListener('click', closeDetailsModal);
       modal.classList.add('visible');
+      activateDialog(modal, { labelledBy: 'precisionModalTitle', panel: content, onEscape: closeDetailsModal, initialFocus: '#closePrecModalBtn' });
       return;
     }
 
@@ -257,7 +259,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
       <div class="p-4 md:p-6 pb-0">
         <div class="flex justify-between items-start gap-3 mb-4">
           <div>
-            <h3 class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName || '')}</h3>
+            <h3 id="precisionModalTitle" class="text-xl font-bold text-gray-900 dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName || '')}</h3>
             <div class="text-sm text-gray-500 dark:text-gray-400 italic">${escapeHtml(horseLabel(eq))}</div>
             <div class="text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
               ${getFlagHtml(eq)}
@@ -265,7 +267,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
               <span>${escapeHtml(eq.clubName || '—')}</span>
             </div>
           </div>
-          <button id="closePrecModalBtn" class="text-gray-500 hover:text-gray-800 text-3xl leading-none" aria-label="Stäng">&times;</button>
+          <button id="closePrecModalBtn" type="button" class="text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200 text-3xl leading-none min-w-[44px] min-h-[44px]" aria-label="${escapeHtml(t('close_btn'))}">&times;</button>
         </div>
       </div>
       <div id="precision-content-container"></div>
@@ -278,6 +280,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
 
     // Visa modalen
     modal.classList.add('visible');
+    activateDialog(modal, { labelledBy: 'precisionModalTitle', panel: content, onEscape: closeDetailsModal, initialFocus: '#closePrecModalBtn' });
 
   } catch (err) {
     console.error("Fel i precision modal:", err);
@@ -287,6 +290,7 @@ export async function showDetailsModal(sn, equipages, precisionMap, config, star
 export function closeDetailsModal() {
   const modal = document.getElementById('precisionDetailsModal');
   if (modal) {
+    releaseDialog(modal);
     modal.classList.remove('visible');
   }
   try {

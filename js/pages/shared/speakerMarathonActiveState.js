@@ -1,15 +1,9 @@
 import { getViloboxBadgeInfo } from './vetCheckUtils.js';
 import { stageRunningSince } from '../../core-engine/marathon.js';
+import { timeValueToMs } from '../../utils/timeValueUtils.js';
 
 function timestampToMs(value) {
-    if (!value) return 0;
-    if (typeof value.toMillis === 'function') return value.toMillis();
-    if (typeof value === 'number') return value;
-    if (typeof value === 'string') {
-        const parsed = new Date(value).getTime();
-        return Number.isFinite(parsed) ? parsed : 0;
-    }
-    return 0;
+    return timeValueToMs(value) ?? 0;
 }
 
 function fallbackStageStartTS(data = {}, stage) {

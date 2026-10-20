@@ -22,7 +22,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
-import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
@@ -617,9 +617,9 @@ function renderLayout() {
                 <!-- EKIPAGEVAL -->
                 <div class="grid grid-cols-1 gap-4">
                     <div class="grid grid-cols-[auto_minmax(0,1fr)_auto] gap-2 items-center">
-                        <button id="pr-btnPrevEq" type="button" aria-label="Föregående ekipage" class="precision-nav-btn min-w-[44px] min-h-[44px] p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&larr;</button>
+                        <button id="pr-btnPrevEq" type="button" aria-label="Föregående ekipage" class="precision-nav-btn min-w-[44px] min-h-[44px] p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&laquo;</button>
                         <div id="pr-precisionEquipageSearchContainer" class="min-w-0"></div>
-                        <button id="pr-btnNextEq" type="button" aria-label="Nästa ekipage" class="precision-nav-btn min-w-[44px] min-h-[44px] p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&rarr;</button>
+                        <button id="pr-btnNextEq" type="button" aria-label="Nästa ekipage" class="precision-nav-btn min-w-[44px] min-h-[44px] p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&raquo;</button>
                     </div>
                     
                     <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
@@ -683,7 +683,7 @@ function renderLayout() {
 
                 <!-- ÅTGÄRDER -->
                 <div class="flex flex-col gap-3 pt-2">
-                    <button id="pr-btnSave" class="w-full text-lg py-4 bg-brand-darkblue text-white font-bold rounded-xl shadow-lg hover:bg-brand-gold hover:text-brand-darkblue active:scale-[0.98] transition-all dark:bg-blue-600">${t('precision_save_results')}</button>
+                    <button id="pr-btnSave" class="w-full text-lg py-4 bg-emerald-600 text-white font-bold rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all">${t('precision_save_results')}</button>
                     <button id="pr-btnBackupPreJson" type="button" class="min-h-[44px] text-[10px] text-gray-500 hover:text-blue-500 flex items-center justify-center gap-1">
                         <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
                     </button>
@@ -1312,7 +1312,7 @@ export async function load() {
     competitionId = comp?.id;
     const root = document.getElementById('page-precision-input');
     if (!competitionId) {
-        if (root) root.innerHTML = '<p class="p-8 text-center">Ingen tävling vald.</p>';
+        if (root) root.innerHTML = renderNoCompetitionState();
         return;
     }
 

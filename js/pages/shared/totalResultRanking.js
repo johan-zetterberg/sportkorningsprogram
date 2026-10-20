@@ -8,6 +8,7 @@ import {
   marathonRankKey,
   precisionRankKey
 } from '../../core-engine/ranking.js';
+import { compareStartNumbers } from '../../utils/startNumberSort.js';
 
 const fallbackClass = '-';
 const fallbackNumber = 999999;
@@ -257,11 +258,20 @@ export function filterTotalRows(rows = [], {
   return list;
 }
 
+// The sort menu: "startorder" sorts by start number as its label says,
+// "place" (Placering) and "byclass" by place
+export function totalSortConfigForMode(viewMode) {
+  return viewMode === 'startorder'
+    ? { key: 'startNumber', direction: 'asc' }
+    : { key: 'plac', direction: 'asc' };
+}
+
 export function sortTotalRows(rows = [], sortConfig = { key: 'plac', direction: 'asc' }) {
   const sortKey = sortConfig.key || 'plac';
   const sortDir = sortConfig.direction === 'desc' ? -1 : 1;
 
   return rows.slice().sort((a, b) => {
+    if (sortKey === 'startNumber') return compareStartNumbers(a.startNumber, b.startNumber) * sortDir;
     const valueA = getTotalSortValue(a, sortKey);
     const valueB = getTotalSortValue(b, sortKey);
 
@@ -273,7 +283,7 @@ export function sortTotalRows(rows = [], sortConfig = { key: 'plac', direction: 
       if (tiebreak !== 0) return tiebreak * sortDir;
     }
 
-    return ((Number(a.startNumber) || 0) - (Number(b.startNumber) || 0)) * sortDir;
+    return compareStartNumbers(a.startNumber, b.startNumber) * sortDir;
   });
 }
 

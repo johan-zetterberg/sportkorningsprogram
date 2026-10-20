@@ -6,7 +6,7 @@ import { getConfig } from '../../services/competitionService.js';
 import { finalizeMarathon as finalizeMarathonService } from '../../services/finalizationService.js';
 import { getMarathonStateDocuments } from '../../services/marathonService.js';
 import { listenForMaratonCollection } from '../../services/marathonService.js';
-import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { doc, getDoc, setDoc, serverTimestamp, collection, onSnapshot, deleteField } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
@@ -1215,8 +1215,8 @@ function renderLayout() {
               </div>
             </div>
             <div class="flex gap-2 shrink-0">
-              <button id="eqPrev" type="button" aria-label="Föregående ekipage" class="w-11 h-11 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟨</button>
-              <button id="eqNext" type="button" aria-label="Nästa ekipage" class="w-11 h-11 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">⟩</button>
+              <button id="eqPrev" type="button" aria-label="Föregående ekipage" class="w-11 h-11 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">«</button>
+              <button id="eqNext" type="button" aria-label="Nästa ekipage" class="w-11 h-11 flex items-center justify-center rounded border dark:border-gray-700 text-sm hover:bg-gray-50 dark:hover:bg-gray-800 dark:text-gray-300">»</button>
             </div>
           </div>
 
@@ -1232,12 +1232,8 @@ function renderLayout() {
       <div class="mt-4 space-y-4">
         <!-- VAL AV EKIPAGE -->
         <div class="bg-white dark:bg-gray-800 rounded-xl border dark:border-gray-700 p-3 shadow-sm">
-          <div class="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-2">
-            <label class="text-[10px] uppercase font-bold text-gray-500">${t('marathon_stages_select_equipage')}</label>
-            <button id="btnBackupJson" class="text-[10px] text-blue-600 dark:text-blue-400 font-bold hover:underline">${t('marathon_stages_export_json')}</button>
-          </div>
+          <label class="block mb-2 text-xs uppercase font-bold text-gray-600 dark:text-gray-300">${t('marathon_stages_select_equipage')}</label>
           <div id="equipageDropdown"></div>
-          <div id="infoLineSmall" class="mt-2 text-[10px] text-gray-400 text-center uppercase">—</div>
         </div>
 
         <!-- AKTIVA TIMERS (UTFÄLLBAR) -->
@@ -1252,6 +1248,13 @@ function renderLayout() {
         <!-- ETAPP-PANEL -->
         <div id="stagePanel">
           ${renderStagePanel(currentStage)}
+        </div>
+
+        <!-- Backup export: a low-key footer link, as on the obstacle page -->
+        <div class="pt-1 pb-2 text-center">
+          <button id="btnBackupJson" type="button" class="inline-flex items-center justify-center gap-1 px-3 py-2 text-xs text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400">
+            <i class="fas fa-file-download" aria-hidden="true"></i> ${t('marathon_stages_export_json')}
+          </button>
         </div>
       </div>
     </div>
@@ -2341,7 +2344,7 @@ export async function load() {
   competitionId = comp?.id;
   const root = pageRoot();
   if (!competitionId) {
-    if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
+    if (root) root.innerHTML = renderNoCompetitionState();
     return;
   }
   startServerClockSync();

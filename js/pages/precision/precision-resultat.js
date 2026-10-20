@@ -105,6 +105,7 @@ import {
   downloadCsv,
   sanitizeForFilename
 } from '../../utils/sharedUtils.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import { listenDressageProgramSettings, loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 
 const renderLiveDebounce = debounce(render, 60);
@@ -573,7 +574,7 @@ function renderLayout() {
       <div class="max-w-8xl mx-auto px-4 sm:px-6 lg:px-8 pt-4 pb-8 min-h-screen dark:bg-gray-900 transition-colors duration-500">
         <div class="mb-3">
           ${getCompetitionHeader(comp, t('precision_result_list_title'))}
-          ${precisionDateStr ? `<h3 class="text-lg text-gray-500 dark:text-gray-400 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
+          ${precisionDateStr ? `<h3 class="text-lg text-gray-600 dark:text-gray-300 mt-1 font-medium text-center">${precisionDateStr}</h3>` : ''}
         </div>
 
         ${archivedNoticeHtml(archiveSnapshot)}
@@ -623,12 +624,12 @@ function renderLayout() {
 
           <div class="flex-shrink-0 flex items-center gap-2 justify-end md:ml-auto w-auto">
               <button id="btnExportPrecisionCsv" 
-                class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-[11px] md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
-                 <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
+                class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs md:text-sm font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors">
+                 <i class="fas fa-file-csv mr-1.5 text-gray-600 dark:text-gray-300"></i>
                  CSV
               </button>
               <button id="btnExportPrecisionPdf" 
-                class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-[11px] md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
+                class="inline-flex items-center px-2 md:px-3 py-1 md:py-1.5 border border-transparent shadow-sm text-xs md:text-sm font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500 transition-colors">
                 <svg class="mr-1.5 h-3 w-3 md:h-4 md:w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 1 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                  PDF
               </button>
@@ -853,7 +854,7 @@ function renderDesktop() {
   const container = document.getElementById('prWrap');
   if (!precision_equipages?.length) {
     // No equipages: a message instead of an empty area
-    if (container) container.innerHTML = `<div class="p-6 text-center text-gray-500 dark:text-gray-400">${t('no_equipages_found_for_competition')}</div>`;
+    if (container) container.innerHTML = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">${t('no_equipages_found_for_competition')}</div>`;
     return;
   }
   if (!container) return;
@@ -1193,7 +1194,8 @@ export async function load() {
   await loadPauseWindows(competitionId); // pauses subtracted from stage times, as on the server
   precision_equipages = equipagesData || [];
   precision_precisionConfig = configData || {};
-  precision_startTimes = startTimesData || {};
+  // Public page: only published start times (the document shape is kept)
+  precision_startTimes = { ...(startTimesData || {}), times: publishedStartTimes(startTimesData || {}) };
   precision_displayConfig = displayCfg || {};
 
   // Populate initial result maps

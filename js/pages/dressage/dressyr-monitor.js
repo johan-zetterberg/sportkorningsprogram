@@ -17,6 +17,10 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
+import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
+import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
+import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from '../shared/tvMode.js';
 import { dressagePrograms as globalDressagePrograms } from '../../data/dressagePrograms.js';
 
 import {
@@ -98,10 +102,10 @@ function monitor_resolveMergeGrouping(e) {
   return { key: `CLASS:${cls}`, label: cls };
 }
 
-const formatTime = (iso) => {
-  if (!iso) return '—';
-  try { return new Date(iso).toLocaleTimeString('sv-SE', { hour: '2-digit', minute: '2-digit' }); } catch { return '—'; }
-};
+// Strings, Firestore Timestamps and {seconds} objects
+const formatTime = (iso) => formatClockTime(iso);
+
+const dressageStartMs = (eq) => timeValueToMs(startTimes[String(eq?.startNumber)]?.dressage);
 
 function percentBar(pct) {
   if (!Number.isFinite(pct)) return '';
@@ -133,8 +137,8 @@ function triggerRender() {
 function getPrevNextEq(currentEq) {
   if (!currentEq) return { prev: null, next: null };
   const withTs = allEquipages
-    .map(eq => ({ eq, ts: new Date(startTimes[String(eq.startNumber)]?.dressage || 0).getTime() }))
-    .sort((a, b) => a.ts - b.ts);
+    .map(eq => ({ eq, ts: dressageStartMs(eq) }))
+    .sort((a, b) => compareByTimeThenStartNumber(a.ts, b.ts, a.eq.startNumber, b.eq.startNumber));
   const idx = withTs.findIndex(x => x.eq.startNumber === currentEq.startNumber);
   return { prev: idx > 0 ? withTs[idx - 1].eq : null, next: idx >= 0 && idx < withTs.length - 1 ? withTs[idx + 1].eq : null };
 }
@@ -174,8 +178,9 @@ function renderLayout() {
   const root = document.getElementById('page-dressyr-monitor');
   if (!root) return;
   root.innerHTML = `
-    <div class="container mx-auto p-4 md:p-8">
+    <div class="container mx-auto p-4 md:p-8 tv-page">
       ${getCompetitionHeader(comp, t('dressage_title'))}
+      <div class="-mt-2 mb-3 flex justify-end">${tvModeLinkHtml('dressyr-monitor')}</div>
       <div id="dressage-current-rider-panel" class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-lg mb-8 min-h-[320px]"></div>
       <div class="grid grid-cols-1 xl:grid-cols-3 gap-6">
         <div id="dressage-upcoming-panel" class="bg-white dark:bg-gray-800 p-4 rounded-lg shadow xl:col-span-1"></div>
@@ -226,7 +231,7 @@ function getLastByJudge(protocol, lastUpdate) {
 function renderCurrentRider() {
   const panel = document.getElementById('dressage-current-rider-panel');
   if (!panel) return;
-  if (!currentRider) { panel.innerHTML = `<div class="text-center p-8 text-gray-500 dark:text-gray-400 text-xl">${t('dressage_monitor_waiting')}</div>`; return; }
+  if (!currentRider) { panel.innerHTML = `<div class="text-center p-8 text-gray-600 dark:text-gray-300 text-xl">${t('dressage_monitor_waiting')}</div>`; return; }
 
   const { eq, liveData } = currentRider;
   // liveData is now Map<jid, proto>
@@ -309,15 +314,15 @@ function renderCurrentRider() {
           </div>
           <div class="grid grid-cols-1 md:grid-cols-6 gap-3">
             <div class="p-3 rounded bg-gray-50 dark:bg-gray-700 md:col-span-4">
-              <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${t('dressage_live_moment_label')}</div>
+              <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('dressage_live_moment_label')}</div>
               <div id="live-moment-text" class="font-semibold leading-snug text-lg dark:text-gray-200">${escapeHtml(lastMomentTxt)}</div>
               <div class="mt-1 text-[12px] text-gray-700 dark:text-gray-300">${t('dressage_live_moment_desc')}</div>
             </div>
             <div class="p-3 rounded bg-gray-50 dark:bg-gray-700 md:col-span-2">
-              <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">${t('dressage_prognosis')}</div>
+              <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('dressage_prognosis')}</div>
               <div id="live-prognosis-percent" class="font-semibold text-2xl dark:text-white">${Number.isFinite(avgPercent) ? avgPercent.toFixed(1) + ' %' : '—'}</div>
               <div id="live-prognosis-bar">${percentBar(avgPercent)}</div>
-              <div class="mt-1 text-[11px] text-gray-600 dark:text-gray-300">
+              <div class="mt-1 text-xs text-gray-600 dark:text-gray-300">
                 ${t('dressage_points_now')}: <span id="live-points-now" class="font-semibold">${Number.isFinite(avgPoints) ? avgPoints.toFixed(1) : '–'}</span> •
                 ${t('dressage_penalty_header')}: <span id="live-penalty-now" class="font-semibold text-blue-700 dark:text-blue-400 text-lg">${Number.isFinite(currentPenalty) ? currentPenalty.toFixed(2) : '–'}</span>
               </div>
@@ -372,7 +377,7 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
     if (judgeObj) judgeName = judgeObj.name || judgeObj.fullname || '';
 
     // Display formatting
-    const nameHtml = judgeName ? `<div class="text-[10px] text-gray-400 truncate -mt-0.5 mb-1">${escapeHtml(judgeName)}</div>` : '';
+    const nameHtml = judgeName ? `<div class="text-xs text-gray-400 truncate -mt-0.5 mb-1">${escapeHtml(judgeName)}</div>` : '';
 
     // Calculate projection for this specific judge
     const eq = allEquipages.find(e => String(e.startNumber) === String(startNumber)) || {};
@@ -404,15 +409,15 @@ function renderJudgeGrid(liveProtocolsArray, currentMomentIdx, startNumber) {
     return `
       <div class="p-2.5 rounded-lg bg-gray-50 dark:bg-gray-700 border dark:border-gray-600">
         <div class="flex flex-col items-center">
-             <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-0.5">${t('judge')} ${escapeHtml(pos)}</div>
+             <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300 mb-0.5">${t('judge')} ${escapeHtml(pos)}</div>
              ${nameHtml}
         </div>
         <div class="grid grid-cols-3 gap-1.5 text-center mt-1 dark:text-gray-200">
-          <div><div class="text-[10px] text-gray-500 dark:text-gray-400">%</div><div class="text-sm font-bold tabular-nums">${pTxt}</div></div>
-          <div><div class="text-[10px] text-gray-500 dark:text-gray-400">${t('dressage_points')}</div><div class="text-sm font-bold tabular-nums">${ptsTxt}</div></div>
-          <div><div class="text-[10px] text-gray-500 dark:text-gray-400">${t('dressage_penalty_header')}</div><div class="text-sm font-semibold tabular-nums text-blue-700 dark:text-blue-400">${penTxt || '–'}</div></div>
+          <div><div class="text-xs text-gray-600 dark:text-gray-300">%</div><div class="text-sm font-bold tabular-nums">${pTxt}</div></div>
+          <div><div class="text-xs text-gray-600 dark:text-gray-300">${t('dressage_points')}</div><div class="text-sm font-bold tabular-nums">${ptsTxt}</div></div>
+          <div><div class="text-xs text-gray-600 dark:text-gray-300">${t('dressage_penalty_header')}</div><div class="text-sm font-semibold tabular-nums text-blue-700 dark:text-blue-400">${penTxt || '–'}</div></div>
         </div>
-        <div class="mt-1.5 text-[10.5px] text-gray-700 dark:text-gray-300 truncate" title="${escapeHtml(lastTxt)}${lastScoreTxt}"><span class="text-gray-500 dark:text-gray-400">${t('dressage_monitor_moment_label')}:</span> ${lastScoreTxt ? '<b>' + lastScoreTxt + '</b>' : ''}</div>
+        <div class="mt-1.5 text-[10.5px] text-gray-700 dark:text-gray-300 truncate" title="${escapeHtml(lastTxt)}${lastScoreTxt}"><span class="text-gray-600 dark:text-gray-300">${t('dressage_monitor_moment_label')}:</span> ${lastScoreTxt ? '<b>' + lastScoreTxt + '</b>' : ''}</div>
       </div>`;
   }).join('');
 
@@ -457,14 +462,14 @@ function renderUpcomingPanel() {
       }
 
       return !isDone;
-    }).sort((a, b) => new Date(startTimes[String(a.startNumber)]?.dressage || 0).getTime() - new Date(startTimes[String(b.startNumber)]?.dressage || 0).getTime()).slice(0, 8);
+    }).sort((a, b) => compareByTimeThenStartNumber(dressageStartMs(a), dressageStartMs(b), a.startNumber, b.startNumber)).slice(0, 8);
 
     const currentHash = upcoming.map(eq => `${eq.startNumber}:${startTimes[String(eq.startNumber)]?.dressage}`).join('|');
     if (currentHash === lastRenderedUpcomingHash) return;
     lastRenderedUpcomingHash = currentHash;
 
     let html = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('dressage_upcoming_title')}</h3>`;
-    if (!upcoming.length) { html += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('dressage_all_started')}</p>`; } else {
+    if (!upcoming.length) { html += `<p class="text-sm text-gray-600 dark:text-gray-300">${t('dressage_all_started')}</p>`; } else {
       html += upcoming.map(eq => `
       <div class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1">
         <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${escapeHtml(eq.startNumber)}</span><span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName)}</span></div>
@@ -499,9 +504,9 @@ function renderResultsPanel() {
     lastRenderedResultsHash = currentHash;
 
     let html = `<div class="flex items-baseline justify-between mb-2"><h3 class="text-lg font-bold dark:text-white">${t('dressage_recent_results_title')}</h3></div>`;
-    if (!list.length) { html += `<p class="text-sm text-gray-500 dark:text-gray-400">${t('dressage_no_results')}</p>`; el.innerHTML = html; return; }
+    if (!list.length) { html += `<p class="text-sm text-gray-600 dark:text-gray-300">${t('dressage_no_results')}</p>`; el.innerHTML = html; return; }
 
-    html += `<div class="flex items-center justify-end text-xs font-medium text-gray-500 dark:text-gray-400 uppercase pr-1" style="padding-right: 0.25rem;"><span class="w-16 text-right">${t('dressage_avg_percent')}</span><span class="w-16 text-right ml-3">${t('dressage_points')}</span><span class="w-18 text-right ml-3">${t('dressage_penalty_header')}</span></div>`;
+    html += `<div class="flex items-center justify-end text-xs font-medium text-gray-600 dark:text-gray-300 uppercase pr-1" style="padding-right: 0.25rem;"><span class="w-16 text-right">${t('dressage_avg_percent')}</span><span class="w-16 text-right ml-3">${t('dressage_points')}</span><span class="w-18 text-right ml-3">${t('dressage_penalty_header')}</span></div>`;
     html += list.map(res => `
     <div class="result-row-interactive hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1" data-sn="${escapeHtml(res.sn)}">
       <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${escapeHtml(res.sn)}</span><span class="truncate max-w-[22ch] dark:text-gray-300">${escapeHtml(res.name || '')}</span><span class="text-gray-400 shrink-0">•</span><span class="hidden sm:inline text-gray-600 dark:text-gray-400 truncate max-w-[20ch]">${escapeHtml(res.className || '')}</span></div>
@@ -551,7 +556,7 @@ function findCurrentRiderAndLeader() {
   let latestTs = 0;
   for (const [sn, data] of dressageStatusMap.entries()) {
     if (data?.state === 'ongoing') {
-      const ts = new Date(data.updatedAt || 0).getTime();
+      const ts = timeValueToMs(data.updatedAt) ?? 0;
       if (Number.isFinite(ts) && ts > latestTs) {
         latestTs = ts;
         const eq = allEquipages.find(e => String(e.startNumber) === sn);
@@ -845,6 +850,7 @@ export async function load() {
     if (root) root.innerHTML = `<p class="p-8 text-center text-gray-600 dark:text-gray-400">${t('no_competition_selected')}</p>`;
     return;
   }
+  enterTvModeIfRequested();
   renderLayout();
 
   try {
@@ -871,9 +877,8 @@ export async function load() {
 
     allEquipages = toMonitorEquipages(equipagesRaw);
 
-    // Robust startTimes parsing
-    const stVal = startTimesData?.value ?? startTimesData;
-    startTimes = stVal?.times ?? stVal ?? {};
+    // Only published start times (a draft list is not shown on the public monitor)
+    startTimes = publishedStartTimes(startTimesData || {});
 
     mergedPrograms = programSettings.programs;
 
@@ -926,6 +931,7 @@ function toMonitorEquipages(equipagesRaw) {
 
 export function __unload() {
   monitorLoadSeq++;
+  exitTvMode();
   if (renderTimeout) {
     clearTimeout(renderTimeout);
     renderTimeout = null;

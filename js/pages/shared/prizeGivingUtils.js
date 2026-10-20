@@ -14,6 +14,22 @@ export function getPrizeGivingStatus(row = {}) {
 }
 
 /**
+ * The "N placeras" badge text, or '' while no one has a placing yet (a
+ * "1 PLACERADE" badge next to "no approved results yet" was contradictory).
+ * template holds {n}.
+ */
+export function prizeGivingPlacedBadgeText(numPlaced, placedRows, template = '{n} placeras') {
+  if (!(Number(placedRows) > 0) || !(Number(numPlaced) > 0)) return '';
+  return String(template).replace('{n}', String(numPlaced));
+}
+
+/** The speaker's line for the winner; template holds {name} */
+export function prizeGivingSpeakerScript(template, winnerName) {
+  const name = String(winnerName || '').trim() || '…';
+  return String(template || '').replace('{name}', name);
+}
+
+/**
  * An archived competition: puts the penalties it was archived with on a
  * prize-giving row (discipline 'total' | 'dressage' | 'marathon' |
  * 'precision'), before the placings are made. A row without an archived row,

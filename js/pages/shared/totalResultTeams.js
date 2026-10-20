@@ -53,7 +53,7 @@ export function renderTeamRankBadge(team, index = 0) {
   if (team?.preliminary) {
     return `<div class="flex flex-col items-center leading-none" title="Preliminär placering efter ${preliminaryPhaseLabel(team.preliminary.after)}">
       <div class="w-9 h-9 rounded-full border-2 border-dashed border-blue-400 dark:border-blue-500 text-blue-800 dark:text-blue-200 font-bold flex items-center justify-center text-sm">${team.preliminary.rank}</div>
-      <span class="mt-1 text-[10px] font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">Prel.</span>
+      <span class="mt-1 text-xs font-bold uppercase tracking-wider text-blue-700 dark:text-blue-300">Prel.</span>
     </div>`;
   }
   if (team?.isIncomplete) {
@@ -164,8 +164,8 @@ export function renderTeamDisciplineSummaryCell({
   return `
             <div class="col-span-2 text-right font-bold ${isBest ? highlightClass : ''}" title="${isBest ? escapeHtml(title) : ''}">
                 ${formatTeamScore(value, { eliminated: isEliminated })}
-                ${Number.isFinite(rank) ? `<span class="ml-1 text-[10px] font-semibold text-gray-500 dark:text-gray-400">${rank}:a</span>` : ''}
-                ${isBest ? '<i class="fas fa-star text-[10px] ml-0.5 text-amber-500 align-top"></i>' : ''}
+                ${Number.isFinite(rank) ? `<span class="ml-1 text-xs font-semibold text-gray-600 dark:text-gray-300">${rank}:a</span>` : ''}
+                ${isBest ? '<i class="fas fa-star text-xs ml-0.5 text-amber-500 align-top"></i>' : ''}
             </div>
             `;
 }
@@ -239,7 +239,7 @@ export function renderTeamCard(team = {}, {
                 ${teamAssetHtml}
                 <div>
                     <h3 class="font-bold text-lg text-gray-900 dark:text-white leading-tight">${escapeHtml(team.teamName)}</h3>
-                    ${team.isEliminated ? '' : `<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5 uppercase tracking-wide font-medium">${team.preliminary ? `Preliminär efter ${preliminaryPhaseLabel(team.preliminary.after)}` : 'Lagtotal'}</div>`}
+                    ${team.isEliminated ? '' : `<div class="text-xs text-gray-600 dark:text-gray-300 mt-0.5 uppercase tracking-wide font-medium">${team.preliminary ? `Preliminär efter ${preliminaryPhaseLabel(team.preliminary.after)}` : 'Lagtotal'}</div>`}
                 </div>
             </div>
           </div>

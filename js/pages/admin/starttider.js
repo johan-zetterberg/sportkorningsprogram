@@ -11,7 +11,7 @@ import { listenForDressageFinalizationCollection } from '../../services/dressage
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
-import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { dressagePrograms } from '../../data/dressagePrograms.js';
 import { getFlagHtml, } from '../../services/flagsService.js';
 import {
@@ -26,6 +26,7 @@ import {
     normalizeEquipage,
     sanitizeForFilename,
     escapeHtml,
+    horseLabel as sharedHorseLabel,
     isMobile,
     MOBILE_BP
 } from '../../utils/sharedUtils.js';
@@ -69,7 +70,13 @@ import {
     getChangedTimesPayload,
     moveStartTimeRow,
     parseDateTime,
+    publishedDisciplineList,
     recalculateStartTimesFrom,
+    renderPublicStartListCard,
+    renderPublicStartListNotice,
+    renderPublicStartListRow,
+    renderPublicStartTime,
+    startTimesPublishedFlags,
     renderStarttiderActionButtons,
     renderStarttiderDesktopBody,
     renderStarttiderDesktopHeader,
@@ -128,12 +135,14 @@ const STARTTIDER_DISCIPLINES = [
 ];
 
 
+// horses[].name, else horseName and the other import shapes (the list showed
+// "—" for equipages with only horseName)
 function horseLabel(eq) {
     if (!eq) return '—';
     const names = Array.isArray(eq.horses)
-        ? eq.horses.map(h => h?.name).filter(Boolean)
+        ? eq.horses.map(h => (typeof h === 'string' ? h : h?.name)).filter(Boolean)
         : [];
-    return names.length ? names.join(' & ') : '—';
+    return names.length ? names.join(' & ') : sharedHorseLabel(eq);
 }
 
 // Returnerar en sorterad lista av ekipage
@@ -342,16 +351,16 @@ function getStarttiderReadinessSummary() {
 
         let tone = 'amber';
         let status = 'Inte genererad';
-        let detail = 'Inga starttider satta an.';
+        let detail = 'Inga starttider satta än.';
 
         if (published && !isComplete) {
             tone = 'red';
-            status = 'Publicerad for tidigt';
-            detail = `${scheduledCount} av ${totalEquipages} ekipage har tider, men listan ar redan publicerad.`;
+            status = 'Publicerad för tidigt';
+            detail = `${scheduledCount} av ${totalEquipages} ekipage har tider, men listan är redan publicerad.`;
         } else if (!hasAnyTimes) {
             tone = 'amber';
             status = 'Inte genererad';
-            detail = 'Inga starttider satta an.';
+            detail = 'Inga starttider satta än.';
         } else if (!isComplete) {
             tone = 'amber';
             status = 'Delvis klar';
@@ -359,11 +368,11 @@ function getStarttiderReadinessSummary() {
         } else if (published) {
             tone = 'green';
             status = 'Klar och publicerad';
-            detail = `Alla ${totalEquipages} ekipage har tider och listan ar publicerad.`;
+            detail = `Alla ${totalEquipages} ekipage har tider och listan är publicerad.`;
         } else {
             tone = 'blue';
             status = 'Klar men opublicerad';
-            detail = `Alla ${totalEquipages} ekipage har tider, men listan ar inte publicerad an.`;
+            detail = `Alla ${totalEquipages} ekipage har tider, men listan är inte publicerad än.`;
         }
 
         return {
@@ -392,8 +401,8 @@ function renderStarttiderReadiness() {
     if (!equipages.length) {
         container.className = 'mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
         container.innerHTML = `
-            <div class="font-semibold">Starttider kan inte forberedas an</div>
-            <div class="mt-1">Inga ekipage hittades. Lagg in ekipage forst.</div>
+            <div class="font-semibold">Starttider kan inte förberedas än</div>
+            <div class="mt-1">Inga ekipage hittades. Lägg in ekipage först.</div>
         `;
         return;
     }
@@ -409,15 +418,15 @@ function renderStarttiderReadiness() {
 
     if (hasCritical) {
         shellClass += ' border-red-200 bg-red-50 text-red-900 dark:border-red-800 dark:bg-red-900/20 dark:text-red-100';
-        title = 'Starttider behover kompletteras';
-        intro = 'Minst en startlista ar publicerad innan alla ekipage har fatt tider.';
+        title = 'Starttider behöver kompletteras';
+        intro = 'Minst en startlista är publicerad innan alla ekipage har fått tider.';
     } else if (hasConflicts) {
         shellClass += ' border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
         title = 'Buffertvarning: Kusk med flera ekipage (TR Mom 535.4)';
         intro = 'Minst en kusk har mindre än 30 minuter mellan sina starter.';
     } else if (hasWarning) {
         shellClass += ' border-amber-200 bg-amber-50 text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100';
-        title = 'Starttider ar delvis forberedda';
+        title = 'Starttider är delvis förberedda';
         intro = 'Kontrollera grenarna nedan innan publicering.';
     } else {
         shellClass += ' border-emerald-200 bg-emerald-50 text-emerald-900 dark:border-emerald-800 dark:bg-emerald-900/20 dark:text-emerald-100';
@@ -565,12 +574,12 @@ function renderLayout() {
              <div class="flex flex-col gap-2 sm:flex-row sm:items-center w-full p-2 lg:p-3 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700">
                   <div class="search-input-wrap flex-1 min-w-0 relative">
                       <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 z-10 text-xs"></i>
-                      <input id="startlistSearch" type="search" placeholder="${t('search') || 'Sök ekipage...'}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-xs" autocomplete="off">
+                      <input id="startlistSearch" type="search" placeholder="${t('search') || 'Sök ekipage...'}" aria-label="${t('search') || 'Sök'}" class="w-full pl-8 pr-3 py-1.5 border rounded leading-5 dark:bg-gray-900 dark:border-gray-600 dark:text-gray-100 focus:ring-1 focus:ring-blue-500 shadow-sm text-sm" autocomplete="off">
                   </div>
-                      
-                  <select id="publicViewModeSelect" class="w-full sm:w-auto flex-shrink-0 border rounded px-2 py-1.5 text-xs dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
-                      <option value="startorder"${viewMode === 'startorder' ? ' selected' : ''}>Startordning</option>
-                      <option value="byclass"${viewMode === 'byclass' ? ' selected' : ''}>Per klass</option>
+
+                  <select id="publicViewModeSelect" aria-label="${t('start_order')}" class="w-full sm:w-auto flex-shrink-0 border rounded px-2 py-1.5 text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500">
+                      <option value="startorder"${viewMode === 'startorder' ? ' selected' : ''}>${t('start_order')}</option>
+                      <option value="byclass"${viewMode === 'byclass' ? ' selected' : ''}>${t('view_by_class')}</option>
                   </select>
              </div>
           </div>
@@ -659,9 +668,101 @@ function requestListenerRender() {
     });
 }
 
+// ---- Public view (everyone but an editing admin) ----
+function publicStartListState() {
+    const flags = startTimesPublishedFlags(startTimes);
+    return { flags, disciplines: publishedDisciplineList(flags) };
+}
+
+function publicNoticeHtml(flags) {
+    return renderPublicStartListNotice(flags, {
+        disciplineLabels: { dressage: t('dressage'), marathon: t('marathon'), precision: t('precision') },
+        noneText: t('startlist_times_unpublished'),
+        someText: t('startlist_times_unpublished_some')
+    });
+}
+
+// Only "running" and "done" are shown: a grey "not started" badge on every row is noise
+function publicTime(discipline, sn, value) {
+    const state = resolveStarttiderStatus(discipline, sn, {
+        dressageStatusMap,
+        dressageFinalizationMap,
+        precisionResultsMap,
+        marathonStatusMap,
+        marathonTimingMap
+    });
+    return renderPublicStartTime({
+        value,
+        nowNextHtml: chipNowNext(discipline, sn),
+        statusHtml: state === 'not-started' ? '' : statusBadge(discipline, sn)
+    });
+}
+
+function renderPublicDesktop(container) {
+    const { flags, disciplines } = publicStartListState();
+    const rows = getSortedEquipages();
+    const headers = [
+        { key: 'startNumber', label: '#' }, { key: 'driverName', label: t('driver_horse') },
+        { key: 'className', label: t('class') }, { key: 'clubName', label: t('country_club') },
+        ...disciplines.map(d => ({ key: d, label: t(d) }))
+    ];
+    const renderRow = (e) => renderPublicStartListRow({
+        equipage: e,
+        startTimes,
+        disciplines,
+        isEliminated: isEliminatedOrIncomplete(e),
+        getHorseLabel: horseLabel,
+        getFlagHtml,
+        getClubLogoHtml,
+        renderTime: publicTime
+    });
+    container.innerHTML = `
+      ${publicNoticeHtml(flags)}
+      <div class="rounded-lg shadow ring-1 ring-black/5 dark:ring-white/10">
+        <div id="starttider-x-wrap" class="x-scroll-wrap">
+          <table id="startlist-table" class="min-w-full text-sm bg-white dark:bg-gray-800">
+            ${renderStarttiderDesktopHeader(headers, sortConfig)}
+            <tbody>${renderStarttiderDesktopBody(rows, { viewMode, colspan: headers.length, renderRow })}</tbody>
+          </table>
+        </div>
+      </div>`;
+}
+
+function renderPublicMobile(container) {
+    const { flags, disciplines } = publicStartListState();
+    const sorted = getSortedEquipages();
+    let lastClass = null;
+    const cards = sorted.map(e => {
+        let classHeader = '';
+        const cls = e._mergedLabel || e.className;
+        if (viewMode === 'byclass' && cls !== lastClass) {
+            lastClass = cls;
+            classHeader = `<div class="px-2 py-1 mt-3 mb-1 bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200 font-bold text-sm rounded-md">${escapeHtml(cls || '')}</div>`;
+        }
+        return renderPublicStartListCard({
+            equipage: e,
+            startTimes,
+            disciplines,
+            isEliminated: isEliminatedOrIncomplete(e),
+            classHeaderHtml: classHeader,
+            getHorseLabel: horseLabel,
+            getFlagHtml,
+            renderTime: publicTime,
+            disciplineLabels: { dressage: t('dressage'), marathon: t('marathon'), precision: t('precision') }
+        });
+    }).join('');
+    container.innerHTML = `${publicNoticeHtml(flags)}<div class="py-1">${cards}</div>`;
+}
+
 function renderDesktop() {
     const container = document.getElementById('startlist-container');
     if (!container) return;
+
+    if (publicMode || currentUserRole !== 'admin') {
+        renderPublicDesktop(container);
+        setupStarttiderXbar();
+        return;
+    }
 
     container.innerHTML = `
       <div class="rounded-lg shadow ring-1 ring-black/5 dark:ring-white/10">
@@ -745,6 +846,10 @@ function renderDesktop() {
         });
     }
 
+    setupStarttiderXbar();
+}
+
+function setupStarttiderXbar() {
     // Scroll helpers
     const hostEl = document.getElementById('starttider-x-wrap');
     const setupXbarSync = window.__setupXbarSync;
@@ -771,6 +876,11 @@ function renderDesktop() {
 function renderMobile() {
     const container = document.getElementById('startlist-container');
     if (!container) return;
+
+    if (publicMode || currentUserRole !== 'admin') {
+        renderPublicMobile(container);
+        return;
+    }
 
     const isEditable = !publicMode && currentUserRole === 'admin';
     const sorted = getSortedEquipages();
@@ -2016,7 +2126,7 @@ export async function load() {
     let competition = getGlobalState('currentCompetition');
     competitionId = competition?.id;
     if (!competitionId) {
-        document.getElementById('page-starttider').innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
+        document.getElementById('page-starttider').innerHTML = renderNoCompetitionState();
         return;
     }
 

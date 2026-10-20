@@ -1,5 +1,6 @@
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { formatObstacleClock, formatObstacleSeconds } from './marathonResultFormatters.js';
+import { t } from '../../utils/i18n.js';
 
 export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObstaclePlacement) {
   if (typeof eq === 'number' && maxObs === undefined) {
@@ -17,22 +18,22 @@ export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObsta
       ? getObstaclePlacement(obstaclePlacementMap, eq, n)
       : null;
     const placeMarkup = Number.isFinite(place)
-      ? `<div class="text-[9px] lg:text-[10px] leading-tight text-gray-500 dark:text-gray-400">(${place})</div>`
+      ? `<div class="text-xs lg:text-xs leading-tight text-gray-600 dark:text-gray-300">(${place})</div>`
       : '';
     const holdSec = (obsItem && Number.isFinite(Number(obsItem.holdTimeSec)) && Number(obsItem.holdTimeSec) > 0) ? Number(obsItem.holdTimeSec) : 0;
     const title = [
-      `Hinder ${n}`,
+      `${t('obstacle_lbl')} ${n}`,
       timeSec !== null ? `Tid: ${formatObstacleSeconds(timeSec)} s (${formatObstacleClock(timeSec)})` : null,
-      holdSec > 0 ? `Uppehållsavdrag: -${holdSec.toFixed(1)}s` : null,
-      finalP !== null ? `Straff: ${finalP.toFixed(2)}` : null,
-      Number.isFinite(place) ? `Plac i klassen: ${place}` : null
+      holdSec > 0 ? `${t('hold_time_deduction')}: -${holdSec.toFixed(1)}s` : null,
+      finalP !== null ? `${t('penalty')}: ${finalP.toFixed(2)}` : null,
+      Number.isFinite(place) ? `${t('place_in_class')}: ${place}` : null
     ].filter(Boolean).join(' | ');
 
     const holdMarkup = holdSec > 0
-      ? ` <span class="text-[10px] text-amber-600 dark:text-amber-400 font-semibold" title="Uppehållsavdrag: -${holdSec.toFixed(1)}s">(-${Math.round(holdSec)}s)</span>`
+      ? ` <span class="text-xs text-amber-600 dark:text-amber-400 font-semibold" title="${escapeHtml(t('hold_time_deduction'))}: -${holdSec.toFixed(1)}s">(-${Math.round(holdSec)}s)</span>`
       : '';
 
-    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm font-normal tabular-nums" data-sn="${escapeHtml(res.startNumber)}" data-obs="${n}" title="${escapeHtml(title)}">
+    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-xs lg:text-sm font-normal tabular-nums" data-sn="${escapeHtml(res.startNumber)}" data-obs="${n}" title="${escapeHtml(title)}">
                     <span data-cell="obsVal">${label}</span>${holdMarkup}
                     ${placeMarkup}
                 </td>`;
@@ -51,15 +52,15 @@ export function renderTableHead(thead, {
   translate
 }) {
   const isClass = viewMode === 'byclass';
-  const thClass = "px-2 py-2 lg:px-3 lg:py-3 text-left text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider align-middle";
-  const thCenter = "px-2 py-2 lg:px-3 lg:py-3 text-center text-[10px] lg:text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider align-middle";
+  const thClass = "px-2 py-2 lg:px-3 lg:py-3 text-left text-xs lg:text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider align-middle";
+  const thCenter = "px-2 py-2 lg:px-3 lg:py-3 text-center text-xs lg:text-xs font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wider align-middle";
   const t = translate;
 
   const getSortIcon = (k) => {
-    if (sortState.key !== k) return '<span class="text-gray-300 dark:text-gray-600 opacity-50 text-[10px] w-3 text-center">\u2194</span>';
+    if (sortState.key !== k) return '<span class="text-gray-300 dark:text-gray-600 opacity-50 text-xs w-3 text-center">\u2194</span>';
     return sortState.dir === 'asc'
-      ? '<span class="text-gray-800 dark:text-gray-200 text-[10px] w-3 text-center">\u2193</span>'
-      : '<span class="text-gray-800 dark:text-gray-200 text-[10px] w-3 text-center">\u2191</span>';
+      ? '<span class="text-gray-800 dark:text-gray-200 text-xs w-3 text-center">\u2193</span>'
+      : '<span class="text-gray-800 dark:text-gray-200 text-xs w-3 text-center">\u2191</span>';
   };
 
   const thSort = (cls, key, txt) => {
@@ -76,7 +77,7 @@ export function renderTableHead(thead, {
     .join('');
   const obsHead = Array.from({ length: maxObs }, (_, i) =>
     thSort(thCenter, `obs-${i + 1}`, `${t('obstacle_lbl')} ${i + 1} (<span class="normal-case lowercase">s</span>)`)
-      .replace('<th ', '<th title="Hindertid i sekunder" ')
+      .replace('<th ', `<th title="${escapeHtml(t('obstacle_time_seconds'))}" `)
   ).join('');
   const klassTH = isClass ? '' : thSort(thClass, 'className', t('class'));
 
@@ -96,7 +97,7 @@ export function renderTableHead(thead, {
             ${thSort(thCenter, 'otherPenalty', t('penalty_other_short'))}
             ${thSort(thCenter, 'totalPenalty', t('total'))}
             ${thSort(thClass, 'status', t('status'))}
-            <th class="${thClass}">Admin</th>
+            <th class="${thClass}">${t('admin_col')}</th>
         </tr>
       `;
 }

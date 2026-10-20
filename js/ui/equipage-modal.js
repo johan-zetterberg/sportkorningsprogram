@@ -27,6 +27,7 @@ import { setMarathonConfig } from '../utils/marathonUtils.js';
 import { renderPrecisionContent } from './precisionModal.js';
 import { renderDressageContent } from './dressageModal.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
+import { activateDialog, releaseDialog } from './dialogA11y.js';
 
 // --- Små hjälpare (lokala till modalen, så totalfilen slipper exportera dem) ---
 const escapeAttr = (s) => escapeHtml(s ?? '');
@@ -153,7 +154,7 @@ export async function openEquipageModal(startNumber, ctx) {
       `;
 
     // --- Skapa modal ---
-    document.querySelectorAll('.tr-modal-backdrop').forEach(el => { try { el.remove(); } catch { } });
+    document.querySelectorAll('.tr-modal-backdrop').forEach(el => { try { releaseDialog(el, { restoreFocus: false }); el.remove(); } catch { } });
     const backdrop = document.createElement('div'); backdrop.className = 'tr-modal-backdrop';
     const modal = document.createElement('div'); modal.className = 'tr-modal';
 
@@ -161,7 +162,7 @@ export async function openEquipageModal(startNumber, ctx) {
     <header>
       <div class="flex justify-between items-start w-full">
         <div class="flex flex-col">
-          <h3 class="text-xl font-bold">#${escapeHtml(String(startNumber))} ${escapeHtml(r.driverName || eq.driverName || '')}</h3>
+          <h3 id="trModalTitle" class="text-xl font-bold">#${escapeHtml(String(startNumber))} ${escapeHtml(r.driverName || eq.driverName || '')}</h3>
           <div class="order-3 flex flex-wrap items-center gap-2 mt-3">
             <div class="inline-flex flex-col px-3 py-2 rounded-xl bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-200 dark:border-emerald-800">
               <span class="text-[10px] uppercase tracking-widest font-semibold text-emerald-600 dark:text-emerald-300">Plac i klass</span>
@@ -174,7 +175,7 @@ export async function openEquipageModal(startNumber, ctx) {
           </div>
           <div class="order-2 text-xs italic text-gray-500 dark:text-gray-500">${horsesLabel ? escapeHtml(horsesLabel) : '—'}</div>
         </div>
-        <button class="tr-close text-2xl leading-none" aria-label="Stäng">×</button>
+        <button type="button" class="tr-close text-2xl leading-none min-w-[44px] min-h-[44px]" aria-label="Stäng">×</button>
       </div>
     </header>
     <div id="tr-tabs" class="tabs"></div>
@@ -184,10 +185,9 @@ export async function openEquipageModal(startNumber, ctx) {
     document.body.appendChild(backdrop);
     requestAnimationFrame(() => backdrop.classList.add('visible'));
 
-    // Stäng
-    const close = () => { document.removeEventListener('keydown', onKey); backdrop.classList.remove('visible'); setTimeout(() => { try { backdrop.remove(); } catch { } }, 180); };
-    const onKey = (e) => { if (e.key === 'Escape') close(); };
-    document.addEventListener('keydown', onKey);
+    // Stäng (Escape via the dialog helper, which also keeps Tab inside and returns focus)
+    const close = () => { releaseDialog(backdrop); backdrop.classList.remove('visible'); setTimeout(() => { try { backdrop.remove(); } catch { } }, 180); };
+    activateDialog(backdrop, { labelledBy: 'trModalTitle', panel: modal, onEscape: close, initialFocus: '.tr-close' });
     modal.querySelector('.tr-close')?.addEventListener('click', (e) => { e.stopPropagation(); close(); });
     backdrop.addEventListener('click', (e) => { if (e.target === backdrop) { e.stopPropagation(); close(); } });
     modal.addEventListener('click', (e) => e.stopPropagation());

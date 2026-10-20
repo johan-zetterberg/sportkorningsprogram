@@ -2,7 +2,7 @@ import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
 import { getConfig } from '../../services/competitionService.js';
 import { saveConfig } from '../../services/competitionService.js';
-import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { competitionClasses, standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { getClassTempoMpm } from '../../utils/precisionUtils.js';
 import { PRECISION_FORMATS, getPrecisionFormat } from '../../utils/precisionCalculation.js';
@@ -1052,7 +1052,7 @@ export async function load() {
     competitionId = comp?.id;
     const root = document.getElementById('page-precision-admin');
     if (!competitionId) {
-        if (root) root.innerHTML = '<p class="p-8 text-center text-gray-600 dark:text-gray-400">Ingen tävling vald.</p>';
+        if (root) root.innerHTML = renderNoCompetitionState();
         return;
     }
 

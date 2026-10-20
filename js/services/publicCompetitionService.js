@@ -5,6 +5,7 @@ import { getDocs } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-fire
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildPublicClassSummary, buildPublicMergeMap } from './publicCompetitionUtils.js';
 import { pickMergeSource } from './mergeConfigService.js';
+import { publishedStartTimes } from '../utils/publishedStartTimes.js';
 
 function toArray(value) {
   return Array.isArray(value) ? value : [];
@@ -93,7 +94,8 @@ export async function getPublicCompetitionViewModel(competition) {
     shouldLoadClassSummary ? getConfig(competition.id, 'tdbMergeMap').catch(() => null) : null
   ]);
 
-  const startTimes = startTimesCfg?.times || {};
+  // Only published start times: an unpublished list is a draft (class time windows stay empty)
+  const startTimes = publishedStartTimes(startTimesCfg || {});
   // One merge source, picked as on every result page (mergeConfigService)
   const mergeMap = buildPublicMergeMap(pickMergeSource({ display: displayConfig, tdbMergeGroups, classMergeMap, tdbMergeMap }));
   const classSummary = shouldLoadClassSummary ? buildPublicClassSummary({

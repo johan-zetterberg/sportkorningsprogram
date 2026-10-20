@@ -1548,7 +1548,7 @@ export async function setupSettingsLogic(competitionId) {
                 setTimeout(() => window.location.reload(), 1200);
             } catch (err) {
                 console.error('Kunde inte ladda demodata:', err);
-                showAlert('Fel vid laddning av demodata: ' + err.message);
+                showAlert('Fel vid laddning av demodata: ' + err.message, false);
                 if (btn) {
                     btn.disabled = false;
                     btn.innerHTML = '<span>⚡ Ladda demodata</span>';

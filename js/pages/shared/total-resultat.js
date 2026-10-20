@@ -14,6 +14,7 @@ import { listenForOfficials, listenForJudges } from '../../services/adminService
 import { listenForMaratonCollection, listenForMarathonTimingUpdates, loadPauseWindows } from '../../services/marathonService.js';
 import { listenForTeams } from '../../services/teamService.js';
 import { t } from '../../utils/i18n.js';
+import { attachScrollHint, scrollHintTextHtml } from './scrollHint.js';
 
 import { calculateTotalResult } from '../../services/calculationService.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
@@ -40,7 +41,8 @@ import {
   applyTotalResultDiffs,
   buildBestDressageByGroup,
   buildDisplayedTotalRows,
-  placeTotalRowsWithinClass
+  placeTotalRowsWithinClass,
+  totalSortConfigForMode
 } from './totalResultRanking.js';
 import {
   groupDocsByStartNumber,
@@ -97,7 +99,8 @@ let dressageMap = new Map(); // sn -> Array of protocols
 let marathonConfig = null; // { marathonDistances: { 'A-Sträcka': m, 'B-Sträcka': m }, marathonMin?:{A,B} }
 let precisionConfig = null;
 let processedResults = [];
-let sortConfig = { key: 'plac', direction: 'asc' };
+// The sort menu's default "Startordning" sorts by start number (as it says)
+let sortConfig = totalSortConfigForMode('startorder');
 let unsub = [];
 let bestDressageByClass = new Map(); // className -> högsta percentAvg
 let viewMode = 'startorder'; // 'startorder' | 'byclass'
@@ -603,7 +606,7 @@ function renderDesktop() {
       : '';
 
     return `
-      <th data-key="${h.key}" title="${escapeHtml(title)}" class="sortable-header px-2 py-2 lg:px-3 lg:py-2 text-left text-[10px] lg:text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase transition-all duration-200 ${extra}${activeClass}">
+      <th data-key="${h.key}" title="${escapeHtml(title)}" class="sortable-header px-2 py-2 lg:px-3 lg:py-2 text-left text-xs lg:text-xs font-semibold text-gray-600 dark:text-gray-300 uppercase transition-all duration-200 ${extra}${activeClass}">
         <div class="flex items-center gap-1.5 lg:gap-2">
           ${h.label}
           <i class="fas ${isActive ? sortIcon : 'fa-sort'} sort-icon"></i>
@@ -628,9 +631,9 @@ function renderDesktop() {
     const isBestDressage = bestDressageByClass.get(bestKey) != null &&
       r.dressage?.percentAvg != null &&
       r.dressage.percentAvg === bestDressageByClass.get(bestKey);
-    const dPlacHtml = Number.isFinite(r?.posDress) ? `<div class="text-[10px] leading-3 text-gray-500">(${r.posDress})</div>` : '';
-    const mPlacHtml = Number.isFinite(r?.posMar) ? `<div class="text-[10px] leading-3 text-gray-500">(${r.posMar})</div>` : '';
-    const pPlacHtml = Number.isFinite(r?.posPrec) ? `<div class="text-[10px] leading-3 text-gray-500">(${r.posPrec})</div>` : '';
+    const dPlacHtml = Number.isFinite(r?.posDress) ? `<div class="text-xs leading-3 text-gray-500">(${r.posDress})</div>` : '';
+    const mPlacHtml = Number.isFinite(r?.posMar) ? `<div class="text-xs leading-3 text-gray-500">(${r.posMar})</div>` : '';
+    const pPlacHtml = Number.isFinite(r?.posPrec) ? `<div class="text-xs leading-3 text-gray-500">(${r.posPrec})</div>` : '';
     const dIco = statusIcon(r.dressageStatus || 'missing');
     const isDressRunning = r.dressageStatus === 'ongoing' || r.dressageStatus === 'pågår';
     const dLive = isDressRunning ? '<span class="live-dot"></span>' : '';
@@ -667,7 +670,7 @@ function renderDesktop() {
       : '';
 
     const pMini = (!isPrintExport && (Number.isFinite(pOb) || Number.isFinite(pTm)))
-      ? `<div class="text-[10px] leading-3 text-gray-500">
+      ? `<div class="text-xs leading-3 text-gray-500">
            ${Number.isFinite(pOb) ? `R ${pOb.toFixed(2)}` : 'R —'} /
            ${Number.isFinite(pTm) ? `T ${pTm.toFixed(2)}` : 'T —'}
          </div>`
@@ -680,7 +683,7 @@ function renderDesktop() {
       ? `<span class="text-xs text-gray-500" title="${t('legend_diff_leader')}">(+${r.diffFromLeader.toFixed(2)})</span>` : '';
 
     const nextMini = (!isPrintExport && r.diffFromNext != null && r.diffFromNext > 0)
-      ? `<div class="text-[10px] leading-3 text-gray-500" title="${t('legend_diff_next')}">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
+      ? `<div class="text-xs leading-3 text-gray-500" title="${t('legend_diff_next')}">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
 
     const tot = `<div class="res-val font-bold text-blue-900 dark:text-blue-300">${formatTotalResultPenalty(r.totalPenalty, { eliminated: r.isEliminated })}</div>`;
 
@@ -697,14 +700,14 @@ function renderDesktop() {
       </div>`;
 
     return `<tr class="${rowCls}" data-start="${escapeHtml(r.startNumber)}">
-      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm font-semibold">${r.isEliminated ? `<span class="text-red-600 font-semibold">${escapeHtml(r.elimReason || 'ELIM')}</span>`
+      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm font-semibold">${r.isEliminated ? `<span class="text-red-600 font-semibold">${escapeHtml(r.elimReason || 'ELIM')}</span>`
         : (r.plac ?? '')
       }</td>
-      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm sticky-col-start">${escapeHtml(r.startNumber ?? '')}</td>
+      <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm sticky-col-start">${escapeHtml(r.startNumber ?? '')}</td>
          <td class="px-2 py-1.5 lg:px-3 lg:py-2 sticky-col-driver">
       <div class="font-medium text-gray-900 break-words max-h-12 overflow-hidden lg:max-h-none dark:text-white text-[12px] lg:text-sm leading-tight flex items-center gap-1.5 flex-wrap">
         <span>${escapeHtml(r.driverName || '')}</span>
-        ${eq?.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${eq.driverStartCount || 2} starter i tävlingen">${eq.driverStartCount || 2} st</span>` : ''}
+        ${eq?.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800" title="Kusken har ${eq.driverStartCount || 2} starter i tävlingen">${eq.driverStartCount || 2} st</span>` : ''}
       </div>
       ${(() => {
         const names = [];
@@ -717,16 +720,16 @@ function renderDesktop() {
         }
         if (!names.length && eq?.hästnamn) names.push(String(eq.hästnamn));
         return names.length
-          ? `<div class="hidden lg:block text-[10px] lg:text-xs text-gray-500 cell-multiline">${names.map(n => `<span class="line">${escapeHtml(n)}</span>`).join('')}</div>`
+          ? `<div class="hidden lg:block text-xs lg:text-xs text-gray-500 cell-multiline">${names.map(n => `<span class="line">${escapeHtml(n)}</span>`).join('')}</div>`
           : '';
       })()}
     </td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-[160px]" title="${escapeHtml(r.className || '')}">${escapeHtml(r.className || '')}</div></td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2"><div class="truncate max-w-[100px] lg:max-w-[160px] text-[11px] lg:text-sm" title="${escapeHtml(eq.clubName || '')}">${clubCell}</div></td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm">${dIco}${dText}</td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm whitespace-nowrap" title="${escapeHtml(tt)}">${mIco}${mText}</td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm whitespace-nowrap">${pIco}${pText}</td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-sm font-semibold whitespace-nowrap">${tot} ${diff}${nextMini}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-[160px]" title="${escapeHtml(r.className || '')}">${escapeHtml(r.className || '')}</div></td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2"><div class="truncate max-w-[100px] lg:max-w-[160px] text-xs lg:text-sm" title="${escapeHtml(eq.clubName || '')}">${clubCell}</div></td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm">${dIco}${dText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm whitespace-nowrap" title="${escapeHtml(tt)}">${mIco}${mText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm whitespace-nowrap">${pIco}${pText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm font-semibold whitespace-nowrap">${tot} ${diff}${nextMini}</td>
     </tr>`;
   };
 
@@ -796,7 +799,7 @@ function renderDesktop() {
   }
 
 
-  container.innerHTML = `<div class="rounded-lg shadow ring-1 ring-black/5">
+  container.innerHTML = `${scrollHintTextHtml(escapeHtml(t('scroll_for_more_columns')), 'totalScrollHint')}<div id="totalScrollHintWrap" class="rounded-lg shadow ring-1 ring-black/5">
     <div id="total-x-wrap" class="x-scroll-wrap"> <table class="total-results-table text-sm">
         ${tableHead}
         <tbody>
@@ -805,6 +808,13 @@ function renderDesktop() {
       </table>
     </div>
   </div>`;
+
+  // Shadow + hint while columns are cut off at the right
+  attachScrollHint(
+    document.getElementById('totalScrollHintWrap'),
+    document.getElementById('total-x-wrap'),
+    document.getElementById('totalScrollHint')
+  );
 
   // Skapa & koppla fasta x-baren
   (function () {
@@ -862,7 +872,7 @@ function renderTeams() {
   if (!showTeams) return;
 
   if (!processedTeams || processedTeams.length === 0) {
-    container.innerHTML = `<div class="p-8 text-center text-gray-500 dark:text-gray-400">Inga lag skapade än.</div>`;
+    container.innerHTML = `<div class="p-8 text-center text-gray-600 dark:text-gray-300">Inga lag skapade än.</div>`;
     return;
   }
 
@@ -907,7 +917,7 @@ function renderTeams() {
     <div class="max-w-4xl mx-auto mt-6">
       <div class="mb-4 px-1">
         <h2 class="text-xl font-bold text-gray-900 dark:text-white">Lagresultat</h2>
-        <p class="text-sm text-gray-500 dark:text-gray-400">${escapeHtml(teamProfile.label)}: ${escapeHtml(teamProfile.description)}</p>
+        <p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(teamProfile.label)}: ${escapeHtml(teamProfile.description)}</p>
       </div>
       ${rows}
     </div>
@@ -925,7 +935,7 @@ function renderLayout() {
   root.innerHTML = `
   ${getCompetitionHeader(competition, t('total_results_title'))}
 
-  <div class="mb-6 text-center text-gray-500 dark:text-gray-400 font-medium">
+  <div class="mb-6 text-center text-gray-600 dark:text-gray-300 font-medium">
     ${dateStr}
   </div>
 
@@ -945,6 +955,7 @@ function renderLayout() {
       <div class="relative w-[150px] flex-shrink-0">
       <select id="modeSelect" class="block w-full border rounded py-1.5 pl-2 pr-7 text-xs md:text-sm dark:bg-gray-800 dark:border-gray-600 dark:text-gray-200 shadow-sm focus:ring-1 focus:ring-blue-500 appearance-none">
         <option value="startorder" ${viewMode === 'startorder' ? 'selected' : ''}>${t('start_order')}</option>
+        <option value="place" ${viewMode === 'place' ? 'selected' : ''}>${t('sort_by_place')}</option>
         <option value="byclass" ${viewMode === 'byclass' ? 'selected' : ''}>${t('view_by_class')}</option>
       </select>
       <div class="pointer-events-none absolute right-0 top-0 bottom-0 flex items-center px-1.5 text-gray-500">
@@ -987,7 +998,7 @@ function renderLayout() {
       <!-- Export Buttons -->
       <div class="flex-shrink-0 flex items-center gap-1.5 md:ml-auto">
         <button id="exportCsvBtn" title="Exportera CSV" class="inline-flex items-center px-2 py-1.5 border border-gray-300 dark:border-gray-600 shadow-sm text-xs font-medium rounded text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 hover:bg-gray-50 dark:hover:bg-gray-600 focus:outline-none focus:ring-1 focus:ring-blue-500 transition-colors">
-           <i class="fas fa-file-csv mr-1.5 text-gray-500 dark:text-gray-400"></i>
+           <i class="fas fa-file-csv mr-1.5 text-gray-600 dark:text-gray-300"></i>
            CSV
         </button>
         <button id="btnExportPdf" class="inline-flex items-center px-2 py-1.5 border border-transparent shadow-sm text-xs font-medium rounded text-white bg-gray-600 hover:bg-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-500 transition-colors">
@@ -1122,6 +1133,7 @@ function renderLayout() {
   if (modeSel) {
     modeSel.onchange = (e) => {
       viewMode = e.target.value;
+      sortConfig = totalSortConfigForMode(viewMode);
       render();
     };
   }
@@ -1184,7 +1196,7 @@ function renderMobile() {
 
   let html = '';
   if (rows.length === 0) {
-    html = `<div class="p-6 text-center text-gray-500 dark:text-gray-400">${t('search_no_match')}</div>`;
+    html = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">${t('search_no_match')}</div>`;
   } else {
     // 1. Calculate starters per class for dynamic placement counts
     const classStarters = new Map();
@@ -1227,7 +1239,7 @@ function renderMobile() {
       }
 
       let placBlock = `
-        <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
+        <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
         <div class="text-base font-black ${placColor} leading-none">${r.plac || '—'}</div>
       `;
 
@@ -1239,19 +1251,19 @@ function renderMobile() {
             <!-- Left: Name & Flags -->
             <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${escapeHtml(r.startNumber)}</span> 
+                 <span class="text-gray-600 dark:text-gray-300 text-xs">#${escapeHtml(r.startNumber)}</span> 
                  <span class="truncate">${escapeHtml(r.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">
                  ${getFlagHtml(eq)} ${getClubLogoHtml(eq)}
-                 ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(cls)}</span>` : ''}
+                 ${viewMode !== 'byclass' ? `<span class="text-xs text-gray-600 dark:text-gray-300 truncate ml-1">${escapeHtml(cls)}</span>` : ''}
               </div>
             </div>
             
             <!-- Right: Stats & Plac -->
             <div class="flex items-center gap-2 shrink-0">
                 <div class="text-right">
-                    <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Totalt</div>
+                    <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5">Totalt</div>
                     <div class="font-bold text-[13px] text-blue-800 dark:text-blue-300 leading-none">${totalLabel}</div>
                 </div>
                 <div class="text-right border-l dark:border-gray-300 dark:border-gray-600 pl-2">
@@ -1262,17 +1274,17 @@ function renderMobile() {
           
           <!-- Bottom Row: Sub-results -->
           <div class="px-1.5 py-1.5 flex items-center justify-between gap-1 bg-white dark:bg-gray-800">
-             <div class="flex items-center justify-between w-full text-[10px] sm:text-xs">
+             <div class="flex items-center justify-between w-full text-xs sm:text-xs">
                 <div class="flex flex-col items-center flex-1 border-r border-gray-100 dark:border-gray-700">
-                   <span class="text-[8px] uppercase text-gray-400 font-semibold leading-none mb-1">Dressyr</span>
+                   <span class="text-xs uppercase text-gray-400 font-semibold leading-none mb-1">Dressyr</span>
                    <span class="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-0.5">${statusIcon(r.dressageStatus || 'missing')} ${dressyrLabel}</span>
                 </div>
                 <div class="flex flex-col items-center flex-1 border-r border-gray-100 dark:border-gray-700">
-                   <span class="text-[8px] uppercase text-gray-400 font-semibold leading-none mb-1">Maraton</span>
+                   <span class="text-xs uppercase text-gray-400 font-semibold leading-none mb-1">Maraton</span>
                    <span class="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-0.5">${statusIcon(r.marathonStatus || 'missing')} ${maratonLabel}</span>
                 </div>
                 <div class="flex flex-col items-center flex-1">
-                   <span class="text-[8px] uppercase text-gray-400 font-semibold leading-none mb-1">Precision</span>
+                   <span class="text-xs uppercase text-gray-400 font-semibold leading-none mb-1">Precision</span>
                    <span class="font-bold text-gray-700 dark:text-gray-200 flex items-center gap-0.5">${statusIcon(r.precisionStatus || 'missing')} ${precisionLabel}</span>
                 </div>
              </div>
@@ -1608,7 +1620,7 @@ export function __unload() {
   marathonConfig = null;
   precisionConfig = null;
   processedResults = [];
-  sortConfig = { key: 'plac', direction: 'asc' };
+  sortConfig = totalSortConfigForMode('startorder');
   bestDressageByClass.clear();
   viewMode = 'startorder';
   searchQuery = '';

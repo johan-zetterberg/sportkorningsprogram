@@ -4,7 +4,7 @@ import { listenForEquipages } from '../../services/equipageService.js';
 import { saveEquipage } from '../../services/equipageService.js';
 import { listenForVetNotes, saveVetNote } from '../../services/vetInspectionService.js';
 import { applyVetResultsToHorses, VET_PHASES } from '../shared/vetCheckUtils.js';
-import { getCompetitionHeader, showAlert } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 
 let competitionId = null;
@@ -579,7 +579,7 @@ export function load() {
     const page = document.getElementById('page-ekipage');
 
     if (!competition) {
-        page.innerHTML = `<p class="p-8 text-center text-red-500">Ingen tävling vald.</p>`;
+        page.innerHTML = renderNoCompetitionState();
         return;
     }
     competitionId = competition.id;

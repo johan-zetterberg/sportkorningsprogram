@@ -183,7 +183,7 @@ export function setGlobalState({ key, value }) {
             if (infoBtn) infoBtn.style.display = 'block'; // Show button
         } else {
             compNavInfo.style.display = 'none';
-            compNameEl.textContent = 'Ingen tävling vald';
+            compNameEl.textContent = t('no_comp_selected');
             if (infoBtn) infoBtn.style.display = 'none'; // Hide button
         }
         updateCompactPageContext();
@@ -193,6 +193,9 @@ export function setGlobalState({ key, value }) {
     if (key === 'currentCompetition' || key === 'currentUser') {
         refreshUserCompRole(); // Kör async i bakgrunden vid state-ändringar
     }
+
+    // Pages that depend on who is signed in (the hub) listen for this
+    try { window.dispatchEvent(new CustomEvent('global-state-changed', { detail: { key } })); } catch (_) { }
 }
 
 export function getGlobalState(key) {
@@ -311,11 +314,11 @@ function initialize() {
             if (offline) {
                 el.style.display = 'inline-flex';
                 el.style.background = '#444';
-                el.textContent = 'Offline';
+                el.textContent = t('net_badge_offline');
             } else if (syncing) {
                 el.style.display = 'inline-flex';
                 el.style.background = '#C2A145'; // Guld/Orange för synk
-                el.textContent = 'Synkar...';
+                el.textContent = t('net_badge_syncing');
             } else {
                 el.style.display = 'none';
             }
@@ -393,27 +396,76 @@ function initialize() {
 
             // Toggla sedan den aktuella dropdown-menyn
             dropdownMenu.classList.toggle('hidden');
+            dropdownToggles.forEach(other => {
+                other.setAttribute('aria-expanded', String(!other.nextElementSibling?.classList.contains('hidden')));
+            });
         });
     });
 
+    const closeDropdowns = () => {
+        document.querySelectorAll('.dropdown-menu').forEach(menu => menu.classList.add('hidden'));
+        dropdownToggles.forEach(toggle => toggle.setAttribute('aria-expanded', 'false'));
+    };
+
     // Stäng alla dropdowns om man klickar någon annanstans på sidan
     window.addEventListener('click', (event) => {
-        if (!event.target.closest('.dropdown-container')) {
-            document.querySelectorAll('.dropdown-menu').forEach(menu => {
-                menu.classList.add('hidden');
-            });
-        }
+        if (!event.target.closest('.dropdown-container')) closeDropdowns();
     });
-    // 4. Sätt upp logik för mobilmenyn
+    // Desktop: Escape closes an open dropdown
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') closeDropdowns();
+    });
+    // 4. Mobilmenyn: a sheet under the header (below 1280 px) that closes on
+    // navigation, Escape, the backdrop and when a dialog opens
     const menuToggle = document.getElementById('menu-toggle');
     const navLinksContainer = document.getElementById('nav-links');
+    const navBackdrop = document.getElementById('nav-backdrop');
+    const menuClose = document.getElementById('menu-close');
+    const isSheetMode = () => !window.matchMedia('(min-width: 1280px)').matches;
+    const isMenuOpen = () => navLinksContainer && !navLinksContainer.classList.contains('hidden') && isSheetMode();
+
+    const closeMobileMenu = ({ restoreFocus = false } = {}) => {
+        if (!navLinksContainer || navLinksContainer.classList.contains('hidden')) return;
+        navLinksContainer.classList.add('hidden');
+        navBackdrop?.classList.add('hidden');
+        menuToggle?.setAttribute('aria-expanded', 'false');
+        if (restoreFocus) menuToggle?.focus();
+    };
+    const openMobileMenu = () => {
+        if (!navLinksContainer) return;
+        // The sheet starts where the header ends (the offline banner can push it down)
+        const navEl = document.querySelector('.app-main-nav');
+        const bottom = Math.max(0, Math.round(navEl?.getBoundingClientRect().bottom || 64));
+        document.documentElement.style.setProperty('--app-nav-bottom', `${bottom}px`);
+        navLinksContainer.classList.remove('hidden');
+        navBackdrop?.classList.remove('hidden');
+        menuToggle?.setAttribute('aria-expanded', 'true');
+        const first = navLinksContainer.querySelector('.nav-link.active:not(.dropdown-toggle)')
+            || Array.from(navLinksContainer.querySelectorAll('a.nav-link')).find(a => a.offsetParent !== null);
+        (first || menuClose)?.focus();
+    };
+    window.closeMobileMenu = closeMobileMenu;
+
     if (menuToggle) {
         menuToggle.setAttribute('aria-expanded', 'false');
+        menuToggle.setAttribute('aria-label', t('menu_open'));
         menuToggle.addEventListener('click', () => {
-            navLinksContainer.classList.toggle('hidden');
-            menuToggle.setAttribute('aria-expanded', String(!navLinksContainer.classList.contains('hidden')));
+            if (navLinksContainer.classList.contains('hidden')) openMobileMenu();
+            else closeMobileMenu();
         });
     }
+    menuClose?.setAttribute('aria-label', t('menu_close'));
+    menuClose?.addEventListener('click', () => closeMobileMenu({ restoreFocus: true }));
+    navBackdrop?.addEventListener('click', () => closeMobileMenu({ restoreFocus: true }));
+    document.addEventListener('keydown', (event) => {
+        if (event.key !== 'Escape' || !isMenuOpen()) return;
+        closeMobileMenu({ restoreFocus: true });
+    });
+    // Deep links, back/forward and pages that change the hash themselves
+    document.addEventListener('app-route-change', () => closeMobileMenu());
+    window.addEventListener('hashchange', () => closeMobileMenu());
+    // A dialog (alert, login, confirm) is never hidden behind the menu
+    document.addEventListener('app-overlay-open', () => closeMobileMenu());
 
     // data-action handlers in rendered markup (no inline onclick: CSP)
     installDomActions();
@@ -442,9 +494,7 @@ function initialize() {
                 // --------------------------------
 
                 // Stäng sedan hela mobilmenyn (om vi är i mobilläge)
-                if (menuToggle && menuToggle.offsetParent !== null) {
-                    navLinksContainer.classList.add('hidden');
-                }
+                if (isSheetMode()) closeMobileMenu();
             });
         });
     }

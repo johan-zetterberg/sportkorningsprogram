@@ -1,6 +1,6 @@
 import { getEquipages } from '../../services/equipageService.js';
 import { getGlobalState } from '../../main.js';
-import { getCompetitionHeader } from '../../ui/components.js';
+import { getCompetitionHeader, renderNoCompetitionState } from '../../ui/components.js';
 import { downloadCsv, sanitizeForFilename, escapeHtml } from '../../utils/sharedUtils.js';
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { injectScrollStyles, initializeScrollSync } from '../../ui/scrollHelper.js';
@@ -311,7 +311,7 @@ export async function load() {
     const page = document.getElementById('page-hastar');
 
     if (!competition) {
-        page.innerHTML = `<div class="container mx-auto p-4"><p class="p-8 text-center text-red-500 bg-white dark:bg-gray-800 rounded shadow dark:shadow-none dark:border dark:border-red-900">${t('no_competition_selected')}</p></div>`;
+        page.innerHTML = renderNoCompetitionState();
         return;
     }
 

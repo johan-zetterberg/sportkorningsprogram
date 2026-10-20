@@ -4,6 +4,7 @@ import { getClubLogoHtml } from '../../services/logosService.js';
 import { showAlert } from '../../ui/components.js';
 import { getObstacleArray, formatMsLive, pausedMsSince } from '../../utils/marathonUtils.js';
 import { actionAttrs, escapeHtml } from '../../utils/sharedUtils.js';
+import { compareStartNumbers } from '../../utils/startNumberSort.js';
 
 // Safe JS string literal for use inside an HTML attribute (onclick="fn(...)")
 
@@ -108,21 +109,21 @@ function initMap(container) {
     }
 
     container.innerHTML = `
-        <div class="flex flex-col lg:flex-row gap-4 w-full h-[700px]">
+        <div class="flex flex-col lg:flex-row gap-4 w-full h-[700px] tv-map-h">
             <div class="relative z-0 flex-1 bg-gray-100 dark:bg-gray-800 rounded-xl overflow-hidden shadow-inner border border-gray-200 dark:border-gray-700">
                 <div id="maraton-live-map" class="w-full h-full"></div>
-                <div id="maraton-map-legend" class="absolute top-4 right-4 z-[1000] bg-white/95 dark:bg-gray-800/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-white/20 dark:border-gray-700 text-[10px] min-w-[120px]">
-                    <h4 class="font-bold mb-2 uppercase tracking-tight text-gray-500 dark:text-gray-400 border-b dark:border-gray-700 pb-1 text-[9px]">${t('map_legend_title') || 'Teckenförklaring'}</h4>
+                <div id="maraton-map-legend" class="absolute top-4 right-4 z-[1000] bg-white/95 dark:bg-gray-800/95 backdrop-blur-md p-3 rounded-xl shadow-xl border border-white/20 dark:border-gray-700 text-xs min-w-[120px]">
+                    <h4 class="font-bold mb-2 uppercase tracking-tight text-gray-600 dark:text-gray-300 border-b dark:border-gray-700 pb-1 text-xs">${t('map_legend_title') || 'Teckenförklaring'}</h4>
                     <div id="legend-items" class="flex flex-col gap-2">
                         <!-- Dynamic classes here -->
                     </div>
                 </div>
             </div>
             
-            <div id="maraton-map-sidebar" class="w-full lg:w-80 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col h-80 lg:h-full overflow-hidden">
+            <div id="maraton-map-sidebar" class="w-full lg:w-96 bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 flex flex-col h-80 lg:h-full overflow-hidden">
                 <div class="p-4 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-900 flex items-center justify-between">
                     <h3 class="font-bold text-gray-800 dark:text-gray-100 text-sm italic uppercase tracking-wider">${t('equipages_on_course')}</h3>
-                    <span id="active-count-badge" class="bg-brand-darkblue text-white text-[10px] font-black px-2 py-0.5 rounded-full">0</span>
+                    <span id="active-count-badge" class="bg-brand-darkblue text-white text-xs font-black px-2 py-0.5 rounded-full">0</span>
                 </div>
                 <div id="maraton-active-list" class="flex-1 overflow-y-auto p-2 space-y-2 bg-gray-50/30 dark:bg-transparent">
                     <!-- Dynamic list items -->
@@ -256,11 +257,11 @@ function updateMarkers(activeEquipages) {
                         <span class="map-marker-sn">#${escapeHtml(sn)}</span>
                     </div>
                     <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 hidden group-hover:block z-[5000]">
-                        <div class="bg-gray-900/95 backdrop-blur text-white text-[11px] py-1.5 px-3 rounded-lg whitespace-nowrap shadow-2xl border border-white/20">
+                        <div class="bg-gray-900/95 backdrop-blur text-white text-xs py-1.5 px-3 rounded-lg whitespace-nowrap shadow-2xl border border-white/20">
                             <div class="font-bold flex items-center gap-2">
                                 ${escapeHtml(sn)}. ${escapeHtml(active.equipageInfo.driverName)}
                             </div>
-                            <div class="text-white/70 text-[10px] uppercase tracking-wider mt-0.5">
+                            <div class="text-white/70 text-xs uppercase tracking-wider mt-0.5">
                                 ${escapeHtml(active.task.name)} • ${escapeHtml(active.equipageInfo.className)}
                             </div>
                         </div>
@@ -279,11 +280,11 @@ function updateMarkers(activeEquipages) {
 
             const popupHtml = `
                 <div class="p-3 min-w-[200px] font-sans">
-                    <div class="flex items-center gap-2 mb-3 border-b pb-2">
+                    <div class="flex items-center gap-2 mb-3 border-b dark:border-gray-600 pb-2">
                        <span class="bg-gray-800 text-white font-black px-2 py-1 rounded text-xs shadow-sm">#${escapeHtml(sn)}</span>
                        <div class="truncate">
-                           <div class="font-bold text-sm text-gray-900 leading-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
-                           <div class="text-[10px] text-gray-500 flex items-center gap-1 mt-0.5">
+                           <div class="font-bold text-sm text-gray-900 dark:text-white leading-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
+                           <div class="text-xs text-gray-600 dark:text-gray-300 flex items-center gap-1 mt-0.5">
                                ${getFlagHtml(active.equipageInfo)}
                                ${escapeHtml(active.equipageInfo.clubName || '')}
                            </div>
@@ -293,30 +294,30 @@ function updateMarkers(activeEquipages) {
                     <div class="space-y-2 mb-4">
                         <div class="flex justify-between items-end">
                             <div>
-                                <div class="text-[9px] text-gray-400 uppercase font-black tracking-wider mb-0.5">${t('status') || 'Status'}</div>
-                                <div class="text-xs font-bold ${isObstacle ? 'text-amber-600' : 'text-blue-600'} flex items-center gap-1">
+                                <div class="text-xs text-gray-600 dark:text-gray-300 uppercase font-black tracking-wider mb-0.5">${t('status') || 'Status'}</div>
+                                <div class="text-xs font-bold ${isObstacle ? 'text-amber-600 dark:text-amber-400' : 'text-blue-600 dark:text-blue-300'} flex items-center gap-1">
                                     ${isObstacle ? '<span class="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>' : ''}
                                     ${escapeHtml(active.task.name)}
                                 </div>
                             </div>
                             <div class="text-right">
-                                <div class="text-[9px] text-gray-400 uppercase font-black tracking-wider mb-0.5">${t('penalty') || 'Straff'}</div>
-                                <div class="text-sm font-black text-gray-900">${penaltyVal}</div>
+                                <div class="text-xs text-gray-600 dark:text-gray-300 uppercase font-black tracking-wider mb-0.5">${t('penalty') || 'Straff'}</div>
+                                <div class="text-sm font-black text-gray-900 dark:text-white">${penaltyVal}</div>
                             </div>
                         </div>
 
                         ${active.equipageInfo.horseNames ? `
-                        <div class="bg-gray-50 p-2 rounded border border-gray-100">
-                           <div class="text-[9px] text-gray-400 uppercase font-black tracking-wider mb-1">${t('horses') || 'Hästar'}</div>
-                           <div class="text-[10px] text-gray-700 leading-tight">${escapeHtml(active.equipageInfo.horseNames)}</div>
+                        <div class="bg-gray-50 dark:bg-gray-700 p-2 rounded border border-gray-100 dark:border-gray-600">
+                           <div class="text-xs text-gray-600 dark:text-gray-300 uppercase font-black tracking-wider mb-1">${t('horses') || 'Hästar'}</div>
+                           <div class="text-xs text-gray-700 dark:text-gray-200 leading-tight">${escapeHtml(active.equipageInfo.horseNames)}</div>
                         </div>
                         ` : ''}
                     </div>
 
-                    <button ${actionAttrs('openMarathonDetailsModal', String(sn ?? ''))} class="w-full bg-gray-800 hover:bg-gray-700 text-white text-[11px] font-black py-2 rounded-lg transition-all shadow-md active:scale-95">
+                    <button ${actionAttrs('openMarathonDetailsModal', String(sn ?? ''))} class="w-full bg-gray-800 hover:bg-gray-700 text-white text-xs font-black py-2 rounded-lg transition-all shadow-md active:scale-95">
                         ${t('view_details') || 'VISA DETALJER'}
                     </button>
-                    <div class="text-[9px] text-gray-400 text-center mt-2 italic text-gray-400 font-normal">${t('click_map_to_close') || 'Klicka på kartan för att stänga'}</div>
+                    <div class="text-xs text-gray-600 dark:text-gray-300 text-center mt-2 italic font-normal">${t('click_map_to_close') || 'Klicka på kartan för att stänga'}</div>
                 </div>
             `;
 
@@ -344,7 +345,7 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
         // Called on every tick: leave the already shown message alone
         if (lastSidebarHash === "empty" && listEl.childElementCount > 0) return;
         listEl.innerHTML = `
-            <div class="flex flex-col items-center justify-center h-20 text-gray-400 text-[11px] italic">
+            <div class="flex flex-col items-center justify-center h-20 text-gray-400 text-xs italic">
                 ${t('no_active_equipages')}
             </div>
         `;
@@ -353,7 +354,7 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
     }
 
     // Sort by SN
-    const sorted = Array.from(activeEquipages.entries()).sort((a, b) => Number(a[0]) - Number(b[0]));
+    const sorted = Array.from(activeEquipages.entries()).sort((a, b) => compareStartNumbers(a[0], b[0]));
 
     // Create a hash of the current "structural" state (who is active and their status)
     const currentHash = sorted.map(([sn, active]) => `${sn}:${active.task.name}`).join('|');
@@ -376,15 +377,15 @@ export function updateSidebar(activeEquipages, tickTimeNow = Date.now()) {
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start mb-1">
-                            <div class="font-bold text-gray-900 dark:text-white text-[11px] truncate uppercase tracking-tight">${escapeHtml(active.equipageInfo.driverName)}</div>
-                            <div id="sidebar-timer-${escapeHtml(sn)}" class="text-[10px] font-black font-mono px-1.5 py-0.5 rounded shadow-sm ${timerClasses}">00:00,00</div>
+                            <div class="font-bold text-gray-900 dark:text-white text-sm truncate">${escapeHtml(active.equipageInfo.driverName)}</div>
+                            <div id="sidebar-timer-${escapeHtml(sn)}" class="text-base font-black font-mono tabular-nums px-1.5 py-0.5 rounded shadow-sm ${timerClasses}">00:00,00</div>
                         </div>
                         <div class="flex items-center gap-2">
-                            <span class="text-[9px] font-bold uppercase tracking-tighter ${isObstacle ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400'}">
+                            <span class="text-sm font-bold ${isObstacle ? 'text-amber-600 dark:text-amber-400' : 'text-gray-600 dark:text-gray-300'}">
                                 ${escapeHtml(active.task.name)}
                             </span>
-                            <span class="text-[9px] text-gray-400 truncate opacity-50">•</span>
-                            <span class="text-[9px] text-gray-500 dark:text-gray-400 truncate">${escapeHtml(active.equipageInfo.className)}</span>
+                            <span class="text-xs text-gray-500 dark:text-gray-400" aria-hidden="true">•</span>
+                            <span class="text-sm text-gray-600 dark:text-gray-300 truncate">${escapeHtml(active.equipageInfo.className)}</span>
                         </div>
                     </div>
                 </div>

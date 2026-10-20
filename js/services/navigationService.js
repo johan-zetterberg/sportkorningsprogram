@@ -1,11 +1,53 @@
 import { getCompetitionMode, getGlobalState, refreshUserCompRole, setGlobalState } from '../main.js';
-import { getCompetitionById } from './competitionService.js';
+import { getCompetitionById, getConfig } from './competitionService.js';
 import { getPageUnloadFunction, isStaleNavigation } from './navigationLifecycleUtils.js';
+import { closeLoginModal, openLoginModal, updateUIVisibility } from './authService.js';
+import { closeAlertModal, dismissToasts } from '../ui/components.js';
+import { isRouteBoundToast } from '../ui/toastQueue.js';
+import { hasRoleAccess, mergeUserRoles } from '../utils/roleAccess.js';
+
+// Input pages used in the field: no red logout button in the header there
+const JUDGE_PAGES = new Set([
+  'dressyr-input', 'maraton-input', 'maraton-stages', 'observator-input',
+  'precision-input', 'precision-split-input', 'vagnbredd', 'vet-check'
+]);
+
+// Settings that decide which menu links make sense, per competition
+const featureCache = new Map();
+
+/**
+ * precisionLiveMap: the gate observer page logs passages only when the live
+ * map is on (or in field mode). Read once per competition; the menu hides the
+ * link when it is off (authService.updateUIVisibility).
+ */
+export async function loadCompetitionFeatures(comp) {
+  const id = comp?.id;
+  if (!id) {
+    setGlobalState({ key: 'competitionFeatures', value: {} });
+    return;
+  }
+  if (!featureCache.has(id)) {
+    featureCache.set(id, (async () => {
+      try {
+        const precisionConfig = await getConfig(id, 'precisionConfig');
+        return { precisionLiveMap: comp.competitionMode === 'field' || precisionConfig?.mapSettings?.enabled === true };
+      } catch (error) {
+        featureCache.delete(id);
+        return {};
+      }
+    })());
+  }
+  const features = await featureCache.get(id);
+  if (getGlobalState('currentCompetition')?.id !== id) return;
+  setGlobalState({ key: 'competitionFeatures', value: features });
+  updateUIVisibility();
+}
 
 let __currentPageModule = null; // spåra aktiv modul
 // The module the newest navigation loaded (see the stale-load check in navigateTo)
 let __latestLoadedModule = null;
 let __navigationId = 0;
+let protectedRedirectPending = false;
 
 const pagePermissions = {
   'page-hub': ['publik', 'funktionar', 'domare', 'admin'],
@@ -161,42 +203,36 @@ export async function navigateTo(hash) {
   }
 
   const user = getGlobalState('currentUser');
-  const userCompRoles = user?.compRoles && user.compRoles.length > 0 ? user.compRoles : [];
-  const globalRole = user?.role || 'publik';
-  const rolesToCheck = [...new Set([...userCompRoles, globalRole].filter(Boolean))];
+  // Global and competition roles together (superadmin reaches every page)
+  const rolesToCheck = mergeUserRoles(user);
   const requiredRoles = pagePermissions[pageId] || [];
+  const hasAccess = hasRoleAccess(rolesToCheck, requiredRoles);
 
-  // Mappa specifika funktionärsroller till den generella "funktionar"-nivån för page routing
-  const roleHierarchy = {
-      'superadmin': ['superadmin', 'admin', 'funktionar', 'publik'],
-      'admin': ['admin', 'funktionar', 'publik'],
-      'dressage': ['dressage', 'funktionar', 'publik'],
-      'marathon': ['marathon', 'funktionar', 'publik'],
-      'precision': ['precision', 'funktionar', 'publik'],
-      'speaker': ['speaker', 'funktionar', 'publik'],
-      // Limited: the vet page and public pages, not the general official pages
-      'vet': ['vet', 'publik'],
-      'publik': ['publik']
-  };
+  // Whatever the last page left open (a notice, the phone menu) goes with it
+  closeAlertModal({ restoreFocus: false });
+  dismissToasts(isRouteBoundToast);
+  try { document.dispatchEvent(new CustomEvent('app-route-change', { detail: { pageKey } })); } catch (_) { }
 
-  let hasAccess = false;
-  for (const r of rolesToCheck) {
-      const expandedRoles = roleHierarchy[r] || [r, 'publik'];
-      if (requiredRoles.some(req => expandedRoles.includes(req))) {
-          hasAccess = true;
-          break;
-      }
-  }
-
-  // Om superadmin -> Släpp igenom allt
-  if (!rolesToCheck.includes('superadmin') && !hasAccess) {
-    document.getElementById('loginModal').style.display = 'flex';
+  if (!hasAccess) {
+    openLoginModal({ reason: 'protected' });
     if (routeHash !== '' && routeHash !== '#hub') {
+      // The hub opens behind the modal: it stays open there
+      protectedRedirectPending = true;
       window.location.hash = '#hub';
     }
     return;
   }
-  document.getElementById('loginModal').style.display = 'none';
+  if (protectedRedirectPending && pageKey === 'hub') {
+    protectedRedirectPending = false;
+  } else {
+    protectedRedirectPending = false;
+    // Only the modal this router opened; one the user opened stays
+    closeLoginModal({ onlyReason: 'protected' });
+  }
+
+  document.body.classList.toggle('judge-page', JUDGE_PAGES.has(pageKey));
+  document.body.dataset.route = pageKey;
+  loadCompetitionFeatures(getGlobalState('currentCompetition'));
 
   const requiredMode = pageModeRequirements[pageKey];
   const competitionMode = getCompetitionMode();

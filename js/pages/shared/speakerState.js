@@ -6,6 +6,7 @@ import { listenForDressageLiveGroup, listenForDressageStatusCollection, listenFo
 import { listenForConfig } from '../../services/competitionService.js';
 import { listenDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { listenForJudges } from '../../services/adminService.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 
 import { getPrograms, deduplicateAndFilterProtocols, normJudgeId } from '../../utils/dressageUtils.js';
 import { calculateDressageResult } from '../../services/calculationService.js';
@@ -112,7 +113,8 @@ export function setupAllListeners(context) {
 
     // 4. Start Times
     unsubscribes.push(listenForConfig(competitionId, 'startTimes', (data) => {
-        setStartTimes((data?.times) || (data?.value?.times) || {});
+        // Only published start times: a draft list is not announced
+        setStartTimes(publishedStartTimes(data || {}));
         triggerRender();
     }));
 

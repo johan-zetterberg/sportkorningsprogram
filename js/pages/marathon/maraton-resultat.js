@@ -10,6 +10,8 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { formatClockTime } from '../../utils/timeValueUtils.js';
+import { attachScrollHint } from '../shared/scrollHint.js';
 import { incompleteResultReasonHtml, marathonSettingsIssues, renderResultSettingsNotice } from '../../ui/resultSettingsNotice.js';
 import {
   maraton_marathonConfig,
@@ -29,6 +31,7 @@ import {
   getPauseTime
 } from '../../utils/marathonUtils.js';
 import {
+  clubLabel,
   formatStartTimeLabel,
   getMomentHorseLabelStacked,
   statusClass
@@ -41,7 +44,8 @@ import { renderMarathonMobileCards } from './marathonResultMobile.js';
 import {
   buildMarathonPlacementsByClass,
   filterAndSortMarathonEquipages,
-  isFinalizedMarathonDoc
+  isFinalizedMarathonDoc,
+  sortStateForViewMode
 } from './marathonResultRanking.js';
 import {
   buildObstaclePlacementsByClass,
@@ -126,8 +130,7 @@ function renderMaratonClassChips() {
   });
 }
 function fmtClock(ts) {
-  const d = new Date(ts);
-  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  return formatClockTime(ts);
 }
 
 
@@ -135,6 +138,7 @@ function fmtClock(ts) {
 let competitionId = null;
 let isGloballyPaused = false;
 let marathonResultsLoadToken = 0;
+let scrollHintCleanup = null;
 let archiveSnapshot = null; // archive/{id} of an archived competition (archivedResults.js)
 
 // Debounce för live-snapshots så UI inte re-rendras för ofta
@@ -159,8 +163,25 @@ function listenForGlobalCompetitionPause_Results() {
   });
 }
 
+// Toolbar state for both the table and the card view (the "På B" button had
+// no text in the card view: an empty box before "Finaliserade")
+function syncControlState() {
+  const isOnB = maraton_showOnlyOnB;
+  const btnOnB = document.getElementById('marToggleOnB');
+  if (btnOnB) {
+    btnOnB.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors flex-shrink-0 ${isOnB ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
+    btnOnB.textContent = isOnB ? t('show_all') : t('on_b_filter');
+    btnOnB.setAttribute('aria-pressed', isOnB ? 'true' : 'false');
+  }
+  const sortSelect = document.getElementById('marSortSelect');
+  if (sortSelect && sortSelect.value !== maraton_viewMode) sortSelect.value = maraton_viewMode;
+  const finCheck = document.getElementById('marFinalizedCheck');
+  if (finCheck && finCheck.checked !== maraton_showOnlyFinalized) finCheck.checked = maraton_showOnlyFinalized;
+}
+
 function render() {
   if (!ensureShell()) return;
+  syncControlState();
 
   const isLandscape = window.matchMedia("(orientation: landscape)").matches;
 
@@ -180,6 +201,12 @@ function render() {
     renderMobile();
   } else {
     renderTable();
+    // Shadow + hint while obstacle columns are cut off at the right
+    scrollHintCleanup = attachScrollHint(
+      document.getElementById('marathonScrollHintWrap'),
+      document.getElementById('marathon-x-wrap'),
+      document.getElementById('marathonScrollHint')
+    );
     // se till att X-baren syns i desktop
     try { window.__teardownXbarSync?.(); } catch { }
 
@@ -217,7 +244,7 @@ export function __finalizeMaraton(compId, sn) {
     .then(ok => (ok ? finalizeMarathon(compId, sn) : null))
     .catch(err => {
       console.error('Finalize failed:', err);
-      if (window.showAlert) window.showAlert('Kunde inte finalisera resultatet.', false);
+      if (window.showAlert) window.showAlert(t('finalize_failed'), false);
     });
 }
 window.__finalizeMaraton = __finalizeMaraton;
@@ -226,7 +253,7 @@ export function __unfinalizeMaraton(compId, sn) {
   unfinalizeMarathon(compId, sn)
     .catch(err => {
       console.error('Unfinalize failed:', err);
-      if (window.showAlert) window.showAlert('Kunde inte ångra finalisering.', false);
+      if (window.showAlert) window.showAlert(t('unfinalize_failed'), false);
     });
 }
 window.__unfinalizeMaraton = __unfinalizeMaraton;
@@ -397,28 +424,13 @@ function renderTable() {
     timingDocFor
   });
 
-  const isOnB = maraton_showOnlyOnB;
   const isClass = maraton_viewMode === 'byclass';
-  const isFin = maraton_showOnlyFinalized;
 
   // --- 2. UPDATE STATIC ELEMENTS ---
   const dateEl = document.getElementById('maratonDateHeader');
   if (dateEl) dateEl.innerText = marathonDateStr || '';
 
-  const btnOnB = document.getElementById('marToggleOnB');
-  if (btnOnB) {
-    btnOnB.className = `px-3 py-1.5 text-sm font-medium rounded border transition-colors ${isOnB ? 'bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-800 text-blue-700 dark:text-blue-300' : 'bg-white dark:bg-gray-700 border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-600'}`;
-    btnOnB.innerText = isOnB ? t('show_all') : 'På B';
-  }
-
-  const sortSelect = document.getElementById('marSortSelect');
-  if (sortSelect && sortSelect.value !== maraton_viewMode) {
-      sortSelect.value = maraton_viewMode;
-  }
-  const finCheck = document.getElementById('marFinalizedCheck');
-  if (finCheck && finCheck.checked !== isFin) {
-      finCheck.checked = isFin;
-  }
+  syncControlState();
   renderMaratonClassChips();
 
   // --- 3. DYNAMIC CONTENT ---
@@ -493,39 +505,39 @@ function renderTable() {
     const place = placeMap.get(sn);
     const totalPen = res.totalPenalty;
     const totalLabel = res.isClearRound && !res.eliminated && totalPen != null
-      ? (res.clearRoundApproved ? 'Godkänd' : 'Ej godkänd')
+      ? t(res.clearRoundApproved ? 'clear_round_ok' : 'clear_round_not_ok')
       : ((totalPen === Infinity) ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : '—'));
 
     return `<tr class="${rowBgClass} hover:bg-blue-50 dark:hover:bg-gray-700 transition-colors" data-sn="${snH}" style="cursor: pointer; ${rowStyle}">
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center font-bold text-gray-700 dark:text-gray-300 text-[11px] lg:text-sm">${isNum(place) ? place : '—'}</td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm font-medium text-gray-900 dark:text-white">${snH}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center font-bold text-gray-700 dark:text-gray-300 text-xs lg:text-sm">${isNum(place) ? place : '—'}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm font-medium text-gray-900 dark:text-white">${snH}</td>
         <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 sticky-col-driver ${rowBgClass || ''}">
             <div class="text-xs lg:text-base font-bold text-gray-900 dark:text-white leading-tight flex items-center gap-1.5" title="${escapeHtml(eq.driverName || '-')}">
               <span class="truncate">${escapeHtml(eq.driverName || '-')}</span>
-              ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0" title="Kusken har ${eq.driverStartCount || 2} starter i tävlingen">${eq.driverStartCount || 2} st</span>` : ''}
+              ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-xs font-semibold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 shrink-0" title="${escapeHtml(t('driver_start_count_title').replace('{n}', String(eq.driverStartCount || 2)))}">${eq.driverStartCount || 2} ${escapeHtml(t('starts_short'))}</span>` : ''}
             </div>
-            <div class="hidden lg:block text-[10px] lg:text-xs text-gray-500 dark:text-gray-400 mt-0.5 whitespace-nowrap">${getMomentHorseLabelStacked(eq, 'marathon')}</div>
+            <div class="hidden lg:block text-xs lg:text-xs text-gray-600 dark:text-gray-300 mt-0.5 whitespace-nowrap">${getMomentHorseLabelStacked(eq, 'marathon')}</div>
         </td>
-        ${isClass ? '' : `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400"><div class="truncate max-w-[100px] lg:max-w-none" title="${escapeHtml(eq._mergedLabel || eq.className || '')}">${escapeHtml(eq._mergedLabel || eq.className || '-')}</div></td>`}
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-500 dark:text-gray-400">
-             <div class="flex items-center gap-1.5">
+        ${isClass ? '' : `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm text-gray-600 dark:text-gray-300"><div class="truncate max-w-[100px] lg:max-w-none" title="${escapeHtml(eq._mergedLabel || eq.className || '')}">${escapeHtml(eq._mergedLabel || eq.className || '-')}</div></td>`}
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm text-gray-600 dark:text-gray-300">
+             <div class="flex items-center gap-1.5 text-gray-700 dark:text-gray-200">
                   ${getFlagHtml(eq)}
                   ${getClubLogoHtml(eq)}
-                  <span class="truncate max-w-[100px] lg:max-w-[120px]" title="${escapeHtml(eq.clubName || '')}">${escapeHtml(eq.clubName || '')}</span>
+                  <span class="truncate max-w-[140px] lg:max-w-[200px]" title="${escapeHtml(clubLabel(eq))}">${escapeHtml(clubLabel(eq))}</span>
              </div>
         </td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm text-gray-900 dark:text-gray-200 whitespace-nowrap">${startLabel}</td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm dark:text-gray-300 whitespace-nowrap">${etaLabel}</td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm tabular-nums whitespace-nowrap">
-             <span data-live-label="${snH}" class="text-[10px] lg:text-xs font-bold text-gray-400 mr-1"></span>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm text-gray-900 dark:text-gray-200 whitespace-nowrap tabular-nums">${escapeHtml(startLabel)}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm dark:text-gray-300 whitespace-nowrap tabular-nums">${escapeHtml(etaLabel)}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm tabular-nums whitespace-nowrap">
+             <span data-live-label="${snH}" class="text-xs lg:text-xs font-bold text-gray-400 mr-1"></span>
              <span data-live-time="${snH}"class="font-bold text-gray-700 dark:text-gray-200">—</span>
         </td>
 
         ${rowStageCellsHTML(res)}
         ${rowObstacleCells(res, eq, maxObs, obstaclePlaceMap, getObstaclePlacement)}
 
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300" data-sn="${snH}" data-cell="obsSum">${isNum(res.obstacles.sum) ? res.obstacles.sum.toFixed(2) : '-'}</td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-bold text-gray-700 dark:text-gray-300">
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm font-bold text-gray-700 dark:text-gray-300" data-sn="${snH}" data-cell="obsSum">${isNum(res.obstacles.sum) ? res.obstacles.sum.toFixed(2) : '-'}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm font-bold text-gray-700 dark:text-gray-300">
           ${(() => {
         // Sum global Other + Wrong Gait + Per-Obstacle Other Penalty
         let val = (res.otherPenalty || 0) + (res.wgPenalty || 0);
@@ -537,14 +549,14 @@ function renderTable() {
         return (val > 0 || val !== 0) ? val.toFixed(2) : '-';
       })()}
         </td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-[11px] lg:text-sm font-black text-gray-900 dark:text-white" data-total-pen="${snH}">${totalLabel}</td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">
-             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] lg:text-xs font-medium whitespace-nowrap ${statusClass(status)}">
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-center text-xs lg:text-sm font-black text-gray-900 dark:text-white" data-total-pen="${snH}">${totalLabel}</td>
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm">
+             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs lg:text-xs font-medium whitespace-nowrap ${statusClass(status)}">
                ${status}
              </span>
              ${incompleteResultReasonHtml(res)}
         </td>
-        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-[11px] lg:text-sm">
+        <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm">
              <div class="flex items-center gap-2" data-finalize-slot>
                ${(() => {
         const compId = getGlobalState('currentCompetition')?.id;
@@ -552,8 +564,8 @@ function renderTable() {
         const finalized = isMarathonFinalized(sn);
         if (!can) return '';
         return finalized
-          ? `<button class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 text-[10px] lg:text-xs border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded whitespace-nowrap" ${actionAttrs('__unfinalizeMaraton', String(compId ?? ''), String(sn ?? ''))} data-action-stop>${t('undo')}</button>`
-          : `<button class="text-white bg-emerald-600 hover:bg-emerald-700 text-[10px] lg:text-xs px-2 py-1 rounded shadow-sm whitespace-nowrap" ${actionAttrs('__finalizeMaraton', String(compId ?? ''), String(sn ?? ''))} data-action-stop>${t('finalize')}</button>`;
+          ? `<button class="text-emerald-600 hover:text-emerald-800 dark:text-emerald-400 dark:hover:text-emerald-300 text-xs lg:text-xs border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30 px-2 py-1 rounded whitespace-nowrap" ${actionAttrs('__unfinalizeMaraton', String(compId ?? ''), String(sn ?? ''))} data-action-stop>${t('undo')}</button>`
+          : `<button class="text-white bg-emerald-600 hover:bg-emerald-700 text-xs lg:text-xs px-2 py-1 rounded shadow-sm whitespace-nowrap" ${actionAttrs('__finalizeMaraton', String(compId ?? ''), String(sn ?? ''))} data-action-stop>${t('finalize')}</button>`;
       })()}
              </div>
         </td>
@@ -595,7 +607,11 @@ function renderTable() {
 
 function wireControls() {
   wireMarathonResultControls({
-    setViewMode: (value) => { maraton_viewMode = value; },
+    setViewMode: (value) => {
+      maraton_viewMode = value;
+      // The header's sort state is shared with the controls: change it in place
+      Object.assign(maraton_sortState, sortStateForViewMode(value));
+    },
     setSearchQuery: (value) => { maraton_searchQuery = value; },
     toggleOnB: () => { maraton_showOnlyOnB = !maraton_showOnlyOnB; },
     setShowOnlyFinalized: (value) => { maraton_showOnlyFinalized = value; },
@@ -756,8 +772,8 @@ export async function load() {
   });
 
   maraton_equipages = eqs.map(normalizeEquipage);
-  // Default sort: Place
-  maraton_sortState = { key: 'place', dir: 'asc' };
+  // Default sort: what the sort menu shows ("Startordning" = start numbers)
+  Object.assign(maraton_sortState, sortStateForViewMode(maraton_viewMode));
 
   // Merge groups (merged classes), as on every page
   buildMergeMap(await loadMergeSource(competitionId));
@@ -813,6 +829,8 @@ export function __unload() {
     try { window.__marathonUnsub(); } catch { }
   }
   window.__marathonUnsub = null;
+  try { scrollHintCleanup?.(); } catch { }
+  scrollHintCleanup = null;
   window.__teardownXbarSync?.();
   teardownViewportStickyTableHeader();
   clearMarathonLiveTickers();

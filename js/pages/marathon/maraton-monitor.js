@@ -12,6 +12,10 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { getMarathonActiveState } from '../../services/competitionStatusService.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
+import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
+import { compareByTimeThenStartNumber, compareStartNumbers } from '../../utils/startNumberSort.js';
+import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from '../shared/tvMode.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 
 // Importera modalen direkt
@@ -48,7 +52,7 @@ function injectMonitorStylesOnce() {
     /* röd, diskret inner-ram för kort som passerat tidsgräns */
     .is-overdue { box-shadow: 0 0 0 2px rgba(220, 38, 38, .25) inset; }
     /* hinder-chips */
-    .chip { display:inline-block; padding:1px 6px; font-size:11px; border-radius:999px; background:#f3f4f6; color:#374151; white-space:nowrap; }
+    .chip { display:inline-block; padding:1px 6px; font-size:12px; border-radius:999px; background:#f3f4f6; color:#374151; white-space:nowrap; }
     .chip.elim { background:#fee2e2; color:#991b1b; font-weight:600; }
     .chip-live { outline:2px solid rgba(251,191,36,.6); } /* markerar aktuellt hinder */
 
@@ -65,7 +69,7 @@ function injectMonitorStylesOnce() {
         background: white; 
         color: #4b5563; 
         font-weight: 800; 
-        font-size: 11px; 
+        font-size: 12px;
         width: 20px; 
         height: 20px; 
         border-radius: 50%; 
@@ -317,9 +321,10 @@ function renderLayout() {
   if (!root) return;
 
   root.innerHTML = `
-  <div class="container mx-auto p-4 md:p-8 transition-all duration-500" id="maraton-monitor-container">
+  <div class="container mx-auto p-4 md:p-8 transition-all duration-500 tv-page" id="maraton-monitor-container">
     <div class="mb-4">
         ${getCompetitionHeader(comp, t('marathon_monitor_title'))}
+        <div class="mt-2 flex justify-end">${tvModeLinkHtml('maraton-monitor')}</div>
     </div>
       <div id="pause-status-banner" class="hidden p-4 mb-4 text-center font-bold text-white bg-red-600 rounded-lg">
         ${t('paused_banner')}
@@ -331,10 +336,10 @@ function renderLayout() {
       <div class="flex justify-between items-center mb-4 border-b dark:border-gray-700 pb-2">
         <h2 class="text-xl font-bold dark:text-white">${t('on_course')}</h2>
         <div class="flex bg-gray-100 dark:bg-gray-700 p-1 rounded-lg">
-           <button id="maratonViewGridBtn" class="px-4 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}">
+           <button id="maratonViewGridBtn" class="px-4 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'grid' ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'}">
               📊 Lista
            </button>
-           <button id="maratonViewMapBtn" class="px-4 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'map' ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'}">
+           <button id="maratonViewMapBtn" class="px-4 py-1.5 rounded-md text-sm font-bold transition-all ${viewMode === 'map' ? 'bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300' : 'text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200'}">
               🗺️ Karta
            </button>
         </div>
@@ -388,7 +393,7 @@ function switchView(mode) {
       mapContainer.classList.remove('block');
 
       gridBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300';
-      mapBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200';
+      mapBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200';
 
       try { destroyMap(); } catch (e) { }
     } else {
@@ -400,7 +405,7 @@ function switchView(mode) {
       mapContainer.classList.remove('hidden');
       mapContainer.classList.add('block');
 
-      gridBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200';
+      gridBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all text-gray-600 dark:text-gray-300 hover:text-gray-700 dark:hover:text-gray-200';
       mapBtn.className = 'px-4 py-1.5 rounded-md text-sm font-bold transition-all bg-white dark:bg-gray-600 shadow-sm text-blue-600 dark:text-blue-300';
     }
     renderMonitor();
@@ -429,6 +434,16 @@ function renderSummaryStats() {
 `;
 }
 
+// The published marathon start time of an equipage ("marathon", older docs "maraton")
+function marathonStartValue(eq) {
+  const row = startTimes[String(eq?.startNumber)] || {};
+  return row.marathon || row.maraton || null;
+}
+
+function marathonStartMs(eq) {
+  return timeValueToMs(marathonStartValue(eq));
+}
+
 function renderUpcomingPanel() {
   const panelEl = document.getElementById('upcoming-panel');
   if (!panelEl) return;
@@ -444,20 +459,15 @@ function renderUpcomingPanel() {
       const started = stageStartTS(data, 'A') || stageStartTS(data, 'transport') || stageStartTS(data, 'B');
       return !started;
     })
-    .sort((a, b) => {
-      const timeA = startTimes[String(a.startNumber)]?.maraton || '99:99';
-      const timeB = startTimes[String(b.startNumber)]?.maraton || '99:99';
-      return timeA.localeCompare(timeB);
-    })
+    .sort((a, b) => compareByTimeThenStartNumber(marathonStartMs(a), marathonStartMs(b), a.startNumber, b.startNumber))
     .slice(0, 5);
 
   let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('next_start')}</h3>`;
   if (upcoming.length === 0) {
-    content += `<p class="text-sm text-gray-500 dark:text-gray-400" > ${t('no_more_starts')}</p> `;
+    content += `<p class="text-sm text-gray-600 dark:text-gray-300" > ${t('no_more_starts')}</p> `;
   } else {
     content += upcoming.map(eq => {
-      const rawTime = startTimes[String(eq.startNumber)]?.maraton;
-      const startTime = rawTime ? toTimeLabel(rawTime) : '—';
+      const startTime = formatClockTime(marathonStartValue(eq));
       return `
   <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
 data-sn="${escapeHtml(eq.startNumber ?? '')}" >
@@ -514,7 +524,7 @@ function renderFinishedPanel() {
 
   let content = `<h3 class="text-lg font-bold mb-2 dark:text-white">${t('recently_finished')}</h3>`;
   if (display.length === 0) {
-    content += `<p class="text-sm text-gray-500 dark:text-gray-400" > ${t('no_finished_yet')}</p> `;
+    content += `<p class="text-sm text-gray-600 dark:text-gray-300" > ${t('no_finished_yet')}</p> `;
   } else {
     content += display.map(fin => {
       const penaltyText = fin.totalPenalty === Infinity
@@ -566,12 +576,12 @@ function renderMonitor() {
   if (activeEquipages.size === 0) {
     // Called every 100 ms: leave the already shown message alone
     if (lastRenderedGridHash === "empty" && grid.childElementCount > 0) return;
-    grid.innerHTML = `<div class="col-span-full text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md text-gray-500 dark:text-gray-400">${t('no_active_equipages')}</div>`;
+    grid.innerHTML = `<div class="col-span-full text-center p-8 bg-white dark:bg-gray-800 rounded-lg shadow-md text-gray-600 dark:text-gray-300">${t('no_active_equipages')}</div>`;
     lastRenderedGridHash = "empty";
     return;
   }
 
-  const sorted = Array.from(activeEquipages.values()).sort((a, b) => a.equipageInfo.startNumber - b.equipageInfo.startNumber);
+  const sorted = Array.from(activeEquipages.values()).sort((a, b) => compareStartNumbers(a.equipageInfo.startNumber, b.equipageInfo.startNumber));
   const currentHash = sorted.map(a => `${a.equipageInfo.startNumber}:${a.task.name}`).join('|');
 
   // 1. Structural update (only if order/tasks changed)
@@ -667,10 +677,10 @@ function renderMonitor() {
           cardColor = 'bg-blue-50 dark:bg-blue-900/20 border-blue-600 dark:border-blue-500 ring-4 ring-blue-100 dark:ring-blue-900/50';
           comparisonHtml = `<div class="text-lg font-bold text-blue-700 dark:text-blue-300">${t('better_than_avg')}</div>`;
         } else {
-          comparisonHtml = `<div class="text-md font-semibold text-gray-500 dark:text-gray-400">${t('time_registered')}</div>`;
+          comparisonHtml = `<div class="text-md font-semibold text-gray-600 dark:text-gray-300">${t('time_registered')}</div>`;
         }
         const avgTime = Number.isFinite(stats.avgTimeSec) ? `${stats.avgTimeSec.toFixed(2)}s ` : '';
-        comparisonHtml += `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1">${t('avg_short')}: ${avgTime}(${stats.avg.toFixed(2)}p)</div>`;
+        comparisonHtml += `<div class="text-xs text-gray-600 dark:text-gray-300 mt-1">${t('avg_short')}: ${avgTime}(${stats.avg.toFixed(2)}p)</div>`;
       }
 
       card.className = `relative rounded-lg shadow-xl p-6 flex flex-col justify-center items-center border-l-8 ${cardColor} h-full transform scale-105 transition-transform`;
@@ -681,7 +691,7 @@ function renderMonitor() {
              <div class="text-6xl font-extrabold mb-4 tracking-tight ${isFinite(penalty) ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}">${timeStr}</div>
              ${Number.isFinite(obstaclePlace) ? `<div class="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2">Plac i klassen: ${obstaclePlace}</div>` : ''}
              <div class="text-center mb-4 font-sans">${comparisonHtml}</div>
-             <div class="mt-auto flex gap-4 text-sm text-gray-500 dark:text-gray-400 font-sans">
+             <div class="mt-auto flex gap-4 text-sm text-gray-600 dark:text-gray-300 font-sans">
                  <span>${t('penalty')}: ${Number.isFinite(penalty) ? penalty.toFixed(2) : '—'}</span>
                  <span>${t('knockdown')}: ${Number(flashData.knockdowns) || 0}</span>
              </div>
@@ -738,7 +748,7 @@ function renderMonitor() {
             if (s_res.timeInSeconds < bestSec) bestSec = s_res.timeInSeconds;
           }
         }
-        infoEl.innerHTML = bestSec !== Infinity ? `<div class="text-xs text-gray-500 dark:text-gray-400 mt-1 font-mono">${t('to_beat')}: <span class="font-bold text-green-700 dark:text-green-400">${bestSec.toFixed(2)}s</span></div>` : '';
+        infoEl.innerHTML = bestSec !== Infinity ? `<div class="text-xs text-gray-600 dark:text-gray-300 mt-1 font-mono">${t('to_beat')}: <span class="font-bold text-green-700 dark:text-green-400">${bestSec.toFixed(2)}s</span></div>` : '';
       } else {
         infoEl.innerHTML = '';
       }
@@ -769,7 +779,7 @@ function renderMonitor() {
               else if (diff < stat.avg) cls = 'bg-blue-50 dark:bg-blue-900/40 text-blue-800 dark:text-blue-200 border-blue-200';
               else cls = 'bg-amber-50 dark:bg-amber-900/40 text-amber-800 dark:text-amber-200 border-amber-200';
             }
-            return `<span class="${cls} px-1.5 py-0.5 rounded border text-[10px] font-mono">${escapeHtml(s.char)}: ${(diff / 1000).toFixed(1)}s</span>`;
+            return `<span class="${cls} px-1.5 py-0.5 rounded border text-xs font-mono">${escapeHtml(s.char)}: ${(diff / 1000).toFixed(1)}s</span>`;
           }).slice(-8);
           splitEl.innerHTML = `<div class="flex flex-wrap justify-center gap-1 mt-2 mb-1 cursor-help">${items.join('')}</div>`;
         }
@@ -807,10 +817,10 @@ function renderMonitor() {
         const totLbl = (tot === Infinity) ? 'ELIM' : (Number.isFinite(tot) ? tot.toFixed(2) + ' p' : '—');
         botEl.innerHTML = `
           <div class="pt-3 border-t dark:border-gray-700 mt-2 chip-container">
-            <div class="text-xs text-gray-500 dark:text-gray-400 mb-1">${t('obstacles')}</div>
+            <div class="text-xs text-gray-600 dark:text-gray-300 mb-1">${t('obstacles')}</div>
             <div class="flex flex-wrap gap-1.5 mb-2">${chips}</div>
             <div class="flex justify-between items-center text-xs bg-gray-50 dark:bg-gray-800 p-2 rounded">
-              <div><span class="text-gray-500 dark:text-gray-400">${t('total')}:</span> <span class="font-semibold ml-1 dark:text-gray-200">${totLbl}</span></div>
+              <div><span class="text-gray-600 dark:text-gray-300">${t('total')}:</span> <span class="font-semibold ml-1 dark:text-gray-200">${totLbl}</span></div>
             </div>
           </div>`;
       } else {
@@ -834,7 +844,7 @@ function renderMonitor() {
         outField: null
       });
       const placement = placeOf.get(classRows.find(r => r.startNumber === eq.startNumber)) ?? '-';
-      rankEl.innerHTML = `<div class="text-xs font-bold text-gray-500 dark:text-gray-400 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded inline-block ml-2" title="${t('dressage_placing')}">${t('rank_short')}: ${placement}</div>`;
+      rankEl.innerHTML = `<div class="text-xs font-bold text-gray-600 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded inline-block ml-2" title="${t('dressage_placing')}">${t('rank_short')}: ${placement}</div>`;
     }
 
     // ETA / StartTime
@@ -921,6 +931,7 @@ export async function load() {
     return;
   }
 
+  enterTvModeIfRequested();
   renderLayout();
   injectMonitorStylesOnce();
 
@@ -972,7 +983,8 @@ export async function load() {
     classGroupOf = mergeGroupResolver(mergeSource);
 
     allEquipages = equipagesRaw || [];
-    startTimes = startTimesData || {};
+    // Only published start times (a draft list is not shown on the public monitor)
+    startTimes = publishedStartTimes(startTimesData || {});
     maratonConfig = configData;
     if (maratonConfig) setMarathonConfig(maratonConfig);
 
@@ -1243,6 +1255,7 @@ export function __unload() {
     tickerInterval = null;
   }
   destroyMap();
+  exitTvMode();
   competitionId = null;
   allEquipages = [];
   startTimes = {};

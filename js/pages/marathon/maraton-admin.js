@@ -581,7 +581,7 @@ async function setupGlobalSettingsForm() {
     const conflicts = findFormConflicts(newConfig, loadedGlobalStored, fresh);
     if (conflicts.length > 0 && !confirm(formConflictMessage(conflicts, GLOBAL_MARATHON_LABELS))) return;
     if (Object.keys(newConfig).length === 0) {
-      showAlert('Inga ändringar att spara.');
+      showAlert('Inga ändringar att spara.', 'info');
       return;
     }
     try {
@@ -1487,7 +1487,7 @@ async function setupMarathonSettings() {
       if (!confirm(formConflictMessage(conflicts, labels))) return;
     }
     if (Object.keys(classChanges).length === 0 && !pauseChanged) {
-      showAlert('Inga ändringar att spara.');
+      showAlert('Inga ändringar att spara.', 'info');
       return;
     }
     const changedRows = unflattenFormRows(classChanges);
@@ -1703,7 +1703,7 @@ function setupObstacleForm() {
     const num = parseInt(numInput.value);
 
     if (!Number.isFinite(num) || num <= 0) {
-      showAlert('Ange ett giltigt, positivt hindernummer.');
+      showAlert('Ange ett giltigt, positivt hindernummer.', false);
       return;
     }
 
@@ -1734,7 +1734,7 @@ function setupObstacleForm() {
       resetForm();
     } catch (err) {
       console.error(err);
-      showAlert('Kunde inte spara hindret.');
+      showAlert('Kunde inte spara hindret.', false);
     }
   });
 }

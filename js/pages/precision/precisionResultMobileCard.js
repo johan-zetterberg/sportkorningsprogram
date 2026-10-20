@@ -60,7 +60,7 @@ export function renderPrecisionResultCard({
   }
 
   const placBlock = `
-      <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
+      <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
       <div class="text-base font-black ${placColor} leading-none">${data.place || '—'}</div>
   `;
 
@@ -69,18 +69,18 @@ export function renderPrecisionResultCard({
         <div class="p-1.5 flex items-center justify-between gap-1 border-b dark:border-gray-700/50 ${(isPlaced || isActive || isStruken) ? '' : 'bg-gray-50 dark:bg-gray-800/50'}">
            <div class="flex flex-col min-w-0 pr-1">
               <div class="font-bold text-[13px] dark:text-white leading-tight truncate flex items-center gap-1">
-                 <span class="text-gray-500 dark:text-gray-400 text-[10px]">#${sn}</span>
+                 <span class="text-gray-600 dark:text-gray-300 text-xs">#${sn}</span>
                  <span class="truncate">${escapeHtml(eq.driverName)}</span>
               </div>
               <div class="flex items-center gap-1 mt-0.5">
                  ${flagHtml} ${clubLogoHtml}
-                 ${viewMode === 'startorder' ? `<span class="text-[9px] text-gray-500 dark:text-gray-400 truncate ml-1">${escapeHtml(cls)}</span>` : ''}
+                 ${viewMode === 'startorder' ? `<span class="text-xs text-gray-600 dark:text-gray-300 truncate ml-1">${escapeHtml(cls)}</span>` : ''}
               </div>
            </div>
 
            <div class="flex items-center gap-2 shrink-0">
               <div class="text-right">
-                  <div class="text-[8px] uppercase text-gray-500 dark:text-gray-400 leading-none mb-0.5">Totalt</div>
+                  <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5">Totalt</div>
                   <div class="font-bold text-[13px] text-blue-800 dark:text-blue-300 leading-none live-total-penalty-card" data-sn="${sn}">${penaltyLabel}</div>
               </div>
               <div class="text-right border-l dark:border-gray-300 dark:border-gray-600 pl-2">
@@ -90,30 +90,30 @@ export function renderPrecisionResultCard({
         </div>
 
         <div class="px-1.5 py-1.5 bg-white dark:bg-gray-800">
-           <div class="flex justify-between items-center text-[10px] mb-1">
-              <span class="text-gray-500 dark:text-gray-400">Start: <strong class="text-gray-700 dark:text-gray-200">${data.startT || '—'}</strong></span>
+           <div class="flex justify-between items-center text-xs mb-1">
+              <span class="text-gray-600 dark:text-gray-300">Start: <strong class="text-gray-700 dark:text-gray-200">${data.startT || '—'}</strong></span>
               ${isActive
                 ? `
                   <div class="flex items-center gap-1">
-                      <span class="inline-flex items-center px-1 py-0.5 rounded text-[8px] uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">${escapeHtml(runningLabel)}</span>
+                      <span class="inline-flex items-center px-1 py-0.5 rounded text-xs uppercase font-bold bg-yellow-100 text-yellow-800 animate-pulse">${escapeHtml(runningLabel)}</span>
                   </div>
                   `
-                : `<span class="text-gray-500 dark:text-gray-400 font-medium">${escapeHtml(data.status || '–')}</span>`
+                : `<span class="text-gray-600 dark:text-gray-300 font-medium">${escapeHtml(data.status || '–')}</span>`
               }
            </div>
 
-           <div class="flex gap-1 text-[10px] tabular-nums">
+           <div class="flex gap-1 text-xs tabular-nums">
               <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
-                 <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Tid</div>
-                 <div class="font-bold live-time-card text-[10px] leading-tight" data-sn="${sn}" title="${timeTitle}">${isActive ? '••:••,••' : timeLabel}</div>
+                 <div class="text-xs uppercase tracking-wider opacity-70 leading-none">Tid</div>
+                 <div class="font-bold live-time-card text-xs leading-tight" data-sn="${sn}" title="${timeTitle}">${isActive ? '••:••,••' : timeLabel}</div>
               </div>
               <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
-                 <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Hinder</div>
-                 <div class="font-bold live-obstacle-penalty-card text-[10px] leading-tight" data-sn="${sn}">${obstacleLabel}</div>
+                 <div class="text-xs uppercase tracking-wider opacity-70 leading-none">Hinder</div>
+                 <div class="font-bold live-obstacle-penalty-card text-xs leading-tight" data-sn="${sn}">${obstacleLabel}</div>
               </div>
               <div class="flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600">
-                 <div class="text-[8px] uppercase tracking-wider opacity-70 leading-none">Tidsfel</div>
-                 <div class="font-bold live-time-penalty-card text-[10px] leading-tight" data-sn="${sn}">${timePenaltyLabel}</div>
+                 <div class="text-xs uppercase tracking-wider opacity-70 leading-none">Tidsfel</div>
+                 <div class="font-bold live-time-penalty-card text-xs leading-tight" data-sn="${sn}">${timePenaltyLabel}</div>
               </div>
            </div>
            ${finalizeButtonsHtml ? `

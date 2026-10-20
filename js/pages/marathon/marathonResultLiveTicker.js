@@ -1,5 +1,6 @@
 import { escapeHtml, isNum } from '../../utils/sharedUtils.js';
 import { formatMsMMSS, formatObstacleSeconds } from './marathonResultFormatters.js';
+import { timeValueToMs } from '../../utils/timeValueUtils.js';
 
 const localLiveTickers = {};
 
@@ -14,14 +15,7 @@ function ensureTickerState(key) {
 }
 
 function timestampToMs(value) {
-  if (!value) return 0;
-  if (typeof value?.toMillis === 'function') return value.toMillis();
-  if (typeof value === 'string' || value instanceof Date) {
-    const ms = new Date(value).getTime();
-    return Number.isFinite(ms) ? ms : 0;
-  }
-  const asNumber = Number(value);
-  return Number.isFinite(asNumber) ? asNumber : 0;
+  return timeValueToMs(value) ?? 0;
 }
 
 export function rowStageCellsHTML(res, stageCols) {
@@ -33,7 +27,7 @@ export function rowStageCellsHTML(res, stageCols) {
       else if (Number.isFinite(sData.timePenalty)) val = sData.timePenalty.toFixed(2);
     }
 
-    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-[11px] lg:text-sm">
+    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-xs lg:text-sm">
       <span class="tabular-nums" data-stage-pts="${escapeHtml(res.startNumber)}" data-stage="${stKey}">${val}</span>
     </td>`;
   }).join('');
