@@ -29,7 +29,17 @@ import {
   planObstacleCorrection
 } from './secretariatPatchUtils.js';
 import { getConfig } from './competitionService.js';
-import { calculatePrecisionResult, nextPrecisionRebuildCount, precisionRebuildCount } from '../utils/precisionCalculation.js';
+import {
+  calculatePrecisionResult,
+  calculatePrecisionRoundResult,
+  getPrecisionFormat,
+  isPrecisionDriveOffScheduled,
+  nextPrecisionRebuildCount,
+  precisionRebuildCount
+} from '../utils/precisionCalculation.js';
+import { loadMergeSource } from './mergeConfigService.js';
+import { precisionGroupKeyFn } from '../pages/precision/precisionRoundInput.js';
+import { nestPrecisionRoundPayload, precisionRoundsForFormat, readPrecisionRound } from '../utils/precisionRounds.js';
 import { calculateObstacleResult } from '../core-engine/marathon.js';
 import { obstacleLiveEntry } from '../core-engine/stateSelector.js';
 import {
@@ -166,6 +176,19 @@ async function getPrecisionCalcConfig(competitionId) {
 export function calculateSecretariatPrecisionDraft(row, patch = {}) {
   const ctx = row?.calcContext || {};
   const timeMs = numberOrDefault(patch.timeMs, row?.timeMs ?? 0);
+  const equipage = ctx.equipage || { startNumber: row?.startNumber, className: row?.className };
+  const options = { currentCompetition: getGlobalState('currentCompetition'), marathonConfig: ctx.marathonConfig || null };
+  const round = row?.round || 'phase1';
+  if (round !== 'phase1') {
+    // A phase 2 / drive-off row: that round alone, scored with its own max time
+    return calculatePrecisionRoundResult(
+      { ...readPrecisionRound(row?.resultDoc, round), ...patch, timeMs, liveTimeMs: timeMs, finalized: false, running: false },
+      equipage,
+      ctx.config || {},
+      round,
+      options
+    );
+  }
   return calculatePrecisionResult(
     {
       ...(row?.resultDoc || {}),
@@ -175,20 +198,59 @@ export function calculateSecretariatPrecisionDraft(row, patch = {}) {
       finalized: false,
       running: false
     },
-    ctx.equipage || { startNumber: row?.startNumber, className: row?.className },
+    equipage,
     ctx.config || {},
-    { currentCompetition: getGlobalState('currentCompetition') }
+    options
   );
+}
+
+// One round's editable row (phase 2 / drive-off), in the shape of the phase-1 row
+function buildPrecisionRoundRow(base, result, round) {
+  const rd = readPrecisionRound(result, round);
+  const row = {
+    startNumber: base.startNumber,
+    driverName: base.driverName,
+    className: base.className,
+    round,
+    running: rd.running === true,
+    // A drive-off is finalized on its own (own lock), phase 2 with the whole result
+    finalized: round === 'driveOff' ? rd.finalized === true : base.finalized,
+    retired: rd.retired === true,
+    timeMs: numberOrDefault(rd.timeMs ?? rd.liveTimeMs, 0),
+    obstaclePenalty: numberOrDefault(rd.obstaclePenalty, 0),
+    timePenalty: numberOrDefault(rd.timePenalty, 0),
+    timePenaltyOverride: rd.timePenaltyOverride === true,
+    extraPenalty: numberOrDefault(rd.extraPenalty, 0),
+    rebuildCount: precisionRebuildCount(rd),
+    totalPenalty: rd.totalPenalty == null ? null : numberOrDefault(rd.totalPenalty, 0),
+    eliminated: rd.eliminated === true,
+    comment: rd.comment || '',
+    resultDoc: result,
+    calcContext: base.calcContext,
+  };
+  row.status = derivePrecisionStatus(row);
+  if (row.status !== 'not-started') {
+    const calc = calculateSecretariatPrecisionDraft(row);
+    row.timePenalty = calc.timePenalty ?? 0;
+    row.totalPenalty = calc.totalPenalty ?? 0;
+    row.scoring = calc.scoring || 'fault';
+  }
+  return row;
 }
 
 export async function loadSecretariatPrecisionRows(competitionId) {
   if (!competitionId) return [];
 
-  const [equipages, results, precisionConfig] = await Promise.all([
+  const [equipages, results, precisionConfig, marathonConfig, mergeSource] = await Promise.all([
     getEquipages(competitionId),
     getPrecisionResults(competitionId),
     getPrecisionCalcConfig(competitionId),
+    // The rule profile (TR/FEI) of a class decides how phase 2 is scored
+    getConfig(competitionId, 'marathonConfig').catch(() => null),
+    // Placing groups (merged classes) as on the results page
+    loadMergeSource(competitionId).catch(() => null),
   ]);
+  const groupKeyOf = precisionGroupKeyFn(mergeSource);
 
   const resultMap = new Map(results.map(result => [String(result.startNumber || result.id), result]));
   const rows = equipages.map(eq => {
@@ -196,6 +258,7 @@ export async function loadSecretariatPrecisionRows(competitionId) {
     const result = resultMap.get(sn) || {};
     const row = {
       startNumber: eq.startNumber,
+      groupKey: groupKeyOf(eq),
       driverName: eq.driverName || '',
       className: eq.className || '',
       running: !!result.running,
@@ -211,16 +274,28 @@ export async function loadSecretariatPrecisionRows(competitionId) {
       eliminated: !!result.eliminated,
       comment: result.comment || '',
       resultDoc: result,
-      calcContext: { equipage: eq, config: precisionConfig },
+      calcContext: { equipage: eq, config: precisionConfig, marathonConfig: marathonConfig || null },
     };
 
     row.status = derivePrecisionStatus(row);
+    // The engine's view of the whole result (phase 2 / drive-off qualification, warnings)
+    row.engine = calculateSecretariatPrecisionDraft(row);
     if (row.status !== 'not-started') {
       // Show the penalties the engine gives this result
       const calc = calculateSecretariatPrecisionDraft(row);
       row.timePenalty = calc.timePenalty ?? 0;
       row.totalPenalty = calc.totalPenalty ?? 0;
     }
+
+    // The other rounds of the class's format (rounds.phase2 / rounds.driveOff)
+    row.format = getPrecisionFormat(eq, precisionConfig);
+    row.roundKeys = precisionRoundsForFormat(row.format, { driveOffScheduled: isPrecisionDriveOffScheduled(eq, precisionConfig) });
+    row.rounds = {};
+    row.roundKeys.filter((round) => round !== 'phase1').forEach((round) => {
+      row.rounds[round] = buildPrecisionRoundRow(row, result, round);
+      // The whole result's engine view (qualification) next to the round
+      row.rounds[round].engine = row.engine;
+    });
 
     return row;
   });
@@ -415,6 +490,93 @@ export async function loadSecretariatMarathonObstacleDetail(competitionId, start
   };
 }
 
+/**
+ * Saves the edited fields of a phase 2 / drive-off row: written to
+ * rounds.<round> only (a merge), the top level (phase 1, the combined total)
+ * is not touched. Phase 2 is closed with the whole result (finalized), a
+ * drive-off by its own lock (rounds.driveOff.finalized).
+ */
+async function saveSecretariatPrecisionRoundRow(competitionId, startNumber, patch, reason, { baseRow = null, round }) {
+  const current = await getPrecisionResultForEquipage(competitionId, startNumber);
+  const currentRound = readPrecisionRound(current, round);
+  const locked = round === 'driveOff' ? currentRound.finalized === true : current?.finalized === true;
+  if (locked) {
+    throw new Error(round === 'driveOff'
+      ? 'Omkörningen är finaliserad. Öppna den innan ändring.'
+      : 'Resultatet är finaliserat. Lås upp innan ändring.');
+  }
+  if (isStillRunning(current)) {
+    throw new Error(`#${startNumber} kör just nu. Vänta tills domaren har stoppat tiden.`);
+  }
+
+  const edited = pickEditedFields(patch, baseRow || currentRound, PRECISION_EDIT_FIELDS, PRECISION_EDIT_DEFAULTS);
+  if (baseRow) {
+    const conflicts = findEditConflicts(edited, baseRow, currentRound, PRECISION_EDIT_DEFAULTS);
+    if (conflicts.length) {
+      throw new Error(`Domaren har ändrat ${conflicts.join(', ')} för #${startNumber} efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
+    }
+  }
+  if (!Object.keys(edited).length) return current;
+  const correction = requireCorrectionReason(reason);
+
+  const fields = {
+    timeMs: numberOrDefault(edited.timeMs, currentRound.timeMs ?? 0),
+    obstaclePenalty: numberOrDefault(edited.obstaclePenalty, currentRound.obstaclePenalty ?? 0),
+    timePenalty: numberOrDefault(edited.timePenalty, currentRound.timePenalty ?? 0),
+    timePenaltyOverride: 'timePenalty' in edited || currentRound.timePenaltyOverride === true,
+    extraPenalty: numberOrDefault(edited.extraPenalty, currentRound.extraPenalty ?? 0),
+    rebuildCount: 'rebuildCount' in edited ? nextPrecisionRebuildCount(edited.rebuildCount, 0) : precisionRebuildCount(currentRound),
+    eliminated: edited.eliminated ?? currentRound.eliminated ?? false,
+    comment: edited.comment ?? currentRound.comment ?? '',
+    running: false,
+    inProgress: false,
+    liveStartEpoch: null,
+    status: 'Klar',
+  };
+  // A time entered for a round marked "not started" means it was driven
+  if ('timeMs' in edited && fields.timeMs > 0 && currentRound.retired === true) fields.retired = false;
+  fields.liveTimeMs = fields.timeMs;
+  fields.livePausedMs = fields.timeMs;
+
+  const precisionConfig = await getPrecisionCalcConfig(competitionId);
+  const marathonConfig = await getConfig(competitionId, 'marathonConfig').catch(() => null);
+  const equipage = { startNumber: Number(startNumber), className: patch.className ?? current?.className ?? null, ...(patch.equipage || {}) };
+  const calc = calculatePrecisionRoundResult(
+    { ...currentRound, ...fields },
+    equipage,
+    precisionConfig,
+    round,
+    { currentCompetition: getGlobalState('currentCompetition'), marathonConfig: marathonConfig || null }
+  );
+  fields.timePenalty = calc.configMissing ? null : (calc.timePenalty ?? 0);
+  fields.totalPenalty = calc.configMissing ? null : (calc.totalPenalty ?? 0);
+  fields.liveTimePenalty = fields.timePenalty;
+  fields.liveObstaclePenalty = fields.obstaclePenalty;
+  fields.liveTotalPenalty = fields.totalPenalty;
+  if (calc.configMissing) fields.status = 'Pågår';
+  fields.updatedAt = Date.now();
+
+  await setDoc(
+    getCompDocRef(competitionId, 'precision', String(startNumber)),
+    nestPrecisionRoundPayload(round, fields, { startNumber: Number(startNumber), className: equipage.className, updatedAt: fields.updatedAt }),
+    { merge: true }
+  );
+
+  const after = { ...currentRound, ...fields };
+  const changes = buildPrecisionDiff(currentRound, after).map((change) => ({ ...change, field: `${round}.${change.field}` }));
+  if (changes.length > 0) {
+    writeSecretariatAuditLog(competitionId, {
+      discipline: 'precision',
+      startNumber: String(startNumber),
+      entityType: 'result',
+      entityId: String(startNumber),
+      ...correction,
+      changes,
+    });
+  }
+  return { ...current, rounds: { ...(current?.rounds || {}), [round]: after } };
+}
+
 const PRECISION_EDIT_FIELDS = ['timeMs', 'obstaclePenalty', 'timePenalty', 'extraPenalty', 'rebuildCount', 'eliminated', 'comment'];
 const PRECISION_EDIT_DEFAULTS = { timeMs: 0, obstaclePenalty: 0, timePenalty: 0, extraPenalty: 0, rebuildCount: 0, eliminated: false, comment: '' };
 
@@ -424,9 +586,12 @@ const PRECISION_EDIT_DEFAULTS = { timeMs: 0, obstaclePenalty: 0, timePenalty: 0,
  * keep the current server values (a judge may have saved since the page was
  * loaded), and an edit of a field the judge changed meanwhile is refused.
  */
-export async function saveSecretariatPrecisionRow(competitionId, startNumber, patch = {}, reason = '', { baseRow = null } = {}) {
+export async function saveSecretariatPrecisionRow(competitionId, startNumber, patch = {}, reason = '', { baseRow = null, round = 'phase1' } = {}) {
   if (!competitionId) throw new Error('Ingen tävling vald.');
   if (startNumber == null) throw new Error('Startnummer saknas.');
+  if (round && round !== 'phase1') {
+    return saveSecretariatPrecisionRoundRow(competitionId, startNumber, patch, reason, { baseRow, round });
+  }
 
   const current = await getPrecisionResultForEquipage(competitionId, startNumber);
   if (current?.finalized === true) {

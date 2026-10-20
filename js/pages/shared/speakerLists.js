@@ -14,6 +14,7 @@ import {
 } from '../../utils/marathonUtils.js';
 import { actionAttrs, escapeHtml, isWithdrawnEquipage } from '../../utils/sharedUtils.js';
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
+import { formatPrecisionSeconds, precisionPlacingScore, runningPrecisionRound } from '../precision/precisionRoundsDisplay.js';
 import { t as translate } from '../../utils/i18n.js';
 import { timeValueToMs } from '../../utils/timeValueUtils.js';
 import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
@@ -79,7 +80,16 @@ export function renderTop3List(className, discipline, ctx) {
         if (!isMarathon) {
             // Two phases / drive-off: tiers and the class's drive-off qualifiers
             const precisionCtx = precisionGroupContext(results, r => r.rankResult);
-            results.forEach(r => { r.rankKey = r.rankResult ? precisionCtx.rankKey(r) : null; });
+            results.forEach(r => {
+                r.rankKey = r.rankResult ? precisionCtx.rankKey(r) : null;
+                // What the place rests on: the drive-off score or the phase-2 score
+                // (seconds for a time round); phase 1 keeps its penalty. Provisional
+                // while a drive-off is pending.
+                const tier = r.rankKey?.tier;
+                if (tier === 0) r.scoreText = formatPrecisionSeconds(r.rankKey.penalty);
+                else if (tier === 2) r.scoreText = precisionPlacingScore(r.rankResult).text;
+                r.provisional = r.rankKey?.provisional === true;
+            });
         }
         results = assignPlaces(results, {
             key: r => r.rankKey,
@@ -109,11 +119,11 @@ export function renderTop3List(className, discipline, ctx) {
         return `
             <div class="flex items-center justify-between p-2 rounded bg-gray-50 dark:bg-gray-700">
                 <div class="flex items-center gap-2">
-                    <span class="font-bold ${medalColor}">${r.plac}</span>
+                    <span class="font-bold ${medalColor}">${r.provisional ? `(${r.plac})` : r.plac}</span>
                     <span class="text-sm font-medium text-gray-900 dark:text-white">${escapeHtml(r.name || '')}</span>
                 </div>
                 <div class="text-sm font-bold text-gray-900 dark:text-white">
-                    ${formatSpeakerPenalty(r.penalty)}
+                    ${r.scoreText ? escapeHtml(r.scoreText) : formatSpeakerPenalty(r.penalty)}
                 </div>
             </div>
         `;
@@ -132,6 +142,11 @@ function currentPrecisionPenalty(ctx) {
 }
 
 export function renderLeaderToBeat(className, ctx) {
+    // A running phase 2 / drive-off has its own score: the phase-1 chase target does not apply
+    if (ctx.currentDiscipline === 'precision') {
+        const round = runningPrecisionRound(ctx.currentRider?.data);
+        if (round === 'phase2' || round === 'driveOff') return '';
+    }
     const precisionPenalty = ctx.currentDiscipline === 'precision' ? currentPrecisionPenalty(ctx) : null;
     const leader = ctx.currentDiscipline === 'precision'
         ? getChasingTarget(className, precisionPenalty || 0, ctx)

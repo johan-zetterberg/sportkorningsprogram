@@ -12,7 +12,11 @@ export function renderPrecisionResultCard({
   clubLogoHtml = '',
   finalizeButtonsHtml = '',
   formatPenalty = defaultFormatPenalty,
-  runningLabel = 'Pågår'
+  runningLabel = 'Pågår',
+  // Extra rounds (Fas 2 / Omkörning): [{ round, label, cell }]
+  roundCells = [],
+  // The place as shown ("(1)" while provisional)
+  placeLabel = null
 }) {
   const eq = data.eq;
   // Escaped for the HTML below (text and attributes)
@@ -28,7 +32,8 @@ export function renderPrecisionResultCard({
   const obstacleLabel = formatPenalty(data.obstaclePenalty);
   const timePenaltyLabel = formatPenalty(data.timePenalty);
 
-  const isActive = data.d?.running === true || (data.status && data.status.includes('Påg'));
+  const isActive = data.d?.running === true || (data.status && data.status.includes('Påg'))
+    || Boolean(data.liveRound && data.liveRound !== 'phase1');
   const isStruken = data.status === 'Struken' || eq.status === 'struken';
   const cls = eq._mergedLabel || eq.className || 'Okänd Klass';
   const startersCount = classStarters.get(cls) || 1;
@@ -61,7 +66,7 @@ export function renderPrecisionResultCard({
 
   const placBlock = `
       <div class="text-xs uppercase text-gray-600 dark:text-gray-300 leading-none mb-0.5 font-bold tracking-wider">Plac</div>
-      <div class="text-base font-black ${placColor} leading-none">${data.place || '—'}</div>
+      <div class="text-base font-black ${placColor} leading-none">${escapeHtml(placeLabel ?? (data.place || '—'))}</div>
   `;
 
   return `
@@ -116,6 +121,16 @@ export function renderPrecisionResultCard({
                  <div class="font-bold live-time-penalty-card text-xs leading-tight" data-sn="${sn}">${timePenaltyLabel}</div>
               </div>
            </div>
+           ${roundCells.length ? `
+             <div class="mt-1 flex gap-1 text-xs tabular-nums">
+               ${roundCells.map(({ round, label, cell }) => `
+                 <div class="round-cell flex-1 text-center py-0.5 rounded bg-gray-50 dark:bg-gray-700 border border-gray-100 dark:border-gray-600" data-sn="${sn}" data-round="${escapeHtml(round)}"${cell?.title ? ` title="${escapeHtml(cell.title)}"` : ''}>
+                   <div class="text-xs uppercase tracking-wider opacity-70 leading-none">${escapeHtml(label)}</div>
+                   <div class="round-main font-bold text-xs leading-tight ${cell?.tone === 'elim' ? 'text-red-600 dark:text-red-400' : (cell?.tone === 'live' ? 'text-yellow-700 dark:text-yellow-300 animate-pulse' : '')}">${escapeHtml(cell?.text ?? '–')}</div>
+                   <div class="round-sub text-xs opacity-70 leading-tight">${escapeHtml(cell?.sub || '')}</div>
+                 </div>`).join('')}
+             </div>
+           ` : ''}
            ${finalizeButtonsHtml ? `
              <div class="mt-1 flex justify-end">${finalizeButtonsHtml}</div>
            ` : ''}

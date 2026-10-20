@@ -8,6 +8,7 @@
 import { getClassCourse, getClassSettings, limitsFor } from '../core-engine/marathon.js';
 import { computeMaxSecondsForClass } from '../utils/precisionCalculation.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
+import { precisionRoundSettingsIssues } from '../pages/precision/precisionRoundsDisplay.js';
 
 export const RESULT_SETTINGS_NOTICE_ID = 'resultSettingsNotice';
 
@@ -68,7 +69,7 @@ export function marathonSettingsIssues(equipages = [], marathonConfig = null) {
 }
 
 /** Precision: Map className -> Set of issues */
-export function precisionSettingsIssues(equipages = [], precisionConfig = null) {
+export function precisionSettingsIssues(equipages = [], precisionConfig = null, { profileOf = null } = {}) {
     const issues = new Map();
     if (!precisionConfig) return issues;
     (equipages || []).filter(isActive).forEach((eq) => {
@@ -76,6 +77,10 @@ export function precisionSettingsIssues(equipages = [], precisionConfig = null) 
         if (!className) return;
         const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
         if (!(Number(maxSec) > 0)) addIssue(issues, className, 'maxtid saknas (banlängd och tempo)');
+    });
+    // Phase 2 without length / tempo / max time, a scheduled drive-off without a course
+    precisionRoundSettingsIssues(equipages, precisionConfig, { profileOf }).forEach((set, className) => {
+        set.forEach((text) => addIssue(issues, className, text));
     });
     return issues;
 }

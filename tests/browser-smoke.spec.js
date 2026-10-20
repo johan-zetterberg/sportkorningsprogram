@@ -571,6 +571,155 @@ test('precision knocks can be recorded without signal and reach the server after
   }, { competitionId, startNumber }), { timeout: 60000 }).toContain(gateLabel);
 });
 
+test('two phases: a clear phase 1 continues into phase 2, which is saved under rounds.phase2', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  // An equipage without a precision result, and its class driven in two phases
+  const picked = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getPrecisionResults } = await import('../js/services/precisionService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const equipages = (await getEquipages(competitionId)).filter(e => e.status !== 'struken');
+    const used = new Set((await getPrecisionResults(competitionId)).map(r => String(r.id)));
+    const eq = equipages.find(e => !used.has(String(e.startNumber))) || equipages[0];
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    courses[eq.className] = {
+      ...(courses[eq.className] || {}),
+      format: 'twoPhase',
+      trackLengthMeters: 650,
+      tempo: 250,
+      obstacleLabels: ['1', '2', '3'],
+      phase2: { trackLengthMeters: 300, tempo: 250, obstacleLabels: ['A', 'B'] }
+    };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    return { startNumber: String(eq.startNumber), className: eq.className };
+  }, competitionId);
+
+  await page.goto('/index.html#precision-input');
+  const search = page.locator('#pr-precisionEquipageSearchContainer .search-input');
+  await expect(search).toBeVisible();
+  // A running seeded driver may be auto-selected after a moment: choose ours afterwards
+  await page.waitForTimeout(2000);
+  await search.fill(picked.startNumber);
+  await page.locator(`#pr-precisionEquipageSearchContainer .searchable-dropdown-list [data-value="${picked.startNumber}"]`).click();
+
+  // Round selector for a two-phase class, phase 1 gates
+  await expect(page.locator('#pr-roundTabs [data-round="phase1"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#pr-roundTabs [data-round="phase2"]')).toBeVisible();
+  await expect(page.locator('#pr-gatesGrid .gateBtn').first()).toHaveAttribute('data-g', '1');
+  await page.waitForTimeout(1000);
+
+  // Phase 1 driven clear: "Fas 1 mål" continues straight into phase 2
+  await page.locator('#pr-btnStart').click();
+  await page.waitForTimeout(1500);
+  await page.locator('#pr-btnPhase1Finish').click();
+  await expect(page.locator('#pr-roundTabs [data-round="phase2"]')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#pr-gatesGrid .gateBtn').first()).toHaveAttribute('data-g', 'A');
+  await expect(page.locator('#pr-btnPhase1Finish')).toBeHidden();
+
+  // A cone in phase 2, stop and save the round
+  await page.waitForTimeout(1200);
+  await page.locator('#pr-gatesGrid .gateBtn').first().click();
+  await page.waitForTimeout(500);
+  await page.locator('#pr-btnStop').click();
+  await page.waitForTimeout(500);
+  await page.locator('#pr-btnSave').click();
+
+  await expect.poll(async () => page.evaluate(async ({ competitionId, startNumber }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDocFromServer } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    try {
+      const snap = await getDocFromServer(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${startNumber}`));
+      const d = snap.exists() ? snap.data() : {};
+      const p2 = d.rounds?.phase2 || {};
+      return {
+        phase1Status: d.status,
+        phase1Running: d.running,
+        phase1Knocks: d.knocks || [],
+        phase1TimeMs: d.timeMs > 0,
+        activeRound: d.activeRound,
+        phase2Knocks: p2.knocks || [],
+        phase2Status: p2.status,
+        phase2Running: p2.running,
+        phase2TimeMs: p2.timeMs > 0
+      };
+    } catch { return null; }
+  }, { competitionId, startNumber: picked.startNumber }), { timeout: 60000 }).toEqual({
+    phase1Status: 'Klar',
+    phase1Running: false,
+    phase1Knocks: [],
+    phase1TimeMs: true,
+    activeRound: 'phase2',
+    phase2Knocks: ['A'],
+    phase2Status: 'Klar',
+    phase2Running: false,
+    phase2TimeMs: true
+  });
+});
+
+// Results of a class driven in two phases: the list shows the phase-2 column
+// with the equipage's phase-2 result, the PDF prints "Fas 2"
+test('precision results and PDF show phase 2 of a two-phase class', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+  page.on('dialog', dialog => dialog.accept().catch(() => { }));
+
+  const picked = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getPrecisionResults } = await import('../js/services/precisionService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    const equipages = (await getEquipages(competitionId)).filter(e => e.status !== 'struken');
+    const used = new Set((await getPrecisionResults(competitionId)).map(r => String(r.id)));
+    const eq = equipages.find(e => !used.has(String(e.startNumber))) || equipages[0];
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    courses[eq.className] = {
+      ...(courses[eq.className] || {}),
+      format: 'twoPhase',
+      trackLengthMeters: 650,
+      tempo: 250,
+      obstacleLabels: ['1', '2', '3'],
+      phase2: { trackLengthMeters: 300, tempo: 250, obstacleLabels: ['A', 'B'] }
+    };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    const ref = doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${eq.startNumber}`);
+    // Phase 1 driven clear, then phase 2 with one cone down
+    await setDoc(ref, {
+      startNumber: Number(eq.startNumber), className: eq.className,
+      running: false, inProgress: false, finalized: true, status: 'Klar',
+      timeMs: 150000, knocks: [], updatedAt: Date.now()
+    }, { merge: true });
+    await setDoc(ref, {
+      startNumber: Number(eq.startNumber), className: eq.className, activeRound: 'phase2', updatedAt: Date.now(),
+      rounds: { phase2: { timeMs: 70000, knocks: ['A'], running: false, inProgress: false, finalized: true, status: 'Klar', updatedAt: Date.now() } }
+    }, { merge: true });
+    return { startNumber: String(eq.startNumber), className: eq.className };
+  }, competitionId);
+
+  await page.goto('/index.html#precision-results');
+  await expect(page.locator('#page-precision-results')).toContainText('Fas 2', { timeout: 60000 });
+  const phase2Cell = page.locator(`#page-precision-results .round-cell[data-sn="${picked.startNumber}"][data-round="phase2"]:visible`).first();
+  await expect(phase2Cell).toBeVisible({ timeout: 60000 });
+  // The phase-2 result is a penalty (TR) or seconds (FEI), with the time under it
+  await expect(phase2Cell.locator('.round-main')).toHaveText(/\d+[.,]\d{2} (p|s)/);
+  await expect(page.locator('#page-precision-results')).not.toContainText(/\bundefined\b|\bNaN\b/);
+
+  await page.goto('/index.html#reports');
+  await expect(page.locator(reportButtonSelector('reports_generatePrecisionPdf()'))).toBeVisible({ timeout: 60000 });
+  await page.waitForTimeout(2000); // the page's results are computed after load
+  const pdf = await downloadReportPdf(page, { call: 'reports_generatePrecisionPdf()' });
+  expect(pdf.header).toBe('%PDF-');
+  expect(pdf.text).toMatch(/Fas 2/);
+  expect(pdf.text).toMatch(/PRELIMINÄRT RESULTAT/);
+  expect(pdf.text).not.toMatch(/\bundefined\b|\bNaN\b|\[object Object\]/);
+  expect(browserErrors).toEqual([]);
+});
+
 test('marathon input loads a seeded equipage with obstacle data without errors', async ({ page }) => {
   await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
   // Errors in loading a result are caught and logged (console.error), errors

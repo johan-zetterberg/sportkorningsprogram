@@ -24,6 +24,42 @@ import {
 
 // Importera PDF-funktionen
 import { generateAndPrintPdf } from '../pdf/precisionPdf.js';
+import { getPrecisionFormat } from '../utils/precisionCalculation.js';
+import { buildPrecisionModalRoundRows } from './precisionModalRounds.js';
+
+const ROUND_TONE_CLASS = {
+  live: 'text-blue-700 dark:text-blue-300 font-bold',
+  elim: 'text-red-700 dark:text-red-300 font-bold',
+  ok: 'text-green-700 dark:text-green-300 font-bold',
+  warn: 'text-amber-700 dark:text-amber-300 font-bold',
+  none: 'text-gray-500 dark:text-gray-400'
+};
+
+// All rounds of a two-phase / drive-off class; '' for a class of one round
+function roundsTableHtml(data, eq, config) {
+  const rows = buildPrecisionModalRoundRows(data, getPrecisionFormat(eq, config));
+  if (!rows.length) return '';
+  const th = (label, extra = '') => `<th class="px-2 py-1 text-left text-xs uppercase text-gray-500 dark:text-gray-400 ${extra}">${escapeHtml(label)}</th>`;
+  return `
+        <div class="border-t dark:border-gray-700 pt-4 mb-4">
+            <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">${escapeHtml(t('precision_modal_rounds'))}</h4>
+            <div class="overflow-x-auto">
+              <table class="w-full text-sm text-gray-900 dark:text-gray-100" data-testid="precision-modal-rounds">
+                <thead><tr>${th(t('precision_modal_round'))}${th(t('time'))}${th(t('knockdowns'))}${th(t('precision_modal_rebuilds'))}${th(t('precision_modal_penalty'))}${th(t('status'))}</tr></thead>
+                <tbody>
+                  ${rows.map((r) => `<tr class="border-t dark:border-gray-700">
+                    <td class="px-2 py-1 font-semibold">${escapeHtml(r.label)}</td>
+                    <td class="px-2 py-1 tabular-nums">${escapeHtml(r.time)}</td>
+                    <td class="px-2 py-1 tabular-nums">${escapeHtml(r.knocks)}</td>
+                    <td class="px-2 py-1 tabular-nums">${escapeHtml(r.rebuilds)}</td>
+                    <td class="px-2 py-1 tabular-nums">${escapeHtml(r.penalty)}</td>
+                    <td class="px-2 py-1 ${ROUND_TONE_CLASS[r.tone] || ROUND_TONE_CLASS.none}" title="${escapeHtml(r.title)}">${escapeHtml(r.status)}</td>
+                  </tr>`).join('')}
+                </tbody>
+              </table>
+            </div>
+        </div>`;
+}
 
 /**
  * Öppnar detaljmodalen för ett specifikt ekipage i Precision.
@@ -124,6 +160,8 @@ export function renderPrecisionContent(containerElement, eq, precisionData, conf
             </div>
         </div>
         
+        ${roundsTableHtml(data, eq, config)}
+
         <div class="border-t dark:border-gray-700 pt-4 mb-6">
             <h4 class="text-sm font-bold text-gray-700 dark:text-gray-300 uppercase mb-3">${t('course_facts')}</h4>
             <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm bg-gray-50 dark:bg-gray-700/50 p-3 rounded text-gray-700 dark:text-gray-300">

@@ -2,7 +2,13 @@ import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
-import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
+import {
+  confirmFinalizeWithGaps,
+  finalizePrecisionDriveOff,
+  unfinalizePrecisionDriveOff,
+} from '../../services/finalizationService.js';
+import { precisionGroupContext } from '../../core-engine/ranking.js';
+import { phase2QualificationChange, precisionRoundLabelKey } from '../precision/precisionRoundInput.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
 import { createStaffNoticesHost } from '../../ui/staffNoticesPanel.js';
 import {
@@ -35,7 +41,14 @@ let rows = [];
 let rejectedWrites = [];
 // Driver declaration changes and vet strikes for the ground jury (kept across renders)
 let noticesHost = null;
-let drafts = new Map();
+// Round shown: phase 1 (the initial round) or the rows of phase 2 / drive-off.
+// Each round keeps its own drafts (same start number, different fields).
+let currentRound = 'phase1';
+const ROUND_KEYS = ['phase1', 'phase2', 'driveOff'];
+const newDraftStore = () => ({ phase1: new Map(), phase2: new Map(), driveOff: new Map() });
+let draftStore = newDraftStore();
+let drafts = draftStore.phase1;
+let groupCtx = null; // precisionGroupContext: drive-off qualifiers per class
 let teardownStickyHeaders = null;
 let filters = {
   search: '',
@@ -53,8 +66,52 @@ function getClassOptions() {
   return [...new Set(rows.map(row => row.className).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'sv'));
 }
 
+// The rows of the round shown: phase 1 = the base rows; phase 2 / drive-off =
+// the class's round rows (the drive-off: its qualifiers, and rows that hold
+// drive-off data, which is then flagged as not counting)
+function roundRows(round = currentRound) {
+  if (round === 'phase1') return rows;
+  const qualifiers = driveOffQualifierSet();
+  return rows
+    .filter(row => row.rounds?.[round])
+    .map(row => row.rounds[round])
+    .filter(row => round !== 'driveOff' || qualifiers.has(String(row.startNumber)) || row.status !== 'not-started' || row.retired);
+}
+
+function driveOffQualifierSet() {
+  const set = new Set();
+  groupCtx?.groups?.forEach(ctx => {
+    if (ctx.driveOffNeeded) ctx.driveOffQualifiers.forEach(sn => set.add(String(sn)));
+  });
+  return set;
+}
+
+function availableRounds() {
+  return ROUND_KEYS.filter(round => round === 'phase1' || rows.some(row => row.rounds?.[round]));
+}
+
+function roundLabel(round) {
+  const hasTwoPhase = rows.some(row => row.format === 'twoPhase');
+  const hasDriveOff = rows.some(row => row.format === 'driveOff');
+  if (round === 'phase1' && hasTwoPhase && hasDriveOff) {
+    return `${t('precision_round_phase1')} / ${t('precision_round_initial')}`;
+  }
+  return t(precisionRoundLabelKey(round, hasDriveOff && !hasTwoPhase ? 'driveOff' : 'twoPhase'));
+}
+
+function findRow(sn) {
+  return roundRows().find(row => String(row.startNumber) === String(sn));
+}
+
 function getVisibleRows() {
-  return filterRows(rows, filters);
+  return filterRows(roundRows(), filters);
+}
+
+function setRound(round) {
+  if (!ROUND_KEYS.includes(round) || round === currentRound) return;
+  currentRound = round;
+  drafts = draftStore[round];
+  render();
 }
 
 function draftFor(row) {
@@ -79,6 +136,15 @@ function buildTableRows() {
     const totalPenalty = isDirty && !view.__invalid
       ? (calculateSecretariatPrecisionDraft(row, drafts.get(String(row.startNumber))).totalPenalty ?? 0)
       : (row.totalPenalty ?? 0);
+    const isDriveOffRow = row.round === 'driveOff';
+    // Time rounds (FEI phase 2, drive-off) count seconds
+    const unit = (isDriveOffRow || row.scoring === 'time') ? ' s' : '';
+    let roundNote = '';
+    if (row.round === 'phase2' && row.engine && row.engine.phase2Qualified !== true) {
+      roundNote = t('secretariat_precision_qualification_badge_no');
+    } else if (isDriveOffRow && !driveOffQualifierSet().has(String(row.startNumber))) {
+      roundNote = t('precision_warn_driveOffIgnored');
+    }
 
     return `
       <tr data-sn="${escapeHtml(row.startNumber)}" class="border-t border-gray-200 dark:border-gray-700 align-top ${isDirty ? 'bg-amber-50/70 dark:bg-amber-900/10' : ''}">
@@ -86,6 +152,7 @@ function buildTableRows() {
         <td class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 min-w-[14rem]">
           <div class="font-medium">${escapeHtml(row.driverName || '-')}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(row.className || '')}</div>
+          ${roundNote ? `<div class="text-xs font-semibold text-amber-700 dark:text-amber-300 whitespace-normal">${escapeHtml(roundNote)}</div>` : ''}
         </td>
         <td class="px-3 py-3 text-sm min-w-[7rem]">
           <input data-field="timeMs" value="${escapeHtml(formatEditableTime(view.timeMs))}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-time-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
@@ -102,7 +169,7 @@ function buildTableRows() {
         <td class="px-3 py-3 text-sm min-w-[4.1rem]">
           <input data-field="rebuildCount" type="number" step="1" min="0" title="Ombyggda hinder, +10 s var" value="${escapeHtml(view.rebuildCount ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
-        <td data-role="total" class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">${escapeHtml(totalPenalty.toFixed(2).replace(/\.00$/, ''))}</td>
+        <td data-role="total" class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 whitespace-nowrap">${escapeHtml(totalPenalty.toFixed(2).replace(/\.00$/, ''))}${unit}</td>
         <td class="px-3 py-3 text-sm text-center">
           <input data-field="eliminated" type="checkbox" ${view.eliminated ? 'checked' : ''} ${readOnly ? 'disabled' : ''} class="h-4 w-4 rounded border-gray-300 text-red-600 disabled:opacity-60">
         </td>
@@ -113,11 +180,11 @@ function buildTableRows() {
         <td class="px-3 py-3 text-sm whitespace-nowrap">
           <div class="secretariat-precision-actions flex flex-col gap-2">
             ${readOnly ? `
-              <button data-action="unlock" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">${escapeHtml(t('unlock'))}</button>
+              <button data-action="${isDriveOffRow ? 'driveoff-unfinalize' : 'unlock'}" class="rounded bg-amber-600 text-white px-3 py-1.5 text-xs font-semibold hover:bg-amber-700">${escapeHtml(isDriveOffRow ? t('secretariat_precision_driveoff_unfinalize') : t('unlock'))}</button>
             ` : `
               <button data-action="save" class="rounded bg-brand-darkblue text-white px-3 py-1.5 text-xs font-semibold hover:opacity-90">Spara</button>
               <button data-action="reset" class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-xs font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">${escapeHtml(t('undo'))}</button>
-              <button data-action="finalize" class="rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">Finalisera</button>
+              <button data-action="${isDriveOffRow ? 'driveoff-finalize' : 'finalize'}" class="rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">${isDriveOffRow ? escapeHtml(t('secretariat_precision_driveoff_finalize')) : 'Finalisera'}</button>
             `}
           </div>
         </td>
@@ -132,6 +199,11 @@ function render() {
   teardownStickyHeaders = null;
 
   const competition = getGlobalState('currentCompetition');
+  // The shown round may have gone (rows reloaded without it)
+  if (!availableRounds().includes(currentRound)) {
+    currentRound = 'phase1';
+    drafts = draftStore.phase1;
+  }
   const classOptions = getClassOptions();
   const visibleRows = getVisibleRows();
 
@@ -149,8 +221,14 @@ function render() {
             <h2 class="text-xl font-semibold text-gray-900 dark:text-gray-100">Korrigering av resultat</h2>
             <p class="text-sm text-gray-600 dark:text-gray-400">Separat sekretariatsvy för ändringar efter ordinarie inmatning.</p>
           </div>
-          <div class="text-sm text-gray-500 dark:text-gray-400">${visibleRows.length} av ${rows.length} ekipage visas</div>
+          <div class="text-sm text-gray-500 dark:text-gray-400">${visibleRows.length} av ${roundRows().length} ekipage visas</div>
         </div>
+        ${availableRounds().length > 1 ? `
+        <div role="tablist" aria-label="${escapeHtml(t('secretariat_precision_round'))}" class="mt-3 flex flex-wrap gap-2">
+          ${availableRounds().map(round => `
+            <button type="button" role="tab" aria-selected="${round === currentRound}" data-round-tab="${escapeHtml(round)}" class="min-h-[44px] px-4 rounded-lg border text-sm font-bold ${round === currentRound ? 'bg-brand-darkblue border-brand-darkblue text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(roundLabel(round))}</button>
+          `).join('')}
+        </div>` : ''}
       </section>
       ${renderToolbar({
         searchValue: filters.search,
@@ -224,7 +302,7 @@ function collectPatch(rowEl, baseRow) {
 
 function updateDraft(rowEl) {
   const sn = String(rowEl.dataset.sn);
-  const baseRow = rows.find(row => String(row.startNumber) === sn);
+  const baseRow = findRow(sn);
   if (!baseRow || baseRow.finalized) return;
 
   try {
@@ -281,9 +359,25 @@ async function refreshData({ savedStartNumber = null, keepDrafts = true } = {}) 
     loadSecretariatPrecisionRows(competitionId),
     listRejectedWrites(competitionId, { discipline: 'precision' }).catch(() => []),
   ]);
-  if (!keepDrafts) drafts = new Map();
+  groupCtx = precisionGroupContext(
+    rows,
+    row => row.engine,
+    row => row.groupKey,
+    { requireFinished: true }
+  );
+  if (!keepDrafts) { draftStore = newDraftStore(); drafts = draftStore[currentRound]; }
   else if (savedStartNumber != null) drafts.delete(String(savedStartNumber));
   render();
+}
+
+// A phase-1 correction that changes who qualified for phase 2 (phase 2 then
+// counts or stops counting): the secretariat confirms it first
+function confirmQualificationChange(editBase, patch) {
+  if (currentRound !== 'phase1') return true;
+  const change = phase2QualificationChange(editBase.engine, calculateSecretariatPrecisionDraft(editBase, patch));
+  if (!change) return true;
+  const what = change.after ? t('secretariat_precision_qualification_gained') : t('secretariat_precision_qualification_lost');
+  return window.confirm(t('secretariat_precision_qualification_changed').replace('{sn}', String(editBase.startNumber)).replace('{what}', what));
 }
 
 async function handleAction(event) {
@@ -294,10 +388,11 @@ async function handleAction(event) {
   if (!rowEl) return;
 
   const sn = rowEl.dataset.sn;
-  const baseRow = rows.find(row => String(row.startNumber) === sn);
+  const baseRow = findRow(sn);
   if (!baseRow) return;
 
   const action = button.dataset.action;
+  const round = currentRound;
 
   try {
     if (action === 'unlock') {
@@ -319,9 +414,10 @@ async function handleAction(event) {
       if (drafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga värden innan du sparar.');
       if (!drafts.has(sn)) return;
       const patch = collectPatch(rowEl, editBase);
-      const correction = await askCorrectionReason({ summary: `Precision #${sn}` });
+      if (!confirmQualificationChange(editBase, patch)) return;
+      const correction = await askCorrectionReason({ summary: `Precision #${sn}${round === 'phase1' ? '' : ` (${roundLabel(round)})`}` });
       if (!correction) return;
-      await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase });
+      await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase, round });
       showAlert(`Ändringar sparade för #${sn}.`);
       await refreshData({ savedStartNumber: sn });
       return;
@@ -333,12 +429,35 @@ async function handleAction(event) {
       if (!(await confirmFinalizeWithGaps(competitionId, 'precision', sn))) return;
       if (drafts.has(sn)) {
         const patch = collectPatch(rowEl, editBase);
+        if (!confirmQualificationChange(editBase, patch)) return;
         const correction = await askCorrectionReason({ summary: `Precision #${sn}, före finalisering` });
         if (!correction) return;
-        await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase });
+        await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase, round });
       }
       await refinalizeResult(competitionId, 'precision', sn);
       showAlert(`Resultat #${sn} finaliserat.`);
+      await refreshData({ savedStartNumber: sn });
+      return;
+    }
+
+    if (action === 'driveoff-finalize') {
+      // The drive-off has its own lock: edited fields are saved first, then it is closed
+      if (drafts.get(sn)?.__invalid) throw new Error('Rätta ogiltiga värden innan du finaliserar.');
+      if (drafts.has(sn)) {
+        const patch = collectPatch(rowEl, editBase);
+        const correction = await askCorrectionReason({ summary: `Precision #${sn} (${roundLabel(round)}), före finalisering` });
+        if (!correction) return;
+        await saveSecretariatPrecisionRow(competitionId, sn, patch, correction, { baseRow: editBase, round });
+      }
+      await finalizePrecisionDriveOff(competitionId, sn);
+      showAlert(t('secretariat_precision_driveoff_finalized').replace('{sn}', sn));
+      await refreshData({ savedStartNumber: sn });
+      return;
+    }
+
+    if (action === 'driveoff-unfinalize') {
+      await unfinalizePrecisionDriveOff(competitionId, sn);
+      showAlert(t('secretariat_precision_driveoff_unfinalized').replace('{sn}', sn));
       await refreshData({ savedStartNumber: sn });
     }
   } catch (error) {
@@ -348,6 +467,10 @@ async function handleAction(event) {
 }
 
 function wireEvents() {
+  rootEl.querySelectorAll('[data-round-tab]').forEach(tab => {
+    tab.addEventListener('click', () => setRound(tab.dataset.roundTab));
+  });
+
   rootEl.querySelector('#secretariatSearch')?.addEventListener('input', event => {
     const value = event.target.value || '';
     const selStart = event.target.selectionStart ?? value.length;
@@ -495,9 +618,12 @@ export function unload() {
   rejectedWrites = [];
   noticesHost?.destroy();
   noticesHost = null;
-  drafts = new Map();
+  currentRound = 'phase1';
+  draftStore = newDraftStore();
+  drafts = draftStore.phase1;
+  groupCtx = null;
   filters = { search: '', status: 'all', className: 'all' };
 }
 
 // A new version of the app asks before reloading while there are unsaved changes
-registerUnsavedWork('secretariat-precision', () => drafts.size > 0);
+registerUnsavedWork('secretariat-precision', () => ROUND_KEYS.some(round => draftStore[round].size > 0));

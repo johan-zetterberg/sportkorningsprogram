@@ -22,6 +22,8 @@ import { getTeamScoringProfile } from '../../services/teamRuleProfiles.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { JUDGE_MAPPING_NOTICE_ID, renderJudgeMappingNotice } from '../../ui/judgeMappingNotice.js';
 import { RESULT_SETTINGS_NOTICE_ID, marathonSettingsIssues, precisionSettingsIssues, renderResultSettingsNotice } from '../../ui/resultSettingsNotice.js';
+import { getPrecisionFormat } from '../../utils/precisionCalculation.js';
+import { isMultiRoundPrecisionFormat } from '../precision/precisionRoundsDisplay.js';
 import { ensureClubLogosLoaded, getClubLogoHtml, getClubLogoUrl } from '../../services/logosService.js';
 import { getFlagHtml, flagPngUrl, normalizeCountryCode } from '../../services/flagsService.js';
 import { getPrograms } from '../../utils/dressageUtils.js';
@@ -548,6 +550,21 @@ function injectTotalResultsStyles() {
   style.textContent = css;
   document.head.appendChild(style);
 }
+// Classes with two phases or a drive-off: the total counts phase 1 / the
+// initial round only (TR 533.2, FEI 971)
+function renderPrecisionRoundsFootnote() {
+  const host = document.getElementById('totalPrecisionRoundsNote');
+  if (!host) return;
+  const config = precisionConfig || {};
+  const labels = [...new Set((equipages || [])
+    .filter(eq => isMultiRoundPrecisionFormat(getPrecisionFormat(eq, config)))
+    .map(eq => eq._mergedLabel || eq.className)
+    .filter(Boolean))].sort((a, b) => a.localeCompare(b, 'sv'));
+  host.innerHTML = labels.length
+    ? `<p class="mt-2 text-xs text-gray-600 dark:text-gray-300" role="note"><strong>${escapeHtml(t('precision_total_footnote'))}</strong> ${escapeHtml(t('precision_total_footnote_classes'))} ${escapeHtml(labels.join(', '))}</p>`
+    : '';
+}
+
 function placeWithinClass(rows) {
   return placeTotalRowsWithinClass(rows);
 }
@@ -1053,6 +1070,7 @@ function renderLayout() {
     </div>
 
     <div id="totalResultsContainer"></div>
+    <div id="totalPrecisionRoundsNote"></div>
   </div>`;
 
   // --- Export PDF (Enhanced) ---
@@ -1539,6 +1557,7 @@ export async function load(el) {
     marathon: marathonSettingsIssues(equipages, marathonConfig),
     precision: precisionSettingsIssues(equipages, precisionConfig)
   });
+  renderPrecisionRoundsFootnote();
 
   // An archived competition shows the results it was archived with
   const snapshot = await loadArchiveSnapshot(comp);

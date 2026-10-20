@@ -1,3 +1,15 @@
+// Whether a doc has a round clock running (phase 1 on the top level, or rounds.phase2 / rounds.driveOff)
+function anyRoundRunning(doc) {
+  return doc?.running === true || doc?.rounds?.phase2?.running === true || doc?.rounds?.driveOff?.running === true;
+}
+
+// What a full render of phase 2 / drive-off depends on (not the ticking clock)
+function roundsSignature(doc) {
+  const pick = (r) => (r ? [r.running, r.finalized, r.eliminated, r.retired, r.timeMs, r.totalPenalty, r.extraPenalty, r.rebuildCount,
+    r.liveStartEpoch, r.status, r.comment, JSON.stringify(r.knocks || [])] : null);
+  return JSON.stringify([pick(doc?.rounds?.phase2), pick(doc?.rounds?.driveOff), doc?.activeRound ?? null]);
+}
+
 export function applyPrecisionLiveDocChanges(changes, precisionMap, now = Date.now()) {
   let needsFullRender = false;
 
@@ -27,6 +39,12 @@ export function applyPrecisionLiveDocChanges(changes, precisionMap, now = Date.n
       return;
     }
 
+    // A round (phase 2 / drive-off) started, stopped or changed
+    if (roundsSignature(newData) !== roundsSignature(oldData)) {
+      needsFullRender = true;
+      return;
+    }
+
     if (
       newData.finalized !== oldData.finalized ||
       newData.totalPenalty !== oldData.totalPenalty ||
@@ -42,7 +60,7 @@ export function applyPrecisionLiveDocChanges(changes, precisionMap, now = Date.n
 
   let anyRunning = false;
   precisionMap.forEach((data) => {
-    if (data?.running === true) anyRunning = true;
+    if (anyRoundRunning(data)) anyRunning = true;
   });
 
   return { needsFullRender, anyRunning };

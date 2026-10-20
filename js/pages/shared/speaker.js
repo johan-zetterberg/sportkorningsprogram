@@ -51,6 +51,15 @@ import {
     computeMaxSecondsForClass,
     getCalculatedRowData
 } from '../../utils/precisionUtils.js';
+import { getPrecisionFormat } from '../../utils/precisionCalculation.js';
+import { readPrecisionRound } from '../../utils/precisionRounds.js';
+import {
+    currentPrecisionRound,
+    formatPrecisionSeconds,
+    isMultiRoundPrecisionFormat,
+    precisionPlacingScore,
+    precisionRoundLabel,
+} from '../precision/precisionRoundsDisplay.js';
 
 import { startMarathonSimulation } from '../../utils/simulator.js';
 import {
@@ -1426,13 +1435,34 @@ function renderCurrentRiderCard() {
         // Use central calculation logic
         const calcData = getCalculatedRowData(sn, new Map(), allEquipages, precisionStatusMap, precisionConfig, startTimes);
 
+        // The round on the course: phase 2 / a drive-off follow rounds.<r> (the top
+        // level stays phase 1 / the initial round)
+        const round = currentPrecisionRound(d);
+        const eqFormat = getPrecisionFormat(eq, precisionConfig);
+        const multiRound = isMultiRoundPrecisionFormat(eqFormat);
+        const roundDoc = readPrecisionRound(d, round);
+        const roundCalc = round === 'phase1' ? null : (calcData.rounds?.[round] || null);
+        const roundBadgeHtml = multiRound
+            ? `<span class="ml-2 rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold uppercase text-blue-800 dark:bg-blue-900/50 dark:text-blue-200">${escapeHtml(precisionRoundLabel(round, eqFormat))}</span>`
+            : '';
+        // The shown round's figures (phase 1: the top-level result)
+        const shown = round === 'phase1' ? calcData : (roundCalc || {});
+        const shownScoreText = round === 'phase1'
+            ? formatSpeakerPenalty(calcData.totalPenalty, { eliminated: calcData.eliminated })
+            : (shown.eliminated ? 'ELIM'
+                : (shown.scoring === 'time' ? formatPrecisionSeconds(shown.totalPenalty ?? 0) : formatSpeakerPenalty(shown.totalPenalty ?? 0)));
+        const shownKnocksText = round === 'phase1'
+            ? calcData.display.knocksText
+            : ((Array.isArray(roundDoc.knocks) && roundDoc.knocks.length) ? roundDoc.knocks.join(', ') : '–');
+
+
         // Time display
         let timeStr = '—';
-        if (d.running && d.liveStartEpoch) {
-            const ms = (d.livePausedMs || 0) + (Date.now() - d.liveStartEpoch);
+        if (roundDoc.running && roundDoc.liveStartEpoch) {
+            const ms = (roundDoc.livePausedMs || 0) + (Date.now() - roundDoc.liveStartEpoch);
             timeStr = formatMsLive(ms);
-        } else if (calcData.timeMs) {
-            timeStr = formatMsLive(calcData.timeMs);
+        } else if (round === 'phase1' ? calcData.timeMs : shown.timeMs) {
+            timeStr = formatMsLive(round === 'phase1' ? calcData.timeMs : shown.timeMs);
         }
 
         // Compute Top 3 for this class (Precision only)
@@ -1480,14 +1510,23 @@ function renderCurrentRiderCard() {
         }).ranked;
 
         const top3 = allInClass.slice(0, 3);
-        const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
+        // What a place rests on: drive-off / phase-2 score (seconds for a time round), else the penalty;
+        // provisional while a drive-off is pending
+        allInClass.forEach(r => {
+            const tier = precisionCtx.rankKey(r)?.tier;
+            r.scoreText = tier === 0 ? formatPrecisionSeconds(precisionCtx.rankKey(r).penalty)
+                : (tier === 2 ? precisionPlacingScore(r.rankResult).text : null);
+            r.provisional = precisionCtx.isProvisional(r);
+        });
+        const maxSec = round === 'phase1' ? computeMaxSecondsForClass(eq, precisionConfig) : (roundCalc?.maxTimeSec ?? null);
         const maxTimeLabel = maxSec ? msToLabel(maxSec * 1000) : '—';
 
         const myRow = classRows.find(r => String(r.sn) === String(eq.startNumber));
         const myRank = myRow?.plac ?? '-';
 
         let gapHtml = '';
-        if (myRow?.plac > 1 && allInClass[0]) {
+        // Margin in penalty points: not for a class placed on phase 2 / a drive-off
+        if (!multiRound && myRow?.plac > 1 && allInClass[0]) {
             const diff = (myRow.penalty || 0) - (allInClass[0].penalty || 0);
             gapHtml = `<div class="text-xs text-blue-600 dark:text-blue-300 font-bold mt-1">Marginal till ledare: +${diff.toFixed(2)}</div>`;
         }
@@ -1514,8 +1553,8 @@ function renderCurrentRiderCard() {
                 </div>
                 
                 <div class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-center shadow-sm border border-blue-100 dark:border-blue-800 col-span-2 relative overflow-hidden">
-                    <div class="text-xs uppercase tracking-wide text-blue-800 dark:text-blue-300 font-bold">Totalt Straff</div>
-                    <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${formatSpeakerPenalty(calcData.totalPenalty, { eliminated: calcData.eliminated })}</div>
+                    <div class="text-xs uppercase tracking-wide text-blue-800 dark:text-blue-300 font-bold">${round === 'phase1' ? 'Totalt Straff' : escapeHtml(precisionRoundLabel(round, eqFormat))}${roundBadgeHtml && round === 'phase1' ? roundBadgeHtml : ''}</div>
+                    <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${escapeHtml(shownScoreText)}</div>
                     ${!calcData.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-xs font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Plac: ${myRank}</div>` : ''}
                     ${gapHtml}
                 </div>
@@ -1523,18 +1562,18 @@ function renderCurrentRiderCard() {
                 <div class="bg-white dark:bg-gray-800 p-2 rounded-lg text-center border border-gray-200 dark:border-gray-700 col-span-2">
                     <div class="grid grid-cols-2 gap-2 text-sm border-b dark:border-gray-700 pb-2 mb-2">
                         <div>
-                            <span class="block text-red-800 dark:text-red-400 font-bold text-lg leading-none">${formatSpeakerPenalty(Number(calcData.obstaclePenalty) || 0, { decimals: 0 })}</span>
+                            <span class="block text-red-800 dark:text-red-400 font-bold text-lg leading-none">${formatSpeakerPenalty(Number(shown.obstaclePenalty) || 0, { decimals: 0 })}</span>
                             <span class="text-xs text-red-600 dark:text-red-300 uppercase">Hinder</span>
                         </div>
                         <div>
-                            <span id="precision-live-time-penalty" class="block text-amber-800 dark:text-amber-400 font-bold text-lg leading-none">${formatSpeakerPenalty(Number(calcData.timePenalty) || 0)}</span>
+                            <span id="precision-live-time-penalty" class="block text-amber-800 dark:text-amber-400 font-bold text-lg leading-none">${formatSpeakerPenalty(Number(shown.timePenalty) || 0)}</span>
                             <span class="text-xs text-amber-600 dark:text-amber-300 uppercase">Tidsfel</span>
                         </div>
                     </div>
                     <div class="text-left">
                         <div class="text-xs uppercase text-gray-400 font-bold mb-1">Rivningar</div>
                         <div class="text-xs font-bold text-red-700 dark:text-red-400 whitespace-normal leading-tight">
-                            ${escapeHtml(calcData.display.knocksText)}
+                            ${escapeHtml(shownKnocksText)}
                         </div>
                     </div>
                 </div>
@@ -1551,10 +1590,10 @@ function renderCurrentRiderCard() {
                         ${top3.length ? top3.map((r, i) => `
                             <div ${actionAttrs('showRiderDetails', String(r.sn ?? ''))} class="flex justify-between items-center p-2 cursor-pointer hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${String(r.sn) === String(eq.startNumber) ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''}">
                                 <div class="flex items-center gap-2 overflow-hidden">
-                                    <span class="font-bold text-gray-400 w-4 text-center">${r.plac}.</span>
+                                    <span class="font-bold text-gray-400 w-4 text-center">${r.provisional ? `(${r.plac})` : `${r.plac}.`}</span>
                                     <span class="font-bold text-gray-800 dark:text-gray-200 truncate">${escapeHtml(r.name || '')}</span>
                                 </div>
-                                <span class="font-black text-gray-900 dark:text-white ml-2">${formatSpeakerPenalty(r.penalty)}</span>
+                                <span class="font-black text-gray-900 dark:text-white ml-2">${r.scoreText ? escapeHtml(r.scoreText) : formatSpeakerPenalty(r.penalty)}</span>
                             </div>
                         `).join('') : '<div class="p-4 text-center text-gray-400 italic text-sm">Inga resultat</div>'}
                     </div>
@@ -1831,7 +1870,7 @@ function findCurrentPrecisionRider() {
     let maxTs = 0;
 
     for (const [sn, data] of precisionStatusMap.entries()) {
-        if (data.inProgress === true) {
+        if (data.inProgress === true || data.rounds?.phase2?.inProgress === true || data.rounds?.driveOff?.inProgress === true) {
             const ts = data.updatedAt || 0;
             if (ts > maxTs) {
                 maxTs = ts;
@@ -1844,7 +1883,7 @@ function findCurrentPrecisionRider() {
 }
 
 function maybePushRecentPrecision(sn, data) {
-    if (data.inProgress === true) return;
+    if (data.inProgress === true || data.rounds?.phase2?.inProgress === true || data.rounds?.driveOff?.inProgress === true) return;
     if (!data.finalized && data.status !== 'Klar') {
         if (data.totalPenalty == null) return;
     }

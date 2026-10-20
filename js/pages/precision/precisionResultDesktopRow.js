@@ -5,6 +5,24 @@ function defaultFormatPenalty(value) {
   return typeof value === 'number' && Number.isFinite(value) ? value.toFixed(2) : '—';
 }
 
+const ROUND_TONE_CLASS = {
+  ok: 'text-gray-900 dark:text-gray-100',
+  live: 'text-yellow-700 dark:text-yellow-300 animate-pulse',
+  elim: 'text-red-600 dark:text-red-400',
+  warn: 'text-amber-600 dark:text-amber-400',
+  none: 'text-gray-400 dark:text-gray-500'
+};
+
+// One round column cell; .round-main/.round-sub are updated by the live ticker
+export function renderRoundCell(sn, round, cell) {
+  const c = cell || { text: '–', sub: '', tone: 'none', title: '' };
+  const tone = ROUND_TONE_CLASS[c.tone] || ROUND_TONE_CLASS.none;
+  return `<td class="px-2 py-1.5 lg:px-3 lg:py-2.5 round-cell text-xs lg:text-sm" data-sn="${sn}" data-round="${escapeHtml(round)}"${c.title ? ` title="${escapeHtml(c.title)}"` : ''}>
+                    <div class="round-main tabular-nums font-semibold ${tone}">${escapeHtml(c.text)}</div>
+                    <div class="round-sub tabular-nums text-xs text-gray-500 dark:text-gray-400">${escapeHtml(c.sub || '')}</div>
+                </td>`;
+}
+
 export function renderPrecisionResultDesktopRow({
   data,
   index = 0,
@@ -16,12 +34,17 @@ export function renderPrecisionResultDesktopRow({
   overallResult = null,
   statusBadgeClass = '',
   finalizeButtonsHtml = '',
-  formatPenalty = defaultFormatPenalty
+  formatPenalty = defaultFormatPenalty,
+  // Extra round columns (Fas 2 / Omkörning): [{ round, cell }] from formatPrecisionRoundCell
+  roundCells = [],
+  // The place as shown ("(1)" while provisional); default the plain place
+  placeLabel = null
 }) {
   // Escaped for the HTML below (text and attributes)
   const sn = escapeHtml(String(data.eq.startNumber ?? ''));
   const isStruken = data.eq.status === 'struken';
-  const isActive = data.status && data.status.includes('Påg');
+  // A running phase 2 / drive-off (data.liveRound) keeps the row live
+  const isActive = (data.status && data.status.includes('Påg')) || (data.liveRound && data.liveRound !== 'phase1');
   const timeMs = Number(data.d?.timeMs);
   const timeTitle = Number.isFinite(timeMs)
     ? `${data.display.timeLabel} (${(timeMs / 1000).toFixed(2)} s)`
@@ -49,7 +72,7 @@ export function renderPrecisionResultDesktopRow({
 
   return `
            <tr class="${rowBgClass} hover:bg-blue-100 dark:hover:bg-gray-700 cursor-pointer text-gray-900 dark:text-gray-200" data-sn="${sn}" style="${rowStyle}">
-                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 font-semibold text-xs lg:text-sm">${data.place || '–'}</td>
+                <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 font-semibold text-xs lg:text-sm">${escapeHtml(placeLabel ?? (data.place || '–'))}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-xs lg:text-sm sticky-col-start ${rowBgClass || ''}">${sn}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 text-left align-top sticky-col-driver ${rowBgClass || ''}">
                     <button type="button" class="text-xs lg:text-base font-bold text-gray-900 dark:text-white hover:text-blue-700 dark:hover:text-blue-400 hover:underline text-left transition-colors truncate block w-full" title="${escapeHtml(data.eq.driverName)}">${escapeHtml(data.eq.driverName)}</button>
@@ -71,6 +94,7 @@ export function renderPrecisionResultDesktopRow({
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-xs lg:text-sm time-penalty-cell" data-sn="${sn}">${formatPenalty(data.timePenalty)}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums text-xs lg:text-sm">${formatPenalty(data.extraPenalty)}</td>
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums font-semibold text-xs lg:text-sm total-penalty-cell" data-sn="${sn}">${formatPenalty(data.totalPenalty)}</td>
+                ${roundCells.map(({ round, cell }) => renderRoundCell(sn, round, cell)).join('')}
                 <td class="px-2 py-1.5 lg:px-3 lg:py-2.5 tabular-nums font-bold text-xs lg:text-sm text-emerald-600 dark:text-emerald-400 whitespace-nowrap">
                     ${overallLabel}
                 </td>

@@ -1,4 +1,5 @@
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
+import { formatPrecisionSeconds, runningPrecisionRound } from '../precision/precisionRoundsDisplay.js';
 import { stageStartTS } from '../../utils/marathonUtils.js';
 import { calculateLiveInjection, getTotalRanking } from './speakerCalculations.js';
 import { formatSpeakerPenalty, getSpeakerPenaltyOrNull } from './speakerFormatUtils.js';
@@ -28,14 +29,24 @@ export function updateLiveClocks(context) {
         const d = currentRider.data || currentRider.statusData || {};
         const eq = currentRider.eq;
 
-        if (d.running && d.liveStartEpoch) {
+        // The running round: phase 1 is the top level, phase 2 / drive-off run under rounds.<r>
+        const round = runningPrecisionRound(d);
+        if (round && (round !== 'phase1' || d.liveStartEpoch)) {
             // Live time and penalties from the result engine
             const live = calculatePrecisionLiveResult(d, eq, precisionConfig, tickTimeNow);
-            pTimeEl.textContent = formatMsLive(live.elapsedMs ?? 0);
+            const r = round === 'phase1' ? live : live.rounds?.[round];
+            if (r) {
+                pTimeEl.textContent = formatMsLive(r.elapsedMs ?? 0);
 
-            if (pPenEl && pTotEl) {
-                pPenEl.textContent = formatSpeakerPenalty(live.timePenalty ?? 0);
-                pTotEl.textContent = formatSpeakerPenalty(live.totalPenalty ?? 0, { eliminated: live.eliminated });
+                if (pPenEl && pTotEl) {
+                    pPenEl.textContent = formatSpeakerPenalty(r.timePenalty ?? 0);
+                    if (round === 'phase1') {
+                        pTotEl.textContent = formatSpeakerPenalty(r.totalPenalty ?? 0, { eliminated: r.eliminated });
+                    } else {
+                        pTotEl.textContent = r.eliminated ? 'ELIM'
+                            : (r.scoring === 'time' ? formatPrecisionSeconds(r.totalPenalty ?? 0) : formatSpeakerPenalty(r.totalPenalty ?? 0));
+                    }
+                }
             }
         }
     }

@@ -29,7 +29,6 @@ import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { PRECISION_KNOCKDOWN_PENALTY } from '../../core-engine/rules-ledger.js';
 import {
-    computeMaxSecondsForClass,
     calculatePrecisionResult,
     getPortAllowanceCm,
     getPrecisionCourseData,
@@ -44,12 +43,43 @@ import {
     buildPrecisionSavePayload,
     checkPrecisionClock,
     clockFaultMessage,
+    buildPhase1FinishWrite,
     penaltyCorrection,
     rebuildLabel,
     sortKnocks,
     storedRebuildCount
 } from './precisionInputUtils.js';
-import { formatPrecisionAddedTime, nextPrecisionRebuildCount, precisionRebuildCount } from '../../utils/precisionCalculation.js';
+import {
+    calculatePrecisionRoundResult,
+    computePrecisionRoundMaxSec,
+    formatPrecisionAddedTime,
+    getPrecisionFormat,
+    getPrecisionRoundObstacleLabels,
+    isPrecisionDriveOffScheduled,
+    nextPrecisionRebuildCount,
+    precisionRebuildCount
+} from '../../utils/precisionCalculation.js';
+import {
+    PRECISION_ROUND_WARNING_TEXT,
+    buildPrecisionKnockWrite,
+    buildPrecisionRebuildWrite,
+    buildPrecisionRoundRetireWrite,
+    canStartPrecisionRound,
+    nestPrecisionRoundPayload,
+    precisionRoundsForFormat,
+    readPrecisionRound
+} from '../../utils/precisionRounds.js';
+import { precisionGroupContext } from '../../core-engine/ranking.js';
+import { getClassRuleProfile } from '../../core-engine/marathon.js';
+import {
+    buildQualifiedSummary,
+    driveOffStartList,
+    pickPrecisionRound,
+    precisionGroupKeyFn,
+    precisionRoundLabelKey,
+    precisionWarningKey
+} from './precisionRoundInput.js';
+import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 
 // ---------- State ----------
@@ -59,6 +89,17 @@ let precisionConfig = {};
 let currentEquipage = null;
 let searchableDropdown = null;
 let currentUnsubscribe = null;
+
+// Round formats (two phases, drive-off): the round shown and driven. All state
+// below (clock, knocks, rebuilds, extra, comment) belongs to this round; phase 1
+// is the doc's top level, the others rounds.<round>.
+let currentRound = 'phase1';
+let marathonConfig = null; // rule profile (TR/FEI) per class
+let groupKeyOf = (e) => `CLASS:${e?.className || ''}`; // placing group (merged classes), as the results page
+let startTimesMap = {};
+let precisionResultsMap = new Map(); // sn -> stored doc, live (only with round formats)
+let resultsUnsubscribe = null;
+let fullEquipageList = []; // the dropdown's list for the initial round
 
 let knocks = new Set();
 let knockDownTimes = {}; // NY: { "3A": 12345, ... }
@@ -106,9 +147,41 @@ function clockCheck() {
         startEpoch,
         pausedMs,
         nowMs: nowMs(),
-        maxSec: computeMaxSecondsForClass(currentEquipage, precisionConfig)
+        maxSec: roundMaxSec()
     });
 }
+
+// ---------- Round helpers ----------
+const calcOptions = () => ({ marathonConfig });
+const ruleProfileOf = (eq) => getClassRuleProfile(eq?.className, marathonConfig);
+
+// The current round's max time / Time Allowed in seconds (null without course data)
+function roundMaxSec(eq = currentEquipage, round = currentRound) {
+    if (!eq) return null;
+    return computePrecisionRoundMaxSec(eq, precisionConfig, round, { ruleProfile: ruleProfileOf(eq) });
+}
+
+function equipageFormat(eq = currentEquipage) {
+    return eq ? getPrecisionFormat(eq, precisionConfig) : 'normal';
+}
+
+// The rounds the equipage's class drives, in order
+function roundsFor(eq = currentEquipage) {
+    if (!eq) return ['phase1'];
+    return precisionRoundsForFormat(equipageFormat(eq), { driveOffScheduled: isPrecisionDriveOffScheduled(eq, precisionConfig) });
+}
+
+// The result engine's view of the stored doc (qualification, warnings)
+function storedResult(eq = currentEquipage) {
+    if (!eq) return null;
+    return calculatePrecisionResult(storedDocFor(eq.startNumber) || {}, eq, precisionConfig, calcOptions());
+}
+
+// The equipage's stored fields of the round shown
+const roundFields = (data) => readPrecisionRound(data, currentRound);
+
+// Scoring of a round's own calculation: 'time' rounds count seconds
+const calcUnit = (calc) => (calc?.scoring === 'time' ? ' s' : '');
 
 function getElapsedMs() {
     // Elapsad tid = ackumulerad pausad tid + tid sedan senaste start
@@ -143,6 +216,18 @@ function precisionBackupKey(sn) {
 
 function readPrecisionBackup(sn) {
     return readNewestBackupData([precisionBackupKey(sn)]);
+}
+
+// Firestore sentinels for the round write builders (precisionRounds.js)
+const FS = { arrayUnion, arrayRemove, increment, deleteField };
+
+// Backup of one round's fields: phase 1 on the top level, the others under
+// rounds.<round> (the backup merge is shallow, so the rounds map is merged here)
+function mirrorRound(sn, round, fields) {
+    if (!sn || !competitionId) return;
+    if (round === 'phase1') { mirrorToLocal(sn, fields); return; }
+    const existing = readPrecisionBackup(sn);
+    mirrorToLocal(sn, { rounds: { ...(existing?.rounds || {}), [round]: { ...(existing?.rounds?.[round] || {}), ...fields } } });
 }
 
 // Mirror data to localStorage for redundancy
@@ -186,6 +271,10 @@ function computePortWidthForEquipage(eq) {
     return computePortWidth(eq, precisionConfig);
 }
 function getLabelsForClass(cls) {
+    // Phase 2 and the drive-off have their own cones (drive-off: the initial round's when none)
+    if (currentRound !== 'phase1' && currentEquipage) {
+        return getPrecisionRoundObstacleLabels(currentEquipage, precisionConfig, currentRound);
+    }
     const courseData = getPrecisionCourseData(
         currentEquipage && currentEquipage.className === cls ? currentEquipage : cls,
         precisionConfig
@@ -202,19 +291,20 @@ function knockdownPenalty() {
 // Live penalties for the current equipage at elapsedMs, from the result engine
 function livePenalties(elapsedMs, knockList = Array.from(knocks)) {
     const extraPenalty = parseFloat(document.getElementById('pr-extraPenaltyInput')?.value) || 0;
-    const calc = calculatePrecisionResult({
+    const calc = calculatePrecisionRoundResult({
         running: true,
         liveTimeMs: elapsedMs,
         knocks: knockList,
         rebuildCount,
         extraPenalty
-    }, currentEquipage, precisionConfig);
+    }, currentEquipage, precisionConfig, currentRound, calcOptions());
     return {
         timePenalty: calc.timePenalty ?? 0,
         obstaclePenalty: calc.obstaclePenalty ?? 0,
         extraPenalty,
         totalPenalty: calc.totalPenalty ?? 0,
-        maxSec: calc.maxTimeSec
+        maxSec: calc.maxTimeSec,
+        scoring: calc.scoring || 'fault'
     };
 }
 
@@ -274,21 +364,23 @@ async function saveKnockToggle(equipage, gateLabel, shouldAdd, elapsedMs) {
         extraPenalty
     } = livePenalties(getElapsedMs(), knocksArray);
 
-    mirrorToLocal(equipage.startNumber, { knocks: knocksArray, knockDownTimes: { ...knockDownTimes }, updatedAt: Date.now() });
-    const write = setDoc(precisionDocRef(equipage.startNumber), {
-        startNumber: equipage.startNumber,
-        className: equipage.className,
-        knocks: shouldAdd ? arrayUnion(gateLabel) : arrayRemove(gateLabel),
-        knockDownTimes: { [gateLabel]: shouldAdd ? elapsedMs : deleteField() },
-        // A saved obstacle penalty would win over the knock list: from now on
-        // the result engine counts the stored knocks
-        obstaclePenalty: deleteField(),
+    const round = currentRound;
+    mirrorRound(equipage.startNumber, round, { knocks: knocksArray, knockDownTimes: { ...knockDownTimes }, updatedAt: Date.now() });
+    // A saved obstacle penalty would win over the knock list: the builder
+    // removes it, from now on the result engine counts the stored knocks. A
+    // cone hit in phase 2 counts in phase 2 (round path).
+    const write = setDoc(precisionDocRef(equipage.startNumber), buildPrecisionKnockWrite({
+        round,
+        gate: gateLabel,
+        add: shouldAdd,
+        elapsedMs,
         liveObstaclePenalty,
         liveTotalPenalty,
         extraPenalty,
-        updatedAt: Date.now()
-    }, { merge: true });
-    return awaitWriteOrQueue(write, { onLateError: lateRejection(equipage.startNumber, { gate: gateLabel, knock: shouldAdd, elapsedMs }, 'precision-input:knock') });
+        startNumber: equipage.startNumber,
+        className: equipage.className
+    }, FS), { merge: true });
+    return awaitWriteOrQueue(write, { onLateError: lateRejection(equipage.startNumber, { gate: gateLabel, knock: shouldAdd, elapsedMs, round }, 'precision-input:knock') });
 }
 
 // The rebuild count next to the clock, and the undo only when there is one
@@ -316,17 +408,18 @@ async function changeRebuildCount(delta) {
     rebuildCount = next;
     renderRebuildInfo();
     updateTimerView();
-    const value = delta > 0 ? increment(delta) : next;
-    mirrorToLocal(equipage.startNumber, { rebuildCount: next, updatedAt: Date.now() });
+    const round = currentRound;
+    mirrorRound(equipage.startNumber, round, { rebuildCount: next, updatedAt: Date.now() });
     try {
         await awaitWriteOrQueue(
-            setDoc(precisionDocRef(equipage.startNumber), {
+            setDoc(precisionDocRef(equipage.startNumber), buildPrecisionRebuildWrite({
+                round,
+                delta,
+                next,
                 startNumber: equipage.startNumber,
-                className: equipage.className,
-                rebuildCount: value,
-                updatedAt: Date.now()
-            }, { merge: true }),
-            { onLateError: lateRejection(equipage.startNumber, { rebuildCount: next }, 'precision-input:rebuild') }
+                className: equipage.className
+            }, FS), { merge: true }),
+            { onLateError: lateRejection(equipage.startNumber, { rebuildCount: next, round }, 'precision-input:rebuild') }
         );
     } catch (error) {
         reportWriteError(equipage.startNumber, error);
@@ -376,17 +469,21 @@ function lateRejection(startNumber, summary, source = 'precision-input') {
 // Start, stop, penalties and the like: answers 'saved' or 'queued' after a
 // short wait (offline), a refusal is shown to the judge, also a late one.
 // Never rejects.
-async function pushLiveSafe(update) {
+// `top` fields (activeRound on a start) go on the doc's top level; the update
+// itself goes to the round shown (top level for phase 1, rounds.<round> else)
+async function pushLiveSafe(update, top = {}) {
     const equipage = currentEquipage;
     if (!equipage) return null;
-    const snapshot = {
+    const round = currentRound;
+    const now = Date.now();
+    const snapshot = nestPrecisionRoundPayload(round, { ...update, updatedAt: now }, {
         startNumber: equipage.startNumber,
         className: equipage.className,
-        ...update,
-        updatedAt: Date.now()
-    };
+        updatedAt: now,
+        ...top
+    });
     // Backup first: the write's promise waits for the server
-    mirrorToLocal(equipage.startNumber, snapshot);
+    mirrorRound(equipage.startNumber, round, { ...update, updatedAt: now });
     try {
         return await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), snapshot, { merge: true }),
@@ -590,6 +687,7 @@ function renderLayout() {
                             <button id="pr-btnRebuildUndo" type="button" class="hidden min-h-[44px] min-w-[44px] px-3 rounded-lg border text-sm font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200" aria-label="Ångra en ombyggnad (−10 s)" title="Ångra en ombyggnad">−1</button>
                             <span id="pr-rebuildInfo" class="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300"></span>
                         </div>
+                        <button id="pr-btnPhase1Finish" type="button" class="hidden mt-2 w-full sm:w-auto min-h-[44px] px-4 rounded-lg bg-indigo-600 text-white text-base font-bold shadow-sm active:scale-95 hover:bg-indigo-700">${t('precision_phase1_finish')}</button>
                     </div>
                     <div class="precision-control-strip ${isFieldMode ? 'is-field' : 'is-live'} flex gap-2 sm:shrink-0">
                         <div class="precision-primary-controls flex gap-2">
@@ -622,6 +720,9 @@ function renderLayout() {
                         <button id="pr-btnNextEq" type="button" aria-label="Nästa ekipage" class="precision-nav-btn min-w-[44px] min-h-[44px] p-2 border rounded-md bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">&raquo;</button>
                     </div>
                     
+                    <div id="pr-roundTabs" role="tablist" aria-label="${escapeHtml(t('precision_round_selector'))}" class="hidden"></div>
+                    <div id="pr-roundBanner" role="alert" class="hidden space-y-1"></div>
+
                     <div class="p-3 bg-blue-50/50 dark:bg-blue-900/10 rounded-lg border border-blue-100 dark:border-blue-800/30">
                         <div class="flex flex-wrap items-center gap-2">
                             <div id="pr-infoEquipageLine" class="font-bold dark:text-white text-base md:text-lg">–</div>
@@ -677,13 +778,17 @@ function renderLayout() {
                         <span>${t('precision_extra_penalty').split(' ')[0]}</span><span id="pr-uiExtraPenalty" class="tabular-nums dark:text-gray-200">0</span>
                     </div>
                     <div class="w-full text-center rounded bg-blue-600 text-white px-3 py-2 text-sm">
-                        TOTALT: <span id="pr-uiTotalPenalty" class="tabular-nums">0.00</span>
+                        TOTALT: <span id="pr-uiTotalPenalty" class="tabular-nums">0.00</span><span id="pr-uiTotalUnit"></span>
                     </div>
                 </div>
+
+                <!-- KVALIFICERADE (fas 2 / omkörning) -->
+                <div id="pr-qualPanel" class="hidden rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 text-sm dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-gray-100"></div>
 
                 <!-- ÅTGÄRDER -->
                 <div class="flex flex-col gap-3 pt-2">
                     <button id="pr-btnSave" class="w-full text-lg py-4 bg-emerald-600 text-white font-bold rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all">${t('precision_save_results')}</button>
+                    <button id="pr-btnRetire" type="button" class="hidden w-full min-h-[44px] py-3 border-2 border-amber-500 text-amber-800 dark:text-amber-200 font-bold rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20">${t('precision_driveoff_retire')}</button>
                     <button id="pr-btnBackupPreJson" type="button" class="min-h-[44px] text-[10px] text-gray-500 hover:text-blue-500 flex items-center justify-center gap-1">
                         <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
                     </button>
@@ -711,7 +816,7 @@ function updateHeaderInfo() {
     const isStandard = isStandardPortWidthClass(eq, precisionConfig);
     const portWidth = computePortWidthForEquipage(eq);
     const trackWidth = trackWidthFromEq(eq);
-    const maxSeconds = computeMaxSecondsForClass(eq, precisionConfig);
+    const maxSeconds = roundMaxSec(eq);
     const compliance = getCarriageCompliance(eq, 'dressagePrecision');
 
     if (equipageEl) {
@@ -838,7 +943,7 @@ function renderTimerUI(t, clock = clockCheck()) {
     if (timerEl) {
         timerEl.textContent = timerStr;
         // Visuell feedback om vi kört över maxtid (valfritt)
-        const maxSec = computeMaxSecondsForClass(currentEquipage, precisionConfig);
+        const maxSec = roundMaxSec();
         if (maxSec > 0 && (t / 1000) > maxSec) {
             timerEl.classList.add('text-red-600', 'dark:text-red-400');
         } else {
@@ -893,6 +998,9 @@ function renderTimerUI(t, clock = clockCheck()) {
         }
         if (epEl) epEl.textContent = Number.isFinite(extraPenaltyVal) ? extraPenaltyVal.toFixed(2) : '0.00';
         if (ttEl) ttEl.textContent = Number.isFinite(total) ? total.toFixed(2) : '—';
+        // Time rounds (FEI phase 2, drive-off) count seconds, fault rounds penalty points
+        const unitEl = document.getElementById('pr-uiTotalUnit');
+        if (unitEl) unitEl.textContent = live.scoring === 'time' ? ' s' : '';
     }
 
     // --- 4) Summering i hedern (Hinder) ---
@@ -911,6 +1019,21 @@ function renderTimerUI(t, clock = clockCheck()) {
 function updateTimerView() {
     const clock = clockCheck();
     renderTimerUI(clock.elapsedMs, clock);
+    updateRoundControls();
+}
+
+// Whether the equipage may start the round shown (phase 2 only after a clear
+// phase 1, the drive-off only for a qualifier); { ok, reason }
+function roundStartCheck() {
+    if (!currentEquipage || currentRound === 'phase1') return { ok: true, reason: null };
+    const sn = String(currentEquipage.startNumber);
+    return canStartPrecisionRound(storedResult(), currentRound, { groupCtx: groupContextOf(currentEquipage), startNumber: sn });
+}
+
+function refusalText(reason) {
+    const key = precisionWarningKey(reason);
+    const text = t(key);
+    return text && text !== key ? text : (PRECISION_ROUND_WARNING_TEXT[reason] || String(reason || ''));
 }
 
 
@@ -923,6 +1046,13 @@ function startTimer() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     if (isRunning) return;
 
+    // Phase 2 / drive-off: not for an equipage that did not qualify
+    const startCheck = roundStartCheck();
+    if (!startCheck.ok) {
+        showAlert(refusalText(startCheck.reason), false);
+        return;
+    }
+
     isRunning = true;
     clockStartedHereFor = currentEquipage ? String(currentEquipage.startNumber) : null;
     // A new offset measurement mid-run would shift start against stop
@@ -933,7 +1063,12 @@ function startTimer() {
     timerInterval = setInterval(updateTimerView, 90); // ~10 fps i UI
     updateTimerView();     // uppdatera UI direkt
     inProgress = true;     // <-- NYTT
-    pushImmediateState();  // meddela resultatvyn att vi kör (och att vi är inProgress)
+    // meddela resultatvyn att vi kör (och att vi är inProgress); the live views
+    // follow activeRound (the top-level running stays false in phase 2 / drive-off).
+    // A drive-off started again after "Ej startat" is no longer retired.
+    const retiredBefore = currentRound !== 'phase1' && readPrecisionRound(storedDocFor(currentEquipage?.startNumber), currentRound).retired === true;
+    pushLiveSafe({ ...getLivePayload(), ...(retiredBefore ? { retired: false } : {}) }, { activeRound: currentRound });
+    renderRoundBanner();
 }
 function stopTimer() {
     // Om redan stoppad: pusha ändå läget (running:false)
@@ -1007,6 +1142,7 @@ function resetTimer() {
         knockDownTimes: {},
         rebuildCount: 0,
         finalized: false,
+        ...(currentRound !== 'phase1' ? { retired: false } : {}),
         // The saved time and comment of the round being reset go too
         timeMs: null,
         comment: '',
@@ -1018,7 +1154,8 @@ function resetTimer() {
 }
 
 function applyLiveDocToState(data = null) {
-    const payload = data && typeof data === 'object' ? data : {};
+    // The fields of the round shown (the doc itself for phase 1)
+    const payload = roundFields(data && typeof data === 'object' ? data : {});
     const liveStartEpoch = Number(payload.liveStartEpoch);
     const livePausedMs = Number(payload.livePausedMs);
     // The clock's current time is liveTimeMs (every stop, knock, correction and
@@ -1074,6 +1211,250 @@ function applyLiveDocToState(data = null) {
     renderGates();
     updateObstaclePenaltySummary();
     renderTimerUI(getElapsedMs());
+    renderRoundUi();
+    renderRoundBanner();
+    updateRoundControls();
+}
+
+// ---------- Rounds: selector, banner, qualified panel ----------
+let roundUiSignature = '';
+let roundAdoptedFor = null; // the start number whose round the judge picked by hand
+let groupCtx = null; // precisionGroupContext of the class(es) with round formats
+let dropdownList = []; // what the equipage dropdown lists now
+
+const roundFormatsInUse = () => equipages.some((e) => e.status !== 'struken' && roundsFor(e).length > 1);
+
+function groupContextOf(eq) {
+    if (!groupCtx || !eq) return null;
+    const row = equipages.find((e) => String(e.startNumber) === String(eq.startNumber));
+    return row ? groupCtx.contextOf(row) : null;
+}
+
+function recomputeGroupContext() {
+    if (!roundFormatsInUse()) { groupCtx = null; return; }
+    const rows = equipages.filter((e) => e.status !== 'struken');
+    groupCtx = precisionGroupContext(
+        rows,
+        (r) => calculatePrecisionResult(precisionResultsMap.get(String(r.startNumber)) || {}, r, precisionConfig, calcOptions()),
+        (r) => groupKeyOf(r),
+        { requireFinished: true }
+    );
+}
+
+// The dropdown lists everyone in the initial round, only the qualifiers in the drive-off
+function refreshDropdownList() {
+    if (!searchableDropdown) return;
+    dropdownList = currentRound === 'driveOff' && groupCtx
+        ? driveOffStartList(fullEquipageList, groupCtx.groups, startTimesMap)
+        : fullEquipageList;
+    searchableDropdown.updateData(dropdownList);
+}
+
+// On every snapshot: a round whose clock runs wins, unless the judge picked a round by hand
+function adoptRoundOnce(sn, data) {
+    if (roundAdoptedFor === String(sn)) return;
+    const next = pickPrecisionRound(data, roundsFor(), currentRound);
+    if (next !== currentRound) {
+        currentRound = next;
+        refreshDropdownList();
+    }
+}
+
+function renderRoundUi() {
+    const host = document.getElementById('pr-roundTabs');
+    if (!host) return;
+    const rounds = roundsFor();
+    const signature = `${currentEquipage?.startNumber ?? ''}|${rounds.join(',')}|${currentRound}`;
+    if (signature === roundUiSignature) return;
+    roundUiSignature = signature;
+    if (!currentEquipage || rounds.length < 2) {
+        host.classList.add('hidden');
+        host.innerHTML = '';
+        return;
+    }
+    const format = equipageFormat();
+    host.innerHTML = `<div class="grid gap-2 ${rounds.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}">${rounds.map((r) => {
+        const active = r === currentRound;
+        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format)))}</button>`;
+    }).join('')}</div>`;
+    host.classList.remove('hidden');
+}
+
+function renderRoundBanner() {
+    const host = document.getElementById('pr-roundBanner');
+    if (!host) return;
+    const eq = currentEquipage;
+    const codes = [];
+    if (eq) {
+        const result = storedResult(eq);
+        (result?.formatWarnings || []).forEach((c) => codes.push(c));
+        const ctx = groupContextOf(eq);
+        (ctx?.warnings || []).forEach((w) => {
+            if (w.startNumber == null || String(w.startNumber) === String(eq.startNumber)) codes.push(w.code);
+        });
+        if (ctx?.driveOffPending && currentRound === 'driveOff') codes.push('driveOffPending');
+        const check = roundStartCheck();
+        if (!check.ok && !isRunning) codes.push(check.reason);
+    }
+    const unique = [...new Set(codes)];
+    host.innerHTML = unique.map((c) => `<div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-900/30 dark:text-amber-100">⚠️ ${escapeHtml(refusalText(c))}</div>`).join('');
+    host.classList.toggle('hidden', unique.length === 0);
+}
+
+function renderQualifiedPanel() {
+    const host = document.getElementById('pr-qualPanel');
+    if (!host) return;
+    if (!groupCtx) { host.classList.add('hidden'); host.innerHTML = ''; return; }
+    const rows = equipages.filter((e) => e.status !== 'struken');
+    const summary = buildQualifiedSummary(
+        rows,
+        (r) => calculatePrecisionResult(precisionResultsMap.get(String(r.startNumber)) || {}, r, precisionConfig, calcOptions()),
+        groupCtx.groups,
+        startTimesMap
+    );
+    if (!summary.phase2.length && !summary.driveOff.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
+    const item = (m) => `<li>#${escapeHtml(String(m.startNumber))} ${escapeHtml(m.driverName)} <span class="text-xs text-gray-500 dark:text-gray-400">(${escapeHtml(m.className)}) – ${escapeHtml(t(`precision_qual_state_${m.state}`))}</span></li>`;
+    const parts = [`<h3 class="font-bold uppercase text-xs tracking-widest text-indigo-800 dark:text-indigo-200 mb-1">${escapeHtml(t('precision_qualified_title'))}</h3>`];
+    if (summary.phase2.length) {
+        parts.push(`<div class="font-semibold">${escapeHtml(t('precision_qualified_phase2'))}</div><ul class="mb-1 list-disc pl-5">${summary.phase2.map(item).join('')}</ul>`);
+    }
+    summary.driveOff.forEach((g) => {
+        const cls = [...new Set(g.members.map((m) => m.className))].join(' + ');
+        parts.push(`<div class="font-semibold">${escapeHtml(t('precision_qualified_driveoff'))} – ${escapeHtml(cls)} <span class="text-xs font-normal">${escapeHtml(g.complete ? t('precision_driveoff_complete') : t('precision_warn_driveOffPending'))}</span></div><ul class="mb-1 list-disc pl-5">${g.members.map(item).join('')}</ul>`);
+    });
+    host.innerHTML = parts.join('');
+    host.classList.remove('hidden');
+}
+
+// Buttons that depend on the round and the clock: "Fas 1 mål" while phase 1 of a
+// two-phase class runs, "Ej startat omkörning" in a stopped drive-off
+function updateRoundControls() {
+    const finishBtn = document.getElementById('pr-btnPhase1Finish');
+    if (finishBtn) finishBtn.classList.toggle('hidden', !(currentEquipage && equipageFormat() === 'twoPhase' && currentRound === 'phase1' && isRunning));
+    const retireBtn = document.getElementById('pr-btnRetire');
+    if (retireBtn) retireBtn.classList.toggle('hidden', !(currentEquipage && currentRound === 'driveOff' && !isRunning));
+}
+
+function switchRound(round) {
+    const eq = currentEquipage;
+    if (!eq || round === currentRound || !roundsFor(eq).includes(round)) return;
+    // This device's clock belongs to the round it started: stop it first
+    if (isRunning && clockStartedHereFor === String(eq.startNumber)) {
+        showAlert(t('precision_round_switch_running'), 'warning');
+        return;
+    }
+    stopTimerLocal();
+    currentRound = round;
+    roundAdoptedFor = String(eq.startNumber); // the judge's choice stays
+    clearFormDirty();
+    refreshDropdownList();
+    applyLiveDocToState(storedDocFor(eq.startNumber) || readPrecisionBackup(eq.startNumber));
+}
+
+// Live listener over all results: who qualified for phase 2 / the drive-off
+function startResultsListener() {
+    if (resultsUnsubscribe) { try { resultsUnsubscribe(); } catch { } resultsUnsubscribe = null; }
+    if (!roundFormatsInUse()) { groupCtx = null; renderQualifiedPanel(); return; }
+    const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
+    resultsUnsubscribe = resilientSnapshot({
+        name: 'precision-input:results',
+        subscribe: (onNext, onError) => onSnapshot(colRef, onNext, onError),
+        onData: (snap) => {
+            precisionResultsMap = new Map(snap.docs.map((d) => [String(d.id), d.data()]));
+            recomputeGroupContext();
+            renderQualifiedPanel();
+            renderRoundBanner();
+            refreshDropdownList();
+        },
+        onStatus: (status) => connectionBanner.update('precision-results', status)
+    });
+}
+
+// "Fas 1 mål" (two phases): one write saves phase 1 at the finish line and, when
+// it is clear, starts phase 2 at the same instant (FEI 979.1.1, TR 530.1.3 "direkt
+// utan ny startsignal"); otherwise the clock just stops (the judge's bell)
+async function finishPhase1() {
+    const equipage = currentEquipage;
+    if (!equipage || currentRound !== 'phase1' || !isRunning || saveInFlight) return;
+    const splitEpoch = nowMs();
+    const clock = checkPrecisionClock({ startEpoch, pausedMs, nowMs: splitEpoch, maxSec: roundMaxSec() });
+    if (!clock.ok) {
+        showAlert(`${clockFaultMessage(clock.reason)} ${t('precision_phase1_finish_fault')}`, 'warning');
+        return;
+    }
+    const splitMs = Math.max(0, Math.round(clock.elapsedMs));
+    const extraPenaltyValue = parseFloat(document.getElementById('pr-extraPenaltyInput')?.value) || 0;
+    const eliminated = !!document.getElementById('pr-eliminatedInput')?.checked;
+    const commentValue = document.getElementById('pr-commentInput')?.value?.trim() || '';
+    const calculate = (data) => calculatePrecisionResult(data, equipage, precisionConfig, calcOptions());
+    const stored = storedDocFor(equipage.startNumber) || { knocks: Array.from(knocks), rebuildCount };
+    const finish = buildPhase1FinishWrite({
+        stored,
+        splitMs,
+        splitEpoch,
+        extraPenalty: extraPenaltyValue,
+        eliminated,
+        comment: commentValue,
+        startNumber: equipage.startNumber,
+        className: equipage.className,
+        calculate,
+        notStartedLabel: t('precision_not_started')
+    });
+    const { payload, calc, knocks: countedKnocks, qualified } = finish;
+
+    saveInFlight = true;
+    const { rounds: nextRounds, activeRound: nextActive, ...topFields } = payload;
+    mirrorToLocal(equipage.startNumber, { ...topFields, ...(nextActive ? { activeRound: nextActive } : {}), knocks: countedKnocks });
+    if (nextRounds?.phase2) mirrorRound(equipage.startNumber, 'phase2', nextRounds.phase2);
+    clearFormDirty();
+    if (!qualified) stopTimerLocal();
+    else { startEpoch = splitEpoch; pausedMs = 0; currentRound = 'phase2'; }
+    if (currentEquipage === equipage) {
+        applyLiveDocToState({
+            ...stored,
+            ...payload,
+            knocks: countedKnocks,
+            rounds: { ...(stored.rounds || {}), ...(nextRounds ? { phase2: { ...(stored.rounds?.phase2 || {}), ...nextRounds.phase2 } } : {}) }
+        });
+        if (qualified) refreshDropdownList();
+    }
+    try {
+        const result = await awaitWriteOrQueue(
+            setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
+            { onLateError: lateRejection(equipage.startNumber, { ...topFields, phase2Started: qualified }, 'precision-input:phase1-finish') }
+        );
+        if (result === 'saved') correctPenaltiesAfterSave(equipage, topFields, countedKnocks, calculate, storedRebuildCount(stored), 'phase1');
+        const message = calc.configMissing
+            ? t('precision_saved_course_missing')
+            : (qualified ? t('precision_phase1_continue') : t('precision_phase1_stopped'));
+        showAlert(`${message}${queuedNotice(result)}`, result === 'queued' ? 'offline' : (qualified ? true : 'warning'));
+    } catch (error) {
+        console.error('Kunde inte spara fas 1:', error);
+        showAlert(t('precision_save_error'), false);
+    } finally {
+        saveInFlight = false;
+    }
+}
+
+// "Ej startat omkörning": a qualifier who does not drive the drive-off is placed
+// after the drive-off finishers (owner Q3)
+async function retireDriveOff() {
+    const equipage = currentEquipage;
+    if (!equipage || currentRound !== 'driveOff') return;
+    if (isRunning) { showAlert(t('precision_driveoff_retire_running'), 'warning'); return; }
+    if (!window.confirm(t('precision_driveoff_retire_confirm'))) return;
+    const payload = buildPrecisionRoundRetireWrite({ round: 'driveOff', retired: true, startNumber: equipage.startNumber, className: equipage.className });
+    mirrorRound(equipage.startNumber, 'driveOff', payload.rounds.driveOff);
+    try {
+        const result = await awaitWriteOrQueue(
+            setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
+            { onLateError: lateRejection(equipage.startNumber, { retired: true, round: 'driveOff' }, 'precision-input:retire') }
+        );
+        showAlert(`${t('precision_driveoff_retired')}${queuedNotice(result)}`, result === 'queued' ? 'offline' : true);
+    } catch (error) {
+        console.error('Kunde inte spara Ej startat omkörning:', error);
+        showAlert(t('precision_save_error'), false);
+    }
 }
 
 function resetSelectionUi() {
@@ -1082,6 +1463,8 @@ function resetSelectionUi() {
         currentUnsubscribe = null;
     }
     storedDoc = null;
+    roundAdoptedFor = null;
+    roundUiSignature = '';
     connectionBanner.clear();
 
     stopTimerLocal();
@@ -1110,6 +1493,9 @@ function resetSelectionUi() {
     renderGates();
     updateObstaclePenaltySummary();
     renderTimerUI(0);
+    renderRoundUi();
+    renderRoundBanner();
+    updateRoundControls();
 }
 
 function subscribeToPrecisionDoc(startNumber) {
@@ -1127,6 +1513,7 @@ function subscribeToPrecisionDoc(startNumber) {
             rememberStoredDoc(startNumber, snap);
             const liveData = snap.exists() ? snap.data() : readPrecisionBackup(startNumber);
             if (snap.exists() && liveData) mirrorToLocal(startNumber, liveData);
+            adoptRoundOnce(startNumber, liveData);
             applyLiveDocToState(liveData);
         },
         onStatus: (status) => connectionBanner.update('precision-doc', status)
@@ -1179,10 +1566,13 @@ async function onEquipageSelected(eq) {
         if (!storedDocFor(eq.startNumber)) rememberStoredDoc(eq.startNumber, snap);
         const liveData = snap.exists() ? snap.data() : readPrecisionBackup(currentEquipage.startNumber);
         if (snap.exists() && liveData) mirrorToLocal(currentEquipage.startNumber, liveData);
+        adoptRoundOnce(currentEquipage.startNumber, liveData);
         applyLiveDocToState(liveData);
     } catch (error) {
         console.warn('Kunde inte läsa precisiondokument för valt ekipage:', error);
-        applyLiveDocToState(readPrecisionBackup(currentEquipage.startNumber));
+        const backup = readPrecisionBackup(currentEquipage.startNumber);
+        adoptRoundOnce(currentEquipage.startNumber, backup);
+        applyLiveDocToState(backup);
     }
 }
 
@@ -1191,11 +1581,15 @@ async function autoSelectRunningDriver() {
 
     try {
         const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision`);
-        const q = query(colRef, where('running', '==', true));
-        const snap = await getDocs(q);
-
-        if (!snap.empty) {
-            searchableDropdown.setValue(Number(snap.docs[0].id));
+        // The top-level running stays false in phase 2 / drive-off: those clocks
+        // are rounds.<round>.running
+        const snaps = await Promise.all(
+            ['running', 'rounds.phase2.running', 'rounds.driveOff.running']
+                .map((field) => getDocs(query(colRef, where(field, '==', true))))
+        );
+        const running = snaps.find((snap) => !snap.empty);
+        if (running) {
+            searchableDropdown.setValue(Number(running.docs[0].id));
         }
     } catch (error) {
         console.warn('Kunde inte auto-välja aktiv precisionsekipage:', error);
@@ -1217,12 +1611,17 @@ async function saveFinal() {
     const eliminated = !!document.getElementById('pr-eliminatedInput')?.checked;
     const commentValue = document.getElementById('pr-commentInput')?.value?.trim() || '';
     // Penalties come from the result engine (rate incl. competition rule settings)
-    const calculate = (data) => calculatePrecisionResult(data, equipage, precisionConfig);
+    const round = currentRound;
+    const calculate = (data) => calculatePrecisionRoundResult(data, equipage, precisionConfig, round, calcOptions());
     // The knocks are the stored document's (the listener's copy, this device's
     // own toggles included); the list itself is not written, so knocks entered
     // on another device stay. Without any copy: the knocks shown here.
-    const stored = storedDocFor(equipage.startNumber) || { knocks: Array.from(knocks), rebuildCount };
+    const stored = storedDocFor(equipage.startNumber)
+        || (round === 'phase1'
+            ? { knocks: Array.from(knocks), rebuildCount }
+            : { rounds: { [round]: { knocks: Array.from(knocks), rebuildCount } } });
     const { payload, calc, knocks: countedKnocks } = buildPrecisionSavePayload({
+        round,
         stored,
         timeMs,
         extraPenalty: extraPenaltyValue,
@@ -1237,15 +1636,21 @@ async function saveFinal() {
     // The save belongs to this equipage even if the judge moves on before the
     // server answers; backup before the write, since its promise waits for the server
     saveInFlight = true;
-    mirrorToLocal(equipage.startNumber, { ...payload, knocks: countedKnocks });
+    // The saved fields of the round (the payload itself for phase 1)
+    const savedFields = round === 'phase1' ? payload : payload.rounds[round];
+    mirrorRound(equipage.startNumber, round, { ...savedFields, knocks: countedKnocks });
     clearFormDirty();
-    if (currentEquipage === equipage) applyLiveDocToState({ ...stored, ...payload, knocks: countedKnocks });
+    if (currentEquipage === equipage) {
+        applyLiveDocToState(round === 'phase1'
+            ? { ...stored, ...payload, knocks: countedKnocks }
+            : { ...stored, rounds: { ...(stored.rounds || {}), [round]: { ...(stored.rounds?.[round] || {}), ...savedFields, knocks: countedKnocks } } });
+    }
     try {
         const result = await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
-            { onLateError: lateRejection(equipage.startNumber, { ...payload, knocks: countedKnocks }, 'precision-input:save') }
+            { onLateError: lateRejection(equipage.startNumber, { ...savedFields, knocks: countedKnocks, round }, 'precision-input:save') }
         );
-        if (result === 'saved') correctPenaltiesAfterSave(equipage, payload, countedKnocks, calculate, storedRebuildCount(stored));
+        if (result === 'saved') correctPenaltiesAfterSave(equipage, payload, countedKnocks, calculate, storedRebuildCount(readPrecisionRound(stored, round)), round);
         const message = calc.configMissing ? t('precision_saved_course_missing') : t('precision_save_success');
         showAlert(`${message}${queuedNotice(result)}`, result === 'queued' ? 'offline' : !calc.configMissing);
     } catch (error) {
@@ -1260,11 +1665,11 @@ let saveInFlight = false;
 
 // Read after write: a knock from another device that reached the server
 // between this device's last snapshot and the save is counted now
-async function correctPenaltiesAfterSave(equipage, payload, countedKnocks, calculate, countedRebuilds = 0) {
+async function correctPenaltiesAfterSave(equipage, payload, countedKnocks, calculate, countedRebuilds = 0, round = 'phase1') {
     try {
         const snap = await getDocFromServer(precisionDocRef(equipage.startNumber));
         if (!snap.exists()) return;
-        const patch = penaltyCorrection(payload, countedKnocks, snap.data(), calculate, countedRebuilds);
+        const patch = penaltyCorrection(payload, countedKnocks, snap.data(), calculate, countedRebuilds, round);
         if (!patch) return;
         await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), { ...patch, updatedAt: Date.now() }, { merge: true }),
@@ -1326,12 +1731,15 @@ export async function load() {
         );
 
         // 1) Hämta rådata med timeout
-        const [equipagesRaw, precisionCfg, startTimesData, precisionResults] = await Promise.race([
+        const [equipagesRaw, precisionCfg, startTimesData, precisionResults, marathonCfg, mergeSource] = await Promise.race([
             Promise.all([
                 getEquipages(competitionId),
                 getConfig(competitionId, 'precisionConfig'),
                 getStartTimes(competitionId),
-                getPrecisionResults(competitionId)
+                getPrecisionResults(competitionId),
+                // The rule profile (TR/FEI) of a class decides how phase 2 is scored
+                getConfig(competitionId, 'marathonConfig').catch(() => null),
+                loadMergeSource(competitionId).catch(() => null)
             ]),
             timeoutPromise
         ]);
@@ -1342,6 +1750,13 @@ export async function load() {
         }
 
         precisionConfig = precisionCfg || {};
+        marathonConfig = marathonCfg || null;
+        groupKeyOf = precisionGroupKeyFn(mergeSource);
+        startTimesMap = startTimesData || {};
+        currentRound = 'phase1';
+        roundAdoptedFor = null;
+        roundUiSignature = '';
+        precisionResultsMap = new Map();
 
         // 2) Normalisera + filtrera + sortera
         equipages = (equipagesRaw || []).map(normalizeEquipage);
@@ -1367,12 +1782,16 @@ export async function load() {
         });
 
         // 3) Skapa sökbar dropdown med den normaliserade listan
+        fullEquipageList = list;
+        dropdownList = list;
         const searchContainer = document.getElementById('pr-precisionEquipageSearchContainer');
         if (searchContainer) {
             searchableDropdown = createSearchableDropdown(searchContainer, list, onEquipageSelected);
         } else {
             console.error("Search container disappeared!");
         }
+        // Who is qualified for phase 2 / the drive-off (only with such classes)
+        startResultsListener();
 
         // Request Wake Lock bara i full live-drift
         if (!isFieldMode) {
@@ -1415,16 +1834,24 @@ export async function load() {
 
 
 
+        document.getElementById('pr-roundTabs')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-round]');
+            if (btn) switchRound(btn.dataset.round);
+        });
+        document.getElementById('pr-btnPhase1Finish')?.addEventListener('click', finishPhase1);
+        document.getElementById('pr-btnRetire')?.addEventListener('click', retireDriveOff);
+
+        // The list shown: everyone, or the drive-off qualifiers in the drive-off
         const goNext = () => {
-            const idx = list.findIndex(e => e.startNumber === currentEquipage?.startNumber);
-            if (idx > -1 && idx < list.length - 1) {
-                searchableDropdown.setValue(list[idx + 1].startNumber);
+            const idx = dropdownList.findIndex(e => e.startNumber === currentEquipage?.startNumber);
+            if (idx > -1 && idx < dropdownList.length - 1) {
+                searchableDropdown.setValue(dropdownList[idx + 1].startNumber);
             }
         };
         const goPrev = () => {
-            const idx = list.findIndex(e => e.startNumber === currentEquipage?.startNumber);
+            const idx = dropdownList.findIndex(e => e.startNumber === currentEquipage?.startNumber);
             if (idx > 0) {
-                searchableDropdown.setValue(list[idx - 1].startNumber);
+                searchableDropdown.setValue(dropdownList[idx - 1].startNumber);
             }
         };
 
@@ -1504,6 +1931,16 @@ export function __unload() {
         try { currentUnsubscribe(); } catch (e) { }
         currentUnsubscribe = null;
     }
+
+    if (resultsUnsubscribe) {
+        try { resultsUnsubscribe(); } catch (e) { }
+        resultsUnsubscribe = null;
+    }
+    groupCtx = null;
+    precisionResultsMap = new Map();
+    currentRound = 'phase1';
+    roundAdoptedFor = null;
+    roundUiSignature = '';
 
     // Stoppa timer
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }

@@ -2,7 +2,7 @@
 import { normalizeCountryCode, fetchFlagDataUrl } from '../services/flagsService.js';
 import { getClubLogoUrl, fetchImageDataUrl, ensureClubLogosLoaded } from '../services/logosService.js';
 import { sanitizeForFilename, fmt2, horseLabel } from '../utils/sharedUtils.js';
-import { getCalculatedRowData, buildPlaceMap, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName, precisionFormatWarning } from '../utils/precisionUtils.js';
+import { getCalculatedRowData, buildPrecisionPlaceInfo, startTimeFor, computeMaxSecondsForClass, computePortWidth, trackWidthFromEq, getPortAllowanceCm, getStandardPortWidth, getPrecisionDisplayClassName, precisionFormatWarning } from '../utils/precisionUtils.js';
 import { loadPdfLibs, loadImg, drawStandardHeader, drawResultStatusFooter, loadStandardHeaderLogos } from './pdfBase.js';
 import { resolveResultListStatus } from './pdfResultStatus.js';
 import { requiredForDiscipline } from './resultStatusUtils.js';
@@ -11,6 +11,24 @@ import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils
 import { t } from '../utils/i18n.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
+import {
+  computePrecisionRoundMaxSec,
+  getPrecisionFormat,
+  getPrecisionRoundCourse,
+  getPrecisionRoundObstacleLabels,
+  getPrecisionRoundTempoMpm,
+  isPrecisionDriveOffScheduled
+} from '../utils/precisionCalculation.js';
+import {
+  bannerStartNumbersLabel,
+  buildPrecisionBannerItems,
+  formatPrecisionPlace,
+  formatPrecisionRoundCell,
+  isMultiRoundPrecisionFormat,
+  precisionRoundCellPlain,
+  precisionRoundColumns,
+  precisionRoundLabel
+} from '../pages/precision/precisionRoundsDisplay.js';
 
 function formatPrecisionPdfTimeSeconds(timeMs, empty = '—') {
   const value = Number(timeMs);
@@ -113,6 +131,29 @@ export async function generateAndPrintPdf(eq, d, equipages, precisionMap, config
   });
   y = pdf.lastAutoTable.finalY + 12;
 
+  // 4b. Phase 2 / drive-off of the class (the summary above is phase 1 / the initial round)
+  const eqFormat = getPrecisionFormat(eq, config);
+  const roundRows = ['phase2', 'driveOff']
+    .filter(round => data.rounds?.[round])
+    .map(round => {
+      const cell = formatPrecisionRoundCell(data.rounds[round]);
+      const timeMs = data.rounds[round].timeMs;
+      return [
+        precisionRoundLabel(round, eqFormat),
+        precisionRoundCellPlain(cell),
+        Number.isFinite(timeMs) && timeMs > 0 ? formatPrecisionPdfTimeSeconds(timeMs) : '—'
+      ];
+    });
+  if (roundRows.length > 0) {
+    pdf.autoTable({
+      startY: y,
+      head: [[t('precision_round_driven'), t('rank'), t('time')]],
+      body: roundRows,
+      ...commonTableOpts
+    });
+    y = pdf.lastAutoTable.finalY + 12;
+  }
+
   // 5. TABELL 2: DETALJER & BANA
   const trackW = trackWidthFromEq(eq);
   const stdW = getStandardPortWidth(eq, config);
@@ -200,7 +241,8 @@ function getJudgesList(config) {
 }
 
 // options.placeMap: places set over the whole field when equipages is a
-// filtered list (a search must not change the places)
+// filtered list (a search must not change the places); options.provisional
+// (Set of start numbers) and options.context (precisionGroupContext) come with it
 export async function generatePrecisionListPdf(equipages, precisionMap, config, startTimes, competition, options = {}) {
   await loadPdfLibs();
   const { jsPDF } = window.jspdf;
@@ -280,24 +322,66 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
     y += 4;
   }
 
+  const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
+  // Calculate placements on the same printable set, so withdrawn rows do not affect places.
+  const placeInfo = options.placeMap
+    ? { placeMap: options.placeMap, provisional: options.provisional || new Set(), context: options.context || null }
+    : buildPrecisionPlaceInfo(printableEquipages, precisionMap, config);
+  const placeMap = placeInfo.placeMap;
+  const tr = (key) => t(key, isInt);
+
+  // Two phases / drive-off: extra round columns after the total (phase 1 /
+  // the initial round stays in the columns before)
+  const formats = printableEquipages.map(eq => getPrecisionFormat(eq, config));
+  const anyMultiRound = formats.some(isMultiRoundPrecisionFormat);
+  const roundHeads = [];
+  if (formats.includes('twoPhase')) roundHeads.push({ round: 'phase2', label: tr('precision_round_phase2') });
+  if (printableEquipages.some(eq => isPrecisionDriveOffScheduled(eq, config))) roundHeads.push({ round: 'driveOff', label: tr('precision_round_driveoff') });
+
+  // Drive-off pending (provisional places) and engine warnings, above the table
+  const bannerItems = buildPrecisionBannerItems(printableEquipages.map(eq => ({
+    label: eq._mergedLabel || eq.className || '',
+    startNumber: eq.startNumber,
+    ctx: placeInfo.context ? placeInfo.context.contextOf(eq) : null,
+    formatWarnings: getCalculatedRowData(String(eq.startNumber), placeMap, equipages, precisionMap, config, startTimes).formatWarnings || []
+  })), { tr });
+  if (bannerItems.length > 0) {
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'bold');
+    doc.setTextColor(150, 80, 0);
+    const pending = bannerItems.filter(item => item.kind === 'pending');
+    const lines = [];
+    if (pending.length) lines.push(`${tr('precision_provisional_banner')}: ${pending.map(item => item.label).join(', ')}. ${tr('precision_provisional_note')}`);
+    bannerItems.filter(item => item.kind === 'warning').forEach(item => {
+      lines.push(`${item.label}: ${item.text}${bannerStartNumbersLabel(item)}`);
+    });
+    lines.forEach(text => {
+      const wrapped = doc.splitTextToSize(text, pageWidth - 80);
+      doc.text(wrapped, 40, y);
+      y += 12 * wrapped.length;
+    });
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'normal');
+    y += 4;
+  }
+
   // UPDATED HEADER with START column
   const head = [[
     t('rank', isInt), '#', `${t('driver', isInt)} / ${t('horse', isInt)}`, t('class', isInt),
     t('pdf_country_club', isInt), t('start', isInt), t('pdf_time_seconds', isInt),
-    t('obstacles', isInt), t('pdf_time_faults', isInt), t('total', isInt)
+    t('obstacles', isInt), t('pdf_time_faults', isInt),
+    anyMultiRound ? tr('precision_total_phase1') : t('total', isInt),
+    ...roundHeads.map(h => h.label)
   ]];
-
-  const printableEquipages = equipages.filter(eq => !isWithdrawnStatus(eq.status));
-  // Calculate placements on the same printable set, so withdrawn rows do not affect places.
-  const placeMap = options.placeMap || buildPlaceMap(printableEquipages, precisionMap, config);
 
   const body = printableEquipages.map(eq => {
     const sn = String(eq.startNumber);
     const row = getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes);
     const isElim = row.eliminated || row.d?.eliminated;
+    const provisionalPlace = placeInfo.provisional?.has(sn) === true;
 
     return [
-      row.place || '–',
+      row.place ? formatPrecisionPlace(row.place, provisionalPlace) : '–',
       eq.startNumber,
       `${eq.driverName || ''}\n${horseLabel(eq)}`,
       eq._mergedLabel || eq.className || '',
@@ -307,7 +391,11 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.timeMs ?? row.d?.timeMs)}`,
       formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
       formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
-      { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } }
+      { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } },
+      ...roundHeads.map(h => ({
+        content: precisionRoundCellPlain(formatPrecisionRoundCell(row.rounds?.[h.round] ?? null, { tr }), { sep: '\n' }),
+        styles: { halign: 'center' }
+      }))
     ];
   });
 
@@ -358,6 +446,18 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       }
     }
   });
+
+  // Which round counts for the combined total (two phases / drive-off)
+  if (anyMultiRound) {
+    let noteY = doc.lastAutoTable.finalY + 14;
+    if (noteY > doc.internal.pageSize.getHeight() - 60) { doc.addPage(); noteY = 40; }
+    doc.setFontSize(8);
+    doc.setFont(undefined, 'italic');
+    doc.setTextColor(90, 90, 90);
+    doc.text(tr('precision_total_footnote'), 40, noteY);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(undefined, 'normal');
+  }
 
   drawResultStatusFooter(doc, resultStatus, { isInt });
   doc.save('precision_resultatlista.pdf');
@@ -460,6 +560,60 @@ function secondsToMMSS(seconds) {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+// Obstacle table (nr, label, standard, deviation, effective allowance) of one course
+function drawObstacleTable(doc, y, mx, labels, specialPortAllowance, baseAllowanceCm, emptyText = 'Inga hinder angivna för denna klass.') {
+  if (!labels || labels.length === 0) {
+    doc.setFontSize(9);
+    doc.setFont(undefined, 'italic');
+    doc.setTextColor(130, 130, 130);
+    doc.text(emptyText, mx, y + 10);
+    doc.setTextColor(0, 0, 0);
+    return y + 22;
+  }
+  const rows = labels.map((label, idx) => {
+    const delta = specialPortAllowance[label];
+    const hasDelta = Number.isFinite(Number(delta)) && Number(delta) !== 0;
+    const effectiveAllowance = hasDelta ? baseAllowanceCm + Number(delta) : baseAllowanceCm;
+    const deltaStr = hasDelta ? (Number(delta) > 0 ? `+${Number(delta)} cm` : `${Number(delta)} cm`) : '–';
+    return [
+      String(idx + 1),
+      String(label),
+      `+${baseAllowanceCm} cm`,
+      deltaStr,
+      { content: `+${effectiveAllowance} cm`, styles: { fontStyle: 'bold' } }
+    ];
+  });
+
+  doc.autoTable({
+    startY: y,
+    head: [['Nr', 'Hinder', 'Standard', '± Avvikelse', 'Effektivt tillägg']],
+    body: rows,
+    theme: 'grid',
+    styles: { fontSize: 9, cellPadding: 3 },
+    headStyles: { fillColor: [220, 220, 220], textColor: [30, 30, 30], fontStyle: 'bold' },
+    columnStyles: {
+      0: { halign: 'center', cellWidth: 35 },
+      1: { cellWidth: 'auto' },
+      2: { halign: 'center', cellWidth: 80 },
+      3: { halign: 'center', cellWidth: 90 },
+      4: { halign: 'center', cellWidth: 100 }
+    },
+    margin: { left: mx, right: mx },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 3 && data.cell.raw !== '–') {
+        data.cell.styles.fillColor = [255, 252, 220]; // light yellow
+      }
+      if (data.section === 'body' && data.column.index === 4) {
+        const label = labels[data.row.index];
+        const delta = specialPortAllowance[label];
+        if (Number.isFinite(Number(delta)) && Number(delta) !== 0) {
+          data.cell.styles.fillColor = [220, 240, 255]; // light blue
+        }
+      }
+    }
+  });
+  return doc.lastAutoTable.finalY + 16;
+}
 /**
  * Generates a PDF listing all classes with their obstacles and the effective
  * gate width (standard allowance ± per-obstacle delta) for each obstacle.
@@ -539,58 +693,42 @@ export async function generatePrecisionCourseSetupPdf(precisionConfig, equipages
     doc.setTextColor(0, 0, 0);
     y += 10 + (lines.length * 12);
 
-    if (labels.length === 0) {
-      doc.setFontSize(9);
-      doc.setFont(undefined, 'italic');
-      doc.setTextColor(130, 130, 130);
-      doc.text('Inga hinder angivna för denna klass.', mx, y + 10);
-      doc.setTextColor(0, 0, 0);
-      y += 22;
-    } else {
-      // Build table rows
-      const rows = labels.map((label, idx) => {
-        const delta = specialPortAllowance[label];
-        const hasDelta = Number.isFinite(Number(delta)) && Number(delta) !== 0;
-        const effectiveAllowance = hasDelta ? baseAllowanceCm + Number(delta) : baseAllowanceCm;
-        const deltaStr = hasDelta ? (Number(delta) > 0 ? `+${Number(delta)} cm` : `${Number(delta)} cm`) : '–';
-        return [
-          String(idx + 1),
-          String(label),
-          `+${baseAllowanceCm} cm`,
-          deltaStr,
-          { content: `+${effectiveAllowance} cm`, styles: { fontStyle: 'bold' } }
-        ];
-      });
+    y = drawObstacleTable(doc, y, mx, labels, specialPortAllowance, baseAllowanceCm);
 
-      doc.autoTable({
-        startY: y,
-        head: [['Nr', 'Hinder', 'Standard', '± Avvikelse', 'Effektivt tillägg']],
-        body: rows,
-        theme: 'grid',
-        styles: { fontSize: 9, cellPadding: 3 },
-        headStyles: { fillColor: [220, 220, 220], textColor: [30, 30, 30], fontStyle: 'bold' },
-        columnStyles: {
-          0: { halign: 'center', cellWidth: 35 },
-          1: { cellWidth: 'auto' },
-          2: { halign: 'center', cellWidth: 80 },
-          3: { halign: 'center', cellWidth: 90 },
-          4: { halign: 'center', cellWidth: 100 }
-        },
-        margin: { left: mx, right: mx },
-        didParseCell: (data) => {
-          if (data.section === 'body' && data.column.index === 3 && data.cell.raw !== '–') {
-            data.cell.styles.fillColor = [255, 252, 220]; // light yellow
-          }
-          if (data.section === 'body' && data.column.index === 4) {
-            const label = labels[data.row.index];
-            const delta = specialPortAllowance[label];
-            if (Number.isFinite(Number(delta)) && Number(delta) !== 0) {
-              data.cell.styles.fillColor = [220, 240, 255]; // light blue
-            }
-          }
-        }
-      });
-      y = doc.lastAutoTable.finalY + 16;
+    // Phase 2 and the drive-off have their own course, tempo and max time
+    const repEq = group.equipages.find(eq => eq.className === sourceClasses[0]) || group.equipages[0] || { className: sourceClasses[0] };
+    const format = getPrecisionFormat(repEq, precisionConfig);
+    if (isMultiRoundPrecisionFormat(format)) {
+      const rounds = precisionRoundColumns(format, { driveOffScheduled: isPrecisionDriveOffScheduled(repEq, precisionConfig) })
+        .filter(col => col.round !== 'phase1');
+      for (const { round } of rounds) {
+        const roundCourse = getPrecisionRoundCourse(repEq, precisionConfig, round) || {};
+        const roundLabels = getPrecisionRoundObstacleLabels(repEq, precisionConfig, round);
+        // A drive-off without its own length is driven over the phase-1 course
+        const roundLength = Number(roundCourse.trackLengthMeters ?? roundCourse.length ?? roundCourse.trackLength) > 0
+          ? Number(roundCourse.trackLengthMeters ?? roundCourse.length ?? roundCourse.trackLength)
+          : (round === 'driveOff' ? trackLength : null);
+        const tempo = getPrecisionRoundTempoMpm(repEq, precisionConfig, round);
+        const maxSec = computePrecisionRoundMaxSec(repEq, precisionConfig, round);
+
+        if (y > doc.internal.pageSize.getHeight() - 90) { doc.addPage(); y = 40; }
+        doc.setFontSize(10);
+        doc.setFont(undefined, 'bold');
+        doc.text(`${className} – ${precisionRoundLabel(round, format)}`, mx, y + 4);
+        doc.setFontSize(9);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(90, 90, 90);
+        const roundInfo = [
+          roundLength ? `${t('track_len')}: ${roundLength} m` : null,
+          tempo ? `${t('tempo')}: ${tempo} m/min` : null,
+          maxSec ? `${t('max_time')}: ${secondsToMMSS(maxSec)}` : null
+        ].filter(Boolean).join('   |   ');
+        const roundLines = doc.splitTextToSize(roundInfo || '–', pageW - mx * 2);
+        doc.text(roundLines, mx, y + 16);
+        doc.setTextColor(0, 0, 0);
+        y += 16 + roundLines.length * 12;
+        y = drawObstacleTable(doc, y, mx, roundLabels, roundCourse.specialPortAllowance || {}, baseAllowanceCm, t('precision_pdf_round_no_obstacles'));
+      }
     }
   }
 

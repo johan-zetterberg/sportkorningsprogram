@@ -11,10 +11,18 @@ export function renderPrecisionLiveStatusPanel({
   overallRank = null,
   toBeat = null,
   horseLabelHtml = '',
-  flagHtml = ''
+  flagHtml = '',
+  // The round on the course ("Fas 2", "Omkörning"); shown for classes with more than one round
+  roundLabel = '',
+  // The live score text of that round ("0.00 p" / "0,00 s"); default the plain penalty
+  penaltyLabel = null
 }) {
   // Escaped for the HTML below (text and attributes)
   const sn = escapeHtml(String(equipage.startNumber ?? ''));
+  const roundBadge = roundLabel
+    ? `<span class="live-round-badge inline-flex items-center px-2 py-0.5 rounded-full bg-blue-500/20 text-blue-200 text-xs font-bold uppercase tracking-wider border border-blue-400/30">${escapeHtml(roundLabel)}</span>`
+    : '';
+  const penaltyText = penaltyLabel != null ? escapeHtml(penaltyLabel) : formatPanelPenalty(totalPenalty);
   const toBeatLabel = toBeat
     ? `<div class="text-xs text-emerald-500 font-bold mt-1">För ${toBeat.targetP < 0 ? 'vinst' : 'nästa'}: < ${toBeat.targetP.toFixed(1)}</div>`
     : '';
@@ -36,6 +44,7 @@ export function renderPrecisionLiveStatusPanel({
                  <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
                  På banan
                </span>
+               ${roundBadge}
                <span class="text-slate-400 text-sm truncate">${escapeHtml(equipage.className)}</span>
              </div>
              <h2 class="text-2xl md:text-3xl font-bold truncate leading-tight">${escapeHtml(equipage.driverName)}</h2>
@@ -60,7 +69,7 @@ export function renderPrecisionLiveStatusPanel({
 
            <div class="text-center px-4 border-r border-white/10">
              <div class="text-xs text-slate-400 uppercase tracking-widest font-semibold mb-1">Straff</div>
-             <div class="text-3xl font-bold text-blue-300 tabular-nums" id="livePanelPenalty-${sn}">${formatPanelPenalty(totalPenalty)}</div>
+             <div class="text-3xl font-bold text-blue-300 tabular-nums" id="livePanelPenalty-${sn}">${penaltyText}</div>
            </div>
 
            <div class="text-center min-w-[140px]">
@@ -83,6 +92,7 @@ export function renderPrecisionLiveStatusPanel({
                    <span class="w-1 h-1 rounded-full bg-emerald-400 animate-pulse"></span>
                    Live
                  </span>
+                 ${roundBadge}
                  <span class="text-slate-400 text-xs truncate">${escapeHtml(equipage.className)}</span>
                </div>
              </div>
@@ -96,7 +106,7 @@ export function renderPrecisionLiveStatusPanel({
         <div class="grid grid-cols-3 gap-2 pt-2 border-t border-white/10">
            <div class="bg-white/5 p-2 rounded text-center">
              <div class="text-xs text-slate-400 uppercase font-bold mb-0.5">Straff</div>
-             <div class="text-lg font-bold text-blue-300" id="livePanelPenalty-mob-${sn}">${formatPanelPenalty(totalPenalty)}</div>
+             <div class="text-lg font-bold text-blue-300" id="livePanelPenalty-mob-${sn}">${penaltyText}</div>
            </div>
            <div class="bg-white/5 p-2 rounded text-center">
              <div class="text-xs text-slate-400 uppercase font-bold mb-0.5">Delplac.</div>

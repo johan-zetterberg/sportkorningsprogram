@@ -14,6 +14,17 @@ import { standardPortAllowance, klassTempoData } from '../../data/competitionDat
 import { showDetailsModal } from '../../ui/precisionModal.js'; // NYTT
 import { getPortAllowanceCm, computeMaxSecondsForClass, getTrackLengthMeters, trackWidthFromEq, computePortWidth, calculatePrecisionResult, calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { assignPlaces, comparePrecisionRank, precisionGroupContext } from '../../core-engine/ranking.js';
+import { getPrecisionFormat, getPrecisionRoundCourse } from '../../utils/precisionCalculation.js';
+import { isAnyPrecisionRoundRunning, readPrecisionRound } from '../../utils/precisionRounds.js';
+import {
+  currentPrecisionRound,
+  formatPrecisionRoundCell,
+  formatPrecisionSeconds,
+  isMultiRoundPrecisionFormat,
+  latestPrecisionRoundWithData,
+  precisionPlacingScore,
+  precisionRoundLabel
+} from './precisionRoundsDisplay.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
@@ -202,13 +213,56 @@ function forceFullRender() {
     }
 }
 
+// A round (phase 1 on the top level, or phase 2 / drive-off) marked in progress
+function isAnyRoundInProgress(data) {
+    return data?.inProgress === true || data?.rounds?.phase2?.inProgress === true || data?.rounds?.driveOff?.inProgress === true;
+}
+
+// What the current-driver panel shows for the round on the course: the round's
+// stored fields (knocks, eliminated …), its calculated result, max time, course
+// length and how the score is written ("65,00 s" for a time round)
+function roundViewOf(eq, data, live, round) {
+    const src = readPrecisionRound(data, round);
+    if (round === 'phase1') {
+        return {
+            round,
+            src,
+            res: live,
+            scoring: 'fault',
+            maxSec: computeMaxSecondsForClass(eq, precisionConfig),
+            trackLength: getTrackLengthMeters(eq, precisionConfig),
+            showFinal: !data.running && (data.finalized || data.status === 'Klar' || data.eliminated)
+        };
+    }
+    const res = live.rounds?.[round] || {};
+    const course = getPrecisionRoundCourse(eq, precisionConfig, round);
+    // A drive-off without its own length drives the same course
+    const ownLength = Number(course.trackLengthMeters);
+    return {
+        round,
+        src,
+        res,
+        scoring: res.scoring || 'fault',
+        maxSec: isNum(res.maxTimeSec) ? res.maxTimeSec : null,
+        trackLength: ownLength > 0 ? ownLength : (round === 'driveOff' ? getTrackLengthMeters(eq, precisionConfig) : null),
+        showFinal: !res.live && res.decided === true
+    };
+}
+
+// The total as written for a round: penalty points, or seconds for a time round
+function roundScoreText(view, total, eliminated) {
+    if (eliminated || total === Infinity) return 'ELIM';
+    if (view.scoring === 'time') return formatPrecisionSeconds(Number.isFinite(total) ? total : 0);
+    return formatPrecisionMonitorPenalty(total, { eliminated: false });
+}
+
 function getActiveEquipagesForMap() {
     const activeEquipages = new Map();
     const now = Date.now();
     const STALE_THRESHOLD_MS = 3600000; // 1 hour
 
     for (const [sn, data] of allPrecisionData.entries()) {
-        const isRunning = data.running === true || (data.inProgress === true && (now - (data.updatedAt || 0) < STALE_THRESHOLD_MS));
+        const isRunning = isAnyPrecisionRoundRunning(data) || (isAnyRoundInProgress(data) && (now - (data.updatedAt || 0) < STALE_THRESHOLD_MS));
         
         let recentlyFinished = false;
         if (!isRunning && (data.status === 'Klar' || data.inProgress === false)) {
@@ -247,25 +301,35 @@ function renderCurrentDriver() {
 
   // Tid och straff från resultatmotorn (tickande tid om loppet pågår)
   const live = calculatePrecisionLiveResult(data, eq, precisionConfig);
-  const elapsedMs = live.elapsedMs ?? live.timeMs ?? 0;
+  // The round on the course (phase 2 / drive-off follow rounds.<r>, not the top level)
+  const round = currentPrecisionRound(data);
+  const view = roundViewOf(eq, data, live, round);
+  const format = getPrecisionFormat(eq, precisionConfig);
+  const roundBadge = isMultiRoundPrecisionFormat(format) ? precisionRoundLabel(round, format) : '';
+  const roundEliminated = view.src.eliminated === true || view.res.eliminated === true;
+  const knocks = Array.isArray(view.src.knocks) ? view.src.knocks : [];
+  const knockTimes = view.src.knockDownTimes || {};
+  const elapsedMs = round === 'phase1' ? (live.elapsedMs ?? live.timeMs ?? 0) : (view.res.elapsedMs ?? view.res.timeMs ?? 0);
 
   // Hämta baninformation
-  const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
-  const trackLength = getTrackLengthMeters(eq, precisionConfig);
+  const maxSec = view.maxSec;
+  const trackLength = view.trackLength;
   // Använd "allowance" istället för tot bredd
   const allowance = getPortAllowanceCm(eq, precisionConfig);
   const portDisplay = isNum(allowance) ? `+ ${allowance} cm` : '–';
 
   // Om klart/uteslutet, använd de slutgiltiga värdena, annars live
   // FIX: Om running=true, tvinga live-visning (ignorera status='Klar' från gammal körning)
-  const showFinal = !data.running && (data.finalized || data.status === 'Klar' || data.eliminated);
-  const isSameDriver = lastDriverSn === String(eq.startNumber);
-  lastDriverSn = String(eq.startNumber);
+  const showFinal = view.showFinal;
+  // A new round of the same driver re-renders the panel (course data differ)
+  const driverKey = `${eq.startNumber}:${round}`;
+  const isSameDriver = lastDriverSn === driverKey;
+  lastDriverSn = driverKey;
 
-  const displayObstaclePenalty = live.obstaclePenalty ?? 0;
-  const displayExtra = live.extraPenalty ?? 0;
-  const displayTimePenalty = live.timePenalty ?? 0;
-  const displayTotal = live.eliminated ? Infinity : (live.totalPenalty ?? 0);
+  const displayObstaclePenalty = view.res.obstaclePenalty ?? 0;
+  const displayExtra = view.res.extraPenalty ?? 0;
+  const displayTimePenalty = view.res.timePenalty ?? 0;
+  const displayTotal = roundEliminated ? Infinity : (view.res.totalPenalty ?? 0);
 
   // Om föraren byts, rendera om hela panelen. Annars, uppdatera atomärt.
   if (!isSameDriver) {
@@ -275,6 +339,7 @@ function renderCurrentDriver() {
                     <h3 class="text-xl sm:text-2xl md:text-3xl font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
                     <div class="text-sm md:text-base text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
                         ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span>${escapeHtml(eq.className)}</span>
+                        ${roundBadge ? `<span class="live-round-badge rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold uppercase text-blue-800 dark:bg-blue-900/50 dark:text-blue-200">${escapeHtml(roundBadge)}</span>` : ''}
                     </div>
                 </div>
                 <div id="leader-in-class-slot" class="text-left md:text-right w-full md:w-auto bg-gray-50 dark:bg-gray-700 md:bg-transparent md:dark:bg-transparent p-3 md:p-0 rounded-lg md:rounded-none">
@@ -282,7 +347,7 @@ function renderCurrentDriver() {
                     <div class="text-sm text-gray-600 dark:text-gray-300">${t('leader_in_class')}</div>
                     <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
                     <div class="font-bold text-blue-700 dark:text-brand-lightblue">
-                        ${leaderInClass.totalPenalty.toFixed(2)} p
+                        ${escapeHtml(leaderInClass.scoreText)}
                         <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
                     </div>
                     ` : ''}
@@ -304,19 +369,19 @@ function renderCurrentDriver() {
                 <div class="bg-gray-50 dark:bg-gray-700 p-4 rounded-lg mt-4 md:mt-0">
                     <div class="text-center mb-4">
                         <div class="text-sm text-gray-600 dark:text-gray-300 uppercase">${t('total_penalty')} ${showFinal ? '' : t('preliminary_suffix')}</div>
-                        <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-blue-700 dark:text-brand-lightblue">${formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated })}</div>
+                        <div id="live-total-penalty" class="text-5xl sm:text-6xl md:text-7xl font-bold tabular-nums text-blue-700 dark:text-brand-lightblue">${roundScoreText(view, displayTotal, roundEliminated)}</div>
                     </div>
                     <div class="grid grid-cols-3 gap-2 text-center text-sm border-t dark:border-gray-600 pt-2 dark:text-gray-300">
-                        <div><div class="text-gray-600 dark:text-gray-300">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
-                        <div><div class="text-gray-600 dark:text-gray-300">${t('obs_penalty')}</div><div id="live-obstacle-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayObstaclePenalty}</div></div>
-                        <div><div class="text-gray-600 dark:text-gray-300">${t('other_penalty')}</div><div id="live-extra-penalty" class="font-semibold text-lg">${data.eliminated ? '–' : displayExtra}</div></div>
+                        <div><div class="text-gray-600 dark:text-gray-300">${t('time_penalty')}</div><div id="live-time-penalty" class="font-semibold text-lg">${roundEliminated ? '–' : displayTimePenalty.toFixed(2)}</div></div>
+                        <div><div class="text-gray-600 dark:text-gray-300">${t('obs_penalty')}</div><div id="live-obstacle-penalty" class="font-semibold text-lg">${roundEliminated ? '–' : displayObstaclePenalty}</div></div>
+                        <div><div class="text-gray-600 dark:text-gray-300">${t('other_penalty')}</div><div id="live-extra-penalty" class="font-semibold text-lg">${roundEliminated ? '–' : displayExtra}</div></div>
                     </div>
                     <div id="live-knocks-container" class="border-t dark:border-gray-600 mt-3 pt-2">
-                        ${(Array.isArray(data.knocks) && data.knocks.length > 0) ? `
+                        ${(knocks.length > 0) ? `
                         <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">${t('knocked_gates')}</div>
                         <div class="flex flex-wrap gap-2">
-                            ${data.knocks.map(gate => {
-      const timeMs = data.knockDownTimes?.[gate];
+                            ${knocks.map(gate => {
+      const timeMs = knockTimes[gate];
       const timeLabel = isNum(timeMs) ? formatMsLive(timeMs) : '';
       return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${escapeHtml(gate)}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
     }).join('')}
@@ -383,32 +448,32 @@ function renderCurrentDriver() {
                 <div class="text-sm text-gray-600 dark:text-gray-300">${t('leader_in_class')}</div>
                 <div class="font-semibold dark:text-white">${escapeHtml(leaderInClass.name)}</div>
                 <div class="font-bold text-blue-700 dark:text-brand-lightblue">
-                    ${leaderInClass.totalPenalty.toFixed(2)} p
+                    ${escapeHtml(leaderInClass.scoreText)}
                     <span class="text-sm font-normal text-gray-600 dark:text-gray-300 block">${isNum(leaderInClass.timeMs) ? formatMsLive(leaderInClass.timeMs) : ''}</span>
                 </div>
             ` : '';
     }
 
     const totalPenaltyEl = document.getElementById('live-total-penalty');
-    if (totalPenaltyEl) totalPenaltyEl.textContent = formatPrecisionMonitorPenalty(displayTotal, { eliminated: data.eliminated });
+    if (totalPenaltyEl) totalPenaltyEl.textContent = roundScoreText(view, displayTotal, roundEliminated);
 
     const timePenaltyEl = document.getElementById('live-time-penalty');
-    if (timePenaltyEl) timePenaltyEl.textContent = data.eliminated ? '–' : displayTimePenalty.toFixed(2);
+    if (timePenaltyEl) timePenaltyEl.textContent = roundEliminated ? '–' : displayTimePenalty.toFixed(2);
 
     const obsPenaltyEl = document.getElementById('live-obstacle-penalty');
-    if (obsPenaltyEl) obsPenaltyEl.textContent = data.eliminated ? '–' : displayObstaclePenalty;
+    if (obsPenaltyEl) obsPenaltyEl.textContent = roundEliminated ? '–' : displayObstaclePenalty;
 
     const extraPenaltyEl = document.getElementById('live-extra-penalty');
-    if (extraPenaltyEl) extraPenaltyEl.textContent = data.eliminated ? '–' : displayExtra;
+    if (extraPenaltyEl) extraPenaltyEl.textContent = roundEliminated ? '–' : displayExtra;
 
     const knocksEl = document.getElementById('live-knocks-container');
     if (knocksEl) {
-      if (Array.isArray(data.knocks) && data.knocks.length > 0) {
+      if (knocks.length > 0) {
         knocksEl.innerHTML = `
                 <div class="text-sm text-gray-600 dark:text-gray-300 mb-1">${t('knocked_gates')}</div>
                 <div class="flex flex-wrap gap-2">
-                    ${data.knocks.map(gate => {
-          const timeMs = data.knockDownTimes?.[gate];
+                    ${knocks.map(gate => {
+          const timeMs = knockTimes[gate];
           const timeLabel = isNum(timeMs) ? formatMsLive(timeMs) : '';
           return `<span class="bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200 font font-semibold px-2 py-1 rounded flex items-center gap-1"><span>${escapeHtml(gate)}</span>${timeLabel ? `<span class="text-xs opacity-75">(${timeLabel})</span>` : ''}</span>`;
         }).join('')}
@@ -545,14 +610,20 @@ function renderResultsPanel() {
       const d = allPrecisionData.get(sn) || {};
       const name = res.name || res.driverName || eq.driverName || '';
       // PRIORITERA timeMs (slutgiltig tid) om den finns
-      const finalizedTime = d.timeMs;
-      const liveTime = d.liveTimeMs;
+      // The latest round with data: phase 2 / drive-off of a multi-round class, else phase 1
+      const roundDoc = readPrecisionRound(d, res.round || 'phase1');
+      const finalizedTime = roundDoc.timeMs;
+      const liveTime = roundDoc.liveTimeMs;
       const elapsedMs = isNum(finalizedTime) ? finalizedTime : liveTime;
 
       const penalty = (res.totalPenalty ?? d.totalPenalty);
       const isElim = res.eliminated === true || d.eliminated === true || penalty === Infinity;
-      const penaltyText = isElim ? 'ELIM'
+      let penaltyText = isElim ? 'ELIM'
         : (Number.isFinite(penalty) ? penalty.toFixed(2) + ' p' : '—');
+      if (res.round && res.round !== 'phase1' && res.roundResult) {
+        const cell = formatPrecisionRoundCell(res.roundResult);
+        penaltyText = `${precisionRoundLabel(res.round, res.format)} ${cell.text}`;
+      }
 
       return `
         <button class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-700 rounded px-1"
@@ -577,7 +648,7 @@ function renderResultsPanel() {
   const currentHash = recentResults.map(res => {
     const sn = String(res.startNumber ?? res.sn);
     const d = allPrecisionData.get(sn) || {};
-    return `${sn}:${res.totalPenalty ?? d.totalPenalty}`;
+    return `${sn}:${res.totalPenalty ?? d.totalPenalty}:${res.round || ''}:${res.roundResult?.totalPenalty ?? ''}`;
   }).join('|');
 
   if (currentHash === lastRenderedResultsHash) return;
@@ -601,7 +672,9 @@ function ensureTicker() {
   tickerInterval = setInterval(() => {
     if (currentDriver) {
       const { eq, data } = currentDriver;
-      const isFinal = !data.running && (data.finalized || data.status === 'Klar');
+      const tickRound = currentPrecisionRound(data);
+      const tickView = roundViewOf(eq, data, calculatePrecisionLiveResult(data, eq, precisionConfig), tickRound);
+      const isFinal = tickView.showFinal;
 
       const timerEl = document.getElementById('live-timer-main');
       const timePenaltyEl = document.getElementById('live-time-penalty');
@@ -616,14 +689,15 @@ function ensureTicker() {
 
         // Tickande tid och straff från resultatmotorn
         const live = calculatePrecisionLiveResult(data, eq, precisionConfig);
-        const elapsedMs = live.elapsedMs ?? data.liveTimeMs ?? 0;
+        const roundLive = tickRound === 'phase1' ? live : (live.rounds?.[tickRound] || {});
+        const elapsedMs = tickRound === 'phase1' ? (live.elapsedMs ?? data.liveTimeMs ?? 0) : (roundLive.elapsedMs ?? readPrecisionRound(data, tickRound).liveTimeMs ?? 0);
 
         timerEl.textContent = formatMsLive(elapsedMs);
 
         // LIVE-STRAFF UPPDATERING
-        if (live.eliminated) return;
+        if (roundLive.eliminated) return;
 
-        const currentTimePenalty = live.timePenalty ?? 0;
+        const currentTimePenalty = roundLive.timePenalty ?? 0;
 
         // Uppdatera DOM
         // Tidsstraff
@@ -633,7 +707,7 @@ function ensureTicker() {
 
         // Totalt straff
         if (totalPenaltyEl) {
-          totalPenaltyEl.textContent = formatPrecisionMonitorPenalty(live.totalPenalty ?? 0);
+          totalPenaltyEl.textContent = roundScoreText(tickView, roundLive.totalPenalty ?? 0, false);
         }
 
         // Röd markering
@@ -722,11 +796,11 @@ function listenForUpdates() {
 
     for (const [sn, data] of allPrecisionData.entries()) {
       // Prioritera running=true
-      if (data.running === true) {
+      if (isAnyPrecisionRoundRunning(data)) {
         activeDrivers.push({ eq: allEquipages.find(e => String(e.startNumber) === sn), data, priority: 2 });
       }
       // Annars inProgress=true med färskt datum (om systemet inte hann sätta running=false?)
-      else if (data.inProgress === true && (now - (data.updatedAt || 0) < STALE_THRESHOLD_MS)) {
+      else if (isAnyRoundInProgress(data) && (now - (data.updatedAt || 0) < STALE_THRESHOLD_MS)) {
         activeDrivers.push({ eq: allEquipages.find(e => String(e.startNumber) === sn), data, priority: 1 });
       }
     }
@@ -776,10 +850,12 @@ function listenForUpdates() {
         outField: null
       }).ranked[0];
       if (leader) {
+        // Placed on phase 2: that round's score and time, else phase 1's
+        const score = precisionPlacingScore(leader.result);
         leaderInClass = {
           name: `#${leader.eq.startNumber} ${leader.eq.driverName}`,
-          totalPenalty: leader.result.totalPenalty,
-          timeMs: leader.result.timeMs || 0
+          scoreText: score.text,
+          timeMs: score.timeMs || 0
         };
       }
     }
@@ -789,9 +865,10 @@ function listenForUpdates() {
     const allResults = [];
     for (const [sn, data] of allPrecisionData.entries()) {
       // Ta med allt som har ett slutgiltigt straff (även uteslutna)
-      if (isNum(data.totalPenalty) || data.eliminated === true) {
+      if (isNum(data.totalPenalty) || data.eliminated === true || data.rounds) {
         const eq = allEquipages.find(e => String(e.startNumber) === sn) || { startNumber: sn, className: data.className };
-        allResults.push({ sn, data, totalPenalty: calculatePrecisionResult(data, eq, precisionConfig).totalPenalty });
+        const calc = calculatePrecisionResult(data, eq, precisionConfig);
+        allResults.push({ sn, data, calc, totalPenalty: calc.totalPenalty });
       }
     }
     // Sortera: Senast uppdaterad först (faller tillbaka på startnummer om tid saknas)
@@ -807,7 +884,11 @@ function listenForUpdates() {
         driverName: eq.driverName || item.data.driverName || '',
         clubName: eq.clubName || '',
         countryCode: eq.countryCode || eq.country || '',
-        totalPenalty: item.totalPenalty
+        totalPenalty: item.totalPenalty,
+        // The latest round with data (phase 2 / drive-off) of a class with more than one
+        round: isMultiRoundPrecisionFormat(item.calc.precisionFormat) ? latestPrecisionRoundWithData(item.calc) : 'phase1',
+        roundResult: item.calc.rounds?.[latestPrecisionRoundWithData(item.calc)] || null,
+        format: item.calc.precisionFormat
       });
     }
 

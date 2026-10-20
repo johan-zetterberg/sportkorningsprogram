@@ -1,5 +1,7 @@
 import { calculatePrecisionLiveResult, calculatePrecisionResult } from '../../utils/precisionUtils.js';
 import { precisionElapsedMs } from '../../utils/precisionCalculation.js';
+import { readPrecisionRound } from '../../utils/precisionRounds.js';
+import { runningPrecisionRound } from './precisionRoundsDisplay.js';
 import { assignPlaces, comparePrecisionRank, precisionGroupContext } from '../../core-engine/ranking.js';
 
 function isFiniteNumber(value) {
@@ -62,6 +64,36 @@ export function calculatePrecisionLiveRank(currentTotal, currentSn, currentEquip
   return placeOf.get(me);
 }
 
+function buildRoundTick(round, data, context, now) {
+  const { equipage, config = {}, allEquipages = [], precisionMap = new Map(), getGroupKey = null } = context;
+  const live = calculatePrecisionLiveResult(data, equipage, config, now);
+  const r = live.rounds?.[round];
+  const elapsedMs = isFiniteNumber(r?.elapsedMs) ? r.elapsedMs : precisionElapsedMs(readPrecisionRound(data, round), now);
+  if (!isFiniteNumber(elapsedMs)) return null;
+  const maxSec = isFiniteNumber(r?.maxTimeSec) ? r.maxTimeSec : null;
+  const penalty = {
+    timePenalty: r?.timePenalty ?? 0,
+    obstaclePenalty: r?.obstaclePenalty ?? 0,
+    extraPenalty: r?.extraPenalty ?? 0,
+    totalPenalty: r?.totalPenalty ?? 0
+  };
+  const rank = equipage
+    ? calculatePrecisionLiveRank(penalty.totalPenalty, equipage.startNumber, equipage, allEquipages, precisionMap, getGroupKey, {
+      config,
+      currentTimeMs: elapsedMs,
+      now
+    })
+    : null;
+  return {
+    round,
+    scoring: r?.scoring || 'fault',
+    elapsedMs,
+    overTime: maxSec !== null && elapsedMs > maxSec * 1000,
+    penalty,
+    rank
+  };
+}
+
 export function buildPrecisionLiveTick(data, context = {}) {
   const {
     now = Date.now(),
@@ -72,6 +104,13 @@ export function buildPrecisionLiveTick(data, context = {}) {
     precisionMap = new Map(),
     getGroupKey = null
   } = context;
+
+  // A running phase 2 / drive-off: its own clock, penalties and score (phase 1
+  // is closed; the top-level fields stay as they were saved)
+  const round = runningPrecisionRound(data);
+  if (round === 'phase2' || round === 'driveOff') {
+    return buildRoundTick(round, data, context, now);
+  }
 
   const elapsedMs = calculatePrecisionLiveElapsed(data, now);
   if (!isFiniteNumber(elapsedMs)) return null;

@@ -5,7 +5,11 @@ import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { competitionClasses, standardPortAllowance, klassTempoData } from '../../data/competitionData.js';
 import { getClassTempoMpm } from '../../utils/precisionUtils.js';
-import { PRECISION_FORMATS, getPrecisionFormat } from '../../utils/precisionCalculation.js';
+import { PRECISION_FORMATS, getPrecisionFormat, getPrecisionRoundTempoMpm } from '../../utils/precisionCalculation.js';
+import { getClassRuleProfile } from '../../core-engine/marathon.js';
+import { getMarathonEngineConfig } from '../../utils/marathonUtils.js';
+import { t } from '../../utils/i18n.js';
+import { precisionCourseWarnings, precisionRoundSettingsIssues } from './precisionRoundsDisplay.js';
 import { PRECISION_TIME_PENALTY_RATE } from '../../core-engine/rules-ledger.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import { precisionSettingsIssues } from '../../ui/resultSettingsNotice.js';
@@ -180,6 +184,11 @@ function renderPrecisionAdminReadiness() {
         // What the result engine will see with these settings: a class without
         // a max time gets no time penalty and no total
         const engineIssues = precisionSettingsIssues(precisionAdminEquipages, config);
+        // Phase 2 / drive-off without a length or tempo (their max time)
+        precisionRoundSettingsIssues(precisionAdminEquipages, config, { profileOf: (eq) => ruleProfileOf(eq) }).forEach((set, cls) => {
+            if (!engineIssues.has(cls)) engineIssues.set(cls, new Set());
+            set.forEach(text => engineIssues.get(cls).add(text));
+        });
         const engineIssuesHtml = engineIssues.size
             ? `<ul class="mt-2 list-disc pl-5">${[...engineIssues.entries()].map(([cls, set]) => `<li><strong>${escapeHtml(cls)}</strong>: ${[...set].map(escapeHtml).join('; ')}</li>`).join('')}</ul>
                <div class="mt-1 text-xs">Resultatmotorn kan inte räkna tidsstraff och totalt straff för dessa klasser.</div>`
@@ -464,11 +473,156 @@ function renderPrecisionFormatField(className, classId, courseData = {}) {
             <select id="format_${classId}" class="precision-format-select mt-1 w-full sm:max-w-md p-2 border rounded-md text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                 ${options}
             </select>
-            <p class="precision-format-note mt-1 text-xs ${info.supported ? 'text-gray-500 dark:text-gray-400' : 'font-semibold text-amber-700 dark:text-amber-300'}">${info.supported
-                ? 'Straff, sedan tid (TR 530.1.1–530.1.2, FEI 976). Clear round ställs in i maratonadmin och gäller hela klassen.'
-                : `Programmet räknar inte detta format: precisionen får ingen placering${info.excludesTotal ? ' och inget totalresultat' : ''}. Räkna manuellt.${autoYoungHorse ? ' (Valt utifrån klassnamnet.)' : ''}`}</p>
+            <p class="precision-format-note mt-1 text-xs ${info.supported ? 'text-gray-500 dark:text-gray-400' : 'font-semibold text-amber-700 dark:text-amber-300'}">${escapeHtml(precisionFormatNoteText(current))}${autoYoungHorse ? ' (Valt utifrån klassnamnet.)' : ''}</p>
         </div>
     `;
+}
+
+// The note under the format select: how the format is judged, or that it is not calculated
+function precisionFormatNoteText(formatKey) {
+    const info = PRECISION_FORMATS[formatKey] || PRECISION_FORMATS.normal;
+    if (!info.supported) {
+        return `Programmet räknar inte detta format: precisionen får ingen placering${info.excludesTotal ? ' och inget totalresultat' : ''}. Räkna manuellt.`;
+    }
+    if (formatKey === 'twoPhase') return t('precision_format_note_twophase');
+    if (formatKey === 'driveOff') return t('precision_format_note_driveoff');
+    return 'Straff, sedan tid (TR 530.1.1–530.1.2, FEI 976). Clear round ställs in i maratonadmin och gäller hela klassen.';
+}
+
+// 'TR' | 'FEI' as the result engine sees the class (marathon class settings, else the class name)
+function ruleProfileOf(subject) {
+    const className = typeof subject === 'string' ? subject : (subject?.className || '');
+    return getClassRuleProfile(className, getMarathonEngineConfig().marathonConfig || null);
+}
+
+// Round fields (length, tempo, labels) of phase 2 / the drive-off, with the
+// default tempo shown as placeholder
+function renderPrecisionRoundFields(round, classId, data = {}, tempoState = null) {
+    const tempoPlaceholder = tempoState?.hasMixedTempo ? tempoState.tempos.join('/') : (tempoState?.displayTempo > 0 ? String(tempoState.displayTempo) : t('precision_admin_tempo_none'));
+    const defaultText = tempoState?.displayTempo > 0
+        ? `${t('precision_admin_tempo_default')} ${tempoState.displayTempo} m/min`
+        : '';
+    return `
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mt-2">
+            <div class="precision-field-wrap">
+                <label for="${round}_len_${classId}" class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('precision_admin_length'))}</label>
+                <input type="number" id="${round}_len_${classId}" data-round="${round}" value="${escapeHtml(data.trackLengthMeters ?? '')}" class="round-length-input mt-1 w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500 dark:text-white">
+            </div>
+            <div class="precision-field-wrap">
+                <label for="${round}_tempo_${classId}" class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('precision_admin_tempo'))}</label>
+                <input type="number" id="${round}_tempo_${classId}" data-round="${round}" value="${escapeHtml(data.tempo ?? '')}" placeholder="${escapeHtml(tempoPlaceholder)}" class="round-tempo-input mt-1 w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500 dark:text-white">
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(defaultText)}</p>
+            </div>
+            <div>
+                <div class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('precision_admin_maxtime'))}</div>
+                <strong class="round-maxtime mt-1 block p-2 text-gray-800 dark:text-white" data-round="${round}">--:--</strong>
+            </div>
+        </div>
+        <p class="round-tempo-warning hidden mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300" data-round="${round}"></p>
+        <div class="precision-field-wrap mt-2">
+            <label for="${round}_labels_${classId}" class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('precision_admin_labels'))}</label>
+            <textarea id="${round}_labels_${classId}" data-round="${round}" class="round-labels-input mt-1 w-full min-h-[60px] p-2 border rounded-md text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="1, 2, 3, 4A, 4B ...">${escapeHtml((data.obstacleLabels || []).join(', '))}</textarea>
+        </div>
+    `;
+}
+
+// Phase 2 (two phases) and drive-off settings of a class card; shown by the
+// format select (updatePrecisionRoundSections)
+function renderPrecisionRoundSections(className, classId, courseData, group) {
+    const format = getPrecisionFormat(className, precisionConfig);
+    const profile = ruleProfileOf(className);
+    const phase2 = courseData.phase2 || {};
+    const driveOff = courseData.driveOff || {};
+    const scheduled = format === 'driveOff' ? driveOff.scheduled !== false : driveOff.scheduled === true;
+    const sectionClass = 'precision-round-section mt-4 rounded-md border border-blue-200 bg-blue-50/50 p-3 dark:border-blue-900/60 dark:bg-blue-900/10';
+    return `
+        <div class="${sectionClass} ${format === 'twoPhase' ? '' : 'hidden'}" data-round-section="phase2">
+            <h5 class="text-sm font-bold text-gray-800 dark:text-white">${escapeHtml(t('precision_admin_phase2_title'))}</h5>
+            ${profile === 'FEI' ? `<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t('precision_admin_phase2_fei_note'))}</p>` : ''}
+            ${renderPrecisionRoundFields('phase2', classId, phase2, getTempoStateForGroup(group, 'phase2'))}
+        </div>
+        <div class="${sectionClass} ${(format === 'twoPhase' || format === 'driveOff') ? '' : 'hidden'}" data-round-section="driveOff">
+            <h5 class="text-sm font-bold text-gray-800 dark:text-white">${escapeHtml(t('precision_admin_driveoff_title'))}</h5>
+            <label class="mt-1 flex items-center gap-2 text-sm dark:text-gray-300">
+                <input type="checkbox" class="driveoff-scheduled-input h-4 w-4 rounded border-gray-300" ${scheduled ? 'checked' : ''}>
+                <span class="driveoff-label-driveoff ${format === 'driveOff' ? '' : 'hidden'}">${escapeHtml(t('precision_admin_driveoff_scheduled'))}</span>
+                <span class="driveoff-label-twophase ${format === 'twoPhase' ? '' : 'hidden'}">${escapeHtml(t('precision_admin_driveoff_after_phase2'))}</span>
+            </label>
+            <p class="mt-1 text-xs ${profile === 'TR' ? 'font-semibold text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-gray-400'}">${escapeHtml(t(profile === 'TR' ? 'precision_admin_driveoff_tr_note' : 'precision_admin_driveoff_fei_note'))}</p>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t('precision_admin_driveoff_length_hint'))}</p>
+            ${renderPrecisionRoundFields('driveOff', classId, driveOff, getTempoStateForGroup(group, 'driveOff'))}
+        </div>
+        <div class="precision-course-warnings mt-2 space-y-1 text-xs font-semibold text-amber-700 dark:text-amber-300" role="note"></div>
+    `;
+}
+
+function fillTemplate(text, vars) {
+    return Object.entries(vars).reduce((out, [key, value]) => out.replaceAll(`{${key}}`, String(value)), text);
+}
+
+// Max time of a round for the card's current inputs, as the engine finds it:
+// a drive-off without its own length drives the phase-1 course
+function roundMaxTimeLabel(card, round, group) {
+    const lengthOf = (selector) => parseOptionalNumber(card.querySelector(selector)?.value) || 0;
+    let length = lengthOf(`.round-length-input[data-round="${round}"]`);
+    if (!length && round === 'driveOff') length = lengthOf('.track-length-input');
+    const override = parseOptionalNumber(card.querySelector(`.round-tempo-input[data-round="${round}"]`)?.value);
+    const tempoState = getTempoStateForGroup(group, round);
+    if (!(length > 0)) return { text: '--:--', missingTempo: false };
+    if (override > 0) return { text: secondsToMMSS(Math.ceil((length * 60) / override - 1e-9)), missingTempo: false };
+    if (tempoState.hasMixedTempo) return { text: tempoState.tempos.map(tempo => secondsToMMSS(Math.ceil((length * 60) / tempo - 1e-9))).join(' / '), missingTempo: false };
+    if (tempoState.displayTempo > 0) return { text: secondsToMMSS(Math.ceil((length * 60) / tempoState.displayTempo - 1e-9)), missingTempo: false };
+    return { text: '--:--', missingTempo: true };
+}
+
+// Shows the sections of the card's format, their max times, and the course warnings
+function updatePrecisionRoundSections(card) {
+    if (!card) return;
+    const className = card.dataset.className;
+    const group = activeClassGroups.find(item => item.label === className) || { label: className, sourceClasses: [className] };
+    const format = card.querySelector('.precision-format-select')?.value || 'normal';
+    const profile = ruleProfileOf(className);
+    const twoPhase = format === 'twoPhase';
+    const hasDriveOff = twoPhase || format === 'driveOff';
+
+    card.querySelector('[data-round-section="phase2"]')?.classList.toggle('hidden', !twoPhase);
+    card.querySelector('[data-round-section="driveOff"]')?.classList.toggle('hidden', !hasDriveOff);
+    card.querySelector('.driveoff-label-driveoff')?.classList.toggle('hidden', format !== 'driveOff');
+    card.querySelector('.driveoff-label-twophase')?.classList.toggle('hidden', !twoPhase);
+
+    ['phase2', 'driveOff'].forEach((round) => {
+        const { text, missingTempo } = roundMaxTimeLabel(card, round, group);
+        const out = card.querySelector(`.round-maxtime[data-round="${round}"]`);
+        if (out) out.textContent = text;
+        const warn = card.querySelector(`.round-tempo-warning[data-round="${round}"]`);
+        if (warn) {
+            // TR phase 2 of a class Bilaga 5 gives no tempo for (Lätt B, Barn, Lätt A Para): the admin enters it
+            const show = missingTempo && round === 'phase2' && twoPhase;
+            warn.classList.toggle('hidden', !show);
+            warn.textContent = show ? t('precision_admin_phase2_tempo_missing') : '';
+        }
+    });
+
+    // Obstacle counts (TR 529.2 / FEI 979.3.1) and a short drive-off course (FEI 977.2.1)
+    const countOf = (selector) => parsePrecisionObstacleLabels(card.querySelector(selector)?.value ?? '').length;
+    const driveOffScheduled = hasDriveOff && card.querySelector('.driveoff-scheduled-input')?.checked === true;
+    const warnings = precisionCourseWarnings({
+        profile,
+        format,
+        phase1Count: countOf('.obstacle-labels-input'),
+        phase2Count: countOf('.round-labels-input[data-round="phase2"]'),
+        trackLength: parseOptionalNumber(card.querySelector('.track-length-input')?.value),
+        driveOffLength: parseOptionalNumber(card.querySelector('.round-length-input[data-round="driveOff"]')?.value),
+        driveOffScheduled
+    });
+    const rangeText = (w) => (w.min != null ? `${w.min}–${w.max}` : fillTemplate(t('precision_admin_range_atmost'), { n: w.max }));
+    const textFor = (w) => {
+        if (w.code === 'driveOffShort') return t('precision_admin_warn_driveoff_short');
+        const key = { phase1: 'precision_admin_warn_phase1', phase2: 'precision_admin_warn_phase2', total: 'precision_admin_warn_total' }[w.code];
+        return fillTemplate(t(key), { n: w.n, rule: w.rule, range: rangeText(w) });
+    };
+    const host = card.querySelector('.precision-course-warnings');
+    if (host) host.innerHTML = warnings.map(w => `<p>${escapeHtml(textFor(w))}</p>`).join('');
 }
 
 function renderClassCards() {
@@ -570,6 +724,7 @@ function renderClassCards() {
                     <label for="labels_${classId}" class="block text-sm font-medium dark:text-gray-300">Hinderetiketter</label>
                     <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${escapeHtml(labels.join(', '))}</textarea>
                 </div>
+                ${renderPrecisionRoundSections(className, classId, courseData, group)}
                 <div class="mt-4">
                     <label class="block text-sm font-medium dark:text-gray-300">Särskilda portar per hinder</label>
                     <details class="mt-1 special-port-section">
@@ -623,13 +778,24 @@ function renderClassCards() {
         select.addEventListener('change', (e) => {
             const note = e.target.closest('div')?.querySelector('.precision-format-note');
             const info = PRECISION_FORMATS[e.target.value] || PRECISION_FORMATS.normal;
+            updatePrecisionRoundSections(e.target.closest('[data-class-name]'));
             if (!note) return;
             note.className = `precision-format-note mt-1 text-xs ${info.supported ? 'text-gray-500 dark:text-gray-400' : 'font-semibold text-amber-700 dark:text-amber-300'}`;
-            note.textContent = info.supported
-                ? 'Straff, sedan tid (TR 530.1.1–530.1.2, FEI 976). Clear round ställs in i maratonadmin och gäller hela klassen.'
-                : `Programmet räknar inte detta format: precisionen får ingen placering${info.excludesTotal ? ' och inget totalresultat' : ''}. Räkna manuellt.`;
+            note.textContent = precisionFormatNoteText(e.target.value);
         });
     });
+
+    // Phase 2 / drive-off sections: max times and course warnings follow every
+    // related input (property handlers, so a re-render does not stack listeners)
+    container.oninput = (e) => {
+        if (e.target.closest('[data-round-section]') || e.target.matches('.track-length-input, .tempo-override-input, .obstacle-labels-input')) {
+            updatePrecisionRoundSections(e.target.closest('[data-class-name]'));
+        }
+    };
+    container.onchange = (e) => {
+        if (e.target.matches('.driveoff-scheduled-input')) updatePrecisionRoundSections(e.target.closest('[data-class-name]'));
+    };
+    container.querySelectorAll('.precision-admin-card').forEach(updatePrecisionRoundSections);
 
     container.querySelectorAll('.obstacle-labels-input').forEach(textarea => {
         textarea.addEventListener('input', (e) => {
@@ -742,6 +908,37 @@ function applyPrecisionFormatToCourse(courseConfig, card, className) {
     if (value !== 'normal' || stored) courseConfig.format = PRECISION_FORMATS[value] ? value : 'normal';
 }
 
+// A round's form values: { trackLengthMeters, tempo, obstacleLabels }
+function readPrecisionRoundForm(card, round) {
+    return {
+        trackLengthMeters: parseOptionalNumber(card.querySelector(`.round-length-input[data-round="${round}"]`)?.value),
+        tempo: parseOptionalNumber(card.querySelector(`.round-tempo-input[data-round="${round}"]`)?.value),
+        obstacleLabels: parsePrecisionObstacleLabels(card.querySelector(`.round-labels-input[data-round="${round}"]`)?.value ?? '')
+    };
+}
+
+// Phase 2 (two phases) and drive-off settings of the class from the form. A
+// format without them keeps the stored settings untouched (a merge write
+// would keep them anyway, and the save then sees no difference)
+function applyPrecisionRoundsToCourse(courseConfig, card, className) {
+    const format = card.querySelector('.precision-format-select')?.value || 'normal';
+    const stored = precisionConfig.courses?.[className] || {};
+    if (format === 'twoPhase') {
+        courseConfig.phase2 = readPrecisionRoundForm(card, 'phase2');
+    } else if (stored.phase2) {
+        courseConfig.phase2 = stored.phase2;
+    }
+    if (format === 'twoPhase' || format === 'driveOff') {
+        const scheduled = card.querySelector('.driveoff-scheduled-input')?.checked === true;
+        const driveOff = readPrecisionRoundForm(card, 'driveOff');
+        const hasValues = driveOff.trackLengthMeters != null || driveOff.tempo != null || driveOff.obstacleLabels.length > 0;
+        // Two phases without a drive-off keep no drive-off settings (unless stored: it is switched off, not removed)
+        if (format === 'driveOff' || scheduled || hasValues || stored.driveOff) courseConfig.driveOff = { ...driveOff, scheduled };
+    } else if (stored.driveOff) {
+        courseConfig.driveOff = stored.driveOff;
+    }
+}
+
 function buildPrecisionConfigFromForm() {
     const comp = getGlobalState('currentCompetition');
     const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
@@ -789,6 +986,7 @@ function buildPrecisionConfigFromForm() {
         };
         if (Object.keys(specialPortAllowance).length > 0) courseConfig.specialPortAllowance = specialPortAllowance;
         applyPrecisionFormatToCourse(courseConfig, card, className);
+        applyPrecisionRoundsToCourse(courseConfig, card, className);
 
         const group = activeClassGroups.find(item => item.label === className);
         newConfig.courses[className] = courseConfig;
@@ -910,6 +1108,7 @@ async function saveData() {
                 courseConfig.specialPortAllowance = specialPortAllowance;
             }
             applyPrecisionFormatToCourse(courseConfig, card, className);
+            applyPrecisionRoundsToCourse(courseConfig, card, className);
 
             const group = activeClassGroups.find(item => item.label === className);
             newConfig.courses[className] = courseConfig;
@@ -1188,7 +1387,7 @@ function buildPrecisionClassGroups(equipages = [], mergeMap = new Map()) {
         .sort((a, b) => a.label.localeCompare(b.label, 'sv'));
 }
 
-function getTempoStateForGroup(group) {
+function getTempoStateForGroup(group, round = 'phase1') {
     const sourceClasses = group?.sourceClasses?.length ? group.sourceClasses : [group?.label].filter(Boolean);
     // Standard tempo exactly as the result engine finds it (no config
     // overrides), per equipage: a class for ponies and horses together
@@ -1198,7 +1397,10 @@ function getTempoStateForGroup(group) {
         return inClass.length ? inClass : [className];
     });
     const tempos = subjects
-        .map(subject => getClassTempoMpm(subject, {}) || 0)
+        .map(subject => (round === 'phase1'
+            ? getClassTempoMpm(subject, {})
+            // Phase 2: Bilaga 5 "Fas 2" (TR) / the phase-1 speed (FEI); drive-off: the phase-1 tempo
+            : getPrecisionRoundTempoMpm(subject, {}, round, { ruleProfile: ruleProfileOf(subject) })) || 0)
         .filter(tempo => tempo > 0);
     const uniqueTempos = [...new Set(tempos)];
 

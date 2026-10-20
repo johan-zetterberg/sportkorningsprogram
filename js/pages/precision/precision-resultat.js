@@ -17,11 +17,25 @@ import { getCompetitionHeader } from '../../ui/components.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { t } from '../../utils/i18n.js';
+import { getPrecisionFormat, isPrecisionDriveOffScheduled } from '../../utils/precisionCalculation.js';
+import { isAnyPrecisionRoundRunning, readPrecisionRound } from '../../utils/precisionRounds.js';
+import {
+  buildPrecisionBannerItems,
+  formatPrecisionPlace,
+  formatPrecisionRoundCell,
+  formatPrecisionSeconds,
+  isMultiRoundPrecisionFormat,
+  precisionRoundCellPlain,
+  precisionRoundLabel,
+  precisionTierSeparators,
+  runningPrecisionRound
+} from './precisionRoundsDisplay.js';
+import { renderPrecisionBanners } from './precisionResultBanners.js';
 
 import { initializeScrollSync, injectScrollStyles, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import {
   getCalculatedRowData,
-  buildPlaceMap,
+  buildPrecisionPlaceInfo,
   computeMaxSecondsForClass,
   startTimeFor,
   getPortAllowanceCm,
@@ -76,7 +90,8 @@ import { renderPrecisionResultDesktopRow } from './precisionResultDesktopRow.js'
 import {
   renderPrecisionGroupHeader,
   renderPrecisionTable,
-  renderPrecisionTableHead
+  renderPrecisionTableHead,
+  renderPrecisionTierHeader
 } from './precisionResultTable.js';
 import {
   renderPrecisionLiveStatusPanel,
@@ -123,7 +138,52 @@ function render() {
   } else {
     renderDesktop();
   }
+  renderRoundBanners();
   updateControlStates();
+}
+
+// Drive-off pending (provisional places) and engine warnings of two-phase /
+// drive-off classes, above the list
+function renderRoundBanners() {
+  const host = document.getElementById('precisionRoundBanners');
+  if (!host) return;
+  const field = competingPrecisionEquipages(precision_equipages);
+  const placeMap = precisionPlaceMap(field);
+  const context = placeInfoByMap.get(placeMap)?.context || null;
+  const items = buildPrecisionBannerItems(field.map((eq) => ({
+    label: eq._mergedLabel || eq.className || '',
+    startNumber: eq.startNumber,
+    ctx: context ? context.contextOf(eq) : null,
+    formatWarnings: precisionRowData(String(eq.startNumber), placeMap).formatWarnings || []
+  })));
+  host.innerHTML = renderPrecisionBanners(items);
+}
+
+// The extra round columns of the table: "Fas 2" when a class has two phases,
+// "Omkörning" when a class schedules a drive-off
+function precisionRoundHeads() {
+  const field = competingPrecisionEquipages(precision_equipages);
+  const config = precision_precisionConfig || {};
+  const formats = field.map((eq) => getPrecisionFormat(eq, config));
+  const heads = [];
+  if (formats.includes('twoPhase')) heads.push({ round: 'phase2', label: t('precision_round_phase2') });
+  if (field.some((eq) => isPrecisionDriveOffScheduled(eq, config))) heads.push({ round: 'driveOff', label: t('precision_round_driveoff') });
+  return { heads, anyMultiRound: formats.some(isMultiRoundPrecisionFormat) };
+}
+
+// A row's place as shown: "(1)" while the drive-off is pending
+function placeLabelOf(data) {
+  return data.place ? formatPrecisionPlace(data.place, data.placeProvisional) : null;
+}
+
+// Items of a group in rank order with the tier separators ("Fas 2", "Endast fas 1")
+function withTierSeparators(items, placeMap) {
+  const tiers = placeInfoByMap.get(placeMap)?.tiers;
+  const config = precision_precisionConfig || {};
+  return precisionTierSeparators(items, {
+    tierOf: (eq) => tiers?.get(String(eq.startNumber)) ?? null,
+    formatOf: (eq) => getPrecisionFormat(eq, config)
+  });
 }
 
 function injectPrecisionResultsBaseStyles() {
@@ -286,8 +346,27 @@ function archivedPrecision(sn, calcEliminated) {
 
 // Placings per class; for an archived competition from the penalties it was
 // archived with (the time still breaks ties)
+// What the placing also tells about a place map (WeakMap keyed by the map): the
+// provisional places (drive-off pending), the placing tier per start number (for
+// separators) and the group context (banners)
+const placeInfoByMap = new WeakMap();
+
+function registerPlaceInfo(placeMap, rows, context, provisional) {
+  const tiers = new Map();
+  rows.forEach((r) => {
+    const sn = String(r.startNumber);
+    // The tier of a placed row (2-4, drive-off 0-1); unplaced rows have none
+    tiers.set(sn, placeMap.get(sn) != null ? (context.rankKey(r, { requireFinished: false })?.tier ?? 4) : null);
+  });
+  placeInfoByMap.set(placeMap, { provisional, tiers, context });
+  return placeMap;
+}
+
 function precisionPlaceMap(rows) {
-  if (!archiveSnapshot) return buildPlaceMap(rows, precision_precisionMap, precision_precisionConfig);
+  if (!archiveSnapshot) {
+    const info = buildPrecisionPlaceInfo(rows, precision_precisionMap, precision_precisionConfig);
+    return registerPlaceInfo(info.placeMap, rows, info.context, info.provisional);
+  }
   const groupOf = (r) => r._mergedKey || `CLASS:${r.className || '—'}`;
   // The archived phase-1 penalty and time on the calculated result (the
   // placing tiers of two phases / drive-off come from the result)
@@ -323,13 +402,23 @@ function precisionPlaceMap(rows) {
     const clearRound = isPrecisionClearRound(r);
     placeMap.set(sn, clearRound ? null : (useArchivedPlace ? archived.place : placeOf.get(r)));
   });
-  return placeMap;
+  const provisional = new Set(rows.filter(r => placeMap.get(String(r.startNumber)) != null && precisionCtx.isProvisional(r)).map(r => String(r.startNumber)));
+  return registerPlaceInfo(placeMap, rows, precisionCtx, provisional);
 }
 
 // The row data of the lists; for an archived competition with the total
 // penalty it was archived with (details such as knockdowns stay as calculated)
 function precisionRowData(sn, placeMap) {
-  const data = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+  const base = getCalculatedRowData(sn, placeMap, precision_equipages, precision_precisionMap, precision_precisionConfig, precision_startTimes);
+  const placeInfo = placeInfoByMap.get(placeMap);
+  const snKey = String(sn);
+  // Rounds: the one on the course, provisional place (drive-off pending), placing tier
+  const data = {
+    ...base,
+    liveRound: runningPrecisionRound(base.d),
+    placeProvisional: placeInfo?.provisional?.has(snKey) === true,
+    placeTier: placeInfo?.tiers?.get(snKey) ?? null
+  };
   const archived = archivedPrecision(String(sn), Boolean(data.eliminated));
   return archived
     ? {
@@ -412,7 +501,7 @@ function ensureTicker() {
 function stopTicker() {
   let anyRunning = false;
   precision_precisionMap.forEach(data => {
-    if (data && data.running === true) anyRunning = true;
+    if (isAnyPrecisionRoundRunning(data)) anyRunning = true;
   });
 
   if (!anyRunning && precisionTickerInterval) {
@@ -424,7 +513,8 @@ function stopTicker() {
 function tickPrecisionTimers() {
   let anyRunning = false;
   precision_precisionMap.forEach((data, sn) => {
-    if (data && data.running === true && data.liveStartEpoch) {
+    const runningRound = runningPrecisionRound(data);
+    if (data && runningRound && readPrecisionRound(data, runningRound).liveStartEpoch) {
       anyRunning = true;
       const desktopCell = document.querySelector(`td[data-sn="${sn}"].time-cell span`);
       const mobileTimer = document.querySelector(`div[data-sn="${sn}"] .live-time-card`);
@@ -450,6 +540,21 @@ function tickPrecisionTimers() {
       const timeTooltip = formatPrecisionTimeTooltip(timeLabel, elapsedMs);
       const overTime = tick.overTime;
       const timeClass = overTime ? 'text-red-600 font-semibold animate-pulse' : '';
+      const timeScored = tick.scoring === 'time';
+      const scoreText = (value) => (timeScored ? formatPrecisionSeconds(value) : `${value.toFixed(2)} p`);
+
+      // Phase 2 / drive-off: the round's own cells tick; phase 1 stays as saved
+      if (runningRound !== 'phase1') {
+        document.querySelectorAll(`.round-cell[data-sn="${sn}"][data-round="${runningRound}"]`).forEach((cell) => {
+          const main = cell.querySelector('.round-main');
+          const sub = cell.querySelector('.round-sub');
+          if (main) main.textContent = timeLabel;
+          if (sub) sub.textContent = scoreText(tick.penalty.totalPenalty);
+          cell.title = timeTooltip;
+        });
+        updateLivePanelTimer(sn, timeLabel, scoreText(tick.penalty.totalPenalty), tick.rank ? String(tick.rank) : null, timeTooltip);
+        return;
+      }
 
       if (desktopCell) {
         desktopCell.textContent = timeLabel;
@@ -510,7 +615,7 @@ function renderLiveStatusPanel() {
 
   const activeEq = precision_equipages.find(eq => {
     const d = precision_precisionMap.get(String(eq.startNumber));
-    return d && (d.running === true || (d.status && d.status.includes('Påg')));
+    return d && (isAnyPrecisionRoundRunning(d) || (d.status && d.status.includes('Påg')));
   });
 
   if (!activeEq) {
@@ -529,11 +634,21 @@ function renderLiveStatusPanel() {
   const myOverall = standingsMap.get(sn);
   const toBeat = getToBeatInfo(sn, standings);
   const data = precisionRowData(sn, new Map());
+  // The round on the course, for a class with phase 2 / a drive-off
+  const format = getPrecisionFormat(activeEq, precision_precisionConfig);
+  const liveRound = data.liveRound || 'phase1';
+  const multiRound = isMultiRoundPrecisionFormat(format);
+  const liveRoundResult = data.rounds?.[liveRound];
+  const roundPenaltyLabel = liveRound !== 'phase1' && Number.isFinite(liveRoundResult?.totalPenalty)
+    ? (liveRoundResult.scoring === 'time' ? formatPrecisionSeconds(liveRoundResult.totalPenalty) : `${liveRoundResult.totalPenalty.toFixed(2)} p`)
+    : null;
 
   container.classList.remove('hidden');
   container.innerHTML = renderPrecisionLiveStatusPanel({
     equipage: activeEq,
     totalPenalty: data.totalPenalty,
+    roundLabel: multiRound ? precisionRoundLabel(liveRound, format) : '',
+    penaltyLabel: roundPenaltyLabel,
     overallRank: myOverall?.rank,
     toBeat,
     horseLabelHtml: escapeHtml(horseLabel(activeEq)),
@@ -586,6 +701,8 @@ function renderLayout() {
         ${canSeeSettingsNotices() ? resultSettingsNoticeHtml({ precision: precisionSettingsIssues(precision_equipages, precision_precisionConfig) }) : ''}
 
         ${precisionFormatWarningsHtml(precision_equipages, precision_precisionConfig)}
+
+        <div id="precisionRoundBanners"></div>
 
         <div id="liveStatusPanelContainer" class="mb-3 hidden"></div>
 
@@ -667,7 +784,11 @@ function renderLayout() {
           precision_precisionConfig,
           precision_startTimes,
           freshComp,
-          { placeMap: fieldPlaceMap() }
+          (() => {
+            const placeMap = fieldPlaceMap();
+            const info = placeInfoByMap.get(placeMap);
+            return { placeMap, provisional: info?.provisional, context: info?.context };
+          })()
         );
       } catch (err) {
         console.error('PDF Export Error:', err);
@@ -685,12 +806,14 @@ function renderLayout() {
 
       const list = filteredSortedEquipages();
       const placeMap = fieldPlaceMap();
+      // Phase 2 / drive-off as extra columns (the columns above are phase 1 / the initial round)
+      const { heads: csvRoundHeads } = precisionRoundHeads();
 
       const headers = [
         t('rank'), t('startno'), t('driver'), t('horse'), t('class'), t('club'),
         t('start_time'), `${t('obstacle_width')} (cm)`, t('time'), 'Tid (s)', t('knockdowns'),
         t('obs_penalty'), t('time_penalty'), t('other_penalty_short'),
-        t('total'), t('status')
+        t('total'), ...csvRoundHeads.map(head => head.label), t('status')
       ];
 
       const rows = list.map(eq => {
@@ -717,6 +840,7 @@ function renderLayout() {
           formatPrecisionCsvPenalty(data.timePenalty, { zeroWhenEmpty: true }),
           formatPrecisionCsvPenalty(data.extraPenalty, { zeroWhenEmpty: true }),
           formatPrecisionCsvPenalty(data.totalPenalty, { eliminated }),
+          ...csvRoundHeads.map(head => precisionRoundCellPlain(formatPrecisionRoundCell(data.rounds?.[head.round] ?? null))),
           data.status || '—'
         ];
       });
@@ -796,7 +920,9 @@ function renderMobile() {
       const groups = prec_groupEquipagesForDisplay(visibleEquipages);
       for (const group of groups) {
         html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${escapeHtml(group.label)}</div>`;
-        html += group.items.map(eq => renderCard(eq, placeMap, classStarters)).join('');
+        html += withTierSeparators(group.items, placeMap).map(({ item: eq, separatorKey }) => (separatorKey
+          ? `<div class="precision-tier-header mx-1 mt-1 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">${escapeHtml(t(separatorKey))}</div>`
+          : '') + renderCard(eq, placeMap, classStarters)).join('');
       }
     } else {
       html += visibleEquipages.map(eq => renderCard(eq, placeMap, classStarters)).join('');
@@ -825,9 +951,16 @@ function renderMobile() {
 function renderCard(eq, placeMap, classStarters = new Map()) {
   const sn = String(eq.startNumber);
   const data = precisionRowData(sn, placeMap);
+  const format = getPrecisionFormat(data.eq, precision_precisionConfig || {});
+  // Phase 2 / drive-off of this class, as small tiles under the phase-1 ones
+  const roundCells = ['phase2', 'driveOff']
+    .filter((round) => data.rounds?.[round])
+    .map((round) => ({ round, label: precisionRoundLabel(round, format), cell: formatPrecisionRoundCell(data.rounds[round]) }));
 
   return renderPrecisionResultCard({
     data,
+    roundCells,
+    placeLabel: placeLabelOf(data),
     viewMode: precision_viewMode,
     classStarters,
     flagHtml: getFlagHtml(data.eq),
@@ -897,7 +1030,9 @@ function renderDesktop() {
   // Beräkna totalställning EN GÅNG per render (whole field, per class)
   const standings = fieldOverallStandings();
 
+  const { heads: roundHeads, anyMultiRound } = precisionRoundHeads();
   const headHTML = renderPrecisionTableHead({
+    roundHeads,
     rank: t('rank'),
     driver: t('driver'),
     className: t('class'),
@@ -909,7 +1044,7 @@ function renderDesktop() {
     obsPenalty: t('obs_penalty'),
     timePenalty: t('time_penalty'),
     otherPenaltyShort: t('other_penalty_short'),
-    total: t('total'),
+    total: anyMultiRound ? t('precision_total_phase1') : t('total'),
     overallStanding: 'Total ställning',
     status: t('status'),
     finalColumn: t('final_column')
@@ -926,6 +1061,8 @@ function renderDesktop() {
     return renderPrecisionResultDesktopRow({
       data,
       index,
+      roundCells: roundHeads.map(({ round }) => ({ round, cell: formatPrecisionRoundCell(data.rounds?.[round] ?? null) })),
+      placeLabel: placeLabelOf(data),
       allowanceDisplay,
       startTime: startTimeFor(sn, precision_startTimes),
       horseLabelHtml: horseLabelStacked(data.eq),
@@ -944,8 +1081,11 @@ function renderDesktop() {
   } else {
     const groups = prec_groupEquipagesForDisplay(visible);
     for (const group of groups) {
-      bodyHTML += renderPrecisionGroupHeader(group.label);
-      bodyHTML += group.items.map((eq, i) => renderRow(eq, i)).join('');
+      const colspan = 16 + roundHeads.length;
+      bodyHTML += renderPrecisionGroupHeader(group.label, colspan);
+      bodyHTML += withTierSeparators(group.items, placeMap).map(({ item: eq, separatorKey }, i) => (separatorKey
+        ? renderPrecisionTierHeader(t(separatorKey), colspan)
+        : '') + renderRow(eq, i)).join('');
     }
   }
 
