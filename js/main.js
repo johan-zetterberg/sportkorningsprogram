@@ -352,6 +352,8 @@ function initialize() {
 
     // 1. Initiera autentiseringen. Vi skickar med en callback-funktion.
     initAuth(async () => {
+        // Notifications: refresh this device's registration (quiet, never blocks the start)
+        import('./services/pushService.js').then((push) => push.refreshPush()).catch(() => { });
         // Banners above the page per route (officials' messages, the pause);
         // they follow the router's app-route-change event
         initFieldMessages();

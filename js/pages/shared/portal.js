@@ -50,6 +50,7 @@ import { listenForConfig } from '../../services/competitionService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { getDriverContacts, getOfficials } from '../../services/adminService.js';
 import { mountEmergencyInfoCard } from '../../ui/emergencyInfoCard.js';
+import { mountPushPanel } from '../../ui/pushSettingsPanel.js';
 import { getClubLogoHtml, ensureClubLogosLoaded } from '../../services/logosService.js';
 import { getPrograms, guessProgramKeyFromClass, deduplicateAndFilterProtocols, normalizeMovements } from '../../utils/dressageUtils.js';
 import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../../services/calculationService.js';
@@ -1342,6 +1343,8 @@ async function renderDashboard(container, compId, startNumber, user) {
 
                     <div id="portal-emergency" class="col-span-1 md:col-span-2"></div>
 
+                    <div id="portal-push" class="col-span-1 md:col-span-2"></div>
+
                     ${contactPersons.length ? `
                     <div class="bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm col-span-1 md:col-span-2">
                         <h3 class="text-lg font-bold mb-4 border-b dark:border-gray-700 pb-2 text-gray-900 dark:text-white">${t('officials', compConfig?.isInternational)}</h3>
@@ -1422,6 +1425,10 @@ async function renderDashboard(container, compId, startNumber, user) {
             // Nödinfo: the persons' phones for the competition's drivers (rules)
             mountEmergencyInfoCard(document.getElementById('portal-emergency'), compId)
                 .catch((error) => console.warn('Nödinfo kunde inte visas:', error));
+
+            // Notiser (web push) for this competition
+            mountPushPanel(document.getElementById('portal-push'), { role: 'driver', competitionId: compId })
+                .catch((error) => console.warn('Notiser kunde inte visas:', error));
 
             attachHorseTemperatureHandlers();
 

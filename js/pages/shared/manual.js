@@ -1081,6 +1081,16 @@ function getTabContentSV(tab) {
                   <li><strong>Testmejl och logg:</strong> <em>"Skicka testmejl till mig"</em> provar utskicket. Listan <em>Senaste utskick</em> visar status, antal skickade och eventuella fel.</li>
                 </ul>
               </div>
+              <!-- NOTISER -->
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">🔔 Notiser</h4>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>Så fungerar det:</strong> Kuskar och funktionärer slår på notiser själva under <em>Notiser</em> i kuskportalen eller på funktionärssidan och väljer vad de vill ha: ändrade starttider, meddelanden, paus, veterinärbeslut och (för sekretariat och TD) ändrade deklarationer. Du kan skicka en testnotis och stänga av notiser på enheten.</li>
+                  <li><strong>Ändrade starttider:</strong> När du ändrar tider på en publicerad lista går en notis till berörda kuskar, och varje kusk får bara sina egna tider. Meddelandet du kan skicka efter ändringen ger ingen dubbel notis.</li>
+                  <li><strong>iPhone:</strong> Notiser kräver iOS 16.4 eller senare och att appen ligger på hemskärmen: tryck på Dela-knappen, välj <em>Lägg till på hemskärmen</em>, öppna appen från ikonen och slå på notiser där.</li>
+                  <li><strong>Inte aktiverat ännu:</strong> Tills superadmin sparat en VAPID-nyckel och slagit på notiser visas <em>"Notiser är inte aktiverade ännu"</em>. Allt annat i appen fungerar som vanligt.</li>
+                </ul>
+              </div>
               <!-- INSTÄLLNINGAR -->
               <div class="bg-white border rounded-lg p-4 shadow-sm">
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Inställningar & Tävlingsprofil</h4>
@@ -2242,6 +2252,16 @@ function getTabContentEN(tab) {
                   <li><strong>Important message:</strong> Also goes to those who opted out of ordinary mail. Use it only for what must get through.</li>
                   <li><strong>Not connected yet:</strong> If the app's e-mail service is not connected, mail is queued with the status <em>"Waiting: not configured"</em> and is sent once the service is connected. The message in the app is still published at once.</li>
                   <li><strong>Test mail and log:</strong> <em>"Send a test e-mail to me"</em> tries sending. The <em>Recent mail</em> list shows status, number sent and any errors.</li>
+                </ul>
+              </div>
+              <!-- NOTIFICATIONS -->
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">🔔 Notifications</h4>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>How it works:</strong> Drivers and officials turn notifications on themselves under <em>Notifications</em> in the driver portal or on the official page and choose what they want: changed start times, messages, pause, vet decisions and (for the secretariat and TD) changed declarations. You can send a test notification and turn notifications off on the device.</li>
+                  <li><strong>Changed start times:</strong> When you change times on a published list a notification goes to the drivers concerned, and each driver gets only their own times. The message you can send after the change does not give a double notification.</li>
+                  <li><strong>iPhone:</strong> Notifications need iOS 16.4 or later and the app on the home screen: tap the Share button, choose <em>Add to Home Screen</em>, open the app from its icon and turn notifications on there.</li>
+                  <li><strong>Not enabled yet:</strong> Until the superadmin has saved a VAPID key and switched notifications on, <em>"Notifications are not enabled yet"</em> is shown. Everything else in the app works as usual.</li>
                 </ul>
               </div>
               <!-- SETTINGS -->

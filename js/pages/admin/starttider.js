@@ -15,6 +15,7 @@ import { getCompetitionHeader, showAlert, showConfirm, renderNoCompetitionState 
 import { saveCompetitionMessage } from '../../services/documentService.js';
 import { buildMessageAudience } from '../../utils/messageAudience.js';
 import { queueStartTimeChangeMail } from '../../services/mailService.js';
+import { notifyStartTimeChange } from '../../services/pushService.js';
 import { buildStartTimeMailChanges } from '../../utils/mailUtils.js';
 import {
     applyTimeShift,
@@ -1545,6 +1546,8 @@ async function saveTimes() {
  * in Swedish and English. Sent with one click; nothing is sent otherwise.
  */
 async function offerStartTimeChangeMessage(changes) {
+    // The push notice always goes (cheap; each driver's own topic choice decides)
+    sendStartTimeChangePush(changes);
     const message = buildStartTimeChangeMessage(changes, equipages, translateTo);
     if (!message.startNumbers.length) return;
     const ok = await showConfirm(`${t('starttime_offer_msg_lead').replace('{n}', String(message.startNumbers.length))}\n\n${message.body}`, {
@@ -1560,6 +1563,8 @@ async function offerStartTimeChangeMessage(changes) {
             titleEn: message.titleEn,
             bodyEn: message.bodyEn,
             type: 'info',
+            // The push above covers it: the message trigger must not notify again
+            source: 'startTimeChange',
             ...buildMessageAudience('selected_drivers', { selectedDrivers: message.startNumbers })
         }));
         showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
@@ -1569,6 +1574,21 @@ async function offerStartTimeChangeMessage(changes) {
         return;
     }
     await offerStartTimeChangeMail(changes);
+}
+
+/** Push notice with each driver's own lines (Swedish and English); failures stay quiet */
+function sendStartTimeChangePush(changes) {
+    try {
+        const sv = buildStartTimeMailChanges(changes, translateTo, 'sv');
+        if (!sv.length) return;
+        const en = new Map(buildStartTimeMailChanges(changes, translateTo, 'en').map((c) => [c.startNumber, c.text]));
+        notifyStartTimeChange({
+            competitionId,
+            changes: sv.map((c) => ({ startNumber: c.startNumber, text: c.text, textEn: en.get(c.startNumber) || c.text }))
+        }).catch((err) => console.warn('Push om ändrade starttider kunde inte skickas', err?.code || err));
+    } catch (err) {
+        console.warn('Push om ändrade starttider kunde inte skickas', err);
+    }
 }
 
 /**

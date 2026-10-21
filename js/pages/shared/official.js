@@ -11,6 +11,8 @@ import { mergeUserRoles } from '../../utils/roleAccess.js';
 import { roleLabel } from '../../services/authService.js';
 import { TASK_ICONS, buildOfficialTasks, fillTemplate, findMyRecords, mergeObstacleLocations } from '../../utils/officialTaskUtils.js';
 import { mountEmergencyInfoCard } from '../../ui/emergencyInfoCard.js';
+import { mountPushPanel } from '../../ui/pushSettingsPanel.js';
+import { pushRoleForRoles } from '../../utils/pushPanelUtils.js';
 
 let unsubscribers = [];
 let loadToken = 0;
@@ -78,6 +80,7 @@ export async function load() {
                 <div id="official-tasks" class="space-y-3" aria-live="polite">
                     <div class="animate-pulse h-20 bg-gray-100 dark:bg-gray-700 rounded-lg"></div>
                 </div>
+                <div id="official-push" class="mt-4"></div>
             </section>
 
             <div id="official-emergency" class="mt-4 md:mt-6"></div>
@@ -131,6 +134,9 @@ export async function load() {
     };
 
     loadTasks(competition, user, token);
+    // Notiser (web push): the topics follow the user's roles
+    mountPushPanel(document.getElementById('official-push'), { role: pushRoleForRoles(mergeUserRoles(user)), competitionId: competition.id })
+        .catch((error) => console.warn('Notiser kunde inte visas:', error));
     loadDashboard(competition.id, user, token);
     // Nödinfo with the persons' phone numbers (officials may read them)
     mountEmergencyInfoCard(document.getElementById('official-emergency'), competition.id)

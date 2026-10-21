@@ -200,12 +200,14 @@ async function register(token, { competitionId = null, topics = null } = {}) {
 export async function enablePush({ competitionId = null, topics = null } = {}) {
     const support = getPushSupport();
     if (!support.supported) throw pushError('push/unsupported', support.reason || 'unsupported');
-    const settings = await getPushSettings({ fresh: true });
-    if (!settings.available) throw pushError('push/not-available');
+    // Ask first, before any other await: Safari on iPhone only shows the
+    // permission prompt while the tap's user activation is still valid
     let result = permission();
     if (result === 'default') result = await Notification.requestPermission();
     if (result === 'denied') throw pushError('push/permission-denied');
     if (result !== 'granted') throw pushError('push/permission-dismissed');
+    const settings = await getPushSettings({ fresh: true });
+    if (!settings.available) throw pushError('push/not-available');
     const token = await currentToken(settings.vapidKey);
     const previous = readLocal();
     const registration = await register(token, { competitionId, topics: topics || previous?.topics || DEFAULT_PUBLIC_TOPICS });

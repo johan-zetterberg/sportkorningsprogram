@@ -7,12 +7,14 @@ import { auth, functions } from '../config/firebase-config.js';
 import { t } from '../utils/i18n.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { isDeletionConfirmed } from '../utils/personalDataUtils.js';
+import { mountPushPanel } from './pushSettingsPanel.js';
 
 export function renderAccountSettingsSection(email) {
     return `
         <section id="accountSettings" class="mt-4 md:mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 md:p-6">
             <h2 class="text-lg md:text-xl font-semibold mb-2 dark:text-gray-100">👤 ${t('account_title')}</h2>
             <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">${escapeHtml(email || '')} · <a href="#privacy" class="text-blue-600 dark:text-blue-400 hover:underline">${t('account_privacy_link')}</a></p>
+            <div id="accountPush" class="mb-3 max-w-md"></div>
             <details id="accountDeleteDetails" class="text-sm">
                 <summary class="cursor-pointer text-red-700 dark:text-red-400 font-semibold">${t('account_delete_btn')}</summary>
                 <form id="accountDeleteForm" class="mt-3 space-y-3 max-w-md">
@@ -33,6 +35,9 @@ export function renderAccountSettingsSection(email) {
 }
 
 export function wireAccountSettings(root, { onDeleted } = {}) {
+    // The device-wide notifications switch
+    mountPushPanel(root?.querySelector('#accountPush'), { role: 'device', compact: true })
+        .catch((error) => console.warn('Notiser kunde inte visas:', error));
     const form = root?.querySelector('#accountDeleteForm');
     if (!form) return;
     form.addEventListener('submit', async (event) => {

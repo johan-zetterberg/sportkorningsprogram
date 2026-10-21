@@ -889,6 +889,21 @@ test('public center and portal audience smoke flow', async ({ page }) => {
   await expect(page.locator('#dash-content')).toContainText('Smoke Drivers Doc');
 });
 
+test('Notiser card renders in the driver portal and says it is not enabled yet without a VAPID key', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: true, includeStress: false });
+  const competitionId = await page.evaluate(() => localStorage.getItem('lastCompetitionId'));
+  await page.goto('/index.html#portal');
+  await expect(page.locator('#page-portal')).toContainText('Min Kuskportal');
+  await page.locator('#adminImpersonateCompId').fill(competitionId);
+  await page.locator('#adminImpersonateStartNo').fill('1');
+  await page.locator('#adminImpersonateBtn').click();
+  const panel = page.locator('#portal-push #pushPanel');
+  await expect(panel).toContainText(/Notiser|Notifications/, { timeout: 60000 });
+  await expect(panel).toContainText(/inte aktiverade ännu|not enabled yet/i, { timeout: 30000 });
+  await expect(panel.getByRole('button', { name: /Slå på notiser|Turn on notifications/ })).toHaveCount(0);
+});
+
 test('public center explicit competition id overrides previous selection', async ({ page }) => {
   test.setTimeout(240000);
   const firstCompetitionId = await seedCompetition(page, { includeEdgeCases: true, includeStress: false });

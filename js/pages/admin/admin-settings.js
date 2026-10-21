@@ -12,6 +12,7 @@ import {
 import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getPrivacySettingsHtml, setupPrivacySettings } from './adminPrivacySettings.js';
 import { getEmailProviderCardHtml, setupEmailProviderCard, isSuperadminUser } from './adminEmailProviderCard.js';
+import { getPushCardHtml, setupPushCard } from './adminPushCard.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
@@ -1020,6 +1021,9 @@ export function getSettingsHtml() {
         <!-- E-POSTTJÄNST (superadmin) -->
         ${getEmailProviderCardHtml()}
 
+        <!-- PUSH-NOTISER (superadmin) -->
+        ${getPushCardHtml()}
+
         <!-- DANGER ZONE -->
         <div id="dangerZone" class="md:col-span-2 mt-12 bg-red-50 dark:bg-red-900/10 p-6 rounded-xl shadow-md border border-red-200 dark:border-red-900" style="display:none;">
             <h2 class="text-2xl font-bold text-red-800 dark:text-red-400 mb-4 border-b border-red-200 dark:border-red-800 pb-2">Riskzon</h2>
@@ -1598,7 +1602,7 @@ export async function setupSettingsLogic(competitionId) {
             setupPrivacySettings(competitionId, comp);
         }
         // The app's e-mail provider: superadmin only
-        if (isSuperadminUser(currentUser)) setupEmailProviderCard();
+        if (isSuperadminUser(currentUser)) { setupEmailProviderCard(); setupPushCard(); }
 
         if (isAllowed) {
             const dz = document.getElementById('dangerZone');
