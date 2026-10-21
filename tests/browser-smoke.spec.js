@@ -766,6 +766,23 @@ test('an official sees a message for the officials as a banner on a field page',
   await expect(page.locator('#fieldMessagesHost [data-field-messages]')).toHaveCount(0);
 });
 
+test('e-mail card renders and a test mail is queued while no provider is configured', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#admin?tab=communication');
+  const card = page.locator('#mailCard');
+  await expect(card).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#mailStatusLine')).toContainText(/inte konfigurerat|not configured|inkopplad|connected/i, { timeout: 30000 });
+  // The message form offers e-mail too
+  await expect(page.locator('#msgSendMail')).toBeVisible();
+  await page.locator('#msgSendMail').check();
+  await expect(page.locator('#msgMailPreview')).toContainText(/mottagare|recipients/i, { timeout: 30000 });
+  await page.locator('#msgSendMail').uncheck();
+  // A test mail to the caller waits (not_configured) in the log
+  await page.locator('#mailTestBtn').click();
+  await expect(page.locator('#mailLogList')).toContainText(/Testmejl|Test e-mail/i, { timeout: 30000 });
+  await expect(page.locator('#mailLogList')).toContainText(/Väntar|Waiting|Köad|Queued|Skickad|Sent/i);
+});
 test('shifting the rest of the start times shows a preview before saving', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

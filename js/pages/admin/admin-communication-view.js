@@ -1,6 +1,7 @@
 import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
 import { t } from '../../utils/i18n.js';
 import { OFFICIAL_ROLE_KEYS, messageAudienceMode } from '../../utils/messageAudience.js';
+import { getMailCardHtml, getMessageMailOptionsHtml } from './adminMailCard.js';
 
 // The admin's audience choices (messageAudience.buildMessageAudience)
 export function messageAudienceOptions() {
@@ -179,6 +180,8 @@ export function renderCommunicationTabMarkup() {
                 </form>
             </div>
 
+            ${getMailCardHtml()}
+
             <div class="space-y-6">
                 <div class="bg-white dark:bg-gray-800 p-6 rounded-xl shadow-md border-l-4 border-blue-500 border dark:border-gray-700">
                     <h2 class="text-2xl font-semibold mb-4 flex items-center gap-2 dark:text-white">
@@ -237,7 +240,8 @@ export function renderCommunicationTabMarkup() {
                                 <div class="text-gray-400">Laddar kuskar...</div>
                             </div>
                         </div>
-                        <button type="submit" id="msgSubmitBtn" class="w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition dark:bg-blue-700 dark:hover:bg-blue-600">
+                        ${getMessageMailOptionsHtml()}
+                        <button type="submit" id="msgSubmitBtn" class="min-h-[44px] w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition dark:bg-blue-700 dark:hover:bg-blue-600">
                             ${escapeHtml(t('msg_publish_btn'))}
                         </button>
                     </form>

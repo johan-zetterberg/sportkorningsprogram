@@ -170,9 +170,12 @@ export function resolveRecipients({
         const roles = new Set(off.roles || []);
         const offPrivate = mapOf(officialsPrivate);
         officials.forEach(({ id, data = {} }) => {
-            const role = String(data.role || '').trim().toLowerCase();
-            const label = String(data.roleLabel || '').trim().toLowerCase();
-            if (!off.all && !roles.has(role) && !(label && roles.has(label))) return;
+            // The system roles are in `roles` (admin officials form); `role` and
+            // `roleLabel` may be free text such as "Hinderdomare"
+            const own = [data.role, data.roleLabel, ...(Array.isArray(data.roles) ? data.roles : [])]
+                .map((r) => String(r || '').trim().toLowerCase())
+                .filter(Boolean);
+            if (!off.all && !own.some((r) => roles.has(r))) return;
             const priv = offPrivate.get(id) || {};
             if (!add(priv.email || data.email, data.name)) withoutEmail.push({ type: 'official', id });
         });

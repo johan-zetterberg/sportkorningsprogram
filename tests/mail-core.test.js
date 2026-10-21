@@ -94,6 +94,15 @@ test('officials and judges are resolved from their private docs by role', () => 
   assert.deepEqual(marathon.recipients.map((r) => r.email), ['olle@example.se', 'h@example.se']);
   assert.deepEqual(marathon.withoutEmail, [{ type: 'official', id: 'o4' }]);
 
+  // The admin officials form keeps the system roles in `roles`, with free text in `role`
+  const fromRoles = resolveRecipients({
+    audience: normalizeAudience({ officials: { roles: ['vet'] } }),
+    ...input,
+    officials: [{ id: 'o5', data: { name: 'Vera', role: 'Tävlingsveterinär', roles: ['vet', 'speaker'] } }],
+    officialsPrivate: new Map([['o5', { email: 'vera@example.se' }]])
+  });
+  assert.deepEqual(fromRoles.recipients.map((r) => r.email), ['vera@example.se']);
+
   const judgesOnly = resolveRecipients({ audience: normalizeAudience({ officials: { roles: ['domare'] } }), ...input });
   assert.deepEqual(judgesOnly.recipients.map((r) => r.email), ['domare@example.se']);
 

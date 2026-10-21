@@ -14,6 +14,8 @@ import { getCurrentUserRole } from '../../services/authService.js';
 import { getCompetitionHeader, showAlert, showConfirm, renderNoCompetitionState } from '../../ui/components.js';
 import { saveCompetitionMessage } from '../../services/documentService.js';
 import { buildMessageAudience } from '../../utils/messageAudience.js';
+import { queueStartTimeChangeMail } from '../../services/mailService.js';
+import { buildStartTimeMailChanges } from '../../utils/mailUtils.js';
 import {
     applyTimeShift,
     buildChangeStamps,
@@ -1564,6 +1566,30 @@ async function offerStartTimeChangeMessage(changes) {
     } catch (err) {
         console.error('Kunde inte skicka meddelandet om ändrade starttider', err);
         showAlert(t('starttime_offer_msg_failed'), 'error');
+        return;
+    }
+    await offerStartTimeChangeMail(changes);
+}
+
+/**
+ * The same change by e-mail too (each driver gets only their own lines;
+ * queued by the server, waits until e-mail is set up).
+ */
+async function offerStartTimeChangeMail(changes) {
+    const mailChanges = buildStartTimeMailChanges(changes, translateTo, 'sv');
+    if (!mailChanges.length) return;
+    const ok = await showConfirm(t('starttime_offer_mail_lead').replace('{n}', String(mailChanges.length)), {
+        title: t('starttime_offer_mail_title'),
+        confirmLabel: t('starttime_offer_mail_send'),
+        cancelLabel: t('starttime_offer_mail_skip')
+    });
+    if (!ok) return;
+    try {
+        await queueStartTimeChangeMail({ competitionId, changes: mailChanges });
+        showAlert(t('starttime_offer_mail_queued'), 'success');
+    } catch (err) {
+        console.error('Kunde inte köa e-post om ändrade starttider', err);
+        showAlert(`${t('starttime_offer_mail_failed')} ${err?.message || ''}`.trim(), 'error');
     }
 }
 

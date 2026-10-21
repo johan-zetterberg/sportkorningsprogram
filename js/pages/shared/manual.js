@@ -1069,6 +1069,18 @@ function getTabContentSV(tab) {
                 </ul>
               </div>
 
+              <!-- E-POST -->
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">✉️ E-post</h4>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>Så fungerar det:</strong> Kryssa i <em>"Skicka även som e-post"</em> när du skriver ett meddelande. Du ser direkt hur många som får det, hur många som avregistrerat sig och hur många som saknar e-postadress. Vid ändrade starttider på en publicerad lista kan du också mejla berörda kuskar; varje kusk får bara sina egna tider.</li>
+                  <li><strong>Avsändare och svar:</strong> All e-post går från appens adress med <em>"Klubbnamn via DriveLive"</em> som avsändare. Under <em>Kommunikation &gt; E-post</em> anger du avsändarnamn och en svarsadress (Reply-To) som svaren går till.</li>
+                  <li><strong>Bekräfta svarsadressen:</strong> Tryck <em>"Bekräfta adressen"</em>. Ett mejl med en länk skickas till adressen; svarsadressen används först när länken är öppnad. Tills dess är den markerad som <em>inte bekräftad</em>.</li>
+                  <li><strong>Viktigt meddelande:</strong> Går även till dem som avregistrerat sig från vanliga utskick. Använd bara för sådant som måste nå fram.</li>
+                  <li><strong>Inte inkopplat ännu:</strong> Om appens e-posttjänst inte är inkopplad köas mejlen med status <em>"Väntar: inte konfigurerat"</em> och skickas när tjänsten kopplas in. Meddelandet i appen publiceras ändå direkt.</li>
+                  <li><strong>Testmejl och logg:</strong> <em>"Skicka testmejl till mig"</em> provar utskicket. Listan <em>Senaste utskick</em> visar status, antal skickade och eventuella fel.</li>
+                </ul>
+              </div>
               <!-- INSTÄLLNINGAR -->
               <div class="bg-white border rounded-lg p-4 shadow-sm">
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Inställningar & Tävlingsprofil</h4>
@@ -2220,6 +2232,18 @@ function getTabContentEN(tab) {
                 </ul>
               </div>
 
+              <!-- E-MAIL -->
+              <div class="bg-white border rounded-lg p-4 shadow-sm">
+                <h4 class="font-bold text-gray-800 text-base mb-2">✉️ E-mail</h4>
+                <ul class="list-disc list-inside text-sm text-gray-600 ml-2 space-y-1">
+                  <li><strong>How it works:</strong> Tick <em>"Also send as e-mail"</em> when you write a message. You see at once how many will get it, how many opted out and how many have no e-mail address. When times change on a published start list you can also e-mail the drivers concerned; each driver gets only their own times.</li>
+                  <li><strong>Sender and replies:</strong> All e-mail is sent from the app address with <em>"Club name via DriveLive"</em> as the sender. Under <em>Communication &gt; E-mail</em> you set the sender name and a reply address (Reply-To) that replies go to.</li>
+                  <li><strong>Verify the reply address:</strong> Press <em>"Verify the address"</em>. An e-mail with a link is sent to the address; the reply address is used only after the link has been opened. Until then it is marked <em>not verified</em>.</li>
+                  <li><strong>Important message:</strong> Also goes to those who opted out of ordinary mail. Use it only for what must get through.</li>
+                  <li><strong>Not connected yet:</strong> If the app's e-mail service is not connected, mail is queued with the status <em>"Waiting: not configured"</em> and is sent once the service is connected. The message in the app is still published at once.</li>
+                  <li><strong>Test mail and log:</strong> <em>"Send a test e-mail to me"</em> tries sending. The <em>Recent mail</em> list shows status, number sent and any errors.</li>
+                </ul>
+              </div>
               <!-- SETTINGS -->
               <div class="bg-white border rounded-lg p-4 shadow-sm">
                 <h4 class="font-bold text-gray-800 text-base mb-2">⚙️ Global Settings & Profile</h4>

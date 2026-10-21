@@ -29,6 +29,9 @@ import {
     renderDocumentsList
 } from './admin-communication-view.js';
 import { mountEmergencyInfoAdmin } from './adminEmergencyInfo.js';
+import { setupMailCard, setupMessageMailOptions } from './adminMailCard.js';
+import { queueCompetitionMail } from '../../services/mailService.js';
+import { buildMessageMailPayload } from '../../utils/mailUtils.js';
 
 function formatTimestamp(timestamp) {
     if (!timestamp?.seconds) return '';
@@ -137,12 +140,22 @@ export function renderCommunicationTab(container, competition) {
                     : 'msg_aud_hint_drivers';
             hint.textContent = t(hintKey);
         }
+        mailOptions?.refresh();
     }
 
     let loadedMessages = [];
+    let mailOptions = null;
+
+    function currentMailAudience() {
+        return {
+            mode: messageAudienceSelect.value,
+            selectedDrivers: Array.from(document.querySelectorAll('.msg-driver-checkbox:checked')).map(box => box.value)
+        };
+    }
 
     function setEditMode(message) {
         const editing = !!message;
+        mailOptions?.setEditing(editing);
         document.getElementById('msgEditId').value = editing ? message.id : '';
         document.getElementById('msgEditNotice')?.classList.toggle('hidden', !editing);
         const submit = document.getElementById('msgSubmitBtn');
@@ -167,6 +180,7 @@ export function renderCommunicationTab(container, competition) {
     function resetMessageForm() {
         messageForm.reset();
         setEditMode(null);
+        mailOptions?.reset();
         document.getElementById('msgEnglishDetails').open = false;
         document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
             checkbox.checked = false;
@@ -380,7 +394,10 @@ export function renderCommunicationTab(container, competition) {
         document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
             checkbox.checked = false;
         });
+        mailOptions?.refresh();
     });
+    // Chosen drivers change the e-mail recipient preview
+    selectedDriversBox.addEventListener('change', () => mailOptions?.refresh());
 
     uploadButton.addEventListener('click', () => uploadInput.click());
 
@@ -517,6 +534,26 @@ export function renderCommunicationTab(container, competition) {
             } else {
                 await saveCompetitionMessage(competition.id, payload);
                 showAlert('Meddelande publicerat.');
+                if (mailOptions?.requested()) {
+                    const mailPayload = buildMessageMailPayload({
+                        competitionId: competition.id,
+                        title: payload.title,
+                        body: payload.body,
+                        titleEn: payload.titleEn,
+                        bodyEn: payload.bodyEn,
+                        mode: audienceMode,
+                        selectedDrivers,
+                        essential: mailOptions.essential()
+                    });
+                    try {
+                        if (!mailPayload) throw new Error(t('mail_msg_no_audience'));
+                        await queueCompetitionMail(mailPayload);
+                        showAlert(t('mail_msg_queued'), 'success');
+                    } catch (mailErr) {
+                        console.error(mailErr);
+                        showAlert(`${t('mail_msg_failed')} ${mailErr?.message || ''}`.trim(), false);
+                    }
+                }
             }
             resetMessageForm();
             await refreshMessages(competition.id);
@@ -589,7 +626,9 @@ export function renderCommunicationTab(container, competition) {
     });
 
     syncCategoryUi();
+    mailOptions = setupMessageMailOptions(competition.id, currentMailAudience);
     syncAudienceUi();
+    setupMailCard(competition);
     setUploadState({ status: 'idle' });
     loadPublicInfo(competition.id);
     // Emergency info (alarm number, first aid, persons on duty) after the public info form
