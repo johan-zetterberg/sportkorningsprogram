@@ -1,5 +1,6 @@
 // Rules for e-mail: the club's sender settings (config/emailSettings), the
-// mail queue and log, opt-outs and the server-only settings. Its own project
+// mail queue and log, opt-outs and the server-only settings, and push
+// (appSettings/push, pushTokens, pushLog). Its own project
 // id, so it can run next to the other rules specs against the same emulator.
 import test, { after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
@@ -131,4 +132,40 @@ test('opt-outs and server settings: no client access, superadmin neither', { ski
     await assertFails(getDoc(doc(db, 'mailRetry/x')));
     await assertFails(setDoc(doc(db, 'mailRetry/y'), { reason: 'retry' }));
   }
+});
+
+test('push: the settings doc is public read-only; devices, push log and counters are the server\'s', { skip: !HAS_EMULATOR }, async () => {
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(doc(db, 'appSettings/push'), { vapidKey: 'B'.repeat(87), enabled: true });
+    await setDoc(doc(db, 'appSettings/other'), { secret: true });
+    await setDoc(doc(db, 'pushTokens/t1'), { uid: 'admin-1', token: 'tok-123456789012345678901', topics: ['messages'] });
+    await setDoc(doc(db, privPath('pushLog/p1')), { topic: 'messages', sent: 3 });
+    await setDoc(doc(db, 'rateLimits/push_register_admin-1'), { count: 1 });
+  });
+  const anon = testEnv.unauthenticatedContext().firestore();
+  const superadmin = testEnv.authenticatedContext('super-1', { email: 'super@example.com', email_verified: true, superadmin: true }).firestore();
+  // Everyone reads the key (getToken needs it), nobody writes it
+  await assertSucceeds(getDoc(doc(anon, 'appSettings/push')));
+  await assertSucceeds(getDoc(doc(dbOf('random-1'), 'appSettings/push')));
+  for (const db of [anon, dbOf('admin-1'), superadmin]) {
+    await assertFails(setDoc(doc(db, 'appSettings/push'), { vapidKey: 'x', enabled: true }));
+    await assertFails(deleteDoc(doc(db, 'appSettings/push')));
+    await assertFails(getDoc(doc(db, 'appSettings/other')));
+  }
+  // Tokens: not even their owner reads or writes them (callables only)
+  for (const db of [anon, dbOf('admin-1'), dbOf('random-1'), superadmin]) {
+    await assertFails(getDoc(doc(db, 'pushTokens/t1')));
+    await assertFails(getDocs(collection(db, 'pushTokens')));
+    await assertFails(setDoc(doc(db, 'pushTokens/t2'), { uid: 'random-1', token: 'x' }));
+    await assertFails(deleteDoc(doc(db, 'pushTokens/t1')));
+    await assertFails(getDoc(doc(db, 'rateLimits/push_register_admin-1')));
+  }
+  // The push log: admins and the TD read; nobody writes
+  await assertSucceeds(getDocs(collection(dbOf('admin-1'), privPath('pushLog'))));
+  await assertSucceeds(getDocs(collection(dbOf('td-1'), privPath('pushLog'))));
+  await assertFails(getDocs(collection(dbOf('mar-1'), privPath('pushLog'))));
+  await assertFails(getDocs(collection(dbOf('random-1'), privPath('pushLog'))));
+  await assertFails(setDoc(doc(dbOf('admin-1'), privPath('pushLog/new')), { sent: 1 }));
+  await assertFails(deleteDoc(doc(dbOf('admin-1'), privPath('pushLog/p1'))));
 });

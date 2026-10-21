@@ -68,7 +68,8 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
                 'The app runs on Google Firebase (Google Ireland Ltd / Google LLC) under Google\'s data processing terms (Cloud Data Processing Addendum).',
                 `Server functions run in europe-west1 (Belgium). The database and file storage are in ${location}.`,
                 'Login (Firebase Authentication) may process data, such as email address and IP address, outside the EU/EEA. Such transfers are covered by the EU standard contractual clauses and the EU–US Data Privacy Framework.',
-                'Email from the app (messages from the organiser, changed start times, vet decisions, confirmation of a volunteer sign-up) is sent through the email service Brevo (Sendinblue SAS, France), an EU-based processor. Brevo receives the recipient\'s email address and name and the content of the email. The organiser\'s name is shown as the sender; replies go to the organiser\'s confirmed address. Information mailings can be stopped with the link in the email; notices about your own start are still sent.'
+                'Email from the app (messages from the organiser, changed start times, vet decisions, confirmation of a volunteer sign-up) is sent through the email service Brevo (Sendinblue SAS, France), an EU-based processor. Brevo receives the recipient\'s email address and name and the content of the email. The organiser\'s name is shown as the sender; replies go to the organiser\'s confirmed address. Information mailings can be stopped with the link in the email; notices about your own start are still sent.',
+                'Push notifications (optional, switched on per device) are sent through Firebase Cloud Messaging (Google). For a device that has them switched on, the app stores the device\'s notification token, the topics chosen (e.g. start times, messages, pauses), the language, the competitions followed and a fingerprint (hash) of the verified login email, so that notices about your own equipage or role reach you. The notification text passes through Google and the browser maker\'s push service (e.g. Apple, Google, Mozilla). Turn them off in the app or in the browser at any time.'
             ] },
             { id: 'purposes', title: 'Purposes and legal bases', items: [
                 'Competition administration (entries, start lists, judging, results): performance of the contract with the participant (Art. 6(1)(b)) and the organiser\'s legitimate interest (Art. 6(1)(f)).',
@@ -86,6 +87,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
                 'Results stay published as the sport\'s result history.',
                 'Logs of changes are kept without names and email addresses.',
                 'Emails waiting to be sent, the log of mailings (number of recipients, no addresses) and opt-outs from information mailings are deleted together with the competition\'s other private data.',
+                'Push notifications: a device\'s registration is deleted when it is switched off, when the account is deleted, or after 60 days without the app being opened on the device; the log of notifications sent (counts only) is deleted with the competition\'s other private data.',
                 `Technical counters (login attempts, rate limits) are deleted after ${COUNTER_RETENTION_DAYS} days; technical logs are normally kept for 30 days.`,
                 'Your account is kept until you delete it.'
             ] },
@@ -106,7 +108,8 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
             'Appen körs på Google Firebase (Google Ireland Ltd / Google LLC) enligt Googles personuppgiftsbiträdesavtal (Cloud Data Processing Addendum).',
             `Serverfunktionerna körs i europe-west1 (Belgien). Databasen och fillagringen finns i ${location}.`,
             'Inloggningen (Firebase Authentication) kan behandla uppgifter, t.ex. e-postadress och IP-adress, utanför EU/EES. Sådana överföringar omfattas av EU:s standardavtalsklausuler och EU–US Data Privacy Framework.',
-            'E-post från appen (utskick från arrangören, ändrade starttider, veterinärbeslut, bekräftelse av funktionärsanmälan) skickas via e-posttjänsten Brevo (Sendinblue SAS, Frankrike), ett EU-baserat personuppgiftsbiträde. Brevo får mottagarens e-postadress och namn samt mejlets innehåll. Arrangörens namn visas som avsändare och svar går till arrangörens bekräftade adress. Informationsutskick kan avslutas med länken i mejlet; besked om den egna starten skickas ändå.'
+            'E-post från appen (utskick från arrangören, ändrade starttider, veterinärbeslut, bekräftelse av funktionärsanmälan) skickas via e-posttjänsten Brevo (Sendinblue SAS, Frankrike), ett EU-baserat personuppgiftsbiträde. Brevo får mottagarens e-postadress och namn samt mejlets innehåll. Arrangörens namn visas som avsändare och svar går till arrangörens bekräftade adress. Informationsutskick kan avslutas med länken i mejlet; besked om den egna starten skickas ändå.',
+            'Push-notiser (frivilliga, slås på per enhet) skickas via Firebase Cloud Messaging (Google). För en enhet som slagit på dem sparar appen enhetens notis-token, valda ämnen (t.ex. starttider, meddelanden, pauser), språk, vilka tävlingar som följs och ett fingeravtryck (hash) av den bekräftade inloggningsadressen, så att besked om ditt eget ekipage eller din roll når dig. Notistexten passerar Google och webbläsartillverkarens push-tjänst (t.ex. Apple, Google, Mozilla). Du kan stänga av dem i appen eller i webbläsaren när som helst.'
         ] },
         { id: 'purposes', title: 'Ändamål och rättslig grund', items: [
             'Tävlingsadministration (anmälan, startlistor, bedömning, resultat): fullgörande av avtal med deltagaren (art. 6.1 b) och arrangörens berättigade intresse (art. 6.1 f).',
@@ -124,6 +127,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
             'Resultaten ligger kvar publicerade som sportens resultathistorik.',
             'Loggar över ändringar sparas utan namn och e-postadresser.',
             'Mejl som väntar på att skickas, loggen över utskick (antal mottagare, inga adresser) och avregistreringar från informationsutskick raderas tillsammans med tävlingens övriga privata uppgifter.',
+            'Push-notiser: en enhets registrering raderas när notiserna stängs av, när kontot raderas eller efter 60 dagar utan att appen öppnats på enheten; loggen över skickade notiser (bara antal) raderas tillsammans med tävlingens övriga privata uppgifter.',
             `Tekniska räknare (inloggningsförsök, hastighetsgränser) raderas efter ${COUNTER_RETENTION_DAYS} dagar; tekniska loggar sparas normalt i 30 dagar.`,
             'Ditt konto finns kvar tills du raderar det.'
         ] },

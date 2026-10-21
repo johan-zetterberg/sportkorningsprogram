@@ -1385,6 +1385,26 @@ service cloud.firestore {
       allow read, write: if false;
     }
 
+    // Push notifications. The public VAPID key and whether push is on: every
+    // page reads it (the key is not secret); only setPushSettings writes it
+    match /appSettings/push {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Devices (FCM tokens, address hash, topics): registerPushToken,
+    // unregisterPushToken and getPushRegistration only
+    match /pushTokens/{tokenId} {
+      allow read, write: if false;
+    }
+
+    // One summary per push send (counts, no tokens): admins and the TD
+    match /artifacts/{appId}/private/data/competitions/{compId}/pushLog/{entryId} {
+      allow read: if request.auth != null
+        && (canAdminThisArtifactsComp(appId, compId) || isTdInComp(appId, compId));
+      allow write: if false;
+    }
+
     // Global pause and marathon status: marathon officials (observer, stage
     // input) and the secretariat (admins, the technical delegate) record
     // pauses here, and the pause log is subtracted from stage times

@@ -132,3 +132,15 @@ test('the static server applies the firebase.json headers, with the emulators fo
   assert.equal(script['Content-Security-Policy'], undefined);
   assert.equal(script['Cache-Control'], 'no-cache');
 });
+
+test('push notifications: Firebase Messaging may register the device (connect-src), its SDK loads from gstatic', () => {
+  const enforced = policy('Content-Security-Policy');
+  const connect = directive(enforced, 'connect-src');
+  assert.ok(connect.includes('https://fcmregistrations.googleapis.com'));
+  assert.ok(connect.includes('https://firebaseinstallations.googleapis.com'));
+  assert.ok(directive(enforced, 'script-src').includes('https://www.gstatic.com'));
+  const service = readFileSync(path.join(root, 'js/services/pushService.js'), 'utf8');
+  for (const [, url] of service.matchAll(/["'](https:\/\/[^"']+\.js)["']/g)) {
+    assert.ok(directive(enforced, 'script-src').includes(new URL(url).origin), url);
+  }
+});

@@ -15,6 +15,7 @@ import {
   isEditingElement
 } from './utils/appUpdateLogic.js';
 import { unsavedWorkReasons } from './utils/unsavedWork.js';
+import { pushRouteFromMessage } from './utils/pushUtils.js';
 
 // The version this tab already reloaded for (no reload loop)
 const RELOADED_FOR_KEY = 'appUpdateReloadedFor';
@@ -129,6 +130,13 @@ if ('serviceWorker' in navigator) {
       // No answer from a replacing worker (an older one without versions): to be safe
       handleWorkerVersion('unknown');
     }
+  });
+
+  // A push notification clicked while the app is open (service-worker.js):
+  // its in-app route opens here, without reloading the page
+  sw.addEventListener('message', (event) => {
+    const route = pushRouteFromMessage(event.data);
+    if (route && location.hash !== route) location.hash = route;
   });
 
   let lastCheckAt = null;

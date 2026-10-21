@@ -21,9 +21,9 @@ export const RETENTION_PUBLIC_TREE_COLLECTIONS = [
 ];
 // ...and under artifacts/{appId}/private/data/competitions/{id}
 // (field device status, staff notifications, emergency phone numbers, and the
-// e-mail queue, its log and the opt-outs too)
+// e-mail queue, its log and the opt-outs, and the push log too)
 export const RETENTION_PRIVATE_TREE_COLLECTIONS = ['rejectedWrites', 'rateLimits', 'devices',
-    'staffNotifications', 'emergencyPrivate', 'mailQueue', 'mailLog', 'mailOptOuts'];
+    'staffNotifications', 'emergencyPrivate', 'mailQueue', 'mailLog', 'mailOptOuts', 'pushLog'];
 // Logs that are kept, without names and email addresses (the incident log is
 // the ground jury's record: kept, without who typed the entries)
 export const RETENTION_ANONYMIZED_LOGS = [

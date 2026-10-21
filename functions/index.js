@@ -119,6 +119,34 @@ import {
     resolveMailRecipients
 } from "./src/mail/mailService.js";
 import { MAIL_PAGE_HEADERS, renderMailPage } from "./src/mail/mailPages.js";
+import { getMessaging } from "firebase-admin/messaging";
+import {
+    PUSH_LIMITS,
+    PushError,
+    buildDeclarationChangeContent,
+    buildMessageContent,
+    buildPauseContent,
+    buildStartTimeContent,
+    buildVetDecisionContent,
+    isValidPushToken,
+    messagePushAudience,
+    normalizeStartTimeChanges,
+    normalizeTopics,
+    pauseTransitions,
+    pushAvailable
+} from "./src/push/pushCore.js";
+import {
+    PUSH_TOKENS,
+    deleteUserTokens,
+    loadPushSettings,
+    readPushRegistration,
+    registerPushToken as registerPushTokenIn,
+    removeCompetitionFromTokens,
+    savePushSettings,
+    sendPushToAudience,
+    sendPushToUser,
+    unregisterPushToken as unregisterPushTokenIn
+} from "./src/push/pushService.js";
 
 // A cap on instances for every function (a runaway client or loop cannot
 // scale up the bill); the public callables have lower caps of their own
@@ -541,6 +569,22 @@ export const onIncidentWritten = onDocumentWritten(
         } catch (error) {
             logger.error('Veterinärbeslut: e-post kunde inte köas', { competitionId: compId, incidentId, error: String(error?.message || error) });
         }
+        // And as a push notice to the driver's devices and the staff who
+        // follow vet decisions (the secretariat, the TD, the vet)
+        await safePush('vetDecision', () => sendPushToAudience(db, pushMessaging(), {
+            appId, compId,
+            audience: {
+                drivers: { classes: [], startNumbers: message.targetStartNumbers, includeWithdrawn: true },
+                officials: { roles: ['admin', 'td', 'vet'] }
+            },
+            category: 'essential',
+            topic: 'vetDecision',
+            content: (_target, lang) => buildVetDecisionContent(message, lang),
+            tag: `vet-${incidentId}`.slice(0, 64),
+            source: 'incident',
+            dedupeKey: `vet-${event.id}`,
+            logger
+        }), { competitionId: compId, incidentId });
     }
 );
 
@@ -632,6 +676,8 @@ export const deleteCompetitionData = onCall({ timeoutSeconds: 540, memory: '512M
             storageError = error;
             logger.error('Kunde inte radera tävlingens filer i Storage', { competitionId, error: String(error?.message || error) });
         }
+        // No device follows the competition any more (push)
+        await removeCompetitionFromTokens(db, FieldValue, appId, competitionId);
         // Last: the public tree with the competition document itself
         await db.recursiveDelete(publicRef);
         if (storageError) throw storageError;
@@ -1588,6 +1634,8 @@ export const deleteMyAccount = onCall({ timeoutSeconds: 300, maxInstances: 2 }, 
     // users/{uid} with its subcollections (driverCompetitions/*: the Storage
     // access pointers getDriverInbox writes)
     await db.recursiveDelete(db.doc(plan.userDocPath));
+    // The account's devices for push notifications
+    await deleteUserTokens(db, uid);
     // Last: a failure above leaves the account, so the user can try again
     try {
         await adminAuth.deleteUser(uid);
@@ -2168,3 +2216,288 @@ export const verifyReplyTo = onRequest({ maxInstances: 2 }, async (req, res) => 
     };
     sendMailPage(res, outcome === 'verified' ? 200 : 409, pages[outcome]);
 });
+
+// --- PUSH NOTIFICATIONS (Firebase Cloud Messaging, web push) ---
+// The same people as e-mail: audiences are resolved here from the
+// competition's own documents and matched to the devices registered by
+// signed-in accounts (drivers by their verified address, officials by their
+// roles). Pure parts: src/push/pushCore.js; sending: src/push/pushService.js.
+// Nothing is sent until a superadmin saved the public VAPID key and switched
+// push on (setPushSettings -> appSettings/push). No Functions retry (a retry
+// setting would make the next deploy need --force); triggers are idempotent
+// by event id (pushLog).
+
+let messagingClient = null;
+function pushMessaging() {
+    if (!messagingClient) messagingClient = getMessaging();
+    return messagingClient;
+}
+
+// A push never fails the trigger or callable it rides on
+async function safePush(label, send, context = {}) {
+    try {
+        const result = await send();
+        if (result && !['disabled', 'no_tokens', 'no_targets', 'duplicate'].includes(result.status)) {
+            logger.info('Push skickad', { label, ...context, status: result.status, sent: result.sent || 0, failed: result.failed || 0 });
+        }
+        return result;
+    } catch (error) {
+        logger.error('Push misslyckades', { label, ...context, error: String(error?.message || error) });
+        return { status: 'error' };
+    }
+}
+
+function pushHttpsError(error) {
+    if (error instanceof PushError) return new HttpsError('invalid-argument', error.message);
+    return error;
+}
+
+// Fixed-window counters per account (top-level rateLimits: the retention run
+// removes stale ones)
+async function consumeUserRateLimit(id, limit, windowMs) {
+    const ref = db.collection('rateLimits').doc(id);
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const result = nextCounter(snap.exists ? snap.data() : null, Date.now(), limit, windowMs);
+        if (!result.allowed) return false;
+        tx.set(ref, result.next);
+        return true;
+    });
+}
+
+async function optionalPushCompetition(request) {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!competitionId) return null;
+    if (!isValidCompetitionId(competitionId)) throw new HttpsError('invalid-argument', 'Ogiltigt tävlings-ID.');
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+    return { appId: competition.appId, compId: competitionId };
+}
+
+const pushSettingsView = (settings) => ({
+    configured: !!settings?.vapidKey,
+    enabled: pushAvailable(settings),
+    vapidKey: settings?.vapidKey || null,
+    appUrl: settings?.appUrl || null,
+    competitionDailyLimit: Number(settings?.competitionDailyLimit) || PUSH_LIMITS.competitionDailyDefault
+});
+
+/**
+ * The push settings (superadmin): { vapidKey?, clearVapidKey?, enabled?,
+ * appUrl?, competitionDailyLimit? }. The VAPID key is the public key of the
+ * Firebase project's Web Push certificate (not a secret: clients read it from
+ * appSettings/push). Fields left out are kept.
+ * -> { configured, enabled, vapidKey, appUrl, competitionDailyLimit }
+ */
+export const setPushSettings = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    let settings;
+    try {
+        settings = await savePushSettings(db, request.data || {}, { uid: request.auth.uid });
+    } catch (error) {
+        throw pushHttpsError(error);
+    }
+    logger.info('Push-inställningar ändrade', { configured: !!settings.vapidKey, enabled: settings.enabled, by: request.auth.uid });
+    return pushSettingsView(settings);
+});
+
+/** The settings and the number of registered devices (superadmin) */
+export const getPushAdminStatus = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    const [settings, countSnap] = await Promise.all([
+        loadPushSettings(db),
+        db.collection(PUSH_TOKENS).count().get()
+    ]);
+    return { ...pushSettingsView(settings), devices: countSnap.data().count };
+});
+
+/**
+ * Registers this device's FCM token for the signed-in account, or updates its
+ * topics and competitions. { token, topics?: PUSH_TOPICS subset (left out:
+ * kept), competitionId? (follow that competition too), platform?, lang? }
+ * -> { registered, topics, competitions: [competitionId], lang, lastSeenMs }
+ * Called again when the app starts (refreshes lastSeenMs: unseen devices are
+ * dropped after 60 days).
+ */
+export const registerPushToken = onCall({ maxInstances: 5 }, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    const token = String(request.data?.token || '');
+    if (!isValidPushToken(token)) throw new HttpsError('invalid-argument', 'Ogiltig push-token.');
+    let topics = null;
+    if (request.data?.topics !== undefined && request.data?.topics !== null) {
+        try {
+            topics = normalizeTopics(request.data.topics);
+        } catch (error) {
+            throw pushHttpsError(error);
+        }
+    }
+    const competition = await optionalPushCompetition(request);
+    if (!(await consumeUserRateLimit(`push_register_${request.auth.uid}`, PUSH_LIMITS.registerPerUserHour, HOUR_MS))) {
+        throw new HttpsError('resource-exhausted', 'För många försök just nu. Försök igen senare.');
+    }
+    const verified = request.auth.token?.email_verified === true;
+    return registerPushTokenIn(db, {
+        uid: request.auth.uid,
+        email: verified ? String(request.auth.token?.email || '').trim().toLowerCase() : '',
+        token,
+        topics,
+        platform: request.data?.platform,
+        lang: request.data?.lang,
+        competition
+    });
+});
+
+/**
+ * Stops pushes to this device: from one competition ({ token, competitionId })
+ * or altogether ({ token }). -> { removed, scope? }
+ */
+export const unregisterPushToken = onCall({ maxInstances: 5 }, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    const token = String(request.data?.token || '');
+    if (!isValidPushToken(token)) throw new HttpsError('invalid-argument', 'Ogiltig push-token.');
+    const competition = await optionalPushCompetition(request);
+    return unregisterPushTokenIn(db, FieldValue, { token, competition });
+});
+
+/**
+ * This device's registration as the server has it. { token, competitionId? }
+ * -> { registered, topics, competitions, lang, lastSeenMs, following? }
+ */
+export const getPushRegistration = onCall({ maxInstances: 5 }, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    const token = String(request.data?.token || '');
+    if (!isValidPushToken(token)) throw new HttpsError('invalid-argument', 'Ogiltig push-token.');
+    const competition = await optionalPushCompetition(request);
+    const registration = await readPushRegistration(db, { token, uid: request.auth.uid, appId: competition?.appId || null });
+    return competition ? { ...registration, following: registration.competitions.includes(competition.compId) } : registration;
+});
+
+/** A test notification to the caller's own devices. {} -> { status, sent, failed } */
+export const sendTestPush = onCall({ maxInstances: 2 }, async (request) => {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    if (!(await consumeUserRateLimit(`push_test_${request.auth.uid}`, PUSH_LIMITS.testPerUserHour, HOUR_MS))) {
+        throw new HttpsError('resource-exhausted', 'För många testnotiser just nu. Försök igen senare.');
+    }
+    const result = await sendPushToUser(db, pushMessaging(), {
+        uid: request.auth.uid,
+        title: { sv: 'Testnotis från DriveLive', en: 'Test notification from DriveLive' },
+        body: { sv: 'Push-notiser fungerar på den här enheten.', en: 'Push notifications work on this device.' },
+        url: '#hub',
+        tag: 'test',
+        logger
+    });
+    return { status: result.status, sent: result.sent || 0, failed: result.failed || 0 };
+});
+
+/**
+ * Changed start times as push notices: each driver's devices get the lines of
+ * their own start numbers (topic startTimes). Admins and the TD, after the UI
+ * saved the published times (next to queueStartTimeChangeMail).
+ * { competitionId, changes: [{ startNumber, text, textEn? }] }
+ * -> { status, targeted, sent, failed }
+ */
+export const notifyStartTimeChange = onCall({ maxInstances: 5 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    await assertMailRole(request, competition);
+    let texts;
+    try {
+        texts = normalizeStartTimeChanges(request.data?.changes);
+    } catch (error) {
+        throw pushHttpsError(error);
+    }
+    if (!(await consumeUserRateLimit(`push_notify_${request.auth.uid}`, PUSH_LIMITS.notifyPerUserHour, HOUR_MS))) {
+        throw new HttpsError('resource-exhausted', 'För många utskick just nu. Försök igen senare.');
+    }
+    const startNumbers = Object.keys(texts);
+    const result = await safePush('startTimes', () => sendPushToAudience(db, pushMessaging(), {
+        appId: competition.appId,
+        compId: competitionId,
+        audience: { drivers: { classes: [], startNumbers, includeWithdrawn: true } },
+        category: 'essential',
+        topic: 'startTimes',
+        content: (target, lang) => buildStartTimeContent(texts, target.startNumbers.filter((s) => startNumbers.includes(s)), lang),
+        url: `#portal?id=${encodeURIComponent(competitionId)}`,
+        tag: 'start-time',
+        source: 'startTimeChange',
+        createdBy: request.auth.uid,
+        logger
+    }), { competitionId });
+    return {
+        status: result.status,
+        targeted: result.targeted || 0,
+        sent: result.sent || 0,
+        failed: result.failed || 0
+    };
+});
+
+// A competition message (admin → Kommunikation) as a push notice to its
+// audience (topic messages). Not for messages written by the server for its
+// own notices (vet decisions) or the start time offer (source
+// 'startTimeChange': notifyStartTimeChange sends each driver their own
+// times), nor for a message with push: false. category 'essential' reaches
+// devices that switched messages off.
+export const onCompetitionMessageCreated = onDocumentCreated(
+    "artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId}",
+    async (event) => {
+        const message = event.data?.data();
+        if (!message || message.push === false) return;
+        if (['vetDecision', 'startTimeChange'].includes(message.source)) return;
+        const { appId, compId, msgId } = event.params;
+        await safePush('messages', () => sendPushToAudience(db, pushMessaging(), {
+            appId, compId,
+            audience: messagePushAudience(message),
+            category: message.category === 'essential' ? 'essential' : 'info',
+            topic: 'messages',
+            content: (_target, lang) => buildMessageContent(message, lang),
+            tag: `msg-${msgId}`.slice(0, 64),
+            source: 'message',
+            dedupeKey: `msg-${event.id}`,
+            logger
+        }), { competitionId: compId, messageId: msgId });
+    }
+);
+
+// A global pause started or ended (config/globalStatus.pauseLog): every
+// official of the competition who follows pauses, urgently and short-lived
+export const onGlobalPausePush = onDocumentWritten(
+    "artifacts/{appId}/public/data/competitions/{compId}/config/globalStatus",
+    async (event) => {
+        const transitions = pauseTransitions(beforeData(event)?.pauseLog, afterData(event)?.pauseLog);
+        const { appId, compId } = event.params;
+        for (const { kind, entry } of transitions) {
+            await safePush('pause', () => sendPushToAudience(db, pushMessaging(), {
+                appId, compId,
+                audience: { officials: { all: true } },
+                category: 'essential',
+                topic: 'pause',
+                content: (_target, lang) => buildPauseContent(kind, entry, lang),
+                tag: 'pause',
+                source: `pause-${kind}`,
+                dedupeKey: `pause-${kind}-${String(entry.start)}`,
+                logger
+            }), { competitionId: compId, kind });
+        }
+    }
+);
+
+// A driver changed the declaration (staffNotifications, written by
+// updateEquipageDeclaration): the secretariat, the TD and the vet
+export const onStaffNotificationCreated = onDocumentCreated(
+    "artifacts/{appId}/private/data/competitions/{compId}/staffNotifications/{noticeId}",
+    async (event) => {
+        const notice = event.data?.data();
+        if (!notice || notice.kind !== 'declarationChange') return;
+        const { appId, compId, noticeId } = event.params;
+        await safePush('declarationChanges', () => sendPushToAudience(db, pushMessaging(), {
+            appId, compId,
+            audience: { officials: { roles: ['admin', 'td', 'vet'] } },
+            category: 'info',
+            topic: 'declarationChanges',
+            content: (_target, lang) => buildDeclarationChangeContent(notice, lang),
+            tag: `decl-${String(notice.startNumber || '')}`.slice(0, 64),
+            source: 'declarationChange',
+            dedupeKey: `decl-${noticeId}`,
+            logger
+        }), { competitionId: compId, noticeId });
+    }
+);

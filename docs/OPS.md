@@ -146,6 +146,42 @@ sender name and the club's checked address as Reply-To.
 - [ ] **Privacy notice**: the e-mail processor (Brevo) is named in
   `js/content/privacyNotice.js`; change it there if another provider is used.
 
+## Push-notiser
+
+Web push via Firebase Cloud Messaging (FCM). The functions deploy and run
+without any key: until a superadmin saves the public VAPID key and switches
+push on, the app shows push as "not available" and nothing is sent. The same
+people as e-mail get them (drivers by their verified login address, officials
+by their roles); each device chooses topics (start times, messages, pauses,
+vet decisions, declaration changes).
+
+- [ ] **Web Push key pair**: Firebase Console → Project settings (gear) →
+  **Cloud Messaging** → **Web configuration / Web Push certificates** →
+  **Generate key pair**. Copy the **public** key (about 87 characters,
+  starting with `B`). It is not secret (every browser gets it); the private
+  half stays with Google and is never needed here. If the Cloud Messaging tab
+  says the API is disabled, enable "Firebase Cloud Messaging API (V1)" there.
+- [ ] **Configure the app**: as superadmin, paste the key in the superadmin
+  push card (or call `setPushSettings` with `{ vapidKey: '<public key>',
+  appUrl: 'https://<the app's address>', enabled: false }`). It is stored in
+  `appSettings/push` (readable by everyone, written only by the callable).
+  `competitionDailyLimit` (default 5000 notifications per competition and day)
+  can be set there too.
+- [ ] **Switch on**: `setPushSettings` with `{ enabled: true }` (other fields
+  are kept). `getPushAdminStatus` shows the number of registered devices.
+- [ ] **Test**: on a phone (Android Chrome, or an iPhone/iPad with iOS 16.4+
+  where the app is first **added to the home screen** — push does not work in
+  a Safari tab), sign in, turn on notifications and press "Skicka testnotis"
+  (`sendTestPush`, to your own devices). Check that tapping it opens the app.
+  Then post a test message to a test competition's officials.
+- [ ] **CSP**: `firebase.json` allows `fcmregistrations.googleapis.com` and
+  `firebaseinstallations.googleapis.com` (connect-src); the messaging SDK
+  loads from `www.gstatic.com`. Deploy hosting together with the functions.
+- [ ] **Retention**: the nightly `purgeExpiredPersonalData` drops devices not
+  seen for 60 days and unlinks devices from purged competitions; the push log
+  (`pushLog`, counts only) goes with the competition's private data.
+- [ ] **Privacy notice**: FCM is named in `js/content/privacyNotice.js`.
+
 ## Maintenance
 
 - [ ] **Node.js runtime**: functions run on Node 22 (`functions/package.json`

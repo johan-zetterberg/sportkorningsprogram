@@ -8,6 +8,7 @@ import {
     personalLogFieldsPresent,
     selectCompetitionsForPurge
 } from './personalData.js';
+import { purgeStaleTokens, removeCompetitionFromTokens } from './push/pushService.js';
 
 export const PERSONAL_DATA_APP_IDS = ['combined-driving', 'drivelive'];
 export const COMPETITION_LIST_FIELDS = ['name', 'createdBy', 'ownerId', 'admins', 'staffUids', 'locked', 'status',
@@ -62,6 +63,8 @@ async function purgeCompetitionPersonalData(db, FieldValue, competition) {
         await writer.close();
         counts[`${name}Anonymized`] = anonymized;
     }
+    // Devices no longer follow the competition (push)
+    counts.pushTokensUnlinked = await removeCompetitionFromTokens(db, FieldValue, appId, id);
     return counts;
 }
 
@@ -121,6 +124,8 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
     const pinAttemptsDeleted = await deleteDocuments(db, stale(attemptsSnap));
     const rateLimitsDeleted = await deleteDocuments(db, stale(rateLimitsSnap));
     const mailRetryDeleted = await deleteDocuments(db, stale(mailRetrySnap));
+    // Push devices the app has not refreshed in 60 days
+    const pushTokensDeleted = await purgeStaleTokens(db, { nowMs });
 
     const summary = {
         startedAt,
@@ -130,6 +135,7 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
         pinAttemptsDeleted,
         rateLimitsDeleted,
         mailRetryDeleted,
+        pushTokensDeleted,
         errors
     };
     await db.collection('retentionRuns').add(summary);

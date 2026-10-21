@@ -330,6 +330,7 @@ const urlsToCache = [
   abs('/js/services/precisionService.js'),
   abs('/js/services/publicCompetitionService.js'),
   abs('/js/services/publicCompetitionUtils.js'),
+  abs('/js/services/pushService.js'),
   abs('/js/services/rejectedWritesService.js'),
   abs('/js/services/rejectedWritesUtils.js'),
   abs('/js/services/resultAggregationService.js'),
@@ -391,6 +392,7 @@ const urlsToCache = [
   abs('/js/utils/precisionRounds.js'),
   abs('/js/utils/precisionUtils.js'),
   abs('/js/utils/publishedStartTimes.js'),
+  abs('/js/utils/pushUtils.js'),
   abs('/js/utils/roleAccess.js'),
   abs('/js/utils/serverClock.js'),
   abs('/js/utils/sharedUtils.js'),
@@ -844,5 +846,80 @@ self.addEventListener('fetch', (event) => {
     } catch {
       return new Response('Offline', { status: 503, statusText: 'Offline' });
     }
+  })());
+});
+
+// --- Web push (Firebase Cloud Messaging) ---
+// The server (functions/src/push) sends both a notification and data (url,
+// tag, topic); either is shown here with the plain Push API, so no
+// firebase-messaging-sw.js is needed (the page passes this registration to
+// getToken). A click opens the in-app route: an open window of the app is
+// focused and told the route, else a new window opens.
+const PUSH_DEFAULT_ICON = abs('/icons/DriveLive_192.png');
+const PUSH_ROUTE = /^#[a-z][a-z0-9-]{0,40}(\?[A-Za-z0-9_=&%.\-]{0,200})?$/;
+
+// Only this app's hash routes ('#portal?id=x'); a same-origin URL gives its hash
+function safePushRoute(value) {
+  const text = String(value || '').trim();
+  if (PUSH_ROUTE.test(text)) return text;
+  try {
+    const url = new URL(text, self.location.origin);
+    if (url.origin === self.location.origin && PUSH_ROUTE.test(url.hash)) return url.hash;
+  } catch {
+    // not a URL
+  }
+  return '#hub';
+}
+
+function readPushPayload(event) {
+  if (!event.data) return {};
+  try {
+    return event.data.json() || {};
+  } catch {
+    try {
+      return { notification: { body: event.data.text() } };
+    } catch {
+      return {};
+    }
+  }
+}
+
+self.addEventListener('push', (event) => {
+  const payload = readPushPayload(event);
+  const note = payload.notification || {};
+  const data = payload.data || {};
+  const title = String(note.title || data.title || 'DriveLive').slice(0, 120);
+  const tag = String(note.tag || data.tag || '').slice(0, 64);
+  const options = {
+    body: String(note.body || data.body || '').slice(0, 400),
+    icon: PUSH_DEFAULT_ICON,
+    badge: PUSH_DEFAULT_ICON,
+    data: { url: safePushRoute(data.url || note.data?.url || payload.fcmOptions?.link) }
+  };
+  if (tag) {
+    options.tag = tag;
+    options.renotify = true;
+  }
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const route = safePushRoute(event.notification.data?.url);
+  const target = new URL(route, self.registration.scope).href;
+  event.waitUntil((async () => {
+    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    if (open) {
+      try {
+        await open.focus();
+      } catch {
+        // focus can be refused; the route is still sent
+      }
+      // The page sets location.hash (js/appUpdate.js): no reload of its work
+      open.postMessage({ type: 'PUSH_NAVIGATE', route });
+      return;
+    }
+    await self.clients.openWindow(target);
   })());
 });
