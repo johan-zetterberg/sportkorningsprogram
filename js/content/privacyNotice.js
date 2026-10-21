@@ -2,7 +2,7 @@
 // only: edit it here. OWNER: fill in OPERATOR and DATA_LOCATION before the
 // first real competition (see docs/OPS.md).
 
-export const PRIVACY_NOTICE_UPDATED = '2026-10-19';
+export const PRIVACY_NOTICE_UPDATED = '2026-10-21';
 
 // The app operator (runs DriveLive for the organising clubs)
 export const OPERATOR = {
@@ -67,7 +67,8 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
             { id: 'processor', title: 'Processor and where data is stored', paragraphs: [
                 'The app runs on Google Firebase (Google Ireland Ltd / Google LLC) under Google\'s data processing terms (Cloud Data Processing Addendum).',
                 `Server functions run in europe-west1 (Belgium). The database and file storage are in ${location}.`,
-                'Login (Firebase Authentication) may process data, such as email address and IP address, outside the EU/EEA. Such transfers are covered by the EU standard contractual clauses and the EU–US Data Privacy Framework.'
+                'Login (Firebase Authentication) may process data, such as email address and IP address, outside the EU/EEA. Such transfers are covered by the EU standard contractual clauses and the EU–US Data Privacy Framework.',
+                'Email from the app (messages from the organiser, changed start times, vet decisions, confirmation of a volunteer sign-up) is sent through the email service Brevo (Sendinblue SAS, France), an EU-based processor. Brevo receives the recipient\'s email address and name and the content of the email. The organiser\'s name is shown as the sender; replies go to the organiser\'s confirmed address. Information mailings can be stopped with the link in the email; notices about your own start are still sent.'
             ] },
             { id: 'purposes', title: 'Purposes and legal bases', items: [
                 'Competition administration (entries, start lists, judging, results): performance of the contract with the participant (Art. 6(1)(b)) and the organiser\'s legitimate interest (Art. 6(1)(f)).',
@@ -84,6 +85,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
                 `Contact details, ICE, personal identity numbers, horse temperatures, vet data and volunteer sign-ups are deleted automatically ${months} months after the competition was archived${organiser?.name ? '' : ' (12 months unless the organiser chose otherwise)'}.`,
                 'Results stay published as the sport\'s result history.',
                 'Logs of changes are kept without names and email addresses.',
+                'Emails waiting to be sent, the log of mailings (number of recipients, no addresses) and opt-outs from information mailings are deleted together with the competition\'s other private data.',
                 `Technical counters (login attempts, rate limits) are deleted after ${COUNTER_RETENTION_DAYS} days; technical logs are normally kept for 30 days.`,
                 'Your account is kept until you delete it.'
             ] },
@@ -103,7 +105,8 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
         { id: 'processor', title: 'Personuppgiftsbiträde och var uppgifterna lagras', paragraphs: [
             'Appen körs på Google Firebase (Google Ireland Ltd / Google LLC) enligt Googles personuppgiftsbiträdesavtal (Cloud Data Processing Addendum).',
             `Serverfunktionerna körs i europe-west1 (Belgien). Databasen och fillagringen finns i ${location}.`,
-            'Inloggningen (Firebase Authentication) kan behandla uppgifter, t.ex. e-postadress och IP-adress, utanför EU/EES. Sådana överföringar omfattas av EU:s standardavtalsklausuler och EU–US Data Privacy Framework.'
+            'Inloggningen (Firebase Authentication) kan behandla uppgifter, t.ex. e-postadress och IP-adress, utanför EU/EES. Sådana överföringar omfattas av EU:s standardavtalsklausuler och EU–US Data Privacy Framework.',
+            'E-post från appen (utskick från arrangören, ändrade starttider, veterinärbeslut, bekräftelse av funktionärsanmälan) skickas via e-posttjänsten Brevo (Sendinblue SAS, Frankrike), ett EU-baserat personuppgiftsbiträde. Brevo får mottagarens e-postadress och namn samt mejlets innehåll. Arrangörens namn visas som avsändare och svar går till arrangörens bekräftade adress. Informationsutskick kan avslutas med länken i mejlet; besked om den egna starten skickas ändå.'
         ] },
         { id: 'purposes', title: 'Ändamål och rättslig grund', items: [
             'Tävlingsadministration (anmälan, startlistor, bedömning, resultat): fullgörande av avtal med deltagaren (art. 6.1 b) och arrangörens berättigade intresse (art. 6.1 f).',
@@ -120,6 +123,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
             `Kontaktuppgifter, ICE, personnummer, hästtemperaturer, veterinäruppgifter och funktionärsanmälningar raderas automatiskt ${months} månader efter att tävlingen arkiverats${organiser?.name ? '' : ' (12 månader om arrangören inte valt annat)'}.`,
             'Resultaten ligger kvar publicerade som sportens resultathistorik.',
             'Loggar över ändringar sparas utan namn och e-postadresser.',
+            'Mejl som väntar på att skickas, loggen över utskick (antal mottagare, inga adresser) och avregistreringar från informationsutskick raderas tillsammans med tävlingens övriga privata uppgifter.',
             `Tekniska räknare (inloggningsförsök, hastighetsgränser) raderas efter ${COUNTER_RETENTION_DAYS} dagar; tekniska loggar sparas normalt i 30 dagar.`,
             'Ditt konto finns kvar tills du raderar det.'
         ] },

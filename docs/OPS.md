@@ -96,6 +96,56 @@ and note the date.
   register the web app with reCAPTCHA Enterprise, monitor for a week, then
   enforce for Firestore, Storage and Functions.
 
+## E-post
+
+The functions deploy and run without any e-mail provider: until one is set up,
+every mail (club messages, changed start times, vet decisions, volunteer
+confirmations) waits in the competition's queue with status `not_configured`.
+All mail goes from one app address with "<Klubbnamn> via DriveLive" as the
+sender name and the club's checked address as Reply-To.
+
+- [ ] **Domain**: buy a domain for the app (e.g. `drivelive.se`) at any
+  registrar that lets you edit DNS records. The sending address will be e.g.
+  `noreply@<domain>`.
+- [ ] **Brevo account (EU)**: create an account at brevo.com (Brevo is
+  Sendinblue SAS, France) with the operator's details. Sign their data
+  processing agreement (Account → Security/Legal, "DPA"). The free plan sends
+  300 mails a day; choose a paid plan before bigger events.
+- [ ] **Verify the domain in Brevo**: Senders, Domains & Dedicated IPs →
+  Domains → Add a domain → copy the DNS records Brevo shows into the
+  registrar's DNS: the Brevo verification code (TXT), **DKIM** (TXT/CNAME as
+  shown), **SPF** (TXT on the root with the include Brevo shows, typically
+  `v=spf1 include:spf.brevo.com ~all`; with an SPF record already there, add
+  the include to it — only one SPF record per domain) and **DMARC** (TXT on `_dmarc.<domain>`, start with
+  `v=DMARC1; p=none; rua=mailto:<your address>`, tighten to
+  `p=quarantine` once reports look clean). Wait until Brevo shows the domain
+  as authenticated (DNS can take hours).
+- [ ] **Sender**: Senders → add `noreply@<domain>` (the address the app sends
+  from).
+- [ ] **API key**: SMTP & API → API keys → Generate a new key (name it
+  "DriveLive functions"). Copy it once; it is never shown again in the app.
+- [ ] **Configure the app**: as superadmin, call `setEmailProviderSettings`
+  (or use the superadmin e-mail page when it exists) with
+  `{ provider: 'brevo', apiKey: '<key>', fromAddress: 'noreply@<domain>',
+  dailyLimit: 300, competitionDailyLimit: 500, enabled: false }`. The key is
+  stored server side in `serverSettings/email` (no client can read it) and is
+  never returned; send it again only to replace it.
+- [ ] **Test mail**: call `sendTestEmail` (works while `enabled` is false); it
+  sends to your own login address. Check it arrives, not in spam, and that the
+  message headers show `dkim=pass`, `spf=pass` and `dmarc=pass`.
+- [ ] **Switch on**: call `setEmailProviderSettings` with `{ enabled: true }`
+  (other fields are kept). Mails that waited can then be sent with
+  `retryQueuedMail` (all waiting ones, or one by `competitionId` + `mailId`);
+  mails older than 7 days are closed instead (`maxAgeDays` changes that).
+- [ ] **Check the scheduled retry job**: Cloud Scheduler shows a job for
+  `processMailRetries` (every 10 minutes); it resends mails the provider
+  refused for a while (rate limit, server error).
+- [ ] **Each club**: Admin → e-post settings: sender name, reply-to address
+  (confirmed through the link mailed to it; until then mails have no
+  Reply-To) and signature.
+- [ ] **Privacy notice**: the e-mail processor (Brevo) is named in
+  `js/content/privacyNotice.js`; change it there if another provider is used.
+
 ## Maintenance
 
 - [ ] **Node.js runtime**: functions run on Node 22 (`functions/package.json`

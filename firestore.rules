@@ -1315,11 +1315,74 @@ service cloud.firestore {
     match /artifacts/{appId}/public/data/competitions/{compId}/config/{configId} {
       // get only: a list query on config would include config/secrets. Admins
       // (who may read the secrets anyway) list it, e.g. to delete a competition
-      allow get: if configId != 'secrets' && isCompetitionVisible(appId, compId);
+      allow get: if configId != 'secrets' && configId != 'emailSettings' && isCompetitionVisible(appId, compId);
       allow list: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
-      allow write, delete: if configId != 'globalStatus' && configId != 'secrets'
+      allow write, delete: if configId != 'globalStatus' && configId != 'secrets' && configId != 'emailSettings'
         && request.auth != null
         && canAdminThisArtifactsComp(appId, compId);
+    }
+
+    // ---- E-mail (functions/src/mail): the club's sender settings. The
+    // admins set the name, reply-to address and signature; whether the
+    // reply-to address was checked is written by the server only
+    // (verifyReplyTo), so a client write leaves those fields as they are
+    // (use a merge).
+    function isEmailSettingsWrite() {
+      let d = request.resource.data;
+      let changed = resource == null ? d.keys() : d.diff(resource.data).affectedKeys();
+      return d.keys().hasOnly(['senderName', 'replyTo', 'signature', 'autoVolunteerConfirmation',
+          'autoVetDecisionMail', 'updatedAt', 'updatedBy',
+          'replyToVerified', 'replyToVerifiedAddress', 'replyToVerifiedAt'])
+        && !changed.hasAny(['replyToVerified', 'replyToVerifiedAddress', 'replyToVerifiedAt'])
+        && optString(d, 'senderName', 60)
+        && optString(d, 'signature', 1000)
+        && (d.get('replyTo', '') == ''
+          || (d.replyTo is string && d.replyTo.size() <= 200
+            && d.replyTo.matches('^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+[.][A-Za-z]{2,}$')))
+        && (d.get('autoVolunteerConfirmation', null) == null || d.autoVolunteerConfirmation is bool)
+        && (d.get('autoVetDecisionMail', null) == null || d.autoVetDecisionMail is bool)
+        && (d.get('updatedBy', null) == null || d.updatedBy == request.auth.uid);
+    }
+
+    match /artifacts/{appId}/public/data/competitions/{compId}/config/emailSettings {
+      allow get: if request.auth != null
+        && (canAdminThisArtifactsComp(appId, compId) || isTdInComp(appId, compId));
+      allow create, update: if request.auth != null
+        && isEmailSettingsWrite()
+        && canAdminThisArtifactsComp(appId, compId);
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
+    }
+
+    // The mail queue (queueCompetitionMail and the server's own mails): the
+    // admins follow their mails; only the server writes
+    match /artifacts/{appId}/private/data/competitions/{compId}/mailQueue/{mailId} {
+      allow read: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
+      allow write: if false;
+    }
+
+    // One summary per sending attempt (no addresses): admins and the TD
+    match /artifacts/{appId}/private/data/competitions/{compId}/mailLog/{entryId} {
+      allow read: if request.auth != null
+        && (canAdminThisArtifactsComp(appId, compId) || isTdInComp(appId, compId));
+      allow write: if false;
+    }
+
+    // Opt-outs (by address hash), provider settings with the API key, the
+    // link signing key, the daily counter and the retry list: server only
+    match /artifacts/{appId}/private/data/competitions/{compId}/mailOptOuts/{hash} {
+      allow read, write: if false;
+    }
+
+    match /serverSettings/{docId} {
+      allow read, write: if false;
+    }
+
+    match /mailRetry/{entryId} {
+      allow read, write: if false;
+    }
+
+    match /mailFakeOutbox/{entryId} {
+      allow read, write: if false;
     }
 
     // Global pause and marathon status: marathon officials (observer, stage

@@ -3,9 +3,9 @@
  * Defines triggers to recalculate results on data changes.
  */
 
-import { onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
-import { onCall, HttpsError } from "firebase-functions/v2/https";
+import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
@@ -80,6 +80,45 @@ import {
     isValidSignupEmail,
     volunteerSignupResponse
 } from "./src/volunteerSignup.js";
+import {
+    MAIL_LIMITS,
+    MailError,
+    buildReplyToVerificationMail,
+    buildSenderName,
+    buildVolunteerConfirmationMail,
+    effectiveReplyTo,
+    filterOptOuts,
+    isValidEmail as isValidMailAddress,
+    normalizeAudience,
+    normalizePersonalTexts,
+    normalizeProviderSettings,
+    providerStatus,
+    readEmailSettings,
+    signMailToken,
+    validateMailContent,
+    verifyMailToken
+} from "./src/mail/mailCore.js";
+import { createMailProvider } from "./src/mail/providers.js";
+import {
+    SERVER_EMAIL_SETTINGS,
+    buildQueueDoc,
+    defaultLinkBaseUrl,
+    emailSettingsPath,
+    enqueueMail,
+    getSigningKey,
+    listWaitingMail,
+    loadProviderSettings,
+    markReplyToVerified,
+    newMailRef,
+    processDueMailRetries,
+    processMailDoc,
+    readMailUsage,
+    readOptOuts,
+    recordOptOut,
+    requeueMail,
+    resolveMailRecipients
+} from "./src/mail/mailService.js";
+import { MAIL_PAGE_HEADERS, renderMailPage } from "./src/mail/mailPages.js";
 
 // A cap on instances for every function (a runaway client or loop cannot
 // scale up the bill); the public callables have lower caps of their own
@@ -495,8 +534,32 @@ export const onIncidentWritten = onDocumentWritten(
             incidentId,
             timestamp: FieldValue.serverTimestamp()
         });
+        // The same notice by e-mail to the equipage's addresses (unless the
+        // competition switched it off); the inbox message above stands anyway
+        try {
+            await queueVetDecisionMail(appId, compId, message, incidentId);
+        } catch (error) {
+            logger.error('Veterinärbeslut: e-post kunde inte köas', { competitionId: compId, incidentId, error: String(error?.message || error) });
+        }
     }
 );
+
+async function queueVetDecisionMail(appId, compId, message, incidentId) {
+    const settingsSnap = await db.doc(emailSettingsPath(appId, compId)).get();
+    if (!readEmailSettings(settingsSnap.exists ? settingsSnap.data() : {}).autoVetDecisionMail) return;
+    const content = validateMailContent({ subject: message.title, text: message.body });
+    await enqueueMail({
+        db, FieldValue, appId, compId,
+        mail: {
+            kind: 'vetDecision',
+            category: 'essential',
+            ...content,
+            audience: { drivers: { classes: [], startNumbers: message.targetStartNumbers, includeWithdrawn: true } },
+            createdBy: 'system',
+            source: { type: 'incident', incidentId }
+        }
+    });
+}
 
 // Deletes a competition completely: its public and private Firestore data, the
 // finalization locks under /competitions/{id} and its Storage files. The
@@ -1357,6 +1420,20 @@ export const submitVolunteerSignup = onCall({ maxInstances: 2 }, async (request)
     const competitionLimitRef = limitsRef.doc('volunteerSignup_competition');
     const competitionDayLimitRef = limitsRef.doc('volunteerSignup_competition_day');
     const now = Date.now();
+    // A confirmation by e-mail, queued with the sign-up (not for a possible
+    // duplicate: the same address gets one, not one per form sent)
+    const emailSettingsSnap = await db.doc(emailSettingsPath(competition.appId, competitionId)).get();
+    const confirmationMail = !payload.possibleDuplicate
+        && readEmailSettings(emailSettingsSnap.exists ? emailSettingsSnap.data() : {}).autoVolunteerConfirmation
+        ? {
+            kind: 'volunteerConfirmation',
+            category: 'essential',
+            ...buildVolunteerConfirmationMail({ name: payload.name, competitionName: competition.data?.name, role: payload.role }),
+            to: [{ email: payload.email, name: payload.name }],
+            createdBy: 'system',
+            source: { type: 'volunteerSignup' }
+        }
+        : null;
 
     const accepted = await db.runTransaction(async (tx) => {
         const [addressSnap, competitionSnap, daySnap] = await Promise.all([
@@ -1370,7 +1447,12 @@ export const submitVolunteerSignup = onCall({ maxInstances: 2 }, async (request)
         if (!byCompetition.allowed || !byDay.allowed) return false;
         tx.set(competitionLimitRef, byCompetition.next);
         tx.set(competitionDayLimitRef, byDay.next);
-        tx.set(signupRef.doc(), payload);
+        const signupDocRef = signupRef.doc();
+        tx.set(signupDocRef, payload);
+        if (confirmationMail) {
+            const mail = { ...confirmationMail, source: { ...confirmationMail.source, signupId: signupDocRef.id } };
+            tx.set(newMailRef(db, competition.appId, competitionId), buildQueueDoc(mail, { FieldValue, now }));
+        }
         return true;
     });
     if (!accepted) {
@@ -1588,4 +1670,501 @@ export const exportPersonData = onCall({ timeoutSeconds: 300, memory: '512MiB', 
         documents: result.documentCount
     });
     return result;
+});
+
+// --- E-MAIL ---
+// All mail goes from one app address (serverSettings/email, server only) with
+// "<Klubbnamn> via DriveLive" as the name and the club's checked address as
+// Reply-To. Mails are queued per competition (mailQueue, private tree) and
+// sent by onMailQueued; recipients are resolved here from the competition's
+// own documents, never taken from a client. Pure parts: src/mail/mailCore.js;
+// queue processing: src/mail/mailService.js; providers: src/mail/providers.js.
+// Until a provider is configured, mails wait as 'not_configured'.
+
+const IS_FUNCTIONS_EMULATOR = process.env.FUNCTIONS_EMULATOR === 'true';
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
+
+// The fake provider only in the emulator: it records messages in mailFakeOutbox
+function mailProviderFactory(settings) {
+    if (settings?.provider === 'fake' && !IS_FUNCTIONS_EMULATOR) return null;
+    return createMailProvider(settings, {
+        fake: {
+            sink: (message) => db.collection('mailFakeOutbox').add({
+                from: message.from,
+                replyTo: message.replyTo || null,
+                to: message.to,
+                subject: message.subject,
+                text: message.text,
+                headers: message.headers || {},
+                at: Date.now()
+            })
+        }
+    });
+}
+
+const mailContext = () => ({ db, FieldValue, logger, providerFactory: mailProviderFactory });
+
+function mailHttpsError(error) {
+    if (error instanceof MailError) return new HttpsError('invalid-argument', error.message);
+    return error;
+}
+
+async function isSuperadminRequest(request) {
+    const token = request.auth?.token || {};
+    const roles = Array.isArray(token.roles) ? token.roles : [];
+    if (token.superadmin === true || token.role === 'superadmin' || roles.includes('superadmin')) return true;
+    const userSnap = await db.doc(`users/${request.auth.uid}`).get();
+    const user = userSnap.exists ? userSnap.data() : {};
+    return user.role === 'superadmin' || (Array.isArray(user.roles) && user.roles.includes('superadmin'));
+}
+
+async function assertSuperadmin(request) {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    if (!(await isSuperadminRequest(request))) {
+        throw new HttpsError('permission-denied', 'Endast superadministratören får hantera e-postinställningarna.');
+    }
+}
+
+async function loadMailCompetition(request) {
+    const competitionId = String(request.data?.competitionId || '').trim();
+    if (!isValidCompetitionId(competitionId)) throw new HttpsError('invalid-argument', 'Ogiltigt tävlings-ID.');
+    const competition = await getCompetitionArtifactsDoc(competitionId);
+    if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+    return { competitionId, competition };
+}
+
+/**
+ * 'admin' for the competition's admins (the secretariat), 'td' for its
+ * technical delegate when tdAllowed; else permission-denied.
+ */
+async function assertMailRole(request, competition, { tdAllowed = true } = {}) {
+    if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
+    try {
+        await assertCanMaintainResults(request, competition);
+        return 'admin';
+    } catch (error) {
+        if (!(error instanceof HttpsError) || error.code !== 'permission-denied') throw error;
+    }
+    if (tdAllowed) {
+        const email = String(request.auth.token?.email || '').trim().toLowerCase();
+        const verified = request.auth.token?.email_verified === true;
+        const [adminSnap, roleEmailSnap] = await Promise.all([
+            competition.ref.collection('admins').doc(request.auth.uid).get(),
+            verified && email ? competition.ref.collection('roleEmails').doc(email).get() : Promise.resolve(null)
+        ]);
+        const rolesOf = (snap) => {
+            const data = snap?.exists ? snap.data() : {};
+            return [data.role, ...(Array.isArray(data.roles) ? data.roles : [])];
+        };
+        if ([...rolesOf(adminSnap), ...rolesOf(roleEmailSnap)].includes('td')) return 'td';
+    }
+    throw new HttpsError('permission-denied', tdAllowed
+        ? 'Endast tävlingens administratörer, sekretariat eller TD får skicka e-post.'
+        : 'Endast tävlingens administratörer får göra detta.');
+}
+
+// Fixed-window counters (rateLimits, private tree): all checked and counted
+// together, or none
+async function consumeMailRateLimits(appId, competitionId, checks, now) {
+    const limitsRef = db.collection(`artifacts/${appId}/private/data/competitions/${competitionId}/rateLimits`);
+    return db.runTransaction(async (tx) => {
+        const refs = checks.map((check) => limitsRef.doc(check.id));
+        const snaps = await Promise.all(refs.map((ref) => tx.get(ref)));
+        const results = checks.map((check, i) => nextCounter(snaps[i].exists ? snaps[i].data() : null, now, check.limit, check.windowMs));
+        if (results.some((result) => !result.allowed)) return false;
+        results.forEach((result, i) => tx.set(refs[i], result.next));
+        return true;
+    });
+}
+
+async function assertMailQueueRate(appId, competitionId, uid, now) {
+    const allowed = await consumeMailRateLimits(appId, competitionId, [
+        { id: `mail_user_${uid}`, limit: MAIL_LIMITS.perUserHour, windowMs: HOUR_MS },
+        { id: 'mail_queue_day', limit: MAIL_LIMITS.perCompetitionDay, windowMs: DAY_MS }
+    ], now);
+    if (!allowed) throw new HttpsError('resource-exhausted', 'För många utskick just nu. Försök igen senare.');
+}
+
+/**
+ * Queues a mail to the competition's drivers and/or officials, or a test mail
+ * to the caller. Admins, the secretariat and the TD.
+ * { competitionId, kind: 'message'|'test', category?: 'info'|'essential',
+ *   audience?: { drivers?, officials? } (not for 'test'), subject, text, html? }
+ * -> { mailId, status: 'queued' }
+ */
+export const queueCompetitionMail = onCall({ maxInstances: 5 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    const role = await assertMailRole(request, competition);
+    const kind = String(request.data?.kind || 'message');
+    if (!['message', 'test'].includes(kind)) throw new HttpsError('invalid-argument', 'Okänd typ av utskick.');
+    let content;
+    let audience = null;
+    let to = null;
+    try {
+        content = validateMailContent(request.data || {});
+        if (kind === 'test') {
+            const email = String(request.auth.token?.email || '').trim().toLowerCase();
+            if (!email || request.auth.token?.email_verified !== true) {
+                throw new HttpsError('failed-precondition', 'Bekräfta din e-postadress för att skicka ett testmejl.');
+            }
+            to = [{ email, name: String(request.auth.token?.name || '') }];
+        } else {
+            audience = normalizeAudience(request.data?.audience);
+        }
+    } catch (error) {
+        throw mailHttpsError(error);
+    }
+    const now = Date.now();
+    await assertMailQueueRate(competition.appId, competitionId, request.auth.uid, now);
+    const ref = await enqueueMail({
+        db, FieldValue, appId: competition.appId, compId: competitionId, now,
+        mail: {
+            kind,
+            category: kind === 'test' || request.data?.category === 'essential' ? 'essential' : 'info',
+            ...content,
+            audience,
+            to,
+            createdBy: request.auth.uid,
+            createdByRole: role
+        }
+    });
+    logger.info('E-post köad', { competitionId, mailId: ref.id, kind, by: request.auth.uid });
+    return { mailId: ref.id, status: 'queued' };
+});
+
+/**
+ * The recipients an audience gives, without sending: counts only, plus the
+ * entries without an address. { competitionId, audience, category? }
+ * -> { recipientCount, optedOutCount, withoutEmail: [{ type, id }], unknownStartNumbers }
+ */
+export const previewMailAudience = onCall({ maxInstances: 5 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    await assertMailRole(request, competition);
+    let audience;
+    try {
+        audience = normalizeAudience(request.data?.audience);
+    } catch (error) {
+        throw mailHttpsError(error);
+    }
+    const resolved = await resolveMailRecipients(db, competition.appId, competitionId, { audience });
+    const essential = request.data?.category === 'essential';
+    const optedOut = essential ? new Set() : await readOptOuts(db, competition.appId, competitionId, resolved.recipients);
+    const { recipients, skipped } = filterOptOuts(resolved.recipients, optedOut, essential);
+    return {
+        recipientCount: recipients.length,
+        optedOutCount: skipped,
+        withoutEmail: resolved.withoutEmail,
+        unknownStartNumbers: resolved.unknownStartNumbers
+    };
+});
+
+/**
+ * Changed start times by e-mail, after the UI saved the published times: each
+ * driver gets the lines of their own start numbers. Admins and the TD.
+ * { competitionId, changes: [{ startNumber, text }], subject?, text? }
+ * -> { mailId, status: 'queued' }
+ */
+export const queueStartTimeChangeMail = onCall({ maxInstances: 5 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    const role = await assertMailRole(request, competition);
+    let content;
+    let personalTexts;
+    try {
+        personalTexts = normalizePersonalTexts(request.data?.changes);
+        const competitionName = String(competition.data?.name || '').trim();
+        content = validateMailContent({
+            subject: request.data?.subject || `Ändrad starttid${competitionName ? ` – ${competitionName}` : ''}`,
+            text: request.data?.text || 'Din starttid har ändrats. Nya tider:'
+        });
+    } catch (error) {
+        throw mailHttpsError(error);
+    }
+    const now = Date.now();
+    await assertMailQueueRate(competition.appId, competitionId, request.auth.uid, now);
+    const ref = await enqueueMail({
+        db, FieldValue, appId: competition.appId, compId: competitionId, now,
+        mail: {
+            kind: 'startTimeChange',
+            category: 'essential',
+            ...content,
+            audience: { drivers: { classes: [], startNumbers: Object.keys(personalTexts), includeWithdrawn: true } },
+            personalTexts,
+            createdBy: request.auth.uid,
+            createdByRole: role
+        }
+    });
+    logger.info('E-post om ändrade starttider köad', { competitionId, mailId: ref.id, equipages: Object.keys(personalTexts).length, by: request.auth.uid });
+    return { mailId: ref.id, status: 'queued' };
+});
+
+/**
+ * Sends a check link to the reply-to address in config/emailSettings; the
+ * address is used as Reply-To once the link was confirmed (verifyReplyTo).
+ * Competition admins. { competitionId } -> { mailId, address } or { alreadyVerified: true }
+ */
+export const requestReplyToVerification = onCall({ maxInstances: 3 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    await assertMailRole(request, competition, { tdAllowed: false });
+    const settingsSnap = await db.doc(emailSettingsPath(competition.appId, competitionId)).get();
+    const settings = readEmailSettings(settingsSnap.exists ? settingsSnap.data() : {});
+    if (!isValidMailAddress(settings.replyTo)) {
+        throw new HttpsError('failed-precondition', 'Ange en giltig svarsadress i e-postinställningarna först.');
+    }
+    if (effectiveReplyTo(settings)) return { alreadyVerified: true, address: settings.replyTo };
+    const now = Date.now();
+    const allowed = await consumeMailRateLimits(competition.appId, competitionId, [
+        { id: 'mail_replyto_day', limit: MAIL_LIMITS.replyToChecksPerDay, windowMs: DAY_MS }
+    ], now);
+    if (!allowed) throw new HttpsError('resource-exhausted', 'För många bekräftelser i dag. Försök igen i morgon.');
+    const key = await getSigningKey(db);
+    const token = signMailToken({ p: 'r', a: competition.appId, c: competitionId, e: settings.replyTo, x: now + MAIL_LIMITS.replyToTokenMs }, key);
+    const linkBase = (await loadProviderSettings(db))?.linkBaseUrl || defaultLinkBaseUrl();
+    const content = buildReplyToVerificationMail({ competitionName: competition.data?.name, verifyUrl: `${linkBase}/verifyReplyTo?t=${token}` });
+    const ref = await enqueueMail({
+        db, FieldValue, appId: competition.appId, compId: competitionId, now,
+        mail: {
+            kind: 'replyToVerification',
+            category: 'essential',
+            ...content,
+            to: [{ email: settings.replyTo }],
+            createdBy: request.auth.uid,
+            createdByRole: 'admin'
+        }
+    });
+    return { mailId: ref.id, address: settings.replyTo };
+});
+
+/**
+ * E-mail status for the competition's mail page: provider configured and on,
+ * the sender as recipients see it, the checked Reply-To, today's use.
+ * Admins and the TD. { competitionId }
+ */
+export const getCompetitionMailStatus = onCall({ maxInstances: 5 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    await assertMailRole(request, competition);
+    const [providerSettings, settingsSnap, usage] = await Promise.all([
+        loadProviderSettings(db),
+        db.doc(emailSettingsPath(competition.appId, competitionId)).get(),
+        readMailUsage(db, { appId: competition.appId, compId: competitionId })
+    ]);
+    const status = providerStatus(providerSettings);
+    const settings = readEmailSettings(settingsSnap.exists ? settingsSnap.data() : {});
+    const comp = competition.data || {};
+    return {
+        configured: status.configured,
+        enabled: status.enabled,
+        fromName: buildSenderName(settings.senderName || comp.organizerName || comp.club || comp.name),
+        fromAddress: status.fromAddress,
+        replyTo: settings.replyTo || null,
+        replyToVerified: !!effectiveReplyTo(settings),
+        dayKey: usage.dayKey,
+        sentToday: usage.competition || 0,
+        dailyLimit: status.competitionDailyLimit
+    };
+});
+
+/**
+ * The provider settings (superadmin). { provider: 'brevo', apiKey?,
+ * clearApiKey?, fromAddress, fromDomain?, dailyLimit?, competitionDailyLimit?,
+ * enabled, linkBaseUrl? }. The API key is write-only: kept when left out,
+ * never returned. -> the status as getEmailProviderStatus
+ */
+export const setEmailProviderSettings = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    const ref = db.doc(SERVER_EMAIL_SETTINGS);
+    const existingSnap = await ref.get();
+    let settings;
+    try {
+        settings = normalizeProviderSettings(request.data || {}, existingSnap.exists ? existingSnap.data() : {}, { allowFake: IS_FUNCTIONS_EMULATOR });
+    } catch (error) {
+        throw mailHttpsError(error);
+    }
+    await ref.set({ ...settings, updatedAt: Date.now(), updatedBy: request.auth.uid });
+    logger.info('E-postinställningar ändrade', { provider: settings.provider, fromAddress: settings.fromAddress, enabled: settings.enabled, by: request.auth.uid });
+    const status = providerStatus(settings);
+    return { configured: status.configured, provider: status.provider, fromAddress: status.fromAddress, enabled: status.enabled };
+});
+
+/**
+ * { configured, provider, fromAddress, enabled } plus fromDomain, hasApiKey,
+ * the daily limits, today's use and the number of mails waiting for a
+ * superadmin (retryQueuedMail). Superadmin.
+ */
+export const getEmailProviderStatus = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    const [settings, usage, waiting] = await Promise.all([
+        loadProviderSettings(db),
+        readMailUsage(db),
+        listWaitingMail(db, { limit: 500 })
+    ]);
+    const status = providerStatus(settings);
+    return {
+        configured: status.configured,
+        provider: status.provider,
+        fromAddress: status.fromAddress,
+        enabled: status.enabled,
+        fromDomain: status.fromDomain,
+        hasApiKey: status.hasApiKey,
+        dailyLimit: status.dailyLimit,
+        competitionDailyLimit: status.competitionDailyLimit,
+        dayKey: usage.dayKey,
+        sentToday: usage.global,
+        waiting: {
+            notConfigured: waiting.filter((w) => w.reason === 'not_configured').length,
+            blocked: waiting.filter((w) => w.reason === 'blocked').length
+        }
+    };
+});
+
+/**
+ * A test mail straight to the superadmin's own (verified) address, also while
+ * sending is switched off, to check the provider and the domain.
+ * {} -> { ok, messageId?, error? }
+ */
+export const sendTestEmail = onCall({ maxInstances: 2 }, async (request) => {
+    await assertSuperadmin(request);
+    const email = String(request.auth.token?.email || '').trim().toLowerCase();
+    if (!email || request.auth.token?.email_verified !== true) {
+        throw new HttpsError('failed-precondition', 'Bekräfta din e-postadress först.');
+    }
+    const settings = await loadProviderSettings(db);
+    const provider = mailProviderFactory(settings ? { ...settings, enabled: true } : null);
+    if (!provider || !providerStatus(settings).configured) {
+        throw new HttpsError('failed-precondition', 'E-postleverantören är inte konfigurerad.');
+    }
+    const result = await provider.send({
+        from: { email: settings.fromAddress, name: buildSenderName('Test') },
+        replyTo: null,
+        to: { email, name: '' },
+        subject: 'Testmejl från DriveLive',
+        text: 'Det här är ett testmejl från DriveLive. Kommer det fram fungerar e-postleverantören och avsändardomänen.',
+        html: '<p>Det här är ett testmejl från DriveLive. Kommer det fram fungerar e-postleverantören och avsändardomänen.</p>',
+        tags: ['test']
+    });
+    logger.info('Testmejl skickat', { ok: result.ok, error: result.error || null, by: request.auth.uid });
+    return { ok: result.ok, messageId: result.messageId || null, error: result.error || null };
+});
+
+/**
+ * Sends waiting mails again (superadmin): one mail ({ competitionId,
+ * mailId }), or every mail waiting as not_configured or blocked (optionally
+ * of one competition). Mails older than maxAgeDays (default 7) are closed as
+ * failed instead. -> { results: [{ competitionId, mailId, status }] }
+ */
+export const retryQueuedMail = onCall({ timeoutSeconds: 540, maxInstances: 1 }, async (request) => {
+    await assertSuperadmin(request);
+    const maxAgeDays = Number(request.data?.maxAgeDays ?? 7);
+    const maxAgeMs = Number.isFinite(maxAgeDays) && maxAgeDays > 0 ? maxAgeDays * DAY_MS : null;
+    const competitionId = request.data?.competitionId ? String(request.data.competitionId).trim() : '';
+    const mailId = request.data?.mailId ? String(request.data.mailId).trim() : '';
+    if (competitionId && !isValidCompetitionId(competitionId)) throw new HttpsError('invalid-argument', 'Ogiltigt tävlings-ID.');
+    if (mailId && !/^[A-Za-z0-9_-]{1,128}$/.test(mailId)) throw new HttpsError('invalid-argument', 'Ogiltigt mejl-ID.');
+    let targets;
+    if (mailId) {
+        if (!competitionId) throw new HttpsError('invalid-argument', 'Tävlings-ID saknas.');
+        const competition = await getCompetitionArtifactsDoc(competitionId);
+        if (!competition) throw new HttpsError('not-found', 'Tävlingen kunde inte hittas.');
+        targets = [{ appId: competition.appId, compId: competitionId, mailId }];
+    } else {
+        targets = (await listWaitingMail(db, { limit: 200 })).filter((t) => !competitionId || t.compId === competitionId).slice(0, 50);
+    }
+    const results = [];
+    for (const target of targets) {
+        const result = await requeueMail({ ...mailContext(), ...target, now: Date.now(), maxAgeMs });
+        results.push({ competitionId: target.compId, mailId: target.mailId, status: result.status });
+    }
+    logger.info('Köade mejl skickade igen', { count: results.length, by: request.auth.uid });
+    return { results };
+});
+
+// Sends a queued mail. No Functions retry (a retry setting would make the
+// next deploy need --force): failed deliveries get a retry time of their own
+// (processMailRetries)
+export const onMailQueued = onDocumentCreated(
+    { document: "artifacts/{appId}/private/data/competitions/{compId}/mailQueue/{mailId}", timeoutSeconds: 300, maxInstances: 3 },
+    async (event) => {
+        if (!event.data) return;
+        const { appId, compId } = event.params;
+        await processMailDoc({ ...mailContext(), ref: event.data.ref, appId, compId, now: Date.now() });
+    }
+);
+
+export const processMailRetries = onSchedule(
+    { schedule: 'every 10 minutes', timeZone: 'Europe/Stockholm', timeoutSeconds: 300, maxInstances: 1 },
+    async () => {
+        const results = await processDueMailRetries({ ...mailContext(), now: Date.now() });
+        if (results.length) logger.info('E-post: nya försök', { count: results.length });
+    }
+);
+
+function sendMailPage(res, status, page) {
+    res.set(MAIL_PAGE_HEADERS);
+    res.status(status).send(renderMailPage(page));
+}
+
+const validLinkTarget = (payload) => !!payload
+    && /^[A-Za-z0-9_-]{1,64}$/.test(String(payload.a || ''))
+    && isValidCompetitionId(String(payload.c || ''));
+
+/**
+ * The unsubscribe link of information mail (also the List-Unsubscribe
+ * header, one-click POST). GET shows a button; POST records the opt-out for
+ * the competition (mailOptOuts, by address hash).
+ */
+export const unsubscribeEmail = onRequest({ maxInstances: 2 }, async (req, res) => {
+    const token = String(req.query?.t || req.body?.t || '');
+    const payload = verifyMailToken(token, await getSigningKey(db), 'u');
+    if (!validLinkTarget(payload)) {
+        sendMailPage(res, 400, { title: 'Ogiltig länk', message: 'Länken är ogiltig eller har gått ut.' });
+        return;
+    }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+        sendMailPage(res, 200, {
+            title: 'Avsluta utskick',
+            message: 'Vill du sluta få informationsutskick från den här tävlingen? Viktiga besked om din start, som ändrade starttider och veterinärbeslut, skickas ändå.',
+            form: { action: '', token, button: 'Avsluta utskicken' }
+        });
+        return;
+    }
+    if (req.method !== 'POST') {
+        res.status(405).send('');
+        return;
+    }
+    const done = await recordOptOut(db, { appId: payload.a, compId: payload.c, hash: payload.h });
+    sendMailPage(res, done ? 200 : 404, done
+        ? { title: 'Klart', message: 'Du får inte längre informationsutskick från den här tävlingen. Viktiga besked om din start skickas fortfarande.' }
+        : { title: 'Tävlingen finns inte', message: 'Tävlingen finns inte längre, så inga fler utskick kommer därifrån.' });
+});
+
+/**
+ * The link in the reply-to check (requestReplyToVerification). GET shows a
+ * button; POST marks the address checked if it is still the one set.
+ */
+export const verifyReplyTo = onRequest({ maxInstances: 2 }, async (req, res) => {
+    const token = String(req.query?.t || req.body?.t || '');
+    const payload = verifyMailToken(token, await getSigningKey(db), 'r');
+    if (!validLinkTarget(payload) || !isValidMailAddress(payload.e)) {
+        sendMailPage(res, 400, { title: 'Ogiltig länk', message: 'Länken är ogiltig eller har gått ut. Be om en ny bekräftelse i e-postinställningarna.' });
+        return;
+    }
+    if (req.method === 'GET' || req.method === 'HEAD') {
+        sendMailPage(res, 200, {
+            title: 'Bekräfta svarsadress',
+            message: `Bekräfta att ${payload.e} får användas som svarsadress för tävlingens e-post.`,
+            form: { action: '', token, button: 'Bekräfta adressen' }
+        });
+        return;
+    }
+    if (req.method !== 'POST') {
+        res.status(405).send('');
+        return;
+    }
+    const outcome = await markReplyToVerified(db, { appId: payload.a, compId: payload.c, address: payload.e });
+    const pages = {
+        verified: { title: 'Adressen är bekräftad', message: `Svar på tävlingens e-post går nu till ${payload.e}.` },
+        changed: { title: 'Adressen har ändrats', message: 'Svarsadressen i inställningarna är inte längre den här adressen. Be om en ny bekräftelse.' },
+        missing: { title: 'Inställningar saknas', message: 'Tävlingens e-postinställningar finns inte längre.' }
+    };
+    sendMailPage(res, outcome === 'verified' ? 200 : 409, pages[outcome]);
 });

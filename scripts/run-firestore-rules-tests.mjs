@@ -9,8 +9,8 @@ const firebaseArgs = [
   'demo-combined-driving',
   '--only',
   'firestore',
-  // The staff spec uses its own project id: the two files can run side by side
-  'node --test tests/firestore-rules.spec.js tests/firestore-rules-staff.spec.js'
+  // The staff and mail specs use their own project ids: the files can run side by side
+  'node --test tests/firestore-rules.spec.js tests/firestore-rules-staff.spec.js tests/firestore-rules-mail.spec.js'
 ];
 
 const exitCode = await run(firebaseCommand, firebaseArgs, env);

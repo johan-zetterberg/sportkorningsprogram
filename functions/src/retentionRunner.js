@@ -107,16 +107,20 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
         }
     }
 
-    // Counters without a recent write: PIN attempts (top level) and rate limits
-    const [attemptsSnap, rateLimitsSnap] = await Promise.all([
+    // Counters without a recent write: PIN attempts (top level) and rate
+    // limits; and e-mail retry entries nobody acted on (mailRetry, no
+    // personal data, only the path of the mail)
+    const [attemptsSnap, rateLimitsSnap, mailRetrySnap] = await Promise.all([
         db.collection('pinJoinAttempts').get(),
-        db.collectionGroup('rateLimits').get()
+        db.collectionGroup('rateLimits').get(),
+        db.collection('mailRetry').get()
     ]);
     const stale = (snap) => snap.docs
         .filter((d) => isStaleCounter(d.data(), d.updateTime?.toMillis?.() ?? null, nowMs))
         .map((d) => d.ref);
     const pinAttemptsDeleted = await deleteDocuments(db, stale(attemptsSnap));
     const rateLimitsDeleted = await deleteDocuments(db, stale(rateLimitsSnap));
+    const mailRetryDeleted = await deleteDocuments(db, stale(mailRetrySnap));
 
     const summary = {
         startedAt,
@@ -125,6 +129,7 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
         competitionsPurged: purged,
         pinAttemptsDeleted,
         rateLimitsDeleted,
+        mailRetryDeleted,
         errors
     };
     await db.collection('retentionRuns').add(summary);
