@@ -316,5 +316,14 @@ export const sendTestPush = () => call('sendTestPush');
 export const setPushSettings = (payload) => call('setPushSettings', payload).then((r) => { settingsCache = null; return r; });
 export const getPushAdminStatus = () => call('getPushAdminStatus');
 
-/** Changed start times as push notices (admins, TD): { competitionId, changes: [{ startNumber, text, textEn? }] } */
+/**
+ * Changed start times as push notices (admins, TD):
+ * { competitionId, changes: [{ startNumber, text, textEn? }], dedupeKey? }
+ */
 export const notifyStartTimeChange = (payload) => call('notifyStartTimeChange', payload);
+
+/**
+ * How many devices a push would reach (admins, secretariat, TD):
+ * { competitionId, topic, category?, startNumbers? | message? } -> { available, devices }
+ */
+export const previewPushAudience = (payload) => call('previewPushAudience', payload);

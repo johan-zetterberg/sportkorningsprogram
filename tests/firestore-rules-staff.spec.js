@@ -129,6 +129,62 @@ test('incidents: vet decisions (type vet, vetStrike) only by the vet, the TD and
   })));
 });
 
+test('incidents: the vet withdraws its own pending report (closed, outcome withdrawn) and nothing else', { skip: !HAS_EMULATOR }, async () => {
+  const vet = dbOf('vet-1');
+  const report = (id, extra = {}) => setDoc(doc(vet, privPath(`incidents/${id}`)), incident('vet-1', {
+    number: 11, type: 'vet', source: 'vet', discipline: 'general', vetStrike: { phase: 'initial', outcome: 'pending' }, ...extra
+  }));
+  const withdraw = (extra = {}) => ({
+    status: 'closed', decision: 'Veterinären godkände ekipaget igen.', decidedBy: 'Vet',
+    'vetStrike.outcome': 'withdrawn', updatedBy: 'vet-1', updatedByName: 'Vet', updatedAt: serverTimestamp(), ...extra
+  });
+  await assertSucceeds(report('w1'));
+  await assertSucceeds(updateDoc(doc(vet, privPath('incidents/w1')), withdraw()));
+  // Once closed: no second change of the outcome
+  await assertFails(updateDoc(doc(vet, privPath('incidents/w1')), withdraw({ 'vetStrike.outcome': 'pending', status: 'open' })));
+  // Not another outcome, not other fields, not the phase, not by someone else
+  await assertSucceeds(report('w2', { number: 12 }));
+  await assertFails(updateDoc(doc(vet, privPath('incidents/w2')), withdraw({ 'vetStrike.outcome': 'overturned' })));
+  await assertFails(updateDoc(doc(vet, privPath('incidents/w2')), withdraw({ description: 'Ändrad' })));
+  await assertFails(updateDoc(doc(vet, privPath('incidents/w2')), withdraw({ 'vetStrike.phase': 'final' })));
+  await assertFails(updateDoc(doc(vet, privPath('incidents/w2')), withdraw({ status: 'decided' })));
+  await assertFails(updateDoc(doc(dbOf('mar-1'), privPath('incidents/w2')), withdraw({ updatedBy: 'mar-1' })));
+  // A report already decided by the ground jury stays decided
+  await assertSucceeds(updateDoc(doc(dbOf('td-1'), privPath('incidents/w2')), {
+    status: 'decided', decision: 'Fastställt', 'vetStrike.outcome': 'confirmed', updatedBy: 'td-1', updatedAt: serverTimestamp()
+  }));
+  await assertFails(updateDoc(doc(vet, privPath('incidents/w2')), withdraw()));
+});
+
+test('messages: push fields checked; the TD may call a drive-off (non-public, source driveOff) only', { skip: !HAS_EMULATOR }, async () => {
+  const msg = (extra = {}) => ({
+    title: 'Omkörning', body: 'Kvalificerade: #5', type: 'alert', category: 'essential', push: true, source: 'driveOff',
+    audience: { public: false, drivers: true, officials: false, officialRoles: [] }, targetStartNumbers: ['5'],
+    timestamp: serverTimestamp(), ...extra
+  });
+  const td = dbOf('td-1');
+  await assertSucceeds(setDoc(doc(td, compPath('messages/d1')), msg()));
+  await assertSucceeds(setDoc(doc(td, compPath('messages/d2')), msg({
+    type: 'info', category: 'info', audience: { public: false, drivers: false, officials: true, officialRoles: ['speaker'] }, targetStartNumbers: []
+  })));
+  // Not public, not another source, no edits or deletes
+  await assertFails(setDoc(doc(td, compPath('messages/d3')), msg({ audience: { public: true, drivers: true, officials: false, officialRoles: [] } })));
+  await assertFails(setDoc(doc(td, compPath('messages/d4')), msg({ source: 'other' })));
+  const { source: _source, ...withoutSource } = msg();
+  await assertFails(setDoc(doc(td, compPath('messages/d5')), withoutSource));
+  await assertFails(updateDoc(doc(td, compPath('messages/d1')), { body: 'Ändrad' }));
+  await assertFails(deleteDoc(doc(td, compPath('messages/d1'))));
+  // Other officials never
+  await assertFails(setDoc(doc(dbOf('pre-1'), compPath('messages/d6')), msg()));
+  // The owner: the push fields are checked
+  const owner = dbOf('owner-1');
+  await assertSucceeds(setDoc(doc(owner, compPath('messages/o1')), msg({ source: null })));
+  await assertSucceeds(updateDoc(doc(owner, compPath('messages/o1')), { updateNotice: 'abcdef123456' }));
+  await assertFails(setDoc(doc(owner, compPath('messages/o2')), msg({ category: 'urgent' })));
+  await assertFails(setDoc(doc(owner, compPath('messages/o3')), msg({ push: 'yes' })));
+  await assertFails(updateDoc(doc(owner, compPath('messages/o1')), { updateNotice: 'x'.repeat(65) }));
+});
+
 test('staff notifications: staff read and acknowledge; clients add only vet notices', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), privPath('staffNotifications/n1')), {

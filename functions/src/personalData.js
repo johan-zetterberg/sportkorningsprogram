@@ -150,6 +150,37 @@ function getPath(data, path) {
     return path.split('.').reduce((value, key) => (value && typeof value === 'object' ? value[key] : undefined), data);
 }
 
+/**
+ * The public pause log (config/globalStatus.pauseLog) without a person's
+ * name: who pressed pause / resume (by, endedBy: { uid, name, role }).
+ * uid given: that account's name becomes `replacement` (account deletion);
+ * uid null: every name is removed (the competition's retention run). The
+ * times, reasons and roles stay. -> { log, changed }
+ */
+export function anonymizePauseLog(pauseLog, { uid = null, replacement = 'Raderad användare' } = {}) {
+    if (!Array.isArray(pauseLog)) return { log: pauseLog, changed: false };
+    let changed = false;
+    const log = pauseLog.map((entry) => {
+        if (!entry || typeof entry !== 'object') return entry;
+        let next = entry;
+        for (const key of ['by', 'endedBy']) {
+            const actor = entry[key];
+            if (!actor || typeof actor !== 'object' || actor.name === undefined) continue;
+            if (uid) {
+                if (actor.uid !== uid || actor.name === replacement) continue;
+                next = { ...next, [key]: { ...actor, name: replacement } };
+            } else {
+                const rest = { ...actor };
+                delete rest.name;
+                next = { ...next, [key]: rest };
+            }
+            changed = true;
+        }
+        return next;
+    });
+    return { log, changed };
+}
+
 /** The personal field paths present in a log entry (to delete them) */
 export function personalLogFieldsPresent(data = {}) {
     return PERSONAL_LOG_FIELDS.filter((path) => {

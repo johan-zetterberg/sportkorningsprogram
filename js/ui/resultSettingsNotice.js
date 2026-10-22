@@ -105,12 +105,14 @@ export function resultSettingsNoticeHtml({ marathon = new Map(), precision = new
         parts.push(`<p class="mt-1 font-medium">Precision (ställs in i Precisionsadministrationen):</p><ul class="list-disc pl-5">${issueList(precision)}</ul>`);
     }
     if (!parts.length) return '';
+    // Long lists fold away (the summary says how many classes): a few stay open
+    const classCount = marathon.size + precision.size;
     return `
-    <div role="status" class="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-3 text-sm text-yellow-900 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-100">
-      <p class="font-semibold">Obs: inställningar saknas</p>
+    <details ${classCount <= 2 ? 'open' : ''} role="status" class="mb-4 rounded-lg border border-yellow-300 bg-yellow-50 px-4 py-2 text-sm text-yellow-900 dark:border-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-100" data-settings-notice>
+      <summary class="summary-cue cursor-pointer min-h-[44px] flex items-center font-semibold">Obs: inställningar saknas (${classCount})</summary>
       <p class="mt-1">Resultaten i dessa klasser kan inte räknas klart förrän inställningarna finns:</p>
       ${parts.join('')}
-    </div>`;
+    </details>`;
 }
 
 export function renderResultSettingsNotice(issues, hostId = RESULT_SETTINGS_NOTICE_ID) {

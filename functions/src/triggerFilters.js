@@ -1,4 +1,4 @@
-import { stableJson } from './resultRecalculationUtils.js';
+import { pauseLogForResults, stableJson } from './resultRecalculationUtils.js';
 import { stageStartTS, stageStopTS } from './core-engine/marathon.js';
 
 /**
@@ -90,8 +90,9 @@ function pauseBounds(entry) {
  * start cannot be read: the caller then recalculates everything.
  */
 export function changedPauseWindows(beforeLog, afterLog) {
-    const before = Array.isArray(beforeLog) ? beforeLog : [];
-    const after = Array.isArray(afterLog) ? afterLog : [];
+    // Who pressed is not part of a window (a name removed changes nothing)
+    const before = Array.isArray(beforeLog) ? pauseLogForResults(beforeLog) : [];
+    const after = Array.isArray(afterLog) ? pauseLogForResults(afterLog) : [];
     const keys = (list) => new Set(list.map(stableJson));
     const beforeKeys = keys(before);
     const afterKeys = keys(after);

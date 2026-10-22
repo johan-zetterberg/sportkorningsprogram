@@ -30,12 +30,17 @@ export const FIELD_MESSAGE_ROUTES = Object.freeze({
     'precision-input': 'precision',
     'precision-split-input': 'precision',
     'vet-check': 'vet',
+    // The official landing page: the viewer's own roles only
+    'official': 'any',
     'sekretariat-maraton': 'secretariat',
     'sekretariat-dressyr': 'secretariat',
     'sekretariat-precision': 'secretariat'
 });
 
 const DISMISSED_KEY = 'fieldMessagesDismissed';
+const MAX_BANNER = 3;
+// Messages opened with "Visa mer" (this page view only)
+const expandedKeys = new Set();
 const SEEN_KEY = 'fieldMessagesSeen';
 
 let unsubscribe = null;
@@ -74,7 +79,8 @@ function render() {
     if (!host) return;
     if (!currentCompId) { host.innerHTML = ''; return; }
     const dismissed = readStoredKeys(DISMISSED_KEY);
-    const shown = pickFieldMessages(latestMessages, { viewerKeys: viewerKeys(), dismissed, competitionId: currentCompId });
+    const all = pickFieldMessages(latestMessages, { viewerKeys: viewerKeys(), dismissed, competitionId: currentCompId, limit: Infinity });
+    const shown = all.slice(0, MAX_BANNER);
     const seen = new Set(readStoredKeys(SEEN_KEY));
     const shownKeys = shown.map(m => messageStateKey(m, currentCompId));
     const newKeys = new Set(shownKeys.filter(key => !seen.has(key)));
@@ -82,8 +88,15 @@ function render() {
         lang: getCurrentLanguage(),
         competitionId: currentCompId,
         newKeys,
+        expanded: expandedKeys,
+        moreCount: all.length - shown.length,
+        // The official landing page lists them with a count
+        heading: currentPageRole === 'any' ? t('field_messages_title') : '',
         labels: {
             title: t('field_messages_title'),
+            more: t('field_messages_more'),
+            less: t('field_messages_less'),
+            more_count: t('field_messages_more_count'),
             important: t('field_messages_important'),
             info: t('field_messages_info'),
             dismiss: t('field_messages_dismiss')
@@ -131,6 +144,13 @@ export function initFieldMessages() {
     initialized = true;
     document.addEventListener('app-route-change', (event) => syncFieldMessages(event?.detail?.pageKey || ''));
     document.addEventListener('click', (event) => {
+        const toggle = event.target.closest?.('[data-toggle-field-message]');
+        if (toggle) {
+            const key = toggle.dataset.toggleFieldMessage;
+            if (expandedKeys.has(key)) expandedKeys.delete(key); else expandedKeys.add(key);
+            render();
+            return;
+        }
         const button = event.target.closest?.('[data-dismiss-field-message]');
         if (!button) return;
         writeStoredKeys(DISMISSED_KEY, addStateKeys(readStoredKeys(DISMISSED_KEY), [button.dataset.dismissFieldMessage]));

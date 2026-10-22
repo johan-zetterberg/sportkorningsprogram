@@ -404,13 +404,13 @@ export const GUIDES = {
         '<strong>Fel gångart (Galopp i skritt):</strong> Klicka på START vid första galoppsprånget. Klicka på STOPP när hästen skrittar igen. Varje start–stopp blir ett eget tillfälle: rättat inom 5 s ger inget straff, annars 1 straffpoäng per påbörjad 5-sekundersperiod (TR V 523.1).',
         '<strong>Otillåten halt:</strong> Klicka START när ekipaget stannar olovligen och STOPP när det rör sig framåt igen.',
         '<strong>Noteringar / Kommentarer:</strong> Skriv en kort förklaring vid behov (t.ex. "Galopp ca 15 m").',
-        `<strong>Tävlingspaus:</strong> Vid allvarlig incident eller blockerat spår: öppna panelen för paus och tryck på den röda knappen <strong>${LABEL.pause.sv}</strong>. Alla tävlingsklockor pausas. Sidor som är öppna visar då att tävlingen är pausad, men ingen larmas: meddela tävlingsledningen via radio eller telefon.`
+        `<strong>Tävlingspaus:</strong> Vid allvarlig incident eller blockerat spår: öppna panelen för paus och tryck på den röda knappen <strong>${LABEL.pause.sv}</strong>. Alla tävlingsklockor pausas. Du anger orsak, alla sidor visar en röd banner med orsak och knapparna visar Pausad. Funktionärer och kuskar med notiser påslagna får en notis. Vid en olycka ringer du dessutom tävlingsledningen via radio eller telefon.`
       ],
       en: [
         '<strong>Wrong gait (Canter in walk):</strong> Click START on first canter stride. Click STOP when back to walk. Each start–stop is one incident: corrected within 5 s gives no penalty, otherwise 1 penalty per commenced 5-second period.',
         '<strong>Unauthorized halt:</strong> Click START on halt and STOP when moving forward.',
         '<strong>Remarks:</strong> Type explanatory notes (e.g. "Cantered approx 15 m").',
-        `<strong>Competition pause:</strong> If the track is blocked or in an emergency, open the pause panel and press the red <strong>${LABEL.pause.en}</strong> button. All competition clocks pause. Pages that are open then show that the competition is paused, but nobody is alerted: tell the competition management by radio or phone.`
+        `<strong>Competition pause:</strong> If the track is blocked or in an emergency, open the pause panel and press the red <strong>${LABEL.pause.en}</strong> button. All competition clocks pause. You enter the reason, every page shows a red banner with the reason and the buttons read Paused. Officials and drivers with notifications on get a notification. After an accident, also tell the competition management by radio or phone.`
       ]
     },
     troubleshooting: {
@@ -541,14 +541,16 @@ export const GUIDES = {
         '<strong>Granskning före finalisering:</strong> Kontrollera att alla domarbetyg och etapptider inkommit innan knappen "Finalisera" klickas.',
         '<strong>Lås upp vid protest / korrigering:</strong> Om ett domarprotokoll behöver korrigeras, lås upp raden, gör ändringen tillsammans med överdomaren och spara om.',
         '<strong>PDF & Utskrift:</strong> Skapa officiella resultatlistor, protokoll och speakerunderlag via Rapportcenter.',
-        '<strong>Händelselogg:</strong> Protester, incidenter och domarkollegiets beslut i <strong>Händelselogg &amp; protester</strong>; där finns också notiserna (veterinärbeslut, "Ändrad av kusk") och <strong>Fältenheter</strong> (vilka inmatningsenheter som lever).'
+        '<strong>Händelselogg:</strong> Protester, incidenter och domarkollegiets beslut i <strong>Händelselogg &amp; protester</strong>; där finns också rutan <strong>Att uppmärksamma</strong> (veterinärstrykningar som väntar på domarkollegiet, "Ändrad av kusk") och <strong>Fältenheter</strong> (vilka inmatningsenheter som lever).',
+        '<strong>Meddelanden & notiser:</strong> Skicka meddelanden till publik, kuskar eller funktionärer (alla, en roll eller TD) under <strong>Admin &gt; Kommunikation</strong> och rätta dem med Ändra. Funktionärerna ser dem som en banner. En notis är pushnotisen i telefonen: be alla slå på notiser (iPhone: Lägg till på hemskärmen först). Vid ändrade starttider väljer du kanal: meddelande, notis eller e-post.'
       ],
       en: [
         '<strong>Status badges:</strong> Amber "Running" = in progress, blue "Finished" = done but not finalized, green "Finalized" = locked official result. Grey = not started.',
         '<strong>Review before finalizing:</strong> Verify that all judges and timing points reported in before finalizing.',
         '<strong>Unlock on query / protest:</strong> If correction is required, unlock the record, update with Ground Jury and re-save.',
         '<strong>PDF & Printouts:</strong> Generate official result sheets, protocols and speaker material via Report Center.',
-        '<strong>Incident log:</strong> Protests, incidents and ground jury decisions in <strong>Incidents &amp; protests</strong>; it also holds the notifications (vet decisions, "Changed by driver") and <strong>Field devices</strong> (which input devices are alive).'
+        '<strong>Incident log:</strong> Protests, incidents and ground jury decisions in <strong>Incidents &amp; protests</strong>; it also holds the <strong>Needs attention</strong> panel (vet withdrawals waiting for the ground jury, "Changed by driver") and <strong>Field devices</strong> (which input devices are alive).',
+        '<strong>Messages & notifications:</strong> Send messages to the public, drivers or officials (all, one role or the TD) under <strong>Admin &gt; Communication</strong> and correct them with Edit. Officials see them as a banner. A notification is the push notification on the phone: ask everyone to turn notifications on (iPhone: Add to Home Screen first). For changed start times you choose the channel: message, notification or e-mail.'
       ]
     },
     troubleshooting: {

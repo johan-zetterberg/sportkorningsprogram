@@ -471,8 +471,12 @@ export function normalizeEssentialReason(value) {
     return reason;
 }
 
-/** Per start number texts for a start time change: { [startNumber]: text } */
-export function normalizePersonalTexts(changes) {
+/**
+ * Per start number texts for a start time change: { [startNumber]: text }.
+ * field: 'text' (Swedish, required) or 'textEn' (English, optional: entries
+ * without one are skipped; {} when none has one).
+ */
+export function normalizePersonalTexts(changes, field = 'text') {
     const list = cleanList(changes);
     if (!list.length) throw new MailError('Inga ändrade starttider.');
     if (list.length > MAIL_LIMITS.maxStartNumbers) throw new MailError('För många startnummer.');
@@ -481,8 +485,11 @@ export function normalizePersonalTexts(changes) {
         const startNumber = String(item?.startNumber ?? '').trim();
         if (!/^[\w-]{1,20}$/.test(startNumber)) throw new MailError('Ogiltigt startnummer.');
         // Start time lines: no web addresses (never linked in the mail)
-        const text = String(item?.text ?? '').replace(/\r\n?/g, '\n').split('\n').map(stripLinks).join('\n').trim().slice(0, MAIL_LIMITS.personalTextMax);
-        if (!text) throw new MailError(`Text saknas för startnummer ${startNumber}.`);
+        const text = String(item?.[field] ?? '').replace(/\r\n?/g, '\n').split('\n').map(stripLinks).join('\n').trim().slice(0, MAIL_LIMITS.personalTextMax);
+        if (!text) {
+            if (field !== 'text') return;
+            throw new MailError(`Text saknas för startnummer ${startNumber}.`);
+        }
         texts[startNumber] = texts[startNumber] ? `${texts[startNumber]}\n${text}` : text;
     });
     return texts;
@@ -494,16 +501,22 @@ export function normalizePersonalTexts(changes) {
  * replyTo (effective or null), unsubscribeUrl (non-essential mail only).
  */
 export function buildRecipientMessage(mail, recipient, { competitionName = '', signature = '', replyTo = null, unsubscribeUrl = null } = {}) {
-    const personal = mail.personalTexts
-        ? (recipient.startNumbers || []).map((s) => mail.personalTexts[s]).filter(Boolean).join('\n')
-        : '';
+    const personalOf = (texts) => (texts
+        ? (recipient.startNumbers || []).map((s) => texts[s]).filter(Boolean).join('\n')
+        : '');
+    const personal = personalOf(mail.personalTexts);
+    // An English part after the Swedish one (start time changes: textEn and
+    // personalTextsEn), when given
+    const personalEn = personalOf(mail.personalTextsEn);
+    const englishText = mail.textEn ? String(mail.textEn) : '';
+    const english = englishText || personalEn ? ['---', englishText, personalEn].filter(Boolean).join('\n\n') : '';
     const sig = String(signature ?? '').trim().slice(0, MAIL_LIMITS.signatureMax);
     const competition = stripLinks(cleanLine(competitionName, 200));
     const footerLines = [`Skickat med DriveLive${competition ? ` för ${competition}` : ''}.`];
     if (!replyTo) footerLines.push('Det går inte att svara på det här mejlet. Kontakta arrangören vid frågor.');
     if (unsubscribeUrl) footerLines.push(`Vill du inte få fler informationsutskick från den här tävlingen? Avsluta här: ${unsubscribeUrl}`);
 
-    const textParts = [mail.text, personal, sig, `—\n${footerLines.join('\n')}`].filter(Boolean);
+    const textParts = [mail.text, personal, english, sig, `—\n${footerLines.join('\n')}`].filter(Boolean);
     const footerHtml = [`Skickat med DriveLive${competition ? ` för ${escapeHtml(competition)}` : ''}.`];
     if (!replyTo) footerHtml.push('Det går inte att svara på det här mejlet. Kontakta arrangören vid frågor.');
     if (unsubscribeUrl) {
@@ -512,6 +525,7 @@ export function buildRecipientMessage(mail, recipient, { competitionName = '', s
     const htmlBody = [
         mail.html || textToHtml(mail.text),
         personal ? textToHtml(personal) : '',
+        english ? `<hr>${[englishText, personalEn].filter(Boolean).map((part) => textToHtml(part)).join('\n')}` : '',
         sig ? textToHtml(sig) : '',
         `<hr><p style="color:#666;font-size:12px">${footerHtml.join('<br>')}</p>`
     ].filter(Boolean).join('\n');

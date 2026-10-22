@@ -32,6 +32,7 @@ import {
   runningPrecisionRound
 } from './precisionRoundsDisplay.js';
 import { renderPrecisionBanners } from './precisionResultBanners.js';
+import { mountDriveOffCallUp } from './precisionDriveOffNotice.js';
 
 import { initializeScrollSync, injectScrollStyles, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import {
@@ -158,6 +159,12 @@ function renderRoundBanners() {
     formatWarnings: precisionRowData(String(eq.startNumber), placeMap).formatWarnings || []
   })));
   host.innerHTML = renderPrecisionBanners(items);
+  // "Meddela omkörning" next to the provisional banner (admins, TD)
+  mountDriveOffCallUp(host, {
+    competitionId,
+    rows: field.map((eq) => ({ label: eq._mergedLabel || eq.className || '', ctx: context ? context.contextOf(eq) : null })),
+    equipages: field
+  });
 }
 
 // The extra round columns of the table: "Fas 2" when a class has two phases,

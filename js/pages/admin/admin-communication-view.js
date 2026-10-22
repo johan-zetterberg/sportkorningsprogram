@@ -240,6 +240,10 @@ export function renderCommunicationTabMarkup() {
                                 <div class="text-gray-400">Laddar kuskar...</div>
                             </div>
                         </div>
+                        <div id="msgPushBox" class="rounded-lg border border-violet-200 dark:border-violet-800 bg-violet-50/50 dark:bg-violet-900/10 p-3">
+                            <label class="flex items-center gap-3 min-h-[44px] text-sm font-medium text-gray-800 dark:text-gray-100"><input type="checkbox" id="msgSendPush" class="h-5 w-5" checked> <span id="msgSendPushLabel">${escapeHtml(t('msg_send_push'))}</span></label>
+                            <p class="text-[11px] text-gray-500 dark:text-gray-400">${escapeHtml(t('msg_send_push_hint'))}</p>
+                        </div>
                         ${getMessageMailOptionsHtml()}
                         <button type="submit" id="msgSubmitBtn" class="min-h-[44px] w-full bg-blue-600 text-white font-semibold py-2 px-4 rounded-lg hover:bg-blue-700 transition dark:bg-blue-700 dark:hover:bg-blue-600">
                             ${escapeHtml(t('msg_publish_btn'))}

@@ -27,6 +27,7 @@ import {
 } from './precisionRoundsDisplay.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
 import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
@@ -336,7 +337,7 @@ function renderCurrentDriver() {
     panel.innerHTML = `
             <div class="flex flex-col md:flex-row justify-between items-start mb-4 border-b dark:border-gray-700 pb-4 gap-4 md:gap-0">
                 <div>
-                    <h3 class="text-xl sm:text-2xl md:text-3xl font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
+                    <h3 class="text-xl sm:text-2xl md:text-3xl font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>${vetStrikeChipHtml(eq)}
                     <div class="text-sm md:text-base text-gray-600 dark:text-gray-300 flex items-center gap-2 mt-1">
                         ${getFlagHtml(eq)} ${getClubLogoHtml(eq)} <span>${escapeHtml(eq.className)}</span>
                         ${roundBadge ? `<span class="live-round-badge rounded-full bg-blue-100 px-2 py-0.5 text-xs font-bold uppercase text-blue-800 dark:bg-blue-900/50 dark:text-blue-200">${escapeHtml(roundBadge)}</span>` : ''}
@@ -568,7 +569,7 @@ function renderUpcomingPanel() {
                 data-sn="${escapeHtml(eq.startNumber)}">
           <div class="flex items-center gap-3 min-w-0">
             <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${escapeHtml(eq.startNumber)}</span>
-            <span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName || '')}</span>
+            <span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName || '')}</span>${vetStrikeChipHtml(eq, { compact: true })}
           </div>
           <div class="flex items-center gap-3 shrink-0">
             <div class="flex items-center gap-1 justify-start" title="${escapeHtml(eq.clubName || '')}">

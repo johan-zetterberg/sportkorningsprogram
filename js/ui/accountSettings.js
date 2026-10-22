@@ -14,7 +14,8 @@ export function renderAccountSettingsSection(email) {
         <section id="accountSettings" class="mt-4 md:mt-6 bg-white dark:bg-gray-800 rounded-xl shadow-sm border dark:border-gray-700 p-4 md:p-6">
             <h2 class="text-lg md:text-xl font-semibold mb-2 dark:text-gray-100">👤 ${t('account_title')}</h2>
             <p class="text-sm text-gray-600 dark:text-gray-400 mb-3">${escapeHtml(email || '')} · <a href="#privacy" class="text-blue-600 dark:text-blue-400 hover:underline">${t('account_privacy_link')}</a></p>
-            <div id="accountPush" class="mb-3 max-w-md"></div>
+            <div id="accountPush" class="max-w-md"></div>
+            <p class="mb-3 mt-1 max-w-md text-xs text-gray-600 dark:text-gray-400">${t('push_device_hint')}</p>
             <details id="accountDeleteDetails" class="text-sm">
                 <summary class="cursor-pointer text-red-700 dark:text-red-400 font-semibold">${t('account_delete_btn')}</summary>
                 <form id="accountDeleteForm" class="mt-3 space-y-3 max-w-md">
@@ -36,7 +37,7 @@ export function renderAccountSettingsSection(email) {
 
 export function wireAccountSettings(root, { onDeleted } = {}) {
     // The device-wide notifications switch
-    mountPushPanel(root?.querySelector('#accountPush'), { role: 'device', compact: true })
+    mountPushPanel(root?.querySelector('#accountPush'), { role: 'device', compact: true, title: t('push_device_title') })
         .catch((error) => console.warn('Notiser kunde inte visas:', error));
     const form = root?.querySelector('#accountDeleteForm');
     if (!form) return;

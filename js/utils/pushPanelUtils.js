@@ -2,15 +2,19 @@
 // topics a role may choose, what the panel shows for a device state, and the
 // text keys for errors. No browser or Firebase imports, so node:test runs them.
 
-// Offered per role ('results' has no producer yet: never offered)
+// Offered per role ('results' has no producer yet: never offered). The
+// server's audiences match: drivers get pauses (onGlobalPausePush), the vet
+// vet decisions and declaration changes (officials roles admin, td, vet)
 const ROLE_TOPICS = Object.freeze({
-    driver: ['startTimes', 'messages', 'vetDecision'],
+    driver: ['startTimes', 'messages', 'vetDecision', 'pause'],
     official: ['messages', 'pause'],
+    vet: ['vetDecision', 'declarationChanges', 'messages', 'pause'],
     staff: ['messages', 'pause', 'declarationChanges', 'vetDecision']
 });
 const DEFAULT_TOPICS = Object.freeze({
-    driver: ['startTimes', 'messages', 'vetDecision'],
+    driver: ['startTimes', 'messages', 'vetDecision', 'pause'],
     official: ['messages', 'pause'],
+    vet: ['vetDecision', 'declarationChanges', 'messages', 'pause'],
     staff: ['messages', 'pause', 'vetDecision', 'declarationChanges'],
     device: ['messages']
 });
@@ -27,10 +31,14 @@ export const TOPIC_LABEL_KEYS = Object.freeze({
 // The iPhone guide, in order (text keys)
 export const IOS_GUIDE_STEP_KEYS = Object.freeze(['push_ios_step_share', 'push_ios_step_add', 'push_ios_step_open', 'push_ios_step_enable']);
 
-/** 'staff' for admins, secretariat and TD; otherwise 'official' (merged roles of the user) */
+/**
+ * 'staff' for admins, secretariat and TD; 'vet' for the vet; otherwise
+ * 'official' (merged roles of the user; staff wins over vet)
+ */
 export function pushRoleForRoles(roles = []) {
     const list = Array.isArray(roles) ? roles : [];
-    return list.some((r) => STAFF_ROLES.includes(r)) ? 'staff' : 'official';
+    if (list.some((r) => STAFF_ROLES.includes(r))) return 'staff';
+    return list.includes('vet') ? 'vet' : 'official';
 }
 
 /** The topics a role is offered ([] for the device-wide switch) */

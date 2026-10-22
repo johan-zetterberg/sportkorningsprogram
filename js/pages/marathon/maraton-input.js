@@ -43,6 +43,8 @@ import { doc, getDoc, setDoc, serverTimestamp, onSnapshot, Timestamp, collection
   from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
 
+import { syncVetStrikeChip } from '../../ui/vetStrikeChip.js';
+
 
 // --- Lokal state och hjälpfunktioner för modulen ---
 let competitionId = null;
@@ -393,7 +395,7 @@ function listenForGlobalCompetitionPause_Obstacles() {
       } else {
         updateTimerViewMar();
       }
-      document.body.style.filter = 'grayscale(80%)';
+      document.body.classList.add('global-paused');
 
     } else if (!isPaused) {
       // TÄVLINGEN ÅTERUPPTAS NU (or this device opened after the pause ended)
@@ -401,7 +403,7 @@ function listenForGlobalCompetitionPause_Obstacles() {
       // Återuppta mätningen i Firestore: only a clock the pause stopped, not a
       // time the judge stopped before the pause and has not saved yet
       if (ownsClock) resumeClockAfterGlobalPauseIfStopped();
-      if (lastPauseState) document.body.style.filter = '';
+      if (lastPauseState) document.body.classList.remove('global-paused');
     }
     lastPauseState = isPaused;
   });
@@ -787,11 +789,13 @@ function updateHeaderInfoMar() {
   if (!currentEquipage) {
     setTextAll('#infoEquipageLineMar', '–');
     setTextAll('#infoObstacleLine', '–');
+    document.querySelectorAll('#infoEquipageLineMar').forEach((el) => syncVetStrikeChip(el, null));
     return;
   }
   const equipageStr = `#${currentEquipage.startNumber} ${currentEquipage.driverName || ''} (${currentEquipage.className})`;
   const obsStr = currentObstacleNumber ? `#${currentObstacleNumber}` : '–';
   setTextAll('#infoEquipageLineMar', equipageStr);
+  document.querySelectorAll('#infoEquipageLineMar').forEach((el) => syncVetStrikeChip(el, currentEquipage));
   setTextAll('#infoObstacleLine', obsStr);
 }
 
@@ -2471,7 +2475,7 @@ export function __unload() {
   }
   releaseWakeLock();
   stopServerClockSync();
-  document.body.style.filter = '';
+  document.body.classList.remove('global-paused');
   try {
     // Stoppa klockan/interval
     if (timerInterval) {

@@ -7,7 +7,7 @@ import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../..
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import { newIncidentId } from '../../services/incidentService.js';
-import { reportVetStrike } from '../../services/vetDecisionService.js';
+import { reportVetStrike, withdrawVetStrike } from '../../services/vetDecisionService.js';
 import { gateVetStrikePayload, vetStrikeStateOf } from '../../services/vetDecisionUtils.js';
 import { mountStaffNoticesPanel } from '../../ui/staffNoticesPanel.js';
 import {
@@ -31,6 +31,7 @@ import {
     VET_PHASES,
     MAX_RECOMMENDED_PULSE_BPM
 } from './vetCheckUtils.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 
 let competitionId = null;
 let allEquipages = [];
@@ -668,7 +669,7 @@ function renderVetDecisionBadges(eq = {}) {
     const badges = [];
     const strike = vetStrikeStateOf(eq);
     if (strike === 'pending') {
-        badges.push('<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-amber-300 bg-amber-100 text-amber-900 dark:border-amber-700 dark:bg-amber-900/40 dark:text-amber-100">Väntar på domarkollegiet</span>');
+        badges.push(vetStrikeChipHtml(eq, { compact: true }));
     } else if (strike === 'overturned') {
         badges.push('<span class="px-2 py-0.5 rounded-full text-[10px] font-black uppercase tracking-widest border border-sky-300 bg-sky-100 text-sky-900 dark:border-sky-700 dark:bg-sky-900/40 dark:text-sky-100">Strykning ej fastställd</span>');
     }
@@ -904,6 +905,8 @@ function strikeGate(phase, horseKeys = null) {
             incidentId
         });
         state.struck = result.strike;
+        // Approved again before the decision: the report is closed after the save
+        state.withdrawn = result.withdrawn || null;
         return result.payload;
     };
     return { state, gate };
@@ -954,6 +957,7 @@ async function setVetStatus(startNumber, status) {
         await updateEquipageFromLatest(competitionId, startNumber, buildOnLocal(local, buildPayload), storedCopy(local), {
             onLateError: lateSaveError(`Status för #${startNumber}`)
         });
+        if (state.withdrawn) withdrawVetStrike(competitionId, state.withdrawn);
         if (state.struck) await reportStrikeIfAny(state, local, phase);
         else showAlert(`Ekipage #${startNumber}: ${phaseInfo.shortLabel} -> ${String(status).toUpperCase()}`);
     } catch (error) {
@@ -983,6 +987,7 @@ async function setHorseVetStatus(eq = {}, horseKey, status) {
                 && horses.every(horse => !!horse?.inspections?.[phase]?.status);
             return gate(latest, payload);
         }), storedCopy(local), { onLateError: lateSaveError(`Hästens status (#${eq.startNumber})`) });
+        if (state.withdrawn) withdrawVetStrike(competitionId, state.withdrawn);
         if (state.struck) await reportStrikeIfAny(state, local, phase, [horseKey]);
         else showAlert(`Ekipage #${eq.startNumber}: häst ${String(status).toUpperCase()}`);
     } catch (error) {

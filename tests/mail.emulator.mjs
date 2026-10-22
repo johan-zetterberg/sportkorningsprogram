@@ -10,6 +10,7 @@ import {
   START_TIME_MAIL_MAX_AGE_MS,
   STUCK_SENDING_MS,
   enqueueMail,
+  enqueueMailOnce,
   markReplyToVerified,
   processDueMailRetries,
   processMailDoc,
@@ -137,6 +138,25 @@ test('essential mail ignores opt-outs and uses the checked Reply-To; personal st
   assert.match(bo.text, /Dressyr 10:30/);
   assert.doesNotMatch(bo.text, /Dressyr 10:20/);
   assert.equal(bo.headers['List-Unsubscribe'], undefined);
+});
+
+test('a start time change queued once per request id, with the English lines after the Swedish', async () => {
+  sink = [];
+  const mail = {
+    kind: 'startTimeChange', category: 'essential', subject: 'Ändrad starttid / Start time changed', text: 'Nya tider:',
+    textEn: 'Your start time has changed. New times:',
+    audience: { drivers: { classes: [], startNumbers: ['1'], includeWithdrawn: true } },
+    personalTexts: { 1: 'Dressyr 11:20' }, personalTextsEn: { 1: 'Dressage 11:20' }, createdBy: 'admin-1'
+  };
+  const first = await enqueueMailOnce({ db, FieldValue, appId: APP_ID, compId: COMP, mail, id: `starttimes_req${run}` });
+  assert.equal(first.duplicate, false);
+  const again = await enqueueMailOnce({ db, FieldValue, appId: APP_ID, compId: COMP, mail, id: `starttimes_req${run}` });
+  assert.equal(again.duplicate, true, 'a retried save queues nothing');
+  assert.equal(again.ref.id, first.ref.id);
+  assert.equal((await processMailDoc({ ...ctx(), ref: first.ref })).status, 'sent');
+  assert.equal(sink.length, 1);
+  assert.match(sink[0].text, /Dressyr 11:20[\s\S]*---[\s\S]*Your start time has changed[\s\S]*Dressage 11:20/);
+  assert.equal(sink[0].subject, 'Ändrad starttid / Start time changed');
 });
 
 test('a failure the provider may accept later is retried with backoff, then sent', async () => {

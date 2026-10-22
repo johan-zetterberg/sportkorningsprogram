@@ -13,33 +13,34 @@ import { activateDialog } from './dialogA11y.js';
 function phoneLink(phone, extraClass = '') {
     const href = telHref(phone);
     if (!href) return escapeHtml(phone || '');
-    return `<a href="${escapeHtml(href)}" class="inline-flex min-h-[44px] items-center font-bold underline decoration-2 underline-offset-2 ${extraClass}">${escapeHtml(phone)}</a>`;
+    // A call button on the row, next to the name (a tap calls)
+    return `<a href="${escapeHtml(href)}" class="inline-flex min-h-[44px] shrink-0 items-center gap-1.5 rounded-lg border border-red-300 bg-white px-3 font-bold no-underline hover:bg-red-100 dark:border-red-700 dark:bg-red-900/40 dark:hover:bg-red-900/60 ${extraClass}"><span aria-hidden="true">&#128222;</span>${escapeHtml(phone)}</a>`;
 }
 
 /** The card's markup (card: buildEmergencyCard) */
 export function renderEmergencyCardHtml(card) {
     if (!card || card.enabled === false) return '';
     const persons = card.persons.map((person) => `
-        <li class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 border-t border-red-100 dark:border-red-900/40 pt-1.5">
-            <span><span class="font-semibold">${escapeHtml(t(person.labelKey))}:</span> ${escapeHtml(person.name || '')}</span>
+        <li class="flex items-center justify-between gap-2 border-t border-red-100 dark:border-red-900/40 pt-1">
+            <span class="min-w-0 break-words"><span class="font-semibold">${escapeHtml(t(person.labelKey))}:</span> ${escapeHtml(person.name || '')}</span>
             ${person.phone ? phoneLink(person.phone, 'text-red-800 dark:text-red-200') : ''}
         </li>`).join('');
     const firstAid = card.firstAid.place || card.firstAid.phone ? `
-        <li class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-0.5 border-t border-red-100 dark:border-red-900/40 pt-1.5">
-            <span><span class="font-semibold">${escapeHtml(t('emergency_first_aid'))}:</span> ${escapeHtml(card.firstAid.place || '')}</span>
+        <li class="flex items-center justify-between gap-2 border-t border-red-100 dark:border-red-900/40 pt-1">
+            <span class="min-w-0 break-words"><span class="font-semibold">${escapeHtml(t('emergency_first_aid'))}:</span> ${escapeHtml(card.firstAid.place || '')}</span>
             ${card.firstAid.phone ? phoneLink(card.firstAid.phone, 'text-red-800 dark:text-red-200') : ''}
         </li>` : '';
     const hiddenPhones = !card.showsPrivate && card.persons.length
         ? `<p class="mt-2 text-xs text-red-800/80 dark:text-red-200/80">${escapeHtml(t('emergency_phones_hidden'))}</p>`
         : '';
     return `
-        <section class="emergency-card rounded-xl border-2 border-red-300 bg-red-50 p-4 text-red-950 shadow-sm dark:border-red-800 dark:bg-red-950/30 dark:text-red-50" aria-labelledby="emergency-card-title">
+        <section class="emergency-card rounded-xl border-2 border-red-300 bg-red-50 p-3 text-red-950 shadow-sm dark:border-red-800 dark:bg-red-950/30 dark:text-red-50" aria-labelledby="emergency-card-title">
             <h2 id="emergency-card-title" class="text-lg font-black uppercase tracking-wide">🚑 ${escapeHtml(t('emergency_title'))}</h2>
             <div class="mt-2 flex flex-wrap items-center gap-3">
                 <span class="text-sm font-semibold">${escapeHtml(t('emergency_number'))}</span>
                 <a href="${escapeHtml(telHref(card.emergencyNumber))}" class="inline-flex min-h-[48px] items-center rounded-lg bg-red-600 px-5 text-2xl font-black text-white shadow hover:bg-red-700">${escapeHtml(card.emergencyNumber)}</a>
             </div>
-            <ul class="mt-3 space-y-1.5 text-sm">${firstAid}${persons}</ul>
+            <ul class="mt-2 space-y-1 text-sm">${firstAid}${persons}</ul>
             ${hiddenPhones}
         </section>`;
 }

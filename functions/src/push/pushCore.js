@@ -201,6 +201,40 @@ const normalizeRole = (role) => {
     return ROLE_ALIASES[r] || r;
 };
 
+// An audience role as the system roles it reaches: the secretariat's messages
+// are read by the TD / ground jury too (js/utils/messageAudience.js
+// viewerOfficialRoleKeys), so a push to the secretariat reaches them as well.
+// 'secretariat' itself stays for the competition's officials list (matched by
+// address, as e-mail); the accounts' system role is 'admin'
+const AUDIENCE_ROLE_EXPANSION = { secretariat: ['admin', 'td', 'secretariat'], sekretariat: ['admin', 'td', 'secretariat'] };
+
+/** The system roles an audience's role names reach (deduplicated) */
+export function expandAudienceRoles(roles = []) {
+    const out = new Set();
+    list(roles).forEach((role) => {
+        const r = String(role ?? '').trim().toLowerCase();
+        if (!r) return;
+        (AUDIENCE_ROLE_EXPANSION[r] || [normalizeRole(r)]).forEach((x) => out.add(x));
+    });
+    return [...out];
+}
+
+/**
+ * A competition message's push category: 'essential' for a stored category
+ * 'essential' or a message of type 'alert' ("Viktigt / varning" on the admin
+ * page, which stores only the type on older messages); else 'info'.
+ */
+export function messagePushCategory(message = {}) {
+    return message?.category === 'essential' || message?.type === 'alert' ? 'essential' : 'info';
+}
+
+// Who a global pause reaches: every official, and the competition's drivers
+// (owner decision 2026-10-22; their devices follow 'pause' by default)
+export const PAUSE_PUSH_AUDIENCE = Object.freeze({
+    officials: Object.freeze({ all: true }),
+    drivers: Object.freeze({ all: true, includeWithdrawn: false })
+});
+
 const messageTargets = (message = {}) => {
     const selected = list(message.targetStartNumbers).map((v) => String(v).trim()).filter(Boolean);
     if (selected.length) return selected;
@@ -227,7 +261,7 @@ export function messagePushAudience(message = {}) {
             : { all: true, includeWithdrawn: false };
     }
     if (aud?.officials === true) {
-        const roles = [...new Set(list(aud.officialRoles).map(normalizeRole).filter(Boolean))];
+        const roles = expandAudienceRoles(aud.officialRoles);
         out.officials = roles.length ? { roles } : { all: true };
     }
     return Object.keys(out).length ? out : null;
@@ -273,7 +307,7 @@ export function buildAudienceMatcher({ audience = {}, driverRecipients = [], off
     const listedOfficials = new Set(officialRecipients.map((r) => emailHash(r.email)));
     const byUid = staff?.byUid || new Map();
     const byEmailHash = staff?.byEmailHash || new Map();
-    const wanted = audience.officials?.all ? null : new Set(list(audience.officials?.roles).map(normalizeRole));
+    const wanted = audience.officials?.all ? null : new Set(expandAudienceRoles(audience.officials?.roles));
 
     return (data = {}) => {
         const hash = data.emailHash || null;
@@ -467,8 +501,33 @@ function describeWhere(where, lang) {
     return cleanLine(where, 60);
 }
 
-/** The pause notice in the device's language */
-export function buildPauseContent(kind, entry = {}, lang = 'sv') {
+/**
+ * The pause notice for a driver: short, the reason's fixed label only (the
+ * official's note and the place stay with the officials)
+ */
+export function buildDriverPauseContent(kind, entry = {}, lang = 'sv') {
+    const en = lang === 'en';
+    if (kind === 'end') {
+        return {
+            title: en ? 'The competition continues' : 'Tävlingen fortsätter',
+            body: en ? 'The pause is over.' : 'Pausen är slut.'
+        };
+    }
+    const reason = entry.reason ? localized(PAUSE_REASONS[entry.reason] || PAUSE_REASONS.other, lang) : '';
+    return {
+        title: en
+            ? `The competition is paused${reason ? `: ${reason}` : ''}`
+            : `Tävlingen är pausad${reason ? `: ${reason}` : ''}`,
+        body: en ? 'We will let you know when it continues.' : 'Du får besked när tävlingen fortsätter.'
+    };
+}
+
+/**
+ * The pause notice in the device's language. as: the recipient ('driver'
+ * gets buildDriverPauseContent; officials the details)
+ */
+export function buildPauseContent(kind, entry = {}, lang = 'sv', as = 'official') {
+    if (as === 'driver') return buildDriverPauseContent(kind, entry, lang);
     const en = lang === 'en';
     const time = clockOf(kind === 'end' ? entry.end : entry.start);
     if (kind === 'end') {
@@ -495,16 +554,53 @@ export function buildPauseContent(kind, entry = {}, lang = 'sv') {
     };
 }
 
-/** The vet decision notice (the inbox message's text in Swedish, a short one in English) */
+/**
+ * The vet decision notice for the driver: the inbox message's own text in
+ * the device's language (vetDecisionNotify.js writes it in Swedish and English)
+ */
 export function buildVetDecisionContent(message = {}, lang = 'sv') {
     const startNumber = cleanLine(list(message.targetStartNumbers)[0], 20);
-    if (lang === 'en') {
-        return {
-            title: `Vet decision – equipage #${startNumber}`,
-            body: 'There is a new vet decision about the equipage. Open DriveLive for details.'
-        };
-    }
-    return { title: cleanLine(message.title, PUSH_LIMITS.titleMax), body: cleanText(message.body, PUSH_LIMITS.bodyMax) };
+    const en = lang === 'en';
+    const title = cleanLine((en && message.titleEn) || message.title, PUSH_LIMITS.titleMax);
+    const body = cleanText((en && message.bodyEn) || message.body, PUSH_LIMITS.bodyMax);
+    return {
+        title: title || (en ? `Vet decision – equipage #${startNumber}` : `Veterinärbeslut – ekipage #${startNumber}`),
+        body
+    };
+}
+
+const VET_PHASES = {
+    initial: { sv: 'första besiktningen', en: 'first inspection' },
+    harness: { sv: 'selningskontrollen', en: 'harness check' },
+    restArea: { sv: 'viloboxen', en: 'rest area' },
+    final: { sv: 'slutbesiktningen', en: 'final inspection' }
+};
+
+/**
+ * The staff's notice about a vet decision (not the driver's text): what the
+ * ground jury has to do. key: vetDecisionNoticeKey ('reported', 'confirmed',
+ * 'overturned', 'withdrawn'); incident: { number, startNumber, vetStrike }.
+ */
+export function buildVetStaffContent(key, incident = {}, lang = 'sv') {
+    const en = lang === 'en';
+    const number = Number.isInteger(Number(incident.number)) && Number(incident.number) > 0 ? Number(incident.number) : null;
+    const ref = number ? ` #${number}` : '';
+    const startNumber = cleanLine(incident.startNumber, 20);
+    const phase = localized(VET_PHASES[incident.vetStrike?.phase] || { sv: 'veterinärbesiktningen', en: 'vet inspection' }, lang);
+    const who = en ? `Equipage #${startNumber} (${phase}).` : `Ekipage #${startNumber} (${phase}).`;
+    const titles = {
+        reported: en ? `Vet decision${ref} pending – confirm in the Incident log` : `Veterinärbeslut${ref} väntar – bekräfta i Händelseloggen`,
+        confirmed: en ? `Vet decision${ref} confirmed` : `Veterinärbeslut${ref} fastställt`,
+        overturned: en ? `Vet decision${ref} not confirmed` : `Veterinärbeslut${ref} inte fastställt`,
+        withdrawn: en ? `Vet decision${ref} withdrawn` : `Veterinärbeslut${ref} återkallat`
+    };
+    const bodies = {
+        reported: en ? `${who} The vet has not approved the equipage.` : `${who} Veterinären har inte godkänt ekipaget.`,
+        confirmed: en ? `${who} The equipage is withdrawn.` : `${who} Ekipaget är struket.`,
+        overturned: en ? `${who} The equipage may continue.` : `${who} Ekipaget får fortsätta.`,
+        withdrawn: en ? `${who} The vet approved the equipage again before the decision.` : `${who} Veterinären godkände ekipaget igen före beslutet.`
+    };
+    return { title: titles[key] || titles.reported, body: bodies[key] || bodies.reported };
 }
 
 /** The declaration change notice for the staff (staffNotifications declarationChange) */
@@ -528,6 +624,41 @@ export function buildMessageContent(message = {}, lang = 'sv') {
     };
 }
 
+/** An edited message sent again ("Uppdaterat: <title>") */
+export function buildMessageUpdateContent(message = {}, lang = 'sv') {
+    const base = buildMessageContent(message, lang);
+    return {
+        title: cleanLine(`${lang === 'en' ? 'Updated' : 'Uppdaterat'}: ${base.title}`, PUSH_LIMITS.titleMax),
+        body: base.body
+    };
+}
+
+/** A client's request id (one save, one notice): letters, digits, - and _, else null */
+export function normalizeRequestId(value) {
+    const id = String(value ?? '').trim();
+    return /^[A-Za-z0-9_-]{8,64}$/.test(id) ? id : null;
+}
+
+/**
+ * Whether an updated message asks for a new notice: the editor set a new
+ * updateNotice id (admin page "Skicka uppdatering som notis"). -> the id or null
+ */
+export function messageUpdateNoticeId(before = {}, after = {}) {
+    const next = normalizeRequestId(after?.updateNotice);
+    if (!next || next === normalizeRequestId(before?.updateNotice)) return null;
+    return next;
+}
+
+/**
+ * The tag of a driver's start time notice: one per driver and save, so a
+ * later change neither replaces this one nor is replaced by another driver's
+ */
+export function startTimePushTag(startNumbers = [], requestId = '') {
+    const own = list(startNumbers).map((s) => String(s).replace(/[^\w-]/g, '')).filter(Boolean).sort().join('-').slice(0, 30);
+    const req = String(requestId || '').replace(/[^\w-]/g, '').slice(0, 12);
+    return `start-time-${own}${req ? `-${req}` : ''}`.slice(0, 64);
+}
+
 /**
  * Per start number texts for start time pushes, checked:
  * [{ startNumber, text, textEn? }] -> { [startNumber]: { sv, en } }
@@ -540,8 +671,10 @@ export function normalizeStartTimeChanges(changes) {
     items.forEach((item) => {
         const startNumber = String(item?.startNumber ?? '').trim();
         if (!/^[\w-]{1,20}$/.test(startNumber)) throw new PushError('Ogiltigt startnummer.');
-        const sv = cleanLine(item?.text, PUSH_LIMITS.personalTextMax);
-        const en = cleanLine(item?.textEn, PUSH_LIMITS.personalTextMax) || sv;
+        // One line per discipline (the client joins them with new lines)
+        const lines = (value) => String(value ?? '').split(/\r?\n/).map((l) => cleanLine(l, PUSH_LIMITS.personalTextMax)).filter(Boolean).join('\n').slice(0, PUSH_LIMITS.personalTextMax);
+        const sv = lines(item?.text);
+        const en = lines(item?.textEn) || sv;
         if (!sv) throw new PushError(`Text saknas för startnummer ${startNumber}.`);
         const prev = texts[startNumber];
         texts[startNumber] = prev ? { sv: `${prev.sv}\n${sv}`, en: `${prev.en}\n${en}` } : { sv, en };

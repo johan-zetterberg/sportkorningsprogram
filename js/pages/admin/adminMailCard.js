@@ -15,6 +15,7 @@ import { showAlert } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { fillTemplate } from '../../utils/officialTaskUtils.js';
+import { senderPreviewName } from './adminMailCardUtils.js';
 import {
     MAIL_REASON_MAX,
     SENDER_NAME_MAX,
@@ -136,7 +137,7 @@ export function setupMailCard(competition) {
         line.innerHTML = `<div class="flex flex-wrap items-center gap-2">${badge}<span>${escapeHtml(fillTemplate(t('mail_sent_today'), { sent: status.sentToday || 0, limit: status.dailyLimit || 0 }))}</span></div>
             ${note ? `<div class="mt-1 text-xs">${escapeHtml(note)}</div>` : ''}${sender}`;
         const preview = $('mailSenderPreview');
-        if (preview && status.fromName) preview.textContent = fillTemplate(t('mail_sender_preview'), { name: status.fromName });
+        if (preview && status.fromName) preview.textContent = fillTemplate(t('mail_sender_preview'), { name: senderPreviewName(status.fromName) });
     }
 
     function renderReplyToBadge() {
@@ -282,7 +283,7 @@ export function setupMailCard(competition) {
 export function getMessageMailOptionsHtml() {
     return `
     <div id="msgMailBox" class="rounded-lg border border-sky-200 dark:border-sky-800 bg-sky-50/50 dark:bg-sky-900/10 p-3 space-y-1">
-        <label class="flex items-center gap-3 min-h-[44px] text-sm font-medium text-gray-800 dark:text-gray-100"><input type="checkbox" id="msgSendMail" class="h-5 w-5"> ${escapeHtml(t('mail_msg_send_too'))}</label>
+        <label class="flex items-center gap-3 min-h-[44px] text-sm font-medium text-gray-800 dark:text-gray-100"><input type="checkbox" id="msgSendMail" class="h-5 w-5"> <span id="msgSendMailLabel">${escapeHtml(t('mail_msg_send_too'))}</span></label>
         <div id="msgMailDetails" class="hidden space-y-1 pl-1">
             <label class="flex items-center gap-3 min-h-[44px] text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" id="msgMailEssential" class="h-5 w-5"> ${escapeHtml(t('mail_msg_essential'))}</label>
             <div id="msgMailReasonBox" class="hidden">
@@ -374,10 +375,19 @@ export function setupMessageMailOptions(competitionId, getAudience) {
             previewEl.textContent = '';
             refresh();
         },
-        // Editing a published message never sends mail again
+        // "Viktigt / varning" makes the mail essential too (as the push);
+        // the admin may still untick it
+        setEssential: (on) => {
+            essentialBox.checked = !!on;
+            refresh();
+        },
+        // Editing a published message sends mail again only when asked
+        // ("Skicka uppdatering som e-post", off by default)
         setEditing: (editing) => {
-            box.classList.toggle('hidden', !!editing);
-            if (editing) { sendBox.checked = false; refresh(); }
+            const label = document.getElementById('msgSendMailLabel');
+            if (label) label.textContent = t(editing ? 'msg_update_send_mail' : 'mail_msg_send_too');
+            sendBox.checked = false;
+            refresh();
         }
     };
 }

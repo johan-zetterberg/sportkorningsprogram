@@ -3,6 +3,7 @@ import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../..
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
@@ -480,6 +481,7 @@ function renderOverviewRows() {
         <td class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 min-w-[14rem]">
           <div class="font-medium">${escapeHtml(row.driverName || '-')}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(row.className || '')}</div>
+          ${vetStrikeChipHtml(row, { compact: true })}
         </td>
         <td class="px-3 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">${escapeHtml(String(row.protocolCount || 0))}</td>
         <td class="px-3 py-3 text-sm text-gray-700 dark:text-gray-200 whitespace-nowrap">${escapeHtml(String(row.errorPoints || 0))}</td>

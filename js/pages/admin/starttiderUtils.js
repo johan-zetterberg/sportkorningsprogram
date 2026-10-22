@@ -1,4 +1,5 @@
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { compareStartNumbers } from '../../utils/startNumberSort.js';
 
 export function buildStarttiderMergeMap(raw) {
@@ -491,6 +492,7 @@ export function renderStarttiderDesktopRow({
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm min-w-0 align-middle">
                   <div class="font-medium text-gray-900 dark:text-white whitespace-nowrap truncate max-w-[140px] md:max-w-none" title="${escapeHtml(e.driverName || '')}">${escapeHtml(e.driverName || '')}</div>
                   <div class="text-[10px] lg:text-xs text-gray-600 dark:text-gray-400 italic truncate max-w-[140px] lg:max-w-[200px] xl:max-w-none" title="${escapeHtml(horseLabel)}">${escapeHtml(horseLabel)}</div>
+                  ${vetStrikeChipHtml(e, { compact: true })}
                 </td>
                 <td class="px-2 py-2 lg:px-3 lg:py-2 text-[11px] lg:text-sm text-gray-700 dark:text-gray-300 align-middle">
                     <div class="truncate max-w-[80px] md:max-w-[120px] xl:max-w-none" title="${escapeHtml(e._mergedLabel || e.className || '')}">${escapeHtml(e._mergedLabel || e.className || '')}</div>
@@ -564,6 +566,7 @@ export function renderStarttiderMobileCard({
                 <div class="px-2 py-1.5 border-b dark:border-gray-700 bg-gray-50 dark:bg-gray-700/50">
                     <div class="font-bold text-[13px] dark:text-white leading-tight">#${escapeHtml(e.startNumber)}${startOrderBadge} ${escapeHtml(e.driverName || '')}</div>
                     <div class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-tight">${escapeHtml(getHorseLabel(e))}</div>
+                    ${vetStrikeChipHtml(e, { compact: true })}
                 </div>
                 <div class="px-2 py-1 space-y-0.5 text-[12px]">
                     <div class="flex justify-between items-center"><span class="text-gray-500 dark:text-gray-400">${escapeHtml(labels.class || 'Klass:')}</span><span class="font-medium dark:text-gray-200 text-right">${escapeHtml(classLabel)}</span></div>
@@ -654,6 +657,36 @@ export function renderPublicStartListCard({
 }
 
 /** A compact public table row (desktop): one line per equipage, horse under the driver */
+/** The classes a public start list can be narrowed to (sorted, no duplicates) */
+export function publicClassOptions(equipages = []) {
+    return [...new Set((Array.isArray(equipages) ? equipages : [])
+        .map(e => e?._mergedLabel || e?.className || '')
+        .filter(Boolean))]
+        .sort((a, b) => a.localeCompare(b, 'sv'));
+}
+
+/** Keeps the equipages of the chosen class ('' = all) */
+export function filterPublicByClass(equipages = [], className = '') {
+    if (!className) return equipages;
+    return equipages.filter(e => (e?._mergedLabel || e?.className || '') === className);
+}
+
+/**
+ * Class chips above the public start list: "Alla klasser" and one per class.
+ * Empty when there is only one class. action: the window function a chip calls.
+ */
+export function renderPublicClassChips(classes = [], active = '', { allLabel = 'Alla klasser', ariaLabel = '', action = 'starttiderSetClassFilter' } = {}) {
+    if (!Array.isArray(classes) || classes.length < 2) return '';
+    const chip = (value, label) => {
+        const on = value === active;
+        const style = on
+            ? 'bg-blue-600 border-blue-600 text-white'
+            : 'bg-white border-gray-300 text-gray-800 hover:bg-gray-50 dark:bg-gray-800 dark:border-gray-600 dark:text-gray-100 dark:hover:bg-gray-700';
+        return `<button type="button" data-action="${escapeHtml(action)}" data-action-args="${escapeHtml(JSON.stringify([value]))}" aria-pressed="${on}" class="min-h-[44px] shrink-0 whitespace-nowrap rounded-full border px-4 text-sm font-semibold ${style}">${escapeHtml(label)}</button>`;
+    };
+    return `<div class="mb-2 flex gap-2 overflow-x-auto pb-1" role="group" aria-label="${escapeHtml(ariaLabel)}" data-tab-overflow data-public-class-chips>${chip('', allLabel)}${classes.map(c => chip(c, c)).join('')}</div>`;
+}
+
 export function renderPublicStartListRow({
     equipage,
     startTimes = {},

@@ -17,6 +17,7 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
 import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
@@ -307,7 +308,7 @@ function renderCurrentRider() {
       <div class="flex items-start gap-6">
         <div class="flex-1">
           <div class="flex items-center gap-3 mb-1 dark:text-gray-100">
-            ${clubImg}<div class="text-2xl font-bold">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName || '')}</div>${flagImg}
+            ${clubImg}<div class="text-2xl font-bold">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName || '')}</div>${flagImg}${vetStrikeChipHtml(eq, { compact: true })}
           </div>
           <div class="text-sm text-gray-600 dark:text-gray-400 mb-3">
             ${escapeHtml(eq._mergedLabel || eq.className || '')}${eq.clubName ? ' • ' + escapeHtml(eq.clubName) : ''}
@@ -472,7 +473,7 @@ function renderUpcomingPanel() {
     if (!upcoming.length) { html += `<p class="text-sm text-gray-600 dark:text-gray-300">${t('dressage_all_started')}</p>`; } else {
       html += upcoming.map(eq => `
       <div class="w-full text-left flex items-center justify-between text-sm py-1.5 border-b dark:border-gray-700 last:border-0 rounded px-1">
-        <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${escapeHtml(eq.startNumber)}</span><span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName)}</span></div>
+        <div class="flex items-center gap-2 min-w-0"><span class="font-bold w-8 shrink-0 dark:text-gray-200">#${escapeHtml(eq.startNumber)}</span><span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName)}</span>${vetStrikeChipHtml(eq, { compact: true })}</div>
         <div class="flex items-center gap-2 shrink-0">${getFlagHtml(eq)}${getClubLogoHtml(eq)}<span class="font-semibold text-gray-800 dark:text-gray-200 w-12 text-right tabular-nums">${formatTime(startTimes[String(eq.startNumber)]?.dressage)}</span></div>
       </div>`).join('');
     }

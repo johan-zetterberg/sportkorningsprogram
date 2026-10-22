@@ -3,14 +3,14 @@
  * Defines triggers to recalculate results on data changes.
  */
 
-import { onDocumentCreated, onDocumentWritten } from "firebase-functions/v2/firestore";
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from "firebase-functions/v2/firestore";
 import { setGlobalOptions } from "firebase-functions/v2";
 import { onCall, onRequest, HttpsError } from "firebase-functions/v2/https";
 import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { appendDeclarationChange, buildDeclarationChangeEntry, buildDeclarationNotice, buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUtils.js";
-import { buildVetDecisionDriverMessage, canSendVetNotice, vetDecisionNoticeKey } from "./src/vetDecisionNotify.js";
+import { buildVetDecisionDriverMessage, canSendVetNotice, vetDecisionMailContent, vetDecisionNoticeKey } from "./src/vetDecisionNotify.js";
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
@@ -37,6 +37,7 @@ import { onSchedule } from "firebase-functions/v2/scheduler";
 import {
     DRIVER_EMAIL_FIELDS,
     PERSON_SEARCH,
+    anonymizePauseLog,
     buildAccountDeletionPlan,
     buildPersonExport,
     isArchivedCompetitionData,
@@ -108,6 +109,7 @@ import {
     defaultLinkBaseUrl,
     emailSettingsPath,
     enqueueMail,
+    enqueueMailOnce,
     getSigningKey,
     listWaitingMail,
     loadProviderSettings,
@@ -125,22 +127,31 @@ import {
 import { MAIL_PAGE_HEADERS, renderMailPage } from "./src/mail/mailPages.js";
 import { getMessaging } from "firebase-admin/messaging";
 import {
+    PAUSE_PUSH_AUDIENCE,
     PUSH_LIMITS,
+    PUSH_TOPICS,
     PushError,
     buildDeclarationChangeContent,
     buildMessageContent,
+    buildMessageUpdateContent,
     buildPauseContent,
     buildStartTimeContent,
     buildVetDecisionContent,
+    buildVetStaffContent,
     isValidPushToken,
     messagePushAudience,
+    messagePushCategory,
+    messageUpdateNoticeId,
+    normalizeRequestId,
     normalizeStartTimeChanges,
     normalizeTopics,
     pauseTransitions,
-    pushAvailable
+    pushAvailable,
+    startTimePushTag
 } from "./src/push/pushCore.js";
 import {
     PUSH_TOKENS,
+    countPushTargets,
     deleteUserTokens,
     loadPushSettings,
     readPushRegistration,
@@ -646,6 +657,15 @@ export const onIncidentWritten = onDocumentWritten(
         } catch (error) {
             if (!isAlreadyExists(error)) throw error;
         }
+        // A strike the vet withdrew needs no decision: its staff notice is
+        // acknowledged for everyone (idempotent: only unacknowledged ones)
+        if (noticeKey === 'withdrawn') {
+            try {
+                await acknowledgeVetStrikeNotices(appId, compId, incidentId);
+            } catch (error) {
+                logger.error('Veterinärbeslut: notisen kunde inte kvitteras', { competitionId: compId, incidentId, error: String(error?.message || error) });
+            }
+        }
         // The same notice by e-mail to the equipage's addresses (unless the
         // competition switched it off); the inbox message above stands anyway
         try {
@@ -654,7 +674,8 @@ export const onIncidentWritten = onDocumentWritten(
             logger.error('Veterinärbeslut: e-post kunde inte köas', { competitionId: compId, incidentId, error: String(error?.message || error) });
         }
         // And as a push notice to the driver's devices and the staff who
-        // follow vet decisions (the secretariat, the TD, the vet)
+        // follow vet decisions (the secretariat, the TD, the vet): the driver
+        // gets the inbox text, the staff what the ground jury has to do
         await safePush('vetDecision', () => sendPushToAudience(db, pushMessaging(), {
             appId, compId,
             audience: {
@@ -663,7 +684,9 @@ export const onIncidentWritten = onDocumentWritten(
             },
             category: 'essential',
             topic: 'vetDecision',
-            content: (_target, lang) => buildVetDecisionContent(message, lang),
+            content: (target, lang) => (target.as === 'driver'
+                ? buildVetDecisionContent(message, lang)
+                : buildVetStaffContent(noticeKey, after, lang)),
             tag: `vet-${incidentId}`.slice(0, 64),
             source: 'incident',
             dedupeKey: noticeId,
@@ -672,10 +695,23 @@ export const onIncidentWritten = onDocumentWritten(
     }
 );
 
+// The vet strike notices of an incident (staffNotifications kind vetStrike)
+// not yet acknowledged: acknowledged by the system
+async function acknowledgeVetStrikeNotices(appId, compId, incidentId) {
+    const snap = await db.collection(`artifacts/${appId}/private/data/competitions/${compId}/staffNotifications`)
+        .where('incidentId', '==', incidentId).get();
+    const open = snap.docs.filter((d) => d.data()?.kind === 'vetStrike' && !d.data()?.ackAt);
+    if (!open.length) return 0;
+    const writer = db.batch();
+    open.forEach((d) => writer.update(d.ref, { ackAt: FieldValue.serverTimestamp(), ackBy: 'system', ackByName: 'DriveLive (beslutet återkallat)' }));
+    await writer.commit();
+    return open.length;
+}
+
 async function queueVetDecisionMail(appId, compId, message, incidentId, noticeId) {
     const settingsSnap = await db.doc(emailSettingsPath(appId, compId)).get();
     if (!readEmailSettings(settingsSnap.exists ? settingsSnap.data() : {}).autoVetDecisionMail) return;
-    const content = validateMailContent({ subject: message.title, text: message.body });
+    const content = validateMailContent(vetDecisionMailContent(message));
     const mail = {
         kind: 'vetDecision',
         category: 'essential',
@@ -1711,8 +1747,24 @@ async function removeStaffTraces(competitions, { uid, email, writer }) {
                 counts.mailsRemoved++;
             }
         });
+        // The public pause log names who pressed: replaced in a transaction
+        // (a pause pressed meanwhile is not lost)
+        counts.namesReplaced += await anonymizeCompetitionPauseLog(competition, { uid });
     }
     return counts;
+}
+
+/** Replaces (uid) or removes (uid null) the names in a competition's pause log; -> entries changed (0/1) */
+async function anonymizeCompetitionPauseLog(competition, { uid = null } = {}) {
+    const ref = db.doc(`artifacts/${competition.appId}/public/data/competitions/${competition.id}/config/globalStatus`);
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return 0;
+        const { log, changed } = anonymizePauseLog(snap.data()?.pauseLog, { uid, replacement: DELETED_USER_NAME });
+        if (!changed) return 0;
+        tx.update(ref, { pauseLog: log });
+        return 1;
+    });
 }
 
 export const deleteMyAccount = onCall({ timeoutSeconds: 300, maxInstances: 2 }, async (request) => {
@@ -2068,41 +2120,58 @@ export const previewMailAudience = onCall({ maxInstances: 5 }, async (request) =
 
 /**
  * Changed start times by e-mail, after the UI saved the published times: each
- * driver gets the lines of their own start numbers. Admins and the TD.
- * { competitionId, changes: [{ startNumber, text }], subject?, text? }
- * -> { mailId, status: 'queued' }
+ * driver gets the lines of their own start numbers, in Swedish and (textEn)
+ * English. Admins and the TD.
+ * { competitionId, changes: [{ startNumber, text, textEn? }], subject?, text?,
+ *   dedupeKey? (the client's request id of the save: queued once) }
+ * -> { mailId, status: 'queued' | 'duplicate' }
  */
 export const queueStartTimeChangeMail = onCall({ maxInstances: 5 }, async (request) => {
     const { competitionId, competition } = await loadMailCompetition(request);
     const role = await assertMailRole(request, competition);
     let content;
     let personalTexts;
+    let personalTextsEn;
+    const requestId = normalizeRequestId(request.data?.dedupeKey);
+    if (request.data?.dedupeKey && !requestId) throw new HttpsError('invalid-argument', 'Ogiltig utskicksnyckel.');
     try {
         personalTexts = normalizePersonalTexts(request.data?.changes);
+        personalTextsEn = normalizePersonalTexts(request.data?.changes, 'textEn');
         // Essential mail to every driver named: no web addresses, nothing linked
         const competitionName = stripLinks(String(competition.data?.name || '').trim());
         content = validateMailContent({
-            subject: stripLinks(request.data?.subject) || `Ändrad starttid${competitionName ? ` – ${competitionName}` : ''}`,
+            subject: stripLinks(request.data?.subject) || `Ändrad starttid / Start time changed${competitionName ? ` – ${competitionName}` : ''}`,
             text: stripLinks(request.data?.text) || 'Din starttid har ändrats. Nya tider:'
         });
     } catch (error) {
         throw mailHttpsError(error);
     }
+    const mailId = requestId ? `starttimes_${requestId}` : null;
+    if (mailId && (await db.doc(`${mailQueuePath(competition.appId, competitionId)}/${mailId}`).get()).exists) {
+        return { mailId, status: 'duplicate' };
+    }
     const now = Date.now();
     await assertMailQueueRate(competition.appId, competitionId, request.auth.uid, now);
-    const ref = await enqueueMail({
-        db, FieldValue, appId: competition.appId, compId: competitionId, now,
-        mail: {
-            kind: 'startTimeChange',
-            category: 'essential',
-            ...content,
-            audience: { drivers: { classes: [], startNumbers: Object.keys(personalTexts), includeWithdrawn: true } },
-            personalTexts,
-            reason: 'Ändrade starttider',
-            createdBy: request.auth.uid,
-            createdByRole: role
-        }
-    });
+    const mail = {
+        kind: 'startTimeChange',
+        category: 'essential',
+        ...content,
+        textEn: Object.keys(personalTextsEn).length ? 'Your start time has changed. New times:' : null,
+        audience: { drivers: { classes: [], startNumbers: Object.keys(personalTexts), includeWithdrawn: true } },
+        personalTexts,
+        personalTextsEn,
+        reason: 'Ändrade starttider',
+        createdBy: request.auth.uid,
+        createdByRole: role
+    };
+    let ref;
+    if (mailId) {
+        const queued = await enqueueMailOnce({ db, FieldValue, appId: competition.appId, compId: competitionId, now, mail, id: mailId });
+        if (queued.duplicate) return { mailId, status: 'duplicate' };
+        ref = queued.ref;
+    } else {
+        ref = await enqueueMail({ db, FieldValue, appId: competition.appId, compId: competitionId, now, mail });
+    }
     logger.info('E-post om ändrade starttider köad', { competitionId, mailId: ref.id, equipages: Object.keys(personalTexts).length, by: request.auth.uid });
     return { mailId: ref.id, status: 'queued' };
 });
@@ -2558,12 +2627,21 @@ export const sendTestPush = onCall({ maxInstances: 2 }, async (request) => {
  * Changed start times as push notices: each driver's devices get the lines of
  * their own start numbers (topic startTimes). Admins and the TD, after the UI
  * saved the published times (next to queueStartTimeChangeMail).
- * { competitionId, changes: [{ startNumber, text, textEn? }] }
+ * { competitionId, changes: [{ startNumber, text, textEn? }], dedupeKey? (the
+ *   client's request id of the save: sent once) }
  * -> { status, targeted, sent, failed }
  */
 export const notifyStartTimeChange = onCall({ maxInstances: 5, timeoutSeconds: 300 }, async (request) => {
     const { competitionId, competition } = await loadMailCompetition(request);
     const role = await assertMailRole(request, competition);
+    const requestId = normalizeRequestId(request.data?.dedupeKey);
+    if (request.data?.dedupeKey && !requestId) throw new HttpsError('invalid-argument', 'Ogiltig utskicksnyckel.');
+    const dedupeKey = requestId ? `starttimes-${requestId}` : null;
+    // The same save sent again (a retry, a double click): nothing twice, and
+    // no rate limit used up
+    if (dedupeKey && (await db.doc(`artifacts/${competition.appId}/private/data/competitions/${competitionId}/pushLog/${dedupeKey}`).get()).exists) {
+        return { status: 'duplicate', targeted: 0, sent: 0, failed: 0 };
+    }
     let texts;
     try {
         // The lines without web addresses (an essential notice to drivers)
@@ -2598,10 +2676,16 @@ export const notifyStartTimeChange = onCall({ maxInstances: 5, timeoutSeconds: 3
         audience: { drivers: { classes: [], startNumbers, includeWithdrawn: true } },
         category: 'essential',
         topic: 'startTimes',
-        content: (target, lang) => buildStartTimeContent(texts, target.startNumbers.filter((s) => startNumbers.includes(s)), lang),
+        // One notice per driver with all their changed times; its own tag
+        // (per driver and save), so notices do not replace each other
+        content: (target, lang) => {
+            const own = target.startNumbers.filter((s) => startNumbers.includes(s));
+            return { ...buildStartTimeContent(texts, own, lang), tag: startTimePushTag(own, requestId || '') };
+        },
         url: `#portal?id=${encodeURIComponent(competitionId)}`,
         tag: 'start-time',
         source: 'startTimeChange',
+        dedupeKey,
         createdBy: request.auth.uid,
         logger
     }), { competitionId, by: request.auth.uid, role, reason: 'Ändrade starttider' });
@@ -2613,12 +2697,41 @@ export const notifyStartTimeChange = onCall({ maxInstances: 5, timeoutSeconds: 3
     };
 });
 
+/**
+ * How many devices a push would reach, without sending (the admin's channel
+ * dialogs). Admins, the secretariat and the TD.
+ * { competitionId, topic, category?, startNumbers? | message?: { audience,
+ *   targetStartNumbers } } -> { available, devices }
+ */
+export const previewPushAudience = onCall({ maxInstances: 5 }, async (request) => {
+    const { competitionId, competition } = await loadMailCompetition(request);
+    await assertMailRole(request, competition);
+    const topic = String(request.data?.topic || '');
+    if (!PUSH_TOPICS.includes(topic)) throw new HttpsError('invalid-argument', 'Okänt ämne.');
+    const category = request.data?.category === 'essential' ? 'essential' : 'info';
+    let audience = null;
+    if (Array.isArray(request.data?.startNumbers)) {
+        const startNumbers = [...new Set(request.data.startNumbers.map((s) => String(s ?? '').trim()))]
+            .filter((s) => /^[\w-]{1,20}$/.test(s)).slice(0, 1000);
+        if (startNumbers.length) audience = { drivers: { classes: [], startNumbers, includeWithdrawn: true } };
+    } else if (request.data?.message && typeof request.data.message === 'object') {
+        const { audience: messageAudience, targetStartNumbers } = request.data.message;
+        audience = messagePushAudience({
+            audience: messageAudience && typeof messageAudience === 'object' ? messageAudience : undefined,
+            targetStartNumbers: Array.isArray(targetStartNumbers) ? targetStartNumbers.slice(0, 1000) : []
+        });
+    }
+    const result = await countPushTargets(db, { appId: competition.appId, compId: competitionId, audience, topic, category });
+    return { available: result.available, devices: result.devices };
+});
+
 // A competition message (admin → Kommunikation) as a push notice to its
 // audience (topic messages). Not for messages written by the server for its
 // own notices (vet decisions) or the start time offer (source
 // 'startTimeChange': notifyStartTimeChange sends each driver their own
-// times), nor for a message with push: false. category 'essential' reaches
-// devices that switched messages off.
+// times), nor for a message with push: false. An essential message
+// (category 'essential', or type 'alert' = "Viktigt") reaches devices that
+// switched messages off.
 export const onCompetitionMessageCreated = onDocumentCreated(
     "artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId}",
     async (event) => {
@@ -2629,7 +2742,7 @@ export const onCompetitionMessageCreated = onDocumentCreated(
         await safePush('messages', () => sendPushToAudience(db, pushMessaging(), {
             appId, compId,
             audience: messagePushAudience(message),
-            category: message.category === 'essential' ? 'essential' : 'info',
+            category: messagePushCategory(message),
             topic: 'messages',
             content: (_target, lang) => buildMessageContent(message, lang),
             tag: `msg-${msgId}`.slice(0, 64),
@@ -2640,8 +2753,35 @@ export const onCompetitionMessageCreated = onDocumentCreated(
     }
 );
 
+// An edited message sent again ("Uppdaterat: <title>"): only when the editor
+// asked for it (admin page "Skicka uppdatering som notis" sets a new
+// updateNotice id). Once per id; replaces the earlier notice (same tag).
+export const onCompetitionMessageUpdated = onDocumentUpdated(
+    "artifacts/{appId}/public/data/competitions/{compId}/messages/{msgId}",
+    async (event) => {
+        const before = event.data?.before?.data() || {};
+        const message = event.data?.after?.data();
+        const noticeId = messageUpdateNoticeId(before, message);
+        if (!message || !noticeId) return;
+        if (['vetDecision', 'startTimeChange'].includes(message.source)) return;
+        const { appId, compId, msgId } = event.params;
+        await safePush('messages', () => sendPushToAudience(db, pushMessaging(), {
+            appId, compId,
+            audience: messagePushAudience(message),
+            category: messagePushCategory(message),
+            topic: 'messages',
+            content: (_target, lang) => buildMessageUpdateContent(message, lang),
+            tag: `msg-${msgId}`.slice(0, 64),
+            source: 'messageUpdate',
+            dedupeKey: `msgupd-${msgId}-${noticeId}`,
+            logger
+        }), { competitionId: compId, messageId: msgId });
+    }
+);
+
 // A global pause started or ended (config/globalStatus.pauseLog): every
-// official of the competition who follows pauses, urgently and short-lived
+// official of the competition and its drivers who follow pauses, urgently
+// and short-lived (drivers get a short text without the official's note)
 export const onGlobalPausePush = onDocumentWritten(
     "artifacts/{appId}/public/data/competitions/{compId}/config/globalStatus",
     async (event) => {
@@ -2650,10 +2790,10 @@ export const onGlobalPausePush = onDocumentWritten(
         for (const { kind, entry } of transitions) {
             await safePush('pause', () => sendPushToAudience(db, pushMessaging(), {
                 appId, compId,
-                audience: { officials: { all: true } },
+                audience: PAUSE_PUSH_AUDIENCE,
                 category: 'essential',
                 topic: 'pause',
-                content: (_target, lang) => buildPauseContent(kind, entry, lang),
+                content: (target, lang) => buildPauseContent(kind, entry, lang, target.as),
                 tag: 'pause',
                 source: `pause-${kind}`,
                 dedupeKey: `pause-${kind}-${String(entry.start)}`,

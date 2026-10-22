@@ -305,3 +305,19 @@ export function clockFaultMessage(reason) {
         default: return '';
     }
 }
+
+/**
+ * Columns of the gate button grid on a phone: an even grid of 3 or 4
+ * columns (one that divides evenly, else the fullest last row; 4 on a tie), so the
+ * buttons stay large and no lone button sits on a row of its own.
+ */
+export function gateGridColumns(count) {
+    const n = Math.max(0, Math.floor(Number(count) || 0));
+    if (n <= 3) return 3;
+    if (n === 4) return 4;
+    // A grid that divides evenly first (4 if both do), else the fullest last row
+    const even4 = n % 4 === 0;
+    const even3 = n % 3 === 0;
+    if (even4 || even3) return even4 ? 4 : 3;
+    return n % 3 > n % 4 ? 3 : 4;
+}

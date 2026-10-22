@@ -527,6 +527,12 @@ service cloud.firestore {
         && optString(data, 'bodyEn', 10000)
         && optList(data, 'targetStartNumbers', 1000)
         && (data.get('type', null) == null || data.get('type', '') in ['info', 'alert'])
+        // The push trigger's fields: category (essential = "Viktigt"), push
+        // (false: no notice) and updateNotice (an edit sent again, once per id)
+        && (data.get('category', null) == null || data.get('category', '') in ['info', 'essential'])
+        && (data.get('push', null) == null || data.get('push', null) is bool)
+        && optString(data, 'updateNotice', 64)
+        && optString(data, 'source', 40)
         && audience is map
         && audience.keys().hasOnly(['public', 'drivers', 'officials', 'officialRoles'])
         && optList(audience, 'officialRoles', 10);
@@ -1565,7 +1571,21 @@ service cloud.firestore {
       allow list: if (hasPublicAudience(resource.data) && isCompetitionVisible(appId, compId))
         || (hasOfficialAudience(resource.data) && canReadCompetitionStaffDocs(appId, compId))
         || (request.auth != null && canAdminThisArtifactsComp(appId, compId));
-      allow create, update: if request.auth != null
+      // The TD / ground jury may also call a precision drive-off: a new
+      // message to the qualifiers or the officials (source 'driveOff'), never
+      // a public one. Checked first: the admin checks are costly, and one
+      // request has 1000 expressions in all
+      allow create: if request.auth != null
+        && isValidMessageWrite()
+        && (
+          (request.resource.data.get('source', '') == 'driveOff'
+            && request.resource.data.audience.get('public', false) == false
+            && isTdInComp(appId, compId)) ||
+          isSuperAdmin() ||
+          getUserRole() == 'admin' ||
+          canAdminThisArtifactsComp(appId, compId)
+        );
+      allow update: if request.auth != null
         && isValidMessageWrite()
         && (
           isSuperAdmin() ||
@@ -1738,11 +1758,32 @@ service cloud.firestore {
         && request.resource.data.get('updatedBy', '') == request.auth.uid
         && request.resource.data.get('updatedAt', null) == request.time
         && (
-          (!touchesVetDecision(resource.data, request.resource.data)
+          // First: cheap field checks before the costly admin checks (1000
+          // expressions per request in all)
+          isVetStrikeWithdrawal(resource.data, request.resource.data, appId, compId)
+          || (!touchesVetDecision(resource.data, request.resource.data)
             && hasAnyRoleInComp(appId, compId, incidentWriterRoles()))
           || canWriteVetDecision(appId, compId)
         );
       allow delete: if false;
+    }
+
+    // The vet approved the equipage again before the ground jury decided: the
+    // vet closes its own pending report (vetStrike.outcome 'withdrawn'),
+    // nothing else changes (vetDecisionService.withdrawVetStrike)
+    function isVetStrikeWithdrawal(before, after, appId, compId) {
+      return before.get('type', '') == 'vet'
+        && before.get('source', '') == 'vet'
+        && before.get('status', '') == 'open'
+        && before.get('vetStrike', null) is map
+        && before.vetStrike.get('outcome', '') == 'pending'
+        && after.get('vetStrike', null) is map
+        && after.vetStrike.get('outcome', '') == 'withdrawn'
+        && after.vetStrike.diff(before.vetStrike).affectedKeys().hasOnly(['outcome'])
+        && after.status == 'closed'
+        && after.diff(before).affectedKeys().hasOnly(['status', 'decision', 'decidedBy', 'vetStrike',
+          'updatedBy', 'updatedByName', 'updatedAt'])
+        && hasAnyRoleInComp(appId, compId, ['vet']);
     }
 
     // ---- Staff notifications: a driver changed the declaration (written by

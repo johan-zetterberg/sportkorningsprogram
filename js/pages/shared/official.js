@@ -13,12 +13,21 @@ import { TASK_ICONS, buildOfficialTasks, fillTemplate, findMyRecords, mergeObsta
 import { mountEmergencyInfoCard } from '../../ui/emergencyInfoCard.js';
 import { mountPushPanel } from '../../ui/pushSettingsPanel.js';
 import { pushRoleForRoles } from '../../utils/pushPanelUtils.js';
+import { mountStaffNoticesPanel } from '../../ui/staffNoticesPanel.js';
 
 let unsubscribers = [];
 let loadToken = 0;
+let unmountNotices = null;
+
+// Roles that see the staff notices panel (declaration changes, vet strikes)
+export const STAFF_NOTICE_ROLES = ['admin', 'superadmin', 'sekretariat', 'td', 'vet'];
+// Roles that finalize results: the pending widget is for them
+export const PENDING_WIDGET_ROLES = ['admin', 'sekretariat', 'superadmin', 'td', 'domare', 'dressage', 'marathon', 'precision'];
 
 export function __unload() {
     loadToken++;
+    try { unmountNotices?.(); } catch (_) { }
+    unmountNotices = null;
     unsubscribers.forEach((unsubscribe) => { try { unsubscribe(); } catch (_) { } });
     unsubscribers = [];
     delete window.official_openTask;
@@ -73,6 +82,10 @@ export async function load() {
         <div class="container mx-auto p-3 sm:p-4 md:p-8">
             ${getCompetitionHeader(competition, t('official_title'))}
 
+            <!-- Notiser: switched on first, so nothing important is missed -->
+            <div id="official-push" class="mt-4 md:mt-6"></div>
+            <div id="official-staff-notices" class="mt-4 md:mt-6"></div>
+
             <!-- DIN UPPGIFT: first, big -->
             <section class="mt-4 md:mt-6 bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 border-t-4 border-blue-600" aria-labelledby="official-task-heading">
                 <p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(fillTemplate(t('official_welcome'), { name }))}</p>
@@ -80,7 +93,6 @@ export async function load() {
                 <div id="official-tasks" class="space-y-3" aria-live="polite">
                     <div class="animate-pulse h-20 bg-gray-100 dark:bg-gray-700 rounded-lg"></div>
                 </div>
-                <div id="official-push" class="mt-4"></div>
             </section>
 
             <div id="official-emergency" class="mt-4 md:mt-6"></div>
@@ -135,8 +147,11 @@ export async function load() {
 
     loadTasks(competition, user, token);
     // Notiser (web push): the topics follow the user's roles
-    mountPushPanel(document.getElementById('official-push'), { role: pushRoleForRoles(mergeUserRoles(user)), competitionId: competition.id })
+    mountPushPanel(document.getElementById('official-push'), { role: pushRoleForRoles(mergeUserRoles(user)), competitionId: competition.id, prompt: true })
         .catch((error) => console.warn('Notiser kunde inte visas:', error));
+    if (mergeUserRoles(user).some((role) => STAFF_NOTICE_ROLES.includes(role))) {
+        unmountNotices = mountStaffNoticesPanel(document.getElementById('official-staff-notices'), { competitionId: competition.id });
+    }
     loadDashboard(competition.id, user, token);
     // Nödinfo with the persons' phone numbers (officials may read them)
     mountEmergencyInfoCard(document.getElementById('official-emergency'), competition.id)
@@ -267,8 +282,7 @@ async function loadDashboard(competitionId, user, token) {
 
         // Pending verifications: officials who finalize results
         const roles = new Set(mergeUserRoles(user));
-        const canSeePending = ['admin', 'sekretariat', 'superadmin', 'domare', 'dressage', 'marathon', 'precision']
-            .some(role => roles.has(role));
+        const canSeePending = PENDING_WIDGET_ROLES.some(role => roles.has(role));
         const pendingWidget = document.getElementById('widget-pending-container');
         const pendingText = document.getElementById('widget-pending-text');
         if (!canSeePending || !pendingWidget || !pendingText) return;

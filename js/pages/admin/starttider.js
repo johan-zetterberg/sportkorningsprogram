@@ -11,12 +11,14 @@ import { listenForDressageFinalizationCollection } from '../../services/dressage
 import { generateStartListPdf } from '../../pdf/startListPdf.js';
 import { getGlobalState, setGlobalState } from '../../main.js';
 import { getCurrentUserRole } from '../../services/authService.js';
-import { getCompetitionHeader, showAlert, showConfirm, renderNoCompetitionState } from '../../ui/components.js';
+import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { saveCompetitionMessage } from '../../services/documentService.js';
 import { buildMessageAudience } from '../../utils/messageAudience.js';
-import { queueStartTimeChangeMail } from '../../services/mailService.js';
-import { notifyStartTimeChange } from '../../services/pushService.js';
-import { buildStartTimeMailChanges } from '../../utils/mailUtils.js';
+import { previewMailAudience, queueStartTimeChangeMail } from '../../services/mailService.js';
+import { notifyStartTimeChange, previewPushAudience } from '../../services/pushService.js';
+import { buildStartTimeNoticeChanges, newNoticeRequestId } from '../../utils/mailUtils.js';
+import { mailCountLine, pushCountLine } from '../../utils/notifyChannelsUtils.js';
+import { showNotifyChannelsDialog } from '../../ui/notifyChannelsDialog.js';
 import {
     applyTimeShift,
     buildChangeStamps,
@@ -86,6 +88,9 @@ import {
     publishedDisciplineList,
     recalculateStartTimesFrom,
     renderPublicStartListCard,
+    renderPublicClassChips,
+    publicClassOptions,
+    filterPublicByClass,
     renderPublicStartListNotice,
     renderPublicStartListRow,
     renderPublicStartTime,
@@ -131,6 +136,8 @@ let clockTimer = null;
 let currentUserRole = 'publik';
 let viewMode = 'startorder'; // 'startorder' eller 'byclass'
 let searchTerm = '';
+// The public list can be narrowed to one class with the chips above it ('' = all)
+let publicClassFilter = '';
 let pdfDropdownOutsideClickHandler = null;
 
 // Mobil-detektering importeras globalt från sharedUtils.js
@@ -682,6 +689,22 @@ function requestListenerRender() {
 }
 
 // ---- Public view (everyone but an editing admin) ----
+window.starttiderSetClassFilter = (className) => {
+    publicClassFilter = String(className || '');
+    render();
+};
+
+// The chips, and the rows of the chosen class (a class that is gone resets it)
+function publicClassView() {
+    const classes = publicClassOptions(equipages);
+    if (publicClassFilter && !classes.includes(publicClassFilter)) publicClassFilter = '';
+    const chipsHtml = renderPublicClassChips(classes, publicClassFilter, {
+        allLabel: t('all_classes'),
+        ariaLabel: t('startlist_filter_class')
+    });
+    return { chipsHtml, rows: filterPublicByClass(getSortedEquipages(), publicClassFilter) };
+}
+
 function publicStartListState() {
     const flags = startTimesPublishedFlags(startTimes);
     return { flags, disciplines: publishedDisciplineList(flags) };
@@ -713,7 +736,7 @@ function publicTime(discipline, sn, value) {
 
 function renderPublicDesktop(container) {
     const { flags, disciplines } = publicStartListState();
-    const rows = getSortedEquipages();
+    const { chipsHtml, rows } = publicClassView();
     const headers = [
         { key: 'startNumber', label: '#' }, { key: 'driverName', label: t('driver_horse') },
         { key: 'className', label: t('class') }, { key: 'clubName', label: t('country_club') },
@@ -730,6 +753,7 @@ function renderPublicDesktop(container) {
         renderTime: publicTime
     });
     container.innerHTML = `
+      ${chipsHtml}
       ${publicNoticeHtml(flags)}
       <div class="rounded-lg shadow ring-1 ring-black/5 dark:ring-white/10">
         <div id="starttider-x-wrap" class="x-scroll-wrap">
@@ -743,7 +767,7 @@ function renderPublicDesktop(container) {
 
 function renderPublicMobile(container) {
     const { flags, disciplines } = publicStartListState();
-    const sorted = getSortedEquipages();
+    const { chipsHtml, rows: sorted } = publicClassView();
     let lastClass = null;
     const cards = sorted.map(e => {
         let classHeader = '';
@@ -764,7 +788,7 @@ function renderPublicMobile(container) {
             disciplineLabels: { dressage: t('dressage'), marathon: t('marathon'), precision: t('precision') }
         });
     }).join('');
-    container.innerHTML = `${publicNoticeHtml(flags)}<div class="py-1">${cards}</div>`;
+    container.innerHTML = `${chipsHtml}${publicNoticeHtml(flags)}<div class="py-1">${cards}</div>`;
 }
 
 function renderDesktop() {
@@ -1541,75 +1565,78 @@ async function saveTimes() {
 }
 
 /**
- * After changed times on a published list: a ready message to the drivers
- * concerned (chosen drivers = the changed start numbers), old → new time,
- * in Swedish and English. Sent with one click; nothing is sent otherwise.
+ * After changed times on a published list: one dialog for how the drivers
+ * concerned are told (in-app message, push notice, e-mail; recipients per
+ * channel), old → new time in Swedish and English. Nothing is sent without
+ * the confirm. One request id per save: a retried send notifies once.
  */
 async function offerStartTimeChangeMessage(changes) {
-    // The push notice always goes (cheap; each driver's own topic choice decides)
-    sendStartTimeChangePush(changes);
     const message = buildStartTimeChangeMessage(changes, equipages, translateTo);
-    if (!message.startNumbers.length) return;
-    const ok = await showConfirm(`${t('starttime_offer_msg_lead').replace('{n}', String(message.startNumbers.length))}\n\n${message.body}`, {
+    const noticeChanges = buildStartTimeNoticeChanges(changes, translateTo);
+    if (!message.startNumbers.length || !noticeChanges.length) return;
+    const requestId = newNoticeRequestId();
+    const startNumbers = noticeChanges.map((c) => c.startNumber);
+    const choice = await showNotifyChannelsDialog({
         title: t('starttime_offer_msg_title'),
-        confirmLabel: t('starttime_offer_msg_send'),
+        lead: t('starttime_offer_lead').replace('{n}', String(message.startNumbers.length)),
+        preview: message.body,
+        channels: [
+            {
+                id: 'message', label: t('notify_channel_message'), checked: true,
+                count: async () => t('notify_count_drivers').replace('{n}', String(message.startNumbers.length))
+            },
+            {
+                id: 'push', label: t('notify_channel_push'), checked: true,
+                count: async () => pushCountLine(await previewPushAudience({ competitionId, topic: 'startTimes', category: 'essential', startNumbers }), t)
+            },
+            {
+                id: 'mail', label: t('notify_channel_mail'), checked: true, hint: t('starttime_offer_mail_hint'),
+                count: async () => mailCountLine(await previewMailAudience({
+                    competitionId, category: 'essential',
+                    audience: { drivers: { classes: [], startNumbers, includeWithdrawn: true } }
+                }), t)
+            }
+        ],
+        confirmLabel: t('notify_send_btn'),
         cancelLabel: t('starttime_offer_msg_skip')
     });
-    if (!ok) return;
-    try {
-        await awaitWriteOrQueue(saveCompetitionMessage(competitionId, {
-            title: message.title,
-            body: message.body,
-            titleEn: message.titleEn,
-            bodyEn: message.bodyEn,
-            type: 'info',
-            // The push above covers it: the message trigger must not notify again
-            source: 'startTimeChange',
-            ...buildMessageAudience('selected_drivers', { selectedDrivers: message.startNumbers })
-        }));
-        showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
-    } catch (err) {
-        console.error('Kunde inte skicka meddelandet om ändrade starttider', err);
-        showAlert(t('starttime_offer_msg_failed'), 'error');
-        return;
+    if (!choice) return;
+    const chosen = new Set(choice.channels);
+    if (chosen.has('message')) {
+        try {
+            await awaitWriteOrQueue(saveCompetitionMessage(competitionId, {
+                title: message.title,
+                body: message.body,
+                titleEn: message.titleEn,
+                bodyEn: message.bodyEn,
+                type: 'info',
+                category: 'info',
+                // The push below (each driver's own lines) covers it: the
+                // message trigger must not notify again
+                source: 'startTimeChange',
+                ...buildMessageAudience('selected_drivers', { selectedDrivers: message.startNumbers })
+            }));
+            showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
+        } catch (err) {
+            console.error('Kunde inte skicka meddelandet om ändrade starttider', err);
+            showAlert(t('starttime_offer_msg_failed'), 'error');
+        }
     }
-    await offerStartTimeChangeMail(changes);
-}
-
-/** Push notice with each driver's own lines (Swedish and English); failures stay quiet */
-function sendStartTimeChangePush(changes) {
-    try {
-        const sv = buildStartTimeMailChanges(changes, translateTo, 'sv');
-        if (!sv.length) return;
-        const en = new Map(buildStartTimeMailChanges(changes, translateTo, 'en').map((c) => [c.startNumber, c.text]));
-        notifyStartTimeChange({
-            competitionId,
-            changes: sv.map((c) => ({ startNumber: c.startNumber, text: c.text, textEn: en.get(c.startNumber) || c.text }))
-        }).catch((err) => console.warn('Push om ändrade starttider kunde inte skickas', err?.code || err));
-    } catch (err) {
-        console.warn('Push om ändrade starttider kunde inte skickas', err);
+    if (chosen.has('push')) {
+        // Each driver's own lines (Swedish and English); failures stay quiet
+        notifyStartTimeChange({ competitionId, changes: noticeChanges, dedupeKey: requestId })
+            .catch((err) => console.warn('Push om ändrade starttider kunde inte skickas', err?.code || err));
     }
-}
-
-/**
- * The same change by e-mail too (each driver gets only their own lines;
- * queued by the server, waits until e-mail is set up).
- */
-async function offerStartTimeChangeMail(changes) {
-    const mailChanges = buildStartTimeMailChanges(changes, translateTo, 'sv');
-    if (!mailChanges.length) return;
-    const ok = await showConfirm(t('starttime_offer_mail_lead').replace('{n}', String(mailChanges.length)), {
-        title: t('starttime_offer_mail_title'),
-        confirmLabel: t('starttime_offer_mail_send'),
-        cancelLabel: t('starttime_offer_mail_skip')
-    });
-    if (!ok) return;
-    try {
-        await queueStartTimeChangeMail({ competitionId, changes: mailChanges });
-        showAlert(t('starttime_offer_mail_queued'), 'success');
-    } catch (err) {
-        console.error('Kunde inte köa e-post om ändrade starttider', err);
-        showAlert(`${t('starttime_offer_mail_failed')} ${err?.message || ''}`.trim(), 'error');
+    if (chosen.has('mail')) {
+        // Each driver gets only their own lines; queued by the server, waits
+        // until e-mail is set up
+        try {
+            await queueStartTimeChangeMail({ competitionId, changes: noticeChanges, dedupeKey: requestId });
+            showAlert(t('starttime_offer_mail_queued'), 'success');
+        } catch (err) {
+            console.error('Kunde inte köa e-post om ändrade starttider', err);
+            showAlert(`${t('starttime_offer_mail_failed')} ${err?.message || ''}`.trim(), 'error');
+        }
     }
 }
 

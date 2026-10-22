@@ -83,7 +83,7 @@ function renderShell(competition) {
     state.root.innerHTML = `
         <div class="container mx-auto p-3 sm:p-4 md:p-8 max-w-6xl">
             ${getCompetitionHeader(competition, t('incident_page_title'))}
-            <div class="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist">${TABS.map(tabButton).join('')}</div>
+            <div class="mb-4 flex gap-2 overflow-x-auto pb-1" role="tablist" data-tab-overflow>${TABS.map(tabButton).join('')}</div>
             <div id="incident-tab-body"></div>
         </div>`;
 }
@@ -114,7 +114,7 @@ function renderForm(editing) {
                     <textarea id="inc-decision" name="decision" rows="2" class="${inputClass}" maxlength="4000">${escapeHtml(e.decision || '')}</textarea></div>
             </div>
             <div class="mt-3 flex flex-wrap justify-end gap-2">
-                ${editing ? `<button type="button" data-incident-cancel class="min-h-[44px] rounded-md border border-gray-300 px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-100">${escapeHtml(t('btn_cancel'))}</button>` : ''}
+                <button type="button" data-incident-cancel class="min-h-[44px] rounded-md border border-gray-300 px-4 py-2 text-sm dark:border-gray-600 dark:text-gray-100">${escapeHtml(t('btn_cancel'))}</button>
                 <button type="submit" class="min-h-[44px] rounded-md bg-brand-darkblue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 dark:bg-blue-600">${escapeHtml(t('incident_save'))}</button>
             </div>
         </form>`;
@@ -149,9 +149,12 @@ function renderLogTab(body, { keepForm = false } = {}) {
     const keptForm = keepForm ? body.querySelector('#incident-form') : null;
     const filters = state.filters;
     const list = sortIncidents(filterIncidents(state.incidents, filters));
+    // The log comes first; the form opens with "+ Ny händelse" (or when editing)
+    const showForm = state.canWrite && (state.formOpen || !!state.editing);
     body.innerHTML = `
         <div class="space-y-4">
-            ${state.canWrite ? `<div id="incident-form-slot">${renderForm(state.editing)}</div>` : ''}
+            ${state.canWrite && !showForm ? `<div class="flex justify-end"><button type="button" data-incident-new class="min-h-[44px] w-full rounded-md bg-brand-darkblue px-4 py-2 text-sm font-semibold text-white hover:bg-blue-900 dark:bg-blue-600 sm:w-auto">+ ${escapeHtml(t('incident_new_btn'))}</button></div>` : ''}
+            ${showForm ? `<div id="incident-form-slot">${renderForm(state.editing)}</div>` : ''}
             <div class="flex flex-col gap-2 rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-800 sm:flex-row sm:items-end">
                 <div class="flex-1"><label class="${labelClass}" for="inc-filter-type">${escapeHtml(t('incident_field_type'))}</label>
                     <select id="inc-filter-type" data-incident-filter="type" class="${inputClass}"><option value="">${escapeHtml(t('incident_filter_all'))}</option>${options(INCIDENT_TYPES, INCIDENT_TYPE_LABELS, filters.type)}</select></div>
@@ -360,6 +363,7 @@ export async function load(pageElement) {
         devicesStarted: false,
         deviceTimer: null,
         editing: null,
+        formOpen: false,
         filters: { type: '', status: '', startNumber: '' },
         correctionFilters: { discipline: '', startNumber: '' },
         canWrite: canWrite(roles),
@@ -375,6 +379,15 @@ export async function load(pageElement) {
         if (!target || !state) return;
         const tab = target.closest('[data-incident-tab]');
         if (tab) { switchTab(tab.dataset.incidentTab); return; }
+        if (target.closest('[data-incident-new]')) {
+            state.formOpen = true;
+            state.editing = null;
+            renderBody();
+            const form = state.root.querySelector('#incident-form');
+            form?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            form?.querySelector('#inc-description')?.focus({ preventScroll: true });
+            return;
+        }
         const edit = target.closest('[data-incident-edit]');
         if (edit) {
             state.editing = state.incidents.find((i) => i.id === edit.dataset.incidentEdit) || null;
@@ -382,7 +395,7 @@ export async function load(pageElement) {
             state.root.querySelector('#incident-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;
         }
-        if (target.closest('[data-incident-cancel]')) { state.editing = null; renderBody(); return; }
+        if (target.closest('[data-incident-cancel]')) { state.editing = null; state.formOpen = false; renderBody(); return; }
         const exp = target.closest('[data-incident-export]');
         if (exp) { exportLog(exp.dataset.incidentExport); return; }
         const gotoCorrection = target.closest('[data-goto-correction]');
@@ -417,6 +430,7 @@ export async function load(pageElement) {
                 created.write.catch((error) => showAlert(`${t('incident_save_failed')} ${error?.message || ''}`, false));
                 showAlert(`${t('incident_saved')} (${t('incident_number_short')} ${created.number})`);
             }
+            state.formOpen = false;
             renderBody();
         } catch (error) {
             showAlert(`${t('incident_save_failed')} ${t(error.message)}`, false);

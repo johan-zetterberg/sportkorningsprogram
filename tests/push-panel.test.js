@@ -15,11 +15,13 @@ import {
 import { PUSH_TOPICS } from '../js/utils/pushUtils.js';
 
 test('topics offered per role', () => {
-    assert.deepEqual(topicsForRole('driver'), ['startTimes', 'messages', 'vetDecision']);
+    // Drivers follow pauses too (owner decision); the vet has its own set
+    assert.deepEqual(topicsForRole('driver'), ['startTimes', 'messages', 'vetDecision', 'pause']);
     assert.deepEqual(topicsForRole('official'), ['messages', 'pause']);
+    assert.deepEqual(topicsForRole('vet'), ['vetDecision', 'declarationChanges', 'messages', 'pause']);
     assert.deepEqual(topicsForRole('staff'), ['messages', 'pause', 'declarationChanges', 'vetDecision']);
     assert.deepEqual(topicsForRole('device'), []);
-    for (const role of ['driver', 'official', 'staff']) {
+    for (const role of ['driver', 'official', 'vet', 'staff']) {
         for (const topic of topicsForRole(role)) {
             assert.ok(PUSH_TOPICS.includes(topic), topic);
             assert.ok(TOPIC_LABEL_KEYS[topic], `label for ${topic}`);
@@ -35,10 +37,15 @@ test('staff is admin, secretariat or TD; other officials are officials', () => {
     assert.equal(pushRoleForRoles(['superadmin']), 'staff');
     assert.equal(pushRoleForRoles(['marathon', 'funktionar']), 'official');
     assert.equal(pushRoleForRoles([]), 'official');
+    // The vet gets vet decisions and declaration changes; staff wins
+    assert.equal(pushRoleForRoles(['vet']), 'vet');
+    assert.equal(pushRoleForRoles(['vet', 'funktionar']), 'vet');
+    assert.equal(pushRoleForRoles(['vet', 'td']), 'staff');
 });
 
 test('first topics: what the device has, else the role defaults', () => {
-    assert.deepEqual(initialTopics('driver', []), ['startTimes', 'messages', 'vetDecision']);
+    assert.deepEqual(initialTopics('driver', []), ['startTimes', 'messages', 'vetDecision', 'pause']);
+    assert.deepEqual(initialTopics('vet', []), ['vetDecision', 'declarationChanges', 'messages', 'pause']);
     assert.deepEqual(initialTopics('device', []), ['messages']);
     assert.deepEqual(initialTopics('driver', ['pause']), ['pause']);
 });

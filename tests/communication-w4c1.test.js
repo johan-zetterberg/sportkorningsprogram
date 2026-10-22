@@ -60,7 +60,8 @@ test('official messages match the viewer\'s roles and the page role', () => {
     const vet = { audience: { officials: true, officialRoles: ['vet'] } };
     const pub = { audience: { public: true, drivers: true } };
     assert.deepEqual(viewerOfficialRoleKeys(['admin']).sort(), ['secretariat']);
-    assert.deepEqual(viewerOfficialRoleKeys(['td']), ['secretariat']);
+    // The TD reads the secretariat's messages and its own
+    assert.deepEqual(viewerOfficialRoleKeys(['td']), ['secretariat', 'td']);
     assert.deepEqual(viewerOfficialRoleKeys(['marathon'], 'marathon'), ['marathon']);
     assert.equal(isMessageForOfficial(all, ['speaker']), true);
     assert.equal(isMessageForOfficial(vet, ['speaker']), false);

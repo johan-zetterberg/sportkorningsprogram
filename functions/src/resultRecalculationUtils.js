@@ -53,11 +53,26 @@ export function withoutDisplayOnlyConfig(data) {
 }
 
 /**
+ * The pause log as the results see it: without who pressed (by, endedBy), so
+ * a name replaced or removed (account deletion, retention) recalculates nothing
+ */
+export function pauseLogForResults(pauseLog) {
+    if (!Array.isArray(pauseLog)) return pauseLog ?? null;
+    return pauseLog.map((entry) => {
+        if (!entry || typeof entry !== 'object') return entry;
+        const rest = { ...entry };
+        delete rest.by;
+        delete rest.endedBy;
+        return rest;
+    });
+}
+
+/**
  * Whether a write to a competition config document changes stored results.
  * globalStatus is written for live status too; only its pause log counts.
  */
 export function configChangeAffectsResults(configId, before = null, after = null) {
-    if (configId === 'globalStatus') return stableJson(before?.pauseLog) !== stableJson(after?.pauseLog);
+    if (configId === 'globalStatus') return stableJson(pauseLogForResults(before?.pauseLog)) !== stableJson(pauseLogForResults(after?.pauseLog));
     if (!RESULT_CONFIG_DOCS.includes(configId)) return false;
     return stableJson(withoutDisplayOnlyConfig(before)) !== stableJson(withoutDisplayOnlyConfig(after));
 }
@@ -87,7 +102,7 @@ export function competitionReopened(before = null, after = null) {
 export function resultSettingsFingerprint({ competition = null, configs = {}, globalStatus = null } = {}) {
     return stableJson({
         ruleSettings: competition?.ruleSettings ?? null,
-        pauseLog: globalStatus?.pauseLog ?? null,
+        pauseLog: pauseLogForResults(globalStatus?.pauseLog ?? null),
         configs: Object.fromEntries(RESULT_CONFIG_DOCS.map((id) => [id, withoutDisplayOnlyConfig(configs[id] ?? null)]))
     });
 }

@@ -2,12 +2,12 @@
 // report (incident log entry + staff notification; the driver's inbox message
 // is written by the server, onIncidentWritten) and the secretariat's / TD's
 // decision on the equipage.
-import { runTransaction, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { db } from '../config/firebase-config.js';
+import { doc, getDoc, runTransaction, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { db, appId } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { getCompDocRef, trackWrite } from './firestoreService.js';
 import { addStaffNotice, createIncident, getIncidents, updateIncident } from './incidentService.js';
-import { buildVetStrikeDecisionPatch, buildVetStrikeIncident } from './vetDecisionUtils.js';
+import { buildVetStrikeDecisionPatch, buildVetStrikeIncident, buildVetStrikeWithdrawal } from './vetDecisionUtils.js';
 import { toLocalDateTimeValue } from './incidentUtils.js';
 
 const NOT_PENDING = 'Inget veterinärbeslut väntar på beslut för ekipaget.';
@@ -44,6 +44,33 @@ export async function reportVetStrike(competitionId, { incidentId, equipage = {}
         return { ok: true, number: created.number };
     } catch (error) {
         console.warn('Veterinärbeslutet kunde inte rapporteras:', error);
+        return { ok: false, error };
+    }
+}
+
+/**
+ * The vet approved the equipage again before the ground jury decided
+ * (gateVetStrikePayload's withdrawn): the report in the incident log is
+ * closed with vetStrike.outcome 'withdrawn'. The server then tells the driver
+ * ("Veterinärbeslutet har återkallats") and acknowledges the staff notice
+ * (onIncidentWritten). Best effort, like reportVetStrike: { ok, skipped?, error? }.
+ */
+export async function withdrawVetStrike(competitionId, { incidentId } = {}) {
+    if (!competitionId || !incidentId) return { ok: false, skipped: true };
+    try {
+        const ref = doc(db, `artifacts/${appId}/private/data/competitions/${competitionId}/incidents`, incidentId);
+        const snap = await getDoc(ref);
+        if (!snap.exists()) return { ok: false, skipped: true };
+        const incident = { id: snap.id, ...snap.data() };
+        const user = getGlobalState('currentUser') || {};
+        const update = buildVetStrikeWithdrawal(incident, { name: user.displayName || user.email || '' });
+        if (!update) return { ok: true, skipped: true };
+        // Not awaited: offline the write waits in the local cache
+        updateIncident(competitionId, incident, update.raw, update.extra)
+            .catch((error) => console.warn('Återkallat veterinärbeslut kunde inte loggas:', error));
+        return { ok: true };
+    } catch (error) {
+        console.warn('Återkallat veterinärbeslut kunde inte loggas:', error);
         return { ok: false, error };
     }
 }

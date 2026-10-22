@@ -62,10 +62,10 @@ export function getCompetitionHeader(competition, pageTitle, options = {}) {
 
             <div class="flex-grow min-w-0">
                 <div class="flex items-center gap-2">
-                    <h1 class="text-xl md:text-2xl font-bold font text-white truncate">${escapeHtml(competition.name || 'Tävling')}</h1>
+                    <h1 class="text-xl md:text-2xl font-bold font text-white break-words line-clamp-2 md:line-clamp-1" title="${escapeHtml(competition.name || 'Tävling')}">${escapeHtml(competition.name || 'Tävling')}</h1>
                     ${(competition.published === false) ? '<span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-yellow-400 text-yellow-900 shadow-sm uppercase tracking-wider">UTKAST</span>' : ''}
                 </div>
-                <p class="text-sm md:text-base text-brand-lightblue dark:text-blue-300 truncate">${escapeHtml(pageTitle || '')}</p>
+                <p class="text-sm md:text-base text-brand-lightblue dark:text-blue-300 break-words line-clamp-2 md:line-clamp-1">${escapeHtml(pageTitle || '')}</p>
                 
                 ${(competition.location || dateString) ? `
                     <div class="text-xs text-gray-300 dark:text-gray-400 mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">

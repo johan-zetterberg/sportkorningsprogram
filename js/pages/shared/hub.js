@@ -33,7 +33,8 @@ function refreshCreateBox() {
 
   if (role === 'admin' || role === 'superadmin') {
     el.style.display = '';
-    setTimeout(initMap, 100); // Initialize/refresh map when becoming visible
+    // The form is folded away until asked for: the map needs it open to get its size
+    if (!document.getElementById('createCompetitionBody')?.classList.contains('hidden')) setTimeout(initMap, 100);
   } else {
     el.style.display = 'none';
   }
@@ -241,11 +242,14 @@ function renderLayout() {
 
         <!-- Skapa ny (visas bara för admin) -->
         <section id="create-competition-container" class="bg-white dark:bg-gray-800 p-5 rounded-xl shadow">
-          <div class="mb-4 border-b dark:border-gray-700 pb-3">
-            <h2 class="text-xl font-semibold text-gray-900 dark:text-white">${t('hub_create_title')}</h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">Nya tävlingar skapas som utkast och öppnas direkt i inställningarna efter att de skapats.</p>
+          <div class="flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <h2 class="text-xl font-semibold text-gray-900 dark:text-white">${t('hub_create_title')}</h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">${t('hub_create_hint')}</p>
+            </div>
+            <button type="button" id="btnToggleCreateCompetition" aria-expanded="false" aria-controls="createCompetitionBody" class="shrink-0 min-h-[44px] px-4 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold">+ ${t('hub_create_open')}</button>
           </div>
-
+          <div id="createCompetitionBody" class="hidden mt-4 border-t dark:border-gray-700 pt-4">
           <div class="mb-4">
             <div class="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-gray-400">Startmall</div>
             <div id="competitionTemplateGrid" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -366,6 +370,7 @@ function renderLayout() {
               class="w-full font-semibold py-2.5 px-4 rounded-lg text-white hover:opacity-95 shadow-sm"
               style="background:${darkBlue};">${t('hub_btn_create')}</button>
           </form>
+          </div>
         </section>
       </div>
       </div>
@@ -952,6 +957,16 @@ export function load() {
   renderLayout();
   renderedViewKey = hubViewKey();
   setupEventListeners();
+  // "Skapa ny tävling" is folded away behind a button (admins only)
+  document.getElementById('btnToggleCreateCompetition')?.addEventListener('click', (event) => {
+    const button = event.currentTarget;
+    const body = document.getElementById('createCompetitionBody');
+    if (!body) return;
+    const open = body.classList.toggle('hidden') === false;
+    button.setAttribute('aria-expanded', String(open));
+    button.textContent = `${open ? '−' : '+'} ${open ? t('hub_create_close') : t('hub_create_open')}`;
+    if (open) setTimeout(initMap, 50);
+  });
   refreshCreateBox(); // säkerställ initialt läge
 
   // uppdatera när global state ändras (t.ex. efter login)

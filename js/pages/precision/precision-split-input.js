@@ -23,6 +23,7 @@ import { serverNow, startServerClockSync, stopServerClockSync } from '../../util
 import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
+import { syncVetStrikeChip } from '../../ui/vetStrikeChip.js';
 
 const connectionBanner = createConnectionBanner(
     () => document.querySelector('#page-precision-split-input .container')
@@ -115,10 +116,13 @@ export function renderLayout() {
 function updateHeaderInfo() {
     const el = document.getElementById('prs-infoEquipageLine');
     if (!currentEquipage) {
-        if(el) el.textContent = '–';
+        if(el) { el.textContent = '–'; syncVetStrikeChip(el, null); }
         return;
     }
-    if(el) el.textContent = `#${currentEquipage.startNumber} ${currentEquipage.driverName || ''}`;
+    if(el) {
+        el.textContent = `#${currentEquipage.startNumber} ${currentEquipage.driverName || ''}`;
+        syncVetStrikeChip(el, currentEquipage);
+    }
 }
 
 // Two phases / drive-off: the start, finish and passages here are written on
@@ -433,6 +437,7 @@ export async function load() {
                 id: e.id,
                 startNumber: Number(e.startNumber),
                 driverName: e.driverName || e.driver || e.name || e.kusk || '',
+                vetStrikePending: e.vetStrikePending || null,
                 className: e.className || e.class || e.klass || ''
             }))
             .sort((a, b) => a.startNumber - b.startNumber);

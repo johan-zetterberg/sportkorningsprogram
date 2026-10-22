@@ -39,6 +39,7 @@ import {
 } from './dressageDraft.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
+import { syncVetStrikeChip } from '../../ui/vetStrikeChip.js';
 
 let competitionId = null;
 let currentDressageTest = null;
@@ -740,6 +741,7 @@ function updateCurrentEquipageLabel() {
   const sn = equipageSearchDropdown?.getValue?.();
   const eq = sn ? sortedEquipages.find(e => String(e.startNumber) === String(sn)) : null;
   el.textContent = eq ? `#${eq.startNumber} ${eq.driverName || ''}`.trim() : (sn ? `#${sn}` : 'Inget ekipage valt');
+  syncVetStrikeChip(el, eq);
 }
 
 function calculateTotals() {

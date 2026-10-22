@@ -15,10 +15,21 @@ import { ensureRouteBannerHost } from './fieldMessages.js';
 import { askPauseReason } from './pauseReasonDialog.js';
 import { showConfirm } from './components.js';
 
+// Every page where someone works with the clocks or waits for them: field
+// input pages, secretariat, speaker, monitors, the official landing page,
+// the driver portal and the public competition center
 const BANNER_ROUTES = new Set([
+    'maraton-input', 'maraton-stages', 'observator-input', 'dressyr-input',
+    'precision-input', 'precision-split-input', 'vet-check',
     'sekretariat-maraton', 'sekretariat-dressyr', 'sekretariat-precision',
-    'speaker', 'dressyr-monitor', 'precision-monitor'
+    'speaker', 'dressyr-monitor', 'precision-monitor', 'maraton-monitor',
+    'official', 'portal', 'competition-center'
 ]);
+// Disabled start/stop buttons of the input pages read "Pausad" while paused
+const PAUSE_LABEL_BUTTONS = [
+    'btnStartMar', 'btnStopMar', 'btnWgStart', 'btnWgStop', 'btnHaltStart', 'btnHaltStop'
+];
+let labelTimer = null;
 // Where the pause can be started and ended from the banner
 const CONTROL_ROUTES = new Set(['sekretariat-maraton']);
 
@@ -27,17 +38,47 @@ let currentCompId = null;
 let currentRoute = null;
 let lastStatus = {};
 
+// Buttons the page disabled for the pause say "Pausad"; restored afterwards
+export function applyPausedButtonLabels(paused, root = document) {
+    for (const id of PAUSE_LABEL_BUTTONS) {
+        const button = root.getElementById ? root.getElementById(id) : null;
+        if (!button) continue;
+        if (paused && button.disabled) {
+            if (button.dataset.pauseOriginal === undefined) button.dataset.pauseOriginal = button.textContent;
+            if (button.textContent !== t('pause_button_label')) button.textContent = t('pause_button_label');
+        } else if (button.dataset.pauseOriginal !== undefined) {
+            button.textContent = button.dataset.pauseOriginal;
+            delete button.dataset.pauseOriginal;
+        }
+    }
+}
+
+// Sticky bars under the banner (the precision timer card) move down by its height
+function publishBannerHeight(host) {
+    try {
+        const px = host && host.firstElementChild ? Math.ceil(host.getBoundingClientRect().height) : 0;
+        document.documentElement.style.setProperty('--pause-banner-h', `${px}px`);
+    } catch (_) { /* no document */ }
+}
+
 function render() {
     const host = document.getElementById('globalPauseBannerHost');
     if (!host) return;
     const isPaused = lastStatus.isPaused === true;
+    host.classList.toggle('pause-active', isPaused);
+    // The page greys itself (not the banner) while paused
+    try { document.body.classList.toggle('global-paused', isPaused && !!currentRoute); } catch (_) { /* no body */ }
+    applyPausedButtonLabels(isPaused);
+    if (isPaused && !labelTimer) labelTimer = setInterval(() => applyPausedButtonLabels(lastStatus.isPaused === true), 1000);
+    if (!isPaused && labelTimer) { clearInterval(labelTimer); labelTimer = null; }
     const withControls = CONTROL_ROUTES.has(currentRoute);
-    if (!isPaused && !withControls) { host.innerHTML = ''; return; }
+    if (!isPaused && !withControls) { host.innerHTML = ''; publishBannerHeight(host); return; }
     const locale = getCurrentLanguage() === 'en' ? 'en-GB' : 'sv-SE';
     if (!isPaused) {
         host.innerHTML = `<div class="px-2 sm:px-4 pt-2 flex justify-end">
             <button type="button" data-global-pause="pause" class="min-h-[44px] px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-black uppercase hover:bg-red-700 shadow">${escapeHtml(t('observer_stop_all'))}</button>
         </div>`;
+        publishBannerHeight(host);
         return;
     }
     const current = openPause(lastStatus.pauseLog);
@@ -53,6 +94,7 @@ function render() {
             ${withControls ? `<button type="button" data-global-pause="resume" class="min-h-[44px] shrink-0 px-4 py-2 rounded-lg bg-white text-red-700 text-sm font-black uppercase hover:bg-red-50">${escapeHtml(t('observer_resume_all'))}</button>` : ''}
         </div>
     </div>`;
+    publishBannerHeight(host);
 }
 
 function stop() {
@@ -60,8 +102,11 @@ function stop() {
     unsubscribe = null;
     currentCompId = null;
     lastStatus = {};
+    if (labelTimer) { clearInterval(labelTimer); labelTimer = null; }
+    try { document.body.classList.remove('global-paused'); } catch (_) { /* no body */ }
     const host = document.getElementById('globalPauseBannerHost');
-    if (host) host.innerHTML = '';
+    if (host) { host.innerHTML = ''; host.classList.remove('pause-active'); }
+    publishBannerHeight(host);
 }
 
 export function syncGlobalPauseBanner(pageKey) {

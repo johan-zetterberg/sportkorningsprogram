@@ -11,8 +11,9 @@
 //              some roles ([] = all officials). The rules let every official
 //              of the competition read these; the role filter is the client's.
 
-// The official audiences, in the order the admin page lists them
-export const OFFICIAL_ROLE_KEYS = Object.freeze(['dressage', 'marathon', 'precision', 'vet', 'speaker', 'secretariat']);
+// The official audiences, in the order the admin page lists them ('td': the
+// technical delegate / ground jury, who also reads the secretariat's)
+export const OFFICIAL_ROLE_KEYS = Object.freeze(['dressage', 'marathon', 'precision', 'vet', 'speaker', 'secretariat', 'td']);
 
 const normalizeList = (value) => (Array.isArray(value) ? value : [])
     .map(v => String(v ?? '').trim())
@@ -82,8 +83,10 @@ export function viewerOfficialRoleKeys(roles = [], pageRole = '') {
     const keys = new Set();
     (Array.isArray(roles) ? roles : [roles]).forEach((role) => {
         const r = String(role || '');
-        // The technical delegate / ground jury reads the secretariat's messages
-        if (r === 'admin' || r === 'superadmin' || r === 'td') keys.add('secretariat');
+        // The technical delegate / ground jury reads the secretariat's
+        // messages and its own (push: the secretariat reaches the TD too)
+        if (r === 'admin' || r === 'superadmin') keys.add('secretariat');
+        else if (r === 'td') { keys.add('secretariat'); keys.add('td'); }
         else if (OFFICIAL_ROLE_KEYS.includes(r)) keys.add(r);
     });
     if (pageRole && OFFICIAL_ROLE_KEYS.includes(pageRole)) keys.add(pageRole);

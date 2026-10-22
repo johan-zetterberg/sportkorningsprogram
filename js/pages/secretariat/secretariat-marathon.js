@@ -1,6 +1,7 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import { confirmFinalizeWithGaps } from '../../services/finalizationService.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
@@ -274,6 +275,7 @@ function buildTimingRows() {
         <td class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 min-w-[14rem]">
           <div class="font-medium">${escapeHtml(row.driverName || '-')}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(row.className || '')}</div>
+          ${vetStrikeChipHtml(row, { compact: true })}
         </td>
         <td class="px-3 py-3 text-sm min-w-[8rem]">
           <input data-field="duration_A" value="${escapeHtml(formatEditableTime(view.duration_A))}" ${readOnly ? 'disabled' : ''} class="w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">

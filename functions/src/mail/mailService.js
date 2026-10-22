@@ -76,6 +76,9 @@ export function buildQueueDoc(mail, { FieldValue, now = Date.now() }) {
         audience: mail.audience || null,
         to: mail.to ? normalizeExplicitRecipients(mail.to) : null,
         personalTexts: mail.personalTexts || null,
+        // An English part after the Swedish one (start time changes)
+        textEn: mail.textEn || null,
+        personalTextsEn: mail.personalTextsEn && Object.keys(mail.personalTextsEn).length ? mail.personalTextsEn : null,
         createdBy: mail.createdBy || 'system',
         createdByRole: mail.createdByRole || null,
         // Why an essential mail was sent (queueCompetitionMail), for the log
@@ -103,6 +106,21 @@ export async function enqueueMail({ db, FieldValue, appId, compId, mail, tx = nu
     if (tx) tx.set(ref, doc);
     else await ref.set(doc);
     return ref;
+}
+
+/**
+ * Queues a mail under a fixed id (a client's request id): created once; a
+ * second call with the same id queues nothing. -> { ref, duplicate }
+ */
+export async function enqueueMailOnce({ db, FieldValue, appId, compId, mail, id, now = Date.now() }) {
+    const ref = db.collection(mailQueuePath(appId, compId)).doc(String(id));
+    try {
+        await ref.create(buildQueueDoc(mail, { FieldValue, now }));
+        return { ref, duplicate: false };
+    } catch (error) {
+        if (error?.code === 6 || /ALREADY_EXISTS/i.test(String(error?.message || ''))) return { ref, duplicate: true };
+        throw error;
+    }
 }
 
 export async function loadProviderSettings(db) {

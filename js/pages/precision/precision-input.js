@@ -43,6 +43,7 @@ import {
     buildPrecisionSavePayload,
     checkPrecisionClock,
     clockFaultMessage,
+    gateGridColumns,
     buildPhase1FinishWrite,
     penaltyCorrection,
     phase2HasData,
@@ -86,6 +87,8 @@ import {
 } from './precisionRoundInput.js';
 import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
+
+import { syncVetStrikeChip } from '../../ui/vetStrikeChip.js';
 
 // ---------- State ----------
 let competitionId = null;
@@ -515,21 +518,24 @@ function renderLayout() {
                 #page-precision-input .main-card { padding: 0.75rem; border-radius: 0.75rem; }
                 
                 /* Grid-optimering */
+                /* Gate buttons: an even grid of 3-4 columns (renderGates), large targets */
                 #pr-gatesGrid {
-                    grid-template-columns: repeat(5, 1fr) !important;
-                    gap: 0.5rem !important;
+                    gap: 0.6rem !important;
                 }
                 .gateBtn {
-                    font-size: 1.125rem !important; /* text-lg */
+                    font-size: 1.35rem !important;
+                    font-weight: 700;
                     padding: 0 !important;
-                    height: 50px !important;
+                    height: 60px !important;
+                    aspect-ratio: auto !important;
                 }
                 
                 /* Kompakt info-rad */
                 #pr-infoEquipageLine { font-size: 0.875rem; }
                 .info-meta { font-size: 0.75rem; }
-                .sticky-precision-controls {
-                    top: 63px;
+                /* The id outranks the base rule below, which comes later in the sheet */
+                #page-precision-input .sticky-precision-controls {
+                    top: calc(63px + var(--pause-banner-h, 0px));
                     margin-left: -0.5rem;
                     margin-right: -0.5rem;
                     padding: 0.65rem 0.75rem;
@@ -561,10 +567,10 @@ function renderLayout() {
                     font-size: 1rem !important;
                 }
                 .precision-reset-top-btn {
-                    width: 3.25rem !important;
-                    min-width: 3.25rem !important;
+                    min-width: 3.5rem !important;
                     min-height: 3.25rem !important;
                     height: auto !important;
+                    padding: 0.25rem 0.5rem !important;
                 }
                 .precision-manual-editor {
                     position: fixed;
@@ -580,7 +586,7 @@ function renderLayout() {
 
             .sticky-precision-controls {
                 position: sticky;
-                top: 63px; /* Justera beroende på sidans huvud-header */
+                top: calc(63px + var(--pause-banner-h, 0px)); /* under the page header and the pause banner */
                 z-index: 40;
                 background: rgba(255, 255, 255, 0.95);
                 backdrop-filter: blur(8px);
@@ -602,7 +608,7 @@ function renderLayout() {
                 #page-precision-input .container {
                     padding: 0.35rem;
                 }
-                .sticky-precision-controls {
+                #page-precision-input .sticky-precision-controls {
                     top: 0 !important;
                     margin-left: -0.35rem;
                     margin-right: -0.35rem;
@@ -638,10 +644,10 @@ function renderLayout() {
                     font-size: 0.95rem !important;
                 }
                 .precision-reset-top-btn {
-                    width: 3rem !important;
-                    min-width: 3rem !important;
+                    min-width: 3.25rem !important;
                     min-height: 3rem !important;
                     height: auto !important;
+                    padding: 0.2rem 0.4rem !important;
                 }
                 .precision-nav-btn {
                     padding: 0.55rem !important;
@@ -653,6 +659,7 @@ function renderLayout() {
                 .gateBtn {
                     height: 2.8rem !important;
                     font-size: 1rem !important;
+                    aspect-ratio: auto !important;
                 }
                 #pr-btnSave {
                     padding-top: 0.85rem !important;
@@ -683,20 +690,20 @@ function renderLayout() {
                         </div>
                         <div id="pr-clockWarning" role="alert" class="hidden mt-1 text-xs md:text-sm font-semibold text-amber-800 dark:text-amber-200"></div>
                         <div class="mt-2 flex items-center gap-2">
-                            <button id="pr-btnRebuildAdd" type="button" class="min-h-[44px] px-3 rounded-lg border border-amber-400 bg-amber-50 text-amber-900 text-sm font-bold active:scale-95 hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-100" title="Hinder ombyggt: lägg till 10 s på tiden">+10 s (ombyggnad)</button>
-                            <button id="pr-btnRebuildUndo" type="button" class="hidden min-h-[44px] min-w-[44px] px-3 rounded-lg border text-sm font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200" aria-label="Ångra en ombyggnad (−10 s)" title="Ångra en ombyggnad">−1</button>
+                            <button id="pr-btnRebuildAdd" type="button" class="min-h-[44px] px-3 rounded-lg border border-amber-400 bg-amber-50 text-amber-900 text-sm font-bold active:scale-95 hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-100" aria-label="${escapeHtml(t('precision_rebuild_add_aria'))}" title="${escapeHtml(t('precision_rebuild_add_aria'))}">${escapeHtml(t('precision_rebuild_add'))}</button>
+                            <button id="pr-btnRebuildUndo" type="button" class="hidden min-h-[44px] min-w-[44px] px-3 rounded-lg border text-sm font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200" aria-label="${escapeHtml(t('precision_rebuild_undo_aria'))}" title="${escapeHtml(t('precision_rebuild_undo_aria'))}">−1</button>
                             <span id="pr-rebuildInfo" class="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300"></span>
                         </div>
-                        <button id="pr-btnPhase1Finish" type="button" class="hidden mt-2 w-full sm:w-auto min-h-[44px] px-4 rounded-lg bg-indigo-600 text-white text-base font-bold shadow-sm active:scale-95 hover:bg-indigo-700">${t('precision_phase1_finish')}</button>
+                        <button id="pr-btnPhase1Finish" type="button" disabled class="hidden mt-2 w-full sm:w-auto min-h-[44px] px-4 rounded-lg bg-blue-600 text-white text-base font-bold shadow-sm active:scale-95 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100">${t('precision_phase1_finish')}</button>
                     </div>
                     <div class="precision-control-strip ${isFieldMode ? 'is-field' : 'is-live'} flex gap-2 sm:shrink-0">
                         <div class="precision-primary-controls flex gap-2">
                         ${isFieldMode
                             ? `<button id="pr-btnManualOpen" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-32 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
-                            : `<button id="pr-btnStart" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700">${t('precision_start')}</button>
-                        <button id="pr-btnStop" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700">${t('precision_stop')}</button>`}
+                            : `<button id="pr-btnStart" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700 aria-disabled:opacity-40">${t('precision_start')}</button>
+                        <button id="pr-btnStop" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-red-600 text-white shadow-sm active:scale-95 transition-all hover:bg-red-700 aria-disabled:opacity-40">${t('precision_stop')}</button>`}
                         </div>
-                        <button id="pr-btnResetTop" class="precision-nav-btn precision-reset-top-btn p-2 rounded-md bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-400" title="${t('precision_reset')}">🔄</button>
+                        <button id="pr-btnResetTop" type="button" class="precision-nav-btn precision-reset-top-btn flex flex-col items-center justify-center gap-0.5 min-w-[56px] px-2 py-1 rounded-md bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200" aria-label="${escapeHtml(t('precision_reset'))}" title="${escapeHtml(t('precision_reset'))}"><span aria-hidden="true">🔄</span><span class="text-[11px] font-bold leading-none">${escapeHtml(t('precision_reset'))}</span></button>
                     </div>
                 </div>
 
@@ -783,7 +790,7 @@ function renderLayout() {
                 </div>
 
                 <!-- KVALIFICERADE (fas 2 / omkörning) -->
-                <div id="pr-qualPanel" class="hidden rounded-lg border border-indigo-200 bg-indigo-50/60 p-3 text-sm dark:border-indigo-800 dark:bg-indigo-900/20 dark:text-gray-100"></div>
+                <div id="pr-qualPanel" class="hidden rounded-lg border border-blue-200 bg-blue-50/60 p-3 text-sm dark:border-blue-800 dark:bg-blue-900/20 dark:text-gray-100"></div>
 
                 <!-- ÅTGÄRDER -->
                 <div class="flex flex-col gap-3 pt-2">
@@ -821,6 +828,7 @@ function updateHeaderInfo() {
 
     if (equipageEl) {
         equipageEl.textContent = `#${eq.startNumber} ${eq.driverName || ''} (${eq.className})`;
+        syncVetStrikeChip(equipageEl, eq);
     }
 
     if (portEl) {
@@ -852,6 +860,9 @@ function updateHeaderInfo() {
     }
 }
 
+// Literal class names (the CSS build finds them here)
+const GATE_COLUMN_CLASS = { 3: 'grid-cols-3', 4: 'grid-cols-4' };
+
 function renderGates() {
     const host = document.getElementById('pr-gatesGrid');
     if (!host) return;
@@ -862,10 +873,12 @@ function renderGates() {
         return;
     }
 
+    // An even grid of 3-4 columns on a phone, more on wider screens
+    host.className = `grid ${GATE_COLUMN_CLASS[gateGridColumns(labels.length)]} sm:grid-cols-6 md:grid-cols-8 gap-2`;
     host.innerHTML = labels.map(label => {
         const active = knocks.has(label);
         const safeLabel = escapeHtml(String(label));
-        return `<button data-g="${safeLabel}" class="gateBtn p-1 aspect-square flex items-center justify-center rounded border text-lg ${active ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}">${safeLabel}</button>`;
+        return `<button type="button" data-g="${safeLabel}" class="gateBtn p-1 aspect-square flex items-center justify-center rounded border text-lg font-bold ${active ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}">${safeLabel}</button>`;
     }).join('');
 
     host.querySelectorAll('.gateBtn').forEach(btn => {
@@ -1313,7 +1326,7 @@ function renderRoundUi() {
     const format = equipageFormat();
     host.innerHTML = `<div class="grid gap-2 ${rounds.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}">${rounds.map((r) => {
         const active = r === currentRound;
-        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format)))}</button>`;
+        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format)))}</button>`;
     }).join('')}</div>`;
     host.classList.remove('hidden');
 }
@@ -1352,7 +1365,7 @@ function renderQualifiedPanel() {
     );
     if (!summary.phase2.length && !summary.driveOff.length) { host.classList.add('hidden'); host.innerHTML = ''; return; }
     const item = (m) => `<li>#${escapeHtml(String(m.startNumber))} ${escapeHtml(m.driverName)} <span class="text-xs text-gray-500 dark:text-gray-400">(${escapeHtml(m.className)}) – ${escapeHtml(t(`precision_qual_state_${m.state}`))}</span></li>`;
-    const parts = [`<h3 class="font-bold uppercase text-xs tracking-widest text-indigo-800 dark:text-indigo-200 mb-1">${escapeHtml(t('precision_qualified_title'))}</h3>`];
+    const parts = [`<h3 class="font-bold uppercase text-xs tracking-widest text-blue-800 dark:text-blue-200 mb-1">${escapeHtml(t('precision_qualified_title'))}</h3>`];
     if (summary.phase2.length) {
         parts.push(`<div class="font-semibold">${escapeHtml(t('precision_qualified_phase2'))}</div><ul class="mb-1 list-disc pl-5">${summary.phase2.map(item).join('')}</ul>`);
     }
@@ -1367,8 +1380,17 @@ function renderQualifiedPanel() {
 // Buttons that depend on the round and the clock: "Fas 1 mål" while phase 1 of a
 // two-phase class runs, "Ej startat omkörning" in a stopped drive-off
 function updateRoundControls() {
+    // "Fas 1 mål" keeps its place for a two-phase class (disabled while the
+    // clock is not running), so Start/STOPP do not move when it starts
     const finishBtn = document.getElementById('pr-btnPhase1Finish');
-    if (finishBtn) finishBtn.classList.toggle('hidden', !(currentEquipage && equipageFormat() === 'twoPhase' && currentRound === 'phase1' && isRunning));
+    if (finishBtn) {
+        finishBtn.classList.toggle('hidden', !(currentEquipage && equipageFormat() === 'twoPhase' && currentRound === 'phase1'));
+        finishBtn.disabled = !isRunning;
+    }
+    // Start is dimmed while the clock runs, STOPP while it is stopped (still
+    // pressable: a second Stop pushes the stopped state again)
+    document.getElementById('pr-btnStart')?.setAttribute('aria-disabled', isRunning ? 'true' : 'false');
+    document.getElementById('pr-btnStop')?.setAttribute('aria-disabled', isRunning ? 'false' : 'true');
     const retireBtn = document.getElementById('pr-btnRetire');
     if (retireBtn) retireBtn.classList.toggle('hidden', !(currentEquipage && currentRound === 'driveOff' && !isRunning));
 }

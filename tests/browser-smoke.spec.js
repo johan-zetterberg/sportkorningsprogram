@@ -766,6 +766,127 @@ test('an official sees a message for the officials as a banner on a field page',
   await expect(page.locator('#fieldMessagesHost [data-field-messages]')).toHaveCount(0);
 });
 
+test('a global pause shows a red banner with the reason on a field input page and labels the buttons "Pausad"', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+  await page.evaluate(async (competitionId) => {
+    const { setGlobalPause, currentPauseActor } = await import('../js/services/globalPauseService.js');
+    await setGlobalPause(competitionId, true, { reason: 'accident', note: 'Häst omkullkörd', by: currentPauseActor('marathon'), where: 'obstacle:3' });
+  }, competitionId);
+
+  for (const route of ['maraton-input', 'precision-input', 'official']) {
+    await page.goto(`/index.html#${route}`);
+    const banner = page.locator('#globalPauseBannerHost [data-global-pause-banner]');
+    await expect(banner, `pause banner on #${route}`).toBeVisible({ timeout: 30000 });
+    await expect(banner).toContainText('PAUSAD');
+    await expect(banner).toContainText('Olycka');
+    await expect(banner).toContainText('Häst omkullkörd');
+    await expect(banner).toContainText('Hinder 3');
+  }
+  // The pause locks Start/STOPP on the obstacle page, and they say why
+  await page.goto('/index.html#maraton-input');
+  await expect(page.locator('#btnStartMar')).toHaveText('Pausad', { timeout: 30000 });
+  await expect(page.locator('#btnStopMar')).toHaveText('Pausad');
+  await expect(page.locator('#btnStartMar')).toBeDisabled();
+  // The banner stays in view while the page scrolls
+  const stuck = await page.evaluate(() => getComputedStyle(document.getElementById('globalPauseBannerHost')).position);
+  expect(stuck).toBe('sticky');
+
+  // Lifted: the banner goes and the buttons are back
+  await page.evaluate(async (competitionId) => {
+    const { setGlobalPause, currentPauseActor } = await import('../js/services/globalPauseService.js');
+    await setGlobalPause(competitionId, false, { by: currentPauseActor('marathon') });
+  }, competitionId);
+  await expect(page.locator('#globalPauseBannerHost [data-global-pause-banner]')).toHaveCount(0, { timeout: 30000 });
+  await expect(page.locator('#btnStartMar')).toHaveText('Start');
+  expect(browserErrors).toEqual([]);
+});
+
+test('the official page shows the messages for the officials, the staff notices and a notifications prompt', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+  await page.evaluate(async (competitionId) => {
+    const { saveCompetitionMessage } = await import('../js/services/documentService.js');
+    const { buildMessageAudience } = await import('../js/utils/messageAudience.js');
+    await saveCompetitionMessage(competitionId, { title: 'Smoke till alla funktionärer', body: 'Lunch klockan 12 i sekretariatet. '.repeat(6), type: 'info', ...buildMessageAudience('officials') });
+  }, competitionId);
+
+  await page.goto('/index.html#official');
+  // The notice is written from the loaded app (the service needs the signed-in writer)
+  await expect(page.locator('#official-push')).toBeVisible({ timeout: 60000 });
+  await page.evaluate(async (competitionId) => {
+    const { addStaffNotice } = await import('../js/services/incidentService.js');
+    await addStaffNotice(competitionId, { kind: 'vetStrike', startNumber: '1', summary: 'Smoke: veterinärstrykning #1' });
+  }, competitionId);
+  const banner = page.locator('#fieldMessagesHost [data-field-messages]');
+  await expect(banner).toContainText('Smoke till alla funktionärer', { timeout: 30000 });
+  // A count in the heading and a 2-line preview that opens with "Visa mer"
+  await expect(banner.locator('[data-field-message-count]')).toHaveText('1');
+  await expect(banner.locator('.line-clamp-2')).toHaveCount(1);
+  await banner.locator('[data-toggle-field-message]').click();
+  await expect(banner.locator('.line-clamp-2')).toHaveCount(0);
+  // The staff notices panel (the superadmin counts as the secretariat)
+  await expect(page.locator('#official-staff-notices')).toContainText('Smoke: veterinärstrykning #1', { timeout: 30000 });
+  // The notifications panel is near the top, before the task
+  const pushY = (await page.locator('#official-push').boundingBox()).y;
+  const taskY = (await page.locator('#official-tasks').boundingBox()).y;
+  expect(pushY).toBeLessThan(taskY);
+  await expect(page.locator('#official-push [data-push-panel]')).toBeVisible();
+  expect(browserErrors).toEqual([]);
+});
+
+test('a pending vet strike shows a chip next to the equipage for staff and for the driver', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const sn = await page.evaluate(async (competitionId) => {
+    const { getEquipages, saveEquipage } = await import('../js/services/equipageService.js');
+    const eq = (await getEquipages(competitionId))[0];
+    await saveEquipage(competitionId, String(eq.startNumber), { vetStrikePending: { phase: 'initial', at: new Date().toISOString(), by: 'smoke', horseKeys: [], incidentId: '' } });
+    return String(eq.startNumber);
+  }, competitionId);
+  expect(sn).toBeTruthy();
+
+  await page.goto('/index.html#sekretariat-maraton');
+  await expect(page.locator('[data-vet-strike-pending]').first()).toContainText('Veterinärstrykning avvaktar domarkollegiet', { timeout: 60000 });
+  // The admin start list and the marathon monitor carry the chip too
+  await page.goto('/index.html#starttider');
+  await expect.poll(() => page.locator('[data-vet-strike-pending]').count(), { timeout: 60000 }).toBeGreaterThan(0);
+  await page.goto('/index.html#maraton-monitor');
+  await expect.poll(() => page.locator('[data-vet-strike-pending]').count(), { timeout: 60000 }).toBeGreaterThan(0);
+});
+
+test('secretariat precision shows each equipage as a stacked card on a phone @mobile-only', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+  await page.goto('/index.html#sekretariat-precision');
+  const cards = page.locator('[data-precision-cards] article[data-sn]');
+  await expect(cards.first()).toBeVisible({ timeout: 60000 });
+  // No table to scroll sideways, the editable fields and the three buttons are in the card
+  await expect(page.locator('table.secretariat-page-table')).toHaveCount(0);
+  const first = cards.first();
+  for (const field of ['timeMs', 'knocks', 'timePenalty', 'extraPenalty', 'rebuildCount', 'comment']) {
+    await expect(first.locator(`[data-field="${field}"]`)).toBeVisible();
+  }
+  await expect(first.locator('[data-action="save"]')).toBeVisible();
+  await expect(first.locator('[data-action="reset"]')).toBeVisible();
+  await expect(first.locator('[data-action="finalize"]')).toBeVisible();
+  // 44 px targets
+  const box = await first.locator('[data-action="save"]').boundingBox();
+  expect(box.height).toBeGreaterThanOrEqual(43);
+  // Editing marks the card as changed
+  await first.locator('[data-field="extraPenalty"]').fill('2');
+  await expect(first).toHaveAttribute('data-dirty', '1');
+  const widths = await page.evaluate(() => ({ page: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth), viewport: window.innerWidth }));
+  expect(widths.page).toBeLessThanOrEqual(widths.viewport + 1);
+  expect(browserErrors).toEqual([]);
+});
+
 test('e-mail card renders and a test mail is queued while no provider is configured', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
@@ -900,7 +1021,7 @@ test('Notiser card renders in the driver portal and says it is not enabled yet w
   await page.locator('#adminImpersonateBtn').click();
   const panel = page.locator('#portal-push #pushPanel');
   await expect(panel).toContainText(/Notiser|Notifications/, { timeout: 60000 });
-  await expect(panel).toContainText(/inte aktiverade ännu|not enabled yet/i, { timeout: 30000 });
+  await expect(panel).toContainText(/inte tillgängliga ännu|not available yet/i, { timeout: 30000 });
   await expect(panel.getByRole('button', { name: /Slå på notiser|Turn on notifications/ })).toHaveCount(0);
 });
 
@@ -1313,7 +1434,11 @@ test('incident log: an entry is created, listed and exported as CSV and PDF', as
   collectBrowserErrors(page, browserErrors);
 
   await page.goto('/index.html#incidents');
-  await expect(page.locator('#incident-form')).toBeVisible({ timeout: 60000 });
+  // The log comes first; the form opens with "+ Ny händelse"
+  await expect(page.locator('#incident-list')).toBeVisible({ timeout: 60000 });
+  await expect(page.locator('#incident-form')).toHaveCount(0);
+  await page.locator('[data-incident-new]').click();
+  await expect(page.locator('#incident-form')).toBeVisible();
   await page.selectOption('#inc-type', 'protest');
   await page.fill('#inc-sn', '1');
   await page.selectOption('#inc-discipline', 'marathon');
@@ -1361,16 +1486,41 @@ test('input and result pages fit a phone screen without sideways scrolling @mobi
 
   const routes = ['hub', 'deltagare', 'starttider', 'dressyr-input', 'maraton-input', 'maraton-stages',
     'observator-input', 'precision-input', 'precision-split-input', 'vet-check',
-    'dressyr-results', 'maraton-results', 'precision-results', 'total-resultat', 'competition-center', 'portal'];
+    'dressyr-results', 'maraton-results', 'precision-results', 'total-resultat', 'competition-center', 'portal',
+    'official', 'incidents', 'sekretariat-precision'];
   const overflowing = [];
+  // These pages also get an element check: a sticky card that is wider than the
+  // screen may not widen the document itself
+  const elementChecked = new Set(['precision-input', 'portal', 'official', 'incidents', 'sekretariat-precision']);
   for (const route of routes) {
     await page.goto(`/index.html#${route}`);
     await page.waitForTimeout(2000);
+    if (route === 'portal') await page.locator('#adminImpersonateBtn').waitFor({ state: 'visible', timeout: 30000 }).catch(() => { });
     const widths = await page.evaluate(() => ({
       page: Math.max(document.documentElement.scrollWidth, document.body.scrollWidth),
       viewport: window.innerWidth
     }));
     if (widths.page > widths.viewport + 1) overflowing.push(`#${route}: ${widths.page}px > ${widths.viewport}px`);
+    if (elementChecked.has(route)) {
+      const wide = await page.evaluate(() => {
+        const limit = window.innerWidth + 1;
+        const insideScroller = (el) => {
+          for (let p = el.parentElement; p && p !== document.body; p = p.parentElement) {
+            const ox = getComputedStyle(p).overflowX;
+            if (ox === 'auto' || ox === 'scroll' || ox === 'hidden') return true;
+          }
+          return false;
+        };
+        return [...document.querySelectorAll('main .page.active *')]
+          .filter((el) => {
+            const rect = el.getBoundingClientRect();
+            return rect.width > 0 && rect.height > 0 && Math.round(rect.right) > limit && getComputedStyle(el).position !== 'fixed' && !insideScroller(el);
+          })
+          .slice(0, 5)
+          .map((el) => `${el.tagName.toLowerCase()}${el.id ? `#${el.id}` : ''}.${String(el.className).split(' ')[0]} right=${Math.round(el.getBoundingClientRect().right)}`);
+      });
+      if (wide.length) overflowing.push(`#${route}: wider than the screen: ${wide.join(', ')}`);
+    }
   }
   expect(overflowing).toEqual([]);
   expect(browserErrors).toEqual([]);

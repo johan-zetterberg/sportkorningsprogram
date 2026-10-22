@@ -23,6 +23,8 @@ import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
 import { stageDrivenMsAtRestart, stageStopDurationMs, stageStartPayload, isStageRestart, formatHoldTime } from './marathonObstacleOwnership.js';
 
+import { syncVetStrikeChip } from '../../ui/vetStrikeChip.js';
+
 // Every page stays in the DOM: lookups are scoped to this page's container
 const pageRoot = () => document.getElementById('page-maraton-stages');
 const byId = (id) => pageRoot()?.querySelector(`#${CSS.escape(id)}`) || null;
@@ -145,12 +147,12 @@ function listenForGlobalCompetitionPause() {
       if (tickInterval) clearInterval(tickInterval);
       tickInterval = null;
       pauseStartTime = serverNow();
-      document.body.style.filter = 'grayscale(80%)';
+      document.body.classList.add('global-paused');
 
     } else if (!isPaused && lastPauseState) {
       // TÄVLINGEN ÅTERUPPTAS NU
       ensureGlobalTicker();
-      document.body.style.filter = '';
+      document.body.classList.remove('global-paused');
     }
     lastPauseState = isPaused;
   });
@@ -1402,8 +1404,9 @@ function highlightActiveTab() {
 function updateStageEqLine() {
   const el = byId('stageEqLine');
   if (!el) return;
-  if (!currentEquipage) { el.textContent = '—'; return; }
+  if (!currentEquipage) { el.textContent = '—'; syncVetStrikeChip(el, null); return; }
   el.textContent = `#${currentEquipage.startNumber} ${currentEquipage.driverName || ''} (${currentEquipage.className || '—'})`;
+  syncVetStrikeChip(el, currentEquipage);
 }
 
 function updateEqInfo() {
@@ -2488,7 +2491,7 @@ export function __unload() {
     document.removeEventListener('keydown', keyboardShortcutHandler);
     keyboardShortcutHandler = null;
   }
-  document.body.style.filter = '';
+  document.body.classList.remove('global-paused');
 
   // Förstör dropdown-komponenten om den finns
   if (dropdown && typeof dropdown.destroy === 'function') {

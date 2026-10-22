@@ -9,6 +9,7 @@ import './ui/syncQueue.js'; // Registers <sync-queue>
 import { activateCompetitionSettings, installWindowSettingAccessors } from './services/competitionSettingsStore.js';
 import { initFieldMessages } from './ui/fieldMessages.js';
 import { initGlobalPauseBanner } from './ui/globalPauseBanner.js';
+import { initTabOverflowHints } from './ui/tabOverflowHint.js';
 
 // window.klassProgramMapping, window.dressageJudgeMapping, ... read and write the
 // active competition's settings (see competitionSettingsStore.js)
@@ -358,6 +359,7 @@ function initialize() {
         // they follow the router's app-route-change event
         initFieldMessages();
         initGlobalPauseBanner();
+        initTabOverflowHints();
         initRouter();
 
         // 1. Bestäm målsida (nuvarande URL, sparad sida eller hubben)

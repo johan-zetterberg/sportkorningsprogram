@@ -211,6 +211,7 @@ function buildPrecisionRoundRow(base, result, round) {
   const row = {
     startNumber: base.startNumber,
     driverName: base.driverName,
+    vetStrikePending: base.vetStrikePending || null,
     className: base.className,
     round,
     running: rd.running === true,
@@ -264,6 +265,8 @@ export async function loadSecretariatPrecisionRows(competitionId) {
       startNumber: eq.startNumber,
       groupKey: groupKeyOf(eq),
       driverName: eq.driverName || '',
+      // A vet strike waiting for the ground jury (shown as a chip)
+      vetStrikePending: eq.vetStrikePending || null,
       className: eq.className || '',
       running: !!result.running,
       finalized: !!result.finalized,
@@ -337,6 +340,7 @@ export async function loadSecretariatMarathonRows(competitionId) {
     const row = {
       startNumber: eq.startNumber,
       driverName: eq.driverName || '',
+      vetStrikePending: eq.vetStrikePending || null,
       className: eq.className || '',
       finalized: !!state.finalized,
       running: !!state.running,
@@ -387,6 +391,7 @@ export async function loadSecretariatDressageRows(competitionId) {
     const row = {
       startNumber: eq.startNumber,
       driverName: eq.driverName || '',
+      vetStrikePending: eq.vetStrikePending || null,
       className: eq.className || '',
       clubName: eq.clubName || '',
       country: eq.country || eq.nation || eq.nationality || '',

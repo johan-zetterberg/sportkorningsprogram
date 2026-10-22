@@ -1,6 +1,7 @@
 import { getObstacleArray, stageStartTS, stageStopTS, analyzeSectorProgress } from '../../utils/marathonUtils.js';
 import { actionAttrs, escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
 import { formatSpeakerPenalty } from './speakerFormatUtils.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 
 const escapeAttr = (value) => escapeHtml(value ?? '');
 
@@ -196,6 +197,7 @@ export function renderSectorAnalysis(context) {
                     <tr class="bg-white dark:bg-gray-800 border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 cursor-pointer" ${actionAttrs('selectSpeakerRider', String(e.sn ?? ''))}>
                         <td class="px-3 py-2">
                              <div class="font-bold text-gray-900 dark:text-white leading-tight">#${escapeHtml(String(e.sn ?? ''))} ${escapeHtml(e.eq?.driverName || '')}</div>
+                             ${vetStrikeChipHtml(e.eq, { compact: true })}
                              <div class="text-xs text-gray-400 capitalize">${escapeHtml(e.eq?.clubName || '')}</div>
                         </td>
                         <td class="px-3 py-2 text-xs font-bold uppercase tracking-wider text-gray-600 dark:text-gray-300">${escapeHtml(stageLabel)}</td>

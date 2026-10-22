@@ -31,7 +31,7 @@ import {
 import { mountEmergencyInfoAdmin } from './adminEmergencyInfo.js';
 import { setupMailCard, setupMessageMailOptions } from './adminMailCard.js';
 import { queueCompetitionMail } from '../../services/mailService.js';
-import { buildMessageMailPayload } from '../../utils/mailUtils.js';
+import { buildMessageMailPayload, messageCategoryForType, newNoticeRequestId } from '../../utils/mailUtils.js';
 
 function formatTimestamp(timestamp) {
     if (!timestamp?.seconds) return '';
@@ -153,9 +153,19 @@ export function renderCommunicationTab(container, competition) {
         };
     }
 
+    // "Skicka som notis": on for a new message; for an edit "Skicka
+    // uppdatering som notis", off unless ticked
+    function setPushEditing(editing) {
+        const box = document.getElementById('msgSendPush');
+        const label = document.getElementById('msgSendPushLabel');
+        if (box) box.checked = !editing;
+        if (label) label.textContent = t(editing ? 'msg_update_send_push' : 'msg_send_push');
+    }
+
     function setEditMode(message) {
         const editing = !!message;
         mailOptions?.setEditing(editing);
+        setPushEditing(editing);
         document.getElementById('msgEditId').value = editing ? message.id : '';
         document.getElementById('msgEditNotice')?.classList.toggle('hidden', !editing);
         const submit = document.getElementById('msgSubmitBtn');
@@ -167,6 +177,7 @@ export function renderCommunicationTab(container, competition) {
         document.getElementById('msgBodyEn').value = message.bodyEn || '';
         if (message.titleEn || message.bodyEn) document.getElementById('msgEnglishDetails').open = true;
         document.getElementById('msgType').value = message.type === 'alert' ? 'alert' : 'info';
+        mailOptions?.setEssential(message.type === 'alert');
         messageAudienceSelect.value = messageAudienceMode(message);
         const targets = new Set(getMessageTargetStartNumbers(message));
         document.querySelectorAll('.msg-driver-checkbox').forEach((checkbox) => {
@@ -364,6 +375,10 @@ export function renderCommunicationTab(container, competition) {
 
     categorySelect.addEventListener('change', syncCategoryUi);
     messageAudienceSelect.addEventListener('change', syncAudienceUi);
+    // "Viktigt / varning" is essential for push and e-mail alike
+    document.getElementById('msgType')?.addEventListener('change', (event) => {
+        mailOptions?.setEssential(event.target.value === 'alert');
+    });
     document.getElementById('msgCancelEditBtn')?.addEventListener('click', resetMessageForm);
 
     document.getElementById('contactListGroup')?.addEventListener('change', syncContactListUi);
@@ -518,49 +533,58 @@ export function renderCommunicationTab(container, competition) {
                 return;
             }
             // An essential e-mail needs its reason (logged) before anything is published
-            if (!document.getElementById('msgEditId').value && mailOptions?.essential() && !mailOptions.reason?.()) {
+            if (mailOptions?.essential() && !mailOptions.reason?.()) {
                 showAlert(t('mail_msg_reason_required'), false);
                 button.disabled = false;
                 return;
             }
 
+            const type = document.getElementById('msgType').value;
+            const sendPush = document.getElementById('msgSendPush')?.checked === true;
             const payload = {
                 title: document.getElementById('msgTitle').value.trim(),
                 body: document.getElementById('msgBody').value.trim(),
                 titleEn: document.getElementById('msgTitleEn').value.trim(),
                 bodyEn: document.getElementById('msgBodyEn').value.trim(),
-                type: document.getElementById('msgType').value,
+                type,
+                // "Viktigt / varning" is an essential push (reaches devices
+                // that switched messages off), as the e-mail
+                category: messageCategoryForType(type),
                 ...buildMessageAudience(audienceMode, { selectedDrivers })
             };
             const editId = document.getElementById('msgEditId').value;
 
             if (editId) {
+                // An update notice only when asked: a new id per send (the
+                // trigger notifies once per id)
+                if (sendPush) payload.updateNotice = newNoticeRequestId();
                 await updateCompetitionMessage(competition.id, editId, payload);
                 showAlert(t('msg_updated'));
             } else {
-                await saveCompetitionMessage(competition.id, payload);
+                await saveCompetitionMessage(competition.id, { ...payload, push: sendPush });
                 showAlert('Meddelande publicerat.');
-                if (mailOptions?.requested()) {
-                    const mailPayload = buildMessageMailPayload({
-                        competitionId: competition.id,
-                        title: payload.title,
-                        body: payload.body,
-                        titleEn: payload.titleEn,
-                        bodyEn: payload.bodyEn,
-                        mode: audienceMode,
-                        selectedDrivers,
-                        essential: mailOptions.essential(),
-                        reason: mailOptions.reason?.() || ''
-                    });
-                    try {
-                        if (!mailPayload) throw new Error(t('mail_msg_no_audience'));
-                        if (mailPayload.category === 'essential' && !mailPayload.reason) throw new Error(t('mail_msg_reason_required'));
-                        await queueCompetitionMail(mailPayload);
-                        showAlert(t('mail_msg_queued'), 'success');
-                    } catch (mailErr) {
-                        console.error(mailErr);
-                        showAlert(`${t('mail_msg_failed')} ${mailErr?.message || ''}`.trim(), false);
-                    }
+            }
+            if (mailOptions?.requested()) {
+                const mailPayload = buildMessageMailPayload({
+                    competitionId: competition.id,
+                    title: payload.title,
+                    body: payload.body,
+                    titleEn: payload.titleEn,
+                    bodyEn: payload.bodyEn,
+                    mode: audienceMode,
+                    selectedDrivers,
+                    essential: mailOptions.essential(),
+                    reason: mailOptions.reason?.() || '',
+                    update: !!editId
+                });
+                try {
+                    if (!mailPayload) throw new Error(t('mail_msg_no_audience'));
+                    if (mailPayload.category === 'essential' && !mailPayload.reason) throw new Error(t('mail_msg_reason_required'));
+                    await queueCompetitionMail(mailPayload);
+                    showAlert(t('mail_msg_queued'), 'success');
+                } catch (mailErr) {
+                    console.error(mailErr);
+                    showAlert(`${t('mail_msg_failed')} ${mailErr?.message || ''}`.trim(), false);
                 }
             }
             resetMessageForm();

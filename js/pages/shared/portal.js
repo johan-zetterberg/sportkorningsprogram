@@ -59,6 +59,7 @@ import { escapeHtml, sanitizeRichHtml, safeLinkUrl } from '../../utils/sharedUti
 import { addStateKeys, countUnread, localizedMessage, messageStateKey, readStoredKeys, writeStoredKeys } from '../../utils/messageAudience.js';
 import { buildMyStartTimes, renderMyStartTimesCard } from './portalStartTimes.js';
 import { effectiveLockdownMinutes } from '../../utils/lockdownMinutes.js';
+import { isVetStrikePending, vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 
 let messageUnsub = null;
 let dashboardUnsub = null;
@@ -303,10 +304,10 @@ export async function load(options = {}) {
         adminImpersonateHtml = `
             <div class="mt-6 pt-6 border-t dark:border-gray-700">
                 <h3 class="font-bold text-purple-900 dark:text-purple-300 mb-2 flex items-center gap-2">🛡️ ${t('portal_admin_review')}</h3>
-                <div class="flex gap-2">
-                    <input type="text" id="adminImpersonateCompId" placeholder="${escapeHtml(t('portal_competition_id'))}" aria-label="${escapeHtml(t('portal_competition_id'))}" class="px-3 py-2 border rounded-md text-sm flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeHtml(compId || '')}">
-                    <input type="text" id="adminImpersonateStartNo" placeholder="${escapeHtml(t('startno'))}" aria-label="${escapeHtml(t('startno'))}" class="px-3 py-2 border rounded-md text-sm w-24 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
-                    <button id="adminImpersonateBtn" class="bg-purple-600 text-white px-4 py-2 rounded-md text-sm font-bold hover:bg-purple-700 transition-colors">${t('portal_review_btn')}</button>
+                <div class="flex flex-col sm:flex-row gap-2">
+                    <input type="text" id="adminImpersonateCompId" placeholder="${escapeHtml(t('portal_competition_id'))}" aria-label="${escapeHtml(t('portal_competition_id'))}" class="px-3 py-2 min-h-[44px] min-w-0 border rounded-md text-sm flex-1 dark:bg-gray-700 dark:border-gray-600 dark:text-white" value="${escapeHtml(compId || '')}">
+                    <input type="text" id="adminImpersonateStartNo" placeholder="${escapeHtml(t('startno'))}" aria-label="${escapeHtml(t('startno'))}" class="px-3 py-2 min-h-[44px] min-w-0 border rounded-md text-sm w-full sm:w-24 dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                    <button id="adminImpersonateBtn" class="bg-purple-600 text-white px-4 py-2 min-h-[44px] w-full sm:w-auto rounded-md text-sm font-bold hover:bg-purple-700 transition-colors">${t('portal_review_btn')}</button>
                 </div>
             </div>
         `;
@@ -614,27 +615,27 @@ export async function load(options = {}) {
     // opens it with the competition filled in, so the official types the code only
     const openJoinModal = (joinRequest = null) => {
         document.getElementById('officialJoinModal')?.remove();
-        const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: 'Precision', speaker: 'Speaker', vet: 'Veterinär' };
+        const roleLabels = { admin: t('secretariat'), dressage: t('dressage_role'), marathon: t('marathon_role'), precision: t('role_precision'), speaker: t('role_speaker'), vet: t('role_vet'), td: t('role_td') };
         const modal = document.createElement('div');
         modal.id = 'officialJoinModal';
         modal.className = "fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 animate-fade-in";
         modal.innerHTML = `
         <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl w-full max-w-sm overflow-hidden flex flex-col transform transition-all scale-100" role="dialog" aria-modal="true" aria-labelledby="officialJoinTitle">
             <div class="p-5 border-b dark:border-gray-700 bg-blue-50 dark:bg-blue-900/30 flex justify-between items-center">
-                <h3 id="officialJoinTitle" class="font-bold text-lg text-blue-900 dark:text-blue-100">🔐 Ange funktionärskod</h3>
-                <button id="closePinModal" type="button" aria-label="Stäng" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none">&times;</button>
+                <h3 id="officialJoinTitle" class="font-bold text-lg text-blue-900 dark:text-blue-100">🔐 ${escapeHtml(t('join_title'))}</h3>
+                <button id="closePinModal" type="button" aria-label="${escapeHtml(t('join_close'))}" class="min-h-[44px] min-w-[44px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-2xl leading-none">&times;</button>
             </div>
             <div class="p-6">
                 <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">${joinRequest?.role
-                    ? `Ange koden för ${escapeHtml(roleLabels[joinRequest.role] || joinRequest.role)} som du fått av arrangören.`
-                    : 'Ange koden du fått av arrangören för att låsa upp din funktionärsroll.'}</p>
+                    ? escapeHtml(t('join_intro_role').replace('{role}', roleLabels[joinRequest.role] || joinRequest.role))
+                    : escapeHtml(t('join_intro'))}</p>
                 <div class="space-y-4">
                     <div ${joinRequest?.competitionId ? 'class="hidden"' : ''}>
-                        <label for="pinCompId" class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">Tävlings-ID (finns i länken)</label>
-                        <input type="text" id="pinCompId" class="w-full border rounded-md p-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder="t.ex. my-competition-2026">
+                        <label for="pinCompId" class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">${escapeHtml(t('join_comp_label'))}</label>
+                        <input type="text" id="pinCompId" class="w-full border rounded-md p-2 text-sm dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" placeholder="${escapeHtml(t('join_comp_placeholder'))}">
                     </div>
                     <div>
-                        <label for="pinCodeInput" class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">Kod</label>
+                        <label for="pinCodeInput" class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-1 uppercase">${escapeHtml(t('join_code_label'))}</label>
                         <input type="text" id="pinCodeInput" class="w-full border rounded-md p-3 text-center text-xl tracking-widest font-mono font-bold uppercase dark:bg-gray-700 dark:border-gray-600 dark:text-white focus:ring-2 focus:ring-blue-500" maxlength="16" autocapitalize="characters" autocomplete="one-time-code" spellcheck="false" placeholder="ABCD-EFGH-JK">
                     </div>
                 </div>
@@ -669,17 +670,17 @@ export async function load(options = {}) {
             const pin = modal.querySelector('#pinCodeInput').value.replace(/[\s-]+/g, '').toUpperCase();
 
             if (!compId || !pin) {
-                showAlert('Fyll i både tävlings-ID och kod.', false);
+                showAlert(t('join_fill_both'), false);
                 return;
             }
 
             btn.disabled = true;
-            btn.textContent = 'Verifierar...';
+            btn.textContent = t('join_verifying');
 
             try {
                 const joinedRole = await joinCompetitionAsAdmin(compId, pin, user, joinRequest?.role || '');
                 const roleStr = roleLabels[joinedRole] || joinedRole;
-                showAlert(`Rättigheter beviljade (${roleStr})! Synkroniserar...`, true);
+                showAlert(t('join_granted').replace('{role}', roleStr), true);
                 forgetJoinLink();
                 modal.remove();
 
@@ -700,7 +701,7 @@ export async function load(options = {}) {
                 setTimeout(() => location.reload(), 1500);
             } catch (err) {
                 console.error(err);
-                showAlert(err.message || 'Fel kod eller tävlings-ID.', false);
+                showAlert(err.message || t('join_wrong_code'), false);
                 btn.disabled = false;
                 btn.textContent = t('unlock');
             }
@@ -897,6 +898,7 @@ async function renderDashboard(container, compId, startNumber, user) {
                         <span class="bg-gray-900 dark:bg-gray-700 text-white text-base md:text-lg px-2 md:px-3 py-1 rounded-md whitespace-nowrap">#${safeStartNumber}</span>
                         <span class="break-all">${safeDriverName}</span>
                    </h1>
+                   ${isVetStrikePending(eq) ? `<div class="mt-2" role="status">${vetStrikeChipHtml(eq, { own: true })}</div>` : ''}
                    <div class="text-gray-600 dark:text-gray-400 mt-2 flex flex-wrap gap-2 items-center text-xs md:text-sm">
                         ${getFlagHtml(eq)} 
                         <span class="font-medium bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded text-gray-900 dark:text-gray-200">${safeClassName}</span>

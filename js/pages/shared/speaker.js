@@ -81,6 +81,7 @@ import {
     speakerLeaderboardRanks
 } from './speakerFormatUtils.js';
 import { getCurrentLanguage, t } from '../../utils/i18n.js';
+import { isVetStrikePending, vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { mergeUserRoles } from '../../utils/roleAccess.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import { enterTvModeIfRequested, exitTvMode, tvModeLinkHtml } from './tvMode.js';
@@ -1065,6 +1066,7 @@ function renderCurrentRiderCard() {
                 <div class="text-2xl md:text-3xl font-black text-gray-900 dark:text-white mb-0 truncate leading-tight">
                     ${safeDriverName}
                 </div>
+                ${isVetStrikePending(eq) ? `<div class="mb-2">${vetStrikeChipHtml(eq)}</div>` : ''}
                 <div class="text-xl text-gray-600 dark:text-gray-300 mb-2 flex items-center gap-2">
                     ${getClubLogoHtml(eq)} ${safeClubName} ${eq.address?.city ? `<span class="text-gray-400 mx-1">•</span> <span class="text-sm font-medium text-gray-600 dark:text-gray-300">${safeCity}</span>` : ''} ${getFlagHtml(eq)}
                 </div>

@@ -140,7 +140,10 @@ test('a competition message as a push audience (as the driver inbox reads it)', 
     assert.deepEqual(messagePushAudience({ audience: { public: false, drivers: false, officials: true, officialRoles: [] } }),
         { officials: { all: true } });
     assert.deepEqual(messagePushAudience({ audience: { public: false, drivers: false, officials: true, officialRoles: ['secretariat', 'vet'] } }),
-        { officials: { roles: ['admin', 'vet'] } });
+        { officials: { roles: ['admin', 'td', 'secretariat', 'vet'] } });
+    // The TD / ground jury audience of its own
+    assert.deepEqual(messagePushAudience({ audience: { public: false, drivers: false, officials: true, officialRoles: ['td'] } }),
+        { officials: { roles: ['td'] } });
     // An officials message without drivers: true reaches no driver (driverInbox.js)
     assert.deepEqual(messagePushAudience({ audience: { public: false, officials: true } }), { officials: { all: true } });
     // Legacy: no audience = everyone; one target = that driver only

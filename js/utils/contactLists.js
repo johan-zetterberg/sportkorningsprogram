@@ -28,6 +28,7 @@ export function officialRoleKeysOf(person = {}) {
     if (label.includes('dressyr') || label.includes('dressage')) keys.add('dressage');
     if (label.includes('hinder') || label.includes('maraton') || label.includes('marathon') || label.includes('observat')) keys.add('marathon');
     if (label.includes('precision') || label.includes('koner') || label.includes('cones')) keys.add('precision');
+    if (label.includes('domarkollegi') || label.includes('teknisk delegat') || label.includes('technical delegate') || label.includes('ground jury')) keys.add('td');
     return [...keys];
 }
 

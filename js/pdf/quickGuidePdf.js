@@ -357,7 +357,8 @@ export async function generateAdminChecklistPdf(competition = null) {
         '[ ] Generate dressage start order and auto-calculate start time intervals',
         '[ ] Measure carriage track widths and save them on the Track width page',
         '[ ] Hand out the 10-character role codes (or join link / QR) to judges, timekeepers and obstacle officials; invite admins by email',
-        '[ ] Print 1-page A4 field cheat sheets for the morning official briefing'
+        '[ ] Print 1-page A4 field cheat sheets for the morning official briefing',
+        '[ ] Notifications: ask officials and drivers to turn them on on their own device (iPhone: Add to Home Screen first); the app owner saves the key under Admin > Settings > Push notifications'
       ]
     },
     {
@@ -366,7 +367,8 @@ export async function generateAdminChecklistPdf(competition = null) {
         '[ ] First horse inspection (TR Mom 514) – record status (Passed, Re-inspection)',
         '[ ] Handle withdrawals and driver declarations (locks before the first start, 60 min by default)',
         '[ ] Monitor secretariat live dashboard for dressage, marathon & precision',
-        '[ ] Speaker view: open it for the speaker (live times, standings and driver notes)'
+        '[ ] Speaker view: open it for the speaker (live times, standings and driver notes)',
+        '[ ] Vet withdrawals wait for the ground jury: confirm or overturn them under Needs attention; changed start times: choose how to tell the drivers (message, notification, e-mail)'
       ]
     },
     {
@@ -410,7 +412,8 @@ export async function generateAdminChecklistPdf(competition = null) {
         '[ ] Generera dressyrens startordning och beräkna automatiska startintervaller',
         '[ ] Kontrollmät vagnarnas spårvidd och spara den på sidan Vagnbredd',
         '[ ] Dela ut rollkoderna (10 tecken, eller länk/QR-kod) till domare, tidtagare och hinderpersonal; bjud in admins via e-post',
-        '[ ] Skriv ut 1-sidiga A4-lathundar för funktionärsmötet på morgonen'
+        '[ ] Skriv ut 1-sidiga A4-lathundar för funktionärsmötet på morgonen',
+        '[ ] Notiser: be funktionärer och kuskar slå på dem på sin egen enhet (iPhone: Lägg till på hemskärmen först); appens ägare sparar nyckeln under Admin > Inställningar > Push-notiser'
       ]
     },
     {
@@ -419,7 +422,8 @@ export async function generateAdminChecklistPdf(competition = null) {
         '[ ] Hästbesiktning före start (TR Mom 514) – registrera status (Godkänd, Ombesiktning)',
         '[ ] Hantera strykningar och kuskarnas deklaration (låses före första start, 60 min som standard)',
         '[ ] Övervaka sekretariatets live-dashboard för dressyr, maraton och precision',
-        '[ ] Speakervy: Öppna den för speakern (livetider, placeringar och kuskarnas anteckningar)'
+        '[ ] Speakervy: Öppna den för speakern (livetider, placeringar och kuskarnas anteckningar)',
+        '[ ] Veterinärstrykningar väntar på domarkollegiet: fastställ eller upphäv under Att uppmärksamma; ändrade starttider: välj hur kuskarna ska få veta (meddelande, notis, e-post)'
       ]
     },
     {

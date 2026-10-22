@@ -12,6 +12,7 @@ import { getFlagHtml } from '../../services/flagsService.js';
 import { getMarathonActiveState } from '../../services/competitionStatusService.js';
 import { getCurrentLanguage, t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
 import { describePauseEntry, openPause, pauseHeadline } from '../../utils/globalPauseUtils.js';
 import { formatClockTime, timeValueToMs } from '../../utils/timeValueUtils.js';
@@ -475,7 +476,7 @@ function renderUpcomingPanel() {
 data-sn="${escapeHtml(eq.startNumber ?? '')}" >
         <div class="flex items-center gap-3 min-w-0">
           <span class="font-bold w-8 shrink-0 text-center dark:text-white">#${escapeHtml(eq.startNumber ?? '')}</span>
-          <span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName || '')}</span>
+          <span class="truncate dark:text-gray-300">${escapeHtml(eq.driverName || '')}</span>${vetStrikeChipHtml(eq, { compact: true })}
         </div>
         <div class="flex items-center gap-3 shrink-0">
           <div class="flex items-center gap-1 justify-start" title="${escapeHtml(eq.clubName || '')}">
@@ -602,7 +603,7 @@ function renderMonitor() {
        <div id="warning-${sn}"></div>
            <div>
              <div class="flex justify-between items-start">
-               <h3 class="text-lg font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
+               <h3 class="text-lg font-bold dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)} ${vetStrikeChipHtml(eq, { compact: true })}</h3>
                <div class="flex flex-col items-end gap-1">
                    <span class="task-badge px-2 py-0.5 text-xs font-semibold rounded-full ${active.task.type === 'obstacle' ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-200' : 'bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200'}">
                    ${escapeHtml(active.task.name)}
@@ -688,7 +689,7 @@ function renderMonitor() {
       card.className = `relative rounded-lg shadow-xl p-6 flex flex-col justify-center items-center border-l-8 ${cardColor} h-full transform scale-105 transition-transform`;
       card.innerHTML = `
              <div class="absolute top-2 right-2 text-xs font-mono text-gray-400">RESULTAT</div>
-             <h3 class="text-2xl font-bold mb-2 text-center dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>
+             <h3 class="text-2xl font-bold mb-2 text-center dark:text-white">#${escapeHtml(eq.startNumber)} ${escapeHtml(eq.driverName)}</h3>${vetStrikeChipHtml(eq, { compact: true })}
              <div class="text-sm font-semibold text-gray-600 dark:text-gray-300 mb-6">${escapeHtml(active.task.name)}</div>
              <div class="text-6xl font-extrabold mb-4 tracking-tight ${isFinite(penalty) ? 'text-gray-900 dark:text-white' : 'text-red-600 dark:text-red-400'}">${timeStr}</div>
              ${Number.isFinite(obstaclePlace) ? `<div class="text-lg font-bold text-gray-700 dark:text-gray-200 mb-2">Plac i klassen: ${obstaclePlace}</div>` : ''}

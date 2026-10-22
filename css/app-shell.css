@@ -316,3 +316,39 @@ body.judge-page .app-header-logout { display: none !important; }
     .app-nav-actions { gap: 0.25rem !important; }
     .app-nav-shell { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
 }
+
+/* Route banners (pause, messages) sit directly under the header; the pause
+   banner stays in view while the page scrolls */
+.route-banners { display: contents; }
+/* Under the sticky header (4 rem); with a header that scrolls away (a phone on its side) at the top */
+#globalPauseBannerHost.pause-active { position: sticky; top: 4rem; z-index: 45; }
+@media (max-width: 1100px) and (orientation: landscape) and (max-height: 760px) {
+    #globalPauseBannerHost.pause-active { top: 0; }
+}
+body.global-paused main .page { filter: grayscale(80%); }
+
+/* Tab bars that scroll sideways: a fade at the edge with more tabs behind it
+   (js/ui/tabOverflowHint.js) */
+.tab-overflow-right {
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - 3rem), transparent);
+}
+.tab-overflow-left {
+    -webkit-mask-image: linear-gradient(to left, #000 calc(100% - 3rem), transparent);
+    mask-image: linear-gradient(to left, #000 calc(100% - 3rem), transparent);
+}
+.tab-overflow-left.tab-overflow-right {
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent);
+    mask-image: linear-gradient(to right, transparent, #000 3rem, #000 calc(100% - 3rem), transparent);
+}
+
+/* A flex summary loses its native marker: show an expand cue (▸, ▾ when open) */
+summary.summary-cue::before {
+    content: "\25B8";
+    display: inline-block;
+    margin-right: 0.4rem;
+    transition: transform .15s ease;
+}
+details[open] > summary.summary-cue::before {
+    transform: rotate(90deg);
+}

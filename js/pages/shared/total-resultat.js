@@ -817,7 +817,7 @@ function renderDesktop() {
 
 
   container.innerHTML = `${scrollHintTextHtml(escapeHtml(t('scroll_for_more_columns')), 'totalScrollHint')}<div id="totalScrollHintWrap" class="rounded-lg shadow ring-1 ring-black/5">
-    <div id="total-x-wrap" class="x-scroll-wrap"> <table class="total-results-table text-sm">
+    <div id="total-x-wrap" class="x-scroll-wrap"> <table class="total-results-table text-sm w-full min-w-full">
         ${tableHead}
         <tbody>
           ${tableBody}

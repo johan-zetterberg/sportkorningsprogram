@@ -158,7 +158,7 @@ function listenForGlobalCompetitionPause_Results() {
       setPauseWindows([]);
     }
 
-    document.body.style.filter = isGloballyPaused ? 'grayscale(80%)' : '';
+    document.body.classList.toggle('global-paused', !!isGloballyPaused);
     render();
   });
 }
@@ -834,7 +834,7 @@ export function __unload() {
   window.__teardownXbarSync?.();
   teardownViewportStickyTableHeader();
   clearMarathonLiveTickers();
-  document.body.style.filter = '';
+  document.body.classList.remove('global-paused');
   competitionId = null;
   archiveSnapshot = null;
   isGloballyPaused = false;

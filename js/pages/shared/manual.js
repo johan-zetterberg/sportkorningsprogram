@@ -706,12 +706,35 @@ function getTabContentSV(tab) {
                     <ul class="list-disc list-inside space-y-1">
                         <li><strong>Händelser:</strong> Typ (Protest, Incident, Domarkollegiets beslut, Veterinärbeslut, Övrigt), mottagen tid, startnummer, gren och hinder, beskrivning, beslut, beslutat av och status (Öppen/Beslutad/Avslutad). Varje post får ett nummer. Exportera som PDF eller CSV till TD-rapporten.</li>
                         <li><strong>Korrigeringar:</strong> Sekretariatets rättelser med orsak och referens. Ange protestens eller beslutets nummer som referens vid rättelsen, så länkas rättelsen och händelsen till varandra.</li>
-                        <li><strong>Notiser:</strong> Veterinärens strykningar som väntar på domarkollegiet (Fastställ / Upphäv) och deklarationer som kuskar har ändrat ("Ändrad av kusk"; en ny häst efter besiktningen markeras för veterinären). Kvittera när du har sett dem.</li>
+                        <li><strong>Att uppmärksamma:</strong> Veterinärens strykningar som väntar på domarkollegiet (Fastställ / Upphäv) och deklarationer som kuskar har ändrat ("Ändrad av kusk"; en ny häst efter besiktningen markeras för veterinären). Kvittera när du har sett dem. Samma ruta visas överst på startsidan Funktionär för admin, sekretariat, TD och veterinär.</li>
+                        <li><strong>Veterinärstrykning:</strong> Veterinärens strykning är först ett förslag. Ekipaget markeras <em>"Veterinärstrykning avvaktar domarkollegiet"</em> hos sekretariatet, speakern, funktionärerna, på startlistan och på monitorerna, och kusken ser <em>"Veterinärbeslut avvaktar domarkollegiets beslut"</em> i Min Portal. Ekipaget stryks först när sekretariatet eller TD trycker <strong>Fastställ</strong>; <strong>Upphäv</strong> tar bort markeringen. Godkänner veterinären hästen igen innan beslutet är strykningen återkallad.</li>
                         <li><strong>Fältenheter:</strong> Varje enhet med en inmatningssida öppen rapporterar en gång i minuten: senast sedd (grön under 2 min, gul under 10, röd äldre), osända skrivningar, sida och hinder.</li>
                     </ul>
                     <p><strong>TD / Domarkollegium (rollen td):</strong> Lägg till i funktionärslistan (Systemrättigheter) eller ge rollkoden för TD. Rollen läser sekretariatssidorna, skriver i händelseloggen, kan finalisera och låsa upp resultat och fattar beslut om veterinärens strykningar.</p>
                     <p><strong>Resultat-PDF:</strong> Resultatlistor märks <em>PRELIMINÄRT RESULTAT</em> tills alla resultat på listan är finaliserade (eller tävlingen arkiverad); då står <em>OFFICIELLT RESULTAT</em> och en rad för domarkollegiets ordförandes underskrift.</p>
                     <p><strong>Nödinfo:</strong> Fyll i under <strong>Admin &gt; Kommunikation &gt; Publik info</strong>: larmnummer (112), sjukvård, jourveterinär, hovslagare, tävlingsledare och säkerhetsansvarig. Personernas telefonnummer visas bara för inloggade funktionärer och tävlingens kuskar; knappen <strong>Nöd</strong> i menyn visar kortet.</p>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="font-bold text-lg mb-2 text-sky-700 border-l-4 border-sky-500 pl-2">💬 Meddelanden, notiser & kontaktlistor</h3>
+                <div class="bg-sky-50 p-4 rounded-lg border border-sky-200 space-y-2 text-sm text-gray-700">
+                    <p>Ett <strong>meddelande</strong> visas i appen. En <strong>notis</strong> är pushnotisen som dyker upp i telefonen; den når bara dem som har slagit på notiser.</p>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Skicka meddelande:</strong> <strong>Admin &gt; Kommunikation</strong>. Välj mottagare: Publik, Kuskar, Valda kuskar, Funktionärer (alla) eller en roll: Dressyr, Maraton, Precision, Veterinär, Speaker, Sekretariat eller TD / domarkollegium. Markera Viktigt för ett rött meddelande. Engelsk text är valfri och visas för dem som valt engelska.</li>
+                        <li><strong>Ändra ett skickat meddelande:</strong> Tryck <strong>Ändra</strong>, rätta och välj <strong>Spara ändringar</strong>. Meddelandet märks "ändrad" med tid och visas igen för dem som hade dolt det. Uppdateringen kan skickas som notis och e-post. <strong>Ta bort</strong> tar bort meddelandet för alla mottagare.</li>
+                        <li><strong>Banner för funktionärer:</strong> Meddelanden till funktionärer visas överst på inmatningssidorna, sekretariatssidorna och startsidan Funktionär (där med antal). Du ser rubriken och två rader; <strong>Visa mer</strong> öppnar hela texten, <strong>+N fler</strong> visar att det finns fler, och &times; döljer meddelandet på den här enheten. Viktiga meddelanden är röda. Speakern ser dem i sin egen meddelanderuta, och de som inte är för publiken märks <em>Internt – ej utrop</em>.</li>
+                        <li><strong>Kontaktlistor:</strong> Längst ned under Kommunikation. Välj grupp (alla kuskar, kuskar i en klass, alla funktionärer eller en roll) och tryck <strong>Kopiera e-postadresser (BCC)</strong>, <strong>Kopiera telefonnummer</strong> eller <strong>Öppna e-post med BCC</strong>. Uppgifterna är privata och ska inte delas vidare.</li>
+                        <li><strong>Ändrade starttider:</strong> När du sparar ändrade tider i en publicerad startlista frågar systemet <em>Meddela berörda kuskar?</em> Välj hur: <strong>Meddelande i appen</strong>, <strong>Notis</strong> och/eller <strong>E-post</strong>. Du ser hur många kuskar och enheter med notiser påslagna det gäller, och varje kusk får bara sina egna tider. <strong>Skicka inte</strong> hoppar över utskicket.</li>
+                        <li><strong>Omkörning:</strong> På Precision-resultat finns knappen <strong>Meddela omkörning</strong>. Den skickar ett meddelande till de kvalificerade ekipagen (du kan ändra texten först) och en kort text till speakern.</li>
+                        <li><strong>Paus:</strong> När tävlingen pausas får funktionärer och kuskar med notiser påslagna en notis, och alla sidor visar en röd banner med orsak, vem som pausade och var. Start- och stoppknappar visar <em>Pausad</em>.</li>
+                        <li><strong>Var slår man på notiser?</strong> Funktionärer: överst på startsidan Funktionär. Kuskar: kortet <em>Notiser</em> i Min Portal. Alla: <strong>Mitt konto &gt; Notiser på den här enheten</strong> (följer de tävlingar man slår på notiser för i portalen). Appens ägare sparar först nyckeln under <strong>Admin &gt; Inställningar &gt; Push-notiser</strong>; innan dess står det att notiser inte är tillgängliga ännu.</li>
+                        <li><strong>Vilka notiser får man?</strong> Under Notiser väljer man ämnen. Funktionärer och veterinärer: ändrade starttider, meddelanden, paus, veterinärbeslut och ändrade deklarationer. Kuskar får bara det som rör dem; vid paus får kuskarna en kort notis med orsaken.</li>
+                        <li><strong>Viktigt och e-post:</strong> Meddelanden markerade Viktigt går ut som nödvändiga notiser, även till dem som stängt av meddelandenotiser. Ett nödvändigt e-postutskick kräver att du anger en orsak. Kryssrutorna vid utskick (meddelande, notis, e-post) visar antal mottagare och ingen får samma sak två gånger.</li>
+                        <li><strong>Omkörning:</strong> Knappen <strong>Meddela omkörning</strong> (admin och TD) skickar meddelande och notis till de kvalificerade och ett meddelande till speakern.</li>
+                        <li><strong>Veterinär drar tillbaka:</strong> Veterinären kan dra tillbaka en strykning som väntar på domarkollegiet; kusken får veta det.</li>
+                        <li><strong>iPhone och iPad:</strong> Kräver iOS 16.4 eller senare. Tryck Dela i Safari, välj <em>Lägg till på hemskärmen</em>, öppna appen från ikonen och slå sedan på notiser.</li>
+                    </ul>
                 </div>
             </section>
 
@@ -1175,6 +1198,7 @@ function getTabContentSV(tab) {
                 <li><strong>Kaffepaus ☕:</strong> Klicka på kaffekoppen på en rad för att skjuta in en paus (t.ex. 15 minuter). Alla efterföljande starter justeras automatiskt.</li>
                 <li><strong>Omvänd startordning (Precision):</strong> Låt de med sämst sammanlagda resultat starta först så att ledaren startar sist för maximal spänning.</li>
                 <li><strong>Spara & Publicera:</strong> Klicka på spara och aktivera publiceringstogglen när startlistan är redo för allmänheten.</li>
+                <li><strong>Ändrade tider efter publicering:</strong> Systemet frågar <em>Meddela berörda kuskar?</em> och du väljer kanal (meddelande i appen, notis, e-post). Varje kusk får bara sina egna tider.</li>
               </ul>
             </div>
           </section>
@@ -1224,6 +1248,8 @@ function getTabContentSV(tab) {
                 <li><strong>Nästa Start:</strong> Visar vilket ekipage som står på tur för dig (baserat på din roll och position). Klicka på knappen "Gå till..." för att komma direkt till inmatningen för det ekipaget.</li>
                 <li><strong>Att Göra / Synk:</strong> Visar om du har några protokoll eller tider som inte skickats iväg än (Synk-kö).</li>
                 <li><strong>Genvägar:</strong> Länkar direkt till de verktyg du behöver (t.ex. Tidtagning, Hinder, Besiktning).</li>
+                <li><strong>Meddelanden:</strong> Meddelanden till funktionärer (till alla, din roll eller TD) visas överst med antal. <strong>Att uppmärksamma</strong> visas för admin, sekretariat, TD och veterinär.</li>
+                <li><strong>Notiser:</strong> Ett tydligt kort överst frågar om du vill <strong>slå på notiser</strong> på den här enheten (på iPhone först efter <em>Lägg till på hemskärmen</em>).</li>
               </ul>
             </div>
           </section>
@@ -1357,7 +1383,7 @@ function getTabContentSV(tab) {
                             <ul class="list-disc list-inside ml-4 text-xs mt-1">
                                 <li><strong>Godkänd (Grön):</strong> Hästen är ok för start.</li>
                                 <li><strong>Håll (Gul):</strong> Osäker status, skickas till ombesiktning (Holding Box).</li>
-                                <li><strong>Struken (Röd):</strong> Hästen får ej starta.</li>
+                                <li><strong>Struken (Röd):</strong> Hästen får ej starta. Din strykning går först till domarkollegiet: ekipaget visas som <em>"Veterinärstrykning avvaktar domarkollegiet"</em> tills sekretariatet eller TD fastställer eller upphäver den. Godkänner du hästen igen innan dess är strykningen återkallad.</li>
                             </ul>
                         </li>
                         <li><strong>Noteringar:</strong> Du kan skriva in sårskador eller andra observationer som sparas på ekipaget.</li>
@@ -1437,7 +1463,7 @@ function getTabContentSV(tab) {
                     </ol>
                     <p class="text-red-800 mt-4 text-sm">
                         <strong>Vad händer då?</strong><br>
-                        Alla tävlingsklockor (etapper, hinder, precision) pausas och tiden under pausen räknas inte. Sidor som är öppna visar att tävlingen är pausad, men ingen larmas: meddela tävlingsledningen via radio eller telefon.
+                        Alla tävlingsklockor (etapper, hinder, precision) pausas och tiden under pausen räknas inte. Du anger orsak (och gärna en kort beskrivning). Alla sidor visar en röd banner med orsak, vem som pausade och var, och knapparna visar Pausad. Funktionärer och kuskar som har slagit på notiser får en notis. Vid en olycka ringer du dessutom tävlingsledningen via radio eller telefon.
                     </p>
                     <p class="text-green-800 mt-4 font-bold">
                         För att återuppta: Tryck på den gröna knappen "${btn('observer_resume_all', 'sv')}" när banan är fri.
@@ -1605,11 +1631,15 @@ function getTabContentSV(tab) {
                         </div>
                         <div class="bg-white p-3 rounded border border-amber-100">
                              <strong class="text-amber-900 block mb-1">🩺 Veterinärstatus</strong>
-                             <p class="text-xs text-gray-600">Se om din häst är godkänd ("Grön") eller har anmärkningar.</p>
+                             <p class="text-xs text-gray-600">Se om din häst är godkänd ("Grön") eller har anmärkningar. Om veterinären har föreslagit strykning står det <em>"Veterinärbeslut avvaktar domarkollegiets beslut"</em> vid ditt ekipage tills domarkollegiet har beslutat.</p>
                         </div>
                         <div class="bg-white p-3 rounded border border-amber-100">
                              <strong class="text-amber-900 block mb-1">📢 Speaker-noteringar</strong>
                              <p class="text-xs text-gray-600">Skriv in text som speakern kan läsa upp under din ritt (t.ex. kuriosa).</p>
+                        </div>
+                        <div class="bg-white p-3 rounded border border-amber-100">
+                             <strong class="text-amber-900 block mb-1">🔔 Notiser</strong>
+                             <p class="text-xs text-gray-600">Slå på notiser i kortet <em>Notiser</em> för att få ändrade starttider, meddelanden, paus och veterinärbeslut direkt i telefonen. På iPhone: välj först <em>Lägg till på hemskärmen</em> (iOS 16.4 eller senare). Inställningen för enheten finns också under Mitt konto.</p>
                         </div>
                         <div class="bg-white p-3 rounded border border-amber-100">
                              <strong class="text-amber-900 block mb-1">📄 Dokument & PM</strong>
@@ -1628,7 +1658,8 @@ function getTabContentSV(tab) {
                 <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">2. Resultat & Meddelanden</h3>
                 <div class="space-y-4 text-gray-700">
                     <ul class="list-disc list-inside ml-2">
-                        <li><strong>Meddelanden:</strong> Här tar du emot både <strong>personliga meddelanden</strong> (riktade bara till dig) och allmänna utrop (till alla).</li>
+                        <li><strong>Meddelanden:</strong> Här tar du emot både <strong>personliga meddelanden</strong> (riktade bara till dig) och allmänna utrop (till alla). Antalet olästa syns vid rubriken; <em>Markera alla som lästa</em> rensar. Arrangören kan rätta ett skickat meddelande, och det visas då som ny igen.</li>
+                        <li><strong>Notiser:</strong> Vill du ha ett meddelande som en notis i telefonen slår du på notiser i portalen (se ovan).</li>
                         <li><strong>Protokoll:</strong> När dressyren är klar och signerad kan du ofta ladda ner ditt protokoll som PDF direkt från resultatlistan.</li>
                     </ul>
                     
@@ -1671,6 +1702,10 @@ function getTabContentSV(tab) {
                 <div class="bg-indigo-50 p-3 rounded border border-indigo-100">
                     <strong class="text-indigo-900 block mb-1">📢 Speaker-noteringar</strong>
                     <p class="text-gray-700">Visar texten som kusken själv lagt in i sin portal.</p>
+                </div>
+                <div class="bg-indigo-50 p-3 rounded border border-indigo-100">
+                    <strong class="text-indigo-900 block mb-1">💬 Meddelanden & markeringar</strong>
+                    <p class="text-gray-700">Arrangörens meddelanden visas i en egen ruta; de som inte är för publiken märks <em>Internt – ej utrop</em>. Ett ekipage med <em>Veterinärstrykning avvaktar domarkollegiet</em> är inte struket än: vänta med att utropa det. Vid paus visas en röd banner med orsak.</p>
                 </div>
                 
                 <div class="bg-indigo-50 p-3 rounded border border-indigo-100">
@@ -1888,12 +1923,35 @@ function getTabContentEN(tab) {
                     <ul class="list-disc list-inside space-y-1">
                         <li><strong>Entries:</strong> Type (Protest, Incident, Ground jury decision, Veterinary decision, Other), time received, start number, discipline and obstacle, description, decision, decided by and status (Open/Decided/Closed). Each entry gets a number. Export as PDF or CSV for the TD report.</li>
                         <li><strong>Corrections:</strong> The secretariat's corrections with reason and reference. Give the protest's or decision's number as the reference and the correction and the entry are linked.</li>
-                        <li><strong>Notifications:</strong> Vet withdrawals waiting for the ground jury (Confirm / Overturn) and declarations changed by drivers ("Changed by driver"; a new horse after the inspection is flagged for the vet). Acknowledge them once seen.</li>
+                        <li><strong>Needs attention:</strong> Vet withdrawals waiting for the ground jury (Confirm / Overturn) and declarations changed by drivers ("Changed by driver"; a new horse after the inspection is flagged for the vet). Acknowledge them once seen. The same panel is shown at the top of the officials' start page for admin, secretariat, TD and vet.</li>
+                        <li><strong>Vet withdrawal:</strong> A vet's withdrawal is first a proposal. The equipage is marked <em>"Vet strike awaiting the ground jury"</em> for the secretariat, the speaker, the officials, on the start list and the monitors, and the driver sees <em>"Vet decision awaiting the ground jury's decision"</em> in My Portal. The equipage is withdrawn only when the secretariat or the TD presses <strong>Confirm</strong>; <strong>Overturn</strong> removes the mark. If the vet approves the horse again before the decision, the withdrawal is taken back.</li>
                         <li><strong>Field devices:</strong> Every device with an input page open reports once a minute: last seen (green under 2 min, amber under 10, red older), unsent writes, page and obstacle.</li>
                     </ul>
                     <p><strong>TD / Ground jury (role td):</strong> Add it in the officials list (system rights) or hand out the TD role code. The role reads the secretariat pages, writes the incident log, can finalize and unlock results and decides the vet's withdrawals.</p>
                     <p><strong>Result PDFs:</strong> Result lists are marked <em>PROVISIONAL RESULTS</em> until every result on the list is finalized (or the competition archived); then they read <em>OFFICIAL RESULTS</em> with a signature line for the President of the Ground Jury.</p>
                     <p><strong>Emergency info:</strong> Fill it in under <strong>Admin &gt; Communication &gt; Public info</strong>: emergency number (112), first aid, vet on duty, farrier, chief steward and safety officer. The persons' phone numbers are shown only to signed-in officials and the competition's drivers; the <strong>Emergency</strong> button in the menu opens the card.</p>
+                </div>
+            </section>
+
+            <section>
+                <h3 class="font-bold text-lg mb-2 text-sky-700 border-l-4 border-sky-500 pl-2">💬 Messages, notifications & contact lists</h3>
+                <div class="bg-sky-50 p-4 rounded-lg border border-sky-200 space-y-2 text-sm text-gray-700">
+                    <p>A <strong>message</strong> is shown in the app. A <strong>notification</strong> is the push notification that pops up on the phone; it reaches only those who have turned notifications on.</p>
+                    <ul class="list-disc list-inside space-y-1">
+                        <li><strong>Send a message:</strong> <strong>Admin &gt; Communication</strong>. Choose the recipients: Public, Drivers, Selected drivers, Officials (all) or one role: Dressage, Marathon, Cones, Vet, Speaker, Secretariat or TD / ground jury. Mark it Important for a red message. The English text is optional and shown to those who chose English.</li>
+                        <li><strong>Edit a sent message:</strong> Press <strong>Edit</strong>, correct it and choose <strong>Save changes</strong>. The message is marked "edited" with the time and shows again for those who had hidden it. The update can be sent as a notification and by e-mail. <strong>Delete</strong> removes the message for every recipient.</li>
+                        <li><strong>Banner for officials:</strong> Messages for officials appear at the top of the input pages, the secretariat pages and the officials' start page (there with a count). You see the title and two lines; <strong>Show more</strong> opens the whole text, <strong>+N more</strong> tells you there are more, and &times; hides the message on this device. Important messages are red. The speaker sees them in the own message box, and those not meant for the public are marked <em>Internal – not to announce</em>.</li>
+                        <li><strong>Contact lists:</strong> At the bottom of Communication. Choose a group (all drivers, drivers in a class, all officials or one role) and press <strong>Copy e-mail addresses (BCC)</strong>, <strong>Copy phone numbers</strong> or <strong>Open e-mail with BCC</strong>. The details are private and must not be passed on.</li>
+                        <li><strong>Changed start times:</strong> When you save changed times in a published start list the app asks <em>Tell the drivers concerned?</em> Choose how: <strong>Message in the app</strong>, <strong>Notification</strong> and/or <strong>E-mail</strong>. You see how many drivers and devices with notifications on it concerns, and each driver gets only their own times. <strong>Do not send</strong> skips the send-out.</li>
+                        <li><strong>Drive-off:</strong> On Cones results the <strong>Announce drive-off</strong> button sends a message to the qualified equipages (you can edit the text first) and a short message to the speaker.</li>
+                        <li><strong>Pause:</strong> When the competition is paused, officials and drivers with notifications on get a notification, and every page shows a red banner with the reason, who paused and where. Start and stop buttons read <em>Paused</em>.</li>
+                        <li><strong>Where to turn notifications on:</strong> Officials: at the top of the officials' start page. Drivers: the <em>Notifications</em> card in My Portal. Everyone: <strong>My account &gt; Notifications on this device</strong> (follows the competitions you turn notifications on for in the portal). The app owner first saves the key under <strong>Admin &gt; Settings &gt; Push notifications</strong>; until then the app says notifications are not available yet.</li>
+                        <li><strong>Which notifications?</strong> Under Notifications you choose topics. Officials and vets: changed start times, messages, pause, vet decisions and changed declarations. Drivers get only what concerns them; on a pause drivers get a short notification with the reason only.</li>
+                        <li><strong>Important and e-mail:</strong> Messages marked Important go out as essential notifications, also to those who switched message notifications off. An essential e-mail send-out requires a reason. The send-out checkboxes (message, notification, e-mail) show the number of recipients and nobody gets the same thing twice.</li>
+                        <li><strong>Drive-off:</strong> The <strong>Announce drive-off</strong> button (admin and TD) sends a message and a notification to the qualifiers and a message to the speaker.</li>
+                        <li><strong>Vet withdraws:</strong> The vet can withdraw a strike that waits for the ground jury; the driver is told.</li>
+                        <li><strong>iPhone and iPad:</strong> Needs iOS 16.4 or later. Tap Share in Safari, choose <em>Add to Home Screen</em>, open the app from its icon and then turn notifications on.</li>
+                    </ul>
                 </div>
             </section>
 
@@ -2359,6 +2417,8 @@ function getTabContentEN(tab) {
                 <li><strong>Next Start:</strong> Shows which equipage is up next for you (based on your role). Click "Go to..." to jump directly to the input screen for that driver.</li>
                 <li><strong>To Do / Sync:</strong> Shows if you have any protocols or times pending upload (Sync Queue).</li>
                 <li><strong>Shortcuts:</strong> Direct access to the tools you need (e.g., Timing, Obstacles, Vet Check).</li>
+                <li><strong>Messages:</strong> Messages for officials (to everyone, your role or the TD) are shown at the top with a count. <strong>Needs attention</strong> is shown for admin, secretariat, TD and vet.</li>
+                <li><strong>Notifications:</strong> A clear card at the top asks if you want to <strong>turn on notifications</strong> on this device (on iPhone only after <em>Add to Home Screen</em>).</li>
               </ul>
             </div>
           </section>
@@ -2441,7 +2501,7 @@ function getTabContentEN(tab) {
                             <ul class="list-disc list-inside ml-4 text-xs mt-1">
                                 <li><strong>Approved (Green):</strong> Horse is OK to start.</li>
                                 <li><strong>Hold (Yellow):</strong> Uncertain status, sent to Holding Box.</li>
-                                <li><strong>Scratched (Red):</strong> Horse may not start.</li>
+                                <li><strong>Scratched (Red):</strong> Horse may not start. Your withdrawal goes to the ground jury first: the equipage shows <em>"Vet strike awaiting the ground jury"</em> until the secretariat or the TD confirms or overturns it. If you approve the horse again before that, the withdrawal is taken back.</li>
                             </ul>
                         </li>
                         <li><strong>Notes:</strong> You can enter observations (e.g., wounds) that are saved on the entry.</li>
@@ -2580,7 +2640,9 @@ function getTabContentEN(tab) {
                 <h3 class="font-bold text-lg mb-2 text-blue-700 border-l-4 border-blue-500 pl-2">Results & Messages</h3>
                 <div class="space-y-4 text-gray-700">
                     <ul class="list-disc list-inside ml-2">
-                        <li><strong>Messages:</strong> Receive personal messages (just to you) and broadcasts (to everyone).</li>
+                        <li><strong>Messages:</strong> Receive personal messages (just to you) and broadcasts (to everyone). The number of unread messages is shown by the heading; <em>Mark all as read</em> clears it. The organiser can correct a sent message, and it then shows as new again.</li>
+                        <li><strong>Notifications:</strong> To get a message as a notification on your phone, turn on notifications in the portal. On iPhone, choose <em>Add to Home Screen</em> first (iOS 16.4 or later). The device setting is also under My account.</li>
+                        <li><strong>Vet decision:</strong> If the vet has proposed a withdrawal, your entry shows <em>"Vet decision awaiting the ground jury's decision"</em> until the ground jury has decided.</li>
                     </ul>
                     
                     <div class="bg-gray-50 p-4 rounded-lg">
@@ -2625,6 +2687,13 @@ function getTabContentEN(tab) {
                             <div>
                                 <strong>Speaker Notes:</strong> 
                                 <p class="text-gray-600">When a driver enters the arena/course, their "Bio" (fun facts) pops up automatically.</p>
+                            </div>
+                        </li>
+                        <li class="flex items-start gap-3">
+                            <span class="text-2xl">💬</span>
+                            <div>
+                                <strong>Messages & marks:</strong> 
+                                <p class="text-gray-600">The organiser's messages have their own box; those not meant for the public are marked <em>Internal – not to announce</em>. An equipage marked <em>Vet strike awaiting the ground jury</em> is not withdrawn yet: wait before announcing it. During a pause a red banner shows the reason.</p>
                             </div>
                         </li>
                         <li class="flex items-start gap-3">
@@ -2706,7 +2775,7 @@ function getTabContentEN(tab) {
                         <li>Press the red "${btn('observer_stop_all', 'en')}" button.</li>
                         <li>Confirm the action.</li>
                     </ol>
-                    <p class="text-red-800 mt-2 text-sm italic">All competition clocks pause and the paused time does not count. Pages that are open show that the competition is paused, but nobody is alerted: tell the competition management by radio or phone. Resume with "${btn('observer_resume_all', 'en')}".</p>
+                    <p class="text-red-800 mt-2 text-sm italic">All competition clocks pause and the paused time does not count. You enter the reason (and a short description if you like). Every page shows a red banner with the reason, who paused and where, and the buttons read Paused. Officials and drivers who have turned on notifications get a notification. After an accident, also tell the competition management by radio or phone. Resume with "${btn('observer_resume_all', 'en')}".</p>
                 </div>
             </section>
 

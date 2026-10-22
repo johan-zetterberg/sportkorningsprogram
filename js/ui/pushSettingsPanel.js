@@ -61,7 +61,7 @@ function topicsHtml(role, topics, busy) {
 function buttonsHtml(view, { compact, busy }) {
     const dis = busy ? 'disabled' : '';
     if (view === 'off') {
-        return `<div class="mt-3"><button type="button" data-push-act="enable" ${dis} class="${BTN} bg-blue-600 hover:bg-blue-700 text-white">${escapeHtml(t('push_enable'))}</button></div>`;
+        return `<div class="mt-3"><button type="button" data-push-act="enable" ${dis} class="${BTN} bg-blue-600 hover:bg-blue-700 text-white w-full sm:w-auto">${escapeHtml(t('push_enable'))}</button></div>`;
     }
     if (view === 'on') {
         return `
@@ -78,9 +78,10 @@ function buttonsHtml(view, { compact, busy }) {
  * 'official', 'staff' or 'device' for the device-wide switch), competitionId
  * (the competition this device should follow; none = whole device), compact.
  */
-export async function mountPushPanel(container, { role = 'device', competitionId = null, compact = false } = {}) {
+export async function mountPushPanel(container, { role = 'device', competitionId = null, compact = false, prompt = false, title = null } = {}) {
     if (!container) return;
-    const ctx = { role, competitionId, compact, busy: false, result: '' };
+    // prompt: while notifications are off here, the panel is a clear call to switch them on
+    const ctx = { role, competitionId, compact, prompt, title, busy: false, result: '' };
     container.__pushCtx = ctx;
     // One listener per container, however often the panel is mounted again
     if (!container.__pushBound) {
@@ -89,10 +90,17 @@ export async function mountPushPanel(container, { role = 'device', competitionId
         container.addEventListener('change', (event) => onChange(container, event));
     }
     container.innerHTML = `<section id="pushPanel" data-push-panel class="${compact ? '' : 'bg-white dark:bg-gray-800 rounded-lg border dark:border-gray-700 p-4 md:p-6 shadow-sm'}">
-        <h3 class="${compact ? 'text-sm font-semibold' : 'text-lg font-bold'} text-gray-900 dark:text-white">🔔 ${escapeHtml(t('push_title'))}</h3>
+        ${headingHtml(ctx)}
         <p class="mt-1 text-sm text-gray-600 dark:text-gray-300" aria-live="polite">${escapeHtml(t('loading_data'))}</p>
     </section>`;
     await render(container);
+}
+
+// The panel's heading; title '' leaves it out (a card that has its own)
+function headingHtml(ctx) {
+    const title = ctx.title ?? t('push_title');
+    if (!title) return '';
+    return `<h3 class="${ctx.compact ? 'text-sm font-semibold' : 'text-lg font-bold'} text-gray-900 dark:text-white">🔔 ${escapeHtml(title)}</h3>`;
 }
 
 async function loadState(ctx) {
@@ -127,9 +135,12 @@ function paint(container) {
     const topics = status.topics || [];
     const root = container.querySelector('#pushPanel');
     if (!root) return;
+    const asPrompt = ctx.prompt === true && view === 'off';
+    ['border-2', 'border-amber-400', 'bg-amber-50', 'dark:bg-amber-900/20'].forEach((cls) => root.classList.toggle(cls, asPrompt));
     root.innerHTML = `
-        <h3 class="${ctx.compact ? 'text-sm font-semibold' : 'text-lg font-bold'} text-gray-900 dark:text-white">🔔 ${escapeHtml(t('push_title'))}</h3>
+        ${headingHtml(ctx)}
         <p class="mt-1 text-sm text-gray-600 dark:text-gray-300" data-push-status aria-live="polite">${escapeHtml(statusText)}</p>
+        ${asPrompt ? `<p class="mt-1 text-sm font-semibold text-amber-900 dark:text-amber-100" data-push-prompt>${escapeHtml(t('push_prompt_text'))}</p>` : ''}
         ${view === 'ios-guide' || view === 'ios-old' ? guideHtml(view) : ''}
         ${view === 'denied' ? `<p class="mt-2 text-sm text-amber-800 dark:text-amber-200 rounded-md bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3">${escapeHtml(t('push_denied_help'))}</p>` : ''}
         ${view === 'on' ? topicsHtml(ctx.role, topics, ctx.busy) : ''}

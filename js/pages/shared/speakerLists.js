@@ -16,6 +16,7 @@ import { actionAttrs, escapeHtml, isWithdrawnEquipage } from '../../utils/shared
 import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { formatPrecisionSeconds, precisionPlacingScore, runningPrecisionRound } from '../precision/precisionRoundsDisplay.js';
 import { t as translate } from '../../utils/i18n.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { timeValueToMs } from '../../utils/timeValueUtils.js';
 import { compareByTimeThenStartNumber } from '../../utils/startNumberSort.js';
 import {
@@ -292,6 +293,7 @@ export function renderUpcomingList(ctx) {
             <div class="min-w-0">
                 <div class="font-bold text-gray-900 dark:text-white truncate flex items-center gap-1.5">
                     <span>#${escapeHtml(String(eq.startNumber ?? ''))} ${escapeHtml(eq.driverName || '')}</span>
+                    ${vetStrikeChipHtml(eq, { compact: true })}
                     ${eq.hasMultipleStarts ? `<span class="inline-flex items-center px-1.5 py-0.2 rounded text-xs font-semibold bg-indigo-100 text-indigo-700 dark:bg-indigo-900/60 dark:text-indigo-300" title="${escapeHtml(translate('speaker_multiple_starts_title'))}">${eq.driverStartCount || 2} ${escapeHtml(translate('starts_short'))}</span>` : ''}
                 </div>
                 <div class="text-xs text-gray-600 dark:text-gray-300 truncate">${escapeHtml(eq.clubName || '')}</div>
@@ -496,6 +498,7 @@ export function renderActiveListNew(ctx) {
                 <div class="flex justify-between items-start">
                     <div>
                         <div class="font-black text-lg text-gray-900 dark:text-white leading-none">#${escapeHtml(String(c.sn ?? ''))} ${escapeHtml(c.eq?.driverName || '')}</div>
+                        ${c.eq?.vetStrikePending ? `<div class="mt-1">${vetStrikeChipHtml(c.eq, { compact: true })}</div>` : ''}
                         <div class="text-xs text-amber-800 dark:text-amber-200 font-bold mt-1 uppercase tracking-wide">${c.task.type === 'result_flash' ? 'Resultat Hinder' : 'Hinder'} ${escapeHtml(obsNum)} ${splitText}</div>
                     </div>
                     <div class="text-3xl tabular-nums tracking-wide font-black text-gray-800 dark:text-gray-200 tracking-tight" id="maraton-timer-${escapeAttr(String(c.sn ?? ''))}">${timeTxt}</div>
@@ -544,6 +547,7 @@ export function renderActiveListNew(ctx) {
                 <div class="flex items-center gap-2 overflow-hidden">
                     <span class="font-bold text-gray-700 dark:text-gray-300 text-xs w-8">#${escapeHtml(String(c.sn ?? ''))}</span>
                     <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">${escapeHtml(c.eq?.driverName || '')}</span>
+                    ${vetStrikeChipHtml(c.eq, { compact: true })}
                 </div>
                 <div class="flex items-center gap-3">
                     <span class="text-xs px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-300 tabular-nums tracking-wide">${escapeHtml(c.task.name)}</span>

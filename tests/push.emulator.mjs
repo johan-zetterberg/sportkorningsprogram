@@ -10,6 +10,7 @@ import { createRequire } from 'node:module';
 import {
     PUSH_SENDING_TAKEOVER_MS,
     PUSH_TOKENS,
+    countPushTargets,
     deleteUserTokens,
     loadCompetitionTokens,
     purgeStaleTokens,
@@ -21,7 +22,17 @@ import {
     sendPushToUser,
     unregisterPushToken
 } from '../functions/src/push/pushService.js';
-import { PUSH_LIMITS, buildMessageContent, messagePushAudience, pushTokenId } from '../functions/src/push/pushCore.js';
+import {
+    PAUSE_PUSH_AUDIENCE,
+    PUSH_LIMITS,
+    buildMessageContent,
+    buildPauseContent,
+    buildStartTimeContent,
+    messagePushAudience,
+    normalizeStartTimeChanges,
+    pushTokenId,
+    startTimePushTag
+} from '../functions/src/push/pushCore.js';
 
 const PROJECT_ID = 'demo-combined-driving';
 if (!process.env.FIRESTORE_EMULATOR_HOST) {
@@ -193,6 +204,48 @@ test('push: officials by system role, pause urgent; vet decision to the driver a
     assert.ok(draftTokens.includes(TOKEN('anna')));
     assert.ok(!draftTokens.includes(TOKEN('fan2')));
     await db.doc(pub).update({ published: true });
+});
+
+test('push: a pause reaches drivers too, with their own text; start times one notice per driver and tag; counting', async () => {
+    await register('bo2', { email: 'bo@example.se', topics: ['pause', 'startTimes'] });
+    const messaging = fakeMessaging();
+    const entry = { start: '2026-05-16T08:05:00.000Z', reason: 'weather', note: 'Hinder 3 stängt' };
+    const pause = await sendPushToAudience(db, messaging, {
+        appId: APP_ID, compId: COMP, audience: PAUSE_PUSH_AUDIENCE, category: 'essential', topic: 'pause',
+        content: (target, lang) => buildPauseContent('start', entry, lang, target.as), tag: 'pause', dedupeKey: `pause-drv-${run}`, logger: quietLogger
+    });
+    assert.equal(pause.status, 'sent');
+    const byToken = new Map(messaging.calls.flatMap((c) => c.tokens.map((tok) => [tok, c])));
+    assert.deepEqual([...byToken.keys()].sort(), [TOKEN('bo2'), TOKEN('mar'), TOKEN('owner')].sort(), 'drivers following pauses and the officials');
+    assert.equal(byToken.get(TOKEN('bo2')).webpush.notification.title, 'Tävlingen är pausad: Väder');
+    assert.ok(!byToken.get(TOKEN('bo2')).webpush.notification.body.includes('Hinder 3'), 'the note stays with the officials');
+    assert.equal(byToken.get(TOKEN('bo2')).webpush.data.url, `#portal?id=${COMP}`);
+    assert.match(byToken.get(TOKEN('mar')).webpush.notification.body, /Hinder 3 stängt/);
+
+    // Changed start times: each driver's own lines and tag (per save)
+    const texts = normalizeStartTimeChanges([{ startNumber: '1', text: 'Dressyr 09:10 → 09:30', textEn: 'Dressage 09:10 → 09:30' }, { startNumber: '2', text: 'Dressyr 10:00 → 10:10' }]);
+    const startCalls = fakeMessaging();
+    const audience = { drivers: { classes: [], startNumbers: ['1', '2'], includeWithdrawn: true } };
+    const sent = await sendPushToAudience(db, startCalls, {
+        appId: APP_ID, compId: COMP, audience, category: 'essential', topic: 'startTimes',
+        content: (target, lang) => ({ ...buildStartTimeContent(texts, target.startNumbers, lang), tag: startTimePushTag(target.startNumbers, `req${run}`) }),
+        tag: 'start-time', dedupeKey: `starttimes-req${run}`, logger: quietLogger
+    });
+    assert.equal(sent.targeted, 2);
+    const anna = startCalls.calls.find((c) => c.tokens.includes(TOKEN('anna')));
+    const bo = startCalls.calls.find((c) => c.tokens.includes(TOKEN('bo2')));
+    assert.equal(anna.webpush.notification.body, 'Dressage 09:10 → 09:30');
+    assert.equal(bo.webpush.notification.body, 'Dressyr 10:00 → 10:10');
+    assert.notEqual(anna.webpush.notification.tag, bo.webpush.notification.tag);
+    assert.match(bo.webpush.notification.tag, /^start-time-2-req/);
+    // The same request id again: nothing twice
+    assert.equal((await sendPushToAudience(db, startCalls, {
+        appId: APP_ID, compId: COMP, audience, topic: 'startTimes', title: 't', body: 'b', dedupeKey: `starttimes-req${run}`, logger: quietLogger
+    })).status, 'duplicate');
+
+    // Counting for the admin's dialog, without sending
+    assert.deepEqual(await countPushTargets(db, { appId: APP_ID, compId: COMP, audience, topic: 'startTimes', category: 'essential' }), { available: true, devices: 2 });
+    assert.deepEqual(await countPushTargets(db, { appId: APP_ID, compId: COMP, audience: null, topic: 'startTimes' }), { available: true, devices: 0 });
 });
 
 test('push: the daily cap is all or nothing and logged', async () => {

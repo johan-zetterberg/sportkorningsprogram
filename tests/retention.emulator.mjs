@@ -41,6 +41,9 @@ async function seedCompetition(id, archivedAt) {
   await db.doc(`${priv(id)}/rejectedWrites/r1`).set({ discipline: 'marathon', startNumber: '1', reportedBy: 'u2' });
   await db.doc(`${priv(id)}/rateLimits/volunteerSignup_competition`).set({ windowStart: now, count: 1 });
   await db.doc(`competitions/${id}/finalizationLog/f1`).set({ discipline: 'dressage', action: 'finalize', by: 'u1', byName: 'Domare D' });
+  await db.doc(`${pub(id)}/config/globalStatus`).set({
+    pauseLog: [{ start: '2026-05-16T08:00:00Z', end: '2026-05-16T08:10:00Z', reason: 'weather', by: { uid: 'u1', name: 'Tess TD', role: 'td' }, endedBy: { uid: 'u2', name: 'Adam Admin', role: 'admin' } }]
+  });
 }
 
 const count = async (path) => (await db.collection(path).count().get()).data().count;
@@ -73,6 +76,13 @@ test('retention deletes expired private data and keeps results', async () => {
   assert.equal((await db.doc(`competitions/${OLD}/finalizationLog/f1`).get()).data().byName, undefined);
   assert.deepEqual((await db.doc(`${pub(OLD)}/maintenanceRuns/m1`).get()).data().initiatedBy, { uid: 'u1' });
   assert.equal((await db.doc(`${priv(RECENT)}/auditLog/a1`).get()).data().editedByName, 'Admin Person');
+  // The public pause log keeps its times and roles, not who pressed
+  const [pause] = (await db.doc(`${pub(OLD)}/config/globalStatus`).get()).data().pauseLog;
+  assert.deepEqual(pause.by, { uid: 'u1', role: 'td' });
+  assert.deepEqual(pause.endedBy, { uid: 'u2', role: 'admin' });
+  assert.equal(pause.end, '2026-05-16T08:10:00Z');
+  assert.equal(summary.competitionsPurged[0].counts.pauseLogAnonymized, 1);
+  assert.equal((await db.doc(`${pub(RECENT)}/config/globalStatus`).get()).data().pauseLog[0].by.name, 'Tess TD');
   // The run is recorded
   const state = (await db.doc(`personalDataRetention/${APP_ID}__${OLD}`).get()).data();
   assert.equal(state.purgedAt, runAt);

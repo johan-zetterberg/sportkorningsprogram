@@ -196,7 +196,7 @@ async function deleteTokenDocs(db, ids) {
  *   topic     one of PUSH_TOPICS: only devices following it get it
  *   title, body   strings or { sv, en }; url: a hash route (default: per
  *             recipient, the portal for drivers and the officials' page)
- *   content(target, lang) -> { title, body, url? } for per-recipient texts
+ *   content(target, lang) -> { title, body, url?, tag? } for per-recipient texts
  *   tag       replaces an earlier notification with the same tag
  *   dedupeKey the log id: a second call with it sends nothing (triggers)
  * Respects the daily cap (all or nothing), removes dead tokens and writes
@@ -256,7 +256,7 @@ export async function sendPushToAudience(db, messaging, {
             title: own.title ?? localized(title, target.lang),
             body: own.body ?? localized(body, target.lang),
             url: own.url || url || routeFor(target.as, compId),
-            tag
+            tag: own.tag || tag
         };
     };
     const groups = groupPushMessages(targets, contentFor, { topic, appUrl: settings.appUrl, ...deliveryOptions(topic) });
@@ -298,6 +298,23 @@ export async function sendPushToAudience(db, messaging, {
     if (removeIds.size) await deleteTokenDocs(db, [...removeIds]);
     const status = !failed ? 'sent' : (sent ? 'partial' : 'failed');
     return finish({ status, sent, failed, removedTokens: removeIds.size, errorCodes: codes });
+}
+
+/**
+ * How many devices a notice would reach, without sending (the admin's
+ * channel dialog): { available, devices }. available false while push is off.
+ */
+export async function countPushTargets(db, { appId, compId, audience, topic, category = 'info' }) {
+    const settings = await loadPushSettings(db);
+    if (!pushAvailable(settings)) return { available: false, devices: 0 };
+    if (!audience) return { available: true, devices: 0 };
+    const compSnap = await db.doc(competitionPath(appId, compId)).get();
+    if (!compSnap.exists) return { available: true, devices: 0 };
+    const tokens = await loadCompetitionTokens(db, appId, compId);
+    if (!tokens.length) return { available: true, devices: 0 };
+    const effective = audience.everyone && compSnap.data()?.published === false ? { ...audience, everyone: false } : audience;
+    const matcher = await buildCompetitionMatcher(db, appId, compId, effective, compSnap.data() || {});
+    return { available: true, devices: selectPushTargets({ tokens, matcher, topic, category }).targets.length };
 }
 
 /** Sends to one account's own devices (sendTestPush); no audience, no cap */

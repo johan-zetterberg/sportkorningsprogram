@@ -40,7 +40,10 @@ export function vetStrikeStateOf(equipage = {}) {
 /**
  * The vet's save (buildVetStatusUpdate's payload) with the strike held for
  * the ground jury: a 'struken' status is not written; vetStrikePending is.
- * Returns { payload, strike }: strike true when this save is a new strike.
+ * Returns { payload, strike, withdrawn }: strike true when this save is a new
+ * strike; withdrawn { incidentId, phase } when the vet approved the equipage
+ * again before the ground jury decided (the report is then closed,
+ * vetDecisionService.withdrawVetStrike), else null.
  * The status stays as it was (a strike already confirmed: nothing changes).
  */
 export function gateVetStrikePayload(payload = {}, { equipage = {}, phase = 'initial', uid = null, nowIso = new Date().toISOString(), horseKeys = null, incidentId = '' } = {}) {
@@ -55,13 +58,15 @@ export function gateVetStrikePayload(payload = {}, { equipage = {}, phase = 'ini
         // Approved again before the ground jury decided: the strike is gone
         if (!struck && vetStrikeStateOf(equipage) === 'pending' && equipage?.vetStrikePending?.phase === phase) {
             out.vetStrikePending = null;
+            const pendingIncident = String(equipage.vetStrikePending.incidentId || '');
+            return { payload: out, strike: false, withdrawn: { incidentId: pendingIncident, phase } };
         }
-        return { payload: out, strike: false };
+        return { payload: out, strike: false, withdrawn: null };
     }
     const pending = equipage?.vetStrikePending;
     if (pending && pending.phase === phase) {
         // Already waiting for this phase: no second report
-        return { payload: out, strike: false };
+        return { payload: out, strike: false, withdrawn: null };
     }
     out.vetStrikePending = {
         phase,
@@ -70,7 +75,28 @@ export function gateVetStrikePayload(payload = {}, { equipage = {}, phase = 'ini
         horseKeys: Array.isArray(horseKeys) ? horseKeys.map(String).slice(0, 12) : [],
         incidentId: String(incidentId || '')
     };
-    return { payload: out, strike: true };
+    return { payload: out, strike: true, withdrawn: null };
+}
+
+// The closing text of a withdrawn report (incident log, Swedish as the log)
+export const VET_STRIKE_WITHDRAWN_DECISION = 'Veterinären godkände ekipaget igen före domarkollegiets beslut. Ärendet avslutat utan beslut.';
+
+/**
+ * The incident update for a report the vet withdrew, or null when the entry
+ * is not an open pending vet report (already decided or closed: nothing to do).
+ * -> { raw: { status, decision, decidedBy }, extra: { 'vetStrike.outcome' } }
+ */
+export function buildVetStrikeWithdrawal(incident = {}, { name = '' } = {}) {
+    if (!incident || incident.type !== 'vet' || incident.status !== 'open') return null;
+    if ((incident.vetStrike?.outcome || 'pending') !== 'pending') return null;
+    return {
+        raw: {
+            status: 'closed',
+            decision: VET_STRIKE_WITHDRAWN_DECISION,
+            decidedBy: String(incident.decidedBy || name || '').slice(0, 200)
+        },
+        extra: { 'vetStrike.outcome': 'withdrawn' }
+    };
 }
 
 /** The incident log entry for a vet's strike (incidentService adds number and writer) */

@@ -24,6 +24,8 @@ import { isFeiMarathonClass, wrongGaitIncidentPenalty } from '../../core-engine/
 import { releaseWakeLock, requestWakeLock } from '../../utils/wakeLock.js';
 import { startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 
+import { syncVetStrikeChip, vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
+
 // ---------- State ----------
 let competitionId = null;
 let allEquipages = [];
@@ -301,7 +303,7 @@ function rebuildComboList(container) {
   if (!Array.isArray(filtered)) filtered = [];
   const items = filtered.slice(0, 30).map((e, i) => `
     <div class="eq-option px-4 py-3 border-b dark:border-gray-700 last:border-0 ${i === comboActiveIndex ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' : 'dark:text-gray-200'} cursor-pointer" role="option" data-sn="${escapeHtml(e.startNumber)}" data-i="${i}">
-      <div class="font-bold">#${escapeHtml(e.startNumber)} ${escapeHtml(e.driverName)}</div>
+      <div class="font-bold">#${escapeHtml(e.startNumber)} ${escapeHtml(e.driverName)}</div>${vetStrikeChipHtml(e, { compact: true })}
       <div class="text-[10px] text-gray-500 uppercase tracking-tighter">${escapeHtml(e.className || '')}</div>
     </div>
   `).join('');
@@ -382,7 +384,10 @@ async function onEquipageSelected(sn, container) {
   const stickyHeader = qs('#stickyHeader', container);
 
   if (stickySn) stickySn.textContent = currentSn ? `#${currentSn}` : '#--';
-  if (stickyName) stickyName.textContent = eq ? eq.driverName : 'Välj ekipage';
+  if (stickyName) {
+    stickyName.textContent = eq ? eq.driverName : 'Välj ekipage';
+    syncVetStrikeChip(stickyName, eq);
+  }
   if (stickyHeader) stickyHeader.classList.toggle('hidden', !currentSn);
 
   // nollställ lokalt

@@ -1,6 +1,7 @@
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 import {
   confirmFinalizeWithGaps,
@@ -165,6 +166,7 @@ function buildTableRows() {
         <td class="px-3 py-3 text-sm text-gray-900 dark:text-gray-100 min-w-[14rem]">
           <div class="font-medium">${escapeHtml(row.driverName || '-')}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(row.className || '')}</div>
+          ${vetStrikeChipHtml(row, { compact: true })}
           ${roundNote ? `<div class="text-xs font-semibold text-amber-700 dark:text-amber-300 whitespace-normal">${escapeHtml(roundNote)}</div>` : ''}
         </td>
         <td class="px-3 py-3 text-sm min-w-[7rem]">
@@ -207,8 +209,86 @@ function buildTableRows() {
   }).join('');
 }
 
+// Below 640 px (a phone) each equipage is a stacked card with the same fields
+// and buttons as the table row; the table stays on wider screens
+const phoneQuery = typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+  ? window.matchMedia('(max-width: 639px)')
+  : null;
+function isPhoneLayout() {
+  return !!phoneQuery?.matches;
+}
+let phoneListenerBound = false;
+
+const CARD_INPUT = 'w-full min-h-[44px] rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-base bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60';
+const CARD_LABEL = 'block text-[11px] font-bold uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1';
+
+function buildCardRows() {
+  const visibleRows = getVisibleRows();
+  if (visibleRows.length === 0) {
+    return `<p class="px-4 py-8 text-center text-gray-500 dark:text-gray-400">Inga ekipage matchar filtret.</p>`;
+  }
+  return visibleRows.map(row => {
+    const view = draftFor(row);
+    const isDirty = drafts.has(String(row.startNumber));
+    const readOnly = row.finalized === true;
+    const totalPenalty = isDirty && !view.__invalid
+      ? (calculateSecretariatPrecisionDraft(row, drafts.get(String(row.startNumber))).totalPenalty ?? 0)
+      : (row.totalPenalty ?? 0);
+    const isDriveOffRow = row.round === 'driveOff';
+    const unit = (isDriveOffRow || row.scoring === 'time') ? ' s' : '';
+    let roundNote = '';
+    if (row.round === 'phase2' && row.engine && row.engine.phase2Qualified !== true) {
+      roundNote = t('secretariat_precision_qualification_badge_no');
+    } else if (isDriveOffRow && !driveOffQualifierSet().has(String(row.startNumber))) {
+      roundNote = t('precision_warn_driveOffIgnored');
+    }
+    const dis = readOnly ? 'disabled' : '';
+    const field = (label, inner) => `<div><label class="${CARD_LABEL}">${escapeHtml(label)}</label>${inner}</div>`;
+    return `
+      <article data-sn="${escapeHtml(row.startNumber)}" class="rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 shadow-sm ${isDirty ? 'bg-amber-50/70 dark:bg-amber-900/10' : ''}">
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-base font-bold text-gray-900 dark:text-gray-100">#${escapeHtml(row.startNumber)} ${escapeHtml(row.driverName || '-')}</div>
+            <div class="text-xs text-gray-500 dark:text-gray-400">${escapeHtml(row.className || '')}</div>
+            ${vetStrikeChipHtml(row, { compact: true })}
+            ${roundNote ? `<div class="text-xs font-semibold text-amber-700 dark:text-amber-300">${escapeHtml(roundNote)}</div>` : ''}
+          </div>
+          <div class="shrink-0">${renderStatusBadge(view.status, row.finalized)}</div>
+        </div>
+        <div class="mt-3 grid grid-cols-2 gap-3">
+          ${field(t('sp_time'), `<input data-field="timeMs" value="${escapeHtml(formatEditableTime(view.timeMs))}" inputmode="text" ${dis} class="${CARD_INPUT}">`)}
+          ${field(t('sp_knocks'), `<input data-field="knocks" type="text" inputmode="text" autocomplete="off" placeholder="–" value="${escapeHtml(formatKnockList(view.knocks))}" ${dis} class="${CARD_INPUT}"><div data-role="obstacle" class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(obstacleSummary(row, view, isDirty))}</div>`)}
+          ${field(t('sp_time_penalty'), `<input data-field="timePenalty" type="number" step="0.1" inputmode="decimal" value="${escapeHtml(view.timePenalty ?? 0)}" ${dis} class="${CARD_INPUT}">`)}
+          ${field(t('sp_other'), `<input data-field="extraPenalty" type="number" step="0.1" inputmode="decimal" value="${escapeHtml(view.extraPenalty ?? 0)}" ${dis} class="${CARD_INPUT}">`)}
+          ${field(t('sp_rebuild'), `<input data-field="rebuildCount" type="number" step="1" min="0" inputmode="numeric" value="${escapeHtml(view.rebuildCount ?? 0)}" ${dis} class="${CARD_INPUT}">`)}
+          ${field(t('sp_total'), `<div data-role="total" class="min-h-[44px] flex items-center text-lg font-bold text-gray-900 dark:text-gray-100">${escapeHtml(totalPenalty.toFixed(2).replace(/\.00$/, ''))}${unit}</div>`)}
+        </div>
+        <label class="mt-3 flex items-center gap-3 min-h-[44px] text-sm font-semibold text-red-700 dark:text-red-400">
+          <input data-field="eliminated" type="checkbox" ${view.eliminated ? 'checked' : ''} ${dis} class="h-6 w-6 rounded border-gray-300 text-red-600 disabled:opacity-60"> ${escapeHtml(t('sp_elim'))}
+        </label>
+        <div class="mt-2">${field(t('sp_comment'), `<textarea data-field="comment" rows="2" maxlength="1000" ${dis} class="${CARD_INPUT} leading-5">${escapeHtml(view.comment || '')}</textarea>`)}</div>
+        <div class="mt-3 grid grid-cols-1 gap-2 ${readOnly ? '' : 'sm:grid-cols-3'}">
+          ${readOnly ? `
+            <button type="button" data-action="${isDriveOffRow ? 'driveoff-unfinalize' : 'unlock'}" class="min-h-[44px] rounded bg-amber-600 text-white px-3 py-2 text-sm font-semibold hover:bg-amber-700">${escapeHtml(isDriveOffRow ? t('secretariat_precision_driveoff_unfinalize') : t('unlock'))}</button>
+          ` : `
+            <button type="button" data-action="save" class="min-h-[44px] rounded bg-brand-darkblue text-white px-3 py-2 text-sm font-semibold hover:opacity-90">${escapeHtml(t('sp_save'))}</button>
+            <button type="button" data-action="reset" class="min-h-[44px] rounded border border-gray-300 dark:border-gray-600 px-3 py-2 text-sm font-semibold text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-700">${escapeHtml(t('undo'))}</button>
+            <button type="button" data-action="${isDriveOffRow ? 'driveoff-finalize' : 'finalize'}" class="min-h-[44px] rounded border border-emerald-600 text-emerald-700 dark:text-emerald-400 px-3 py-2 text-sm font-semibold hover:bg-emerald-50 dark:hover:bg-emerald-900/20">${escapeHtml(isDriveOffRow ? t('secretariat_precision_driveoff_finalize') : t('sp_finalize'))}</button>
+          `}
+        </div>
+      </article>`;
+  }).join('');
+}
+
 function render() {
   if (!rootEl) return;
+  if (phoneQuery && !phoneListenerBound) {
+    phoneListenerBound = true;
+    // Rotating or resizing across the breakpoint swaps cards and table
+    const onChange = () => { if (rootEl) render(); };
+    if (phoneQuery.addEventListener) phoneQuery.addEventListener('change', onChange);
+    else if (phoneQuery.addListener) phoneQuery.addListener(onChange);
+  }
   try { teardownStickyHeaders?.(); } catch (_) {}
   teardownStickyHeaders = null;
 
@@ -250,6 +330,7 @@ function render() {
         classValue: filters.className,
         classOptions,
       })}
+    ${isPhoneLayout() ? `<section class="space-y-3" data-rows-host data-precision-cards>${buildCardRows()}</section>` : `
     <section class="bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700">
       <div class="secretariat-x-wrap">
         <table class="min-w-full secretariat-page-table">
@@ -269,12 +350,12 @@ function render() {
                 <th class="px-3 py-3">Åtgärder</th>
               </tr>
             </thead>
-            <tbody>
+            <tbody data-rows-host>
               ${buildTableRows()}
             </tbody>
         </table>
       </div>
-    </section>
+    </section>`}
     </div>
   `;
 
@@ -405,7 +486,7 @@ async function handleAction(event) {
   const button = event.target.closest('button[data-action]');
   if (!button) return;
 
-  const rowEl = button.closest('tr[data-sn]');
+  const rowEl = button.closest('[data-sn]');
   if (!rowEl) return;
 
   const sn = rowEl.dataset.sn;
@@ -515,24 +596,25 @@ function wireEvents() {
     render();
   });
 
-  rootEl.querySelectorAll('tbody tr[data-sn] input').forEach(input => {
-    input.addEventListener('input', event => updateDraft(event.target.closest('tr[data-sn]')));
-    input.addEventListener('change', event => updateDraft(event.target.closest('tr[data-sn]')));
+  rootEl.querySelectorAll('[data-rows-host] [data-sn] input').forEach(input => {
+    input.addEventListener('input', event => updateDraft(event.target.closest('[data-sn]')));
+    input.addEventListener('change', event => updateDraft(event.target.closest('[data-sn]')));
   });
 
-  rootEl.querySelectorAll('tbody tr[data-sn] textarea[data-field="comment"]').forEach(textarea => {
-    autoSizeCommentBox(textarea);
+  rootEl.querySelectorAll('[data-rows-host] [data-sn] textarea[data-field="comment"]').forEach(textarea => {
+    // The table's comment box grows with its text; the card's keeps its two rows
+    if (textarea.closest('tr')) autoSizeCommentBox(textarea);
     textarea.addEventListener('input', event => {
-      autoSizeCommentBox(event.target);
-      updateDraft(event.target.closest('tr[data-sn]'));
+      if (event.target.closest('tr')) autoSizeCommentBox(event.target);
+      updateDraft(event.target.closest('[data-sn]'));
     });
     textarea.addEventListener('change', event => {
-      autoSizeCommentBox(event.target);
-      updateDraft(event.target.closest('tr[data-sn]'));
+      if (event.target.closest('tr')) autoSizeCommentBox(event.target);
+      updateDraft(event.target.closest('[data-sn]'));
     });
   });
 
-  rootEl.querySelector('tbody')?.addEventListener('click', handleAction);
+  rootEl.querySelector('[data-rows-host]')?.addEventListener('click', handleAction);
 }
 
 function ensureStickyTableStyles() {

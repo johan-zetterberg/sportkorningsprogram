@@ -71,19 +71,36 @@ export function messageModeToMailAudience(mode, { selectedDrivers = [] } = {}) {
     if (m.startsWith('official:')) {
         const role = m.slice('official:'.length);
         if (!OFFICIAL_ROLE_KEYS.includes(role)) return null;
-        // The dressage judges are stored as judges on the server
-        return { officials: { roles: role === 'dressage' ? ['dressage', 'judge'] : [role] } };
+        // The dressage judges are stored as judges on the server; the
+        // secretariat's messages reach the TD / ground jury too (as in the app
+        // and by push)
+        const roles = role === 'dressage' ? ['dressage', 'judge'] : role === 'secretariat' ? ['secretariat', 'td'] : [role];
+        return { officials: { roles } };
     }
     return null;
 }
 
-/** The queueCompetitionMail payload for a message from the form (subject/text clamped to the server limits) */
-export function buildMessageMailPayload({ competitionId, title, body, titleEn = '', bodyEn = '', mode, selectedDrivers = [], essential = false, reason = '' }) {
+/**
+ * The stored category of a message from the form: "Viktigt / varning"
+ * (type 'alert') is essential, as the push trigger reads it
+ * (functions/src/push/pushCore.js messagePushCategory)
+ */
+export function messageCategoryForType(type) {
+    return type === 'alert' ? 'essential' : 'info';
+}
+
+/**
+ * The queueCompetitionMail payload for a message from the form (subject/text
+ * clamped to the server limits). update: an edited message sent again
+ * ("Uppdaterat: <title>").
+ */
+export function buildMessageMailPayload({ competitionId, title, body, titleEn = '', bodyEn = '', mode, selectedDrivers = [], essential = false, reason = '', update = false }) {
     const audience = messageModeToMailAudience(mode, { selectedDrivers });
     if (!audience) return null;
     const english = String(bodyEn || '').trim();
     const text = english ? `${String(body || '').trim()}\n\n---\n\n${english}` : String(body || '').trim();
-    const subject = String(title || '').trim() || String(titleEn || '').trim();
+    const baseSubject = String(title || '').trim() || String(titleEn || '').trim();
+    const subject = update ? `Uppdaterat: ${baseSubject}` : baseSubject;
     return {
         competitionId,
         kind: 'message',
@@ -126,6 +143,27 @@ export function buildStartTimeMailChanges(changes = [], translateTo = (key) => k
         byNumber.get(sn).push(line);
     });
     return [...byNumber.entries()].map(([startNumber, lines]) => ({ startNumber, text: lines.join('\n') }));
+}
+
+/**
+ * The per start number lines in Swedish and English for one save of changed
+ * start times: [{ startNumber, text, textEn }] (notifyStartTimeChange and
+ * queueStartTimeChangeMail take the same list; each driver gets the lines of
+ * all their own start numbers in one notice / mail)
+ */
+export function buildStartTimeNoticeChanges(changes = [], translateTo = (key) => key) {
+    const sv = buildStartTimeMailChanges(changes, translateTo, 'sv');
+    const en = new Map(buildStartTimeMailChanges(changes, translateTo, 'en').map((c) => [c.startNumber, c.text]));
+    return sv.map((c) => ({ startNumber: c.startNumber, text: c.text, textEn: en.get(c.startNumber) || c.text }));
+}
+
+/**
+ * A request id for one save (the server sends a notice once per id, so a
+ * retried or double-clicked send does not notify twice)
+ */
+export function newNoticeRequestId(random = globalThis.crypto) {
+    if (random && typeof random.randomUUID === 'function') return random.randomUUID().replace(/-/g, '');
+    return `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 12)}`.replace(/[^A-Za-z0-9]/g, '').padEnd(12, '0');
 }
 
 /** A queue item's counts as "sent / recipients" text parts */

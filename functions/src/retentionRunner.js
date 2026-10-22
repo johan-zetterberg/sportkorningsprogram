@@ -4,6 +4,7 @@ import {
     RETENTION_ANONYMIZED_LOGS,
     RETENTION_PRIVATE_TREE_COLLECTIONS,
     RETENTION_PUBLIC_TREE_COLLECTIONS,
+    anonymizePauseLog,
     isStaleCounter,
     personalLogFieldsPresent,
     selectCompetitionsForPurge
@@ -63,6 +64,17 @@ async function purgeCompetitionPersonalData(db, FieldValue, competition) {
         await writer.close();
         counts[`${name}Anonymized`] = anonymized;
     }
+    // The public pause log is kept (the results use its times) without who
+    // pressed: the names go, in a transaction
+    const statusRef = competition.ref.collection('config').doc('globalStatus');
+    counts.pauseLogAnonymized = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(statusRef);
+        if (!snap.exists) return 0;
+        const { log, changed } = anonymizePauseLog(snap.data()?.pauseLog);
+        if (!changed) return 0;
+        tx.update(statusRef, { pauseLog: log });
+        return 1;
+    });
     // Devices no longer follow the competition (push)
     counts.pushTokensUnlinked = await removeCompetitionFromTokens(db, FieldValue, appId, id);
     return counts;
