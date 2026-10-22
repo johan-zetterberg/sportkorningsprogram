@@ -160,6 +160,80 @@ function ensureManualThemeStyles() {
       background: rgba(124, 45, 18, 0.24) !important;
       border-color: rgba(251, 146, 60, 0.32) !important;
     }
+    html.dark .manual-theme .bg-violet-50 {
+      background: rgba(91, 33, 182, 0.2) !important;
+      border-color: rgba(167, 139, 250, 0.35) !important;
+    }
+    html.dark .manual-theme .bg-sky-50 {
+      background: rgba(7, 89, 133, 0.22) !important;
+      border-color: rgba(56, 189, 248, 0.32) !important;
+    }
+    html.dark .manual-theme .bg-green-100 {
+      background: rgba(6, 95, 70, 0.32) !important;
+    }
+    html.dark .manual-theme .bg-red-100 {
+      background: rgba(127, 29, 29, 0.32) !important;
+    }
+    html.dark .manual-theme .border-amber-100,
+    html.dark .manual-theme .border-amber-200 {
+      border-color: rgba(251, 191, 36, 0.3) !important;
+    }
+    html.dark .manual-theme .border-emerald-100 {
+      border-color: rgba(52, 211, 153, 0.3) !important;
+    }
+    html.dark .manual-theme .border-red-200 {
+      border-color: rgba(248, 113, 113, 0.3) !important;
+    }
+    html.dark .manual-theme .border-sky-200 {
+      border-color: rgba(56, 189, 248, 0.32) !important;
+    }
+    html.dark .manual-theme .border-violet-200 {
+      border-color: rgba(167, 139, 250, 0.35) !important;
+    }
+    html.dark .manual-theme .border-blue-300 {
+      border-color: rgba(96, 165, 250, 0.45) !important;
+    }
+    html.dark .manual-theme .border-gray-300 {
+      border-color: #4b5563 !important;
+    }
+    html.dark .manual-theme .text-gray-900 {
+      color: #f3f4f6 !important;
+    }
+    html.dark .manual-theme .text-amber-800,
+    html.dark .manual-theme .text-yellow-900 {
+      color: #fde68a !important;
+    }
+    html.dark .manual-theme .text-amber-500 {
+      color: #fbbf24 !important;
+    }
+    html.dark .manual-theme .text-cyan-900 {
+      color: #a5f3fc !important;
+    }
+    html.dark .manual-theme .text-emerald-800,
+    html.dark .manual-theme .text-emerald-900,
+    html.dark .manual-theme .text-green-800 {
+      color: #a7f3d0 !important;
+    }
+    html.dark .manual-theme .text-indigo-900 {
+      color: #c7d2fe !important;
+    }
+    html.dark .manual-theme .text-orange-900 {
+      color: #fdba74 !important;
+    }
+    html.dark .manual-theme .text-purple-800 {
+      color: #e9d5ff !important;
+    }
+    html.dark .manual-theme .text-red-500,
+    html.dark .manual-theme .text-red-700,
+    html.dark .manual-theme .text-red-900 {
+      color: #fca5a5 !important;
+    }
+    html.dark .manual-theme .text-sky-700 {
+      color: #7dd3fc !important;
+    }
+    html.dark .manual-theme .text-violet-700 {
+      color: #c4b5fd !important;
+    }
     html.dark .manual-theme .from-blue-50,
     html.dark .manual-theme .to-indigo-50 {
       background-image: linear-gradient(135deg, rgba(30, 64, 175, 0.24), rgba(67, 56, 202, 0.18)) !important;
