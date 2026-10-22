@@ -7,6 +7,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { mailDayKey } from '../functions/src/mail/mailCore.js';
 import {
     PUSH_SENDING_TAKEOVER_MS,
     PUSH_TOKENS,
@@ -258,6 +259,19 @@ test('push: the daily cap is all or nothing and logged', async () => {
     assert.equal(result.status, 'blocked');
     assert.equal(messaging.calls.length, 0);
     assert.equal((await db.doc(`${priv}/pushLog/cap-${run}`).get()).data().status, 'blocked');
+
+    // The essential reserve: at 70 of 100 other notices stop, start times go on
+    await savePushSettings(db, { competitionDailyLimit: 100 });
+    await db.doc(`${priv}/rateLimits/push_day`).set({ dayKey: mailDayKey(Date.now()), count: 70, updatedAt: Date.now() });
+    const bulk = await sendPushToAudience(db, fakeMessaging(), {
+        appId: APP_ID, compId: COMP, audience: { drivers: { all: true } }, topic: 'messages', title: 't', body: 'b', dedupeKey: `reserve-msg-${run}`, logger: quietLogger
+    });
+    assert.equal(bulk.status, 'blocked');
+    const essential = await sendPushToAudience(db, fakeMessaging(), {
+        appId: APP_ID, compId: COMP, audience: { drivers: { all: true } }, category: 'essential', topic: 'startTimes', title: 't', body: 'b', dedupeKey: `reserve-st-${run}`, logger: quietLogger
+    });
+    assert.ok(['sent', 'partial'].includes(essential.status), essential.status);
+    await db.doc(`${priv}/rateLimits/push_day`).delete();
     await savePushSettings(db, { competitionDailyLimit: PUSH_LIMITS.competitionDailyDefault });
 });
 

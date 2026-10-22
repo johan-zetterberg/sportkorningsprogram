@@ -25,7 +25,9 @@ export const RETENTION_PUBLIC_TREE_COLLECTIONS = [
 // already applied to the pause log). Not `counters`: the incident counter
 // stays with the kept incident log, so numbers are never reused.
 export const RETENTION_PRIVATE_TREE_COLLECTIONS = ['rejectedWrites', 'rateLimits', 'devices',
-    'staffNotifications', 'emergencyPrivate', 'mailQueue', 'mailLog', 'mailOptOuts', 'pushLog', 'pauseEvents'];
+    'staffNotifications', 'emergencyPrivate', 'mailQueue', 'mailLog', 'mailOptOuts', 'pushLog', 'pauseEvents',
+    // who pressed pause / resume and the notes (the public log keeps times and reasons)
+    'pauseDetails'];
 // Logs that are kept, without names and email addresses (the incident log is
 // the ground jury's record: kept, without who typed the entries)
 export const RETENTION_ANONYMIZED_LOGS = [
@@ -106,25 +108,42 @@ export function addMonthsMs(ms, months) {
     return date.getTime();
 }
 
+// The time fields on a competition document that show it is in use
+export const COMPETITION_ACTIVITY_FIELDS = ['createdAt', 'updatedAt', 'lastResultAt', 'lastActivityAt'];
+
+// A competition due for deletion is first only scheduled
+// (personalDataPurgeScheduledAt, shown in the admin's privacy settings); the
+// data goes on a run at least this long after that
+export const PURGE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
- * When a competition that was never archived ended: the end of the last date
- * in `dates`, else when it was created. Null without either.
+ * When a competition that was never archived was last in use: the latest of
+ * the end of the last date in `dates`, its creation, its last update, its
+ * last result / activity time (COMPETITION_ACTIVITY_FIELDS) and
+ * `data.recentActivityMs` (the newest write the retention run read, e.g. in
+ * the audit log). A new competition with an old or wrong date is therefore
+ * not old. Null without any.
  */
 export function lastActivityMs(data) {
+    const candidates = COMPETITION_ACTIVITY_FIELDS.map((field) => toMillis(data?.[field]));
+    candidates.push(toMillis(data?.recentActivityMs));
     const dates = String(data?.dates || data?.date || '').match(/\d{4}-\d{2}-\d{2}/g);
     if (dates?.length) {
         const end = Date.parse(`${dates[dates.length - 1]}T23:59:59Z`);
-        if (Number.isFinite(end)) return end;
+        if (Number.isFinite(end)) candidates.push(end);
     }
-    return toMillis(data?.createdAt);
+    const known = candidates.filter((ms) => Number.isFinite(ms) && ms > 0);
+    return known.length ? Math.max(...known) : null;
 }
 
 /**
  * Whether the competition's private data is due for deletion at `nowMs`.
  * Archived: retentionMonths after archiving. Never archived (a competition
- * left active or as a draft): retentionMonths after its last date, else after
- * it was created. Idempotent: once purged (personalDataPurgedAt) it is not
- * selected again, unless it was reopened and archived anew after that.
+ * left active or as a draft): retentionMonths after it was last in use
+ * (lastActivityMs: its last date, creation, update or newest write), so a
+ * competition written to within retentionMonths is never due. Idempotent:
+ * once purged (personalDataPurgedAt) it is not selected again, unless it was
+ * reopened and archived anew after that.
  */
 export function retentionDecision(data, nowMs) {
     if (!data || data.deleting === true) return { due: false, reason: 'missing-or-deleting' };
@@ -139,11 +158,29 @@ export function retentionDecision(data, nowMs) {
     return { due: true, reason: archived ? 'expired' : 'expired-not-archived', archivedAt, months, dueAt };
 }
 
-/** The competitions ({ id, appId, data }) whose private data is to be deleted now */
+/** The competitions ({ id, appId, data }) whose private data is due now (before the grace period) */
 export function selectCompetitionsForPurge(competitions = [], nowMs = Date.now()) {
     return competitions
         .map((competition) => ({ ...competition, decision: retentionDecision(competition.data, nowMs) }))
         .filter((competition) => competition.decision.due);
+}
+
+/**
+ * The safety step before a purge: a competition that becomes due is first
+ * scheduled (personalDataPurgeScheduledAt = now), and purged only on a run
+ * PURGE_GRACE_MS or more later, so an admin can notice the warning.
+ * -> { action: 'purge' | 'schedule' | 'wait' | 'unschedule' | 'none', scheduledAt, purgeAt }
+ * 'unschedule': no longer due (reopened, written to, retention extended).
+ * A schedule older than the time the decision counts from (re-archived,
+ * new activity) is stale and starts again.
+ */
+export function purgeScheduleDecision(decision, scheduledAtValue, nowMs, graceMs = PURGE_GRACE_MS) {
+    const scheduledAt = toMillis(scheduledAtValue);
+    if (!decision?.due) return { action: scheduledAt ? 'unschedule' : 'none', scheduledAt: null, purgeAt: null };
+    const stale = !scheduledAt || (decision.dueAt && scheduledAt < decision.dueAt);
+    if (stale) return { action: 'schedule', scheduledAt: nowMs, purgeAt: nowMs + graceMs };
+    const purgeAt = scheduledAt + graceMs;
+    return { action: nowMs >= purgeAt ? 'purge' : 'wait', scheduledAt, purgeAt };
 }
 
 function getPath(data, path) {

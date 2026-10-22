@@ -4,8 +4,11 @@ import { db, appId } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { isStillRunning } from './secretariatPatchUtils.js';
 import { normalizeMarathonDoc } from '../core-engine/stateSelector.js';
-import { finalizeConfirmMessage, findDressageGaps, findMarathonGaps, findPrecisionGaps, precisionFinalizeBlockers } from './finalizeCompletenessUtils.js';
+import { finalizeConfirmMessage, findDressageGaps, findMarathonGaps, findPrecisionGaps, precisionFinalizeBlockers, precisionHasResult } from './finalizeCompletenessUtils.js';
 import { calculatePrecisionResult } from '../utils/precisionCalculation.js';
+import { findOpenJuryMatters, isJuryOverrideConfirmed, juryBlockMessage } from './finalizeCompletenessUtils.js';
+import { mergeUserRoles } from '../utils/roleAccess.js';
+import { addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
 // =========================================================================
 // FINALIZATION SERVICE
@@ -76,7 +79,7 @@ const dataOf = (snap) => (snap?.exists() ? snap.data() : null);
 async function precisionEngineView(competitionId, equipage, result, notes = { offline: false }) {
   const [precisionSnap, marathonSnap] = await Promise.all([
     readDocFresh(getCompDocRef(competitionId, 'config', 'precisionConfig'), notes),
-    readDocFresh(getCompDocRef(competitionId, 'config', 'marathonConfig'), notes).catch(() => null),
+    readDocFresh(getCompDocRef(competitionId, 'config', 'maratonConfig'), notes).catch(() => null),
   ]);
   return calculatePrecisionResult(result || {}, equipage || {}, dataOf(precisionSnap) || {}, {
     marathonConfig: dataOf(marathonSnap),
@@ -142,12 +145,85 @@ export async function findFinalizeGaps(competitionId, discipline, startNumber) {
   return gaps;
 }
 
+// --- OPEN GROUND JURY MATTERS BEFORE FINALIZING ---
+
+/**
+ * The open ground jury matters of one equipage (Swedish lines): its vet
+ * strike waiting for a decision, open protests naming it. The incident log
+ * is read by the officials and admins (rules); unreadable: not checked.
+ */
+export async function findJuryBlockers(competitionId, startNumber) {
+  const sn = String(startNumber);
+  const notes = { offline: false };
+  const equipage = dataOf(await readDocFresh(getCompDocRef(competitionId, 'equipages', sn), notes)) || { startNumber: sn };
+  let incidents = [];
+  try {
+    const snap = await readDocsFresh(collection(db, `artifacts/${appId}/private/data/competitions/${competitionId}/incidents`), notes);
+    incidents = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.warn('Händelseloggen kunde inte läsas före finalisering:', error);
+  }
+  return findOpenJuryMatters({ equipages: [{ startNumber: sn, ...equipage }], incidents, startNumber: sn });
+}
+
+const isAdminUser = () => mergeUserRoles(getGlobalState('currentUser')).some((role) => role === 'admin' || role === 'superadmin');
+
+// The override in the secretariat's change log (rules: isAuditLogEntry, the
+// writer's own uid). Best effort: not awaited (offline it waits in the cache)
+function logJuryOverride(competitionId, entry) {
+  addDoc(collection(db, `artifacts/${appId}/private/data/competitions/${competitionId}/auditLog`), {
+    ...entry,
+    reference: null,
+    editedBy: getUid(),
+    editedAt: serverTimestamp()
+  }).catch((error) => console.warn('Ändringsloggen kunde inte sparas:', error));
+}
+
+/**
+ * Asks an admin to override open jury matters: the typed word and a reason,
+ * logged in the auditLog. Returns true to go on. Others are told and stopped.
+ */
+export function confirmJuryOverride(competitionId, what, matters, { discipline = 'competition', startNumber = '' } = {}) {
+  if (typeof window === 'undefined' || typeof window.prompt !== 'function') return false;
+  const canOverride = isAdminUser();
+  if (!canOverride) {
+    window.alert(juryBlockMessage(what, matters));
+    return false;
+  }
+  if (!isJuryOverrideConfirmed(window.prompt(juryBlockMessage(what, matters, { canOverride: true }), ''))) return false;
+  const reason = String(window.prompt('Skäl till att göra det ändå (sparas i ändringsloggen):', '') || '').trim();
+  if (!reason) return false;
+  logJuryOverride(competitionId, {
+    source: 'juryOverride',
+    discipline,
+    startNumber: String(startNumber || ''),
+    entityType: discipline === 'competition' ? 'archive' : 'finalization',
+    entityId: String(startNumber || competitionId),
+    reason: reason.slice(0, 1000),
+    changes: { openJuryMatters: matters.slice(0, 20) }
+  });
+  return true;
+}
+
+async function confirmJuryMattersForFinalize(competitionId, discipline, startNumber) {
+  let matters = [];
+  try {
+    matters = await findJuryBlockers(competitionId, startNumber);
+  } catch (error) {
+    console.warn('Kontrollen av domarkollegiets ärenden misslyckades:', error);
+  }
+  if (!matters.length) return true;
+  return confirmJuryOverride(competitionId, `Finalisering av #${startNumber}`, matters, { discipline, startNumber });
+}
+
 /**
  * Asks before finalizing, listing what is missing (finalizing locks the
  * result: later writes from the field are refused). Resolves true to go on.
  * A failed check is shown too, it does not stop the finalizing on its own.
  */
 export async function confirmFinalizeWithGaps(competitionId, discipline, startNumber) {
+  // Open ground jury matters block first (an admin may override)
+  if (!(await confirmJuryMattersForFinalize(competitionId, discipline, startNumber))) return false;
   let gaps;
   try {
     gaps = await findFinalizeGaps(competitionId, discipline, startNumber);
@@ -233,6 +309,18 @@ export async function unfinalizeMarathon(competitionId, startNumber) {
 }
 
 // --- PRECISION ---
+async function assertPrecisionHasResult(ref, competitionId, startNumber) {
+  const sn = String(startNumber);
+  const snap = await getDoc(ref);
+  const result = snap.exists() ? snap.data() : null;
+  const equipage = dataOf(await getDoc(getCompDocRef(competitionId, 'equipages', sn)).catch(() => null))
+    || { startNumber: sn, className: result?.className || '' };
+  const calc = result ? await precisionEngineView(competitionId, equipage, result) : null;
+  if (!precisionHasResult(calc)) {
+    throw new Error(`#${sn} har inget precisionsresultat (ingen körd tid, inte utesluten eller utgått). Ej startat räknas som struken (TR 532.4) och finaliseras inte.`);
+  }
+}
+
 export async function finalizePrecision(competitionId, startNumber) {
   return trackWrite(`Finaliserar precision #${startNumber}`, (async () => {
     // Precision sets finalized on the precision document
@@ -240,6 +328,10 @@ export async function finalizePrecision(competitionId, startNumber) {
     await assertNotRunning(ref, startNumber);
     // Phase 2 is closed with the whole result: it must be decided first
     await assertPrecisionRoundsDecided(ref, competitionId, startNumber, 'phase1');
+    // A result needs a driven time, or eliminated / retired (owner
+    // 2026-10-23): knocks or penalties alone are none, not started counts as
+    // withdrawn (TR 532.4)
+    await assertPrecisionHasResult(ref, competitionId, startNumber);
 
     // Result and lock document in one batch (see finalizeMarathon).
     // prioritized: true forces sorting if needed

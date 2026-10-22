@@ -119,9 +119,9 @@ test('clear round over all driven moments: D ≤ 80, M 0, P 0 (TR V 509.3)', () 
     // D40 M0 P3 -> 98; D95 M0 P0 -> 98; D80 M0 P0 -> 1
     assert.deepEqual(list.entries.map((e) => [e.startNumber, e.placingCode]), [[3, 1], [4, 1], [1, 98], [2, 98]]);
 
-    // A driven moment without a result is not passed
+    // A driven moment without a result: not started there, struken (TR 532.4) = 99
     const missing = only([cr(1, 40, 0, 0), cr(2, 40, 0, null)]);
-    assert.deepEqual(missing.entries.map((e) => [e.startNumber, e.placingCode]), [[1, 1], [2, 98]]);
+    assert.deepEqual(missing.entries.map((e) => [e.startNumber, e.placingCode, e.reason]), [[1, 1, 'clearRoundPassed'], [2, 99, 'notStarted']]);
 });
 
 test('clear round in a precision-only class: the moments not driven are ignored', () => {

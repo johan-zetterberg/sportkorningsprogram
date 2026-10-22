@@ -17,7 +17,7 @@ import { buildMessageAudience } from '../../utils/messageAudience.js';
 import { previewMailAudience, queueStartTimeChangeMail } from '../../services/mailService.js';
 import { notifyStartTimeChange, previewPushAudience } from '../../services/pushService.js';
 import { buildStartTimeNoticeChanges, newNoticeRequestId } from '../../utils/mailUtils.js';
-import { mailCountLine, pushCountLine } from '../../utils/notifyChannelsUtils.js';
+import { mailCountLine, pushCountLine, startTimePushResultLine } from '../../utils/notifyChannelsUtils.js';
 import { showNotifyChannelsDialog } from '../../ui/notifyChannelsDialog.js';
 import {
     applyTimeShift,
@@ -1554,7 +1554,7 @@ async function saveTimes() {
         const result = await awaitWriteOrQueue(saveConfig(competitionId, 'startTimes', payload));
         savedTimesBaseline = JSON.parse(JSON.stringify(getTimesOnlyPayload(startTimes)));
         showAlert(`${t('times_saved')}${queuedNotice(result)}`, result === 'queued' ? 'offline' : 'success');
-        if (publishedChanges.length) offerStartTimeChangeMessage(publishedChanges);
+        if (publishedChanges.length) offerStartTimeChangeMessage(publishedChanges, { queued: result === 'queued' });
     } catch (err) {
         console.error('Kunde inte spara starttider', err);
         showAlert(t('times_save_error'), 'error');
@@ -1570,21 +1570,31 @@ async function saveTimes() {
  * channel), old → new time in Swedish and English. Nothing is sent without
  * the confirm. One request id per save: a retried send notifies once.
  */
-async function offerStartTimeChangeMessage(changes) {
+async function offerStartTimeChangeMessage(changes, { queued = false } = {}) {
     const message = buildStartTimeChangeMessage(changes, equipages, translateTo);
     const noticeChanges = buildStartTimeNoticeChanges(changes, translateTo);
     if (!message.startNumbers.length || !noticeChanges.length) return;
     const requestId = newNoticeRequestId();
     const startNumbers = noticeChanges.map((c) => c.startNumber);
-    const choice = await showNotifyChannelsDialog({
+    const messageChannel = {
+        id: 'message', label: t('notify_channel_message'), checked: true,
+        count: async () => t('notify_count_drivers').replace('{n}', String(message.startNumbers.length))
+    };
+    // Saved offline: push and e-mail need the server, so only the in-app
+    // message (queued too) is offered; the rest is sent again with a signal
+    const choice = await showNotifyChannelsDialog(queued ? {
+        title: t('starttime_offer_msg_title'),
+        lead: `${t('starttime_offer_lead').replace('{n}', String(message.startNumbers.length))} ${t('notify_needs_connection_resend')}`,
+        preview: message.body,
+        channels: [messageChannel],
+        confirmLabel: t('notify_send_btn'),
+        cancelLabel: t('starttime_offer_msg_skip')
+    } : {
         title: t('starttime_offer_msg_title'),
         lead: t('starttime_offer_lead').replace('{n}', String(message.startNumbers.length)),
         preview: message.body,
         channels: [
-            {
-                id: 'message', label: t('notify_channel_message'), checked: true,
-                count: async () => t('notify_count_drivers').replace('{n}', String(message.startNumbers.length))
-            },
+            messageChannel,
             {
                 id: 'push', label: t('notify_channel_push'), checked: true,
                 count: async () => pushCountLine(await previewPushAudience({ competitionId, topic: 'startTimes', category: 'essential', startNumbers }), t)
@@ -1604,7 +1614,7 @@ async function offerStartTimeChangeMessage(changes) {
     const chosen = new Set(choice.channels);
     if (chosen.has('message')) {
         try {
-            await awaitWriteOrQueue(saveCompetitionMessage(competitionId, {
+            const saveState = await awaitWriteOrQueue(saveCompetitionMessage(competitionId, {
                 title: message.title,
                 body: message.body,
                 titleEn: message.titleEn,
@@ -1616,16 +1626,25 @@ async function offerStartTimeChangeMessage(changes) {
                 source: 'startTimeChange',
                 ...buildMessageAudience('selected_drivers', { selectedDrivers: message.startNumbers })
             }));
-            showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
+            if (saveState === 'queued') showAlert(t('msg_saved_queued'), 'offline');
+            else showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
         } catch (err) {
             console.error('Kunde inte skicka meddelandet om ändrade starttider', err);
             showAlert(t('starttime_offer_msg_failed'), 'error');
         }
     }
     if (chosen.has('push')) {
-        // Each driver's own lines (Swedish and English); failures stay quiet
+        // Each driver's own lines (Swedish and English); the result is shown
+        // (sent count, or why nothing went)
         notifyStartTimeChange({ competitionId, changes: noticeChanges, dedupeKey: requestId })
-            .catch((err) => console.warn('Push om ändrade starttider kunde inte skickas', err?.code || err));
+            .then((result) => {
+                const line = startTimePushResultLine(result, t);
+                showAlert(line.text, line.ok ? 'success' : 'error');
+            })
+            .catch((err) => {
+                console.warn('Push om ändrade starttider kunde inte skickas', err?.code || err);
+                showAlert(`${t('starttime_push_failed')} ${err?.message || ''}`.trim(), 'error');
+            });
     }
     if (chosen.has('mail')) {
         // Each driver gets only their own lines; queued by the server, waits

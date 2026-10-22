@@ -257,8 +257,11 @@ export function buildArchiveRowsFromData({
             isEliminated: total.isEliminated,
             isClearRound,
             // The whole clear round (TR V 509.3: dressage at most 80 p,
-            // marathon and precision 0 p), not only the marathon's part
-            clearRoundApproved: isClearRound && total.clearRoundApproved === true,
+            // marathon and precision 0 p), not only the marathon's part; null
+            // while a phase the class drives is not finished (undecided)
+            clearRoundApproved: isClearRound
+                ? (total.clearRoundApproved === null ? null : total.clearRoundApproved === true)
+                : false,
             plac: '',
             posDress: null,
             posMar: null,

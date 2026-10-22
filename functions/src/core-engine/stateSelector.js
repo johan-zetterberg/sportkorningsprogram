@@ -229,6 +229,9 @@ export function buildCompetitionState(equipageDoc, dressageProtocols, marathonDo
             dressyrClassConfig: config.dressyrClassConfig || null,
             precisionConfig: config.precisionConfig || {},
             ruleSettings: config.ruleSettings || null,
+            // Phases the class drives (['D','M','P']) when the caller knows
+            // them; else derived from the configs (calculation.js classDrivenPhases)
+            drivenPhases: config.drivenPhases || null,
             pauseWindows: Array.isArray(config.pauseWindows) ? config.pauseWindows : [],
             // Current time for live stages; omitted on the server
             nowMs: Number.isFinite(config.nowMs) ? config.nowMs : null

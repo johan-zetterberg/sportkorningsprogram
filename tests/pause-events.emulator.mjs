@@ -6,7 +6,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { applyPauseEvents, globalStatusPath, pauseEventsPath } from '../functions/src/pauseEvents.js';
+import { applyPauseEvents, globalStatusPath, pauseDetailsId, pauseDetailsPath, pauseEventsPath } from '../functions/src/pauseEvents.js';
 import { numberIncident } from '../functions/src/incidentNumbers.js';
 
 const PROJECT_ID = 'demo-combined-driving';
@@ -45,6 +45,12 @@ test('pause events: folded in time order, once, next to an online entry', async 
     assert.equal(status.pauseLog[1].end, '2026-05-01T10:20:00.000Z');
     assert.equal(status.pauseLog[1].durationSec, 1200);
     assert.equal(status.pauseLog[1].where, 'obstacle:2');
+    // Who pressed is not in the public log but in the private details
+    assert.equal(status.pauseLog[1].by, undefined);
+    assert.equal(status.pauseLog[1].endedBy, undefined);
+    const details = (await db.doc(`${pauseDetailsPath(APP_ID, COMP)}/${pauseDetailsId('2026-05-01T10:00:00.000Z')}`).get()).data();
+    assert.deepEqual(details.by, { uid: 'obs', role: 'marathon' });
+    assert.deepEqual(details.endedBy, { uid: 'obs' });
 
     // A re-delivered trigger finds nothing to do
     const again = await applyPauseEvents(db, FieldValue, { appId: APP_ID, compId: COMP });
@@ -79,4 +85,17 @@ test('pause events: isPaused follows the log, also when the device set it ahead'
     const status = (await statusRef.get()).data();
     assert.equal(status.isPaused, true);
     assert.equal(status.pauseLog.length, 3);
+});
+
+test('pause events: a press that reached the server more than 2 minutes late needs review', async () => {
+    const before = (await statusRef.get()).data();
+    const at = '2026-05-01T12:00:00.000Z';
+    await addEvent('e-late', { type: 'end', at, atServer: new Date(Date.parse(at) + 5 * 60000), by: { uid: 'obs', role: 'marathon' } });
+    const result = await applyPauseEvents(db, FieldValue, { appId: APP_ID, compId: COMP });
+    assert.equal(result.results['e-late'], 'needs-review');
+    const status = (await statusRef.get()).data();
+    assert.deepEqual(status.pauseLog, before.pauseLog);
+    assert.equal(status.isPaused, true);
+    const stored = (await events.doc('e-late').get()).data();
+    assert.equal(stored.result, 'needs-review');
 });

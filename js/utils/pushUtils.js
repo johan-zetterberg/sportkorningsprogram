@@ -3,12 +3,25 @@
 // can get notifications, the iPhone/iPad "add to home screen" case, topics,
 // and the in-app route a clicked notification opens.
 
+import { pushRoleForRoles } from './pushPanelUtils.js';
+
 // The same list as the server (functions/src/push/pushCore.js PUSH_TOPICS)
 export const PUSH_TOPICS = Object.freeze(['startTimes', 'messages', 'pause', 'vetDecision', 'declarationChanges', 'results']);
 // Sensible first choices for the UI
-export const DEFAULT_DRIVER_TOPICS = Object.freeze(['startTimes', 'messages', 'vetDecision']);
+export const DEFAULT_DRIVER_TOPICS = Object.freeze(['startTimes', 'messages', 'vetDecision', 'pause']);
 export const DEFAULT_OFFICIAL_TOPICS = Object.freeze(['messages', 'pause', 'vetDecision', 'declarationChanges']);
 export const DEFAULT_PUBLIC_TOPICS = Object.freeze(['messages']);
+
+/**
+ * The role the device-wide notifications switch is mounted with: staff, vet or
+ * official topics when the user holds a role in the current competition,
+ * otherwise 'device' (drivers, public, no competition selected).
+ */
+export function devicePushRole(roles = [], hasCompetition = false) {
+    const list = (Array.isArray(roles) ? roles : []).filter((r) => r && r !== 'publik');
+    if (!hasCompetition || !list.length) return 'device';
+    return pushRoleForRoles(list);
+}
 
 // Web push on iPhone/iPad: iOS/iPadOS 16.4 and later, only in an app added to
 // the home screen

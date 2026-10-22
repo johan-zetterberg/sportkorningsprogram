@@ -57,6 +57,31 @@ export function unackedByStartNumber(notices = []) {
     return map;
 }
 
+/**
+ * Confirm and record a ground jury decision on a pending vet strike (shared
+ * by this panel and the incident log). action: 'confirm' | 'overturn'.
+ * Returns 'cancelled', 'not-pending' or 'decided'; throws when saving fails.
+ */
+export async function runVetStrikeDecision(competitionId, { startNumber, action, incidentId = '' }) {
+    const question = action === 'confirm' ? t('notice_confirm_strike_question') : t('notice_overturn_strike_question');
+    if (!await showConfirm(`#${startNumber}: ${question}`, { danger: action === 'confirm' })) return 'cancelled';
+    const snap = await getDoc(getCompDocRef(competitionId, 'equipages', String(startNumber)));
+    const equipage = snap.exists() ? { id: snap.id, ...snap.data() } : null;
+    if (!equipage || vetStrikeStateOf(equipage) !== 'pending') {
+        showAlert(t('notice_strike_not_pending'), 'info');
+        return 'not-pending';
+    }
+    let incident = null;
+    const id = incidentId || equipage.vetStrikePending?.incidentId;
+    if (id) {
+        try { incident = (await getIncidents(competitionId)).find((i) => i.id === id) || null; } catch (_) { /* decided without the entry */ }
+    }
+    const { state } = await decideVetStrike(competitionId, equipage, action, { incident });
+    const done = action === 'confirm' ? t('notice_strike_confirmed') : t('notice_strike_overturned');
+    // Offline: saved on the device; the driver is told when it reaches the server
+    showAlert(state === 'queued' ? `${done} ${t('notice_decision_queued')}` : done);
+    return 'decided';
+}
 function renderNotice(notice, { canAck, canDecide, highlightNewHorse }) {
     const style = KIND_STYLE[notice.kind] || KIND_STYLE.declarationChange;
     const label = t(KIND_LABEL_KEYS[notice.kind] || 'notice_kind_declaration');
@@ -66,8 +91,8 @@ function renderNotice(notice, { canAck, canDecide, highlightNewHorse }) {
     const decide = canDecide && notice.kind === 'vetStrike' ? `
         <button type="button" class="min-h-[40px] rounded-md bg-rose-700 px-3 py-1 text-xs font-bold text-white hover:bg-rose-800" data-notice-decide="confirm" data-notice-id="${escapeHtml(notice.id)}">${escapeHtml(t('notice_confirm_strike'))}</button>
         <button type="button" class="min-h-[40px] rounded-md border border-current px-3 py-1 text-xs font-bold hover:bg-white/50 dark:hover:bg-black/20" data-notice-decide="overturn" data-notice-id="${escapeHtml(notice.id)}">${escapeHtml(t('notice_overturn_strike'))}</button>` : '';
-    // A strike stays until the secretariat or the TD has seen it
-    const ack = canAck && (notice.kind !== 'vetStrike' || canDecide) ? `
+    // A strike is closed by deciding it (or by the server when withdrawn): no Kvittera
+    const ack = canAck && notice.kind !== 'vetStrike' ? `
         <button type="button" class="min-h-[40px] rounded-md border border-current px-3 py-1 text-xs font-semibold hover:bg-white/50 dark:hover:bg-black/20" data-notice-ack="${escapeHtml(notice.id)}">${escapeHtml(t('notice_acknowledge'))}</button>` : '';
     return `
         <li class="rounded-lg border p-2.5 text-sm ${style}">
@@ -148,32 +173,26 @@ export function mountStaffNoticesPanel(container, { competitionId, kinds = null,
         if (!decideBtn) return;
         const notice = notices.find((n) => n.id === decideBtn.dataset.noticeId);
         if (!notice) return;
-        const action = decideBtn.dataset.noticeDecide;
-        const question = action === 'confirm' ? t('notice_confirm_strike_question') : t('notice_overturn_strike_question');
-        if (!await showConfirm(`#${notice.startNumber}: ${question}`, { danger: action === 'confirm' })) return;
         decideBtn.disabled = true;
         try {
-            const snap = await getDoc(getCompDocRef(competitionId, 'equipages', String(notice.startNumber)));
-            const equipage = snap.exists() ? { id: snap.id, ...snap.data() } : null;
-            if (!equipage || vetStrikeStateOf(equipage) !== 'pending') {
-                showAlert(t('notice_strike_not_pending'), 'info');
-            } else {
-                let incident = null;
-                const incidentId = notice.incidentId || equipage.vetStrikePending?.incidentId;
-                if (incidentId) {
-                    try { incident = (await getIncidents(competitionId)).find((i) => i.id === incidentId) || null; } catch (_) { /* decided without the entry */ }
-                }
-                await decideVetStrike(competitionId, equipage, action, { incident });
-                showAlert(action === 'confirm' ? t('notice_strike_confirmed') : t('notice_strike_overturned'));
+            const result = await runVetStrikeDecision(competitionId, {
+                startNumber: notice.startNumber,
+                action: decideBtn.dataset.noticeDecide,
+                incidentId: notice.incidentId
+            });
+            if (result === 'cancelled') {
+                decideBtn.disabled = false;
+                return;
             }
-            await acknowledgeStaffNotice(competitionId, notice.id).catch(() => { });
+            // Not awaited (offline it waits in the cache); the server also
+            // acknowledges it when the decision arrives (onIncidentWritten)
+            acknowledgeStaffNotice(competitionId, notice.id).catch(() => { });
         } catch (error) {
             console.error('Beslutet kunde inte sparas:', error);
             showAlert(`${t('notice_decision_failed')} ${error?.message || ''}`, false);
             decideBtn.disabled = false;
         }
     };
-
     container.addEventListener('click', onClick);
     const unsubscribe = listenForStaffNotices(competitionId, (list) => {
         notices = list;

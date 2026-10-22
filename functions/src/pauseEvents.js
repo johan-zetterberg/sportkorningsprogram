@@ -7,9 +7,14 @@
 // config/globalStatus.pauseLog in a transaction: in the order they happened
 // (`at`), each event once (processed), never removing an entry. The readers
 // of pauseLog are unchanged. The entry shapes are those of
-// js/utils/globalPauseUtils.js (buildPauseEntry, closePauseEntry).
+// js/utils/globalPauseUtils.js (buildPauseEntry, closePauseEntry): the public
+// entry holds time, reason and where; who pressed and the note go to the
+// private pauseDetails/{pauseDetailsId(start)} (staff only).
 //
 // How an event is folded (pure: foldPauseEvents):
+//   late   an event that reached the server more than LATE_EVENT_MAX_MS
+//          after it was pressed (atServer - at) is not applied backwards:
+//          'needs-review', shown to the secretariat (pause banner).
 //   start  no open pause and nothing logged after `at` -> a new open pause.
 //          An open pause already -> nothing (already paused). A pause or
 //          resume logged after `at` (the device was offline while others
@@ -22,8 +27,28 @@ export const PAUSE_EVENT_TYPES = ['start', 'end'];
 const PAUSE_REASONS = ['accident', 'vet', 'course', 'weather', 'other'];
 // Events folded per run (the rest on the next event or run)
 export const PAUSE_EVENTS_PER_RUN = 200;
+// An offline press that reaches the server later than this would change the
+// past (stage times already run): left for the secretariat to review
+export const LATE_EVENT_MAX_MS = 120 * 1000;
+export const NEEDS_REVIEW = 'needs-review';
 
 export const pauseEventsPath = (appId, compId) => `artifacts/${appId}/private/data/competitions/${compId}/${PAUSE_EVENTS}`;
+export const pauseDetailsPath = (appId, compId) => `artifacts/${appId}/private/data/competitions/${compId}/pauseDetails`;
+
+/** As js/utils/globalPauseUtils.js pauseDetailsId: 'p' + the start in epoch ms */
+export function pauseDetailsId(start) {
+    const ms = new Date(start).getTime();
+    return Number.isFinite(ms) && ms > 0 ? `p${ms}` : '';
+}
+
+const millisOf = (value) => {
+    if (value == null) return null;
+    if (typeof value.toMillis === 'function') return value.toMillis();
+    if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+    if (Number.isFinite(value?.seconds)) return value.seconds * 1000;
+    const ms = new Date(value).getTime();
+    return Number.isFinite(ms) ? ms : null;
+};
 export const globalStatusPath = (appId, compId) => `artifacts/${appId}/public/data/competitions/${compId}/config/globalStatus`;
 
 const trimTo = (value, max) => String(value ?? '').trim().slice(0, max);
@@ -43,7 +68,7 @@ function actor(by) {
     return out;
 }
 
-/** An event as stored, checked: { id, type, at, atMs, by, reason, note, where } or null */
+/** An event as stored, checked: { id, type, at, atMs, atServerMs, by, reason, note, where } or null */
 export function normalizePauseEvent(id, data = {}) {
     const type = String(data.type || '');
     const atMs = timeOf(data.at);
@@ -53,6 +78,7 @@ export function normalizePauseEvent(id, data = {}) {
         type,
         at: new Date(atMs).toISOString(),
         atMs,
+        atServerMs: millisOf(data.atServer),
         by: actor(data.by),
         reason: PAUSE_REASONS.includes(data.reason) ? data.reason : 'other',
         note: trimTo(data.note, 200),
@@ -82,14 +108,22 @@ function latestLoggedMs(log) {
 
 /**
  * Folds checked events (normalizePauseEvent, any order) into a pause log.
- * -> { log, results: { [eventId]: 'started' | 'ended' | 'ignored-*' }, changed }
- * Earlier entries are kept as they are; nothing is removed.
+ * -> { log, results: { [eventId]: 'started' | 'ended' | 'needs-review' | 'ignored-*' },
+ *      changed, details: { [pauseDetailsId]: { start?, note?, by?, endedBy? } } }
+ * Earlier entries are kept as they are; nothing is removed. `details` are the
+ * private parts (who, note) to merge into pauseDetails.
  */
 export function foldPauseEvents(pauseLog, events = []) {
     const log = list(pauseLog).map((p) => ({ ...p }));
     const results = {};
+    const details = {};
     let changed = false;
     sortPauseEvents(events.filter(Boolean)).forEach((event) => {
+        if (event.atServerMs !== null && event.atServerMs !== undefined
+            && event.atServerMs - event.atMs > LATE_EVENT_MAX_MS) {
+            results[event.id] = NEEDS_REVIEW;
+            return;
+        }
         const openIndex = openIndexOf(log);
         if (event.type === 'start') {
             if (openIndex !== -1) {
@@ -102,10 +136,14 @@ export function foldPauseEvents(pauseLog, events = []) {
                 return;
             }
             const entry = { start: event.at, end: null, durationSec: null, reason: event.reason };
-            if (event.note) entry.note = event.note;
-            if (event.by) entry.by = event.by;
             if (event.where) entry.where = event.where;
             log.push(entry);
+            if (event.note || event.by) {
+                const priv = { start: event.at };
+                if (event.note) priv.note = event.note;
+                if (event.by) priv.by = event.by;
+                details[pauseDetailsId(event.at)] = priv;
+            }
             results[event.id] = 'started';
             changed = true;
             return;
@@ -122,12 +160,15 @@ export function foldPauseEvents(pauseLog, events = []) {
         }
         const closed = { ...open, end: event.at };
         closed.durationSec = startMs !== null ? Math.max(0, Math.round((event.atMs - startMs) / 1000)) : null;
-        if (event.by) closed.endedBy = event.by;
         log[openIndex] = closed;
+        if (event.by) {
+            const id = pauseDetailsId(open.start);
+            if (id) details[id] = { ...(details[id] || {}), endedBy: event.by };
+        }
         results[event.id] = 'ended';
         changed = true;
     });
-    return { log, results, changed };
+    return { log, results, changed, details };
 }
 
 /**
@@ -146,7 +187,7 @@ export async function applyPauseEvents(db, FieldValue, { appId, compId, now = Da
         const statusSnap = await tx.get(statusRef);
         const status = statusSnap.exists ? statusSnap.data() || {} : {};
         const events = pending.docs.map((d) => normalizePauseEvent(d.id, d.data()));
-        const { log, results, changed } = foldPauseEvents(status.pauseLog, events);
+        const { log, results, changed, details } = foldPauseEvents(status.pauseLog, events);
         const isPaused = openIndexOf(log) !== -1;
         if (changed || status.isPaused !== isPaused) {
             const update = { isPaused, updatedAt: FieldValue.serverTimestamp() };
@@ -156,6 +197,11 @@ export async function applyPauseEvents(db, FieldValue, { appId, compId, now = Da
             }
             tx.set(statusRef, update, { merge: true });
         }
+        // Who pressed and the note: private, staff only
+        Object.entries(details).forEach(([id, data]) => {
+            if (!id) return;
+            tx.set(db.doc(`${pauseDetailsPath(appId, compId)}/${id}`), { ...data, updatedAt: FieldValue.serverTimestamp() }, { merge: true });
+        });
         pending.docs.forEach((d) => {
             tx.update(d.ref, { processed: true, processedAtMs: now, result: results[d.id] || 'ignored-invalid' });
         });

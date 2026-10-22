@@ -35,6 +35,10 @@ import { RESULT_STATUS, requiredForTotalRows } from '../../pdf/resultStatusUtils
 import { applyArchivedSnapshot, loadArchiveSnapshot } from './archivedResults.js';
 import { buildTdbSheet, deadlineFor, tdbListToText, TDB_REPORT_URL } from '../../services/tdbSheetUtils.js';
 import { isClearRoundClass } from '../../core-engine/marathon.js';
+import { classDrivenPhases } from '../../core-engine/calculation.js';
+import { getCompetitionSetting } from '../../services/competitionSettingsStore.js';
+import { getIncidents } from '../../services/incidentService.js';
+import { findOpenJuryMatters } from '../../services/finalizeCompletenessUtils.js';
 import { getCurrentLanguage, t } from '../../utils/i18n.js';
 import { showToast } from '../../ui/components.js';
 import { generateVetCheckPdf } from '../../pdf/vetCheckPdf.js';
@@ -330,6 +334,7 @@ export async function load() {
 let tdbLists = [];
 let tdbRows = [];
 let tdbProvisional = new Set(); // group keys with results that are not all finalized
+let tdbJuryMatters = new Map(); // group key -> open ground jury matters (pending vet strikes, open protests)
 let tdbSeq = 0;
 
 function canUseTdbSheet() {
@@ -354,9 +359,17 @@ async function refreshTdbSheet() {
     // Clear round per class: maraton settings or the dressage admin's class config
     const dClassCfg = await safeReportFetch('dressyrklasskonfiguration', () => getConfig(competitionId, 'dressyrClassConfig'), {});
     const dressyrClassConfig = dClassCfg?.value || dClassCfg || null;
+    // The moments each class drives, from its configs (not from who has results)
+    const phaseConfigs = {
+        dressageProgramMapping: getCompetitionSetting('klassProgramMapping', competitionId) || {},
+        dressageJudgeMapping,
+        marathonConfig,
+        precisionConfig
+    };
     const lists = buildTdbSheet(rows, {
         competition: comp,
-        isClearRoundClass: (className) => isClearRoundClass(className, { marathonConfig, dressyrClassConfig })
+        isClearRoundClass: (className) => isClearRoundClass(className, { marathonConfig, dressyrClassConfig }),
+        drivenPhasesOf: (row) => classDrivenPhases(row, phaseConfigs)
     });
     const provisional = new Set();
     await Promise.all(lists.map(async (list) => {
@@ -365,10 +378,22 @@ async function refreshTdbSheet() {
         const { status } = await resolveResultListStatus(comp, { required: requiredForTotalRows(listRows) });
         if (status !== RESULT_STATUS.OFFICIAL) provisional.add(list.groupKey);
     }));
+    // Pending vet strikes and open protests of each class: a warning line
+    // (the TDB report waits for the ground jury's decision)
+    const incidents = await safeReportFetch('händelselogg', () => getIncidents(competitionId), []);
+    const juryMatters = new Map();
+    lists.forEach((list) => {
+        const classNames = [...new Set(rows
+            .filter((row) => String(row._mergedKey || `CLASS:${row.className || '-'}`) === list.groupKey)
+            .map((row) => String(row.className || '')))];
+        const matters = findOpenJuryMatters({ equipages, incidents, classNames });
+        if (matters.length) juryMatters.set(list.groupKey, matters);
+    });
     if (seq !== tdbSeq) return;
     tdbRows = rows;
     tdbLists = lists;
     tdbProvisional = provisional;
+    tdbJuryMatters = juryMatters;
     const host = document.getElementById('tdb-sheet-section');
     if (host) host.innerHTML = tdbSectionInnerHtml();
 }
@@ -392,7 +417,11 @@ function tdbListHtml(list, index) {
         .map((c) => (c.number !== null && c.number !== undefined ? `${c.number} ${c.label}`.trim() : c.label))
         .filter(Boolean).join(', ');
     const provisional = tdbProvisional.has(list.groupKey);
-    const notes = [list.zeroStar ? t('tdb_zero_star_note') : '', list.clearRound ? t('tdb_clear_round_note') : '']
+    const juryMatters = tdbJuryMatters.get(list.groupKey) || [];
+    const juryWarning = juryMatters.length
+        ? `<div role="alert" class="my-1 rounded border border-amber-400 bg-amber-50 p-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"><p class="font-semibold">${escapeHtml(t('tdb_jury_open_warning'))}</p><ul class="list-disc pl-5">${juryMatters.map((m) => `<li>${escapeHtml(m)}</li>`).join('')}</ul></div>`
+        : '';
+    const notes = juryWarning + [list.zeroStar ? t('tdb_zero_star_note') : '', list.clearRound ? t('tdb_clear_round_note') : '']
         .filter(Boolean).map((n) => `<p class="text-xs text-gray-600 dark:text-gray-400 italic">${escapeHtml(n)}</p>`).join('');
     let body;
     if (list.status === 'noResults') {

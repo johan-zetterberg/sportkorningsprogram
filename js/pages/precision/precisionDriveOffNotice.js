@@ -72,8 +72,9 @@ export async function openDriveOffCallUp(competitionId, { label, startNumbers },
     const body = String(choice.text || '').trim() || texts.body;
     // An edited Swedish text: the English one no longer matches it
     const english = body === texts.body ? { titleEn: texts.titleEn, bodyEn: texts.bodyEn } : { titleEn: texts.titleEn, bodyEn: '' };
+    let saveState = 'saved';
     try {
-        await saveCompetitionMessage(competitionId, {
+        saveState = await saveCompetitionMessage(competitionId, {
             title: texts.title,
             body,
             ...english,
@@ -83,7 +84,9 @@ export async function openDriveOffCallUp(competitionId, { label, startNumbers },
             source: 'driveOff',
             ...audience
         });
-        showAlert(t('driveoff_callup_sent').replace('{n}', String(startNumbers.length)), 'success');
+        // Offline: saved on the device; the message and its push go with the signal
+        if (saveState === 'queued') showAlert(t('msg_saved_queued'), 'offline');
+        else showAlert(t('driveoff_callup_sent').replace('{n}', String(startNumbers.length)), 'success');
     } catch (err) {
         console.error('Kunde inte skicka meddelandet om omkörning', err);
         showAlert(t('driveoff_callup_failed'), 'error');
@@ -100,7 +103,10 @@ export async function openDriveOffCallUp(competitionId, { label, startNumbers },
             ...buildMessageAudience('official:speaker')
         }).catch((err) => console.warn('Speakerns notis om omkörningen kunde inte sparas', err));
     }
-    if (chosen.has('mail')) {
+    // The e-mail needs the server: offline, sent again by hand later
+    if (chosen.has('mail') && saveState === 'queued') {
+        showAlert(t('notify_needs_connection_resend'), 'offline');
+    } else if (chosen.has('mail')) {
         try {
             await queueCompetitionMail({
                 competitionId,

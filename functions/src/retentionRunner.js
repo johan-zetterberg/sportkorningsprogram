@@ -5,15 +5,36 @@ import {
     RETENTION_PRIVATE_TREE_COLLECTIONS,
     RETENTION_PUBLIC_TREE_COLLECTIONS,
     anonymizePauseLog,
+    isArchivedCompetitionData,
     isStaleCounter,
     personalLogFieldsPresent,
-    selectCompetitionsForPurge
+    purgeScheduleDecision,
+    retentionDecision,
+    selectCompetitionsForPurge,
+    toMillis
 } from './personalData.js';
 import { purgeStaleTokens, removeCompetitionFromTokens } from './push/pushService.js';
 
 export const PERSONAL_DATA_APP_IDS = ['combined-driving', 'drivelive'];
 export const COMPETITION_LIST_FIELDS = ['name', 'createdBy', 'ownerId', 'admins', 'staffUids', 'locked', 'status',
-    'finalizedAt', 'archiveSnapshotId', 'dates', 'date', 'createdAt', 'retentionMonths', 'deleting'];
+    'finalizedAt', 'archiveSnapshotId', 'dates', 'date', 'createdAt', 'updatedAt', 'lastResultAt', 'lastActivityAt',
+    'retentionMonths', 'deleting', 'personalDataPurgeScheduledAt'];
+
+// The newest write the run can read cheaply for a competition not archived:
+// its latest audit log entry (secretariat corrections) and incident
+async function newestActivityMs(db, competition) {
+    const base = `artifacts/${competition.appId}/private/data/competitions/${competition.id}`;
+    const newest = async (name, field) => {
+        try {
+            const snap = await db.collection(`${base}/${name}`).orderBy(field, 'desc').limit(1).get();
+            return snap.empty ? null : toMillis(snap.docs[0].get(field));
+        } catch (_) {
+            return null;
+        }
+    };
+    const times = (await Promise.all([newest('auditLog', 'editedAt'), newest('incidents', 'updatedAt')])).filter(Boolean);
+    return times.length ? Math.max(...times) : null;
+}
 
 // Every competition document of the app ids (only the fields named)
 export async function listAllCompetitions(db, { appIds = PERSONAL_DATA_APP_IDS, fields = COMPETITION_LIST_FIELDS } = {}) {
@@ -84,7 +105,11 @@ async function purgeCompetitionPersonalData(db, FieldValue, competition) {
  * Deletes private competition data (contact details, ICE, health and vet data,
  * volunteer sign-ups, refused writes, rate limits) `retentionMonths` (admin
  * setting, default 12) after the competition was archived (never archived:
- * after its last date, else its creation), and PIN attempt
+ * after it was last in use: its last date, creation, update or newest audit
+ * log / incident entry). A competition that becomes due is first only
+ * scheduled (personalDataPurgeScheduledAt on the competition, shown in the
+ * admin's privacy settings) and purged on a run a week or more later; one
+ * no longer due is unscheduled. Also PIN attempt
  * and rate limit counters without a write in 30 days everywhere. Results and
  * the archive stay. Idempotent: purged competitions are recorded in
  * personalDataRetention; each run is summarised in retentionRuns.
@@ -96,10 +121,40 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
         db.collection('personalDataRetention').get()
     ]);
     const purgedAtByKey = new Map(stateSnap.docs.map((d) => [d.id, d.data()?.purgedAt || null]));
-    const due = selectCompetitionsForPurge(competitions.map((c) => ({
+    const withState = competitions.map((c) => ({
         ...c,
         data: { ...c.data, personalDataPurgedAt: purgedAtByKey.get(`${c.appId}__${c.id}`) || null }
-    })), nowMs);
+    }));
+    // A competition never archived that looks due by its own fields: its
+    // newest audit log entry counts as activity too (one cheap read each)
+    const candidates = selectCompetitionsForPurge(withState, nowMs);
+    for (const competition of candidates) {
+        if (isArchivedCompetitionData(competition.data)) continue;
+        competition.data = { ...competition.data, recentActivityMs: await newestActivityMs(db, competition) };
+    }
+    const dueKeys = new Set(selectCompetitionsForPurge(candidates, nowMs).map((c) => `${c.appId}__${c.id}`));
+
+    // The safety step: first scheduled (shown to the admin), purged a week later
+    const due = [];
+    const scheduled = [];
+    for (const competition of withState) {
+        const key = `${competition.appId}__${competition.id}`;
+        const candidate = candidates.find((c) => `${c.appId}__${c.id}` === key);
+        const decision = dueKeys.has(key) ? retentionDecision(candidate.data, nowMs) : { due: false };
+        const step = purgeScheduleDecision(decision, competition.data?.personalDataPurgeScheduledAt, nowMs);
+        try {
+            if (step.action === 'schedule') {
+                await competition.ref.update({ personalDataPurgeScheduledAt: step.scheduledAt });
+                scheduled.push({ competitionId: competition.id, appId: competition.appId, purgeAt: step.purgeAt });
+            } else if (step.action === 'unschedule') {
+                await competition.ref.update({ personalDataPurgeScheduledAt: FieldValue.delete() });
+            } else if (step.action === 'purge') {
+                due.push({ ...candidate, decision });
+            }
+        } catch (error) {
+            logger.error('Gallring: schemaläggningen misslyckades för tävlingen', { competitionId: competition.id, error: String(error?.message || error) });
+        }
+    }
 
     const purged = [];
     const errors = [];
@@ -145,6 +200,7 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
         finishedAt: Date.now(),
         competitionsChecked: competitions.length,
         competitionsPurged: purged,
+        competitionsScheduled: scheduled,
         pinAttemptsDeleted,
         rateLimitsDeleted,
         mailRetryDeleted,
@@ -154,6 +210,7 @@ export async function runPersonalDataRetention({ db, FieldValue, logger = consol
     await db.collection('retentionRuns').add(summary);
     logger.info('Gallring av personuppgifter klar', {
         competitionsPurged: purged.map((p) => p.competitionId),
+        competitionsScheduled: scheduled.map((s) => s.competitionId),
         pinAttemptsDeleted,
         rateLimitsDeleted,
         errors: errors.length

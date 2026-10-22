@@ -235,3 +235,15 @@ export function clearRoundApprovedOver(phases = {}) {
   if (driven.length === 0) return false;
   return driven.every((k) => clearRoundPhaseApproved(k, phases[k].penalty, { eliminated: phases[k].eliminated === true }) === true);
 }
+
+// The whole clear round from each driven phase's decision (true approved,
+// false not approved: over the limit, eliminated, retired or not started,
+// which counts as withdrawn in that phase, TR 532.4; null not decided yet).
+// Any false: false; else any null: null (undecided); no driven phase: false
+export function combineClearRoundPhases(decisions = []) {
+  const list = Array.isArray(decisions) ? decisions : [];
+  if (list.length === 0) return false;
+  if (list.some((v) => v === false)) return false;
+  if (list.some((v) => v !== true)) return null;
+  return true;
+}

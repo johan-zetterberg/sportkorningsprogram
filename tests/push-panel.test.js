@@ -12,7 +12,7 @@ import {
     topicsForRole,
     viewStatusKey
 } from '../js/utils/pushPanelUtils.js';
-import { PUSH_TOPICS } from '../js/utils/pushUtils.js';
+import { DEFAULT_DRIVER_TOPICS, PUSH_TOPICS, devicePushRole } from '../js/utils/pushUtils.js';
 
 test('topics offered per role', () => {
     // Drivers follow pauses too (owner decision); the vet has its own set
@@ -83,4 +83,15 @@ test('status text and error keys', () => {
     assert.equal(pushErrorKey('push/token-failed'), 'push_err_token');
     assert.equal(pushErrorKey('something'), 'push_err_generic');
     assert.equal(IOS_GUIDE_STEP_KEYS.length, 4);
+});
+
+test('the device switch uses the role from the competition roles', () => {
+    assert.equal(devicePushRole(['admin'], true), 'staff');
+    assert.equal(devicePushRole(['td'], true), 'staff');
+    assert.equal(devicePushRole(['vet'], true), 'vet');
+    assert.equal(devicePushRole(['marathon'], true), 'official');
+    assert.equal(devicePushRole(['publik'], true), 'device');
+    assert.equal(devicePushRole([], true), 'device');
+    assert.equal(devicePushRole(['admin'], false), 'device');
+    assert.ok(DEFAULT_DRIVER_TOPICS.includes('pause'));
 });

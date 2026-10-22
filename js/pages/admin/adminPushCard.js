@@ -8,6 +8,9 @@ import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { fillTemplate } from '../../utils/officialTaskUtils.js';
 import { mountPushPanel } from '../../ui/pushSettingsPanel.js';
+import { getGlobalState } from '../../main.js';
+import { mergeUserRoles } from '../../utils/roleAccess.js';
+import { devicePushRole } from '../../utils/pushUtils.js';
 
 const INPUT = 'mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white';
 const BTN = 'min-h-[44px] px-4 py-2 rounded-md text-sm font-semibold disabled:opacity-50';
@@ -136,7 +139,9 @@ export function setupPushCard() {
     });
 
     // Turning notifications on for this device can be done right here
-    mountPushPanel($('pushpDevice'), { role: 'device', compact: true, title: '' })
+    // Staff get their staff topics by default (roles in the current competition)
+    const role = devicePushRole(mergeUserRoles(getGlobalState('currentUser')), !!getGlobalState('currentCompetition')?.id);
+    mountPushPanel($('pushpDevice'), { role, compact: true, title: '' })
         .catch((error) => console.warn('Notiser kunde inte visas:', error));
 
     load();

@@ -47,6 +47,11 @@ export const MAIL_LIMITS = {
     perUserHour: 10,
     perCompetitionHour: 10,
     perCompetitionDay: 40,
+    // Essential notices (changed start times by mail and push): counters of
+    // their own, higher, so bulk mail never uses them up
+    essentialPerUserHour: 30,
+    essentialPerCompetitionHour: 40,
+    essentialPerCompetitionDay: 200,
     // The reason an essential message is sent (shown in the mail log)
     reasonMax: 200,
     replyToChecksPerDay: 5,

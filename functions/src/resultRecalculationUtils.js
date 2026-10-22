@@ -63,6 +63,8 @@ export function pauseLogForResults(pauseLog) {
         const rest = { ...entry };
         delete rest.by;
         delete rest.endedBy;
+        // The note moved to the private pause details: not part of a result
+        delete rest.note;
         return rest;
     });
 }

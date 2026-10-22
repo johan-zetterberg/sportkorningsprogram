@@ -5,7 +5,8 @@
 // Rules of the guide (2026-03-04):
 //  - one row per ekipage that started, in the order of the competition; TDB
 //    does not sort, so the placing is typed by hand
-//  - placing code: utesluten / utgått / avstår / struken after the start = 99,
+//  - placing code: utesluten / utgått / avstår / struken after the start = 99
+//    (also not started in a moment the class drives, TR 532.4),
 //    clear round passed = 1, not passed = 98, a list with one ekipage = 0,
 //    otherwise the place (shared places allowed). Ekipage that never started
 //    are left out
@@ -125,10 +126,12 @@ function tdbClassesOf(rows, knownClasses) {
  * clear round is judged from the moments' penalties (TR V 509.3), not from a
  * stored approval; for an archived competition the rows carry the
  * archived values (archivedPlac).
- * options: { classes, competition, isClearRoundClass(className), isZeroStarClass(label) }
+ * options: { classes, competition, isClearRoundClass(className),
+ * drivenPhasesOf(row) -> ['D','M','P'] (the class's moments from its config,
+ * core-engine/calculation.js classDrivenPhases), isZeroStarClass(label) }
  */
 export function buildTdbSheet(rows = [], options = {}) {
-    const { classes = [], isClearRoundClass = null, isZeroStarClass = isZeroStarClassName, decimalSeparator = ',' } = options;
+    const { classes = [], isClearRoundClass = null, drivenPhasesOf = null, isZeroStarClass = isZeroStarClassName, decimalSeparator = ',' } = options;
     const groups = new Map();
     (Array.isArray(rows) ? rows : []).forEach((row) => {
         if (!row) return;
@@ -159,25 +162,41 @@ export function buildTdbSheet(rows = [], options = {}) {
         });
         started.sort((a, b) => (Number(a.row.startNumber) || 0) - (Number(b.row.startNumber) || 0));
         const single = started.length === 1;
-        // Moments the class drove: those any starter has a result in. A moment
-        // the class did not drive is left out of the clear-round criteria
-        const drivenMoments = new Set(started.flatMap(({ moments }) => moments.map((m) => m.moment)));
+        // Moments the class drives: from the class's config (drivenPhasesOf,
+        // classDrivenPhases), and any moment a starter has a result in. A
+        // moment the class does not drive is left out of the criteria
+        const fromConfig = typeof drivenPhasesOf === 'function'
+            ? group.rows.flatMap((row) => {
+                const phases = drivenPhasesOf(row);
+                return Array.isArray(phases) ? phases : [];
+            })
+            : [];
+        const drivenMoments = new Set([
+            ...fromConfig,
+            ...started.flatMap(({ moments }) => moments.map((m) => m.moment))
+        ]);
 
         const built = started.map(({ row, moments, withdrawn, retired, eliminated }) => {
             let placingCode;
             let reason;
+            const byMoment = new Map(moments.map((m) => [m.moment, m]));
+            // TR 532.4: "Kusk som inte startar i en deltävling bedöms vara
+            // struken": a moment the class drives without a result is 99
+            const notStarted = MOMENTS.some((k) => drivenMoments.has(k) && !byMoment.has(k));
             if (withdrawn || retired || eliminated) {
                 placingCode = 99;
                 reason = eliminated ? 'eliminated' : (withdrawn ? 'withdrawn' : 'retired');
+            } else if (notStarted) {
+                placingCode = 99;
+                reason = 'notStarted';
             } else if (clearRound) {
                 // TR V 509.3: "Kriterier för clear round är i dressyr högst 80
                 // straffpoäng, i maraton och precision 0 straffpoäng. Tid i
                 // maratonhinder ger inte straffpoäng." Every moment the class
-                // drove must meet its criterion (a missing one does not)
-                const byMoment = new Map(moments.map((m) => [m.moment, m]));
+                // drives must meet its criterion
                 const approved = clearRoundApprovedOver(Object.fromEntries(MOMENTS
                     .filter((k) => drivenMoments.has(k))
-                    .map((k) => [k, byMoment.get(k) || { penalty: null, eliminated: false }])));
+                    .map((k) => [k, byMoment.get(k)])));
                 placingCode = approved ? 1 : 98;
                 reason = approved ? 'clearRoundPassed' : 'clearRoundFailed';
             } else if (single) {

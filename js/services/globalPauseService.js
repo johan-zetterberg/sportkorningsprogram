@@ -3,18 +3,20 @@
 // marathon page. The pause log is subtracted from the stage times, so it is
 // updated in a transaction: two officials pressing at once cannot overwrite
 // each other, and pausing during an open pause (or resuming without one)
-// changes nothing. Each entry records why, who and where (globalPauseUtils).
+// changes nothing. Each public entry records when, why and where; who pressed
+// and the note go to the private pauseDetails/{id} in the same transaction
+// (globalPauseUtils: the public and the drivers see time and reason only).
 // Without connection a pause event is queued instead (append-only, folded
 // into the log by the server: functions/src/pauseEvents.js).
 
 import { db, appId, auth } from '../config/firebase-config.js';
-import { collection, doc, getDoc, serverTimestamp, runTransaction, deleteField, writeBatch } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+import { collection, doc, getDoc, onSnapshot, query, serverTimestamp, runTransaction, deleteField, updateDoc, where, writeBatch } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 import { trackWrite } from './firestoreService.js';
 import { awaitWriteOrQueue, queuedNotice } from '../utils/offlineWrite.js';
 import { showAlert } from '../ui/components.js';
 import { t } from '../utils/i18n.js';
 import { serverNow } from '../utils/serverClock.js';
-import { buildPauseEntry, nextPauseLog, pauseActor } from '../utils/globalPauseUtils.js';
+import { buildPauseDetails, buildPauseEntry, nextPauseLog, openPause, pauseActor, pauseDetailsId } from '../utils/globalPauseUtils.js';
 
 /** Who presses the button: the account's uid, display name (if any) and the role code */
 export function currentPauseActor(role) {
@@ -33,14 +35,59 @@ export function pauseEventRef(competitionId) {
   return doc(collection(db, 'artifacts', appId, 'private', 'data', 'competitions', competitionId, 'pauseEvents'));
 }
 
-/** The event for a press: the same reason, who and where as a log entry */
+/** The private details of a pause (who pressed, the note): staff only */
+export function pauseDetailsRef(competitionId, pauseId) {
+  if (!competitionId || !pauseId) throw new Error('competitionId/pauseId saknas');
+  return doc(db, 'artifacts', appId, 'private', 'data', 'competitions', competitionId, 'pauseDetails', pauseId);
+}
+
+/**
+ * The private details write for a press on `pauseLog` (the log before it):
+ * { ref, data } or null. Pause: who and the note of the new entry; resume:
+ * who ended the open one.
+ */
+export function pauseDetailsWrite(competitionId, pauseLog, isPaused, nowIso, details = {}) {
+  const start = isPaused ? nowIso : openPause(pauseLog)?.start;
+  const id = start ? pauseDetailsId(start) : '';
+  const data = id ? buildPauseDetails(start, details, { resume: !isPaused }) : null;
+  return data ? { ref: pauseDetailsRef(competitionId, id), data: { ...data, updatedAt: serverTimestamp() } } : null;
+}
+
+/** Follows a pause's private details (staff): onChange(details | null). Returns unsubscribe */
+export function listenPauseDetails(competitionId, pauseId, onChange) {
+  return onSnapshot(pauseDetailsRef(competitionId, pauseId),
+    (snap) => onChange(snap.exists() ? snap.data() : null),
+    () => onChange(null));
+}
+
+/**
+ * Follows the offline pause events the server left for review (pressed more
+ * than two minutes before they reached it: not applied backwards). Admins
+ * only (the rules): onChange([{ id, type, at, by }]) without the reviewed ones.
+ */
+export function listenPauseEventsForReview(competitionId, onChange) {
+  const q = query(collection(db, 'artifacts', appId, 'private', 'data', 'competitions', competitionId, 'pauseEvents'),
+    where('result', '==', 'needs-review'));
+  return onSnapshot(q,
+    (snap) => onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((e) => !e.reviewedAt)),
+    () => onChange([]));
+}
+
+/** Marks a late pause event reviewed (the secretariat dealt with it) */
+export function markPauseEventReviewed(competitionId, eventId) {
+  const ref = doc(db, 'artifacts', appId, 'private', 'data', 'competitions', competitionId, 'pauseEvents', eventId);
+  return trackWrite('Granskar sen paus', updateDoc(ref, { reviewedAt: serverTimestamp(), reviewedBy: auth?.currentUser?.uid || '' }));
+}
+
+/** The event for a press: the same reason, who, note and where as a pause */
 export function pauseEventDoc(isPaused, nowIso, details = {}) {
   const entry = buildPauseEntry(nowIso, details);
+  const priv = buildPauseDetails(nowIso, details) || {};
   const event = { type: isPaused ? 'start' : 'end', at: String(nowIso), atServer: serverTimestamp(), processed: false };
-  if (entry.by) event.by = entry.by;
+  if (details?.by?.uid) event.by = pauseActor(details.by);
   if (isPaused) {
     event.reason = entry.reason;
-    if (entry.note) event.note = entry.note;
+    if (priv.note) event.note = priv.note;
     if (entry.where) event.where = entry.where;
   }
   return event;
@@ -116,8 +163,13 @@ export async function setGlobalPause(competitionId, isPaused, details = {}) {
     } else {
       const transactionDone = runTransaction(db, async (tx) => {
         const docSnap = await tx.get(statusRef);
-        const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data()?.pauseLog : [], isPaused, nowIso, details);
-        if (pauseLog) tx.set(statusRef, statusDoc(pauseLog), { merge: true });
+        const before = docSnap.exists() ? docSnap.data()?.pauseLog : [];
+        const pauseLog = nextPauseLog(before, isPaused, nowIso, details);
+        if (!pauseLog) return;
+        tx.set(statusRef, statusDoc(pauseLog), { merge: true });
+        // Who and the note: private, with the public entry or not at all
+        const priv = pauseDetailsWrite(competitionId, before, isPaused, nowIso, details);
+        if (priv) tx.set(priv.ref, priv.data, { merge: true });
       });
       try {
         await withTimeout(transactionDone, PAUSE_TRANSACTION_TIMEOUT_MS);

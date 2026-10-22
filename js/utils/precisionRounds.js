@@ -14,7 +14,7 @@ export { PRECISION_ROUNDS };
 // Fields a round sub-doc may hold (firestore.rules optPrecisionRound)
 export const PRECISION_ROUND_FIELDS = Object.freeze([
     'timeMs', 'liveTimeMs', 'liveStartEpoch', 'livePausedMs', 'running', 'inProgress',
-    'knocks', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired',
+    'knocks', 'knocksVersion', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired',
     'timePenalty', 'timePenaltyOverride', 'obstaclePenalty', 'totalPenalty',
     'liveObstaclePenalty', 'liveTimePenalty', 'liveTotalPenalty', 'status', 'comment',
     'finalized', 'updatedAt'

@@ -485,6 +485,26 @@ export function calculatePrecisionLiveResult(data, equipage, config = {}, option
 }
 
 /**
+ * Knock-list version written with every knock-list write (toggles, resets,
+ * secretariat list edits): a doc with it always derives its obstacle penalty
+ * from the list, also an empty one.
+ */
+export const PRECISION_KNOCKS_VERSION = 2;
+
+/**
+ * Whether a precision doc (or round) is a legacy one whose stored
+ * obstaclePenalty counts: no knock list, or an empty list with a stored
+ * penalty > 0 and no knock-list marker (knocksVersion, knocksAuthoritative,
+ * penaltyFromKnocks), as an old secretariat correction left it.
+ */
+export function isLegacyPrecisionKnockDoc(d) {
+    if (!d || !isNum(d.obstaclePenalty) || d.obstaclePenalty <= 0) return false;
+    if (Array.isArray(d.knocks) && d.knocks.length > 0) return false;
+    if (Number(d.knocksVersion) >= PRECISION_KNOCKS_VERSION || d.knocksAuthoritative === true || d.penaltyFromKnocks === true) return false;
+    return true;
+}
+
+/**
  * One round's result. scoring 'fault' is the precision math of TR 530 / FEI
  * 975-976 (unchanged for phase 1). scoring 'time' (FEI 978) adds
  * score = time (incl. +10 s per rebuild) + knock seconds + extra seconds +
@@ -535,8 +555,10 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     // The knock list is the only source once a doc has one: knocks are written
     // one toggle at a time by every device, while a stored obstaclePenalty is
     // one device's count at its save (a knock from another device in between
-    // would go uncounted). Legacy docs without a list keep their stored value.
-    const hasKnockList = Array.isArray(d.knocks);
+    // would go uncounted). Legacy docs without a list, or with an empty list
+    // and a stored penalty from an old secretariat correction (no
+    // knocksVersion marker), keep their stored value.
+    const hasKnockList = Array.isArray(d.knocks) && !isLegacyPrecisionKnockDoc(d);
     const storedObstacle = isNum(d.obstaclePenalty) || isNum(d.liveObstaclePenalty);
     const obstaclePenalty = hasKnockList
         ? ((knocksCount > 0 || storedObstacle) ? knocksCount * knockdownPenalty : null)
@@ -564,14 +586,12 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     timePenalty = (isNum(timePenalty) && (timePenalty > 0 || hasTimeResult)) ? timePenalty : null;
 
     const extraPenalty = isNum(d.extraPenalty) ? d.extraPenalty : null;
-    const hasPerformance = (isNum(timeMs) && timeMs > 0)
-        || (isNum(obstaclePenalty) && obstaclePenalty > 0)
-        || (isNum(extraPenalty) && extraPenalty !== 0);
-    // A finalized result needs something driven: a time (or a time penalty the
-    // secretariat set by hand). Finalized without one is not a 0-penalty
-    // result: not started counts as withdrawn (TR 532.4), no total
-    const manualTimePenalty = d.timePenaltyOverride === true && isNum(d.timePenalty);
-    const hasValidResult = hasPerformance || (isFinal && !eliminated && manualTimePenalty) || running;
+    // A result needs a driven time (or a clock running; eliminated / retired
+    // are their own status). Knocks, an extra penalty or a time penalty set by
+    // hand without a time are no result (owner 2026-10-23): finalized without a
+    // time is not a 0-penalty result, not started counts as withdrawn (TR
+    // 532.4), no total
+    const hasValidResult = (isNum(timeMs) && timeMs > 0) || running;
     const sumParts = hasValidResult
         ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
         : null;
@@ -832,7 +852,10 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     if (p2?.configMissing || (p2?.hasData && !isNum(p2.maxTimeSec) && !p2.timePenaltyOverride)) formatWarnings.push('phase2ConfigMissing');
     if (dOff?.configMissing) formatWarnings.push('driveOffConfigMissing');
 
-    const placeable = !base.formatUnsupported && !isClearRound && !p1.eliminated && isNum(p1.totalPenalty);
+    // A place needs a driven time or a running clock (also in a live list):
+    // a stored penalty alone (not started) is never placed
+    const driven = p1.running === true || (isNum(p1.timeMs) && p1.timeMs > 0);
+    const placeable = !base.formatUnsupported && !isClearRound && !p1.eliminated && driven && isNum(p1.totalPenalty);
     const placing = precisionPlacing({ p1, p2, format: precisionFormat, phase2Qualified, topFinalized: p1.finalized, placeable });
 
     return {

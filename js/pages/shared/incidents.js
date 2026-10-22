@@ -29,7 +29,7 @@ import {
 import { CORRECTION_REFERENCE_TYPES } from '../../services/secretariatPatchUtils.js';
 import { listenForFieldDevices } from '../../services/deviceHeartbeatService.js';
 import { formatSince, summarizeDevices } from '../../services/deviceHeartbeatUtils.js';
-import { mountStaffNoticesPanel } from '../../ui/staffNoticesPanel.js';
+import { canDecideVetStrikes, mountStaffNoticesPanel, runVetStrikeDecision } from '../../ui/staffNoticesPanel.js';
 
 const TABS = ['log', 'corrections', 'notices', 'devices'];
 
@@ -120,6 +120,11 @@ function renderForm(editing) {
         </form>`;
 }
 
+/** A pending vet strike entry can be decided here by the secretariat or the TD */
+function canDecideVet(item) {
+    return item.type === 'vet' && item.status === 'open' && item.vetStrike?.outcome === 'pending' && canDecideVetStrikes(mergeUserRoles(getGlobalState('currentUser')));
+}
+
 function renderIncident(item) {
     const corrections = correctionsForIncident(state.corrections, item, state.incidents);
     const meta = [
@@ -139,6 +144,9 @@ function renderIncident(item) {
             </div>
             <p class="mt-2 whitespace-pre-wrap text-sm text-gray-800 dark:text-gray-200">${escapeHtml(item.description || '')}</p>
             ${item.decision ? `<p class="mt-2 whitespace-pre-wrap rounded-lg bg-sky-50 p-2 text-sm text-sky-950 dark:bg-sky-950/30 dark:text-sky-100"><span class="font-bold">${escapeHtml(t('incident_field_decision'))}:</span> ${escapeHtml(item.decision)}${item.decidedBy ? ` <span class="opacity-75">(${escapeHtml(item.decidedBy)})</span>` : ''}</p>` : ''}
+            ${canDecideVet(item) ? `<div class="mt-2 flex flex-wrap gap-2">
+                <button type="button" data-incident-vet-decide="confirm" data-incident-id="${escapeHtml(item.id)}" class="min-h-[40px] rounded-md bg-rose-700 px-3 py-1 text-xs font-bold text-white hover:bg-rose-800">${escapeHtml(t('notice_confirm_strike'))}</button>
+                <button type="button" data-incident-vet-decide="overturn" data-incident-id="${escapeHtml(item.id)}" class="min-h-[40px] rounded-md border border-gray-400 px-3 py-1 text-xs font-bold text-gray-800 dark:text-gray-100">${escapeHtml(t('notice_overturn_strike'))}</button></div>` : ''}
             ${corrections.length ? `<div class="mt-2 flex flex-wrap gap-2 text-xs">${corrections.map((c) => `
                 <button type="button" data-goto-correction="${escapeHtml(c.startNumber || '')}" class="min-h-[36px] rounded-full bg-violet-100 px-3 text-violet-900 underline dark:bg-violet-900/40 dark:text-violet-100">${escapeHtml(t('incident_correction_link'))} #${escapeHtml(c.startNumber || '')} (${escapeHtml(c.discipline || '')})</button>`).join('')}</div>` : ''}
         </li>`;
@@ -396,6 +404,20 @@ export async function load(pageElement) {
             return;
         }
         if (target.closest('[data-incident-cancel]')) { state.editing = null; state.formOpen = false; renderBody(); return; }
+        const vetDecide = target.closest('[data-incident-vet-decide]');
+        if (vetDecide) {
+            const item = state.incidents.find((i) => i.id === vetDecide.dataset.incidentId);
+            if (!item || !canDecideVet(item)) return;
+            vetDecide.disabled = true;
+            runVetStrikeDecision(state.competition.id, { startNumber: item.startNumber, action: vetDecide.dataset.incidentVetDecide, incidentId: item.id })
+                .then((result) => { if (result !== 'decided') vetDecide.disabled = false; })
+                .catch((error) => {
+                    console.error('Beslutet kunde inte sparas:', error);
+                    showAlert(`${t('notice_decision_failed')} ${error?.message || ''}`, false);
+                    vetDecide.disabled = false;
+                });
+            return;
+        }
         const exp = target.closest('[data-incident-export]');
         if (exp) { exportLog(exp.dataset.incidentExport); return; }
         const gotoCorrection = target.closest('[data-goto-correction]');

@@ -162,8 +162,9 @@ import {
     sendPushToUser,
     unregisterPushToken as unregisterPushTokenIn
 } from "./src/push/pushService.js";
-import { applyPauseEvents } from "./src/pauseEvents.js";
+import { applyPauseEvents, pauseDetailsId, pauseDetailsPath } from "./src/pauseEvents.js";
 import { numberIncident } from "./src/incidentNumbers.js";
+import { SYSTEM_WRITER, buildIncidentClosureUpdate, closureForNewIncident, closureFromEquipageChange } from "./src/vetStrikeClosure.js";
 
 // A cap on instances for every function (a runaway client or loop cannot
 // scale up the bill); the public callables have lower caps of their own
@@ -501,6 +502,15 @@ export const onIncidentNumbered = onDocumentCreated(
         const { appId, compId, incidentId } = event.params;
         const result = await numberIncident(db, { appId, compId, incidentId });
         if (result?.changed) logger.info('Händelselogg: nytt nummer', { competitionId: compId, incidentId, number: result.number });
+        // A vet's report synced after the ground jury already decided (or
+        // the vet withdrew it): closed from the equipage's state
+        const incident = event.data?.data?.() || null;
+        const startNumber = String(incident?.startNumber || '');
+        if (incident?.type === 'vet' && /^[\w-]{1,20}$/.test(startNumber)) {
+            const equipageSnap = await db.doc(`artifacts/${appId}/public/data/competitions/${compId}/equipages/${startNumber}`).get();
+            const closure = closureForNewIncident(incidentId, incident, equipageSnap.exists ? equipageSnap.data() : null);
+            if (closure) await closeVetIncident(appId, compId, closure, { startNumber, late: true });
+        }
     }
 );
 
@@ -585,11 +595,33 @@ export const onEquipageUpdate = onDocumentWritten(
     { document: "artifacts/{appId}/public/data/competitions/{compId}/equipages/{startNo}", ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
         const { appId, compId, startNo } = event.params;
+        // A vet strike decided or withdrawn on the equipage closes its
+        // incident log entry here (idempotent), which notifies the driver
+        // (onIncidentWritten)
+        const closure = closureFromEquipageChange(beforeData(event), afterData(event));
+        if (closure) await closeVetIncident(appId, compId, closure, { startNumber: startNo });
         // Speaker notes, temperatures and the like do not change the result
         if (!equipageWriteAffectsResults(beforeData(event), afterData(event))) return;
         await recalculateEquipage(appId, compId, startNo);
     }
 );
+
+// Closes an open vet incident with the closure's outcome, in a transaction
+// (a second run, or a device that closed it already, changes nothing).
+// Returns true when it changed the entry.
+async function closeVetIncident(appId, compId, closure, context = {}) {
+    const ref = db.doc(`artifacts/${appId}/private/data/competitions/${compId}/incidents/${closure.incidentId}`);
+    const changed = await db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        if (!snap.exists) return false;
+        const update = buildIncidentClosureUpdate(snap.data(), closure, FieldValue.serverTimestamp());
+        if (!update) return false;
+        tx.update(ref, update);
+        return true;
+    });
+    if (changed) logger.info('Veterinärbeslut: händelsen avslutad', { competitionId: compId, incidentId: closure.incidentId, outcome: closure.outcome, ...context });
+    return changed;
+}
 
 // A vet decision in the incident log reaches the driver's inbox: when the vet
 // reports it to the ground jury and when the ground jury decides it. The rules
@@ -632,8 +664,9 @@ async function competitionRolesOfUid(appId, compId, uid) {
     return roles;
 }
 
+// Idempotent per notice (fixed ids, dedupe key), so retried
 export const onIncidentWritten = onDocumentWritten(
-    "artifacts/{appId}/private/data/competitions/{compId}/incidents/{incidentId}",
+    { document: "artifacts/{appId}/private/data/competitions/{compId}/incidents/{incidentId}", retry: true },
     async (event) => {
         const before = beforeData(event);
         const after = afterData(event);
@@ -642,7 +675,12 @@ export const onIncidentWritten = onDocumentWritten(
         const { appId, compId, incidentId } = event.params;
         const noticeKey = vetDecisionNoticeKey(before, after);
         const writer = before ? after.updatedBy : after.createdBy;
-        const roles = await competitionRolesOfUid(appId, compId, writer);
+        // The server's own closure (closeVetIncident, from an equipage write
+        // the rules allowed only to the vet, the TD or an admin): no client
+        // can write updatedBy 'system' (the rules require the writer's uid)
+        const roles = before && writer === SYSTEM_WRITER
+            ? ['admin']
+            : await competitionRolesOfUid(appId, compId, writer);
         if (!canSendVetNotice(noticeKey, roles)) {
             logger.warn('Veterinärbeslut: skrivaren saknar roll, ingen notis', { competitionId: compId, incidentId, noticeKey, writer: writer || null });
             return;
@@ -657,11 +695,12 @@ export const onIncidentWritten = onDocumentWritten(
         } catch (error) {
             if (!isAlreadyExists(error)) throw error;
         }
-        // A strike the vet withdrew needs no decision: its staff notice is
-        // acknowledged for everyone (idempotent: only unacknowledged ones)
-        if (noticeKey === 'withdrawn') {
+        // A strike decided, or withdrawn by the vet, needs nothing more: its
+        // staff notice is acknowledged for everyone (idempotent: only
+        // unacknowledged ones)
+        if (noticeKey !== 'reported') {
             try {
-                await acknowledgeVetStrikeNotices(appId, compId, incidentId);
+                await acknowledgeVetStrikeNotices(appId, compId, incidentId, noticeKey);
             } catch (error) {
                 logger.error('Veterinärbeslut: notisen kunde inte kvitteras', { competitionId: compId, incidentId, error: String(error?.message || error) });
             }
@@ -697,13 +736,14 @@ export const onIncidentWritten = onDocumentWritten(
 
 // The vet strike notices of an incident (staffNotifications kind vetStrike)
 // not yet acknowledged: acknowledged by the system
-async function acknowledgeVetStrikeNotices(appId, compId, incidentId) {
+async function acknowledgeVetStrikeNotices(appId, compId, incidentId, outcome = 'withdrawn') {
     const snap = await db.collection(`artifacts/${appId}/private/data/competitions/${compId}/staffNotifications`)
         .where('incidentId', '==', incidentId).get();
     const open = snap.docs.filter((d) => d.data()?.kind === 'vetStrike' && !d.data()?.ackAt);
     if (!open.length) return 0;
+    const ackByName = outcome === 'withdrawn' ? 'DriveLive (beslutet återkallat)' : 'DriveLive (beslut fattat)';
     const writer = db.batch();
-    open.forEach((d) => writer.update(d.ref, { ackAt: FieldValue.serverTimestamp(), ackBy: 'system', ackByName: 'DriveLive (beslutet återkallat)' }));
+    open.forEach((d) => writer.update(d.ref, { ackAt: FieldValue.serverTimestamp(), ackBy: 'system', ackByName }));
     await writer.commit();
     return open.length;
 }
@@ -1708,14 +1748,16 @@ async function removeStaffTraces(competitions, { uid, email, writer }) {
     const counts = { devicesRemoved: 0, namesReplaced: 0, mailsRemoved: 0 };
     for (const competition of competitions) {
         const priv = (name) => db.collection(`artifacts/${competition.appId}/private/data/competitions/${competition.id}/${name}`);
-        const [devices, noticesBy, noticesAck, incidentsBy, incidentsUpd, selfMail, pauseEvents] = await Promise.all([
+        const [devices, noticesBy, noticesAck, incidentsBy, incidentsUpd, selfMail, pauseEvents, pauseDetailsBy, pauseDetailsEnded] = await Promise.all([
             priv('devices').where('uid', '==', uid).get(),
             priv('staffNotifications').where('createdBy', '==', uid).get(),
             priv('staffNotifications').where('ackBy', '==', uid).get(),
             priv('incidents').where('createdBy', '==', uid).get(),
             priv('incidents').where('updatedBy', '==', uid).get(),
             priv('mailQueue').where('kind', 'in', SELF_MAIL_KINDS).get(),
-            priv('pauseEvents').where('by.uid', '==', uid).get()
+            priv('pauseEvents').where('by.uid', '==', uid).get(),
+            priv('pauseDetails').where('by.uid', '==', uid).get(),
+            priv('pauseDetails').where('endedBy.uid', '==', uid).get()
         ]);
         devices.docs.forEach((d) => { writer.delete(d.ref); counts.devicesRemoved++; });
         // One update per document (created and updated by the same account)
@@ -1737,6 +1779,15 @@ async function removeStaffTraces(competitions, { uid, email, writer }) {
             updates.set(d.ref.path, { ref: d.ref, fields: { 'by.name': DELETED_USER_NAME } });
             counts.namesReplaced++;
         });
+        // The private pause details: who pressed pause / resume
+        [[pauseDetailsBy, 'by'], [pauseDetailsEnded, 'endedBy']].forEach(([snap, key]) => snap.docs.forEach((d) => {
+            const name = d.data()?.[key]?.name;
+            if (name === undefined || name === DELETED_USER_NAME) return;
+            const entry = updates.get(d.ref.path) || { ref: d.ref, fields: {} };
+            entry.fields[`${key}.name`] = DELETED_USER_NAME;
+            updates.set(d.ref.path, entry);
+            counts.namesReplaced++;
+        }));
         updates.forEach(({ ref, fields }) => writer.update(ref, fields));
         selfMail.docs.forEach((d) => {
             const mail = d.data() || {};
@@ -2029,14 +2080,32 @@ async function consumeMailRateLimits(appId, competitionId, checks, now) {
 }
 
 // Bulk sends per user and per competition (whoever sends: a role code shared
-// by several accounts does not multiply them)
-async function assertMailQueueRate(appId, competitionId, uid, now) {
-    const allowed = await consumeMailRateLimits(appId, competitionId, [
-        { id: `mail_user_${uid}`, limit: MAIL_LIMITS.perUserHour, windowMs: HOUR_MS },
-        { id: 'mail_queue_hour', limit: MAIL_LIMITS.perCompetitionHour, windowMs: HOUR_MS },
-        { id: 'mail_queue_day', limit: MAIL_LIMITS.perCompetitionDay, windowMs: DAY_MS }
-    ], now);
+// by several accounts does not multiply them). Essential notices (changed
+// start times) have counters of their own: bulk mail never uses them up
+async function assertMailQueueRate(appId, competitionId, uid, now, { essential = false } = {}) {
+    const checks = essential
+        ? [
+            { id: `essential_user_${uid}`, limit: MAIL_LIMITS.essentialPerUserHour, windowMs: HOUR_MS },
+            { id: 'essential_mail_hour', limit: MAIL_LIMITS.essentialPerCompetitionHour, windowMs: HOUR_MS },
+            { id: 'essential_mail_day', limit: MAIL_LIMITS.essentialPerCompetitionDay, windowMs: DAY_MS }
+        ]
+        : [
+            { id: `mail_user_${uid}`, limit: MAIL_LIMITS.perUserHour, windowMs: HOUR_MS },
+            { id: 'mail_queue_hour', limit: MAIL_LIMITS.perCompetitionHour, windowMs: HOUR_MS },
+            { id: 'mail_queue_day', limit: MAIL_LIMITS.perCompetitionDay, windowMs: DAY_MS }
+        ];
+    const allowed = await consumeMailRateLimits(appId, competitionId, checks, now);
     if (!allowed) throw new HttpsError('resource-exhausted', 'För många utskick just nu. Försök igen senare.');
+}
+
+// The TD (assertMailRole 'td') sends to the competition's drivers or its
+// officials only, never anyone else (the public)
+function assertTdAudience(role, audience) {
+    if (role !== 'td' || !audience) return;
+    const keys = Object.keys(audience).filter((key) => audience[key]);
+    if (keys.some((key) => !['drivers', 'officials'].includes(key))) {
+        throw new HttpsError('permission-denied', 'TD får bara skicka till tävlingens kuskar eller funktionärer.');
+    }
 }
 
 /**
@@ -2073,6 +2142,7 @@ export const queueCompetitionMail = onCall({ maxInstances: 5 }, async (request) 
     } catch (error) {
         throw mailHttpsError(error);
     }
+    assertTdAudience(role, audience);
     const now = Date.now();
     await assertMailQueueRate(competition.appId, competitionId, request.auth.uid, now);
     const ref = await enqueueMail({
@@ -2151,7 +2221,7 @@ export const queueStartTimeChangeMail = onCall({ maxInstances: 5 }, async (reque
         return { mailId, status: 'duplicate' };
     }
     const now = Date.now();
-    await assertMailQueueRate(competition.appId, competitionId, request.auth.uid, now);
+    await assertMailQueueRate(competition.appId, competitionId, request.auth.uid, now, { essential: true });
     const mail = {
         kind: 'startTimeChange',
         category: 'essential',
@@ -2661,10 +2731,11 @@ export const notifyStartTimeChange = onCall({ maxInstances: 5, timeoutSeconds: 3
     if (!(await consumeUserRateLimit(`push_notify_${request.auth.uid}`, PUSH_LIMITS.notifyPerUserHour, HOUR_MS))) {
         throw new HttpsError('resource-exhausted', 'För många utskick just nu. Försök igen senare.');
     }
-    // Per competition too, whoever sends (as the start time mail)
+    // Per competition too, whoever sends: an essential notice, with the
+    // essential limits (bulk mail does not use them up)
     const competitionAllowed = await consumeMailRateLimits(competition.appId, competitionId, [
-        { id: 'push_notify_hour', limit: MAIL_LIMITS.perCompetitionHour, windowMs: HOUR_MS },
-        { id: 'push_notify_day', limit: MAIL_LIMITS.perCompetitionDay, windowMs: DAY_MS }
+        { id: 'push_notify_hour', limit: MAIL_LIMITS.essentialPerCompetitionHour, windowMs: HOUR_MS },
+        { id: 'push_notify_day', limit: MAIL_LIMITS.essentialPerCompetitionDay, windowMs: DAY_MS }
     ], Date.now());
     if (!competitionAllowed) {
         throw new HttpsError('resource-exhausted', 'För många utskick från tävlingen just nu. Försök igen senare.');
@@ -2705,7 +2776,7 @@ export const notifyStartTimeChange = onCall({ maxInstances: 5, timeoutSeconds: 3
  */
 export const previewPushAudience = onCall({ maxInstances: 5 }, async (request) => {
     const { competitionId, competition } = await loadMailCompetition(request);
-    await assertMailRole(request, competition);
+    const role = await assertMailRole(request, competition);
     const topic = String(request.data?.topic || '');
     if (!PUSH_TOPICS.includes(topic)) throw new HttpsError('invalid-argument', 'Okänt ämne.');
     const category = request.data?.category === 'essential' ? 'essential' : 'info';
@@ -2720,6 +2791,11 @@ export const previewPushAudience = onCall({ maxInstances: 5 }, async (request) =
             audience: messageAudience && typeof messageAudience === 'object' ? messageAudience : undefined,
             targetStartNumbers: Array.isArray(targetStartNumbers) ? targetStartNumbers.slice(0, 1000) : []
         });
+    }
+    // The TD: the competition's drivers or officials only (as the rules'
+    // drive-off message), never everyone
+    if (role === 'td' && (!audience || audience.everyone)) {
+        throw new HttpsError('permission-denied', 'TD får bara skicka till tävlingens kuskar eller funktionärer.');
     }
     const result = await countPushTargets(db, { appId: competition.appId, compId: competitionId, audience, topic, category });
     return { available: result.available, devices: result.devices };
@@ -2788,12 +2864,21 @@ export const onGlobalPausePush = onDocumentWritten(
         const transitions = pauseTransitions(beforeData(event)?.pauseLog, afterData(event)?.pauseLog);
         const { appId, compId } = event.params;
         for (const { kind, entry } of transitions) {
+            // The note is private (pauseDetails, written with the entry):
+            // the officials' notice has it, the drivers' does not
+            let staffEntry = entry;
+            const detailsId = kind === 'start' ? pauseDetailsId(entry.start) : '';
+            if (detailsId) {
+                const detailsSnap = await db.doc(`${pauseDetailsPath(appId, compId)}/${detailsId}`).get().catch(() => null);
+                const note = detailsSnap?.exists ? detailsSnap.data()?.note : null;
+                if (note) staffEntry = { ...entry, note };
+            }
             await safePush('pause', () => sendPushToAudience(db, pushMessaging(), {
                 appId, compId,
                 audience: PAUSE_PUSH_AUDIENCE,
                 category: 'essential',
                 topic: 'pause',
-                content: (target, lang) => buildPauseContent(kind, entry, lang, target.as),
+                content: (target, lang) => buildPauseContent(kind, target.as === 'driver' ? entry : staffEntry, lang, target.as),
                 tag: 'pause',
                 source: `pause-${kind}`,
                 dedupeKey: `pause-${kind}-${String(entry.start)}`,

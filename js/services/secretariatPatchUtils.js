@@ -3,7 +3,13 @@
 // secretariat actually edited are saved, and an edit of a field the judge
 // changed meanwhile is refused instead of silently overwriting it.
 
+// A list (a precision knock list) as one comparable key: the labels sorted and
+// joined. null is "no list" (a legacy result with only a stored penalty),
+// which differs from an empty list
+const listKey = (value) => (Array.isArray(value) ? value.map(String).sort().join('\u0001') : null);
+
 const sameValue = (a, b) => {
+    if (Array.isArray(a) || Array.isArray(b)) return listKey(a) === listKey(b);
     const na = Number(a);
     const nb = Number(b);
     if (a !== '' && b !== '' && a != null && b != null && Number.isFinite(na) && Number.isFinite(nb)) {
@@ -12,12 +18,18 @@ const sameValue = (a, b) => {
     return String(a ?? '') === String(b ?? '');
 };
 
+// A row's value of a field, else its default. A list field (its default is a
+// list) keeps null: the sentinel for "no list" (see listKey)
+const valueOf = (row, field, defaults) => (
+    row?.[field] === null && Array.isArray(defaults[field]) ? null : (row?.[field] ?? defaults[field])
+);
+
 /** The fields in `fields` whose value in `patch` differs from the loaded row */
 export function pickEditedFields(patch = {}, baseRow = {}, fields = [], defaults = {}) {
     const edited = {};
     fields.forEach((field) => {
         if (!(field in patch)) return;
-        const before = baseRow[field] ?? defaults[field];
+        const before = valueOf(baseRow, field, defaults);
         if (!sameValue(patch[field], before)) edited[field] = patch[field];
     });
     return edited;
@@ -29,8 +41,8 @@ export function pickEditedFields(patch = {}, baseRow = {}, fields = [], defaults
  */
 export function findEditConflicts(edited = {}, baseRow = {}, current = {}, defaults = {}) {
     return Object.keys(edited).filter((field) => {
-        const loaded = baseRow[field] ?? defaults[field];
-        const now = current?.[field] ?? defaults[field];
+        const loaded = valueOf(baseRow, field, defaults);
+        const now = valueOf(current, field, defaults);
         return !sameValue(loaded, now);
     });
 }

@@ -1,8 +1,8 @@
 // js/pages/maraton-stages-input.js
-import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, setPauseWindows, getPauseTime, pausedMsSince, pausedMsBetween, isDurationSuspicious, getStageTimePenaltyRate, getTotalHoldTimeMs } from '../../utils/marathonUtils.js';
+import { stagePenaltyFromMs, limitsFor, formatMsLive, setMarathonConfig, setPauseWindows, getPauseTime, pausedMsSince, pausedMsBetween, isDurationSuspicious, getStageTimePenaltyRate, getTotalHoldTimeMs, stageSecondsForEquipage } from '../../utils/marathonUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
-import { getConfig } from '../../services/competitionService.js';
+import { getConfig, loadMarathonConfig } from '../../services/competitionService.js';
 import { finalizeMarathon as finalizeMarathonService } from '../../services/finalizationService.js';
 import { getMarathonStateDocuments } from '../../services/marathonService.js';
 import { listenForMaratonCollection } from '../../services/marathonService.js';
@@ -90,11 +90,13 @@ function computeTimePenalty(equipageSnOrObj, stage, ms, holdTimeMs = 0) {
 
   const { points, elim } = stagePenaltyFromMs(effectiveMs, eq, st);
 
-  // Seconds outside the window, as the engine counts them (a warm-up too: FEI 963.5.1)
+  // Seconds outside the window, as the engine counts them (a warm-up too: FEI
+  // 963.5.1): TR whole seconds in the driver's favour, FEI unrounded
   let secondsOut = 0;
-  const s = effectiveMs / 1000;
-  if (s < lim.min) secondsOut = lim.min - s;
-  else if (s > lim.max) secondsOut = s - lim.max;
+  const sMin = stageSecondsForEquipage(effectiveMs, eq, 'min');
+  const sMax = stageSecondsForEquipage(effectiveMs, eq, 'max');
+  if (sMin < lim.min) secondsOut = lim.min - sMin;
+  else if (sMax > lim.max) secondsOut = sMax - lim.max;
 
   return {
     secondsOut: secondsOut > 0 ? secondsOut : null,
@@ -2361,10 +2363,9 @@ export async function load() {
   wireTabs();
 
   // 2. Hämta all nödvändig data från databasen parallellt
-  const [listRaw, configDataSwe, configDataEng, startTimesData, maratonDocs] = await Promise.all([
+  const [listRaw, configData, startTimesData, maratonDocs] = await Promise.all([
     getEquipages(competitionId),
-    getConfig(competitionId, 'maratonConfig').catch(() => null),
-    getConfig(competitionId, 'marathonConfig').catch(() => null),
+    loadMarathonConfig(competitionId),
     getConfig(competitionId, 'startTimes').catch(() => null),
     getMarathonStateDocuments(competitionId)
   ]);
@@ -2373,7 +2374,7 @@ export async function load() {
 
   // 3. Bearbeta och lagra datan i programmets minne
   // Fallback: använd svensk config om den finns, annars engelsk
-  maratonConfig = configDataSwe || configDataEng;
+  maratonConfig = configData || {};
 
   // Pass config to utils immediately to ensure calculations work!
   setMarathonConfig(maratonConfig);

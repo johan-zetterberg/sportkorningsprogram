@@ -326,6 +326,20 @@ export async function getConfig(competitionId, configName, forceRefresh = false)
   return data;
 }
 
+/**
+ * The marathon config (config/maratonConfig), else the legacy English
+ * document 'marathonConfig' (maraton-admin migrates it); null when neither
+ * holds anything. Its class settings carry each class's rule profile (TR/FEI),
+ * which the precision engine needs too.
+ */
+export async function loadMarathonConfig(competitionId, forceRefresh = false) {
+  const hasData = (config) => !!config && typeof config === 'object' && Object.keys(config).length > 0;
+  const current = await getConfig(competitionId, 'maratonConfig', forceRefresh).catch(() => null);
+  if (hasData(current)) return current;
+  const legacy = await getConfig(competitionId, 'marathonConfig', forceRefresh).catch(() => null);
+  return hasData(legacy) ? legacy : null;
+}
+
 export async function saveConfig(competitionId, configName, data) {
   return trackWrite(`Sparar config ${configName}`, (async () => {
     clearConfigCache(competitionId, configName);

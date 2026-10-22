@@ -32,6 +32,26 @@ import {
     buildFinalizeCompetitionPatch,
     buildReopenCompetitionPatch
 } from './archivingUtils.js';
+import { findOpenJuryMatters } from './finalizeCompletenessUtils.js';
+
+/**
+ * The competition's open ground jury matters (vet strikes waiting for a
+ * decision, open protests), read from the server: Swedish lines, empty when
+ * none. Archiving refuses while there are any (error.code
+ * 'archive-jury-open'), unless an admin overrides (juryOverride).
+ */
+export async function findCompetitionJuryMatters(competitionId) {
+    const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
+    const [equipagesSnap, incidentsSnap] = await Promise.all([
+        getDocsFromServer(collection(db, `${base}/equipages`)),
+        getDocsFromServer(collection(db, `artifacts/${appId}/private/data/competitions/${competitionId}/incidents`))
+            .catch((error) => { throw serverReadError('händelseloggen', error); })
+    ]);
+    return findOpenJuryMatters({
+        equipages: equipagesSnap.docs.map((d) => ({ startNumber: d.id, ...d.data() })),
+        incidents: incidentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }))
+    });
+}
 
 // The config documents a merge of classes may be saved in (mergeConfigService)
 const MERGE_SOURCE_KEYS = ['tdbMergeGroups', 'classMergeMap', 'tdbMergeMap', 'display'];
@@ -211,7 +231,7 @@ const CLEAR_FINALIZING = {
  * change between reading and locking; the mark is removed with the lock, or
  * when the archiving fails.
  */
-export async function finalizeCompetition(competitionId, { allowIncomplete = false } = {}) {
+export async function finalizeCompetition(competitionId, { allowIncomplete = false, juryOverride = false } = {}) {
     if (!competitionId) throw new Error('Competition ID required');
     assertOnline();
     const base = `artifacts/${appId}/public/data/competitions/${competitionId}`;
@@ -227,6 +247,18 @@ export async function finalizeCompetition(competitionId, { allowIncomplete = fal
         const compData = compSnap.data() || {};
         if (compData.locked === true || compData.status === 'completed') {
             throw new Error('Tävlingen är redan arkiverad.');
+        }
+
+        // Open ground jury matters: decided first (or overridden by an admin,
+        // logged by the caller)
+        if (!juryOverride) {
+            const matters = await findCompetitionJuryMatters(competitionId);
+            if (matters.length) {
+                const error = new Error(`Domarkollegiet har öppna ärenden: ${matters.join(' ')}`);
+                error.code = 'archive-jury-open';
+                error.matters = matters;
+                throw error;
+            }
         }
 
         // This device's own queued writes first, so they are in the archive

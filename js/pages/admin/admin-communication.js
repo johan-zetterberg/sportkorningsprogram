@@ -553,6 +553,7 @@ export function renderCommunicationTab(container, competition) {
                 ...buildMessageAudience(audienceMode, { selectedDrivers })
             };
             const editId = document.getElementById('msgEditId').value;
+            let queuedOffline = false;
 
             if (editId) {
                 // An update notice only when asked: a new id per send (the
@@ -561,10 +562,16 @@ export function renderCommunicationTab(container, competition) {
                 await updateCompetitionMessage(competition.id, editId, payload);
                 showAlert(t('msg_updated'));
             } else {
-                await saveCompetitionMessage(competition.id, { ...payload, push: sendPush });
-                showAlert('Meddelande publicerat.');
+                // Offline: saved on the device, sent (and pushed) with the signal
+                const saveState = await saveCompetitionMessage(competition.id, { ...payload, push: sendPush });
+                if (saveState === 'queued') showAlert(t('msg_saved_queued'), 'offline');
+                else showAlert('Meddelande publicerat.');
+                queuedOffline = saveState === 'queued';
             }
-            if (mailOptions?.requested()) {
+            // The e-mail needs the server: offline, sent again later by hand
+            if (queuedOffline && mailOptions?.requested()) {
+                showAlert(t('notify_needs_connection_resend'), 'offline');
+            } else if (mailOptions?.requested()) {
                 const mailPayload = buildMessageMailPayload({
                     competitionId: competition.id,
                     title: payload.title,

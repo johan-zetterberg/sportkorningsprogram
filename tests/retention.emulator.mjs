@@ -40,6 +40,7 @@ async function seedCompetition(id, archivedAt) {
   await db.doc(`${priv(id)}/auditLog/a1`).set({ editedBy: 'u1', editedByName: 'Admin Person', reason: 'rättelse' });
   await db.doc(`${priv(id)}/rejectedWrites/r1`).set({ discipline: 'marathon', startNumber: '1', reportedBy: 'u2' });
   await db.doc(`${priv(id)}/rateLimits/volunteerSignup_competition`).set({ windowStart: now, count: 1 });
+  await db.doc(`${priv(id)}/pauseDetails/p1`).set({ start: '2026-05-16T08:00:00Z', note: 'Häst', by: { uid: 'u1', name: 'Tess TD', role: 'td' } });
   await db.doc(`competitions/${id}/finalizationLog/f1`).set({ discipline: 'dressage', action: 'finalize', by: 'u1', byName: 'Domare D' });
   await db.doc(`${pub(id)}/config/globalStatus`).set({
     pauseLog: [{ start: '2026-05-16T08:00:00Z', end: '2026-05-16T08:10:00Z', reason: 'weather', by: { uid: 'u1', name: 'Tess TD', role: 'td' }, endedBy: { uid: 'u2', name: 'Adam Admin', role: 'admin' } }]
@@ -53,10 +54,24 @@ test('retention deletes expired private data and keeps results', async () => {
   await seedCompetition(RECENT, now - 30 * DAY);
   await db.doc(`pinJoinAttempts/${OLD}`).set({ failures: [now - 40 * DAY] });
 
-  // 31 days ahead: the counters written now are stale too
+  // The first run only schedules the deletion (shown to the admin)
+  const scheduleAt = now + 23 * DAY;
+  const first = await runPersonalDataRetention({ db, FieldValue, logger: quietLogger, nowMs: scheduleAt, appIds: [APP_ID] });
+  assert.deepEqual(first.competitionsPurged, []);
+  assert.deepEqual(first.competitionsScheduled.map((c) => c.competitionId), [OLD]);
+  assert.equal((await db.doc(pub(OLD)).get()).data().personalDataPurgeScheduledAt, scheduleAt);
+  assert.equal((await db.doc(pub(RECENT)).get()).data().personalDataPurgeScheduledAt, undefined);
+  assert.equal(await count(`${pub(OLD)}/equipagePrivate`), 1);
+  // Less than a week later: still waiting
+  const early = await runPersonalDataRetention({ db, FieldValue, logger: quietLogger, nowMs: scheduleAt + 6 * DAY, appIds: [APP_ID] });
+  assert.deepEqual(early.competitionsPurged, []);
+
+  // 31 days ahead (8 days after scheduling): the counters written now are stale too
   const runAt = now + 31 * DAY;
   const summary = await runPersonalDataRetention({ db, FieldValue, logger: quietLogger, nowMs: runAt, appIds: [APP_ID] });
   assert.deepEqual(summary.competitionsPurged.map((c) => c.competitionId), [OLD]);
+  assert.equal(await count(`${priv(OLD)}/pauseDetails`), 0);
+  assert.equal(await count(`${priv(RECENT)}/pauseDetails`), 1);
   assert.equal(summary.competitionsPurged[0].counts.equipagePrivate, 1);
   assert.ok(summary.pinAttemptsDeleted >= 1);
 
@@ -90,4 +105,22 @@ test('retention deletes expired private data and keeps results', async () => {
   // Idempotent: a second run selects nothing
   const again = await runPersonalDataRetention({ db, FieldValue, logger: quietLogger, nowMs: runAt + DAY, appIds: [APP_ID] });
   assert.deepEqual(again.competitionsPurged, []);
+});
+
+test('retention never purges a new competition with an old date, nor one written to recently', async () => {
+  const FRESH = `fresh-${now}`;
+  const ACTIVE = `active-${now}`;
+  await db.doc(pub(FRESH)).set({ name: FRESH, status: 'draft', dates: '2019-05-01', createdAt: new Date(now - DAY) });
+  await db.doc(`${pub(FRESH)}/equipagePrivate/1`).set({ email: 'x@example.se' });
+  await db.doc(pub(ACTIVE)).set({ name: ACTIVE, status: 'active', dates: '2019-05-01', createdAt: new Date(now - 900 * DAY) });
+  await db.doc(`${pub(ACTIVE)}/equipagePrivate/1`).set({ email: 'y@example.se' });
+  // A correction in the audit log a month ago
+  await db.doc(`${priv(ACTIVE)}/auditLog/a1`).set({ editedBy: 'u1', editedAt: new Date(now - 30 * DAY) });
+  for (const at of [now, now + 8 * DAY]) {
+    const summary = await runPersonalDataRetention({ db, FieldValue, logger: quietLogger, nowMs: at, appIds: [APP_ID] });
+    const ids = [...summary.competitionsPurged, ...summary.competitionsScheduled].map((c) => c.competitionId);
+    assert.ok(!ids.includes(FRESH) && !ids.includes(ACTIVE), ids.join(','));
+  }
+  assert.equal(await count(`${pub(FRESH)}/equipagePrivate`), 1);
+  assert.equal(await count(`${pub(ACTIVE)}/equipagePrivate`), 1);
 });

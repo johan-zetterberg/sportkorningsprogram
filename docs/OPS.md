@@ -54,7 +54,9 @@ and note the date.
   (europe-west1, daily) exists (the Cloud Scheduler API is enabled on first
   deploy; accept if asked), and the next day Logging shows its summary entry.
   Competitions archived longer than their `retentionMonths` (default 12) lose
-  their private data then; each run is recorded in the `retentionRuns`
+  their private data then — a week after the run that first finds them due
+  (`personalDataPurgeScheduledAt`, shown as a warning in the competition's
+  Personuppgifter settings); each run is recorded in the `retentionRuns`
   collection (Firestore console). The retention per competition is set in
   Admin → Inställningar → Personuppgifter.
 - [ ] **Privacy notice**: fill in the operator's name and contact (`OPERATOR`)

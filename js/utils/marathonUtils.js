@@ -93,6 +93,14 @@ export function getStageTimePenaltyRate() {
   return core.getStageTimePenaltyRate(maraton_marathonConfig);
 }
 
+// The section time (seconds) as the engine compares it with the window: TR
+// whole seconds in the driver's favour ('max' cut down, 'min' rounded up),
+// FEI unrounded (core stageSecondsForPenalty, the class's rule profile)
+export function stageSecondsForEquipage(ms, equipage, side = 'max') {
+  const profile = core.getClassRuleProfile(equipage?.className || '', maraton_marathonConfig);
+  return core.stageSecondsForPenalty(ms, profile, side);
+}
+
 export function getObstacleMaxTime() {
   return core.getObstacleMaxTime(maraton_marathonConfig);
 }
@@ -478,20 +486,24 @@ export function analyzeSectorProgress(timingDoc, stage, equipage) {
 
   const sec = ms / 1000;
   const diff = sec - lim.ideal;
+  // Compared with the window as the engine counts it (TR whole seconds in the
+  // driver's favour, FEI unrounded)
+  const secMax = stageSecondsForEquipage(ms, equipage, 'max');
+  const secMin = stageSecondsForEquipage(ms, equipage, 'min');
 
   let status = 'ok';
   let color = 'text-green-600';
   let label = 'I fönster';
 
-  if (sec < lim.min) {
+  if (secMin < lim.min) {
     status = 'fast';
     color = 'text-red-500';
     label = 'FÖR SNABB';
-  } else if (sec > lim.timeLimit) {
+  } else if (secMax > lim.timeLimit) {
     status = 'elim';
     color = 'text-red-700 font-bold';
     label = 'LIM/ELIM';
-  } else if (sec > lim.max) {
+  } else if (secMax > lim.max) {
     status = 'slow';
     color = 'text-amber-600';
     label = 'FÖR LÅNGSAM';

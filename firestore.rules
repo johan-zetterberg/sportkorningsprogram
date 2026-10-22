@@ -380,11 +380,6 @@ service cloud.firestore {
         && (entry.get('endedBy', null) == null || isPauseActor(entry.get('endedBy', {})));
     }
 
-    // Who is recorded as pressing is the account writing (not someone else)
-    function isOwnPauseActor(entry, key) {
-      return entry.get(key, null) == null || entry.get(key, {}).get('uid', '') == request.auth.uid;
-    }
-
     function isPauseLogAppendOrClose() {
       let before = resource == null ? [] : resource.data.get('pauseLog', []);
       let after = request.resource.data.get('pauseLog', []);
@@ -395,9 +390,10 @@ service cloud.firestore {
           after.size() == n + 1
           && (n == 0 || after[0:n] == before)
           && isPauseEntry(after[n])
-          && isOwnPauseActor(after[n], 'by')
+          // Who pressed and the note are private (pauseDetails): the public
+          // log holds time, reason and where only
+          && !after[n].keys().hasAny(['note', 'by', 'endedBy'])
           && after[n].get('end', null) == null
-          && after[n].get('endedBy', null) == null
         )
         || (
           // The open pause closed (why, who and where kept as recorded)
@@ -411,7 +407,7 @@ service cloud.firestore {
           && after[n - 1].get('note', null) == before[n - 1].get('note', null)
           && after[n - 1].get('by', null) == before[n - 1].get('by', null)
           && after[n - 1].get('where', null) == before[n - 1].get('where', null)
-          && isOwnPauseActor(after[n - 1], 'endedBy')
+          && after[n - 1].get('endedBy', null) == null
           && after[n - 1].get('end', null) is string
         );
     }
@@ -538,6 +534,23 @@ service cloud.firestore {
         && optList(audience, 'officialRoles', 10);
     }
 
+    // The TD's drive-off call (precisionDriveOffNotice): the qualifiers (1-30
+    // chosen drivers, no officials) or the officials (the speaker's notice,
+    // no drivers); never the public or all drivers
+    function isDriveOffAudience(data) {
+      let audience = data.get('audience', {});
+      let targets = data.get('targetStartNumbers', []);
+      return audience.get('public', false) == false
+        && (
+          (audience.get('drivers', false) == true
+            && audience.get('officials', false) == false
+            && targets is list && targets.size() >= 1 && targets.size() <= 30)
+          || (audience.get('drivers', false) == false
+            && audience.get('officials', false) == true
+            && targets.size() == 0)
+        );
+    }
+
     function isLegacyPublicMessage(data) {
       return !data.keys().hasAny(['audience'])
         && data.get('targetStartNumber', '') == ''
@@ -639,7 +652,7 @@ service cloud.firestore {
           'obstaclePenalty', 'timePenalty', 'extraPenalty', 'totalPenalty',
           'liveObstaclePenalty', 'liveTimePenalty', 'liveTotalPenalty',
           'eliminated', 'disqualified', 'running', 'inProgress', 'finalized', 'status', 'comment',
-          'knocks', 'knockDownTimes', 'timePenaltyOverride', 'rebuildCount', 'gateSplits',
+          'knocks', 'knocksVersion', 'knockDownTimes', 'timePenaltyOverride', 'rebuildCount', 'gateSplits',
           'prioritized', 'finalizedAt', 'finalizedBy', 'unfinalizedAt', 'unfinalizedBy', 'updatedAt',
           'rounds', 'activeRound'])
         && optNumber(d, 'timeMs') && optNumber(d, 'liveTimeMs') && optNumber(d, 'livePausedMs')
@@ -667,7 +680,7 @@ service cloud.firestore {
       let r = rounds.get(key, null);
       return r == null || (r is map
         && r.keys().hasOnly(['timeMs', 'liveTimeMs', 'liveStartEpoch', 'livePausedMs', 'running', 'inProgress',
-            'knocks', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired', 'timePenalty',
+            'knocks', 'knocksVersion', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired', 'timePenalty',
             'timePenaltyOverride', 'obstaclePenalty', 'totalPenalty', 'liveObstaclePenalty', 'liveTimePenalty',
             'liveTotalPenalty', 'status', 'comment', 'finalized', 'updatedAt'])
         && optNumber(r, 'timeMs') && optNumber(r, 'liveTimeMs') && optNumber(r, 'extraPenalty')
@@ -1501,7 +1514,53 @@ service cloud.firestore {
         && isPauseEvent(request.resource.data)
         && isCompetitionOpen(appId, compId)
         && (hasAnyRoleInComp(appId, compId, ['marathon', 'td']) || canAdminThisArtifactsComp(appId, compId));
-      allow update, delete: if false;
+      // A late event the server left for review ('needs-review'): the
+      // secretariat marks it reviewed (globalPauseBanner), nothing else
+      allow update: if request.auth != null
+        && resource.data.get('result', '') == 'needs-review'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['reviewedAt', 'reviewedBy'])
+        && request.resource.data.reviewedAt == request.time
+        && request.resource.data.reviewedBy == request.auth.uid
+        && canAdminThisArtifactsComp(appId, compId);
+      allow delete: if false;
+    }
+
+    // Who pressed pause / resume and the note (globalPauseService, the fold
+    // of offline events): private, read by the competition's staff. One
+    // document per pause, id 'p' + its start in epoch ms. The writer names
+    // only itself; once recorded, who paused and the note stay (admins
+    // correct freely).
+    function isPauseDetails(d) {
+      return d.keys().hasOnly(['start', 'note', 'by', 'endedBy', 'updatedAt'])
+        && (d.get('start', null) == null || (d.start is string && d.start.size() <= 40))
+        && (d.get('note', null) == null || (d.note is string && d.note.size() <= 200))
+        && (d.get('by', null) == null || isPauseActor(d.by))
+        && (d.get('endedBy', null) == null || isPauseActor(d.endedBy))
+        && d.get('updatedAt', null) == request.time;
+    }
+
+    function pauseDetailsKeyKept(key) {
+      return request.resource.data.get(key, null) == (resource == null ? null : resource.data.get(key, null));
+    }
+
+    function pauseDetailsActorOwn(key) {
+      return pauseDetailsKeyKept(key) || request.resource.data.get(key, {}).get('uid', '') == request.auth.uid;
+    }
+
+    match /artifacts/{appId}/private/data/competitions/{compId}/pauseDetails/{pauseId} {
+      allow read: if request.auth != null && canReadCompetitionStaffDocs(appId, compId);
+      allow create, update: if request.auth != null
+        && pauseId.matches('^p[0-9]{1,16}$')
+        && isPauseDetails(request.resource.data)
+        && isCompetitionOpen(appId, compId)
+        && (
+          canAdminThisArtifactsComp(appId, compId)
+          || (hasAnyRoleInComp(appId, compId, ['marathon', 'td'])
+            && pauseDetailsActorOwn('by') && pauseDetailsActorOwn('endedBy')
+            && (resource == null
+              || (pauseDetailsKeyKept('start') && pauseDetailsKeyKept('note') && pauseDetailsKeyKept('by'))))
+        );
+      allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
     }
 
     // Hemliga konfigurationer (t.ex. PIN-kod)
@@ -1580,6 +1639,7 @@ service cloud.firestore {
         && (
           (request.resource.data.get('source', '') == 'driveOff'
             && request.resource.data.audience.get('public', false) == false
+            && isDriveOffAudience(request.resource.data)
             && isTdInComp(appId, compId)) ||
           isSuperAdmin() ||
           getUserRole() == 'admin' ||
@@ -1624,7 +1684,10 @@ service cloud.firestore {
           'entityType', 'entityId', 'reason', 'reference', 'changes'])
         && data.get('editedBy', null) == request.auth.uid
         && data.get('editedAt', null) == request.time
-        && data.get('discipline', '') in ['dressage', 'marathon', 'precision']
+        // 'competition': an admin archived despite open ground jury matters
+        // (finalizationService.confirmJuryOverride; only admins pass the
+        // role check below for it)
+        && data.get('discipline', '') in ['dressage', 'marathon', 'precision', 'competition']
         && data.get('reason', '') is string && data.get('reason', '').size() <= 1000
         && (data.get('reference', null) == null
           || (data.reference is map

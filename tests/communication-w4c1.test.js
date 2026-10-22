@@ -24,10 +24,12 @@ import {
 } from '../js/pages/admin/startTimeChangeUtils.js';
 import { buildMyStartTimes } from '../js/pages/shared/portalStartTimes.js';
 import {
+    buildPauseDetails,
     buildPauseEntry,
     describePauseEntry,
     formatPauseLogLine,
     nextPauseLog,
+    pauseDetailsId,
     pauseHeadline,
     pauseWhere
 } from '../js/utils/globalPauseUtils.js';
@@ -157,27 +159,34 @@ test('shift the rest: from a start number or a time, not started ones, per class
     assert.match(msg.bodyEn, /Dressage: 09:10 → 09:25/);
 });
 
-test('pause entries: why, who, where; resume keeps them; text in the viewer\'s language', () => {
+test('pause entries: when, why and where public; who and the note private; text in the viewer\'s language', () => {
     const by = { uid: 'u1', name: 'Anna', role: 'observer', email: 'x@y' };
-    const log1 = nextPauseLog([], true, '2026-10-21T08:00:00.000Z', { reason: 'accident', note: ' Häst omkull ', by, where: pauseWhere({ section: 'B' }) });
+    const press = { reason: 'accident', note: ' Häst omkull ', by, where: pauseWhere({ section: 'B' }) };
+    const log1 = nextPauseLog([], true, '2026-10-21T08:00:00.000Z', press);
     assert.deepEqual(log1[0], {
-        start: '2026-10-21T08:00:00.000Z', end: null, durationSec: null, reason: 'accident',
-        note: 'Häst omkull', by: { uid: 'u1', name: 'Anna', role: 'observer' }, where: 'section:B'
+        start: '2026-10-21T08:00:00.000Z', end: null, durationSec: null, reason: 'accident', where: 'section:B'
     });
+    const details = buildPauseDetails('2026-10-21T08:00:00.000Z', press);
+    assert.deepEqual(details, { start: '2026-10-21T08:00:00.000Z', note: 'Häst omkull', by: { uid: 'u1', name: 'Anna', role: 'observer' } });
+    assert.equal(pauseDetailsId('2026-10-21T08:00:00.000Z'), `p${Date.parse('2026-10-21T08:00:00.000Z')}`);
+    assert.deepEqual(buildPauseDetails('x', { by: { uid: 'u2', role: 'sekretariat' } }, { resume: true }), { endedBy: { uid: 'u2', role: 'sekretariat' } });
+    assert.equal(buildPauseDetails('x', { reason: 'vet' }), null);
     assert.equal(nextPauseLog(log1, true, '2026-10-21T08:01:00.000Z'), null);
     const log2 = nextPauseLog(log1, false, '2026-10-21T08:15:00.000Z', { by: { uid: 'u2', role: 'sekretariat' } });
     assert.equal(log2[0].durationSec, 900);
     assert.equal(log2[0].reason, 'accident');
-    assert.deepEqual(log2[0].endedBy, { uid: 'u2', role: 'sekretariat' });
+    assert.equal(log2[0].endedBy, undefined);
     assert.equal(nextPauseLog(log2, false, '2026-10-21T08:20:00.000Z'), null);
     assert.equal(buildPauseEntry('x', { reason: 'lunch' }).reason, 'other');
-    assert.equal(describePauseEntry(log1[0], tr), 'Olycka – Häst omkull · Anna (Observatör) vid Sträcka B');
-    assert.equal(describePauseEntry(log1[0], trEn), 'Accident – Häst omkull · Anna (Observer) at Section B');
+    // Staff: with the private details
+    assert.equal(describePauseEntry(log1[0], tr, { details }), 'Olycka – Häst omkull · Anna (Observatör) vid Sträcka B');
+    assert.equal(describePauseEntry(log1[0], trEn, { details }), 'Accident – Häst omkull · Anna (Observer) at Section B');
+    // Public: the reason only, also for an older entry with a note and a name
+    assert.equal(describePauseEntry({ ...log1[0], ...details }, tr, { publicView: true }), 'Olycka');
     assert.match(pauseHeadline(log1[0], trEn, 'en-GB'), /^COMPETITION PAUSED SINCE \d\d:\d\d$/);
     assert.match(formatPauseLogLine(log2[0], 0, tr), /^Paus 1: .* \(15 min\) · Olycka/);
     assert.equal(describePauseEntry({ start: 'x', where: 'obstacle:3' }, tr), 'vid Hinder 3');
 });
-
 test('contact lists: per class and role, deduplicated, BCC link', () => {
     const groups = buildContactGroups({
         equipages: [

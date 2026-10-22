@@ -1,6 +1,6 @@
 import { getGlobalState } from '../../main.js';
 import { getEquipages } from '../../services/equipageService.js';
-import { getConfig } from '../../services/competitionService.js';
+import { getConfig, loadMarathonConfig } from '../../services/competitionService.js';
 import { getPrecisionResults } from '../../services/precisionService.js';
 import { getStartTimes } from '../../services/marathonService.js';
 import { finalizePrecision } from '../../services/finalizationService.js';
@@ -61,7 +61,8 @@ import {
     getPrecisionRoundObstacleLabels,
     isPrecisionDriveOffScheduled,
     nextPrecisionRebuildCount,
-    precisionRebuildCount
+    precisionRebuildCount,
+    PRECISION_KNOCKS_VERSION
 } from '../../utils/precisionCalculation.js';
 import {
     PRECISION_ROUND_WARNING_TEXT,
@@ -1192,6 +1193,8 @@ function resetTimer() {
         extraPenalty: 0,
         eliminated: false,
         knocks: [],
+        // The empty list is the source: an old stored obstaclePenalty no longer counts
+        knocksVersion: PRECISION_KNOCKS_VERSION,
         knockDownTimes: {},
         rebuildCount: 0,
         finalized: false,
@@ -1817,7 +1820,7 @@ export async function load() {
                 getStartTimes(competitionId),
                 getPrecisionResults(competitionId),
                 // The rule profile (TR/FEI) of a class decides how phase 2 is scored
-                getConfig(competitionId, 'marathonConfig').catch(() => null),
+                loadMarathonConfig(competitionId),
                 loadMergeSource(competitionId).catch(() => null)
             ]),
             timeoutPromise

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   DEFAULT_RETENTION_MONTHS,
+  PURGE_GRACE_MS,
   addMonthsMs,
   archivedAtMs,
   buildAccountDeletionPlan,
@@ -13,6 +14,7 @@ import {
   matchesPerson,
   normalizeRetentionMonths,
   personalLogFieldsPresent,
+  purgeScheduleDecision,
   retentionDecision,
   selectCompetitionsForPurge,
   toPlainValue
@@ -79,6 +81,36 @@ test('retention also purges competitions never archived: months after the last d
   assert.equal(retentionDecision({ status: 'active' }, Date.now()).reason, 'no-date');
   // Purged once: not again
   assert.equal(retentionDecision({ ...open, personalDataPurgedAt: lastDay + 371 * DAY }, lastDay + 900 * DAY).reason, 'already-purged');
+});
+
+test('a competition not archived counts its newest activity, not only an old or wrong date', () => {
+  const now = Date.parse('2026-10-19T00:00:00Z');
+  // Created yesterday with a date years ago (typo, copied competition)
+  const fresh = { status: 'draft', dates: '2019-05-01', createdAt: now - DAY };
+  assert.equal(lastActivityMs(fresh), now - DAY);
+  assert.equal(retentionDecision(fresh, now).due, false);
+  // Updated, or a result / audit entry, within retentionMonths: not due
+  const old = { status: 'active', dates: '2024-05-01', createdAt: Date.parse('2024-01-01T00:00:00Z') };
+  assert.equal(retentionDecision(old, now).due, true);
+  assert.equal(retentionDecision({ ...old, updatedAt: ts('2026-09-01T00:00:00Z') }, now).due, false);
+  assert.equal(retentionDecision({ ...old, lastResultAt: now - 10 * DAY }, now).due, false);
+  assert.equal(retentionDecision({ ...old, recentActivityMs: now - 100 * DAY }, now).due, false);
+  // Archived: from the archiving, as before
+  assert.equal(retentionDecision({ locked: true, finalizedAt: Date.parse('2025-01-01T00:00:00Z'), updatedAt: now }, now).due, true);
+});
+
+test('a due competition is scheduled first and purged a week later at the earliest', () => {
+  const now = Date.parse('2026-10-19T00:00:00Z');
+  const decision = retentionDecision({ locked: true, finalizedAt: Date.parse('2025-01-01T00:00:00Z') }, now);
+  const first = purgeScheduleDecision(decision, null, now);
+  assert.deepEqual(first, { action: 'schedule', scheduledAt: now, purgeAt: now + PURGE_GRACE_MS });
+  assert.equal(purgeScheduleDecision(decision, now, now + 6 * DAY).action, 'wait');
+  assert.equal(purgeScheduleDecision(decision, ts(new Date(now).toISOString()), now + 7 * DAY).action, 'purge');
+  // A schedule from before this due date (an earlier cycle) starts again
+  assert.equal(purgeScheduleDecision(decision, decision.dueAt - DAY, now).action, 'schedule');
+  // No longer due (reopened, written to, retention extended): unscheduled
+  assert.equal(purgeScheduleDecision({ due: false }, now, now + 8 * DAY).action, 'unschedule');
+  assert.equal(purgeScheduleDecision({ due: false }, null, now).action, 'none');
 });
 
 test('selectCompetitionsForPurge keeps only due competitions with the decision', () => {

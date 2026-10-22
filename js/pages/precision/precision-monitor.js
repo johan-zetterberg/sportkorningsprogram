@@ -4,7 +4,8 @@
 import { getGlobalState } from '../../main.js';
 import { loadMergeSource, mergeGroupResolver } from '../../services/mergeConfigService.js';
 import { getEquipages } from '../../services/equipageService.js';
-import { getConfig } from '../../services/competitionService.js';
+import { getConfig, loadMarathonConfig } from '../../services/competitionService.js';
+import { setMarathonConfig } from '../../utils/marathonUtils.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { collection, onSnapshot } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { db, appId } from '../../config/firebase-config.js';
@@ -924,13 +925,16 @@ export async function load() {
     return;
   }
   try {
-    const [equipagesRaw, configRaw, startTimesData, mergeSource] = await Promise.all([
+    const [equipagesRaw, configRaw, startTimesData, mergeSource, marathonCfg] = await Promise.all([
       getEquipages(competitionId),
       getConfig(competitionId, 'precisionConfig').catch(() => ({})),
       getConfig(competitionId, 'startTimes').catch(() => ({})),
-      loadMergeSource(competitionId).catch(() => null)
+      loadMergeSource(competitionId).catch(() => null),
+      // The class's rule profile (TR/FEI): tempo, max time, phase-2 scoring
+      loadMarathonConfig(competitionId)
     ]);
     if (currentLoadToken !== loadToken) return;
+    setMarathonConfig(marathonCfg || {});
     classGroupOf = mergeGroupResolver(mergeSource);
 
     allEquipages = equipagesRaw;

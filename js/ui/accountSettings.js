@@ -8,6 +8,9 @@ import { t } from '../utils/i18n.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { isDeletionConfirmed } from '../utils/personalDataUtils.js';
 import { mountPushPanel } from './pushSettingsPanel.js';
+import { getGlobalState } from '../main.js';
+import { mergeUserRoles } from '../utils/roleAccess.js';
+import { devicePushRole } from '../utils/pushUtils.js';
 
 export function renderAccountSettingsSection(email) {
     return `
@@ -37,7 +40,9 @@ export function renderAccountSettingsSection(email) {
 
 export function wireAccountSettings(root, { onDeleted } = {}) {
     // The device-wide notifications switch
-    mountPushPanel(root?.querySelector('#accountPush'), { role: 'device', compact: true, title: t('push_device_title') })
+    // Staff get their staff topics by default (roles in the current competition)
+    const role = devicePushRole(mergeUserRoles(getGlobalState('currentUser')), !!getGlobalState('currentCompetition')?.id);
+    mountPushPanel(root?.querySelector('#accountPush'), { role, compact: true, title: t('push_device_title') })
         .catch((error) => console.warn('Notiser kunde inte visas:', error));
     const form = root?.querySelector('#accountDeleteForm');
     if (!form) return;

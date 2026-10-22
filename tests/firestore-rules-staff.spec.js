@@ -170,6 +170,11 @@ test('messages: push fields checked; the TD may call a drive-off (non-public, so
   // Not public, not another source, no edits or deletes
   await assertFails(setDoc(doc(td, compPath('messages/d3')), msg({ audience: { public: true, drivers: true, officials: false, officialRoles: [] } })));
   await assertFails(setDoc(doc(td, compPath('messages/d4')), msg({ source: 'other' })));
+  // Only 1-30 chosen drivers (not all drivers), or the officials alone
+  await assertFails(setDoc(doc(td, compPath('messages/d7')), msg({ targetStartNumbers: [] })));
+  await assertFails(setDoc(doc(td, compPath('messages/d8')), msg({ targetStartNumbers: Array.from({ length: 31 }, (_, i) => String(i + 1)) })));
+  await assertSucceeds(setDoc(doc(td, compPath('messages/d9')), msg({ targetStartNumbers: Array.from({ length: 30 }, (_, i) => String(i + 1)) })));
+  await assertFails(setDoc(doc(td, compPath('messages/d10')), msg({ audience: { public: false, drivers: true, officials: true, officialRoles: [] } })));
   const { source: _source, ...withoutSource } = msg();
   await assertFails(setDoc(doc(td, compPath('messages/d5')), withoutSource));
   await assertFails(updateDoc(doc(td, compPath('messages/d1')), { body: 'Ändrad' }));

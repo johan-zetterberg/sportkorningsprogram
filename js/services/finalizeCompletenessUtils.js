@@ -70,7 +70,7 @@ export function findPrecisionGaps({ equipage = {}, result = null, calc = null } 
     const gaps = [];
     if (!(Number(result.timeMs) > 0)) gaps.push('Tid saknas i precisionsresultatet.');
     if (result.totalPenalty === null || result.totalPenalty === undefined) gaps.push('Totalt straff saknas (kontrollera klassens maxtid).');
-    if (calc) gaps.push(...precisionFinalizeBlockers(calc));
+    if (calc) gaps.push(...precisionFinalizeBlockers(calc), ...precisionFinalizeWarnings(calc));
     return gaps;
 }
 
@@ -91,9 +91,12 @@ export function precisionHasResult(calc) {
  * nothing). `calc` is calculatePrecisionResult of the doc. round 'phase1'
  * (finalizePrecision, which closes phase 2 with it): a phase 2 of a qualified
  * equipage that runs, is stopped but not saved, has data without a decided
- * result (time, eliminated, retired) or has no max time for phase 2 (owner
- * Q11: never 'Klar' until the course is set). round 'driveOff'
- * (finalizePrecisionDriveOff): the same for the drive-off.
+ * result (time, eliminated, retired). A phase 2 without a max time (no
+ * course config) does not block (owner 2026-10-23): it is a warning
+ * (precisionFinalizeWarnings), and the class's precision placing stays
+ * provisional until the config exists; the total counts phase 1 only. round
+ * 'driveOff' (finalizePrecisionDriveOff): the same for the drive-off, where a
+ * missing max time still blocks.
  */
 export function precisionFinalizeBlockers(calc, { round = 'phase1' } = {}) {
     if (!calc) return [];
@@ -101,14 +104,29 @@ export function precisionFinalizeBlockers(calc, { round = 'phase1' } = {}) {
         if (!r) return [];
         if (r.live) return [PRECISION_ROUND_WARNING_TEXT[`${prefix}Live`]];
         if (!r.hasData) return [];
-        const noMaxTime = r.configMissing || (!finiteNumber(r.maxTimeSec) && r.timePenaltyOverride !== true);
-        if (noMaxTime) return [PRECISION_ROUND_WARNING_TEXT[`${prefix}ConfigMissing`]];
+        if (roundLacksMaxTime(r)) return prefix === 'phase2' ? [] : [PRECISION_ROUND_WARNING_TEXT[`${prefix}ConfigMissing`]];
         if (!r.decided) return [PRECISION_ROUND_WARNING_TEXT[`${prefix}Undecided`]];
         return [];
     };
     if (round === 'driveOff') return check(calc.rounds?.driveOff, 'driveOff');
     if (calc.precisionFormat !== 'twoPhase' || calc.phase2Qualified !== true) return [];
     return check(calc.rounds?.phase2, 'phase2');
+}
+
+const roundLacksMaxTime = (r) => r.configMissing || (!finiteNumber(r.maxTimeSec) && r.timePenaltyOverride !== true);
+
+export const PHASE2_CONFIG_MISSING_FINALIZE_WARNING = 'Fas 2 saknar baninställningar – placeringarna i precision blir preliminära tills de fyllts i.';
+
+/**
+ * What finalizing a precision result goes on with but should be known
+ * (Swedish lines for the confirmation): a qualified phase 2 driven without
+ * course config (no max time).
+ */
+export function precisionFinalizeWarnings(calc) {
+    if (!calc || calc.precisionFormat !== 'twoPhase' || calc.phase2Qualified !== true) return [];
+    const r = calc.rounds?.phase2;
+    if (!r || r.live || !r.hasData || !roundLacksMaxTime(r)) return [];
+    return [PHASE2_CONFIG_MISSING_FINALIZE_WARNING];
 }
 
 const protocolBody = (protocol) => (protocol?.protocol && typeof protocol.protocol === 'object' ? { ...protocol, ...protocol.protocol } : protocol || {});
@@ -150,4 +168,62 @@ export function finalizeConfirmMessage(discipline, startNumber, gaps = []) {
     const label = DISCIPLINE_LABELS[discipline] || discipline;
     if (!gaps.length) return `Finalisera ${label} för #${startNumber}? Resultatet låses och sena inmatningar nekas.`;
     return `Följande saknas för ${label} #${startNumber}:\n\n- ${gaps.join('\n- ')}\n\nResultatet låses och sena inmatningar nekas. Finalisera ändå?`;
+}
+
+// --- Open ground jury matters (vet strikes waiting for a decision, open
+// protests): they block finalizing, archiving and the TDB report until
+// decided; an admin may override with a typed word and a reason (logged in
+// the auditLog) ---
+
+export const JURY_OVERRIDE_WORD = 'ÅSIDOSÄTT';
+
+const PHASE_LABELS_SV = { initial: 'första besiktningen', harness: 'selningskontrollen', restArea: 'viloboxen', final: 'slutbesiktningen' };
+const sameStartNumber = (a, b) => String(a ?? '').trim() !== '' && String(a ?? '').trim() === String(b ?? '').trim();
+
+/**
+ * The open ground jury matters as Swedish lines. `equipages`: [{ startNumber,
+ * className, driverName, vetStrikePending }]; `incidents`: the incident log.
+ * Narrowed to one start number (`startNumber`) or to the equipages of some
+ * classes (`classNames`); neither: the whole competition. An open protest
+ * names a start number to count for an equipage or a class; one without a
+ * start number counts for the whole competition only.
+ */
+export function findOpenJuryMatters({ equipages = [], incidents = [], startNumber = null, classNames = null } = {}) {
+    const classes = Array.isArray(classNames) ? new Set(classNames.map(String)) : null;
+    const scoped = (equipages || []).filter((e) => {
+        if (startNumber !== null && startNumber !== undefined) return sameStartNumber(e?.startNumber ?? e?.id, startNumber);
+        if (classes) return classes.has(String(e?.className || ''));
+        return true;
+    });
+    const numbers = new Set(scoped.map((e) => String(e?.startNumber ?? e?.id ?? '').trim()).filter(Boolean));
+    if (startNumber !== null && startNumber !== undefined) numbers.add(String(startNumber).trim());
+    const whole = (startNumber === null || startNumber === undefined) && !classes;
+    const lines = [];
+    scoped.forEach((e) => {
+        const pending = e?.vetStrikePending;
+        if (!pending || typeof pending !== 'object') return;
+        const sn = String(e.startNumber ?? e.id ?? '');
+        const who = [`#${sn}`, String(e.driverName || '').trim()].filter(Boolean).join(' ');
+        lines.push(`${who}: veterinärens beslut (${PHASE_LABELS_SV[pending.phase] || 'veterinärbesiktningen'}) väntar på domarkollegiets beslut.`);
+    });
+    (incidents || []).forEach((incident) => {
+        if (incident?.type !== 'protest' || incident?.status !== 'open') return;
+        const sn = String(incident.startNumber || '').trim();
+        if (sn ? !numbers.has(sn) && !whole : !whole) return;
+        lines.push(`Öppen protest nr ${incident.number ?? '?'}${sn ? ` (#${sn})` : ''} är inte avgjord.`);
+    });
+    return lines;
+}
+
+/** Whether the typed confirmation is the override word (case and spaces ignored) */
+export function isJuryOverrideConfirmed(typed) {
+    return String(typed || '').trim().toLocaleUpperCase('sv-SE') === JURY_OVERRIDE_WORD;
+}
+
+/** The text shown when open jury matters block (Swedish UI text) */
+export function juryBlockMessage(what, matters = [], { canOverride = false } = {}) {
+    const head = `${what} kan inte göras medan domarkollegiet har öppna ärenden:\n\n- ${matters.join('\n- ')}\n\nAvgör dem i händelseloggen först.`;
+    return canOverride
+        ? `${head}\n\nSom administratör kan du göra det ändå: skriv ${JURY_OVERRIDE_WORD} för att fortsätta.`
+        : head;
 }

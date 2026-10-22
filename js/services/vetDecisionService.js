@@ -2,13 +2,14 @@
 // report (incident log entry + staff notification; the driver's inbox message
 // is written by the server, onIncidentWritten) and the secretariat's / TD's
 // decision on the equipage.
-import { doc, getDoc, runTransaction, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-import { db, appId } from '../config/firebase-config.js';
+import { runTransaction, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { db } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { getCompDocRef, trackWrite } from './firestoreService.js';
-import { addStaffNotice, createIncident, getIncidents, updateIncident } from './incidentService.js';
-import { buildVetStrikeDecisionPatch, buildVetStrikeIncident, buildVetStrikeWithdrawal } from './vetDecisionUtils.js';
+import { addStaffNotice, createIncident, getIncidents } from './incidentService.js';
+import { buildVetStrikeDecisionPatch, buildVetStrikeIncident } from './vetDecisionUtils.js';
 import { toLocalDateTimeValue } from './incidentUtils.js';
+import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
 
 const NOT_PENDING = 'Inget veterinärbeslut väntar på beslut för ekipaget.';
 
@@ -50,37 +51,26 @@ export async function reportVetStrike(competitionId, { incidentId, equipage = {}
 
 /**
  * The vet approved the equipage again before the ground jury decided
- * (gateVetStrikePayload's withdrawn): the report in the incident log is
- * closed with vetStrike.outcome 'withdrawn'. The server then tells the driver
- * ("Veterinärbeslutet har återkallats") and acknowledges the staff notice
- * (onIncidentWritten). Best effort, like reportVetStrike: { ok, skipped?, error? }.
+ * (gateVetStrikePayload's withdrawn). The vet's save removed vetStrikePending
+ * on the equipage; the server closes the report in the incident log with
+ * vetStrike.outcome 'withdrawn' from that write (onEquipageUpdate,
+ * functions/src/vetStrikeClosure.js), tells the driver and acknowledges the
+ * staff notice (onIncidentWritten). Nothing more to write here, so it works
+ * the same offline: { ok, skipped? }.
  */
 export async function withdrawVetStrike(competitionId, { incidentId } = {}) {
     if (!competitionId || !incidentId) return { ok: false, skipped: true };
-    try {
-        const ref = doc(db, `artifacts/${appId}/private/data/competitions/${competitionId}/incidents`, incidentId);
-        const snap = await getDoc(ref);
-        if (!snap.exists()) return { ok: false, skipped: true };
-        const incident = { id: snap.id, ...snap.data() };
-        const user = getGlobalState('currentUser') || {};
-        const update = buildVetStrikeWithdrawal(incident, { name: user.displayName || user.email || '' });
-        if (!update) return { ok: true, skipped: true };
-        // Not awaited: offline the write waits in the local cache
-        updateIncident(competitionId, incident, update.raw, update.extra)
-            .catch((error) => console.warn('Återkallat veterinärbeslut kunde inte loggas:', error));
-        return { ok: true };
-    } catch (error) {
-        console.warn('Återkallat veterinärbeslut kunde inte loggas:', error);
-        return { ok: false, error };
-    }
+    return { ok: true, server: true };
 }
 
 /**
  * The ground jury's decision on a pending strike: 'confirm' (struken) or
- * 'overturn'. Updates the equipage, the incident entry (when found) and
- * notifies the staff.
+ * 'overturn'. Only the equipage is written (queued offline): the server
+ * closes the incident entry from that write and notifies the driver
+ * (onEquipageUpdate -> onIncidentWritten). A staff notice tells the others.
+ * Returns { outcome, state: 'saved' | 'queued' }.
  */
-export async function decideVetStrike(competitionId, equipage = {}, action, { incident = null, decisionText = '' } = {}) {
+export async function decideVetStrike(competitionId, equipage = {}, action, { incident = null } = {}) {
     const user = getGlobalState('currentUser') || {};
     const name = user.displayName || user.email || '';
     const patchFor = (current) => buildVetStrikeDecisionPatch(current, action, {
@@ -92,9 +82,13 @@ export async function decideVetStrike(competitionId, equipage = {}, action, { in
     if (!patch) throw new Error(NOT_PENDING);
     const startNumber = String(equipage.startNumber ?? equipage.id ?? '');
     const ref = getCompDocRef(competitionId, 'equipages', startNumber);
+    let state = 'saved';
     if (navigator.onLine === false) {
-        // Offline (transactions need the network): from the device's copy, queued
-        await trackWrite(`Domarkollegiets beslut #${startNumber}`, updateDoc(ref, { ...patch, updatedAt: serverTimestamp() }));
+        // Offline (transactions need the network): from the device's copy,
+        // queued; the caller is told it waits for the network
+        state = await awaitWriteOrQueue(trackWrite(`Domarkollegiets beslut #${startNumber}`, updateDoc(ref, { ...patch, updatedAt: serverTimestamp() })), {
+            onLateError: (error) => console.error('Domarkollegiets beslut nekades när det skickades:', error)
+        });
     } else {
         // Only while the strike is still pending on the server: two officials
         // deciding at once, or a decision made elsewhere, are not overwritten
@@ -112,15 +106,7 @@ export async function decideVetStrike(competitionId, equipage = {}, action, { in
     const defaultText = outcome === 'confirmed'
         ? 'Veterinärens beslut fastställt: ekipaget struket.'
         : 'Veterinärens beslut inte fastställt: ekipaget får fortsätta.';
-    if (incident?.id) {
-        await updateIncident(competitionId, incident, {
-            status: 'decided',
-            decision: [decisionText, defaultText].filter(Boolean).join(' '),
-            decidedBy: incident.decidedBy || name
-        }, { 'vetStrike.outcome': outcome }).catch((error) => {
-            console.warn('Händelsen kunde inte uppdateras med beslutet:', error);
-        });
-    }
+    // Not awaited: offline it waits in the local cache
     addStaffNotice(competitionId, {
         kind: 'vetDecision',
         startNumber,
@@ -128,5 +114,5 @@ export async function decideVetStrike(competitionId, equipage = {}, action, { in
         incidentId: incident?.id || '',
         summary: `#${startNumber} ${equipage.driverName || ''}: ${defaultText}`
     }).catch((error) => console.warn('Notisen om beslutet kunde inte sparas:', error));
-    return outcome;
+    return { outcome, state };
 }

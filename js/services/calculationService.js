@@ -160,6 +160,7 @@ export function calculateTotalResult(equipage, dressageProtocols, marathonData, 
             dressageJudgeMapping: getJudgeMapping(context.dressageJudgeMapping),
             judges: context.judges,
             precisionConfig: context.precisionConfig,
+            drivenPhases: context.drivenPhases || null,
             ruleSettings: marathonInputs.ruleSettings || getRuleSettings()
         }
     );

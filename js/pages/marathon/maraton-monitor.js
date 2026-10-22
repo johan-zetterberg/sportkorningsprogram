@@ -1080,7 +1080,7 @@ export async function load() {
             const headline = document.getElementById('pause-status-headline');
             const detail = document.getElementById('pause-status-detail');
             if (headline) headline.textContent = current ? pauseHeadline(current, t, locale) : t('paused_banner');
-            if (detail) detail.textContent = describePauseEntry(current, t);
+            if (detail) detail.textContent = describePauseEntry(current, t, { publicView: true });
           } else {
             banner.classList.add('hidden');
           }

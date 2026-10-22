@@ -1567,48 +1567,66 @@ test('pause events: marathon, TD and admins add valid unprocessed events of thei
   await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x7`), event('marathon-pe-1')));
 });
 
-test('a pause records why, who and where; only the writer may be named and the record cannot be changed on resume', { skip: !HAS_EMULATOR }, async () => {
+test('a public pause entry records when, why and where; who and the note are private pause details', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('marathon-pause-2', 'marathon');
   await seedCompetitionRole('admin-pause-2', 'admin');
   await seedCompetitionRole('dressage-pause-2', 'dressage');
+  await seedCompetitionRole('td-pause-2', 'td');
   const ref = (db) => doc(db, compPath('config/globalStatus'));
-  const marathonDb = testEnv.authenticatedContext('marathon-pause-2', { email_verified: true, email: 'marathon-pause-2@example.com' }).firestore();
-  const entry = {
-    start: '2026-10-11T10:00:00.000Z', end: null, durationSec: null,
-    reason: 'accident', note: 'Häst omkullkörd vid hinder 3',
-    by: { uid: 'marathon-pause-2', name: 'Anna', role: 'observer' }, where: 'section:B'
-  };
+  const dbOf = (uid) => testEnv.authenticatedContext(uid, { email_verified: true, email: `${uid}@example.com` }).firestore();
+  const marathonDb = dbOf('marathon-pause-2');
+  const entry = { start: '2026-10-11T10:00:00.000Z', end: null, durationSec: null, reason: 'accident', where: 'section:B' };
 
-  // Not someone else as the one who pressed, no unknown reason, no long text
-  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, by: { uid: 'someone-else', role: 'observer' } }] }, { merge: true }));
+  // No note or name in the public log, no unknown reason
+  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, note: 'Häst omkull' }] }, { merge: true }));
+  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, by: { uid: 'marathon-pause-2', role: 'observer' } }] }, { merge: true }));
   await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, reason: 'lunch' }] }, { merge: true }));
-  await assertFails(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [{ ...entry, note: 'x'.repeat(201) }] }, { merge: true }));
   await assertSucceeds(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [entry] }, { merge: true }));
 
   // The dressage role does not pause the marathon
-  const dressageDb = testEnv.authenticatedContext('dressage-pause-2', { email_verified: true, email: 'dressage-pause-2@example.com' }).firestore();
-  const closedByDressage = { ...entry, end: '2026-10-11T10:05:00.000Z', durationSec: 300, endedBy: { uid: 'dressage-pause-2' } };
-  await assertFails(setDoc(ref(dressageDb), { isPaused: false, pauseLog: [closedByDressage] }, { merge: true }));
+  const closed = { ...entry, end: '2026-10-11T10:05:00.000Z', durationSec: 300 };
+  await assertFails(setDoc(ref(dbOf('dressage-pause-2')), { isPaused: false, pauseLog: [closed] }, { merge: true }));
+  // Not closed with a name in the public log, nor with the reason rewritten
+  await assertFails(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [{ ...closed, endedBy: { uid: 'marathon-pause-2' } }] }, { merge: true }));
+  await assertFails(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [{ ...closed, reason: 'other' }] }, { merge: true }));
+  await assertSucceeds(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [closed] }, { merge: true }));
+  // The TD pauses from the secretariat's marathon page
+  const second = { start: '2026-10-11T12:00:00.000Z', end: null, durationSec: null, reason: 'course', where: 'secretariat' };
+  await assertSucceeds(setDoc(ref(dbOf('td-pause-2')), { isPaused: true, pauseLog: [closed, second] }, { merge: true }));
 
-  // The secretariat (a competition admin) resumes; the reason cannot be rewritten on the way
-  const adminDb = testEnv.authenticatedContext('admin-pause-2', { email_verified: true, email: 'admin-pause-2@example.com' }).firestore();
-  const closed = { ...entry, end: '2026-10-11T10:05:00.000Z', durationSec: 300, endedBy: { uid: 'admin-pause-2', role: 'sekretariat' } };
-  await assertSucceeds(setDoc(ref(adminDb), { isPaused: false, pauseLog: [closed] }, { merge: true }));
-
-  // A marathon official may not rewrite why when closing a pause
-  const second = { start: '2026-10-11T11:00:00.000Z', end: null, durationSec: null, reason: 'weather', by: { uid: 'marathon-pause-2', role: 'observer' } };
-  await assertSucceeds(setDoc(ref(marathonDb), { isPaused: true, pauseLog: [closed, second] }, { merge: true }));
-  const rewritten = { ...second, reason: 'other', end: '2026-10-11T11:10:00.000Z', durationSec: 600, endedBy: { uid: 'marathon-pause-2', role: 'observer' } };
-  await assertFails(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [closed, rewritten] }, { merge: true }));
-  await assertSucceeds(setDoc(ref(marathonDb), { isPaused: false, pauseLog: [closed, { ...rewritten, reason: 'weather' }] }, { merge: true }));
-
-  // The technical delegate pauses from the secretariat's marathon page
-  await seedCompetitionRole('td-pause-2', 'td');
-  const tdDb = testEnv.authenticatedContext('td-pause-2', { email_verified: true, email: 'td-pause-2@example.com' }).firestore();
-  const third = { start: '2026-10-11T12:00:00.000Z', end: null, durationSec: null, reason: 'course', by: { uid: 'td-pause-2', role: 'sekretariat' }, where: 'secretariat' };
-  await assertSucceeds(setDoc(ref(tdDb), { isPaused: true, pauseLog: [closed, { ...rewritten, reason: 'weather' }, third] }, { merge: true }));
+  // The private details: the writer names only itself, staff read them, the public does not
+  const details = (db, id = 'p1791712800000') => doc(db, `artifacts/${APP_ID}/private/data/competitions/${COMP_ID}/pauseDetails/${id}`);
+  const by = { uid: 'marathon-pause-2', name: 'Anna', role: 'observer' };
+  await assertFails(setDoc(details(marathonDb), { start: entry.start, by: { ...by, uid: 'someone-else' }, updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(details(marathonDb), { start: entry.start, note: 'x'.repeat(201), by, updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(details(marathonDb, 'bad-id'), { start: entry.start, by, updatedAt: serverTimestamp() }));
+  await assertFails(setDoc(details(dbOf('dressage-pause-2')), { start: entry.start, by: { uid: 'dressage-pause-2' }, updatedAt: serverTimestamp() }));
+  await assertSucceeds(setDoc(details(marathonDb), { start: entry.start, note: 'Häst omkull', by, updatedAt: serverTimestamp() }, { merge: true }));
+  // Resume: endedBy (own) added; who paused and the note stay
+  const tdDb = dbOf('td-pause-2');
+  await assertFails(setDoc(details(tdDb), { note: 'ändrad', endedBy: { uid: 'td-pause-2' }, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertFails(setDoc(details(tdDb), { endedBy: { uid: 'marathon-pause-2' }, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(setDoc(details(tdDb), { endedBy: { uid: 'td-pause-2', role: 'sekretariat' }, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(getDoc(details(dbOf('dressage-pause-2'))));
+  await assertFails(getDoc(details(testEnv.unauthenticatedContext().firestore())));
+  // The competition's admin corrects freely
+  await assertSucceeds(setDoc(details(dbOf('admin-pause-2')), { note: 'Rättad', updatedAt: serverTimestamp() }, { merge: true }));
 });
 
+test('a late pause event left for review: only admins mark it reviewed', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-review-1', 'marathon');
+  const dbOf = (uid) => testEnv.authenticatedContext(uid, { email_verified: true, email: `${uid}@example.com` }).firestore();
+  const path = `artifacts/${APP_ID}/private/data/competitions/${COMP_ID}/pauseEvents`;
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), `${path}/late1`), { type: 'start', at: 'x', by: { uid: 'marathon-review-1' }, processed: true, result: 'needs-review' });
+    await setDoc(doc(context.firestore(), `${path}/ok1`), { type: 'start', at: 'x', by: { uid: 'marathon-review-1' }, processed: true, result: 'started' });
+  });
+  await assertFails(updateDoc(doc(dbOf('marathon-review-1'), `${path}/late1`), { reviewedAt: serverTimestamp(), reviewedBy: 'marathon-review-1' }));
+  await assertFails(updateDoc(doc(dbOf('owner-1'), `${path}/late1`), { reviewedAt: serverTimestamp(), reviewedBy: 'someone' }));
+  await assertFails(updateDoc(doc(dbOf('owner-1'), `${path}/late1`), { reviewedAt: serverTimestamp(), reviewedBy: 'owner-1', result: 'started' }));
+  await assertFails(updateDoc(doc(dbOf('owner-1'), `${path}/ok1`), { reviewedAt: serverTimestamp(), reviewedBy: 'owner-1' }));
+  await assertSucceeds(updateDoc(doc(dbOf('owner-1'), `${path}/late1`), { reviewedAt: serverTimestamp(), reviewedBy: 'owner-1' }));
+});
 test('messages for officials are read by the competition officials only', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();

@@ -1,6 +1,7 @@
 import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
-import { collection, doc, getDocs, addDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { collection, doc, getDocs, addDoc, deleteDoc, setDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { awaitWriteOrQueue } from '../utils/offlineWrite.js';
 import { getCompCollectionRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler, resilientSnapshot } from './listenerErrorUtils.js';
 import { isOfficialMessage } from '../utils/messageAudience.js';
@@ -139,6 +140,11 @@ export function listenForCompetitionMessages(competitionId, callback) {
   }, buildSnapshotErrorHandler('listenForCompetitionMessages', callback, []));
 }
 
+/**
+ * Saves a new message. Offline (or on a weak signal) the write is queued on
+ * the device instead of hanging: resolves 'saved' or 'queued' (the push and
+ * mail it triggers go when it reaches the server). A refusal still throws.
+ */
 export async function saveCompetitionMessage(competitionId, msgData) {
   if (!competitionId) throw new Error("Missing competitionId");
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/messages`);
@@ -146,7 +152,11 @@ export async function saveCompetitionMessage(competitionId, msgData) {
     ...msgData,
     timestamp: serverTimestamp()
   };
-  await addDoc(colRef, payload);
+  // A fixed id first (setDoc): the same message is never added twice
+  const ref = doc(colRef);
+  return awaitWriteOrQueue(setDoc(ref, payload), {
+    onLateError: (error) => console.error('Meddelandet nekades när det skickades:', error)
+  });
 }
 
 /**

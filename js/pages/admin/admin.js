@@ -3,7 +3,7 @@ import { listenForEquipages } from '../../services/equipageService.js';
 import { listenForJudges } from '../../services/adminService.js';
 import { listenForOfficials } from '../../services/officialsService.js';
 import { finalizeCompetition, reopenCompetition } from '../../services/archivingService.js';
-import { getFinalizationLog } from '../../services/finalizationService.js';
+import { confirmJuryOverride, getFinalizationLog } from '../../services/finalizationService.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getGlobalState } from '../../main.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
@@ -337,20 +337,38 @@ function renderLayout(competition) {
 
       try {
         let result;
-        try {
-          result = await finalizeCompetition(competition.id);
-        } catch (err) {
-          // Equipages without a final result: archive only when the admin
-          // confirms that their results really are final as they stand
-          if (err?.code !== 'archive-incomplete') throw err;
-          const proceed = confirm(`${err.message}\n\nEtt arkiv låser resultaten som de är nu. Arkivera ändå?`);
-          if (!proceed) {
-            renderArchiveStatusMessage(statusEl, { state: 'error', message: err.message });
-            btnFinalize.disabled = false;
-            btnFinalize.classList.remove('opacity-50', 'cursor-not-allowed');
-            return;
+        const options = { allowIncomplete: false, juryOverride: false };
+        const stopWith = (message) => {
+          renderArchiveStatusMessage(statusEl, { state: 'error', message });
+          btnFinalize.disabled = false;
+          btnFinalize.classList.remove('opacity-50', 'cursor-not-allowed');
+        };
+        for (;;) {
+          try {
+            result = await finalizeCompetition(competition.id, options);
+            break;
+          } catch (err) {
+            // Open ground jury matters (pending vet strikes, open protests):
+            // decided first, or overridden by the admin with a typed word and
+            // a reason (logged)
+            if (err?.code === 'archive-jury-open' && !options.juryOverride) {
+              if (!confirmJuryOverride(competition.id, 'Arkiveringen', err.matters || [err.message])) {
+                stopWith(err.message);
+                return;
+              }
+              options.juryOverride = true;
+              continue;
+            }
+            // Equipages without a final result: archive only when the admin
+            // confirms that their results really are final as they stand
+            if (err?.code !== 'archive-incomplete' || options.allowIncomplete) throw err;
+            const proceed = confirm(`${err.message}\n\nEtt arkiv låser resultaten som de är nu. Arkivera ändå?`);
+            if (!proceed) {
+              stopWith(err.message);
+              return;
+            }
+            options.allowIncomplete = true;
           }
-          result = await finalizeCompetition(competition.id, { allowIncomplete: true });
         }
         const successMessage = buildArchiveSuccessMessage(result);
         renderArchiveStatusMessage(statusEl, { state: 'success', message: successMessage.replace('\n', ' ') });

@@ -39,7 +39,7 @@ import {
   buildPrecisionSavePayload,
   penaltyCorrection
 } from '../js/pages/precision/precisionInputUtils.js';
-import { findPrecisionGaps, precisionFinalizeBlockers, precisionHasResult } from '../js/services/finalizeCompletenessUtils.js';
+import { findPrecisionGaps, precisionFinalizeBlockers, precisionFinalizeWarnings, precisionHasResult } from '../js/services/finalizeCompletenessUtils.js';
 import { calculatePrecisionResult as serverPrecision } from '../functions/src/utils/precisionCalculation.js';
 import { precisionGroupContext as serverGroupContext } from '../functions/src/core-engine/ranking.js';
 
@@ -696,11 +696,14 @@ test('knocks: the stored list wins over a stored obstacle penalty (a queued save
   assert.equal(res.totalPenalty, 6);
   // An older save that stored a count: the list still wins
   assert.equal(calculatePrecisionResult({ ...merged, obstaclePenalty: 3 }, eq, normal).totalPenalty, 6);
-  // A knock removed on another device after a stored count of 3
-  assert.equal(calculatePrecisionResult({ ...p1(150), knocks: [], obstaclePenalty: 3 }, eq, normal).totalPenalty, 0);
+  // A knock removed on another device after a stored count of 3 (every
+  // knock-list write since 2026-10-23 carries knocksVersion)
+  assert.equal(calculatePrecisionResult({ ...p1(150), knocks: [], knocksVersion: 2, obstaclePenalty: 3 }, eq, normal).totalPenalty, 0);
   // A legacy doc without a list keeps its stored value
   const legacy = { finalized: true, timeMs: 150000, obstaclePenalty: 6 };
   assert.equal(calculatePrecisionResult(legacy, eq, normal).totalPenalty, 6);
+  // ...also with an empty list and no marker (an old secretariat correction)
+  assert.equal(calculatePrecisionResult({ ...legacy, knocks: [] }, eq, normal).totalPenalty, 6);
   // The same for a round (phase 2)
   const r2 = calculatePrecisionResult(withRound(p1(150), 'phase2', { ...rd(70, { knocks: ['A'] }), obstaclePenalty: 0 }), eq, trTwoPhase);
   assert.equal(r2.rounds.phase2.obstaclePenalty, 3);
@@ -737,18 +740,25 @@ test('finalized without a time is no result (TR 532.4), and Finalisera needs a r
   assert.equal(precisionHasResult(empty), false);
   // A stored total of 0 does not make it one either
   assert.equal(calculatePrecisionResult({ finalized: true, totalPenalty: 0, status: 'Klar' }, eq, normal).totalPenalty, null);
-  // Driven, eliminated or a hand-set time penalty are results
+  // Driven or eliminated are results
   const driven = calculatePrecisionResult(p1(150), eq, normal);
   assert.equal(driven.status, 'Klar');
   assert.equal(driven.totalPenalty, 0);
   assert.equal(precisionHasResult(driven), true);
   assert.equal(precisionHasResult(calculatePrecisionResult({ finalized: true, eliminated: true }, eq, normal)), true);
-  assert.equal(calculatePrecisionResult({ finalized: true, timePenaltyOverride: true, timePenalty: 2 }, eq, normal).totalPenalty, 2);
+  // A hand-set time penalty, knocks or an extra penalty without a time are
+  // not (owner 2026-10-23; before: total 2 / 3 / 5)
+  for (const doc of [{ timePenaltyOverride: true, timePenalty: 2 }, { knocks: ['1'] }, { extraPenalty: 5 }]) {
+    const res = calculatePrecisionResult({ finalized: true, ...doc }, eq, normal);
+    assert.equal(res.totalPenalty, null);
+    assert.equal(res.status, 'Ej startat');
+    assert.equal(precisionHasResult(res), false);
+  }
   assert.equal(precisionHasResult(calculatePrecisionResult({}, eq, normal)), false);
   assert.equal(precisionHasResult(calculatePrecisionResult({ running: true, liveTimeMs: 1000 }, eq, normal)), false);
 });
 
-test('phase 2 driven without its course config: no definitive place, finalizing refused (owner Q11)', () => {
+test('phase 2 driven without its course config: no definitive place; finalizing warns, not refused (owner 2026-10-23)', () => {
   const eq = eqOf('A', TR_CLASS);
   const noPhase2 = { courses: { [TR_CLASS]: { format: 'twoPhase', trackLengthMeters: 600, tempo: 230 } } };
   for (const finalized of [false, true]) {
@@ -760,8 +770,14 @@ test('phase 2 driven without its course config: no definitive place, finalizing 
     assert.equal(res.placing.provisional, true);
     assert.equal(precisionRankKey(res, { requireFinished: true }), null);
     assert.ok(res.formatWarnings.includes('phase2ConfigMissing'));
-    assert.equal(precisionFinalizeBlockers(res).length, 1);
+    assert.deepEqual(precisionFinalizeBlockers(res), []);
+    assert.deepEqual(precisionFinalizeWarnings(res), ['Fas 2 saknar baninställningar – placeringarna i precision blir preliminära tills de fyllts i.']);
+    // Shown in the finalize confirmation
+    assert.ok(findPrecisionGaps({ equipage: eq, result: doc, calc: res }).includes(precisionFinalizeWarnings(res)[0]));
+    // The total counts phase 1 only: unaffected
+    assert.equal(res.totalPenalty, 0);
   }
+  assert.deepEqual(precisionFinalizeWarnings(calculatePrecisionResult(p1(150), eq, noPhase2)), []);
   // No phase-2 data, finalized: did not continue (unchanged)
   const notDriven = calculatePrecisionResult(p1(150), eq, noPhase2);
   assert.equal(notDriven.placing.stage, 'phase2NotStarted');

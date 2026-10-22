@@ -122,16 +122,38 @@ function draftFor(row) {
 }
 
 // Under the knock list: the obstacle penalty it gives ("2 rivn. = 6 p"); a
-// legacy result without a list shows its stored penalty
+// legacy result without a list (knocks null, left untouched) shows its
+// stored penalty
 function obstacleSummary(row, view, isDirty) {
+  if (view.knocks === null && row.legacyObstaclePenalty) return legacyKnockText(row);
   const knocks = Array.isArray(view.knocks) ? view.knocks : [];
   const penalty = isDirty && !view.__invalid
     ? calculateSecretariatPrecisionDraft(row, drafts.get(String(row.startNumber))).obstaclePenalty
     : row.obstaclePenalty;
   const p = Number.isFinite(Number(penalty)) ? Number(penalty) : 0;
-  if (!knocks.length && row.legacyObstaclePenalty && !isDirty) return `Lagrat: ${row.legacyObstaclePenalty} p`;
   return knocks.length ? `${knocks.length} rivn. = ${p} ${row.scoring === 'time' || row.round === 'driveOff' ? 's' : 'p'}` : '0 p';
 }
+
+function legacyKnockText(row) {
+  return `Lagrat: ${row.legacyObstaclePenalty} p (skriv rivna hinder, eller 0 för inga)`;
+}
+
+// The knock field of a row: the typed list; for a legacy result (no list,
+// only a stored penalty) an untouched empty field is null (the stored penalty
+// stays), "0" or a field emptied after typing is an empty list (removes it)
+function knocksFromField(rowEl, baseRow) {
+  const input = rowEl.querySelector('[data-field="knocks"]');
+  const raw = input?.value || '';
+  if (baseRow.knocks !== null) return parseKnockListInput(raw);
+  if (/^\s*0\s*$/.test(raw)) return [];
+  const knocks = parseKnockListInput(raw);
+  if (knocks.length) return knocks;
+  const touched = input?.dataset.touched === '1' || Array.isArray(drafts.get(String(baseRow.startNumber))?.knocks);
+  return touched ? [] : null;
+}
+
+// A knock list as compared for a draft: null ("no list") stays null
+const knockKey = (list) => (list === null ? null : formatKnockList(list));
 
 function buildTableRows() {
   const visibleRows = getVisibleRows();
@@ -372,7 +394,7 @@ function collectPatch(rowEl, baseRow) {
   }
 
   // The knock list (the obstacle penalty follows from it in the result engine)
-  const knocks = parseKnockListInput(rowEl.querySelector('[data-field="knocks"]')?.value || '');
+  const knocks = knocksFromField(rowEl, baseRow);
   const timePenalty = Number(rowEl.querySelector('[data-field="timePenalty"]')?.value || 0);
   const extraPenalty = Number(rowEl.querySelector('[data-field="extraPenalty"]')?.value || 0);
   // Editing the time penalty itself makes it a manual override; otherwise
@@ -412,7 +434,8 @@ function updateDraft(rowEl) {
     const obstacleCell = rowEl.querySelector('[data-role="obstacle"]');
     if (obstacleCell) {
       const unit = baseRow.scoring === 'time' || baseRow.round === 'driveOff' ? 's' : 'p';
-      obstacleCell.textContent = patch.knocks.length ? `${patch.knocks.length} rivn. = ${draftCalc.obstaclePenalty ?? 0} ${unit}` : '0 p';
+      if (patch.knocks === null && baseRow.legacyObstaclePenalty) obstacleCell.textContent = legacyKnockText(baseRow);
+      else obstacleCell.textContent = patch.knocks?.length ? `${patch.knocks.length} rivn. = ${draftCalc.obstaclePenalty ?? 0} ${unit}` : '0 p';
     }
 
     // The row as it was when editing began: kept with the draft, so a reload
@@ -420,7 +443,7 @@ function updateDraft(rowEl) {
     const draftBase = drafts.get(sn)?.__base || baseRow;
     const hasChanges = JSON.stringify({
       timeMs: patch.timeMs,
-      knocks: formatKnockList(patch.knocks),
+      knocks: knockKey(patch.knocks),
       timePenalty: patch.timePenalty,
       extraPenalty: patch.extraPenalty,
       rebuildCount: patch.rebuildCount,
@@ -428,7 +451,7 @@ function updateDraft(rowEl) {
       comment: patch.comment,
     }) !== JSON.stringify({
       timeMs: draftBase.timeMs || 0,
-      knocks: formatKnockList(draftBase.knocks),
+      knocks: knockKey(draftBase.knocks),
       timePenalty: draftBase.timePenalty || 0,
       extraPenalty: draftBase.extraPenalty || 0,
       rebuildCount: draftBase.rebuildCount || 0,
@@ -597,7 +620,11 @@ function wireEvents() {
   });
 
   rootEl.querySelectorAll('[data-rows-host] [data-sn] input').forEach(input => {
-    input.addEventListener('input', event => updateDraft(event.target.closest('[data-sn]')));
+    input.addEventListener('input', event => {
+      // A legacy result's knock field: an emptied field then means "no knocks"
+      if (event.target.dataset.field === 'knocks') event.target.dataset.touched = '1';
+      updateDraft(event.target.closest('[data-sn]'));
+    });
     input.addEventListener('change', event => updateDraft(event.target.closest('[data-sn]')));
   });
 

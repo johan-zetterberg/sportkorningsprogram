@@ -1,16 +1,32 @@
 // The offline pause events folded into the pause log (functions/src/pauseEvents.js)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { foldPauseEvents, normalizePauseEvent } from '../functions/src/pauseEvents.js';
+import { NEEDS_REVIEW, foldPauseEvents, normalizePauseEvent, pauseDetailsId } from '../functions/src/pauseEvents.js';
 
 const ev = (id, type, at, extra = {}) => normalizePauseEvent(id, { type, at, ...extra });
 const by = (uid) => ({ uid, name: `N-${uid}`, role: 'marathon' });
 
-test('pause events: a start opens a pause with reason, who and where', () => {
-    const { log, results, changed } = foldPauseEvents([], [ev('a', 'start', '2026-05-01T10:00:00Z', { reason: 'vet', note: ' häst ', where: 'obstacle:3', by: by('u1') })]);
+test('pause events: a start opens a public pause with reason and where; who and the note are private details', () => {
+    const { log, results, changed, details } = foldPauseEvents([], [ev('a', 'start', '2026-05-01T10:00:00Z', { reason: 'vet', note: ' häst ', where: 'obstacle:3', by: by('u1') })]);
     assert.equal(changed, true);
     assert.equal(results.a, 'started');
-    assert.deepEqual(log, [{ start: '2026-05-01T10:00:00.000Z', end: null, durationSec: null, reason: 'vet', note: 'häst', by: by('u1'), where: 'obstacle:3' }]);
+    assert.deepEqual(log, [{ start: '2026-05-01T10:00:00.000Z', end: null, durationSec: null, reason: 'vet', where: 'obstacle:3' }]);
+    assert.deepEqual(details, { [pauseDetailsId('2026-05-01T10:00:00Z')]: { start: '2026-05-01T10:00:00.000Z', note: 'häst', by: by('u1') } });
+});
+
+test('pause events: a press that reached the server more than 2 minutes late is left for review', () => {
+    const at = '2026-05-01T10:00:00Z';
+    const late = foldPauseEvents([], [ev('late', 'start', at, { atServer: { toMillis: () => Date.parse(at) + 121000 } })]);
+    assert.equal(late.results.late, NEEDS_REVIEW);
+    assert.equal(late.changed, false);
+    assert.deepEqual(late.log, []);
+    const onTime = foldPauseEvents([], [ev('ok', 'start', at, { atServer: { seconds: Date.parse(at) / 1000 + 119 } })]);
+    assert.equal(onTime.results.ok, 'started');
+    // A late resume does not shorten the pause backwards either
+    const open = [{ start: '2026-05-01T09:00:00.000Z', end: null, durationSec: null, reason: 'other' }];
+    const end = foldPauseEvents(open, [ev('e', 'end', at, { atServer: Date.parse(at) + 10 * 60000 })]);
+    assert.equal(end.results.e, NEEDS_REVIEW);
+    assert.equal(end.log[0].end, null);
 });
 
 test('pause events: start and end are folded in time order whatever order they arrive in', () => {
@@ -23,7 +39,8 @@ test('pause events: start and end are folded in time order whatever order they a
     assert.equal(log.length, 1);
     assert.equal(log[0].end, '2026-05-01T10:20:00.000Z');
     assert.equal(log[0].durationSec, 1200);
-    assert.deepEqual(log[0].endedBy, by('u2'));
+    assert.equal(log[0].endedBy, undefined);
+    assert.deepEqual(foldPauseEvents([], [ev('s', 'start', '2026-05-01T10:00:00Z'), ev('e2', 'end', '2026-05-01T10:20:00Z', { by: by('u2') })]).details, { [pauseDetailsId('2026-05-01T10:00:00Z')]: { endedBy: by('u2') } });
 });
 
 test('pause events: earlier entries are never removed or rewritten', () => {

@@ -2,6 +2,7 @@ import { db, appId } from '../config/firebase-config.js';
 import { doc, getDoc, getDocs, setDoc, onSnapshot, query } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { trackWrite, getCompCollectionRef } from './firestoreService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { PRECISION_KNOCKS_VERSION } from '../utils/precisionCalculation.js';
 
 export function listenForPrecisionResults(competitionId, callback) {
   if (!competitionId) throw new Error("listenForPrecisionResults: competitionId saknas");
@@ -89,8 +90,14 @@ export async function savePrecisionResult(competitionId, equipageId, data) {
   };
 
   // Only write the knock list when the caller sends it; a save that does not
-  // know the knocks (e.g. the secretariat) must not erase them.
-  if (Array.isArray(data?.knocks)) payload.knocks = knocks;
+  // know the knocks (e.g. the secretariat) must not erase them. A written list
+  // is the source of the obstacle penalty from then on (knocksVersion)
+  if (Array.isArray(data?.knocks)) {
+    payload.knocks = knocks;
+    payload.knocksVersion = PRECISION_KNOCKS_VERSION;
+  } else if (data?.knocksVersion != null && Number.isFinite(Number(data.knocksVersion))) {
+    payload.knocksVersion = Number(data.knocksVersion);
+  }
   if (data?.knockDownTimes && typeof data.knockDownTimes === 'object') payload.knockDownTimes = data.knockDownTimes;
   if (typeof data?.timePenaltyOverride === 'boolean') payload.timePenaltyOverride = data.timePenaltyOverride;
 

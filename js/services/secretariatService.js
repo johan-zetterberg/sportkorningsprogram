@@ -28,12 +28,14 @@ import {
   pickEditedFields,
   planObstacleCorrection
 } from './secretariatPatchUtils.js';
-import { getConfig } from './competitionService.js';
+import { getConfig, loadMarathonConfig } from './competitionService.js';
 import {
   calculatePrecisionResult,
   calculatePrecisionRoundResult,
   getPrecisionFormat,
+  isLegacyPrecisionKnockDoc,
   isPrecisionDriveOffScheduled,
+  PRECISION_KNOCKS_VERSION,
   nextPrecisionRebuildCount,
   precisionRebuildCount
 } from '../utils/precisionCalculation.js';
@@ -174,8 +176,17 @@ async function getPrecisionCalcConfig(competitionId) {
  * Engine view of a secretariat row being edited: the penalties the result
  * will get when saved. `row.calcContext` comes from loadSecretariatPrecisionRows.
  */
-export function calculateSecretariatPrecisionDraft(row, patch = {}) {
+export function calculateSecretariatPrecisionDraft(row, rawPatch = {}) {
   const ctx = row?.calcContext || {};
+  // A typed knock list is saved with knocksVersion (the list is the source);
+  // null leaves a legacy result's stored penalty
+  let patch = rawPatch || {};
+  if (Array.isArray(patch.knocks)) {
+    patch = { ...patch, knocksVersion: PRECISION_KNOCKS_VERSION };
+  } else if (patch.knocks === null) {
+    patch = { ...patch };
+    delete patch.knocks;
+  }
   const timeMs = numberOrDefault(patch.timeMs, row?.timeMs ?? 0);
   const equipage = ctx.equipage || { startNumber: row?.startNumber, className: row?.className };
   const options = { currentCompetition: getGlobalState('currentCompetition'), marathonConfig: ctx.marathonConfig || null };
@@ -219,8 +230,10 @@ function buildPrecisionRoundRow(base, result, round) {
     finalized: round === 'driveOff' ? rd.finalized === true : base.finalized,
     retired: rd.retired === true,
     timeMs: numberOrDefault(rd.timeMs ?? rd.liveTimeMs, 0),
-    // The knock list is what the secretariat edits; the obstacle penalty follows from it
-    knocks: sortKnocks(rd.knocks),
+    // The knock list is what the secretariat edits; the obstacle penalty
+    // follows from it (null: a legacy round with only a stored penalty)
+    knocks: isLegacyPrecisionKnockDoc(rd) ? null : sortKnocks(rd.knocks),
+    legacyObstaclePenalty: isLegacyPrecisionKnockDoc(rd) ? Number(rd.obstaclePenalty) : null,
     obstaclePenalty: numberOrDefault(rd.obstaclePenalty, 0),
     timePenalty: numberOrDefault(rd.timePenalty, 0),
     timePenaltyOverride: rd.timePenaltyOverride === true,
@@ -251,7 +264,7 @@ export async function loadSecretariatPrecisionRows(competitionId) {
     getPrecisionResults(competitionId),
     getPrecisionCalcConfig(competitionId),
     // The rule profile (TR/FEI) of a class decides how phase 2 is scored
-    getConfig(competitionId, 'marathonConfig').catch(() => null),
+    loadMarathonConfig(competitionId),
     // Placing groups (merged classes) as on the results page
     loadMergeSource(competitionId).catch(() => null),
   ]);
@@ -272,11 +285,11 @@ export async function loadSecretariatPrecisionRows(competitionId) {
       finalized: !!result.finalized,
       timeMs: numberOrDefault(result.timeMs, 0),
       // The knock list is what the secretariat edits; the obstacle penalty
-      // follows from it (a legacy doc without a list keeps its stored value)
-      knocks: sortKnocks(result.knocks),
-      legacyObstaclePenalty: !Array.isArray(result.knocks) && Number.isFinite(Number(result.obstaclePenalty)) && Number(result.obstaclePenalty) > 0
-        ? Number(result.obstaclePenalty)
-        : null,
+      // follows from it. A legacy doc (no list, or an empty one with a stored
+      // penalty) keeps its stored value: knocks null ("no list"), so an empty
+      // list typed for it is an edit that removes the stored penalty
+      knocks: isLegacyPrecisionKnockDoc(result) ? null : sortKnocks(result.knocks),
+      legacyObstaclePenalty: isLegacyPrecisionKnockDoc(result) ? Number(result.obstaclePenalty) : null,
       obstaclePenalty: numberOrDefault(result.obstaclePenalty, 0),
       timePenalty: numberOrDefault(result.timePenalty, 0),
       timePenaltyOverride: result.timePenaltyOverride === true,
@@ -525,9 +538,9 @@ async function saveSecretariatPrecisionRoundRow(competitionId, startNumber, patc
     throw new Error(`#${startNumber} kör just nu. Vänta tills domaren har stoppat tiden.`);
   }
 
-  const edited = pickEditedFields(normalizeKnockPatch(patch), withSortedKnocks(baseRow || currentRound), PRECISION_EDIT_FIELDS, PRECISION_EDIT_DEFAULTS);
+  const edited = pickPrecisionEdits(patch, baseRow, currentRound);
   if (baseRow) {
-    const conflicts = findEditConflicts(edited, withSortedKnocks(baseRow), withSortedKnocks(currentRound), PRECISION_EDIT_DEFAULTS);
+    const conflicts = findEditConflicts(edited, withSortedKnocks(baseRow), withSortedKnocks(currentRound, { fromDoc: true }), PRECISION_EDIT_DEFAULTS);
     if (conflicts.length) {
       throw new Error(`Domaren har ändrat ${conflicts.join(', ')} för #${startNumber} efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
     }
@@ -539,7 +552,8 @@ async function saveSecretariatPrecisionRoundRow(competitionId, startNumber, patc
   // list is written whole; untouched, the judges' knocks stay as they are)
   const fields = {
     timeMs: numberOrDefault(edited.timeMs, currentRound.timeMs ?? 0),
-    ...('knocks' in edited ? { knocks: edited.knocks } : {}),
+    // The list is then the source of the obstacle penalty (knocksVersion)
+    ...('knocks' in edited ? { knocks: edited.knocks, knocksVersion: PRECISION_KNOCKS_VERSION } : {}),
     timePenalty: numberOrDefault(edited.timePenalty, currentRound.timePenalty ?? 0),
     timePenaltyOverride: 'timePenalty' in edited || currentRound.timePenaltyOverride === true,
     extraPenalty: numberOrDefault(edited.extraPenalty, currentRound.extraPenalty ?? 0),
@@ -557,8 +571,8 @@ async function saveSecretariatPrecisionRoundRow(competitionId, startNumber, patc
   fields.livePausedMs = fields.timeMs;
 
   const precisionConfig = await getPrecisionCalcConfig(competitionId);
-  const marathonConfig = await getConfig(competitionId, 'marathonConfig').catch(() => null);
-  const equipage = { startNumber: Number(startNumber), className: patch.className ?? current?.className ?? null, ...(patch.equipage || {}) };
+  const marathonConfig = await loadMarathonConfig(competitionId);
+  const equipage ={ startNumber: Number(startNumber), className: patch.className ?? current?.className ?? null, ...(patch.equipage || {}) };
   const calc = calculatePrecisionRoundResult(
     { ...currentRound, ...fields },
     equipage,
@@ -601,14 +615,29 @@ async function saveSecretariatPrecisionRoundRow(competitionId, startNumber, patc
 const PRECISION_EDIT_FIELDS = ['timeMs', 'knocks', 'timePenalty', 'extraPenalty', 'rebuildCount', 'eliminated', 'comment'];
 const PRECISION_EDIT_DEFAULTS = { timeMs: 0, knocks: [], timePenalty: 0, extraPenalty: 0, rebuildCount: 0, eliminated: false, comment: '' };
 
-// Knock lists compared and written sorted (the stored order is the toggles' order)
-function withSortedKnocks(data) {
+// Knock lists compared and written sorted (the stored order is the toggles'
+// order). null is "no list": a loaded legacy row (knocks null), or a stored
+// legacy doc (fromDoc: an empty or missing list with only a stored penalty,
+// isLegacyPrecisionKnockDoc); an empty list typed for it then counts as an edit
+function withSortedKnocks(data, { fromDoc = false } = {}) {
   if (!data) return data;
-  return { ...data, knocks: sortKnocks(data.knocks) };
+  const legacy = fromDoc ? isLegacyPrecisionKnockDoc(data) : data.knocks === null;
+  return { ...data, knocks: legacy ? null : sortKnocks(data.knocks) };
 }
 
+// knocks null in a patch: a legacy result's list left untouched (kept)
 function normalizeKnockPatch(patch = {}) {
-  return 'knocks' in patch ? { ...patch, knocks: sortKnocks(patch.knocks) } : patch;
+  if (!('knocks' in patch)) return patch;
+  return { ...patch, knocks: patch.knocks === null ? null : sortKnocks(patch.knocks) };
+}
+
+// The fields the secretariat edited, compared with the loaded row (else the
+// stored doc); an untouched legacy knock list (null) is never written
+function pickPrecisionEdits(patch, baseRow, storedDoc) {
+  const base = baseRow ? withSortedKnocks(baseRow) : withSortedKnocks(storedDoc, { fromDoc: true });
+  const edited = pickEditedFields(normalizeKnockPatch(patch), base, PRECISION_EDIT_FIELDS, PRECISION_EDIT_DEFAULTS);
+  if (edited.knocks === null) delete edited.knocks;
+  return edited;
 }
 
 /**
@@ -632,9 +661,9 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     throw new Error(`#${startNumber} kör just nu. Vänta tills domaren har stoppat tiden.`);
   }
 
-  const edited = pickEditedFields(normalizeKnockPatch(patch), withSortedKnocks(baseRow || current || {}), PRECISION_EDIT_FIELDS, PRECISION_EDIT_DEFAULTS);
+  const edited = pickPrecisionEdits(patch, baseRow, current || {});
   if (baseRow) {
-    const conflicts = findEditConflicts(edited, withSortedKnocks(baseRow), withSortedKnocks(current || {}), PRECISION_EDIT_DEFAULTS);
+    const conflicts = findEditConflicts(edited, withSortedKnocks(baseRow), withSortedKnocks(current || {}, { fromDoc: true }), PRECISION_EDIT_DEFAULTS);
     if (conflicts.length) {
       throw new Error(`Domaren har ändrat ${conflicts.join(', ')} för #${startNumber} efter att sidan laddades. Uppdatera sidan och gör ändringen igen.`);
     }
@@ -648,8 +677,13 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
     driverName: patch.driverName ?? current?.driverName ?? null,
     timeMs: numberOrDefault(edited.timeMs, current?.timeMs ?? 0),
     // An edited knock list is written whole (savePrecisionResult writes knocks
-    // only when sent); untouched, the judges' knocks stay as they are
+    // only when sent); untouched, the judges' knocks stay as they are (and a
+    // legacy result its stored penalty)
     ...('knocks' in edited ? { knocks: edited.knocks } : {}),
+    // The obstacle penalty stored below is a copy: the list stays its source
+    // (also when a judge's toggle lands before this write), except on a
+    // legacy result whose list is left untouched
+    ...(('knocks' in edited || !isLegacyPrecisionKnockDoc(current)) ? { knocksVersion: PRECISION_KNOCKS_VERSION } : {}),
     timePenalty: numberOrDefault(edited.timePenalty, current?.timePenalty ?? 0),
     // An edited time penalty becomes a manual override; otherwise it follows the time
     timePenaltyOverride: 'timePenalty' in edited || current?.timePenaltyOverride === true,
@@ -667,12 +701,16 @@ export async function saveSecretariatPrecisionRow(competitionId, startNumber, pa
   };
 
   // Stored penalties come from the result engine
-  const precisionConfig = await getPrecisionCalcConfig(competitionId);
+  const [precisionConfig, marathonConfig] = await Promise.all([
+    getPrecisionCalcConfig(competitionId),
+    // The class's rule profile (TR/FEI): tempo and max time
+    loadMarathonConfig(competitionId),
+  ]);
   const calc = calculatePrecisionResult(
     { ...current, ...payload, liveTimeMs: payload.timeMs },
     { startNumber: payload.startNumber, className: payload.className, ...(patch.equipage || {}) },
     precisionConfig,
-    { currentCompetition: getGlobalState('currentCompetition') }
+    { currentCompetition: getGlobalState('currentCompetition'), marathonConfig: marathonConfig || null }
   );
   // Without a max time for the class the engine gives no total: save it empty
   // and not as 'Klar' (a hand-set time penalty, timePenaltyOverride, counts)

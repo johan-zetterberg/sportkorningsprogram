@@ -23,6 +23,7 @@ export function getPrivacySettingsHtml() {
                 automatiskt efter att tävlingen arkiverats. Resultaten ligger kvar.
                 <a href="#privacy" id="privacySettingsNoticeLink" class="text-blue-600 dark:text-blue-400 hover:underline">Visa integritetspolicyn</a>
             </p>
+            <p id="privacyPurgeWarning" role="alert" class="hidden mb-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100"></p>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                 <label class="block text-sm text-gray-700 dark:text-gray-200">
                     <span class="font-semibold">Gallra efter (månader efter arkivering)</span>
@@ -64,6 +65,16 @@ function downloadJson(data, fileName) {
     setTimeout(() => URL.revokeObjectURL(url), 120000);
 }
 
+// As PURGE_GRACE_MS in functions/src/personalData.js
+const PURGE_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** When the scheduled deletion happens at the earliest, or null when none is scheduled */
+export function purgeDateMs(scheduledAt) {
+    const ms = typeof scheduledAt === 'number' ? scheduledAt
+        : scheduledAt?.toMillis?.() ?? (Number.isFinite(scheduledAt?.seconds) ? scheduledAt.seconds * 1000 : null);
+    return Number.isFinite(ms) && ms > 0 ? ms + PURGE_GRACE_MS : null;
+}
+
 /** Shows and wires the section (for those who may maintain the competition) */
 export function setupPrivacySettings(competitionId, comp = {}) {
     const section = document.getElementById('privacySettingsSection');
@@ -76,6 +87,16 @@ export function setupPrivacySettings(competitionId, comp = {}) {
     const contactInput = document.getElementById('privacyContactInput');
     if (monthsInput && Number.isInteger(comp?.retentionMonths)) monthsInput.value = String(comp.retentionMonths);
     if (contactInput) contactInput.value = comp?.privacyContact || '';
+
+    // The retention run has scheduled the deletion (personalDataPurgeScheduledAt,
+    // functions/src/personalData.js): it happens a week later at the earliest
+    const warning = document.getElementById('privacyPurgeWarning');
+    const purgeAt = purgeDateMs(comp?.personalDataPurgeScheduledAt);
+    if (warning && purgeAt) {
+        const date = new Date(purgeAt).toLocaleDateString('sv-SE', { year: 'numeric', month: 'long', day: 'numeric' });
+        warning.textContent = `Personuppgifterna gallras ${date} (eller vid första körningen därefter). Öka antalet månader nedan om de ska sparas längre.`;
+        warning.classList.remove('hidden');
+    }
 
     const saveBtn = document.getElementById('btnSavePrivacySettings');
     const saveStatus = document.getElementById('privacySettingsStatus');

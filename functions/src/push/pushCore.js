@@ -36,8 +36,22 @@ export const PUSH_LIMITS = {
     registerPerUserHour: 200,
     notifyPerUserHour: 20,
     testPerUserHour: 5,
-    personalTextMax: 300
+    personalTextMax: 300,
+    // This share of the competition's daily cap is kept for the essential
+    // topics (PUSH_ESSENTIAL_TOPICS): other notices stop before it
+    essentialReserveShare: 0.3
 };
+
+// Notices that must get through (a pause, a vet decision, changed start
+// times): they may use the reserved share of the daily cap
+export const PUSH_ESSENTIAL_TOPICS = Object.freeze(['pause', 'vetDecision', 'startTimes']);
+
+/** The daily cap a notice of `topic` counts against: the whole cap, or the cap less the essential reserve */
+export function pushQuotaLimit(limit, topic) {
+    const max = Math.max(0, Number(limit) || 0);
+    if (PUSH_ESSENTIAL_TOPICS.includes(topic)) return max;
+    return Math.floor(max * (1 - PUSH_LIMITS.essentialReserveShare));
+}
 
 export const PUSH_ICON = '/icons/DriveLive_192.png';
 export const PUSH_BADGE = '/icons/DriveLive_192.png';

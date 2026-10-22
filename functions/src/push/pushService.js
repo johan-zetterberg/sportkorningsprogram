@@ -18,6 +18,7 @@ import { mailDayKey, reserveDailyQuota } from '../mail/mailCore.js';
 import { competitionPath, privateCompetitionPath, resolveMailRecipients } from '../mail/mailService.js';
 import {
     PUSH_LIMITS,
+    pushQuotaLimit,
     buildAudienceMatcher,
     buildStaffIndex,
     buildTokenDoc,
@@ -244,7 +245,8 @@ export async function sendPushToAudience(db, messaging, {
         return { status: update.status, matched, skippedTopic, targeted: targets.length, sent: update.sent || 0, failed: update.failed || 0, removedTokens: update.removedTokens || 0 };
     };
 
-    const limit = Number(settings.competitionDailyLimit) || PUSH_LIMITS.competitionDailyDefault;
+    // Pause, vet decisions and start times may use the reserve kept for them
+    const limit = pushQuotaLimit(Number(settings.competitionDailyLimit) || PUSH_LIMITS.competitionDailyDefault, topic);
     const quota = await reservePushQuota(db, { appId, compId, count: targets.length, limit, now });
     if (!quota.allowed) {
         return finish({ status: 'blocked', error: `Dagens gräns för push-notiser är nådd (${quota.remaining} av ${limit} kvar).` });
