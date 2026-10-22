@@ -102,6 +102,42 @@ test('clear round class: passed = 1 (shared), not passed = 98', () => {
     assert.deepEqual(list.entries[0].moments.map((m) => m.moment), ['M']);
 });
 
+// TR V 509.3: "Kriterier för clear round är i dressyr högst 80 straffpoäng,
+// i maraton och precision 0 straffpoäng. Tid i maratonhinder ger inte
+// straffpoäng." Every moment the class drove counts, not only the marathon
+test('clear round over all driven moments: D ≤ 80, M 0, P 0 (TR V 509.3)', () => {
+    const cr = (sn, d, m, p) => row(sn, 'Lätt B CR', {
+        dressage: { penalty: d, isClearRound: true },
+        // The marathon alone was clear: its own approval must not decide
+        marathon: { totalPenalty: m, isClearRound: true, clearRoundApproved: m === 0 },
+        precision: { totalPenalty: p, isClearRound: true },
+        totalPenalty: null,
+        plac: ''
+    });
+    const list = only([cr(1, 40, 0, 3), cr(2, 95, 0, 0), cr(3, 80, 0, 0), cr(4, 79.99, 0, 0)]);
+    assert.equal(list.clearRound, true);
+    // D40 M0 P3 -> 98; D95 M0 P0 -> 98; D80 M0 P0 -> 1
+    assert.deepEqual(list.entries.map((e) => [e.startNumber, e.placingCode]), [[3, 1], [4, 1], [1, 98], [2, 98]]);
+
+    // A driven moment without a result is not passed
+    const missing = only([cr(1, 40, 0, 0), cr(2, 40, 0, null)]);
+    assert.deepEqual(missing.entries.map((e) => [e.startNumber, e.placingCode]), [[1, 1], [2, 98]]);
+});
+
+test('clear round in a precision-only class: the moments not driven are ignored', () => {
+    const pOnly = (sn, p) => row(sn, 'Lätt B CR P', {
+        dressage: { penalty: null },
+        marathon: { totalPenalty: null },
+        precision: { totalPenalty: p, isClearRound: true },
+        isClearRound: true,
+        totalPenalty: null,
+        plac: ''
+    });
+    const list = only([pOnly(1, 0), pOnly(2, 5), pOnly(3, 0)]);
+    assert.deepEqual(list.entries.map((e) => [e.startNumber, e.placingCode]), [[1, 1], [3, 1], [2, 98]]);
+    assert.deepEqual(list.entries[0].moments.map((m) => m.moment), ['P']);
+});
+
 test('a single starter gets 0', () => {
     const list = only([
         row(1, 'Ensam'),

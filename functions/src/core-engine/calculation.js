@@ -2,7 +2,7 @@
 import { calculateDressageResult } from './dressage.js';
 import { calculateMarathonResult } from './marathon.js';
 import { calculatePrecisionResult } from './precision.js';
-import { round2, isNum } from './rules-ledger.js';
+import { round2, isNum, clearRoundApprovedOver } from './rules-ledger.js';
 
 export function calculateTotalResult(state) {
     const dr = calculateDressageResult(state);
@@ -40,12 +40,28 @@ export function calculateTotalResult(state) {
     const hasAnyData = (dr.points != null) || (ma.totalPenalty != null) || (pr.totalPenalty != null) || !!pr.running;
     const isOngoing = !isEliminated && total === null && hasAnyData;
 
+    // TR V 509.3: "Kriterier för clear round är i dressyr högst 80
+    // straffpoäng, i maraton och precision 0 straffpoäng. Tid i maratonhinder
+    // ger inte straffpoäng." Over the phases with a result (the engine does not
+    // know which phases a class drives); a phase still being driven or judged
+    // leaves the clear round undecided (false)
+    const phaseOf = (penalty, eliminated) => ((eliminated || isNum(penalty)) ? { penalty, eliminated } : null);
+    const phaseRunning = (isNum(dr.penalty) && dr.isLive === true)
+        || ma.status === 'Pågår'
+        || pr.running === true;
+    const clearRoundApproved = isClearRound && !isEliminated && !phaseRunning && clearRoundApprovedOver({
+        D: phaseOf(dr.penalty, elimD),
+        M: phaseOf(ma.totalPenalty, elimM),
+        P: phaseOf(pr.totalPenalty, elimP)
+    });
+
     return {
         totalPenalty: total,
         isEliminated,
         elimReason,
         isOngoing,
         isClearRound,
+        clearRoundApproved,
         dressageComplete,
         marathonComplete,
         precisionComplete,

@@ -1,5 +1,5 @@
 // js/core-engine/dressage.js
-import { DRESSAGE_COEFFICIENTS_BY_CODE, round2 } from './rules-ledger.js';
+import { DRESSAGE_COEFFICIENTS_BY_CODE, round2, clearRoundPhaseApproved } from './rules-ledger.js';
 import { dressagePrograms as BUILT_IN_PROGRAMS } from '../data/dressagePrograms.js';
 import { isClearRoundClass } from './marathon.js';
 
@@ -462,7 +462,8 @@ export function calculateDressageResult(state) {
             missingJudgePositions,
             judgeMappingMissing,
             judgesComplete,
-            isClearRound
+            isClearRound,
+            dressageClearRoundApproved: false
         };
     }
 
@@ -499,6 +500,10 @@ export function calculateDressageResult(state) {
         judgeMappingMissing,
         judgesComplete,
         isClearRound,
+        // TR V 509.3: "Kriterier för clear round är i dressyr högst 80
+        // straffpoäng" (the final penalty, error points included)
+        dressageClearRoundApproved: isClearRound
+            && clearRoundPhaseApproved('D', eliminated || !result ? null : round2(result.penalty + errorPoints), { eliminated }) === true,
         pointsNow,
         // TR tie-break
         generalImpressionsSum: result ? result.generalImpressionsSum : null

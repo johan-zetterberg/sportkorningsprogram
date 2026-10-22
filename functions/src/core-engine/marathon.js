@@ -341,13 +341,20 @@ export function limitsFor(equipage, rawStage, marathonConfig) {
  * The driven section time (seconds) compared with the minimum and maximum
  * times. TR V 523.2 counts "0,25 straffpoäng per sekund" with timekeepers'
  * clocks (523.3): whole seconds, the time cut off at the second (0.4 s over
- * the max time gives 0 p; owner's decision 2026-10-19). FEI 968.1.1: "There
- * shall be no rounding of times", so FEI classes keep milliseconds.
+ * the max time gives 0 p; owner's decision 2026-10-19). The rounding favours
+ * the driver on both sides (owner's decision 2026-10-22): against the max
+ * time (and the time limit) the time is cut down to the second, against the
+ * minimum time it is rounded up (1319.5 s against min 1320 s gives 0 p).
+ * FEI 968.1.1: "There shall be no rounding of times", so FEI classes keep
+ * milliseconds.
+ * side: 'max' (default) or 'min'.
  */
-export function stageSecondsForPenalty(ms, ruleProfile = 'TR') {
+export function stageSecondsForPenalty(ms, ruleProfile = 'TR', side = 'max') {
     const sec = ms / 1000;
     if (ruleProfile === 'FEI') return sec;
-    // The small margin keeps float noise (1499.9999…) from losing a second
+    // The small margin keeps float noise (1499.9999…, 1320.0000…1) from
+    // moving a second
+    if (side === 'min') return Math.ceil(sec - 1e-6);
     return Math.floor(sec + 1e-6);
 }
 
@@ -362,13 +369,15 @@ export function stagePenaltyFromMs(ms, equipage, stage, marathonConfig) {
     const lim = limitsFor(equipage, stage, marathonConfig);
     if (!lim) return { points: 0, elim: false };
 
-    const sec = stageSecondsForPenalty(ms, getClassRuleProfile(equipageClassName(equipage), marathonConfig));
+    const ruleProfile = getClassRuleProfile(equipageClassName(equipage), marathonConfig);
+    const sec = stageSecondsForPenalty(ms, ruleProfile);
     if (sec > lim.timeLimit) return { points: Infinity, elim: true };
     if (lim.noTimePenalty) return { points: 0, elim: false };
 
+    const secForMin = stageSecondsForPenalty(ms, ruleProfile, 'min');
     let diff = 0;
-    if (sec < lim.min) {
-        diff = lim.min - sec;
+    if (secForMin < lim.min) {
+        diff = lim.min - secForMin;
     } else if (sec > lim.max) {
         // Also on a warm-up (FEI 963.5.1: section A, Controlled Warm-Up and B)
         diff = sec - lim.max;
@@ -1056,6 +1065,8 @@ export function calculateMarathonResult(state) {
         obstacleListMissing, // the course is unknown: never 'Klar'
         obstaclesComplete,
         isClearRound,
+        // The marathon's part of TR V 509.3 only ("i maraton ... 0
+        // straffpoäng"); the whole clear round is the total's clearRoundApproved
         clearRoundApproved: isClearRound && !eliminated && totalPenalty === 0,
         stages,
         obstacles: {

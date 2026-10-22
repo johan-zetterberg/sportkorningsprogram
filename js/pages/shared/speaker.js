@@ -75,6 +75,7 @@ import {
 } from './speakerResults.js';
 import {
     canEditSpeakerNotes,
+    formatSpeakerGap,
     formatSpeakerPenalty,
     getSpeakerPenaltyOrNull,
     speakerLeaderboardRanks
@@ -663,7 +664,10 @@ function renderLeaderboardSidebar() {
         let diffHtml = '';
         if (Number.isFinite(r.total)) {
             if (isLeader) diffHtml = `<span class="text-xs text-green-700 dark:text-green-300 font-bold uppercase">${escapeHtml(t('speaker_leader'))}</span>`;
-            else diffHtml = `<span class="text-xs text-red-700 dark:text-red-300 tabular-nums tracking-wide">+${diff.toFixed(2)}</span>`;
+            // Penalties: lower is better, so + is behind the top row. A row
+            // with fewer phases done can have a lower total than the top row
+            // (the ranking puts more phases first): "−48.00", not "+-48.00"
+            else diffHtml = `<span class="text-xs ${diff < 0 ? 'text-gray-600 dark:text-gray-300' : 'text-red-700 dark:text-red-300'} tabular-nums tracking-wide">${formatSpeakerGap(diff)}</span>`;
         }
 
         const isRunning = liveInjection && String(liveInjection.sn) === String(r.sn);
@@ -1498,7 +1502,8 @@ function renderCurrentRiderCard() {
 
             return {
                 sn, startNumber: e.startNumber, name: e.driverName, penalty: pen, timeMs, eliminated: elimD || elimM || isElimP,
-                rankResult: { totalPenalty: pen, timeMs, placing: rounds?.placing || null, rounds: rounds?.rounds || null, driveOffScheduled: rounds?.driveOffScheduled === true }
+                // formatUnsupported: a precision format the engine does not calculate gets no place
+                rankResult: { totalPenalty: pen, timeMs, placing: rounds?.placing || null, rounds: rounds?.rounds || null, driveOffScheduled: rounds?.driveOffScheduled === true, formatUnsupported: rounds?.formatUnsupported === true }
             };
         });
 
@@ -1528,7 +1533,7 @@ function renderCurrentRiderCard() {
         // Margin in penalty points: not for a class placed on phase 2 / a drive-off
         if (!multiRound && myRow?.plac > 1 && allInClass[0]) {
             const diff = (myRow.penalty || 0) - (allInClass[0].penalty || 0);
-            gapHtml = `<div class="text-xs text-blue-600 dark:text-blue-300 font-bold mt-1">Marginal till ledare: +${diff.toFixed(2)}</div>`;
+            gapHtml = `<div class="text-xs text-blue-600 dark:text-blue-300 font-bold mt-1">Marginal till ledare: ${formatSpeakerGap(diff)}</div>`;
         }
 
 

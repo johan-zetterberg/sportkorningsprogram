@@ -40,7 +40,7 @@ let mappingLocks = {};
 let judgeMapping = {}; // ClassName -> { C: judgeId, ... }
 let allJudges = [];        // Från admin-poolen
 let dressageRules = {}; // { error1: 5, error2: 10, ... }
-let classConfig = {}; // ClassName -> { clearRound: bool, limit: number }
+let classConfig = {}; // ClassName -> { clearRound: bool } (an old saved "limit" is ignored: TR V 509.3 fixes 80 p)
 // maratonConfig: clear round is one setting for the whole class (TR V 509.3),
 // stored per phase; turning it on/off here also sets the marathon's
 let marathonConfigForCR = {};
@@ -769,11 +769,8 @@ function rebuildMappingTable(root, filter = '') {
                 <span>Lätt B Clear Round <span class="text-xs text-gray-500 dark:text-gray-400">(gäller hela klassen: dressyr, maraton och precision, ingen placering)</span></span>
               </label>
               ${isClassClearRound(cls) ? `
-                <div class="cr-limit-wrap flex items-center gap-1 sm:ml-auto">
-                   <span class="text-gray-600 text-xs dark:text-gray-400">Gräns:</span>
-                   <input type="number" class="cr-limit w-16 px-1 py-0.5 border rounded text-xs dark:bg-gray-700 dark:border-gray-600 dark:text-white" 
-                          data-cls="${esc(cls)}" 
-                          value="${classConfig[cls]?.limit || 60}" step="0.5" min="0" max="100">%
+                <div class="cr-limit-wrap text-xs text-gray-600 dark:text-gray-400 sm:ml-auto">
+                   Godkänd: högst 80 straffpoäng (TR V 509.3)
                 </div>
               ` : ''}
             </div>
@@ -802,17 +799,8 @@ function rebuildMappingTable(root, filter = '') {
       if (!classConfig[c]) classConfig[c] = {};
       classConfig[c].clearRound = e.target.checked;
       crTouched.add(c);
-      // Re-render immediately to show/hide limit input
+      // Re-render immediately to show/hide the approval criterion
       rebuildMappingTable(root, filter);
-    });
-  });
-
-  // Updates local state for limit inputs
-  host.querySelectorAll('.cr-limit').forEach(inp => {
-    inp.addEventListener('input', (e) => {
-      const c = e.target.dataset.cls;
-      if (!classConfig[c]) classConfig[c] = {};
-      classConfig[c].limit = parseFloat(e.target.value) || 0;
     });
   });
 }
@@ -912,9 +900,8 @@ function wire(root) {
       shownClasses.push(cls);
     });
 
-    // Inputs för CR-limit och check sparas redan i classConfig via "change/input" lyssnarna i rebuildMappingTable,
-    // men vi kan göra en "sweep" för säkerhets skull eller bara lita på objektet.
-    // (För säkerhetsskull läser vi av DOM igen för limits ifall "input" missades, fast "change" på checkbox triggar re-render.)
+    // Clear round-kryssen sparas redan i classConfig via "change"-lyssnaren i rebuildMappingTable.
+    // Godkänt i dressyr är fast högst 80 straffpoäng (TR V 509.3); ett gammalt sparat "limit" används inte.
 
     // Validera – alla manuella nycklar måste finnas i mergedPrograms
     const invalid = Object.entries(mapping)

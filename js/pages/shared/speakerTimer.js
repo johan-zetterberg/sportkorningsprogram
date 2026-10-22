@@ -2,7 +2,7 @@ import { calculatePrecisionLiveResult } from '../../utils/precisionUtils.js';
 import { formatPrecisionSeconds, runningPrecisionRound } from '../precision/precisionRoundsDisplay.js';
 import { stageStartTS } from '../../utils/marathonUtils.js';
 import { calculateLiveInjection, getTotalRanking } from './speakerCalculations.js';
-import { formatSpeakerPenalty, getSpeakerPenaltyOrNull } from './speakerFormatUtils.js';
+import { formatSpeakerGap, formatSpeakerPenalty, getSpeakerPenaltyOrNull } from './speakerFormatUtils.js';
 
 export function updateLiveClocks(context) {
     const {
@@ -88,7 +88,8 @@ export function updateLiveClocks(context) {
                             const topTotal = getSpeakerPenaltyOrNull(totalRanking[0].total);
                             if (topTotal !== null) {
                                 const behind = myTotal - topTotal;
-                                cardMarginEl.textContent = `Upp till ledning: +${behind.toFixed(2)}`;
+                                // Signed: a row with fewer phases can be below the top row ("−", not "+-")
+                                cardMarginEl.textContent = `Upp till ledning: ${formatSpeakerGap(behind)}`;
                                 cardMarginEl.className = "text-xs mt-1 font-bold text-red-700 bg-red-100 dark:text-red-200 dark:bg-red-900/40 px-2 py-0.5 rounded border border-red-200 dark:border-red-800";
                             }
                         }

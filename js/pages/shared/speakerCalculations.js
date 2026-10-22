@@ -121,7 +121,8 @@ export function calculateLiveInjection(eq, context) {
             eliminated: live.eliminated === true,
             placing: live.placing || null,
             rounds: live.rounds || null,
-            driveOffScheduled: live.driveOffScheduled === true
+            driveOffScheduled: live.driveOffScheduled === true,
+            formatUnsupported: live.formatUnsupported === true
         };
     }
     
@@ -247,6 +248,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         const isElimP = pResult.eliminated;
         // Two phases / drive-off placing (precision position only)
         let pRounds = pResult.result || null;
+        // A precision format the engine does not calculate: no live place
+        const pFormatUnsupported = pResult.result?.formatUnsupported === true;
 
         let totalEliminated = elimD || isElimM || isElimP;
 
@@ -301,6 +304,7 @@ export function getTotalRanking(className, currentRiderInfo, context) {
             marathon: { totalPenalty: mPen, eliminated: isElimM, bTimePenalty: mResult.result?.stages?.B?.timePenalty ?? 0, bPenalty: mResult.result?.bPenalty ?? null, obstaclePenaltySum: mResult.result?.obstaclePenaltySum ?? 0, feiClass: mResult.result?.feiClass === true, isClearRound },
             precision: {
                 pen: pPen, eliminated: isElimP, isClearRound,
+                formatUnsupported: pFormatUnsupported || pRounds?.formatUnsupported === true,
                 placing: pRounds?.placing || null,
                 rounds: pRounds?.rounds || null,
                 driveOffScheduled: pRounds?.driveOffScheduled === true
@@ -331,6 +335,8 @@ export function getTotalRanking(className, currentRiderInfo, context) {
         eliminated: r.precision.eliminated,
         timeMs: r.tieBreakerTime,
         isClearRound: r.precision.isClearRound,
+        // Time competition, winning round, Young Horse: no place (precisionRankKey)
+        formatUnsupported: r.precision.formatUnsupported === true,
         placing: r.precision.placing,
         rounds: r.precision.rounds,
         driveOffScheduled: r.precision.driveOffScheduled

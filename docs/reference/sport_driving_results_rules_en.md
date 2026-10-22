@@ -324,12 +324,20 @@ else:
 If `actual_time_seconds > time_limit_seconds`, status is `U`.
 
 TR V 523.2 counts "0,25 straffpoäng per sekund" with timekeepers' clocks
-(523.3): in TR classes the driven time is cut off at the whole second before
-it is compared with the minimum and maximum times (1500.4 s against a 1500 s
-maximum = 0 penalties; 1319.6 s against a 1320 s minimum = 1 s under = 0.25).
-FEI classes keep milliseconds (FEI 968.1.1 "There shall be no rounding of
-times"). Owner's decision 2026-10-19; the class's rule profile decides (see
+(523.3): in TR classes the driven time is taken to whole seconds in the
+driver's favour on both sides before it is compared with the minimum and
+maximum times: against the maximum time (and the time limit) it is cut down
+(1500.4 s or 1500.999 s against a 1500 s maximum = 0 penalties), against the
+minimum time it is rounded up (1319.5 s against a 1320 s minimum = 0
+penalties; 1318.9 s = 1319 s = 1 s under = 0.25). FEI classes keep
+milliseconds (FEI 968.1.1 "There shall be no rounding of times"). Owner's
+decisions 2026-10-19 (maximum side) and 2026-10-22 (minimum side rounded up;
+before that 1319.5 s gave 0.25); the class's rule profile decides (see
 section 1.6).
+
+A late start (TR V 522.4 "ekipaget bestraffas med 0,25 straffpoäng per
+påbörjad sekund"; FEI 963.4.1) is not calculated: the official enters it as
+other penalty on the section (owner's decision 2026-10-22).
 
 ### 4.6 Gait rules
 
@@ -472,7 +480,8 @@ Special notes:
 - Four-in-hand in LB, LA and MSV has 10 cm wider cone spacing than single turnouts.
 - Pony four-in-hand uses the same cone-pair distance as pony pairs in zig-zag and wave obstacles.
 - In Svår, obstacle width is the standard width based on required carriage measurements.
-- Children classes have special time handling: no normal maximum-time penalty is applied; instead, the time limit is calculated from 100 m/min where stated, and exceeding the time limit causes elimination.
+- Lätt B children's classes (LB "Barn", the "#" of Bilaga 5) have special time handling: no normal maximum-time penalty is applied; instead, the time limit is calculated from 100 m/min, and exceeding the time limit causes elimination. LA "Barn" (180 m/min, no "#") has normal time penalties; see section 7.3.
+- LA Ch (180) and MSV "Ch" (230) are pony-only rows (Ch is a pony category, Bilaga 1) with no phase-2 tempo: the program's table has them as "Lätt A CH Ponny" and "Msv CH Ponny".
 
 ### 5.3 Allowed time and time limit
 
@@ -654,6 +663,23 @@ lb_clear_round_marathon = marathon_penalties == 0
 lb_clear_round_precision = precision_penalties == 0
 ```
 
+TR V 509.3: "Vid bedömning clear round rangordnas inte ekipagen. Kriterier
+för clear round är i dressyr högst 80 straffpoäng, i maraton och precision 0
+straffpoäng. Tid i maratonhinder ger inte straffpoäng."
+
+In the program (2026-10-22): the dressage penalty is the final one, error
+points included (TR 518.9); there is no percentage limit (the old organiser
+"Gräns %" setting, default 60 %, is removed and an old saved value is
+ignored). The engine gives `dressageClearRoundApproved` on the dressage
+result, the marathon's own part as `clearRoundApproved` on the marathon
+result, and the whole clear round as `clearRoundApproved` on the total
+(`rules-ledger.js` `clearRoundApprovedOver`). Approved = not eliminated or
+withdrawn, and every phase the class drives meets its criterion; a phase the
+class does not drive (no starter has a result in it, e.g. a precision-only
+clear round) is ignored, a driven phase without a result is not approved.
+TDB: approved = placing code 1, not approved = 98 (eliminated / withdrawn /
+retired = 99).
+
 ### 7.2 Lätt B assessment A
 
 Competitors are ranked and placed. Lätt B gait restriction applies: canter is forbidden in all phases and in the whole competition area.
@@ -670,6 +696,28 @@ Rules to encode:
 - Groom may handle the whip and show the route in all phases.
 - In precision, Barn drivers in **Lätt B** have no normal maximum time; elimination occurs if the calculated time limit (100 m/min) is exceeded (TR 509.2, Bilaga 5 #, Bilaga 9 "Barnkusk i Lätt B överskrider tillåten tid"). The Lätt A children's class ("Lätt A Barnklass", "LA Barn") drives the LA "Barn" tempo 180 m/min with normal time penalties, and the Lätt A marathon tempos.
 - All starting Barn drivers receive a rosette.
+
+**Why Lätt A Barn keeps 180 m/min with normal time penalties (reviewed 2026-10-22).**
+The texts:
+
+- TR V 509.2: "”Barn” Barnklass arrangeras i Lätt B med bedömning clear round
+  eller bedömning A samt Lätt A. [...] Barnkuskar har ingen maxtid på
+  precisionsbanan. Tidsgränsen beräknas efter tempot 100 m/min baserat på
+  väglängden, överskrids tidsgränsen utesluts ekipaget."
+- Bilaga 5: "LB ”BARN” 100#", "LA ”Barn” 180" (no "#"), and "# Avser tillåten
+  tid, om den överskrids avblåses ekipaget."
+- Bilaga 9: "509 2 Barnkusk i Lätt B överskrider tillåten tid i precision –
+  Utesluten".
+
+Read alone, "Barnkuskar" in 509.2 could cover every children's class. But the
+same rule book gives LA "Barn" its own tempo, 180 m/min, without the "#" that
+marks the 100 m/min limit-only time, and the penalty table names only "Barnkusk
+i Lätt B". A 100 m/min limit and a 180 m/min tempo cannot both apply to LA Barn,
+and the two specific texts (Bilaga 5 row, Bilaga 9) agree on Lätt B only. The
+text does not clearly put Lätt A Barn without a max time, so the program keeps
+LA Barn at 180 m/min with normal time penalties (the 100 m/min limit and
+elimination apply to Lätt B Barn only). If SvRF says otherwise, change
+`klassTempoData["Lätt A Barn Ponny"]` and the children's time handling.
 
 ### 7.4 Team competitions
 

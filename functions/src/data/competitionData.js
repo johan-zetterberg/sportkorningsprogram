@@ -183,6 +183,12 @@ export const klassTempoData = {
   "Lätt B Barn Ponny": { maraton: 200, precision: 100 },
   "Lätt A Barn Ponny": { maraton: 220, precision: 180 },
 
+  // --- CH (children, ponies only: TR V 2025 Bilaga 1 "CH" Enbet ponny) ---
+  // Bilaga 5: "LA CH 180 -" and "MSV "CH" 230 -" (ponny fas 1; no fas 2 and
+  // no horse tempo). No marathon tempo here (Bilaga 3 has no CH row)
+  "Lätt A CH Ponny": { precision: 180 },
+  "Msv CH Ponny": { precision: 230 },
+
   // --- FEI KLASSER (FEI 2026 Art 975.10.5 & 978.3) ---
   "FEI Children 1*": { maraton: 230, precision: 220 }, // FEI 974.1: Children cones 220 m/min
   // Hitch and horse/pony unknown: 250, the FEI 975.10.5 speed of pairs and

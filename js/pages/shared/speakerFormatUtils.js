@@ -7,6 +7,18 @@ export function formatSpeakerPenalty(value, { eliminated = false, empty = '—',
     return isFiniteSpeakerNumber(value) ? value.toFixed(decimals) : empty;
 }
 
+/**
+ * A penalty gap with its sign: "+12.50" behind, "−48.00" (U+2212) ahead.
+ * Penalties (total, dressage, marathon, precision): lower is better, so a
+ * positive gap is behind the row compared with.
+ */
+export function formatSpeakerGap(diff, { empty = '', decimals = 2 } = {}) {
+    if (!isFiniteSpeakerNumber(diff)) return empty;
+    const abs = Math.abs(diff).toFixed(decimals);
+    if (Number(abs) === 0) return `±${abs}`;
+    return diff < 0 ? `−${abs}` : `+${abs}`;
+}
+
 export function formatSpeakerPercent(value, { empty = '—', decimals = 1 } = {}) {
     return isFiniteSpeakerNumber(value) ? `${value.toFixed(decimals)}%` : empty;
 }

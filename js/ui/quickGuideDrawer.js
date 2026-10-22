@@ -237,6 +237,7 @@ export const GUIDES = {
         '<strong>Automatisk beräkning:</strong> Systemet räknar automatiskt ut förfluten tid och eventuella tidsstraff mot gällande tidsfönster.',
         '<strong>Manuell tid:</strong> Om tiden tagits med ett officiellt tidtagarur: tryck på etappens tid och skriv in den körda tiden som mmsscc (t.ex. 251530 = 25:15,30).',
         '<strong>Aktiva ekipage:</strong> Fäll ut listan "Aktiva ekipage" för att se vilka som befinner sig på sträckan just nu.',
+        '<strong>Sen start:</strong> Ej klar vid officiell starttid: starta klockan vid den verkliga starten och ange straffet (TR V 522.4: 0,25 p per sekund, varje påbörjad räknas) i "Övrigt straff (totalt)". Det räknas inte automatiskt.',
         `<strong>Tävlingspaus:</strong> En global paus sätts från observatörssidan (${LABEL.pause.sv}). Klockorna på den här sidan pausas då automatiskt, och tiden under pausen räknas inte.`
       ],
       en: [
@@ -244,6 +245,7 @@ export const GUIDES = {
         '<strong>Automatic calculation:</strong> Elapsed time and penalties are computed automatically according to rules ledger.',
         '<strong>Manual time:</strong> If the time was taken with an official stopwatch: tap the section time and enter the driven time as mmsscc (e.g. 251530 = 25:15.30).',
         '<strong>Active turnouts:</strong> Expand "Active Timers" to monitor all equipages currently on the phase.',
+        '<strong>Late start:</strong> Not ready at the official start time: start the clock at the actual start and enter the penalty (TR V 522.4 / FEI 963.4.1: 0.25 per second) in "Other penalty (total)". It is not calculated automatically.',
         `<strong>Competition pause:</strong> A global pause is set from the observer page (${LABEL.pause.en}). The clocks on this page then pause automatically, and the paused time does not count.`
       ]
     },

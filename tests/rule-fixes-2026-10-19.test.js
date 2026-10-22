@@ -95,8 +95,9 @@ test('TR section time is cut to whole seconds before min/max; FEI keeps millisec
   assert.deepEqual(stagePenaltyFromMs(sec(1500.999), tr, 'B', profileConfig), { points: 0, elim: false });
   assert.deepEqual(stagePenaltyFromMs(sec(1501), tr, 'B', profileConfig), { points: 0.25, elim: false });
   assert.deepEqual(stagePenaltyFromMs(sec(1500.4), fei, 'B', profileConfig), { points: 0.1, elim: false });
-  // Under the minimum: 1319.6 s is 1319 s on the TR clock = 1 s under -> 0.25 (before 0.1)
-  assert.deepEqual(stagePenaltyFromMs(sec(1319.6), tr, 'B', profileConfig), { points: 0.25, elim: false });
+  // Under the minimum: since 2026-10-22 rounded up in the driver's favour
+  // (tests/rule-fixes-2026-10-22.test.js): 1319.6 s is 1320 s -> 0
+  assert.deepEqual(stagePenaltyFromMs(sec(1319.6), tr, 'B', profileConfig), { points: 0, elim: false });
   assert.deepEqual(stagePenaltyFromMs(sec(1319.6), fei, 'B', profileConfig), { points: 0.1, elim: false });
 });
 

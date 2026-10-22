@@ -45,6 +45,7 @@ import { calculateDressageResult, calculateSingleJudgeDressageResult } from '../
 import { mergeDressageProtocols } from './dressageResultBuilder.js';
 import { rankDressageRows } from './dressageResultRanking.js';
 import { isClearRoundClass } from '../../core-engine/ranking.js';
+import { clearRoundPhaseApproved, CLEAR_ROUND_MAX_DRESSAGE_PENALTY } from '../../core-engine/rules-ledger.js';
 import { setupDressageResultExportButtons } from './dressageResultExports.js';
 import {
     clearGlobalScrollLocks,
@@ -880,11 +881,8 @@ function processAndAggregateResults(equipages, allRawResults) {
     });
 
     Object.values(byGroup).forEach((eqs) => {
-        // Check Config (a clear-round group holds one class)
-        const cfg = crConfig[eqs[0].className || '_'];
+        // A clear-round group holds one class
         const isCR = isClassClearRound(eqs[0].className);
-        // Unsaved limit: the 60 % the dressage admin shows as default
-        const limit = (cfg?.limit === undefined || cfg?.limit === null || cfg?.limit === '') ? 60 : (Number(cfg.limit) || 0);
 
         const finalRankables = rankDressageRows(eqs, {
             penaltyPicker: eq => eq.finalPenalty,
@@ -902,11 +900,13 @@ function processAndAggregateResults(equipages, allRawResults) {
             finalRankables.forEach(eq => {
                 eq.isClearRound = true;
                 eq.plac = null; // Ingen placering
-                // Använd avgPercent om det finns, annars får man räkna om från straff om det behövs, 
-                // men avgPercent bör finnas från computed
-                const pct = Number(eq.avgPercent) || 0;
-                eq.crApproved = (pct >= limit);
-                eq.crLimit = limit;
+                // TR V 509.3: "Kriterier för clear round är i dressyr högst
+                // 80 straffpoäng" (the final penalty, error points included;
+                // also the archived penalty)
+                eq.crApproved = clearRoundPhaseApproved('D', eq.finalPenalty, {
+                    eliminated: !!eq.eliminated || !!eq.statusEliminated
+                }) === true;
+                eq.crLimit = CLEAR_ROUND_MAX_DRESSAGE_PENALTY;
             });
         }
     });

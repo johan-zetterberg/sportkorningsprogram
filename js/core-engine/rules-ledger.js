@@ -207,3 +207,31 @@ export function isNum(v) {
 export function round2(x) {
   return Math.round((x + Number.EPSILON) * 100) / 100;
 }
+
+// --- CLEAR ROUND (TR V 509.3) ---
+// "Vid bedömning clear round rangordnas inte ekipagen. Kriterier för clear
+// round är i dressyr högst 80 straffpoäng, i maraton och precision 0
+// straffpoäng. Tid i maratonhinder ger inte straffpoäng."
+export const CLEAR_ROUND_MAX_DRESSAGE_PENALTY = 80;
+
+// One phase of a clear-round class: null when the phase has no result (not
+// driven, or not yet), else whether it meets the 509.3 criterion. The
+// dressage penalty includes the error points (TR 518.9), the marathon
+// penalty is computed with the obstacle time free (TR 526.1)
+export function clearRoundPhaseApproved(phase, penalty, { eliminated = false } = {}) {
+  if (eliminated) return false;
+  if (!isNum(penalty)) return null;
+  const p = round2(penalty);
+  if (phase === 'D') return p <= CLEAR_ROUND_MAX_DRESSAGE_PENALTY;
+  return p === 0;
+}
+
+// The whole clear round (TR V 509.3) over the phases the class drives:
+// phases maps 'D' | 'M' | 'P' to { penalty, eliminated } or null for a phase
+// the class does not drive. A driven phase without a result is not approved;
+// with no driven phase at all, false
+export function clearRoundApprovedOver(phases = {}) {
+  const driven = ['D', 'M', 'P'].filter((k) => phases[k]);
+  if (driven.length === 0) return false;
+  return driven.every((k) => clearRoundPhaseApproved(k, phases[k].penalty, { eliminated: phases[k].eliminated === true }) === true);
+}

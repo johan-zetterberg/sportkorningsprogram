@@ -15,6 +15,8 @@
 //  - a list without any starter is marked "Klassen har utgått" in TDB
 //  - results go to SvRF within 5 days after the competition (TR I 134.4)
 
+import { clearRoundApprovedOver } from '../core-engine/rules-ledger.js';
+
 const MOMENTS = ['D', 'M', 'P'];
 const DEADLINE_DAYS = 5;
 
@@ -119,8 +121,9 @@ function tdbClassesOf(rows, knownClasses) {
 /**
  * The TDB sheet: one list per placing group (merged classes are one list).
  * rows: result rows as the reports page / total results build them (dressage,
- * marathon, precision, totalPenalty, isEliminated, plac, _mergedKey/_mergedLabel,
- * marathon.clearRoundApproved); for an archived competition the rows carry the
+ * marathon, precision, totalPenalty, isEliminated, plac, _mergedKey/_mergedLabel);
+ * clear round is judged from the moments' penalties (TR V 509.3), not from a
+ * stored approval; for an archived competition the rows carry the
  * archived values (archivedPlac).
  * options: { classes, competition, isClearRoundClass(className), isZeroStarClass(label) }
  */
@@ -156,6 +159,9 @@ export function buildTdbSheet(rows = [], options = {}) {
         });
         started.sort((a, b) => (Number(a.row.startNumber) || 0) - (Number(b.row.startNumber) || 0));
         const single = started.length === 1;
+        // Moments the class drove: those any starter has a result in. A moment
+        // the class did not drive is left out of the clear-round criteria
+        const drivenMoments = new Set(started.flatMap(({ moments }) => moments.map((m) => m.moment)));
 
         const built = started.map(({ row, moments, withdrawn, retired, eliminated }) => {
             let placingCode;
@@ -164,7 +170,14 @@ export function buildTdbSheet(rows = [], options = {}) {
                 placingCode = 99;
                 reason = eliminated ? 'eliminated' : (withdrawn ? 'withdrawn' : 'retired');
             } else if (clearRound) {
-                const approved = row.marathon?.clearRoundApproved === true || row.clearRoundApproved === true;
+                // TR V 509.3: "Kriterier för clear round är i dressyr högst 80
+                // straffpoäng, i maraton och precision 0 straffpoäng. Tid i
+                // maratonhinder ger inte straffpoäng." Every moment the class
+                // drove must meet its criterion (a missing one does not)
+                const byMoment = new Map(moments.map((m) => [m.moment, m]));
+                const approved = clearRoundApprovedOver(Object.fromEntries(MOMENTS
+                    .filter((k) => drivenMoments.has(k))
+                    .map((k) => [k, byMoment.get(k) || { penalty: null, eliminated: false }])));
                 placingCode = approved ? 1 : 98;
                 reason = approved ? 'clearRoundPassed' : 'clearRoundFailed';
             } else if (single) {

@@ -217,6 +217,7 @@ export function buildArchiveRowsFromData({
                 percent: dressage.percent,
                 eliminated: !!dressage.eliminated,
                 isClearRound,
+                clearRoundApproved: isClearRound && total.dressage?.dressageClearRoundApproved === true,
                 status: dressage.eliminated
                     ? 'Eliminerad'
                     : (total.dressageComplete ? 'Klar' : (withdrawn ? 'Struken' : 'Ej startad'))
@@ -255,6 +256,9 @@ export function buildArchiveRowsFromData({
             totalPenalty: total.totalPenalty,
             isEliminated: total.isEliminated,
             isClearRound,
+            // The whole clear round (TR V 509.3: dressage at most 80 p,
+            // marathon and precision 0 p), not only the marathon's part
+            clearRoundApproved: isClearRound && total.clearRoundApproved === true,
             plac: '',
             posDress: null,
             posMar: null,

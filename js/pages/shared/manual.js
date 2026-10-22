@@ -1260,6 +1260,10 @@ function getTabContentSV(tab) {
                     <li>Skriv in den körda tiden som <code>mmsscc</code> (t.ex. 251530 = 25:15,30) och tryck Använd.</li>
                   </ul>
                 </li>
+                <li>
+                  <strong>Sen start:</strong>
+                  <br><span class="ml-4">Är ekipaget inte klart att starta vid sin officiella starttid: starta klockan när ekipaget verkligen startar och ange straffet för sen start (TR V 522.4: 0,25 straffpoäng per sekund, varje påbörjad räknas; FEI 963.4.1: 0,25 per sekund) i fältet <strong>${btn('marathon_stages_other_penalty_total', 'sv')}</strong> på sträckans flik. Systemet räknar inte ut det själv.</span>
+                </li>
               </ol>
 
               <div class="mt-2 text-sm text-green-800 bg-green-100 p-2 rounded">
@@ -2375,6 +2379,7 @@ function getTabContentEN(tab) {
                             <li><em>Correction:</em> Tap the section time (the big clock) and enter the driven time as <code>mmsscc</code> (e.g. 251530 = 25:15.30).</li>
                         </ul>
                     </li>
+                    <li><strong>Late start:</strong> If the turnout is not ready at its official start time, start the clock when it actually starts and enter the late-start penalty (TR V 522.4: 0.25 penalties per second, each second begun counts; FEI 963.4.1: 0.25 per second) in <strong>${btn('marathon_stages_other_penalty_total', 'en')}</strong> on the section's tab. The system does not calculate it.</li>
                     <li><strong>Active Timers:</strong> The dropdown at the top shows currently running clocks. It allows you to start #1, switch to #2, while still seeing #1 ticking.</li>
                     <li>
                       <strong class="text-red-800">Global Pause:</strong>
