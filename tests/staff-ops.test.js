@@ -30,7 +30,7 @@ import {
   vetStrikeTransition
 } from '../js/services/vetDecisionUtils.js';
 import { buildVetStatusUpdate } from '../js/pages/shared/vetCheckUtils.js';
-import { buildVetDecisionDriverMessage } from '../functions/src/vetDecisionNotify.js';
+import { buildVetDecisionDriverMessage, canSendVetNotice, vetDecisionNoticeKey } from '../functions/src/vetDecisionNotify.js';
 import {
   buildHeartbeatDoc,
   contextFromHash,
@@ -256,6 +256,26 @@ test('the driver hears of the vet decision when reported and when decided', () =
   assert.equal(overturned.type, 'info');
   assert.equal(buildVetDecisionDriverMessage(null, { type: 'protest', startNumber: '5' }), null);
   assert.equal(buildVetDecisionDriverMessage(null, { type: 'vet', startNumber: '' }), null);
+});
+
+test('a vet notice carries no free text, is keyed per outcome and needs the right writer', () => {
+  const created = { type: 'vet', startNumber: '5', vetStrike: { phase: 'initial', outcome: 'pending' } };
+  const confirmed = { ...created, decision: 'Se https://evil.example/x <b>nu</b>', vetStrike: { outcome: 'confirmed' } };
+  const message = buildVetDecisionDriverMessage(created, confirmed);
+  assert.doesNotMatch(message.body, /evil|https?:|<b>/);
+  assert.doesNotMatch(message.title, /evil/);
+  // A start number that is not one carries no notice
+  assert.equal(buildVetDecisionDriverMessage(null, { ...created, startNumber: 'www.evil.se' }), null);
+  assert.equal(vetDecisionNoticeKey(null, created), 'reported');
+  assert.equal(vetDecisionNoticeKey(created, confirmed), 'confirmed');
+  assert.equal(vetDecisionNoticeKey(created, { ...created, vetStrike: { outcome: 'overturned' } }), 'overturned');
+  assert.equal(vetDecisionNoticeKey(created, { ...created, decision: 'x' }), null);
+  assert.equal(canSendVetNotice('reported', ['vet']), true);
+  assert.equal(canSendVetNotice('reported', ['marathon', 'precision', 'dressage']), false);
+  assert.equal(canSendVetNotice('confirmed', ['vet']), false);
+  assert.equal(canSendVetNotice('confirmed', ['td']), true);
+  assert.equal(canSendVetNotice('overturned', ['admin']), true);
+  assert.equal(canSendVetNotice('confirmed', []), false);
 });
 
 // --- Field device heartbeat ---

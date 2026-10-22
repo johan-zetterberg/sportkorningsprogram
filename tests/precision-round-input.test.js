@@ -1,4 +1,4 @@
-﻿import test from 'node:test';
+import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -9,6 +9,7 @@ import {
   precisionGroupKeyFn,
   precisionRoundLabelKey,
   precisionWarningKey,
+  roundOnSelect,
 } from '../js/pages/precision/precisionRoundInput.js';
 import { calculatePrecisionResult } from '../js/utils/precisionCalculation.js';
 import { precisionGroupContext } from '../js/core-engine/ranking.js';
@@ -40,6 +41,30 @@ test('pickPrecisionRound: a running round wins, else the current one, else phase
   assert.equal(pickPrecisionRound({}, rounds, 'driveOff'), 'phase1');
   assert.equal(pickPrecisionRound({ rounds: { driveOff: { running: true } } }, rounds, 'phase1'), 'phase1');
   assert.equal(pickPrecisionRound({ rounds: { driveOff: { running: true } } }, ['phase1', 'driveOff'], 'phase1'), 'driveOff');
+});
+
+test('pickPrecisionRound: a reload mid-round opens that round, not phase 1', () => {
+  const rounds = ['phase1', 'phase2'];
+  // Phase 2 stopped but not saved
+  assert.equal(pickPrecisionRound({ activeRound: 'phase2', rounds: { phase2: { running: false, inProgress: true } } }, rounds, 'phase1'), 'phase2');
+  // Only activeRound says where the equipage is
+  assert.equal(pickPrecisionRound({ activeRound: 'phase2', rounds: { phase2: { inProgress: false, timeMs: 70000 } } }, rounds, 'phase1'), 'phase2');
+  // An unsaved round without activeRound (older write)
+  assert.equal(pickPrecisionRound({ rounds: { phase2: { inProgress: true } } }, rounds, 'phase1'), 'phase2');
+  // Phase 1 driven again (phase 2 cleared, activeRound back to phase 1)
+  assert.equal(pickPrecisionRound({ running: true, activeRound: 'phase1' }, rounds, 'phase2'), 'phase1');
+  // activeRound phase 1 keeps the drive-off the judge works in
+  assert.equal(pickPrecisionRound({ activeRound: 'phase1' }, ['phase1', 'driveOff'], 'driveOff'), 'driveOff');
+  // A round the class does not have is never picked
+  assert.equal(pickPrecisionRound({ activeRound: 'driveOff' }, rounds, 'phase1'), 'phase1');
+});
+
+test('roundOnSelect: the next equipage starts in phase 1, a drive-off qualifier stays in the drive-off', () => {
+  assert.equal(roundOnSelect('phase2', ['phase1', 'phase2']), 'phase1');
+  assert.equal(roundOnSelect('driveOff', ['phase1', 'driveOff'], { isDriveOffQualifier: true }), 'driveOff');
+  assert.equal(roundOnSelect('driveOff', ['phase1', 'driveOff'], { isDriveOffQualifier: false }), 'phase1');
+  assert.equal(roundOnSelect('driveOff', ['phase1'], { isDriveOffQualifier: true }), 'phase1');
+  assert.equal(roundOnSelect('phase1', ['phase1', 'phase2']), 'phase1');
 });
 
 test('qualified summary and drive-off start list from the engine', () => {

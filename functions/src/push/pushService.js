@@ -24,6 +24,7 @@ import {
     competitionKey,
     deliveryOptions,
     groupPushMessages,
+    inheritRenewedToken,
     isStaleToken,
     localized,
     normalizePushSettings,
@@ -65,23 +66,35 @@ export async function savePushSettings(db, raw, { uid = null, now = Date.now() }
 /**
  * Registers (or refreshes) a device for an account. competition: { appId,
  * compId } or null; topics: checked list or null (kept). email: the verified
- * login address or '' (drivers are matched by it). The account's oldest
- * devices beyond the cap are removed.
+ * login address or '' (drivers are matched by it). previousToken: the token
+ * this device had before the browser renewed it; its topics and competitions
+ * carry over (same account only) and its doc is removed, in the same
+ * transaction. The account's oldest devices beyond the cap are removed (logged).
  */
-export async function registerPushToken(db, { uid, email = '', token, topics = null, platform, lang, competition = null, now = Date.now() }) {
+export async function registerPushToken(db, { uid, email = '', token, previousToken = null, topics = null, platform, lang, competition = null, logger = console, now = Date.now() }) {
     const id = pushTokenId(token);
     const ref = db.collection(PUSH_TOKENS).doc(id);
+    const previousRef = previousToken && previousToken !== token ? db.collection(PUSH_TOKENS).doc(pushTokenId(previousToken)) : null;
     const key = competition ? competitionKey(competition.appId, competition.compId) : null;
-    const doc = await db.runTransaction(async (tx) => {
-        const snap = await tx.get(ref);
-        const next = buildTokenDoc({ existing: snap.exists ? snap.data() : null, uid, email, token, topics: topics ? normalizeTopics(topics) : null, platform, lang, competition: key, now });
+    const { doc, carried } = await db.runTransaction(async (tx) => {
+        const [snap, previousSnap] = await Promise.all([tx.get(ref), previousRef ? tx.get(previousRef) : null]);
+        const existing = snap.exists ? snap.data() : null;
+        // Holding the old token is the proof, as for unregisterPushToken
+        const previous = previousSnap?.exists && previousSnap.data()?.token === previousToken && previousSnap.data()?.uid === uid
+            ? previousSnap.data() : null;
+        const base = previous ? inheritRenewedToken({ existing, previous, uid }) : existing;
+        const next = buildTokenDoc({ existing: base, uid, email, token, topics: topics ? normalizeTopics(topics) : null, platform, lang, competition: key, now });
         tx.set(ref, next);
-        return next;
+        if (previous) tx.delete(previousRef);
+        return { doc: next, carried: !!previous };
     });
     const own = await db.collection(PUSH_TOKENS).where('uid', '==', uid).select('lastSeenMs').get();
     const extra = tokensOverUserCap(own.docs.map((d) => ({ id: d.id, data: d.data() })));
-    await Promise.all(extra.map((tokenDocId) => db.collection(PUSH_TOKENS).doc(tokenDocId).delete()));
-    return publicRegistration(doc);
+    if (extra.length) {
+        logger.warn('Push: kontots äldsta enheter togs bort (för många enheter)', { uid, removed: extra.length, max: PUSH_LIMITS.maxTokensPerUser });
+        await Promise.all(extra.map((tokenDocId) => db.collection(PUSH_TOKENS).doc(tokenDocId).delete()));
+    }
+    return { ...publicRegistration(doc), renewed: carried };
 }
 
 /**
@@ -144,6 +157,36 @@ async function reservePushQuota(db, { appId, compId, count, limit, now }) {
 
 const isAlreadyExists = (error) => error?.code === 6 || /ALREADY_EXISTS/i.test(String(error?.message || ''));
 
+// A push log left in 'sending' this long is taken as a run that stopped
+// half-way (a send takes seconds; the callables and triggers time out in minutes)
+export const PUSH_SENDING_TAKEOVER_MS = 10 * 60 * 1000;
+// Send calls (each up to 500 devices) at a time
+const PUSH_SEND_CONCURRENCY = 4;
+// A write batch takes 500 operations
+const DELETE_BATCH = 400;
+
+/** Claims a dedupe log left in 'sending' by a stopped run: true when taken over */
+export async function takeOverStalePushLog(db, logRef, now = Date.now()) {
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(logRef);
+        const data = snap.exists ? snap.data() : null;
+        if (!data || data.status !== 'sending') return false;
+        const claimed = Number(data.claimedAtMs) || Number(data.atMs) || 0;
+        if (now - claimed < PUSH_SENDING_TAKEOVER_MS) return false;
+        tx.update(logRef, { claimedAtMs: now, takeovers: (Number(data.takeovers) || 0) + 1 });
+        return true;
+    });
+}
+
+/** Deletes token docs in batches of at most DELETE_BATCH */
+async function deleteTokenDocs(db, ids) {
+    for (let i = 0; i < ids.length; i += DELETE_BATCH) {
+        const writer = db.batch();
+        ids.slice(i, i + DELETE_BATCH).forEach((id) => writer.delete(db.collection(PUSH_TOKENS).doc(id)));
+        await writer.commit();
+    }
+}
+
 /**
  * Sends a notification to the devices of an audience in one competition.
  *   audience  { everyone?, drivers?, officials? } (mailCore normalizeAudience
@@ -187,10 +230,14 @@ export async function sendPushToAudience(db, messaging, {
         devices: tokens.length, matched, skippedTopic, targeted: targets.length, atMs: now
     };
     try {
-        await logRef.create({ ...baseLog, status: 'sending' });
+        await logRef.create({ ...baseLog, status: 'sending', claimedAtMs: now });
     } catch (error) {
-        if (isAlreadyExists(error)) return { status: 'duplicate' };
-        throw error;
+        if (!isAlreadyExists(error)) throw error;
+        // A run that stopped half-way (the instance crashed after claiming)
+        // left 'sending': a re-delivered event takes it over after a while
+        // instead of losing the notice
+        if (!(await takeOverStalePushLog(db, logRef, now))) return { status: 'duplicate' };
+        logger.warn('Push: avbrutet utskick tas över', { appId, compId, topic, logId: logRef.id });
     }
     const finish = async (update) => {
         await logRef.set({ ...baseLog, ...update, finishedAtMs: Date.now() });
@@ -217,26 +264,38 @@ export async function sendPushToAudience(db, messaging, {
     let failed = 0;
     const removeIds = new Set();
     const codes = {};
-    for (const group of groups) {
+    // One call per batch: [{ targets, send }]. Messages shared by several
+    // devices go as a multicast; personal ones (start times: one per driver)
+    // are gathered into sendEach batches of 500, not sent one by one
+    const batches = [];
+    const singles = [];
+    groups.forEach((group) => {
+        if (group.targets.length === 1 && typeof messaging.sendEach === 'function') singles.push(group);
+        else batches.push({ targets: group.targets, send: () => messaging.sendEachForMulticast({ ...group.message, tokens: group.targets.map((t) => t.token) }) });
+    });
+    for (let i = 0; i < singles.length; i += PUSH_LIMITS.multicastMax) {
+        const chunk = singles.slice(i, i + PUSH_LIMITS.multicastMax);
+        batches.push({ targets: chunk.map((g) => g.targets[0]), send: () => messaging.sendEach(chunk.map((g) => ({ ...g.message, token: g.targets[0].token }))) });
+    }
+    const runBatch = async (batch) => {
         try {
-            const response = await messaging.sendEachForMulticast({ ...group.message, tokens: group.targets.map((t) => t.token) });
-            const summary = summarizeMulticast(group.targets, response?.responses || []);
+            const response = await batch.send();
+            const summary = summarizeMulticast(batch.targets, response?.responses || []);
             sent += summary.sent;
             failed += summary.failed;
             summary.removeIds.forEach((id) => removeIds.add(id));
             Object.entries(summary.codes).forEach(([code, n]) => { codes[code] = (codes[code] || 0) + n; });
         } catch (error) {
-            failed += group.targets.length;
+            failed += batch.targets.length;
             const code = String(error?.code || 'send-error');
-            codes[code] = (codes[code] || 0) + group.targets.length;
+            codes[code] = (codes[code] || 0) + batch.targets.length;
             logger.error('Push kunde inte skickas', { appId, compId, topic, error: String(error?.message || error) });
         }
+    };
+    for (let i = 0; i < batches.length; i += PUSH_SEND_CONCURRENCY) {
+        await Promise.all(batches.slice(i, i + PUSH_SEND_CONCURRENCY).map(runBatch));
     }
-    if (removeIds.size) {
-        const writer = db.batch();
-        [...removeIds].forEach((id) => writer.delete(db.collection(PUSH_TOKENS).doc(id)));
-        await writer.commit();
-    }
+    if (removeIds.size) await deleteTokenDocs(db, [...removeIds]);
     const status = !failed ? 'sent' : (sent ? 'partial' : 'failed');
     return finish({ status, sent, failed, removedTokens: removeIds.size, errorCodes: codes });
 }
@@ -265,7 +324,7 @@ export async function sendPushToUser(db, messaging, { uid, title, body, url = '#
             logger.error('Testpush kunde inte skickas', { error: String(error?.message || error) });
         }
     }
-    await Promise.all(removeIds.map((id) => db.collection(PUSH_TOKENS).doc(id).delete()));
+    if (removeIds.length) await deleteTokenDocs(db, removeIds);
     return { status: failed ? (sent ? 'partial' : 'failed') : 'sent', sent, failed, removedTokens: removeIds.length };
 }
 

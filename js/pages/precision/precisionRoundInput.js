@@ -14,15 +14,34 @@ export function precisionRoundLabelKey(round, format) {
 
 /**
  * The round the page shows for a stored doc: a round whose clock runs wins
- * (the top level stays "not running" during phase 2 / drive-off), else the
- * current one when the class has it, else phase 1.
+ * (the top level stays "not running" during phase 2 / drive-off), then a
+ * round stopped but not saved (inProgress), then the doc's activeRound when
+ * it is a later round (a reload mid-round must not open phase 1), else the current one when the
+ * class has it, else phase 1.
  */
 export function pickPrecisionRound(doc, rounds = ['phase1'], current = 'phase1') {
     const list = rounds.filter((r) => PRECISION_ROUNDS.includes(r));
-    for (const r of ['driveOff', 'phase2']) {
+    for (const r of ['driveOff', 'phase2', 'phase1']) {
         if (list.includes(r) && readPrecisionRound(doc, r).running === true) return r;
     }
+    for (const r of ['driveOff', 'phase2', 'phase1']) {
+        if (list.includes(r) && readPrecisionRound(doc, r).inProgress === true) return r;
+    }
+    // activeRound 'phase1' (or none) keeps the current round: a drive-off
+    // qualifier not yet started stays in the drive-off the judge works in
+    if (doc?.activeRound !== 'phase1' && list.includes(doc?.activeRound)) return doc.activeRound;
     if (list.includes(current)) return current;
+    return 'phase1';
+}
+
+/**
+ * The round shown right after an equipage is selected (before its doc is
+ * read): phase 1, except in the drive-off for a drive-off qualifier (the
+ * judge goes through the qualifiers). pickPrecisionRound then follows the
+ * doc (running / unsaved round, activeRound).
+ */
+export function roundOnSelect(current, rounds = ['phase1'], { isDriveOffQualifier = false } = {}) {
+    if (current === 'driveOff' && rounds.includes('driveOff') && isDriveOffQualifier) return 'driveOff';
     return 'phase1';
 }
 

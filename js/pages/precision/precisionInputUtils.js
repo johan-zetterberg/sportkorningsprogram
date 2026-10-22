@@ -2,6 +2,7 @@
 // list and penalties a save uses, and a sanity check of the shared clock.
 
 import { nestPrecisionRoundPayload, normalizePrecisionRound, readPrecisionRound } from '../../utils/precisionRounds.js';
+import { precisionRoundHasData } from '../../utils/precisionCalculation.js';
 
 // Clock skew allowed between devices before a start "in the future" is refused
 export const CLOCK_FUTURE_TOLERANCE_MS = 10000;
@@ -13,6 +14,17 @@ export function sortKnocks(list) {
     return (Array.isArray(list) ? list : [])
         .map(String)
         .sort((a, b) => a.localeCompare(b, 'sv', { numeric: true }));
+}
+
+/** A typed knock list ("3A, 5 7b") as sorted unique labels (the secretariat's knock field) */
+export function parseKnockListInput(text) {
+    const labels = String(text ?? '').split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    return sortKnocks([...new Set(labels)]);
+}
+
+/** A knock list as the secretariat's field shows it: "3A, 5" */
+export function formatKnockList(list) {
+    return sortKnocks(list).join(', ');
 }
 
 /** The knocks of the stored precision document (the only source a save uses) */
@@ -73,6 +85,9 @@ export function buildPrecisionSavePayload({
         extraPenalty,
         eliminated
     }) || {};
+    // Shown live, never stored as obstaclePenalty: the result engine counts the
+    // stored knock list, which another device may still add to (a queued save
+    // could not correct a stored count afterwards)
     const obstaclePenalty = Number.isFinite(calc.obstaclePenalty) ? calc.obstaclePenalty : 0;
     // Without a max time for the class (configMissing) the engine gives no time
     // penalty and no total: saved empty, not as 0, and never as 'Klar'
@@ -92,7 +107,6 @@ export function buildPrecisionSavePayload({
         timeMs: safeTime,
         timePenalty,
         liveTimePenalty: timePenalty,
-        obstaclePenalty,
         liveObstaclePenalty: obstaclePenalty,
         extraPenalty,
         totalPenalty,
@@ -144,7 +158,6 @@ export function penaltyCorrection(savedPayload, savedKnocks, storedAfter, calcul
     });
     const fields = r === 'phase1' ? payload : payload.rounds[r];
     const correction = {
-        obstaclePenalty: fields.obstaclePenalty,
         liveObstaclePenalty: fields.liveObstaclePenalty,
         timePenalty: fields.timePenalty,
         liveTimePenalty: fields.liveTimePenalty,
@@ -165,7 +178,14 @@ export function penaltyCorrection(savedPayload, savedKnocks, storedAfter, calcul
  * 1 is only saved (the judge's bell, TR 530.1.3 / FEI 979.4.1).
  *
  * calculate(data) scores phase 1 (calculatePrecisionResult bound to the
- * equipage and config). Returns { payload, calc, knocks, qualified }.
+ * equipage and config). Returns { payload, calc, knocks, qualified,
+ * phase2Blocked }.
+ *
+ * A stored phase 2 that already holds data (started, driven, saved) is never
+ * started again by this write (a late or repeated "Fas 1 mål" would restart a
+ * driven phase 2 and keep its old knocks): phase 1 is then only saved and
+ * phase2Blocked is true. A deliberate re-run of phase 1 clears phase 2 first
+ * (buildPrecisionRoundClearWrite).
  */
 export function buildPhase1FinishWrite({
     stored = null,
@@ -186,7 +206,8 @@ export function buildPhase1FinishWrite({
     const total = Number(payload.totalPenalty);
     const qualified = !eliminated && !calc.configMissing && calc.eliminated !== true
         && payload.totalPenalty !== null && Number.isFinite(total) && Math.abs(total) <= 1e-6;
-    if (!qualified) return { payload, calc, knocks, qualified: false };
+    if (!qualified) return { payload, calc, knocks, qualified: false, phase2Blocked: false };
+    if (phase2HasData(stored)) return { payload, calc, knocks, qualified: true, phase2Blocked: true };
     return {
         payload: {
             ...payload,
@@ -205,8 +226,45 @@ export function buildPhase1FinishWrite({
         },
         calc,
         knocks,
-        qualified: true
+        qualified: true,
+        phase2Blocked: false
     };
+}
+
+/**
+ * Whether the stored phase 2 already holds anything: started, driven, knocks,
+ * a saved status. Such a phase 2 is not started again by "Fas 1 mål", and a
+ * phase-1 re-run clears it first (with the judge's confirmation).
+ */
+export function phase2HasData(stored) {
+    const p2 = readPrecisionRound(stored, 'phase2');
+    return precisionRoundHasData(p2) || ['Klar', 'Utesluten', 'Utgått'].includes(p2.status);
+}
+
+/**
+ * Whether a Stop is pushed for the round: not when the latest stored copy of
+ * the round is already saved (inProgress false and not running). A stale
+ * Stop would otherwise mark a saved round unsaved again and replace its time.
+ */
+export function shouldPushStop(storedRound) {
+    const r = storedRound || {};
+    return !(r.running !== true && r.inProgress === false);
+}
+
+/**
+ * The time a stored round shows: the saved time once it is finalized or saved
+ * (inProgress false, not running, a time), otherwise the clock's liveTimeMs
+ * (stops, knocks, corrections write it; an old saved time must not come back
+ * after a reset). As the result engine (calculatePrecisionRound).
+ */
+export function storedRoundTimeMs(round) {
+    const r = round || {};
+    const timeMs = Number(r.timeMs);
+    const saved = r.inProgress === false && r.running !== true && Number.isFinite(timeMs) && timeMs > 0;
+    const value = (r.finalized === true || saved)
+        ? (r.timeMs ?? r.liveTimeMs ?? 0)
+        : (r.liveTimeMs ?? r.timeMs ?? 0);
+    return Number(value);
 }
 
 /** How long a run may plausibly last (ms), from the class's max time in seconds */

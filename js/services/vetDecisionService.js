@@ -2,12 +2,15 @@
 // report (incident log entry + staff notification; the driver's inbox message
 // is written by the server, onIncidentWritten) and the secretariat's / TD's
 // decision on the equipage.
-import { serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { runTransaction, serverTimestamp, updateDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+import { db } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { getCompDocRef, trackWrite } from './firestoreService.js';
 import { addStaffNotice, createIncident, getIncidents, updateIncident } from './incidentService.js';
 import { buildVetStrikeDecisionPatch, buildVetStrikeIncident } from './vetDecisionUtils.js';
 import { toLocalDateTimeValue } from './incidentUtils.js';
+
+const NOT_PENDING = 'Inget veterinärbeslut väntar på beslut för ekipaget.';
 
 /**
  * Reports a vet's strike to the ground jury: the incident log entry (with the
@@ -53,17 +56,30 @@ export async function reportVetStrike(competitionId, { incidentId, equipage = {}
 export async function decideVetStrike(competitionId, equipage = {}, action, { incident = null, decisionText = '' } = {}) {
     const user = getGlobalState('currentUser') || {};
     const name = user.displayName || user.email || '';
-    const patch = buildVetStrikeDecisionPatch(equipage, action, {
+    const patchFor = (current) => buildVetStrikeDecisionPatch(current, action, {
         uid: user.uid || null,
         name,
-        incidentId: incident?.id || equipage.vetStrikePending?.incidentId || ''
+        incidentId: incident?.id || current.vetStrikePending?.incidentId || ''
     });
-    if (!patch) throw new Error('Inget veterinärbeslut väntar på beslut för ekipaget.');
+    let patch = patchFor(equipage);
+    if (!patch) throw new Error(NOT_PENDING);
     const startNumber = String(equipage.startNumber ?? equipage.id ?? '');
-    await trackWrite(`Domarkollegiets beslut #${startNumber}`, updateDoc(getCompDocRef(competitionId, 'equipages', startNumber), {
-        ...patch,
-        updatedAt: serverTimestamp()
-    }));
+    const ref = getCompDocRef(competitionId, 'equipages', startNumber);
+    if (navigator.onLine === false) {
+        // Offline (transactions need the network): from the device's copy, queued
+        await trackWrite(`Domarkollegiets beslut #${startNumber}`, updateDoc(ref, { ...patch, updatedAt: serverTimestamp() }));
+    } else {
+        // Only while the strike is still pending on the server: two officials
+        // deciding at once, or a decision made elsewhere, are not overwritten
+        patch = await trackWrite(`Domarkollegiets beslut #${startNumber}`, runTransaction(db, async (tx) => {
+            const snap = await tx.get(ref);
+            if (!snap.exists()) throw new Error(NOT_PENDING);
+            const current = patchFor({ ...snap.data(), startNumber });
+            if (!current) throw new Error(NOT_PENDING);
+            tx.update(ref, { ...current, updatedAt: serverTimestamp() });
+            return current;
+        }));
+    }
 
     const outcome = patch.vetStrikeDecision.outcome;
     const defaultText = outcome === 'confirmed'
@@ -74,7 +90,7 @@ export async function decideVetStrike(competitionId, equipage = {}, action, { in
             status: 'decided',
             decision: [decisionText, defaultText].filter(Boolean).join(' '),
             decidedBy: incident.decidedBy || name
-        }, { vetStrike: { ...(incident.vetStrike || {}), outcome } }).catch((error) => {
+        }, { 'vetStrike.outcome': outcome }).catch((error) => {
             console.warn('Händelsen kunde inte uppdateras med beslutet:', error);
         });
     }

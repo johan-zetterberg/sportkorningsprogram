@@ -25,6 +25,7 @@ import { buildCompetitionState } from '../js/core-engine/stateSelector.js';
 import {
   buildPrecisionKnockWrite,
   buildPrecisionRebuildWrite,
+  buildPrecisionRoundClearWrite,
   buildPrecisionRoundStartWrite,
   buildPrecisionRoundStopWrite,
   buildPrecisionRoundRetireWrite,
@@ -38,6 +39,7 @@ import {
   buildPrecisionSavePayload,
   penaltyCorrection
 } from '../js/pages/precision/precisionInputUtils.js';
+import { findPrecisionGaps, precisionFinalizeBlockers, precisionHasResult } from '../js/services/finalizeCompletenessUtils.js';
 import { calculatePrecisionResult as serverPrecision } from '../functions/src/utils/precisionCalculation.js';
 import { precisionGroupContext as serverGroupContext } from '../functions/src/core-engine/ranking.js';
 
@@ -677,4 +679,150 @@ test('call sites place two phases and drive-off by tiers (place map, archive, to
   const all = [{ startNumber: 1, className: TR_CLASS }, { startNumber: 3, className: TR_CLASS }, { startNumber: 5, className: TR_CLASS }];
   // 60 s into phase 2 with 0 penalties: ahead of #1 (70 s), and of #3
   assert.equal(calculatePrecisionLiveRank(0, 5, all[2], all, liveMap, null, { config: trTwoPhase, currentTimeMs: 149000, now: 61000 }), 1);
+});
+
+// --- Stability fixes (review 2026-10-22) ---
+
+test('knocks: the stored list wins over a stored obstacle penalty (a queued save never voids another device\'s knock)', () => {
+  const eq = eqOf('A', TR_CLASS);
+  const normal = { courses: { [TR_CLASS]: { trackLengthMeters: 600, tempo: 230 } } };
+  // Device A saves offline having seen knock 1; device B toggled knock 2 meanwhile
+  const calculate = (data) => calculatePrecisionResult(data, eq, normal);
+  const { payload } = buildPrecisionSavePayload({ stored: { knocks: ['1'] }, timeMs: 150000, startNumber: 1, className: TR_CLASS, calculate, now: 1 });
+  assert.equal('obstaclePenalty' in payload, false);
+  const merged = { ...payload, knocks: ['1', '2'] };
+  const res = calculatePrecisionResult(merged, eq, normal);
+  assert.equal(res.obstaclePenalty, 6);
+  assert.equal(res.totalPenalty, 6);
+  // An older save that stored a count: the list still wins
+  assert.equal(calculatePrecisionResult({ ...merged, obstaclePenalty: 3 }, eq, normal).totalPenalty, 6);
+  // A knock removed on another device after a stored count of 3
+  assert.equal(calculatePrecisionResult({ ...p1(150), knocks: [], obstaclePenalty: 3 }, eq, normal).totalPenalty, 0);
+  // A legacy doc without a list keeps its stored value
+  const legacy = { finalized: true, timeMs: 150000, obstaclePenalty: 6 };
+  assert.equal(calculatePrecisionResult(legacy, eq, normal).totalPenalty, 6);
+  // The same for a round (phase 2)
+  const r2 = calculatePrecisionResult(withRound(p1(150), 'phase2', { ...rd(70, { knocks: ['A'] }), obstaclePenalty: 0 }), eq, trTwoPhase);
+  assert.equal(r2.rounds.phase2.obstaclePenalty, 3);
+  assert.equal(r2.rounds.phase2.totalPenalty, 3);
+});
+
+test('a late Stop after a save does not change the saved time', () => {
+  const eq = eqOf('A', TR_CLASS);
+  const normal = { courses: { [TR_CLASS]: { trackLengthMeters: 600, tempo: 230 } } };
+  const calculate = (data) => calculatePrecisionResult(data, eq, normal);
+  const { payload } = buildPrecisionSavePayload({ stored: { knocks: [] }, timeMs: 150000, startNumber: 1, className: TR_CLASS, calculate, now: 1 });
+  // The queued Stop of another device lands afterwards: running false and a
+  // later liveTimeMs, never inProgress
+  const late = { ...payload, running: false, liveStartEpoch: null, livePausedMs: 163000, liveTimeMs: 163000 };
+  const res = calculatePrecisionResult(late, eq, normal);
+  assert.equal(res.timeMs, 150000);
+  assert.equal(res.timePenalty, 0);
+  assert.equal(res.status, 'Klar');
+  // Stopped and not saved yet: the clock's time counts
+  assert.equal(calculatePrecisionResult({ ...late, inProgress: true }, eq, normal).timeMs, 163000);
+  // Phase 2 alike
+  const p2 = calculatePrecisionResult(withRound(p1(150), 'phase2', { ...rd(70), liveTimeMs: 80000 }), eq, trTwoPhase);
+  assert.equal(p2.rounds.phase2.timeMs, 70000);
+});
+
+test('finalized without a time is no result (TR 532.4), and Finalisera needs a result', () => {
+  const eq = eqOf('A', TR_CLASS);
+  const normal = { courses: { [TR_CLASS]: { trackLengthMeters: 600, tempo: 230 } } };
+  const empty = calculatePrecisionResult({ finalized: true }, eq, normal);
+  assert.equal(empty.totalPenalty, null);
+  assert.equal(empty.status, 'Ej startat');
+  assert.equal(empty.placing.tier, null);
+  assert.equal(precisionRankKey(empty, { requireFinished: true }), null);
+  assert.equal(precisionHasResult(empty), false);
+  // A stored total of 0 does not make it one either
+  assert.equal(calculatePrecisionResult({ finalized: true, totalPenalty: 0, status: 'Klar' }, eq, normal).totalPenalty, null);
+  // Driven, eliminated or a hand-set time penalty are results
+  const driven = calculatePrecisionResult(p1(150), eq, normal);
+  assert.equal(driven.status, 'Klar');
+  assert.equal(driven.totalPenalty, 0);
+  assert.equal(precisionHasResult(driven), true);
+  assert.equal(precisionHasResult(calculatePrecisionResult({ finalized: true, eliminated: true }, eq, normal)), true);
+  assert.equal(calculatePrecisionResult({ finalized: true, timePenaltyOverride: true, timePenalty: 2 }, eq, normal).totalPenalty, 2);
+  assert.equal(precisionHasResult(calculatePrecisionResult({}, eq, normal)), false);
+  assert.equal(precisionHasResult(calculatePrecisionResult({ running: true, liveTimeMs: 1000 }, eq, normal)), false);
+});
+
+test('phase 2 driven without its course config: no definitive place, finalizing refused (owner Q11)', () => {
+  const eq = eqOf('A', TR_CLASS);
+  const noPhase2 = { courses: { [TR_CLASS]: { format: 'twoPhase', trackLengthMeters: 600, tempo: 230 } } };
+  for (const finalized of [false, true]) {
+    const doc = withRound(p1(150, { finalized }), 'phase2', rd(70));
+    const res = calculatePrecisionResult(doc, eq, noPhase2);
+    assert.equal(res.phase2Qualified, true);
+    assert.equal(res.placing.stage, 'phase2ConfigMissing');
+    assert.equal(res.placing.unfinished, true);
+    assert.equal(res.placing.provisional, true);
+    assert.equal(precisionRankKey(res, { requireFinished: true }), null);
+    assert.ok(res.formatWarnings.includes('phase2ConfigMissing'));
+    assert.equal(precisionFinalizeBlockers(res).length, 1);
+  }
+  // No phase-2 data, finalized: did not continue (unchanged)
+  const notDriven = calculatePrecisionResult(p1(150), eq, noPhase2);
+  assert.equal(notDriven.placing.stage, 'phase2NotStarted');
+  assert.deepEqual(precisionFinalizeBlockers(notDriven), []);
+});
+
+test('finalizing is refused while phase 2 / the drive-off is stopped but not saved or undecided', () => {
+  const eq = eqOf('A', TR_CLASS);
+  const stopped = calculatePrecisionResult(withRound(p1(150, { finalized: false }), 'phase2', { running: false, inProgress: true, livePausedMs: 60000, liveTimeMs: 60000 }), eq, trTwoPhase);
+  const lines = precisionFinalizeBlockers(stopped);
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /inte sparad/);
+  // Shown with the gaps before finalizing too
+  const gaps = findPrecisionGaps({ equipage: eq, result: { timeMs: 150000, totalPenalty: 0 }, calc: stopped });
+  assert.ok(gaps.includes(lines[0]));
+  // Knocks but no time, not running: undecided
+  const knocksOnly = calculatePrecisionResult(withRound(p1(150, { finalized: false }), 'phase2', { knocks: ['A'], running: false, inProgress: false }), eq, trTwoPhase);
+  assert.match(precisionFinalizeBlockers(knocksOnly)[0], /inte avgjord/);
+  // Saved, eliminated or not continued: nothing blocks
+  assert.deepEqual(precisionFinalizeBlockers(calculatePrecisionResult(withRound(p1(150), 'phase2', rd(70)), eq, trTwoPhase)), []);
+  assert.deepEqual(precisionFinalizeBlockers(calculatePrecisionResult(withRound(p1(150), 'phase2', rd(null, { eliminated: true })), eq, trTwoPhase)), []);
+  assert.deepEqual(precisionFinalizeBlockers(calculatePrecisionResult(p1(150), eq, trTwoPhase)), []);
+  // Phase 1 not clear: its phase-2 data does not count and does not block
+  assert.deepEqual(precisionFinalizeBlockers(calculatePrecisionResult(withRound(p1(150, { knocks: ['1'] }), 'phase2', { inProgress: true }), eq, trTwoPhase)), []);
+  // Drive-off: its own lock checks the drive-off
+  const eqF = eqOf('A', FEI_CLASS);
+  const dOff = calculatePrecisionResult(withRound(p1(150), 'driveOff', { running: false, inProgress: true, liveTimeMs: 70000 }), eqF, feiDriveOff());
+  assert.match(precisionFinalizeBlockers(dOff, { round: 'driveOff' })[0], /Omkörningen är inte sparad/);
+  assert.deepEqual(precisionFinalizeBlockers(calculatePrecisionResult(withRound(p1(150), 'driveOff', rd(75)), eqF, feiDriveOff()), { round: 'driveOff' }), []);
+});
+
+test('TR two phases with a scheduled drive-off gets the TR variant warning too', () => {
+  const tr = { courses: { [TR_CLASS]: { ...trTwoPhase.courses[TR_CLASS], driveOff: { scheduled: true } } } };
+  assert.ok(calculatePrecisionResult(p1(150), eqOf('A', TR_CLASS), tr).formatWarnings.includes('trDriveOffVariant'));
+  assert.ok(!calculatePrecisionResult(p1(150), eqOf('A', TR_CLASS), trTwoPhase).formatWarnings.includes('trDriveOffVariant'));
+  const fei = { courses: { [FEI_CLASS]: { ...feiTwoPhase.courses[FEI_CLASS], driveOff: { scheduled: true } } } };
+  assert.ok(!calculatePrecisionResult(p1(150), eqOf('A', FEI_CLASS), fei).formatWarnings.includes('trDriveOffVariant'));
+});
+
+test('a late or repeated "Fas 1 mål" never restarts a phase 2 that has data; a re-run clears it on purpose', () => {
+  const eq = eqOf('A', TR_CLASS);
+  const calculate = (data) => calculatePrecisionResult(data, eq, trTwoPhase);
+  const stored = withRound({ knocks: [] }, 'phase2', rd(70, { knocks: ['A'] }));
+  const w = buildPhase1FinishWrite({ stored, splitMs: 150000, splitEpoch: 777, startNumber: 1, className: TR_CLASS, calculate, now: 9 });
+  assert.equal(w.qualified, true);
+  assert.equal(w.phase2Blocked, true);
+  assert.equal('rounds' in w.payload, false);
+  assert.equal('activeRound' in w.payload, false);
+  assert.equal(w.payload.timeMs, 150000);
+  // An empty (reset) phase 2 is started as before
+  const reset = withRound({ knocks: [] }, 'phase2', { status: 'Ej startat', inProgress: false, running: false, liveTimeMs: 0, timeMs: null });
+  assert.equal(buildPhase1FinishWrite({ stored: reset, splitMs: 150000, splitEpoch: 777, startNumber: 1, className: TR_CLASS, calculate, now: 9 }).phase2Blocked, false);
+  // The deliberate re-run: phase 2 removed in a rounds-only write, activeRound back to phase 1
+  const fs = { deleteField: () => ({ del: true }) };
+  assert.deepEqual(buildPrecisionRoundClearWrite({ round: 'phase2', now: 5 }, fs), { rounds: { phase2: { del: true } }, activeRound: 'phase1', updatedAt: 5 });
+  assert.throws(() => buildPrecisionRoundClearWrite({ round: 'phase1' }, fs));
+});
+
+test('a knock push carries no extra penalty unless asked (another device\'s entry stays)', () => {
+  const fs = { arrayUnion: (v) => ({ union: v }), arrayRemove: (v) => ({ remove: v }), deleteField: () => ({ del: true }) };
+  const w = buildPrecisionKnockWrite({ round: 'phase2', gate: 'A', add: true, elapsedMs: 1000, liveObstaclePenalty: 3, liveTotalPenalty: 3, startNumber: 1, className: 'X', now: 1 }, fs);
+  assert.equal('extraPenalty' in w.rounds.phase2, false);
+  assert.equal('eliminated' in w.rounds.phase2, false);
 });

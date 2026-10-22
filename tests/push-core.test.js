@@ -17,6 +17,7 @@ import {
     buildVetDecisionContent,
     competitionKey,
     groupPushMessages,
+    inheritRenewedToken,
     isStaleToken,
     isValidPushToken,
     messagePushAudience,
@@ -93,6 +94,23 @@ test('topics are checked; stale tokens and the per-account cap', () => {
     assert.equal(isStaleToken({ lastSeenMs: now - 1000 }, now), false);
     const tokens = Array.from({ length: 12 }, (_, i) => ({ id: `t${i}`, data: { lastSeenMs: i } }));
     assert.deepEqual(tokensOverUserCap(tokens, 10).sort(), ['t0', 't1']);
+    // Shared official accounts on many field devices
+    assert.ok(PUSH_LIMITS.maxTokensPerUser >= 30);
+});
+
+test('a renewed token inherits the old registration of the same account only', () => {
+    const old = { uid: 'u1', topics: ['pause'], competitions: ['app__c1', 'app__c2'], createdAtMs: 50 };
+    const base = inheritRenewedToken({ existing: null, previous: old, uid: 'u1' });
+    const next = buildTokenDoc({ existing: base, uid: 'u1', token: TOKEN(9), topics: null, competition: 'app__c3', now: 500 });
+    assert.deepEqual(next.topics, ['pause']);
+    assert.deepEqual(next.competitions, ['app__c3', 'app__c1', 'app__c2']);
+    assert.equal(next.createdAtMs, 50);
+    // The new token already registered: both competition lists, its own topics
+    const merged = inheritRenewedToken({ existing: { uid: 'u1', topics: ['messages'], competitions: ['app__c9'], createdAtMs: 400 }, previous: old, uid: 'u1' });
+    assert.deepEqual(merged.topics, ['messages']);
+    assert.deepEqual(merged.competitions, ['app__c9', 'app__c1', 'app__c2']);
+    // Another account's old token: nothing carried
+    assert.equal(inheritRenewedToken({ existing: null, previous: { ...old, uid: 'u2' }, uid: 'u1' }), null);
 });
 
 test('settings: the public VAPID key, on only with a key, https app url', () => {

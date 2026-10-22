@@ -31,6 +31,19 @@ function inlineScripts(html) {
     .map(m => m[2]);
 }
 
+// CSP host-source matching: a source ending in "/" is a path prefix, otherwise an exact path
+function allows(sources, href) {
+  const url = new URL(href);
+  return sources.some(src => {
+    if (!/^https:\/\//.test(src)) return false;
+    const s = new URL(src);
+    if (s.origin !== url.origin) return false;
+    if (src === s.origin) return true; // bare origin: any path
+    if (src.endsWith('/')) return url.pathname.startsWith(s.pathname);
+    return url.pathname === s.pathname;
+  });
+}
+
 function jsFiles(dir) {
   return readdirSync(dir).flatMap(name => {
     const full = path.join(dir, name);
@@ -90,13 +103,13 @@ test('external scripts and styles come from origins the CSP allows, pinned files
     const html = readFileSync(path.join(root, page), 'utf8');
     for (const [tag] of html.matchAll(/<script\b[^>]*\bsrc="https:[^"]*"[^>]*>/gi)) {
       const url = new URL(tag.match(/src="([^"]+)"/)[1]);
-      assert.ok(scriptSrc.includes(url.origin), `${page}: ${url.origin} not in script-src`);
+      assert.ok(allows(scriptSrc, url.href), `${page}: ${url.href} not in script-src`);
       assert.match(tag, /integrity="sha(256|384|512)-/, `${page}: ${url.href} without SRI`);
       assert.match(tag, /crossorigin=/, `${page}: ${url.href} without crossorigin`);
     }
     for (const [tag] of html.matchAll(/<link\b[^>]*\bhref="https:[^"]*"[^>]*>/gi)) {
       const url = new URL(tag.match(/href="([^"]+)"/)[1]);
-      assert.ok(styleSrc.includes(url.origin), `${page}: ${url.origin} not in style-src`);
+      assert.ok(allows(styleSrc, url.href), `${page}: ${url.href} not in style-src`);
       // Google Fonts serves a different stylesheet per browser: no SRI possible
       if (url.hostname !== 'fonts.googleapis.com') {
         assert.match(tag, /integrity="sha(256|384|512)-/, `${page}: ${url.href} without SRI`);
@@ -107,9 +120,32 @@ test('external scripts and styles come from origins the CSP allows, pinned files
   for (const file of jsFiles(path.join(root, 'js'))) {
     const src = readFileSync(file, 'utf8');
     for (const [, url] of src.matchAll(/(?:from|import\()\s*["'](https:\/\/[^"']+)["']/g)) {
-      assert.ok(scriptSrc.includes(new URL(url).origin), `${file}: ${url} not in script-src`);
+      assert.ok(allows(scriptSrc, url), `${file}: ${url} not in script-src`);
     }
   }
+});
+
+test('CDN sources are path-scoped to the exact pinned libraries, no bare CDN host', () => {
+  const enforced = policy('Content-Security-Policy');
+  const cdnHosts = ['unpkg.com', 'cdnjs.cloudflare.com', 'cdn.jsdelivr.net', 'www.gstatic.com'];
+  for (const name of ['script-src', 'style-src', 'font-src', 'connect-src', 'img-src', 'default-src']) {
+    for (const src of directive(enforced, name) || []) {
+      if (!/^https:\/\//.test(src)) continue;
+      const u = new URL(src);
+      if (cdnHosts.includes(u.hostname)) assert.notEqual(u.pathname, '/', `${name}: bare CDN host ${src}`);
+    }
+  }
+  const scriptSrc = directive(enforced, 'script-src');
+  assert.ok(scriptSrc.includes('https://www.gstatic.com/firebasejs/'));
+  assert.ok(scriptSrc.includes('https://unpkg.com/leaflet@1.9.4/dist/leaflet.js'));
+  assert.ok(scriptSrc.includes('https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js'));
+  assert.ok(scriptSrc.includes('https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'));
+  assert.ok(directive(enforced, 'style-src').includes('https://unpkg.com/leaflet@1.9.4/dist/leaflet.css'));
+  assert.ok(directive(enforced, 'style-src').includes('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css'));
+  assert.ok(directive(enforced, 'font-src').includes('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/webfonts/'));
+  // Other libraries on the same CDNs stay blocked
+  assert.ok(!allows(scriptSrc, 'https://unpkg.com/evil@1.0.0/x.js'));
+  assert.ok(!allows(scriptSrc, 'https://cdnjs.cloudflare.com/ajax/libs/angular.js/1.8.3/angular.min.js'));
 });
 
 test('the static server applies the firebase.json headers, with the emulators for local runs', () => {
@@ -138,9 +174,9 @@ test('push notifications: Firebase Messaging may register the device (connect-sr
   const connect = directive(enforced, 'connect-src');
   assert.ok(connect.includes('https://fcmregistrations.googleapis.com'));
   assert.ok(connect.includes('https://firebaseinstallations.googleapis.com'));
-  assert.ok(directive(enforced, 'script-src').includes('https://www.gstatic.com'));
+  assert.ok(directive(enforced, 'script-src').includes('https://www.gstatic.com/firebasejs/'));
   const service = readFileSync(path.join(root, 'js/services/pushService.js'), 'utf8');
   for (const [, url] of service.matchAll(/["'](https:\/\/[^"']+\.js)["']/g)) {
-    assert.ok(directive(enforced, 'script-src').includes(new URL(url).origin), url);
+    assert.ok(allows(directive(enforced, 'script-src'), url), url);
   }
 });

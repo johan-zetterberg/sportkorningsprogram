@@ -24,10 +24,12 @@ import {
     filterOptOuts,
     isEssentialMail,
     mailDayKey,
+    mailQuotaLimits,
     nextRetryDelayMs,
     normalizeEmail,
     normalizeExplicitRecipients,
     readEmailSettings,
+    releaseDailyQuota,
     reserveDailyQuota,
     resolveRecipients,
     signMailToken,
@@ -40,8 +42,16 @@ export const SERVER_MAIL_SIGNING = 'serverSettings/mailSigning';
 export const SERVER_MAIL_USAGE = 'serverSettings/mailUsage';
 export const MAIL_RETRY_COLLECTION = 'mailRetry';
 export const MAIL_DAY_COUNTER = 'mail_day';
-// A mail left in 'sending' this long is taken as stopped half-way
-export const STUCK_SENDING_MS = 30 * 60 * 1000;
+// System mail (volunteer confirmations, reply-to checks, tests): own counters
+export const MAIL_SYSTEM_DAY_COUNTER = 'mail_system_day';
+export const SERVER_MAIL_SYSTEM_USAGE = 'serverSettings/mailSystemUsage';
+// A mail left in 'sending' this long is taken as stopped half-way (longer
+// than any function that sends: 540 s at most)
+export const STUCK_SENDING_MS = 15 * 60 * 1000;
+// Messages sent between two records of who got the mail (deliveredHashes)
+export const MAIL_SEND_CHUNK = 50;
+// A start time change older than this is no use any more (retryQueuedMail)
+export const START_TIME_MAIL_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 export const competitionPath = (appId, compId) => `artifacts/${appId}/public/data/competitions/${compId}`;
 export const privateCompetitionPath = (appId, compId) => `artifacts/${appId}/private/data/competitions/${compId}`;
@@ -68,6 +78,8 @@ export function buildQueueDoc(mail, { FieldValue, now = Date.now() }) {
         personalTexts: mail.personalTexts || null,
         createdBy: mail.createdBy || 'system',
         createdByRole: mail.createdByRole || null,
+        // Why an essential mail was sent (queueCompetitionMail), for the log
+        reason: mail.reason || null,
         source: mail.source || null,
         createdAt: FieldValue.serverTimestamp(),
         createdAtMs: now,
@@ -169,22 +181,54 @@ export async function readOptOuts(db, appId, compId, recipients) {
     return found;
 }
 
-/** Counts `count` messages against the competition's and the global daily cap, all or nothing */
-export async function reserveMailQuota(db, { appId, compId, count, settings, now = Date.now() }) {
+// The counters a mail counts against, with their caps (mailCore mailQuotaLimits)
+function quotaCounters(db, { appId, compId, mail, settings }) {
+    const limits = mailQuotaLimits(mail, settings);
+    const counters = [
+        { scope: 'competition', ref: db.doc(`${privateCompetitionPath(appId, compId)}/rateLimits/${MAIL_DAY_COUNTER}`), limit: limits.competition },
+        { scope: 'global', ref: db.doc(SERVER_MAIL_USAGE), limit: limits.global }
+    ];
+    if (limits.systemCompetition !== null) {
+        counters.push(
+            { scope: 'system', ref: db.doc(`${privateCompetitionPath(appId, compId)}/rateLimits/${MAIL_SYSTEM_DAY_COUNTER}`), limit: limits.systemCompetition },
+            { scope: 'system', ref: db.doc(SERVER_MAIL_SYSTEM_USAGE), limit: limits.systemGlobal }
+        );
+    }
+    return counters;
+}
+
+/**
+ * Counts `count` messages against the daily caps, all or nothing: the
+ * competition's (a share of the global one), the global one (less the
+ * reserve for essential competition mail) and, for system mail, its own caps.
+ * mail: { kind, category } (the old callers' mail-less calls count as info).
+ */
+export async function reserveMailQuota(db, { appId, compId, count, settings, mail = {}, now = Date.now() }) {
     const dayKey = mailDayKey(now);
-    const compRef = db.doc(`${privateCompetitionPath(appId, compId)}/rateLimits/${MAIL_DAY_COUNTER}`);
-    const globalRef = db.doc(SERVER_MAIL_USAGE);
-    const compLimit = Number(settings?.competitionDailyLimit) || MAIL_LIMITS.competitionDailyDefault;
-    const globalLimit = Number(settings?.dailyLimit) || MAIL_LIMITS.globalDailyDefault;
+    const counters = quotaCounters(db, { appId, compId, mail, settings });
     return db.runTransaction(async (tx) => {
-        const [compSnap, globalSnap] = await Promise.all([tx.get(compRef), tx.get(globalRef)]);
-        const byComp = reserveDailyQuota(compSnap.exists ? compSnap.data() : null, dayKey, count, compLimit, now);
-        const byGlobal = reserveDailyQuota(globalSnap.exists ? globalSnap.data() : null, dayKey, count, globalLimit, now);
-        if (!byComp.allowed) return { allowed: false, scope: 'competition', remaining: byComp.remaining, limit: compLimit };
-        if (!byGlobal.allowed) return { allowed: false, scope: 'global', remaining: byGlobal.remaining, limit: globalLimit };
-        tx.set(compRef, byComp.next);
-        tx.set(globalRef, byGlobal.next);
-        return { allowed: true, remaining: Math.min(byComp.remaining, byGlobal.remaining) };
+        const snaps = await Promise.all(counters.map((c) => tx.get(c.ref)));
+        const results = counters.map((c, i) => reserveDailyQuota(snaps[i].exists ? snaps[i].data() : null, dayKey, count, c.limit, now));
+        const blocked = results.findIndex((r) => !r.allowed);
+        if (blocked >= 0) {
+            return { allowed: false, scope: counters[blocked].scope, remaining: results[blocked].remaining, limit: counters[blocked].limit };
+        }
+        results.forEach((r, i) => tx.set(counters[i].ref, r.next));
+        return { allowed: true, remaining: Math.min(...results.map((r) => r.remaining)) };
+    });
+}
+
+/** Gives back the quota of `count` messages that were not delivered (today's counters only) */
+export async function releaseMailQuota(db, { appId, compId, count, settings, mail = {}, now = Date.now() }) {
+    if (!(count > 0)) return;
+    const dayKey = mailDayKey(now);
+    const counters = quotaCounters(db, { appId, compId, mail, settings });
+    await db.runTransaction(async (tx) => {
+        const snaps = await Promise.all(counters.map((c) => tx.get(c.ref)));
+        counters.forEach((c, i) => {
+            const next = releaseDailyQuota(snaps[i].exists ? snaps[i].data() : null, dayKey, count, now);
+            if (next) tx.set(c.ref, next);
+        });
     });
 }
 
@@ -216,6 +260,8 @@ async function writeMailLog(db, FieldValue, { appId, compId, mailId, mail, updat
         kind: mail.kind,
         category: mail.category || null,
         createdBy: mail.createdBy || 'system',
+        createdByRole: mail.createdByRole || null,
+        reason: mail.reason || null,
         status: update.status,
         attempt: update.attempts ?? mail.attempts ?? 0,
         recipients: counts.recipients || 0,
@@ -255,18 +301,27 @@ export async function processMailDoc({
     db, FieldValue, logger = console, ref, appId, compId, providerFactory,
     linkBaseUrl = null, now = Date.now()
 }) {
+    const sendAttemptId = randomBytes(8).toString('hex');
     const mail = await db.runTransaction(async (tx) => {
         const snap = await tx.get(ref);
         if (!snap.exists) return null;
         const data = snap.data();
         if (data.status !== 'queued' || (data.nextAttemptAt && data.nextAttemptAt > now)) return null;
-        tx.update(ref, { status: 'sending', sendingAt: now });
+        // The recoverable marker: if this run stops half-way (the instance
+        // dies), the watchdog entry makes processDueMailRetries take the mail
+        // over after STUCK_SENDING_MS and send to the recipients not yet
+        // recorded in deliveredHashes
+        tx.update(ref, { status: 'sending', sendingAt: now, sendAttemptId });
+        tx.set(db.collection(MAIL_RETRY_COLLECTION).doc(retryEntryId(appId, compId, ref.id)),
+            { appId, compId, mailId: ref.id, reason: 'retry', retryAt: now + STUCK_SENDING_MS, watchdog: true, updatedAt: now });
         return data;
     });
     if (!mail) return { status: 'skipped' };
+    // Recipients already sent to (earlier attempts or a run that stopped)
+    const delivered = new Set(Array.isArray(mail.deliveredHashes) ? mail.deliveredHashes : []);
 
     const finish = async (update, provider = null) => {
-        const full = { ...update, sendingAt: FieldValue.delete(), updatedAt: now };
+        const full = { ...update, sendingAt: FieldValue.delete(), sendAttemptId: FieldValue.delete(), updatedAt: now };
         await ref.update(full);
         const retry = update.status === 'queued'
             ? { reason: 'retry', retryAt: update.nextAttemptAt }
@@ -276,6 +331,12 @@ export async function processMailDoc({
         return { status: update.status, counts: update.counts || mail.counts };
     };
 
+    // Kept outside the try: an error after sending must not lose who got it
+    let sending = null;
+    let sendError = null;
+    let baseCounts = null;
+    let earlierSent = delivered.size;
+    let earlierFailed = 0;
     try {
         const settings = await loadProviderSettings(db);
         const provider = providerFactory(settings);
@@ -300,21 +361,25 @@ export async function processMailDoc({
         if (!essential && recipients.length) {
             ({ recipients, skipped } = filterOptOuts(recipients, await readOptOuts(db, appId, compId, recipients), false));
         }
-        const baseCounts = firstAttempt
+        baseCounts = firstAttempt
             ? { recipients: recipients.length, sent: 0, failed: 0, skippedOptOut: skipped, withoutEmail: resolved.withoutEmail.length }
             : { ...mail.counts };
+        earlierSent = Math.max(firstAttempt ? 0 : Number(mail.counts?.sent) || 0, delivered.size);
+        earlierFailed = firstAttempt ? 0 : Number(mail.counts?.failed) || 0;
         if (recipients.length > MAIL_LIMITS.maxRecipients) {
             return await finish({ status: 'failed', counts: baseCounts, error: `För många mottagare (högst ${MAIL_LIMITS.maxRecipients}).` });
         }
+        // Never twice to the same address: those recorded as sent are left out
+        recipients = recipients.filter((r) => !delivered.has(emailHash(r.email)));
         if (!recipients.length) {
             return await finish(resolved.recipients.length
-                ? { status: 'sent', counts: baseCounts, error: null, sentAt: now }
+                ? { status: 'sent', counts: { ...baseCounts, sent: earlierSent }, error: null, sentAt: now, retryRecipients: FieldValue.delete() }
                 : { status: 'failed', counts: baseCounts, error: 'Inga mottagare med e-postadress.' });
         }
 
-        const quota = await reserveMailQuota(db, { appId, compId, count: recipients.length, settings, now });
+        const quota = await reserveMailQuota(db, { appId, compId, count: recipients.length, settings, mail, now });
         if (!quota.allowed) {
-            const scope = quota.scope === 'competition' ? 'tävlingens' : 'DriveLives';
+            const scope = quota.scope === 'competition' ? 'tävlingens' : (quota.scope === 'system' ? 'systemets automatiska' : 'DriveLives');
             return await finish({
                 status: 'blocked',
                 counts: baseCounts,
@@ -347,36 +412,71 @@ export async function processMailDoc({
             return { from, replyTo, ...content, headers, tags: [mail.kind] };
         });
 
-        const results = (await sendAll(provider, messages)).map((result, i) => ({ ...result, recipient: recipients[i] }));
+        // In chunks: after each, who got it is recorded (deliveredHashes), so
+        // a run that stops half-way is resumed without sending anyone twice
+        sending = { provider, settings, reserved: recipients.length, results: [] };
+        for (let i = 0; i < messages.length; i += MAIL_SEND_CHUNK) {
+            const chunk = (await sendAll(provider, messages.slice(i, i + MAIL_SEND_CHUNK)))
+                .map((result, j) => ({ ...result, recipient: recipients[i + j] }));
+            sending.results.push(...chunk);
+            const sentHashes = chunk.filter((r) => r.ok).map((r) => emailHash(r.recipient.email));
+            if (sentHashes.length) {
+                try {
+                    await ref.update({ deliveredHashes: FieldValue.arrayUnion(...sentHashes), sendingProgressAt: Date.now() });
+                } catch (recordError) {
+                    logger.warn('E-post: mottagare kunde inte noteras som skickade', { appId, compId, mailId: ref.id, error: String(recordError?.message || recordError) });
+                }
+            }
+        }
+    } catch (error) {
+        sendError = error;
+        logger.error('E-postutskicket misslyckades', { appId, compId, mailId: ref.id, error: String(error?.message || error) });
+    }
+
+    // Bookkeeping on its own: a failure here never sends the mail again to
+    // those who got it (they are in deliveredHashes; the watchdog entry from
+    // the claim takes the mail over if even this fails)
+    try {
+        const results = sending?.results || [];
+        const sentNow = results.filter((r) => r.ok).length;
         const attempts = (mail.attempts || 0) + 1;
-        const summary = summarizeSendResults(results, { attempts, earlierSent: Number(mail.counts?.sent) || 0 });
+        if (sending) {
+            // Undelivered (or never tried) messages do not use up the day's caps (a retry reserves again)
+            await releaseMailQuota(db, { appId, compId, count: sending.reserved - sentNow, settings: sending.settings, mail, now })
+                .catch((error) => logger.warn('E-postkvoten kunde inte återlämnas', { appId, compId, mailId: ref.id, error: String(error?.message || error) }));
+        }
+        if (sendError) {
+            const delay = nextRetryDelayMs(attempts);
+            const update = {
+                status: delay === null ? 'failed' : 'queued',
+                attempts,
+                error: String(sendError?.message || sendError).slice(0, 300),
+                nextAttemptAt: delay === null ? null : now + delay
+            };
+            if (baseCounts) update.counts = { ...baseCounts, sent: earlierSent + sentNow, failed: earlierFailed };
+            return await finish(update, sending?.provider?.name || null);
+        }
+        const summary = summarizeSendResults(results, { attempts, earlierSent });
         const counts = {
             ...baseCounts,
-            sent: (firstAttempt ? 0 : Number(mail.counts?.sent) || 0) + summary.sent,
-            failed: (firstAttempt ? 0 : Number(mail.counts?.failed) || 0) + summary.failed
+            sent: earlierSent + summary.sent,
+            failed: earlierFailed + summary.failed
         };
         const update = {
             status: summary.status,
             attempts,
             counts,
             error: summary.error,
-            provider: provider.name,
+            provider: sending.provider.name,
             providerMessageIds: [...(mail.providerMessageIds || []), ...summary.messageIds].slice(0, MAIL_LIMITS.maxRecipients),
             nextAttemptAt: summary.status === 'queued' ? now + summary.retryDelayMs : null,
             retryRecipients: summary.retryRecipients.length ? summary.retryRecipients : FieldValue.delete()
         };
         if (summary.status !== 'queued') update.sentAt = now;
-        return await finish(update, provider.name);
+        return await finish(update, sending.provider.name);
     } catch (error) {
-        logger.error('E-postutskicket misslyckades', { appId, compId, mailId: ref.id, error: String(error?.message || error) });
-        const attempts = (mail.attempts || 0) + 1;
-        const delay = nextRetryDelayMs(attempts);
-        return finish({
-            status: delay === null ? 'failed' : 'queued',
-            attempts,
-            error: String(error?.message || error).slice(0, 300),
-            nextAttemptAt: delay === null ? null : now + delay
-        });
+        logger.error('E-post: utskicket kunde inte bokföras (tas över av nästa körning)', { appId, compId, mailId: ref.id, error: String(error?.message || error) });
+        return { status: 'error', counts: mail.counts };
     }
 }
 
@@ -388,7 +488,13 @@ export async function processDueMailRetries({ db, FieldValue, logger = console, 
         const { appId, compId, mailId } = entry.data();
         const ref = db.doc(`${mailQueuePath(appId, compId)}/${mailId}`);
         const mailSnap = await ref.get();
-        if (!mailSnap.exists || mailSnap.data()?.status !== 'queued') {
+        const status = mailSnap.exists ? mailSnap.data()?.status : null;
+        if (status === 'sending') {
+            // The watchdog entry of a run that stopped half-way: taken over,
+            // sent to the recipients not yet recorded as sent
+            if (!(await takeOverStuckMail(db, ref, now))) continue;
+            logger.warn('E-post: avbrutet utskick tas över', { appId, compId, mailId });
+        } else if (status !== 'queued') {
             await entry.ref.delete();
             continue;
         }
@@ -396,6 +502,22 @@ export async function processDueMailRetries({ db, FieldValue, logger = console, 
         results.push({ appId, compId, mailId, status: result.status });
     }
     return results;
+}
+
+/** A mail left in 'sending' longer than STUCK_SENDING_MS back to 'queued': true when taken over */
+export async function takeOverStuckMail(db, ref, now = Date.now()) {
+    return db.runTransaction(async (tx) => {
+        const snap = await tx.get(ref);
+        const mail = snap.exists ? snap.data() : null;
+        if (!mail || mail.status !== 'sending' || now - (Number(mail.sendingAt) || 0) <= STUCK_SENDING_MS) return false;
+        tx.update(ref, { status: 'queued', nextAttemptAt: null, takeovers: (Number(mail.takeovers) || 0) + 1, updatedAt: now });
+        return true;
+    });
+}
+
+/** A start time change mail too old to be any use (START_TIME_MAIL_MAX_AGE_MS) */
+export function isStaleStartTimeMail(mail = {}, now = Date.now()) {
+    return mail.kind === 'startTimeChange' && now - (Number(mail.createdAtMs) || 0) > START_TIME_MAIL_MAX_AGE_MS;
 }
 
 /**
@@ -415,6 +537,11 @@ export async function requeueMail({ db, FieldValue, logger = console, appId, com
             tx.update(ref, { status: 'failed', error: 'För gammalt för att skickas.', updatedAt: now });
             return 'expired';
         }
+        // Changed start times more than 12 h old: the start is likely over
+        if (isStaleStartTimeMail(mail, now)) {
+            tx.update(ref, { status: 'expired', error: 'Starttidsändringen är för gammal för att skickas.', sendingAt: FieldValue.delete(), updatedAt: now });
+            return 'expired-start-time';
+        }
         const update = { status: 'queued', nextAttemptAt: null, error: null, updatedAt: now };
         // A mail that never reached the provider starts over
         if (['not_configured', 'blocked', 'failed'].includes(mail.status)) update.attempts = 0;
@@ -425,10 +552,11 @@ export async function requeueMail({ db, FieldValue, logger = console, appId, com
         const result = await processMailDoc({ db, FieldValue, logger, ref, appId, compId, providerFactory, linkBaseUrl, now });
         return { appId, compId, mailId, status: result.status, counts: result.counts };
     }
-    if (outcome === 'expired' || outcome === 'missing') {
+    if (outcome === 'expired' || outcome === 'expired-start-time' || outcome === 'missing') {
         await setRetryEntry(db, { appId, compId, mailId, reason: null, now });
     }
-    return { appId, compId, mailId, status: outcome === 'expired' ? 'failed' : outcome, skipped: true };
+    const status = outcome === 'expired' ? 'failed' : (outcome === 'expired-start-time' ? 'expired' : outcome);
+    return { appId, compId, mailId, status, skipped: true };
 }
 
 /** The mails waiting for a superadmin (not configured, over a cap) */

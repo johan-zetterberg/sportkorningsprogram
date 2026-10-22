@@ -9,14 +9,46 @@ import {
 import { syncService } from './syncService.js';
 
 // === GLOBAL SYNC LISTENER ===
-window.addEventListener('online', async () => {
+// The list of unsent writes is kept in memory, but Firestore's own queue is
+// persisted: writes made offline before a reload are still waiting. At start
+// the list shows "unknown number waiting" until Firestore says those writes
+// reached the server. Entries are cleared when Firestore confirms the writes
+// made before the check, on 'online' and every SYNC_CHECK_MS while the list
+// is not empty (the 'online' event is not reliable on every device).
+const RESTORED_QUEUE_ID = 'restored-queue';
+const RESTORED_QUEUE_DELAY_MS = 1500;
+const SYNC_CHECK_MS = 30000;
+
+let startupSettled = false;
+waitForPendingWrites(db)
+  .catch((e) => console.warn('Kunde inte läsa väntande skrivningar:', e))
+  .finally(() => {
+    startupSettled = true;
+    syncService.remove(RESTORED_QUEUE_ID);
+  });
+// Resolved at once when nothing waits: only a slow answer shows the marker
+setTimeout(() => {
+  if (!startupSettled) syncService.add(RESTORED_QUEUE_ID, 'Okänt antal ändringar från tidigare väntar på uppladdning');
+}, RESTORED_QUEUE_DELAY_MS);
+
+let syncCheckRunning = false;
+async function confirmSyncedWrites() {
+  if (syncCheckRunning || navigator.onLine === false) return;
+  syncCheckRunning = true;
+  const cutoff = Date.now();
   try {
     await waitForPendingWrites(db);
-    syncService.clearAll();
+    syncService.removeOlderThan(cutoff, [RESTORED_QUEUE_ID]);
   } catch (e) {
     console.warn('Fel vid återsynk:', e);
+  } finally {
+    syncCheckRunning = false;
   }
-});
+}
+window.addEventListener('online', confirmSyncedWrites);
+setInterval(() => {
+  if (syncService.count > 0) confirmSyncedWrites();
+}, SYNC_CHECK_MS);
 
 // === HJÄLPFUNKTION FÖR ATT WRAPPA SKRIVNINGAR ===
 export async function trackWrite(description, promise) {

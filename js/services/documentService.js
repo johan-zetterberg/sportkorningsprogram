@@ -2,7 +2,7 @@ import { db, appId, functions } from '../config/firebase-config.js';
 import { httpsCallable } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js';
 import { collection, doc, getDocs, addDoc, deleteDoc, updateDoc, onSnapshot, query, orderBy, serverTimestamp, where } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getCompCollectionRef } from './firestoreService.js';
-import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
+import { buildSnapshotErrorHandler, resilientSnapshot } from './listenerErrorUtils.js';
 import { isOfficialMessage } from '../utils/messageAudience.js';
 
 function normalizeStartNumberList(value) {
@@ -157,9 +157,19 @@ export async function saveCompetitionMessage(competitionId, msgData) {
 export function listenForOfficialMessages(competitionId, callback) {
   if (!competitionId) { callback([]); return () => { }; }
   const colRef = collection(db, `artifacts/${appId}/public/data/competitions/${competitionId}/messages`);
-  return onSnapshot(query(colRef, where('audience.officials', '==', true)),
-    (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-    (err) => { console.warn('Official messages could not be read:', err?.code || err); callback([]); });
+  return resilientSnapshot({
+    name: 'officialMessages',
+    subscribe: (onNext, onError) => onSnapshot(query(colRef, where('audience.officials', '==', true)), onNext, (err) => {
+      if (err?.code === 'permission-denied') {
+        // Not allowed to read them: no retry, just nothing to show
+        console.warn('Official messages could not be read:', err.code);
+        callback([]);
+        return;
+      }
+      onError(err);
+    }),
+    onData: (snap) => callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  });
 }
 
 /** Changes a sent message (the admin's edit); editedAt marks it changed */

@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 
 import {
     buildCorrectionReason,
+    findEditConflicts,
     formatCorrectionReason,
     mergeObstacleSources,
     normalizeSecretariatObstacle,
+    pickEditedFields,
     planObstacleCorrection
 } from '../js/services/secretariatPatchUtils.js';
+import { parseKnockListInput, sortKnocks } from '../js/pages/precision/precisionInputUtils.js';
+import { calculatePrecisionResult } from '../js/utils/precisionCalculation.js';
 import { buildRejectedWriteEntry, summarizeRejectedPayload } from '../js/services/rejectedWritesUtils.js';
 import { describeImportWrites, equipageIdentity, sameEquipageIdentity } from '../js/pages/admin/adminParticipantIdentity.js';
 
@@ -31,6 +35,25 @@ test('an obstacle correction of a field the judge changed meanwhile is a conflic
     const current = { number: 3, timeInSeconds: 44 };
     const plan = planObstacleCorrection({ ...loaded, timeInSeconds: 42 }, loaded, current);
     assert.deepEqual(plan.conflicts, ['timeInSeconds']);
+});
+
+test('precision correction: the knock list is the edited field, never an obstacle penalty of 0', () => {
+    const fields = ['timeMs', 'knocks'];
+    const defaults = { timeMs: 0, knocks: [] };
+    // Loaded with the judge's knocks 3 and 5 (as the secretariat row: sorted)
+    const base = { timeMs: 150000, knocks: sortKnocks(['5', '3']) };
+    // Only the time edited: the knocks are not written, so no 0 voids them
+    assert.deepEqual(pickEditedFields({ timeMs: 151000, knocks: parseKnockListInput('3, 5') }, base, fields, defaults), { timeMs: 151000 });
+    // A knock removed by the secretariat
+    assert.deepEqual(pickEditedFields({ timeMs: 150000, knocks: parseKnockListInput('5') }, base, fields, defaults), { knocks: ['5'] });
+    // The judge added knock 7 after the page was loaded: a conflict, not an overwrite
+    const edited = { knocks: ['5'] };
+    assert.deepEqual(findEditConflicts(edited, base, { knocks: sortKnocks(['7', '3', '5']) }, defaults), ['knocks']);
+    assert.deepEqual(findEditConflicts(edited, base, { knocks: sortKnocks(['5', '3']) }, defaults), []);
+    // The engine counts the written list (a stored obstaclePenalty of 0 no longer voids it)
+    const eq = { startNumber: 1, className: 'MSV Enbet Häst' };
+    const config = { courses: { 'MSV Enbet Häst': { trackLengthMeters: 600, tempo: 230 } } };
+    assert.equal(calculatePrecisionResult({ timeMs: 150000, liveTimeMs: 150000, knocks: ['3', '5'], obstaclePenalty: 0 }, eq, config).totalPenalty, 6);
 });
 
 test('an untouched obstacle row has nothing to save', () => {

@@ -517,6 +517,12 @@ export function renderCommunicationTab(container, competition) {
                 button.disabled = false;
                 return;
             }
+            // An essential e-mail needs its reason (logged) before anything is published
+            if (!document.getElementById('msgEditId').value && mailOptions?.essential() && !mailOptions.reason?.()) {
+                showAlert(t('mail_msg_reason_required'), false);
+                button.disabled = false;
+                return;
+            }
 
             const payload = {
                 title: document.getElementById('msgTitle').value.trim(),
@@ -543,10 +549,12 @@ export function renderCommunicationTab(container, competition) {
                         bodyEn: payload.bodyEn,
                         mode: audienceMode,
                         selectedDrivers,
-                        essential: mailOptions.essential()
+                        essential: mailOptions.essential(),
+                        reason: mailOptions.reason?.() || ''
                     });
                     try {
                         if (!mailPayload) throw new Error(t('mail_msg_no_audience'));
+                        if (mailPayload.category === 'essential' && !mailPayload.reason) throw new Error(t('mail_msg_reason_required'));
                         await queueCompetitionMail(mailPayload);
                         showAlert(t('mail_msg_queued'), 'success');
                     } catch (mailErr) {

@@ -4,15 +4,17 @@
 // updated in a transaction: two officials pressing at once cannot overwrite
 // each other, and pausing during an open pause (or resuming without one)
 // changes nothing. Each entry records why, who and where (globalPauseUtils).
+// Without connection a pause event is queued instead (append-only, folded
+// into the log by the server: functions/src/pauseEvents.js).
 
 import { db, appId, auth } from '../config/firebase-config.js';
-import { doc, getDoc, setDoc, serverTimestamp, runTransaction, deleteField } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
+import { collection, doc, getDoc, serverTimestamp, runTransaction, deleteField, writeBatch } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 import { trackWrite } from './firestoreService.js';
 import { awaitWriteOrQueue, queuedNotice } from '../utils/offlineWrite.js';
 import { showAlert } from '../ui/components.js';
 import { t } from '../utils/i18n.js';
 import { serverNow } from '../utils/serverClock.js';
-import { nextPauseLog, pauseActor } from '../utils/globalPauseUtils.js';
+import { buildPauseEntry, nextPauseLog, pauseActor } from '../utils/globalPauseUtils.js';
 
 /** Who presses the button: the account's uid, display name (if any) and the role code */
 export function currentPauseActor(role) {
@@ -23,6 +25,25 @@ export function currentPauseActor(role) {
 export function globalStatusDocRef(competitionId) {
   if (!competitionId) throw new Error('competitionId saknas');
   return doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus');
+}
+
+/** A new pause event (private pauseEvents/{eventId}, a unique id: safe to queue offline) */
+export function pauseEventRef(competitionId) {
+  if (!competitionId) throw new Error('competitionId saknas');
+  return doc(collection(db, 'artifacts', appId, 'private', 'data', 'competitions', competitionId, 'pauseEvents'));
+}
+
+/** The event for a press: the same reason, who and where as a log entry */
+export function pauseEventDoc(isPaused, nowIso, details = {}) {
+  const entry = buildPauseEntry(nowIso, details);
+  const event = { type: isPaused ? 'start' : 'end', at: String(nowIso), atServer: serverTimestamp(), processed: false };
+  if (entry.by) event.by = entry.by;
+  if (isPaused) {
+    event.reason = entry.reason;
+    if (entry.note) event.note = entry.note;
+    if (entry.where) event.where = entry.where;
+  }
+  return event;
 }
 
 // As saveMarathonObstacleResult: a transaction on weak signal can hang for long
@@ -68,15 +89,22 @@ export async function setGlobalPause(competitionId, isPaused, details = {}) {
       updatedAt: serverTimestamp()
     });
 
-    // Transactions need the network. Offline: queue the write as before
-    // (from the last known status), so the pause is not lost
+    // Transactions need the network. Offline: queue a pause event (its own
+    // document, so it cannot overwrite another official's entry); the server
+    // folds it into the log in the order things happened (functions
+    // src/pauseEvents.js). isPaused is set along with it, in the same batch,
+    // so this device's own screen (banner, clocks) follows the press at once;
+    // the fold sets it from the log again.
     const writeFromDeviceCopy = async () => {
       const docSnap = await getDoc(statusRef);
       const pauseLog = nextPauseLog(docSnap.exists() ? docSnap.data()?.pauseLog : [], isPaused, nowIso, details);
       if (!pauseLog) return 'saved';
+      const batch = writeBatch(db);
+      batch.set(pauseEventRef(competitionId), pauseEventDoc(isPaused, nowIso, details));
+      batch.set(statusRef, { isPaused: !!isPaused, updatedAt: serverTimestamp() }, { merge: true });
       // Not awaited until the server answers: the official gets feedback now.
       // Not reported to rejectedWrites: a pause belongs to no start number
-      return awaitWriteOrQueue(trackWrite('Sparar tävlingspaus', setDoc(statusRef, statusDoc(pauseLog), { merge: true })), {
+      return awaitWriteOrQueue(trackWrite('Sparar tävlingspaus', batch.commit()), {
         onLateError: () => showAlert(t('observer_pause_error'), false)
       });
     };

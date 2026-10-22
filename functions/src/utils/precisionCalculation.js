@@ -516,10 +516,14 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     // 975.8.5): the time used for the time penalty, the time limit and ranking
     const liveMs = isNum(d.liveTimeMs) ? truncatePrecisionTimeMs(d.liveTimeMs) : null;
     const finalMs = isNum(d.timeMs) ? truncatePrecisionTimeMs(d.timeMs) : null;
+    // A saved round (inProgress false, not running) is its saved time: a late
+    // Stop from another device (queued offline) may still rewrite liveTimeMs
+    // after the save, but it never sets inProgress again
+    const saved = d.inProgress === false && !running && isNum(finalMs) && finalMs > 0;
     // timeFallback (rounds): a time written by the secretariat alone counts too
     const drivenTimeMs = timeFallback
-        ? (isFinal ? (finalMs ?? liveMs) : (liveMs ?? finalMs))
-        : (isFinal ? finalMs : (liveMs ?? null));
+        ? ((isFinal || saved) ? (finalMs ?? liveMs) : (liveMs ?? finalMs))
+        : ((isFinal || saved) ? finalMs : (liveMs ?? null));
     const rebuildCount = precisionRebuildCount(d);
     const addedTimeMs = precisionAddedTimeMs(d);
     const timeMs = isNum(drivenTimeMs) && drivenTimeMs > 0 ? drivenTimeMs + addedTimeMs : drivenTimeMs;
@@ -528,9 +532,15 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     const knocksCount = knocksArr.length;
 
     const knockdownPenalty = (safeConfig.knockdownPenalty != null) ? Number(safeConfig.knockdownPenalty) : PRECISION_KNOCKDOWN_PENALTY;
-    const inferredObstacle = knocksCount > 0 ? knocksCount * knockdownPenalty : null;
-    const obstaclePenalty = isNum(d.obstaclePenalty) ? d.obstaclePenalty
-        : (isNum(inferredObstacle) ? inferredObstacle
+    // The knock list is the only source once a doc has one: knocks are written
+    // one toggle at a time by every device, while a stored obstaclePenalty is
+    // one device's count at its save (a knock from another device in between
+    // would go uncounted). Legacy docs without a list keep their stored value.
+    const hasKnockList = Array.isArray(d.knocks);
+    const storedObstacle = isNum(d.obstaclePenalty) || isNum(d.liveObstaclePenalty);
+    const obstaclePenalty = hasKnockList
+        ? ((knocksCount > 0 || storedObstacle) ? knocksCount * knockdownPenalty : null)
+        : (isNum(d.obstaclePenalty) ? d.obstaclePenalty
             : (isNum(d.liveObstaclePenalty) ? d.liveObstaclePenalty : null));
 
     const penaltyRate = Number.isFinite(rate) ? rate : PRECISION_TIME_PENALTY_RATE;
@@ -557,7 +567,11 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     const hasPerformance = (isNum(timeMs) && timeMs > 0)
         || (isNum(obstaclePenalty) && obstaclePenalty > 0)
         || (isNum(extraPenalty) && extraPenalty !== 0);
-    const hasValidResult = hasPerformance || (isFinal && !eliminated) || running;
+    // A finalized result needs something driven: a time (or a time penalty the
+    // secretariat set by hand). Finalized without one is not a 0-penalty
+    // result: not started counts as withdrawn (TR 532.4), no total
+    const manualTimePenalty = d.timePenaltyOverride === true && isNum(d.timePenalty);
+    const hasValidResult = hasPerformance || (isFinal && !eliminated && manualTimePenalty) || running;
     const sumParts = hasValidResult
         ? ((obstaclePenalty || 0) + (timePenalty || 0) + (extraPenalty || 0))
         : null;
@@ -572,7 +586,7 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     let totalPenalty = configMissing ? null : sumParts;
     if (totalPenalty === null && !configMissing) {
         if (isFinal) {
-            totalPenalty = isNum(d.totalPenalty) ? d.totalPenalty : null;
+            totalPenalty = (hasValidResult && isNum(d.totalPenalty)) ? d.totalPenalty : null;
         } else if (running) {
             totalPenalty = isNum(d.liveTotalPenalty) ? d.liveTotalPenalty : null;
         }
@@ -594,7 +608,7 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
     else if (running) status = 'Pågår';
     else if (isInitiallyEliminated) status = 'Utesluten';
     else if (retired) status = 'Utgått';
-    else if (isFinal || (isNum(timeMs) && timeMs > 0)) {
+    else if ((isFinal && hasValidResult) || (isNum(timeMs) && timeMs > 0)) {
         status = configMissing ? 'Pågår' : 'Klar';
     }
 
@@ -643,6 +657,10 @@ export function calculatePrecisionRound(roundDoc, equipage, config = {}, {
 }
 
 // Whether a rounds.* sub-doc holds anything (a started, driven or judged round)
+export function precisionRoundHasData(r) {
+    return roundHasData(r);
+}
+
 function roundHasData(r) {
     if (!r || typeof r !== 'object') return false;
     return r.running === true || r.inProgress === true || r.eliminated === true || r.retired === true
@@ -706,6 +724,12 @@ function precisionPlacing({ p1, p2, format, phase2Qualified, topFinalized, place
     }
     if (p2.live && isNum(p2.totalPenalty)) {
         return { tier: 2, stage: 'phase2Live', penalty: p2.totalPenalty, timeMs: fault ? p2.timeMs : null, provisional: true, unfinished: true };
+    }
+    // Phase 2 driven but not decided (stopped and not saved, or no max time
+    // for phase 2: owner Q11): never a definitive place by the phase-1 time
+    if (p2.hasData) {
+        const noMaxTime = p2.configMissing || (!isNum(p2.maxTimeSec) && !p2.timePenaltyOverride);
+        return { tier: 3, stage: noMaxTime ? 'phase2ConfigMissing' : 'phase2Pending', penalty: p1.totalPenalty, timeMs: p1.timeMs, provisional: true, unfinished: true };
     }
     // Clear in phase 1, phase 2 not driven: once finalized it did not continue
     if (topFinalized) {
@@ -801,9 +825,11 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
     const phase2Ignored = precisionFormat === 'twoPhase' && !phase2Qualified && !p1.running && !!p2?.hasData;
 
     const formatWarnings = [];
-    if (precisionFormat === 'driveOff' && ruleProfile !== 'FEI') formatWarnings.push('trDriveOffVariant');
+    // TR has no drive-off in a fault competition, also not after two phases
+    // (only an organiser's variant, TR 510)
+    if (ruleProfile !== 'FEI' && (precisionFormat === 'driveOff' || driveOffScheduled)) formatWarnings.push('trDriveOffVariant');
     if (phase2Ignored) formatWarnings.push('phase2Ignored');
-    if (p2?.configMissing) formatWarnings.push('phase2ConfigMissing');
+    if (p2?.configMissing || (p2?.hasData && !isNum(p2.maxTimeSec) && !p2.timePenaltyOverride)) formatWarnings.push('phase2ConfigMissing');
     if (dOff?.configMissing) formatWarnings.push('driveOffConfigMissing');
 
     const placeable = !base.formatUnsupported && !isClearRound && !p1.eliminated && isNum(p1.totalPenalty);

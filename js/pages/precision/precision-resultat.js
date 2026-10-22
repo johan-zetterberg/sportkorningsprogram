@@ -5,6 +5,7 @@ import { getPrecisionResults } from '../../services/precisionService.js';
 import { listenForDressageProtocolsCollectionGroup, getAllDressageProtocols } from '../../services/dressageService.js';
 import { listenForMaratonCollection, listenForMarathonTimingUpdates, getMarathonTimingData, getMarathonStateDocuments, loadPauseWindows } from '../../services/marathonService.js';
 import { confirmFinalizeWithGaps, finalizePrecision, unfinalizePrecision } from '../../services/finalizationService.js';
+import { precisionHasResult } from '../../services/finalizeCompletenessUtils.js';
 
 import { getGlobalState } from '../../main.js';
 
@@ -975,6 +976,12 @@ function renderFinalizeButtons(eq) {
   const sn = String(eq.startNumber);
   const can = window.canFinalize && window.canFinalize();
   const finalized = isPrecisionFinalized(sn);
+  // Finalisera only once there is a result to lock (a time, or eliminated /
+  // retired): "Ej startat" is no 0-penalty result (TR 532.4)
+  if (can && !finalized) {
+    const calc = calculatePrecisionResult(precision_precisionMap.get(sn) || {}, eq, precision_precisionConfig || {});
+    if (!precisionHasResult(calc)) return '';
+  }
   return renderPrecisionFinalizeButtons({
     startNumber: sn,
     finalized,

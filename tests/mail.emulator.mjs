@@ -7,12 +7,15 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import {
+  START_TIME_MAIL_MAX_AGE_MS,
+  STUCK_SENDING_MS,
   enqueueMail,
   markReplyToVerified,
   processDueMailRetries,
   processMailDoc,
   recordOptOut,
-  requeueMail
+  requeueMail,
+  takeOverStuckMail
 } from '../functions/src/mail/mailService.js';
 import { emailHash, verifyMailToken } from '../functions/src/mail/mailCore.js';
 import { createFakeProvider, createMailProvider } from '../functions/src/mail/providers.js';
@@ -161,6 +164,49 @@ test('a failure the provider may accept later is retried with backoff, then sent
   assert.equal(mail.retryRecipients, undefined);
   assert.deepEqual(sink.filter((m) => m.to.email === 'olle@example.se').length, 1);
   fail = null;
+});
+
+test('a run that stopped half-way is taken over and sends only to those not yet sent to', async () => {
+  sink = [];
+  const now = Date.now();
+  const ref = await enqueueMail({
+    db, FieldValue, appId: APP_ID, compId: COMP, now: now - STUCK_SENDING_MS - 60 * 1000,
+    mail: { kind: 'message', category: 'essential', subject: 'Banvandring', text: 'Kl 18', audience: { drivers: { all: true } }, createdBy: 'admin-1' }
+  });
+  // As left by a run that died after sending to Anna: 'sending', Anna
+  // recorded, and the watchdog entry the claim wrote
+  const startedAt = now - STUCK_SENDING_MS - 1000;
+  await ref.update({ status: 'sending', sendingAt: startedAt, sendAttemptId: 'dead', deliveredHashes: [emailHash('anna@example.se')] });
+  await db.doc(`mailRetry/${APP_ID}__${COMP}__${ref.id}`).set({ appId: APP_ID, compId: COMP, mailId: ref.id, reason: 'retry', retryAt: startedAt + STUCK_SENDING_MS, watchdog: true });
+  // Not stuck long enough yet: left alone
+  assert.equal(await takeOverStuckMail(db, ref, startedAt + 60 * 1000), false);
+
+  const due = await processDueMailRetries({ ...ctx(), now });
+  assert.deepEqual(due.filter((d) => d.mailId === ref.id).map((d) => d.status), ['sent']);
+  assert.deepEqual(sink.map((m) => m.to.email).sort(), ['bo@example.se', 'cilla@example.se']);
+  const mail = await mailData(ref);
+  assert.equal(mail.status, 'sent');
+  assert.equal(mail.counts.sent, 3);
+  assert.equal(mail.takeovers, 1);
+  assert.equal(mail.sendingAt, undefined);
+  assert.deepEqual([...mail.deliveredHashes].sort(), ['anna@example.se', 'bo@example.se', 'cilla@example.se'].map(emailHash).sort());
+  assert.equal((await db.doc(`mailRetry/${APP_ID}__${COMP}__${ref.id}`).get()).exists, false);
+});
+
+test('retryQueuedMail does not send a start time change older than 12 hours', async () => {
+  sink = [];
+  const ref = await enqueueMail({
+    db, FieldValue, appId: APP_ID, compId: COMP, now: Date.now() - START_TIME_MAIL_MAX_AGE_MS - 1000,
+    mail: {
+      kind: 'startTimeChange', category: 'essential', subject: 'Ändrad starttid', text: 'Nya tider:',
+      audience: { drivers: { classes: [], startNumbers: ['1'], includeWithdrawn: true } }, personalTexts: { 1: 'Dressyr 9:00' }, createdBy: 'admin-1'
+    }
+  });
+  await ref.update({ status: 'blocked' });
+  const result = await requeueMail({ ...ctx(), mailId: ref.id, now: Date.now() });
+  assert.equal(result.status, 'expired');
+  assert.equal((await mailData(ref)).status, 'expired');
+  assert.equal(sink.length, 0);
 });
 
 test('the daily cap blocks a whole mail; a permanent failure is reported', async () => {

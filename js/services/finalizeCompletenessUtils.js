@@ -8,6 +8,7 @@
 import { getClassCourse, stageStartTS, stageStopTS } from '../core-engine/marathon.js';
 import { getClassJudgeAssignments } from '../core-engine/dressage.js';
 import { mergeObstacleSources } from './secretariatPatchUtils.js';
+import { PRECISION_ROUND_WARNING_TEXT } from '../utils/precisionRounds.js';
 
 const isWithdrawn = (equipage) => /^(struken|withdrawn|scratched)$/i.test(String(equipage?.status || '').trim());
 const finiteNumber = (value) => value !== null && value !== '' && value !== undefined && Number.isFinite(Number(value));
@@ -57,15 +58,57 @@ export function findMarathonGaps({ equipage = {}, summary = null, timing = null,
     return gaps;
 }
 
-/** Precision gaps for one equipage (`result` is precision/{sn}) */
-export function findPrecisionGaps({ equipage = {}, result = null } = {}) {
+/**
+ * Precision gaps for one equipage (`result` is precision/{sn}; `calc` the
+ * result engine's view of it, calculatePrecisionResult, when the caller has
+ * the class config: then an undecided phase 2 is listed too)
+ */
+export function findPrecisionGaps({ equipage = {}, result = null, calc = null } = {}) {
     if (isWithdrawn(equipage)) return [];
     if (!result) return ['Inget precisionsresultat har kommit in.'];
     if (result.eliminated === true || result.disqualified === true) return [];
     const gaps = [];
     if (!(Number(result.timeMs) > 0)) gaps.push('Tid saknas i precisionsresultatet.');
     if (result.totalPenalty === null || result.totalPenalty === undefined) gaps.push('Totalt straff saknas (kontrollera klassens maxtid).');
+    if (calc) gaps.push(...precisionFinalizeBlockers(calc));
     return gaps;
+}
+
+/**
+ * Whether a precision result can be finalized at all (the results page shows
+ * Finalisera only then): a driven time or an explicit eliminated / retired
+ * result, and no clock running. "Ej startat" is no result: not started
+ * counts as withdrawn (TR 532.4). `calc` is calculatePrecisionResult.
+ */
+export function precisionHasResult(calc) {
+    if (!calc || calc.running === true) return false;
+    if (calc.eliminated === true || calc.status === 'Utgått') return true;
+    return finiteNumber(calc.timeMs) && Number(calc.timeMs) > 0;
+}
+
+/**
+ * What stops a precision result from being finalized (Swedish lines; empty:
+ * nothing). `calc` is calculatePrecisionResult of the doc. round 'phase1'
+ * (finalizePrecision, which closes phase 2 with it): a phase 2 of a qualified
+ * equipage that runs, is stopped but not saved, has data without a decided
+ * result (time, eliminated, retired) or has no max time for phase 2 (owner
+ * Q11: never 'Klar' until the course is set). round 'driveOff'
+ * (finalizePrecisionDriveOff): the same for the drive-off.
+ */
+export function precisionFinalizeBlockers(calc, { round = 'phase1' } = {}) {
+    if (!calc) return [];
+    const check = (r, prefix) => {
+        if (!r) return [];
+        if (r.live) return [PRECISION_ROUND_WARNING_TEXT[`${prefix}Live`]];
+        if (!r.hasData) return [];
+        const noMaxTime = r.configMissing || (!finiteNumber(r.maxTimeSec) && r.timePenaltyOverride !== true);
+        if (noMaxTime) return [PRECISION_ROUND_WARNING_TEXT[`${prefix}ConfigMissing`]];
+        if (!r.decided) return [PRECISION_ROUND_WARNING_TEXT[`${prefix}Undecided`]];
+        return [];
+    };
+    if (round === 'driveOff') return check(calc.rounds?.driveOff, 'driveOff');
+    if (calc.precisionFormat !== 'twoPhase' || calc.phase2Qualified !== true) return [];
+    return check(calc.rounds?.phase2, 'phase2');
 }
 
 const protocolBody = (protocol) => (protocol?.protocol && typeof protocol.protocol === 'object' ? { ...protocol, ...protocol.protocol } : protocol || {});

@@ -76,6 +76,32 @@ function fillNotice(bar, text, onClick) {
   bar.querySelector('button').addEventListener('click', onClick);
 }
 
+const PUSH_NOTICE_ID = 'pushNavigateNotice';
+
+/** Asks what to do with a pushed route while this tab has unsaved work */
+function showPushNavigatePrompt(route) {
+  const bar = noticeBar(PUSH_NOTICE_ID);
+  bar.setAttribute('role', 'alert');
+  bar.style.bottom = 'calc(70px + env(safe-area-inset-bottom, 0px))';
+  const btn = 'flex-shrink:0;padding:6px 12px;border-radius:8px;font-weight:700;border:0;';
+  bar.innerHTML = '<span></span>'
+    + `<button type="button" data-push="tab" style="${btn}background:#f5c542;color:#1e3a5f">Öppna i ny flik</button>`
+    + `<button type="button" data-push="here" style="${btn}background:#fff;color:#1e3a5f">Öppna ändå</button>`
+    + `<button type="button" data-push="close" aria-label="Stäng" style="${btn}background:transparent;color:#fff">✕</button>`;
+  bar.querySelector('span').textContent = 'Ny avisering, men du har osparat arbete här.';
+  bar.querySelector('[data-push="tab"]').addEventListener('click', () => {
+    bar.remove();
+    const url = new URL(location.href);
+    url.hash = route;
+    window.open(url.href, '_blank');
+  });
+  bar.querySelector('[data-push="here"]').addEventListener('click', () => {
+    bar.remove();
+    location.hash = route;
+  });
+  bar.querySelector('[data-push="close"]').addEventListener('click', () => bar.remove());
+}
+
 if ('serviceWorker' in navigator) {
   const sw = navigator.serviceWorker;
   let reloadRequested = false;
@@ -134,9 +160,12 @@ if ('serviceWorker' in navigator) {
 
   // A push notification clicked while the app is open (service-worker.js):
   // its in-app route opens here, without reloading the page
+  // With unsaved work the page does not leave it: the user picks new tab or "open anyway"
   sw.addEventListener('message', (event) => {
     const route = pushRouteFromMessage(event.data);
-    if (route && location.hash !== route) location.hash = route;
+    if (!route || location.hash === route) return;
+    if (unsavedWorkReasons().length === 0) { location.hash = route; return; }
+    showPushNavigatePrompt(route);
   });
 
   let lastCheckAt = null;

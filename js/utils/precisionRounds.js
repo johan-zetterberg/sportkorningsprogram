@@ -148,6 +148,19 @@ export function buildPrecisionRoundRetireWrite({ round, retired = true, startNum
     }, { startNumber, className, updatedAt: now });
 }
 
+/**
+ * A round removed as a whole (a deliberate phase-1 re-run clears the old
+ * phase 2: its time, knocks and status would otherwise survive). A
+ * rounds-only write (firestore.rules isPrecisionRoundsWrite: a removed round
+ * passes optPrecisionRound), sent before the phase-1 start; activeRound back
+ * to phase 1.
+ */
+export function buildPrecisionRoundClearWrite({ round, now = Date.now() } = {}, fs) {
+    const r = normalizePrecisionRound(round);
+    if (r === 'phase1') throw new Error('buildPrecisionRoundClearWrite: phase 1 is the top level');
+    return { rounds: { [r]: fs.deleteField() }, activeRound: 'phase1', updatedAt: now };
+}
+
 /** Which round the live views follow (activeRound only) */
 export function buildPrecisionActiveRoundWrite({ round = 'phase1', now = Date.now() } = {}) {
     return { activeRound: normalizePrecisionRound(round), updatedAt: now };
@@ -186,5 +199,12 @@ export const PRECISION_ROUND_WARNING_TEXT = Object.freeze({
     notQualified: 'Fas 2 kan inte startas: fas 1 är inte felfri.',
     noDriveOff: 'Klassen har ingen omkörning.',
     notDriveOffQualifier: 'Ekipaget är inte kvalificerat till omkörningen.',
-    formatHasNoRound: 'Klassens format har ingen sådan omgång.'
+    formatHasNoRound: 'Klassens format har ingen sådan omgång.',
+    phase2HasData: 'Fas 1 sparad. Fas 2 startades inte: den har redan data (nollställ fas 2 eller kör om fas 1 för att börja om).',
+    phase2RerunConfirm: 'Fas 2 har redan data för ekipaget. Köra om fas 1? Fas 2 (tid, rivningar, status) nollställs.',
+    phase2Undecided: 'Fas 2 är inte avgjord: tid saknas eller är inte sparad (eller utesluten/utgått).',
+    phase2Live: 'Fas 2 är inte sparad: klockan går eller är stoppad utan att ha sparats.',
+    driveOffUndecided: 'Omkörningen är inte avgjord: tid saknas eller är inte sparad (eller utesluten/ej startat).',
+    driveOffLive: 'Omkörningen är inte sparad: klockan går eller är stoppad utan att ha sparats.',
+    splitRoundsUnsupported: 'Passagerapporteringen stöds inte för klasser med två faser eller omkörning. Registrera start och mål i precisionsinmatningen.'
 });

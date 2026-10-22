@@ -21,9 +21,11 @@ export const RETENTION_PUBLIC_TREE_COLLECTIONS = [
 ];
 // ...and under artifacts/{appId}/private/data/competitions/{id}
 // (field device status, staff notifications, emergency phone numbers, and the
-// e-mail queue, its log and the opt-outs, and the push log too)
+// e-mail queue, its log and the opt-outs, the push log, and the pause events
+// already applied to the pause log). Not `counters`: the incident counter
+// stays with the kept incident log, so numbers are never reused.
 export const RETENTION_PRIVATE_TREE_COLLECTIONS = ['rejectedWrites', 'rateLimits', 'devices',
-    'staffNotifications', 'emergencyPrivate', 'mailQueue', 'mailLog', 'mailOptOuts', 'pushLog'];
+    'staffNotifications', 'emergencyPrivate', 'mailQueue', 'mailLog', 'mailOptOuts', 'pushLog', 'pauseEvents'];
 // Logs that are kept, without names and email addresses (the incident log is
 // the ground jury's record: kept, without who typed the entries)
 export const RETENTION_ANONYMIZED_LOGS = [
@@ -105,20 +107,36 @@ export function addMonthsMs(ms, months) {
 }
 
 /**
+ * When a competition that was never archived ended: the end of the last date
+ * in `dates`, else when it was created. Null without either.
+ */
+export function lastActivityMs(data) {
+    const dates = String(data?.dates || data?.date || '').match(/\d{4}-\d{2}-\d{2}/g);
+    if (dates?.length) {
+        const end = Date.parse(`${dates[dates.length - 1]}T23:59:59Z`);
+        if (Number.isFinite(end)) return end;
+    }
+    return toMillis(data?.createdAt);
+}
+
+/**
  * Whether the competition's private data is due for deletion at `nowMs`.
- * Idempotent: once purged (personalDataPurgedAt) it is not selected again,
- * unless it was reopened and archived anew after that.
+ * Archived: retentionMonths after archiving. Never archived (a competition
+ * left active or as a draft): retentionMonths after its last date, else after
+ * it was created. Idempotent: once purged (personalDataPurgedAt) it is not
+ * selected again, unless it was reopened and archived anew after that.
  */
 export function retentionDecision(data, nowMs) {
     if (!data || data.deleting === true) return { due: false, reason: 'missing-or-deleting' };
-    const archivedAt = archivedAtMs(data);
-    if (!archivedAt) return { due: false, reason: isArchivedCompetitionData(data) ? 'no-archive-date' : 'not-archived' };
+    const archived = isArchivedCompetitionData(data);
+    const archivedAt = archived ? archivedAtMs(data) : lastActivityMs(data);
+    if (!archivedAt) return { due: false, reason: archived ? 'no-archive-date' : 'no-date' };
     const months = normalizeRetentionMonths(data.retentionMonths);
     const dueAt = addMonthsMs(archivedAt, months);
     const purgedAt = toMillis(data.personalDataPurgedAt);
     if (purgedAt && purgedAt >= archivedAt) return { due: false, reason: 'already-purged', archivedAt, months, dueAt };
     if (nowMs < dueAt) return { due: false, reason: 'not-yet', archivedAt, months, dueAt };
-    return { due: true, reason: 'expired', archivedAt, months, dueAt };
+    return { due: true, reason: archived ? 'expired' : 'expired-not-archived', archivedAt, months, dueAt };
 }
 
 /** The competitions ({ id, appId, data }) whose private data is to be deleted now */

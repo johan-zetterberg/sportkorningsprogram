@@ -17,6 +17,8 @@ import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDrop
 import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getPrecisionCourseData } from '../../utils/precisionUtils.js';
+import { getPrecisionFormat, isPrecisionDriveOffScheduled } from '../../utils/precisionCalculation.js';
+import { PRECISION_ROUND_WARNING_TEXT, precisionRoundsForFormat } from '../../utils/precisionRounds.js';
 import { serverNow, startServerClockSync, stopServerClockSync } from '../../utils/serverClock.js';
 import { awaitWriteOrQueue } from '../../utils/offlineWrite.js';
 import { reportRejectedWrite } from '../../services/rejectedWritesService.js';
@@ -119,8 +121,28 @@ function updateHeaderInfo() {
     if(el) el.textContent = `#${currentEquipage.startNumber} ${currentEquipage.driverName || ''}`;
 }
 
+// Two phases / drive-off: the start, finish and passages here are written on
+// the doc's top level (phase 1) only, while the class's later rounds live in
+// rounds.<round> (and "Fas 1 mål" starts phase 2 on the precision input page).
+// Such classes are not logged here at all, rather than half of a round.
+function hasRoundFormat(equipage) {
+    if (!equipage) return false;
+    const format = getPrecisionFormat(equipage, precisionConfig);
+    return precisionRoundsForFormat(format, { driveOffScheduled: isPrecisionDriveOffScheduled(equipage, precisionConfig) }).length > 1;
+}
+
+function roundFormatBlockedHtml() {
+    return `<div class="p-4 rounded-lg border border-amber-200 bg-amber-50 text-amber-900 text-sm dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-100">
+        <p class="font-bold">${escapeHtml(PRECISION_ROUND_WARNING_TEXT.splitRoundsUnsupported)}</p>
+    </div>`;
+}
+
 async function logSplit(gateId) {
     if (!currentEquipage || !currentDataLoaded) return;
+    if (hasRoundFormat(currentEquipage)) {
+        showAlert(PRECISION_ROUND_WARNING_TEXT.splitRoundsUnsupported, 'error');
+        return;
+    }
     if (currentEquipageData?.finalized === true) {
         showAlert('Resultatet är finaliserat. Lås upp det innan passager ändras.', 'error');
         return;
@@ -156,6 +178,10 @@ async function logSplit(gateId) {
 
 async function undoSplit(gateId) {
     if (!currentEquipage || !currentDataLoaded) return;
+    if (hasRoundFormat(currentEquipage)) {
+        showAlert(PRECISION_ROUND_WARNING_TEXT.splitRoundsUnsupported, 'error');
+        return;
+    }
     if (currentEquipageData?.finalized === true) {
         showAlert('Resultatet är finaliserat. Lås upp det innan passager ändras.', 'error');
         return;
@@ -209,6 +235,11 @@ function renderGates() {
 
     if (!currentDataLoaded) {
         container.innerHTML = '<p class="text-center text-gray-500 text-sm">Laddar…</p>';
+        return;
+    }
+
+    if (hasRoundFormat(currentEquipage)) {
+        container.innerHTML = roundFormatBlockedHtml();
         return;
     }
 

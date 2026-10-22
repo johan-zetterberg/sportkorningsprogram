@@ -183,12 +183,39 @@ export async function getPushStatus({ competitionId = null, verify = false } = {
     return status;
 }
 
-async function register(token, { competitionId = null, topics = null } = {}) {
+async function register(token, { competitionId = null, topics = null, previousToken = null } = {}) {
     const payload = { token, platform: detectPushPlatform(environment()), lang: lang() };
     if (topics) payload.topics = normalizeTopics(topics);
     if (competitionId) payload.competitionId = competitionId;
+    if (previousToken && previousToken !== token) payload.previousToken = previousToken;
     const result = await call('registerPushToken', payload);
     writeLocal({ token, topics: result.topics || [], competitions: result.competitions || [], updatedAt: Date.now() });
+    return result;
+}
+
+/**
+ * The browser renewed this device's token: registers the new one with the old
+ * one as previousToken (the server carries its topics and competitions over
+ * and removes it). If the server no longer had the old registration, the
+ * device's own copy fills in: its topics, and each competition it followed.
+ */
+async function registerRenewed(token, previous, { competitionId = null, topics = null } = {}) {
+    let result = await register(token, {
+        competitionId,
+        topics: topics || (previous?.topics?.length ? previous.topics : null),
+        previousToken: previous?.token || null
+    });
+    if (!result.renewed) {
+        const missing = (previous?.competitions || []).filter((c) => c && !(result.competitions || []).includes(c));
+        for (const id of missing) {
+            try {
+                result = await register(token, { competitionId: id });
+            } catch {
+                // a deleted competition: not followed any more
+            }
+        }
+        if (previous?.token && previous.token !== token) call('unregisterPushToken', { token: previous.token }).catch(() => { });
+    }
     return result;
 }
 
@@ -210,12 +237,12 @@ export async function enablePush({ competitionId = null, topics = null } = {}) {
     if (!settings.available) throw pushError('push/not-available');
     const token = await currentToken(settings.vapidKey);
     const previous = readLocal();
-    const registration = await register(token, { competitionId, topics: topics || previous?.topics || DEFAULT_PUBLIC_TOPICS });
-    // A new token replaces the old one (the browser renewed its subscription)
+    // A new token replaces the old one (the browser renewed its subscription):
+    // the competitions followed with the old one are kept
     if (previous?.token && previous.token !== token) {
-        call('unregisterPushToken', { token: previous.token }).catch(() => { });
+        return registerRenewed(token, previous, { competitionId, topics: topics || previous.topics || DEFAULT_PUBLIC_TOPICS });
     }
-    return registration;
+    return register(token, { competitionId, topics: topics || previous?.topics || DEFAULT_PUBLIC_TOPICS });
 }
 
 /** New topics for this device (and optionally follow a competition) */
@@ -274,8 +301,8 @@ export async function refreshPush() {
         const settings = await getPushSettings();
         if (!settings.available) return false;
         const token = await currentToken(settings.vapidKey);
-        await register(token, {});
-        if (token !== local.token) call('unregisterPushToken', { token: local.token }).catch(() => { });
+        if (token !== local.token) await registerRenewed(token, local);
+        else await register(token, {});
         return true;
     } catch {
         return false;

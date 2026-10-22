@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import {
+    PUSH_SENDING_TAKEOVER_MS,
     PUSH_TOKENS,
     deleteUserTokens,
     loadCompetitionTokens,
@@ -205,6 +206,51 @@ test('push: the daily cap is all or nothing and logged', async () => {
     assert.equal(messaging.calls.length, 0);
     assert.equal((await db.doc(`${priv}/pushLog/cap-${run}`).get()).data().status, 'blocked');
     await savePushSettings(db, { competitionDailyLimit: PUSH_LIMITS.competitionDailyDefault });
+});
+
+test('push: a renewed token keeps the topics and competitions of the old one (same account only)', async () => {
+    const other = { appId: APP_ID, compId: `${COMP}-b` };
+    await registerPushToken(db, { uid: uid('renew'), token: TOKEN('renew-old'), topics: ['startTimes', 'pause'], competition: other });
+    await registerPushToken(db, { uid: uid('renew'), token: TOKEN('renew-old'), competition: { appId: APP_ID, compId: COMP } });
+    const renewed = await registerPushToken(db, { uid: uid('renew'), token: TOKEN('renew-new'), previousToken: TOKEN('renew-old'), logger: quietLogger });
+    assert.equal(renewed.renewed, true);
+    assert.deepEqual(renewed.topics, ['startTimes', 'pause']);
+    assert.deepEqual([...renewed.competitions].sort(), [COMP, `${COMP}-b`].sort());
+    assert.equal((await db.collection(PUSH_TOKENS).doc(pushTokenId(TOKEN('renew-old'))).get()).exists, false, 'the old doc is gone');
+    // Someone else's old token is neither copied nor removed
+    await registerPushToken(db, { uid: uid('stranger'), token: TOKEN('stranger-old'), topics: ['messages'], competition: other });
+    const notMine = await registerPushToken(db, { uid: uid('renew'), token: TOKEN('renew-new2'), previousToken: TOKEN('stranger-old'), logger: quietLogger });
+    assert.equal(notMine.renewed, false);
+    assert.deepEqual(notMine.competitions, []);
+    assert.equal((await db.collection(PUSH_TOKENS).doc(pushTokenId(TOKEN('stranger-old'))).get()).exists, true);
+});
+
+test('push: personal notices go in sendEach batches; a stopped run is taken over; a fresh one is a duplicate', async () => {
+    const messaging = fakeMessaging();
+    const eachCalls = [];
+    messaging.sendEach = async (messages) => {
+        eachCalls.push(messages);
+        return { responses: messages.map(() => ({ success: true })) };
+    };
+    const vetLike = {
+        appId: APP_ID, compId: COMP, category: 'essential', topic: 'vetDecision',
+        audience: { drivers: { classes: [], startNumbers: ['1'], includeWithdrawn: true }, officials: { roles: ['admin', 'td', 'vet'] } },
+        content: (target, lang) => ({ title: `${target.as}:${lang}`, body: 'b' }), logger: quietLogger
+    };
+    const result = await sendPushToAudience(db, messaging, { ...vetLike, dedupeKey: `each-${run}` });
+    assert.equal(result.sent, 2);
+    assert.equal(eachCalls.length, 1, 'both personal messages in one sendEach call');
+    assert.equal(messaging.calls.length, 0);
+    assert.deepEqual(eachCalls[0].map((m) => m.token).sort(), [TOKEN('anna'), TOKEN('vet')].sort());
+
+    // A run that claimed the log and stopped: a fresh claim stands, an old one is taken over
+    const logRef = db.doc(`${priv}/pushLog/stuck-${run}`);
+    await logRef.set({ status: 'sending', atMs: Date.now(), claimedAtMs: Date.now() });
+    assert.equal((await sendPushToAudience(db, messaging, { ...vetLike, dedupeKey: `stuck-${run}` })).status, 'duplicate');
+    await logRef.set({ status: 'sending', atMs: Date.now() - PUSH_SENDING_TAKEOVER_MS - 1000, claimedAtMs: Date.now() - PUSH_SENDING_TAKEOVER_MS - 1000 });
+    const taken = await sendPushToAudience(db, messaging, { ...vetLike, dedupeKey: `stuck-${run}` });
+    assert.equal(taken.status, 'sent');
+    assert.equal((await logRef.get()).data().status, 'sent');
 });
 
 test('push: a test to the own devices; unregistering; retention and account deletion', async () => {

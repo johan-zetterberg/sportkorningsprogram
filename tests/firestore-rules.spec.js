@@ -1529,6 +1529,42 @@ test('marathon officials may record the global pause, other roles may not', { sk
   // The competition's admin may correct the log
   const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
   await assertSucceeds(setDoc(doc(ownerDb, compPath('config/globalStatus')), { isPaused: false, pauseLog: [closed] }, { merge: true }));
+  // The offline pause batch's flag merge (globalPauseService): the log untouched
+  await assertSucceeds(setDoc(doc(marathonDb, compPath('config/globalStatus')), { isPaused: true, updatedAt: serverTimestamp() }, { merge: true }));
+});
+
+test('pause events: marathon, TD and admins add valid unprocessed events of their own; never changed', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('marathon-pe-1', 'marathon');
+  await seedCompetitionRole('td-pe-1', 'td');
+  await seedCompetitionRole('speaker-pe-1', 'speaker');
+  const dbOf = (uid) => testEnv.authenticatedContext(uid, { email_verified: true, email: `${uid}@example.com` }).firestore();
+  const privEvents = `artifacts/${APP_ID}/private/data/competitions/${COMP_ID}/pauseEvents`;
+  const event = (uid, extra = {}) => ({
+    type: 'start', at: '2026-10-11T10:00:00.000Z', atServer: serverTimestamp(),
+    by: { uid, name: 'N', role: 'marathon' }, reason: 'vet', note: 'Häst', where: 'H3', processed: false, ...extra
+  });
+  await assertSucceeds(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/e1`), event('marathon-pe-1')));
+  await assertSucceeds(setDoc(doc(dbOf('td-pe-1'), `${privEvents}/e2`), event('td-pe-1', { type: 'end' })));
+  await assertSucceeds(setDoc(doc(dbOf('owner-1'), `${privEvents}/e3`), { type: 'end', at: 'x', by: { uid: 'owner-1' }, processed: false }));
+  // Denied: other roles, someone else named, processed, extra keys, bad values
+  await assertFails(setDoc(doc(dbOf('speaker-pe-1'), `${privEvents}/x1`), event('speaker-pe-1')));
+  await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x2`), event('td-pe-1')));
+  await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x3`), event('marathon-pe-1', { processed: true })));
+  await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x4`), event('marathon-pe-1', { extra: 1 })));
+  await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x5`), event('marathon-pe-1', { type: 'pause' })));
+  await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x6`), event('marathon-pe-1', { reason: 'lunch' })));
+  // Never changed or removed by clients
+  await assertFails(updateDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/e1`), { note: 'x' }));
+  await assertFails(updateDoc(doc(dbOf('owner-1'), `${privEvents}/e1`), { processed: true }));
+  await assertFails(deleteDoc(doc(dbOf('owner-1'), `${privEvents}/e1`)));
+  // Reads: admins only
+  await assertSucceeds(getDoc(doc(dbOf('owner-1'), `${privEvents}/e1`)));
+  await assertFails(getDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/e1`)));
+  // A closed competition takes none
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), compPath()), { locked: true }, { merge: true });
+  });
+  await assertFails(setDoc(doc(dbOf('marathon-pe-1'), `${privEvents}/x7`), event('marathon-pe-1')));
 });
 
 test('a pause records why, who and where; only the writer may be named and the record cannot be changed on resume', { skip: !HAS_EMULATOR }, async () => {
@@ -1750,6 +1786,11 @@ test('precision rounds (two phases, drive-off) take the round fields only', { sk
   await assertFails(setDoc(ref, { activeRound: 'phase3' }, { merge: true }));
   // With a top-level change a round may only have its clock started
   await assertFails(setDoc(ref, { timeMs: 151000, rounds: { phase2: { timeMs: 1 } } }, { merge: true }));
+  // ...and only an unused phase 2: a phase-1 finish queued offline that lands
+  // after phase 2 was driven (knocks, clock) does not restart it
+  await assertFails(setDoc(ref, { timeMs: 151000, rounds: { phase2: { running: true, liveStartEpoch: Date.now() } } }, { merge: true }));
+  // A deliberate phase-1 re-run clears phase 2 first (rounds only), then may start it
+  await assertSucceeds(setDoc(ref, { rounds: { phase2: deleteField() }, activeRound: 'phase1' }, { merge: true }));
   await assertSucceeds(setDoc(ref, { timeMs: 151000, rounds: { phase2: { running: true, liveStartEpoch: Date.now() } } }, { merge: true }));
 });
 
@@ -1802,6 +1843,35 @@ test('a finalized precision result takes drive-off writes only until the drive-o
   await assertSucceeds(unfin.commit());
   await assertSucceeds(setDoc(ref, { rounds: { driveOff: { timeMs: 76000 } } }, { merge: true }));
   await assertFails(setDoc(ref, { timeMs: 1 }, { merge: true }));
+});
+
+test('the drive-off lock holds without the initial lock; round writes after a class rename pass', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('prec-do-2', 'precision', 'prec-do2@example.com');
+  const db = testEnv.authenticatedContext('prec-do-2', { email_verified: true, email: 'prec-do2@example.com' }).firestore();
+  const ref = doc(db, compPath(`precision/${START_NO}`));
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    const adminDb = context.firestore();
+    await setDoc(doc(adminDb, compPath(`equipages/${START_NO}`)), { startNumber: START_NO, className: 'Ny klass' }, { merge: true });
+    await setDoc(doc(adminDb, compPath(`precision/${START_NO}`)), {
+      startNumber: Number(START_NO), className: 'Gammal klass', timeMs: 150000, totalPenalty: 0, finalized: false,
+      rounds: { driveOff: { timeMs: 70000, finalized: true } }
+    });
+    // The initial round reopened, the drive-off still finalized
+    await setDoc(doc(adminDb, rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: false, driveOffFinalized: true });
+  });
+  await assertFails(setDoc(ref, { rounds: { driveOff: { timeMs: 1 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { timeMs: 140000, rounds: { driveOff: { timeMs: 1 } } }, { merge: true }));
+  // The initial round itself is open
+  await assertSucceeds(setDoc(ref, { timeMs: 140000 }, { merge: true }));
+
+  // Initial round finalized, drive-off open: a round write resends the start
+  // number (as a string) and the equipage's renamed class
+  await testEnv.withSecurityRulesDisabled(async (context) => {
+    await setDoc(doc(context.firestore(), rootCompPath(`precisionFinalization/${START_NO}`)), { finalized: true, driveOffFinalized: false });
+  });
+  await assertSucceeds(setDoc(ref, { startNumber: START_NO, className: 'Ny klass', updatedAt: Date.now(), rounds: { driveOff: { timeMs: 71000 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { className: 'Annan klass', rounds: { driveOff: { timeMs: 72000 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { startNumber: '999', rounds: { driveOff: { timeMs: 72000 } } }, { merge: true }));
 });
 
 test('dressage protocols, status and live documents are checked for shape and size', { skip: !HAS_EMULATOR }, async () => {

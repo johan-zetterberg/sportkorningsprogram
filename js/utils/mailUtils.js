@@ -7,6 +7,8 @@ export const MAIL_SUBJECT_MAX = 200;
 export const MAIL_TEXT_MAX = 20000;
 export const SENDER_NAME_MAX = 60;
 export const SIGNATURE_MAX = 1000;
+// The reason for an essential message (required by the server, in the log)
+export const MAIL_REASON_MAX = 200;
 
 // Queue statuses (mailQueue.status) and their dictionary keys
 const STATUS_KEYS = {
@@ -16,7 +18,9 @@ const STATUS_KEYS = {
     partial: 'mail_status_partial',
     failed: 'mail_status_failed',
     not_configured: 'mail_status_not_configured',
-    blocked: 'mail_status_blocked'
+    blocked: 'mail_status_blocked',
+    // A start time change too old to send (retryQueuedMail)
+    expired: 'mail_status_expired'
 };
 
 /** Dictionary key for a queue status (unknown ones fall back to a neutral label) */
@@ -27,7 +31,7 @@ export function mailStatusKey(status) {
 /** Tone for a status badge: ok | wait | bad */
 export function mailStatusTone(status) {
     if (status === 'sent') return 'ok';
-    if (status === 'failed' || status === 'blocked' || status === 'partial') return 'bad';
+    if (status === 'failed' || status === 'blocked' || status === 'partial' || status === 'expired') return 'bad';
     return 'wait';
 }
 
@@ -74,7 +78,7 @@ export function messageModeToMailAudience(mode, { selectedDrivers = [] } = {}) {
 }
 
 /** The queueCompetitionMail payload for a message from the form (subject/text clamped to the server limits) */
-export function buildMessageMailPayload({ competitionId, title, body, titleEn = '', bodyEn = '', mode, selectedDrivers = [], essential = false }) {
+export function buildMessageMailPayload({ competitionId, title, body, titleEn = '', bodyEn = '', mode, selectedDrivers = [], essential = false, reason = '' }) {
     const audience = messageModeToMailAudience(mode, { selectedDrivers });
     if (!audience) return null;
     const english = String(bodyEn || '').trim();
@@ -86,7 +90,8 @@ export function buildMessageMailPayload({ competitionId, title, body, titleEn = 
         category: essential ? 'essential' : 'info',
         audience,
         subject: subject.slice(0, MAIL_SUBJECT_MAX),
-        text: text.slice(0, MAIL_TEXT_MAX)
+        text: text.slice(0, MAIL_TEXT_MAX),
+        ...(essential ? { reason: String(reason || '').replace(/\s+/g, ' ').trim().slice(0, MAIL_REASON_MAX) } : {})
     };
 }
 

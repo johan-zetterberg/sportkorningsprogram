@@ -12,7 +12,7 @@ const firebaseArgs = [
   'firestore',
   // One file at a time: the retention run deletes counters and retry entries
   // of every competition, which the mail test checks
-  'node --test --test-concurrency=1 tests/restore-roundtrip.emulator.mjs tests/retention.emulator.mjs tests/mail.emulator.mjs tests/push.emulator.mjs'
+  'node --test --test-concurrency=1 tests/restore-roundtrip.emulator.mjs tests/retention.emulator.mjs tests/mail.emulator.mjs tests/push.emulator.mjs tests/pause-events.emulator.mjs'
 ];
 
 const exitCode = await run(firebaseCommand, firebaseArgs, env);

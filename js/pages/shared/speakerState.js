@@ -1,5 +1,6 @@
 ﻿import { onSnapshot, doc, collection } from 'https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js';
 import { db, appId } from '../../config/firebase-config.js';
+import { resilientSnapshot } from '../../services/listenerErrorUtils.js';
 import { listenMergeSource } from '../../services/mergeConfigService.js';
 
 import { listenForDressageLiveGroup, listenForDressageStatusCollection, listenForDressageProtocolsCollectionGroup } from '../../services/dressageService.js';
@@ -66,7 +67,10 @@ export function setupAllListeners(context) {
     precisionStatusMap.clear();
 
     // 1. Global Pause Status
-    const pauseSub = onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus'), (docSnap) => {
+    const pauseSub = resilientSnapshot({
+      name: 'speaker:globalStatus',
+      subscribe: (onNext, onError) => onSnapshot(doc(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'config', 'globalStatus'), onNext, onError),
+      onData: (docSnap) => {
         if (docSnap.exists()) {
             const d = docSnap.data();
             const isPaused = d.isPaused === true;
@@ -85,8 +89,24 @@ export function setupAllListeners(context) {
                 setPauseStartTime(0);
             }
         }
+      }
     });
     unsubscribes.push(pauseSub);
+
+    // 1b. Equipages, live (start numbers, drivers and horses can change during the day).
+    // The first snapshot replaces the one-time load in speaker.js load().
+    unsubscribes.push(resilientSnapshot({
+        name: 'speaker:equipages',
+        subscribe: (onNext, onError) => onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'equipages'), onNext, onError),
+        onData: (snapshot) => {
+            const list = snapshot.docs
+                .map(d => ({ id: d.id, ...d.data() }))
+                .filter(e => e && e.startNumber != null)
+                .map(e => ({ ...e, startNumber: Number(e.startNumber) }));
+            setAllEquipages(ensureMergeDecorations(list));
+            triggerRender(true);
+        }
+    }));
 
     // 2. Merge groups (merged classes), as on every page
     unsubscribes.push(listenMergeSource(competitionId, (mergeSource) => {
@@ -198,7 +218,12 @@ export function setupAllListeners(context) {
 
     function setupMarathonListeners() {
         const maratonRef = collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'maraton');
-        const unsub = onSnapshot(maratonRef, (snapshot) => {
+        const unsub = resilientSnapshot({
+          name: 'speaker:maraton',
+          subscribe: (onNext, onError) => onSnapshot(maratonRef, onNext, onError),
+          onData: (snapshot, { fresh }) => {
+            // A new subscription after an error starts from all docs again
+            if (fresh) maratonStatusMap.clear();
             // Per-obstacle results and live entries (obstacleLive.{n}) in the
             // flat shape the speaker reads
             const changes = snapshot.docChanges().map(change => {
@@ -211,6 +236,7 @@ export function setupAllListeners(context) {
             });
             triggerRender();
             ensureSpeakerTicker();
+          }
         });
         unsubscribes.push(unsub);
 
@@ -222,13 +248,18 @@ export function setupAllListeners(context) {
 
     function setupPrecisionListeners() {
         const precisionRef = collection(db, 'artifacts', appId, 'public', 'data', 'competitions', competitionId, 'precision');
-        const unsub = onSnapshot(precisionRef, (snapshot) => {
+        const unsub = resilientSnapshot({
+          name: 'speaker:precision',
+          subscribe: (onNext, onError) => onSnapshot(precisionRef, onNext, onError),
+          onData: (snapshot, { fresh }) => {
+            if (fresh) precisionStatusMap.clear();
             const changes = snapshot.docChanges();
             applySpeakerPrecisionDocChanges(changes, precisionStatusMap, Date.now());
             changes.forEach(change => {
                 if (change.type !== 'removed') maybePushRecentPrecision(change.doc.id, change.doc.data());
             });
             triggerRender();
+          }
         });
         unsubscribes.push(unsub);
 

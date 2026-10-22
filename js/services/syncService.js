@@ -30,6 +30,19 @@ export const syncService = {
         notify();
     },
 
+    // Remove the operations added before `time` (Firestore confirmed them);
+    // the ids in `keep` stay (the start-up marker clears itself)
+    removeOlderThan(time, keep = []) {
+        let changed = false;
+        queue.forEach((item, id) => {
+            if (!keep.includes(id) && item.time.getTime() < time) {
+                queue.delete(id);
+                changed = true;
+            }
+        });
+        if (changed) notify();
+    },
+
     // Hämta alla väntande
     getAll() {
         return Array.from(queue.values()).sort((a, b) => b.time - a.time);

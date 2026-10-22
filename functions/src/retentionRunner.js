@@ -12,7 +12,7 @@ import { purgeStaleTokens, removeCompetitionFromTokens } from './push/pushServic
 
 export const PERSONAL_DATA_APP_IDS = ['combined-driving', 'drivelive'];
 export const COMPETITION_LIST_FIELDS = ['name', 'createdBy', 'ownerId', 'admins', 'staffUids', 'locked', 'status',
-    'finalizedAt', 'archiveSnapshotId', 'dates', 'retentionMonths', 'deleting'];
+    'finalizedAt', 'archiveSnapshotId', 'dates', 'date', 'createdAt', 'retentionMonths', 'deleting'];
 
 // Every competition document of the app ids (only the fields named)
 export async function listAllCompetitions(db, { appIds = PERSONAL_DATA_APP_IDS, fields = COMPETITION_LIST_FIELDS } = {}) {
@@ -71,7 +71,8 @@ async function purgeCompetitionPersonalData(db, FieldValue, competition) {
 /**
  * Deletes private competition data (contact details, ICE, health and vet data,
  * volunteer sign-ups, refused writes, rate limits) `retentionMonths` (admin
- * setting, default 12) after the competition was archived, and PIN attempt
+ * setting, default 12) after the competition was archived (never archived:
+ * after its last date, else its creation), and PIN attempt
  * and rate limit counters without a write in 30 days everywhere. Results and
  * the archive stay. Idempotent: purged competitions are recorded in
  * personalDataRetention; each run is summarised in retentionRuns.

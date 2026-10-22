@@ -83,7 +83,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
                 'Not public (organisers and the officials who need it): contact details, personal identity number, emergency contact (ICE), health and vet data, volunteer sign-ups.'
             ] },
             { id: 'retention', title: 'How long data is kept', items: [
-                `Contact details, ICE, personal identity numbers, horse temperatures, vet data and volunteer sign-ups are deleted automatically ${months} months after the competition was archived${organiser?.name ? '' : ' (12 months unless the organiser chose otherwise)'}.`,
+                `Contact details, ICE, personal identity numbers, horse temperatures, vet data and volunteer sign-ups are deleted automatically ${months} months after the competition was archived${organiser?.name ? '' : ' (12 months unless the organiser chose otherwise)'}. A competition that is never archived is purged the same time after its last day (or after it was created).`,
                 'Results stay published as the sport\'s result history.',
                 'Logs of changes are kept without names and email addresses.',
                 'Emails waiting to be sent, the log of mailings (number of recipients, no addresses) and opt-outs from information mailings are deleted together with the competition\'s other private data.',
@@ -95,7 +95,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
                 'You have the right to access, rectification, erasure, restriction and objection, and to data portability where it applies. Contact the organiser of the competition; they can export your data from the app. You may also complain to the Swedish Authority for Privacy Protection (IMY), imy.se.'
             ] },
             { id: 'delete-account', title: 'Deleting your account', paragraphs: [
-                'Signed in: open My Portal, scroll to My account and choose "Delete my account". You confirm by typing your email address. Your login, your roles and your links to entries are removed, and contact details in entries of archived competitions are deleted. Published results remain. If you own competitions, transfer or delete them first.'
+                'Signed in: open My Portal, scroll to My account and choose "Delete my account". You confirm by typing your email address. Your login, your roles and your links to entries are removed, and contact details in entries of archived competitions are deleted. Your field devices are removed, your name in staff notices and the incident log is replaced by "Deleted user", and queued emails to your address only are deleted. Published results remain. What the organiser holds otherwise (e.g. contact details in entries of competitions not yet archived, names in decisions and lock logs written as free text) stays until the competition\'s data is deleted as above; ask the organiser to remove it earlier. If you own competitions, transfer or delete them first.'
             ] }
         ];
     }
@@ -123,7 +123,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
             'Inte offentligt (arrangören och de funktionärer som behöver det): kontaktuppgifter, personnummer, nödkontakt (ICE), hälso- och veterinäruppgifter, funktionärsanmälningar.'
         ] },
         { id: 'retention', title: 'Hur länge uppgifterna sparas', items: [
-            `Kontaktuppgifter, ICE, personnummer, hästtemperaturer, veterinäruppgifter och funktionärsanmälningar raderas automatiskt ${months} månader efter att tävlingen arkiverats${organiser?.name ? '' : ' (12 månader om arrangören inte valt annat)'}.`,
+            `Kontaktuppgifter, ICE, personnummer, hästtemperaturer, veterinäruppgifter och funktionärsanmälningar raderas automatiskt ${months} månader efter att tävlingen arkiverats${organiser?.name ? '' : ' (12 månader om arrangören inte valt annat)'}. En tävling som aldrig arkiveras gallras lika länge efter sista tävlingsdagen (eller efter att den skapades).`,
             'Resultaten ligger kvar publicerade som sportens resultathistorik.',
             'Loggar över ändringar sparas utan namn och e-postadresser.',
             'Mejl som väntar på att skickas, loggen över utskick (antal mottagare, inga adresser) och avregistreringar från informationsutskick raderas tillsammans med tävlingens övriga privata uppgifter.',
@@ -135,7 +135,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
             'Du har rätt till tillgång (registerutdrag), rättelse, radering, begränsning och att invända, samt dataportabilitet där den gäller. Kontakta tävlingens arrangör; arrangören kan exportera dina uppgifter ur appen. Du kan också klaga hos Integritetsskyddsmyndigheten (IMY), imy.se.'
         ] },
         { id: 'delete-account', title: 'Radera ditt konto', paragraphs: [
-            'Inloggad: öppna Min Portal, gå till Mitt konto och välj "Radera mitt konto". Du bekräftar genom att skriva din e-postadress. Inloggningen, dina roller och kopplingar till anmälningar tas bort, och kontaktuppgifterna i anmälningar i arkiverade tävlingar raderas. Publicerade resultat ligger kvar. Äger du tävlingar behöver de först överlåtas eller raderas.'
+            'Inloggad: öppna Min Portal, gå till Mitt konto och välj "Radera mitt konto". Du bekräftar genom att skriva din e-postadress. Inloggningen, dina roller och kopplingar till anmälningar tas bort, och kontaktuppgifterna i anmälningar i arkiverade tävlingar raderas. Dina fältenheter tas bort, ditt namn i personalnotiser och händelseloggen ersätts med "Raderad användare", och mejl i kö till bara din adress raderas. Publicerade resultat ligger kvar. Det arrangören i övrigt har (t.ex. kontaktuppgifter i anmälningar i tävlingar som inte arkiverats än, namn i beslut och låsloggar skrivna som fritext) finns kvar tills tävlingens uppgifter gallras enligt ovan; be arrangören om du vill att det tas bort tidigare. Äger du tävlingar behöver de först överlåtas eller raderas.'
         ] }
     ];
 }

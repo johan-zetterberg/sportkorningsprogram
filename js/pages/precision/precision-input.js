@@ -45,9 +45,12 @@ import {
     clockFaultMessage,
     buildPhase1FinishWrite,
     penaltyCorrection,
+    phase2HasData,
     rebuildLabel,
+    shouldPushStop,
     sortKnocks,
-    storedRebuildCount
+    storedRebuildCount,
+    storedRoundTimeMs
 } from './precisionInputUtils.js';
 import {
     calculatePrecisionRoundResult,
@@ -63,6 +66,7 @@ import {
     PRECISION_ROUND_WARNING_TEXT,
     buildPrecisionKnockWrite,
     buildPrecisionRebuildWrite,
+    buildPrecisionRoundClearWrite,
     buildPrecisionRoundRetireWrite,
     canStartPrecisionRound,
     nestPrecisionRoundPayload,
@@ -77,7 +81,8 @@ import {
     pickPrecisionRound,
     precisionGroupKeyFn,
     precisionRoundLabelKey,
-    precisionWarningKey
+    precisionWarningKey,
+    roundOnSelect
 } from './precisionRoundInput.js';
 import { loadMergeSource } from '../../services/mergeConfigService.js';
 import { createConnectionBanner, resilientSnapshot } from '../../services/listenerErrorUtils.js';
@@ -174,7 +179,8 @@ function roundsFor(eq = currentEquipage) {
 // The result engine's view of the stored doc (qualification, warnings)
 function storedResult(eq = currentEquipage) {
     if (!eq) return null;
-    return calculatePrecisionResult(storedDocFor(eq.startNumber) || {}, eq, precisionConfig, calcOptions());
+    const stored = storedDocFor(eq.startNumber) || readPrecisionBackup(eq.startNumber) || {};
+    return calculatePrecisionResult(stored, eq, precisionConfig, calcOptions());
 }
 
 // The equipage's stored fields of the round shown
@@ -312,33 +318,29 @@ function obstaclePenalty() {
     return livePenalties(0).obstaclePenalty;
 }
 
-// Ny hjälpfunktion som samlar all live-data
-function getLivePayload() {
+// The clock's live fields (start, stop, manual time). Never the form fields
+// (extra penalty, eliminated): each is pushed by its own input, so a clock
+// push from this device cannot overwrite what another device entered. Nor
+// inProgress: a start sets it, a save clears it, and a late Stop (queued
+// offline) must not mark a saved round unsaved again.
+function getClockPayload() {
     const t = getElapsedMs();
     const p = livePenalties(t);
 
     return {
         running: isRunning,
-        inProgress: inProgress,
         liveTimeMs: t,
-        // NYA fält för perfekt synkning
         liveStartEpoch: isRunning ? startEpoch : null,
         livePausedMs: pausedMs,
-        // ---
         liveTimePenalty: p.timePenalty,
         liveObstaclePenalty: p.obstaclePenalty,
-        extraPenalty: p.extraPenalty,
-        liveTotalPenalty: p.totalPenalty,
-        // NYTT:
-        eliminated: !!document.getElementById('pr-eliminatedInput').checked
+        liveTotalPenalty: p.totalPenalty
     };
 }
 
-// Uppdaterad funktion som använder den nya hjälparen
-function pushImmediateState() {
-    if (!currentEquipage) return;
-    // Anropar den nya funktionen för att få ett komplett och korrekt live-paket
-    pushLiveSafe(getLivePayload());
+// The stored fields of the round shown for the selected equipage (latest snapshot)
+function storedRoundOfCurrent() {
+    return roundFields(storedDocFor(currentEquipage?.startNumber) || {});
 }
 
 function updateObstaclePenaltySummary() {
@@ -360,15 +362,14 @@ async function saveKnockToggle(equipage, gateLabel, shouldAdd, elapsedMs) {
     const knocksArray = sortKnocks(Array.from(knocks));
     const {
         obstaclePenalty: liveObstaclePenalty,
-        totalPenalty: liveTotalPenalty,
-        extraPenalty
+        totalPenalty: liveTotalPenalty
     } = livePenalties(getElapsedMs(), knocksArray);
 
     const round = currentRound;
     mirrorRound(equipage.startNumber, round, { knocks: knocksArray, knockDownTimes: { ...knockDownTimes }, updatedAt: Date.now() });
-    // A saved obstacle penalty would win over the knock list: the builder
-    // removes it, from now on the result engine counts the stored knocks. A
-    // cone hit in phase 2 counts in phase 2 (round path).
+    // The result engine counts the stored knock list (a legacy stored obstacle
+    // penalty is removed too). A cone hit in phase 2 counts in phase 2 (round
+    // path). The extra penalty is not sent along: another device's entry stays.
     const write = setDoc(precisionDocRef(equipage.startNumber), buildPrecisionKnockWrite({
         round,
         gate: gateLabel,
@@ -376,7 +377,6 @@ async function saveKnockToggle(equipage, gateLabel, shouldAdd, elapsedMs) {
         elapsedMs,
         liveObstaclePenalty,
         liveTotalPenalty,
-        extraPenalty,
         startNumber: equipage.startNumber,
         className: equipage.className
     }, FS), { merge: true });
@@ -872,6 +872,12 @@ function renderGates() {
         btn.addEventListener('click', async () => {
             const g = btn.dataset.g;
             const equipage = currentEquipage;
+            // Phase 2 / drive-off: only for an equipage that may drive the round
+            const check = roundStartCheck();
+            if (!check.ok) {
+                showAlert(refusalText(check.reason), false);
+                return;
+            }
             const shouldAdd = !knocks.has(g);
             const elapsedMs = getElapsedMs();
 
@@ -1014,7 +1020,7 @@ function renderTimerUI(t, clock = clockCheck()) {
 /**
  * updateTimerView - Körs av setInterval() och uppdaterar bara skärmen.
  * Ingen periodisk live-push: tittarna räknar tiden själva från liveStartEpoch,
- * och start, stopp, rivning och paus skickas direkt (pushImmediateState).
+ * och start, stopp, rivning och paus skickas direkt (pushLiveSafe).
  */
 function updateTimerView() {
     const clock = clockCheck();
@@ -1053,6 +1059,16 @@ function startTimer() {
         return;
     }
 
+    // Phase 1 driven again in a two-phase class: the old phase 2 (time,
+    // knocks, status) would survive the re-run; cleared only on purpose
+    const stored = storedDocFor(currentEquipage?.startNumber) || readPrecisionBackup(currentEquipage?.startNumber);
+    const rerunClearsPhase2 = !!currentEquipage && currentRound === 'phase1'
+        && equipageFormat() === 'twoPhase' && phase2HasData(stored);
+    if (rerunClearsPhase2) {
+        if (!window.confirm(refusalText('phase2RerunConfirm'))) return;
+        clearPhase2(currentEquipage);
+    }
+
     isRunning = true;
     clockStartedHereFor = currentEquipage ? String(currentEquipage.startNumber) : null;
     // A new offset measurement mid-run would shift start against stop
@@ -1067,12 +1083,32 @@ function startTimer() {
     // follow activeRound (the top-level running stays false in phase 2 / drive-off).
     // A drive-off started again after "Ej startat" is no longer retired.
     const retiredBefore = currentRound !== 'phase1' && readPrecisionRound(storedDocFor(currentEquipage?.startNumber), currentRound).retired === true;
-    pushLiveSafe({ ...getLivePayload(), ...(retiredBefore ? { retired: false } : {}) }, { activeRound: currentRound });
+    pushLiveSafe({ ...getClockPayload(), inProgress: true, ...(retiredBefore ? { retired: false } : {}) }, { activeRound: currentRound });
     renderRoundBanner();
 }
+
+// The old phase 2 removed as a whole before phase 1 is driven again (a
+// rounds-only write, sent before the start so it lands first)
+function clearPhase2(equipage) {
+    const sn = equipage.startNumber;
+    const existing = readPrecisionBackup(sn);
+    if (existing?.rounds) {
+        const { phase2: _dropped, ...rest } = existing.rounds;
+        mirrorToLocal(sn, { rounds: rest, activeRound: 'phase1' });
+    }
+    awaitWriteOrQueue(
+        setDoc(precisionDocRef(sn), buildPrecisionRoundClearWrite({ round: 'phase2' }, FS), { merge: true }),
+        { onLateError: lateRejection(sn, { clearRound: 'phase2' }, 'precision-input:clear-phase2') }
+    ).catch((error) => reportWriteError(sn, error));
+}
+
 function stopTimer() {
-    // Om redan stoppad: pusha ändå läget (running:false)
-    if (!isRunning) { pushImmediateState(); return; }
+    // Already stopped: the stopped state is pushed again, unless the round is
+    // saved meanwhile (here or on another device) – a Stop then changes nothing
+    if (!isRunning) {
+        if (currentEquipage && shouldPushStop(storedRoundOfCurrent())) pushLiveSafe(getClockPayload());
+        return;
+    }
 
     // Lägg till den körda tiden till den ackumulerade, but never a time
     // computed from a missing or implausible start
@@ -1088,7 +1124,8 @@ function stopTimer() {
 
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     updateTimerView();     // visa stoppad tid korrekt
-    pushImmediateState();  // meddela live: running=false
+    // meddela live: running=false (not over a round saved meanwhile)
+    if (currentEquipage && shouldPushStop(storedRoundOfCurrent())) pushLiveSafe(getClockPayload());
 }
 
 function clearLocalState() {
@@ -1137,7 +1174,10 @@ function resetTimer() {
     // 4. Meddela Firestore (skicka ett fullständigt "nollställt" läge)
     // Vi skickar med explicit nollställning av "slutgiltiga" fält för att undvika att de hänger kvar i Firestore (merge:true)
     pushLiveSafe({
-        ...getLivePayload(),
+        ...getClockPayload(),
+        inProgress: false,
+        extraPenalty: 0,
+        eliminated: false,
         knocks: [],
         knockDownTimes: {},
         rebuildCount: 0,
@@ -1158,13 +1198,11 @@ function applyLiveDocToState(data = null) {
     const payload = roundFields(data && typeof data === 'object' ? data : {});
     const liveStartEpoch = Number(payload.liveStartEpoch);
     const livePausedMs = Number(payload.livePausedMs);
-    // The clock's current time is liveTimeMs (every stop, knock, correction and
-    // the secretariat write it); timeMs is the last saved final time and only
-    // counts once the result is finalized. Preferring timeMs made an old saved
-    // time come back after a reset or a correction.
-    const storedTimeMs = Number(payload.finalized === true
-        ? (payload.timeMs ?? payload.liveTimeMs ?? 0)
-        : (payload.liveTimeMs ?? payload.timeMs ?? 0));
+    // The clock's current time is liveTimeMs (every stop, correction and the
+    // secretariat write it); timeMs only counts once the round is finalized or
+    // saved (inProgress false): a late Stop may have rewritten liveTimeMs after
+    // the save (as the result engine). A reset clears timeMs.
+    const storedTimeMs = storedRoundTimeMs(payload);
 
     knocks = new Set(Array.isArray(payload.knocks) ? payload.knocks.map(String) : []);
     knockDownTimes = payload.knockDownTimes && typeof payload.knockDownTimes === 'object'
@@ -1400,14 +1438,16 @@ async function finishPhase1() {
         calculate,
         notStartedLabel: t('precision_not_started')
     });
-    const { payload, calc, knocks: countedKnocks, qualified } = finish;
+    const { payload, calc, knocks: countedKnocks, qualified, phase2Blocked } = finish;
+    // Phase 2 continues only when it is clear and its stored round is empty
+    const continues = qualified && !phase2Blocked;
 
     saveInFlight = true;
     const { rounds: nextRounds, activeRound: nextActive, ...topFields } = payload;
     mirrorToLocal(equipage.startNumber, { ...topFields, ...(nextActive ? { activeRound: nextActive } : {}), knocks: countedKnocks });
     if (nextRounds?.phase2) mirrorRound(equipage.startNumber, 'phase2', nextRounds.phase2);
     clearFormDirty();
-    if (!qualified) stopTimerLocal();
+    if (!continues) stopTimerLocal();
     else { startEpoch = splitEpoch; pausedMs = 0; currentRound = 'phase2'; }
     if (currentEquipage === equipage) {
         applyLiveDocToState({
@@ -1416,18 +1456,19 @@ async function finishPhase1() {
             knocks: countedKnocks,
             rounds: { ...(stored.rounds || {}), ...(nextRounds ? { phase2: { ...(stored.rounds?.phase2 || {}), ...nextRounds.phase2 } } : {}) }
         });
-        if (qualified) refreshDropdownList();
+        if (continues) refreshDropdownList();
     }
     try {
         const result = await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
-            { onLateError: lateRejection(equipage.startNumber, { ...topFields, phase2Started: qualified }, 'precision-input:phase1-finish') }
+            { onLateError: lateRejection(equipage.startNumber, { ...topFields, phase2Started: continues }, 'precision-input:phase1-finish') }
         );
         if (result === 'saved') correctPenaltiesAfterSave(equipage, topFields, countedKnocks, calculate, storedRebuildCount(stored), 'phase1');
-        const message = calc.configMissing
-            ? t('precision_saved_course_missing')
-            : (qualified ? t('precision_phase1_continue') : t('precision_phase1_stopped'));
-        showAlert(`${message}${queuedNotice(result)}`, result === 'queued' ? 'offline' : (qualified ? true : 'warning'));
+        let message;
+        if (calc.configMissing) message = t('precision_saved_course_missing');
+        else if (phase2Blocked) message = refusalText('phase2HasData');
+        else message = qualified ? t('precision_phase1_continue') : t('precision_phase1_stopped');
+        showAlert(`${message}${queuedNotice(result)}`, result === 'queued' ? 'offline' : (continues ? true : 'warning'));
     } catch (error) {
         console.error('Kunde inte spara fas 1:', error);
         showAlert(t('precision_save_error'), false);
@@ -1554,8 +1595,18 @@ async function onEquipageSelected(eq) {
         return;
     }
 
+    // The previous equipage's round does not carry over: phase 1 (the doc's
+    // running / unsaved / active round is adopted when it is read), except in
+    // the drive-off for a qualifier
+    const ctx = groupContextOf(eq);
+    const nextRound = roundOnSelect(currentRound, roundsFor(eq), {
+        isDriveOffQualifier: ctx?.driveOffNeeded === true && ctx.driveOffQualifiers?.has(String(eq.startNumber)) === true
+    });
+    const roundChanged = nextRound !== currentRound;
+    currentRound = nextRound;
     resetSelectionUi();
     currentEquipage = eq;
+    if (roundChanged) refreshDropdownList();
     updateHeaderInfo();
     renderGates();
     subscribeToPrecisionDoc(currentEquipage.startNumber);
@@ -1603,6 +1654,12 @@ async function saveFinal() {
     }
 
     if (saveInFlight) return;
+    // Phase 2 / drive-off: never saved for an equipage that may not drive it
+    const check = roundStartCheck();
+    if (!check.ok) {
+        showAlert(refusalText(check.reason), false);
+        return;
+    }
     stopTimer();
 
     const equipage = currentEquipage;
@@ -1828,8 +1885,13 @@ export async function load() {
         });
 
         // Koppla eliminering till live-uppdatering
-        document.getElementById('pr-eliminatedInput').addEventListener('change', () => {
-            pushImmediateState();
+        document.getElementById('pr-eliminatedInput').addEventListener('change', (event) => {
+            // Only this field (and the live total): no clock or extra penalty along
+            const p = livePenalties(getElapsedMs());
+            pushLiveSafe({
+                eliminated: !!event.target.checked,
+                liveTotalPenalty: p.totalPenalty
+            });
         });
 
 
@@ -1899,7 +1961,10 @@ export async function load() {
             pausedMs = ms;
             if (digitsEl) digitsEl.value = '';
             updateTimerView();   // visar tiden
-            pushImmediateState(); // <-- meddela resultatvyn den nya stoppade tiden
+            // meddela resultatvyn den nya stoppade tiden: a time typed in is not
+            // saved yet (inProgress until Spara)
+            inProgress = true;
+            pushLiveSafe({ ...getClockPayload(), inProgress: true });
             manualEditor.classList.add('hidden');
         });
 

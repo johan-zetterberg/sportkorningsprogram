@@ -4,21 +4,29 @@ import {
   MAIL_LIMITS,
   MailError,
   buildRecipientMessage,
+  buildReplyToVerificationMail,
   buildSenderName,
+  buildVolunteerConfirmationMail,
   effectiveReplyTo,
   emailHash,
   filterOptOuts,
   isEssentialMail,
+  isPriorityMail,
   mailDayKey,
+  mailQuotaLimits,
   normalizeAudience,
+  normalizeEssentialReason,
   normalizeExplicitRecipients,
   normalizePersonalTexts,
   normalizeProviderSettings,
   providerStatus,
+  readEmailSettings,
+  releaseDailyQuota,
   reserveDailyQuota,
   resolveRecipients,
   sanitizeMailHtml,
   signMailToken,
+  stripLinks,
   summarizeSendResults,
   textToHtml,
   validateMailContent,
@@ -174,9 +182,56 @@ test('html from clients is cut down to simple formatting', () => {
   assert.equal(sanitizeMailHtml('<svg><script>x</script></svg>ok'), 'ok');
 });
 
-test('plain text becomes escaped html with links', () => {
-  assert.equal(textToHtml('Hej <du>\nrad två\n\nSe https://drivelive.se/x?a=1&b=2.'),
+test('plain text becomes escaped html; links only when asked for', () => {
+  assert.equal(textToHtml('Hej <du>\nrad två\n\nSe https://drivelive.se/x?a=1&b=2.', { linkify: true }),
     '<p>Hej &lt;du&gt;<br>rad två</p>\n<p>Se <a href="https://drivelive.se/x?a=1&amp;b=2" target="_blank" rel="noopener noreferrer">https://drivelive.se/x?a=1&amp;b=2</a>.</p>');
+  // By default (system mail, other people's text) nothing is linked
+  assert.equal(textToHtml('Se https://evil.example/x'), '<p>Se https://evil.example/x</p>');
+  assert.doesNotMatch(validateMailContent({ subject: 's', text: 'https://x.se' }).html, /<a /);
+  assert.match(validateMailContent({ subject: 's', text: 'https://x.se' }, { linkify: true }).html, /<a href="https:\/\/x\.se"/);
+});
+
+test('system mail: no user text but the name, nothing linked', () => {
+  assert.equal(stripLinks('Anna https://evil.example/x www.evil.se evil.se/login Berg'), 'Anna Berg');
+  assert.equal(stripLinks('Dressyr: 10:20 → 11:00, t.ex. klass 2.1'), 'Dressyr: 10:20 → 11:00, t.ex. klass 2.1');
+  const volunteer = buildVolunteerConfirmationMail({ name: 'Eve visit https://evil.example', competitionName: 'Vår www.evil.se', role: 'Klicka evil.com nu' });
+  assert.doesNotMatch(volunteer.text + volunteer.subject, /evil|https?:|Klicka|Önskad/);
+  assert.match(volunteer.text, /^Hej Eve visit!/);
+  const html = buildRecipientMessage({ kind: 'volunteerConfirmation', subject: volunteer.subject, text: volunteer.text }, { email: 'e@x.se' },
+    { competitionName: 'Tävling https://evil.example' }).html;
+  assert.doesNotMatch(html, /<a |evil/);
+  const verify = buildReplyToVerificationMail({ competitionName: 'Klubb https://evil.example', verifyUrl: 'https://fn.example/verifyReplyTo?t=a.b' });
+  assert.doesNotMatch(verify.subject + verify.text, /evil/);
+  assert.equal((verify.html.match(/<a /g) || []).length, 1);
+  assert.match(verify.html, /<a href="https:\/\/fn\.example\/verifyReplyTo\?t=a\.b"/);
+  // Start time lines lose their addresses
+  assert.deepEqual(normalizePersonalTexts([{ startNumber: '3', text: 'Dressyr 10:20 se https://evil.example' }]), { 3: 'Dressyr 10:20 se' });
+  // The volunteer confirmation is off unless switched on
+  assert.equal(readEmailSettings({}).autoVolunteerConfirmation, false);
+  assert.equal(readEmailSettings({ autoVolunteerConfirmation: true }).autoVolunteerConfirmation, true);
+  // An essential message names its reason
+  assert.equal(normalizeEssentialReason(' Ny\nbana '), 'Ny bana');
+  assert.throws(() => normalizeEssentialReason(''), MailError);
+  assert.throws(() => normalizeEssentialReason('x'.repeat(201)), MailError);
+});
+
+test('quota: competition share, reserve for essential mail, system sub-caps, release', () => {
+  const settings = { dailyLimit: 300, competitionDailyLimit: 500 };
+  assert.deepEqual(mailQuotaLimits({ kind: 'message', category: 'info' }, settings),
+    { competition: 150, global: 240, systemCompetition: null, systemGlobal: null });
+  assert.deepEqual(mailQuotaLimits({ kind: 'startTimeChange' }, settings),
+    { competition: 150, global: 300, systemCompetition: null, systemGlobal: null });
+  assert.equal(mailQuotaLimits({ kind: 'message', category: 'essential' }, settings).global, 300);
+  assert.equal(mailQuotaLimits({ kind: 'vetDecision' }, settings).global, 300);
+  assert.deepEqual(mailQuotaLimits({ kind: 'volunteerConfirmation' }, settings),
+    { competition: 150, global: 240, systemCompetition: 20, systemGlobal: 30 });
+  assert.equal(mailQuotaLimits({ kind: 'test' }, {}).systemGlobal, 30);
+  assert.equal(mailQuotaLimits({ kind: 'message' }, { dailyLimit: 1000, competitionDailyLimit: 100 }).competition, 100);
+  assert.equal(isPriorityMail({ kind: 'replyToVerification' }), false);
+  const day = '2026-10-21';
+  assert.deepEqual(releaseDailyQuota({ dayKey: day, count: 5 }, day, 2, 9), { dayKey: day, count: 3, updatedAt: 9 });
+  assert.equal(releaseDailyQuota({ dayKey: day, count: 1 }, day, 4, 9).count, 0);
+  assert.equal(releaseDailyQuota({ dayKey: '2026-10-20', count: 5 }, day, 2), null);
 });
 
 test('mail content is validated; html is sanitized or made from the text', () => {

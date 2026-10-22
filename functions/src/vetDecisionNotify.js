@@ -19,8 +19,9 @@ const clean = (value, max = 500) => String(value ?? '').replace(/\s+/g, ' ').tri
  */
 export function buildVetDecisionDriverMessage(before, after) {
     if (!after || after.type !== 'vet') return null;
+    // A start number only (no free text reaches the driver's mail or push)
     const startNumber = clean(after.startNumber, 20);
-    if (!startNumber) return null;
+    if (!/^[\w-]{1,20}$/.test(startNumber)) return null;
     const phase = PHASE_LABELS[after.vetStrike?.phase] || 'veterinärbesiktningen';
     const base = {
         type: 'alert',
@@ -40,12 +41,13 @@ export function buildVetDecisionDriverMessage(before, after) {
     const outcomeBefore = before.vetStrike?.outcome || 'pending';
     const outcomeAfter = after.vetStrike?.outcome || 'pending';
     if (outcomeBefore === outcomeAfter) return null;
-    const decision = clean(after.decision, 1000);
+    // The ground jury's free-text decision stays in the incident log: the
+    // driver gets fixed texts only (no user text in mail or push)
     if (outcomeAfter === 'confirmed') {
         return {
             ...base,
             title: `Domarkollegiets beslut – ekipage #${startNumber}`,
-            body: `Domarkollegiet har fastställt veterinärens beslut: ekipaget är struket.${decision ? ` ${decision}` : ''} Kontakta sekretariatet vid frågor.`
+            body: 'Domarkollegiet har fastställt veterinärens beslut: ekipaget är struket. Kontakta sekretariatet vid frågor.'
         };
     }
     if (outcomeAfter === 'overturned') {
@@ -53,8 +55,28 @@ export function buildVetDecisionDriverMessage(before, after) {
             ...base,
             type: 'info',
             title: `Domarkollegiets beslut – ekipage #${startNumber}`,
-            body: `Domarkollegiet har inte fastställt veterinärens beslut: ekipaget får fortsätta.${decision ? ` ${decision}` : ''}`
+            body: 'Domarkollegiet har inte fastställt veterinärens beslut: ekipaget får fortsätta. Kontakta sekretariatet vid frågor.'
         };
     }
     return null;
+}
+
+/**
+ * Which notice a write of a vet incident is: 'reported' (created) or the new
+ * outcome ('confirmed', 'overturned'); null when none. One notice per
+ * incident and key (onIncidentWritten uses it in its document ids).
+ */
+export function vetDecisionNoticeKey(before, after) {
+    if (!buildVetDecisionDriverMessage(before, after)) return null;
+    return before ? after.vetStrike.outcome : 'reported';
+}
+
+/**
+ * Whether the writer's roles allow the notice: the vet's report by the vet,
+ * the TD or an admin; a decision by the TD or an admin only.
+ */
+export function canSendVetNotice(key, roles = []) {
+    const has = (role) => roles.includes(role);
+    if (key === 'reported') return has('vet') || has('td') || has('admin');
+    return has('td') || has('admin');
 }

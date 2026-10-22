@@ -9,7 +9,7 @@ import {
 } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 import { getGlobalState } from '../main.js';
 import { trackWrite } from './firestoreService.js';
-import { nextIncidentNumber, validateIncidentEntry } from './incidentUtils.js';
+import { changedIncidentFields, nextIncidentNumber, validateIncidentEntry } from './incidentUtils.js';
 
 const privateBase = (competitionId) => `artifacts/${appId}/private/data/competitions/${competitionId}`;
 const incidentsRef = (competitionId) => collection(db, `${privateBase(competitionId)}/incidents`);
@@ -47,7 +47,10 @@ export function newIncidentId(competitionId) {
 
 /**
  * A new entry from the form values (validateIncidentEntry). `existing`: the
- * entries already loaded, for the next number. Returns { id, number, write }
+ * entries already loaded, for the next number. The number is the device's
+ * proposal: the server keeps it when it is the next free one and otherwise
+ * renumbers the entry (functions/src/incidentNumbers.js, two devices or one
+ * offline may pick the same number). Returns { id, number, write }
  * (write: the server's acknowledgement, pending while offline).
  * extra: fields checked by the caller (vetStrike, source); options.id: a
  * chosen document id (newIncidentId).
@@ -74,7 +77,12 @@ export async function createIncident(competitionId, raw, existing = [], extra = 
     return { id: ref.id, number: payload.number, write };
 }
 
-/** Saves changed fields of an entry (status, decision ...) in the writer's name */
+/**
+ * Saves changed fields of an entry (status, decision ...) in the writer's
+ * name. Only the fields that differ from `incident` (the caller's copy) are
+ * written, so another official's change to other fields at the same time
+ * stands. extra: written as given (dotted paths allowed).
+ */
 export function updateIncident(competitionId, incident, raw, extra = {}) {
     const { ok, errors, entry } = validateIncidentEntry({ ...incident, ...raw });
     if (!ok) {
@@ -84,7 +92,7 @@ export function updateIncident(competitionId, incident, raw, extra = {}) {
     }
     const writer = currentWriter();
     return trackWrite(`Händelselogg nr ${incident.number}`, updateDoc(doc(incidentsRef(competitionId), incident.id), {
-        ...entry,
+        ...changedIncidentFields(incident, entry),
         ...extra,
         updatedBy: writer.uid,
         updatedByName: writer.name,

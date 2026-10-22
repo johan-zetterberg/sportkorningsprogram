@@ -9,6 +9,7 @@ import {
 } from '../../services/finalizationService.js';
 import { precisionGroupContext } from '../../core-engine/ranking.js';
 import { phase2QualificationChange, precisionRoundLabelKey } from '../precision/precisionRoundInput.js';
+import { formatKnockList, parseKnockListInput } from '../precision/precisionInputUtils.js';
 import { listRejectedWrites } from '../../services/rejectedWritesService.js';
 import { createStaffNoticesHost } from '../../ui/staffNoticesPanel.js';
 import {
@@ -119,6 +120,18 @@ function draftFor(row) {
   return draft ? { ...row, ...draft, status: derivePrecisionStatus({ ...row, ...draft }) } : row;
 }
 
+// Under the knock list: the obstacle penalty it gives ("2 rivn. = 6 p"); a
+// legacy result without a list shows its stored penalty
+function obstacleSummary(row, view, isDirty) {
+  const knocks = Array.isArray(view.knocks) ? view.knocks : [];
+  const penalty = isDirty && !view.__invalid
+    ? calculateSecretariatPrecisionDraft(row, drafts.get(String(row.startNumber))).obstaclePenalty
+    : row.obstaclePenalty;
+  const p = Number.isFinite(Number(penalty)) ? Number(penalty) : 0;
+  if (!knocks.length && row.legacyObstaclePenalty && !isDirty) return `Lagrat: ${row.legacyObstaclePenalty} p`;
+  return knocks.length ? `${knocks.length} rivn. = ${p} ${row.scoring === 'time' || row.round === 'driveOff' ? 's' : 'p'}` : '0 p';
+}
+
 function buildTableRows() {
   const visibleRows = getVisibleRows();
   if (visibleRows.length === 0) {
@@ -157,8 +170,9 @@ function buildTableRows() {
         <td class="px-3 py-3 text-sm min-w-[7rem]">
           <input data-field="timeMs" value="${escapeHtml(formatEditableTime(view.timeMs))}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-time-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
         </td>
-        <td class="px-3 py-3 text-sm min-w-[4.1rem]">
-          <input data-field="obstaclePenalty" type="number" step="0.1" value="${escapeHtml(view.obstaclePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+        <td class="px-3 py-3 text-sm min-w-[6rem]">
+          <input data-field="knocks" type="text" inputmode="text" autocomplete="off" placeholder="–" title="Rivna hinder, t.ex. 3A, 5" value="${escapeHtml(formatKnockList(view.knocks))}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-knocks-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
+          <div data-role="obstacle" class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(obstacleSummary(row, view, isDirty))}</div>
         </td>
         <td class="px-3 py-3 text-sm min-w-[4.1rem]">
           <input data-field="timePenalty" type="number" step="0.1" value="${escapeHtml(view.timePenalty ?? 0)}" ${readOnly ? 'disabled' : ''} class="secretariat-precision-penalty-input w-full rounded border border-gray-300 dark:border-gray-600 px-2 py-1 bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 disabled:opacity-60">
@@ -244,7 +258,7 @@ function render() {
                 <th class="px-3 py-3">Start</th>
                 <th class="px-3 py-3">Ekipage</th>
                 <th class="px-3 py-3">Tid</th>
-                <th class="px-3 py-3">Hinder</th>
+                <th class="px-3 py-3" title="Rivna hinder (hinderstraffet räknas från listan)">Rivningar</th>
                 <th class="px-3 py-3">Tidstraff</th>
                 <th class="px-3 py-3">Övrigt</th>
                 <th class="px-3 py-3" title="Ombyggda hinder, +10 s var">Ombyggn.</th>
@@ -276,7 +290,8 @@ function collectPatch(rowEl, baseRow) {
     throw new Error('Ogiltigt tidsformat. Använd mm:ss,cc eller sekunder.');
   }
 
-  const obstaclePenalty = Number(rowEl.querySelector('[data-field="obstaclePenalty"]')?.value || 0);
+  // The knock list (the obstacle penalty follows from it in the result engine)
+  const knocks = parseKnockListInput(rowEl.querySelector('[data-field="knocks"]')?.value || '');
   const timePenalty = Number(rowEl.querySelector('[data-field="timePenalty"]')?.value || 0);
   const extraPenalty = Number(rowEl.querySelector('[data-field="extraPenalty"]')?.value || 0);
   // Editing the time penalty itself makes it a manual override; otherwise
@@ -289,7 +304,7 @@ function collectPatch(rowEl, baseRow) {
     className: baseRow.className,
     equipage: baseRow.calcContext?.equipage,
     timeMs: timeMs ?? 0,
-    obstaclePenalty: Number.isFinite(obstaclePenalty) ? obstaclePenalty : 0,
+    knocks,
     timePenalty: Number.isFinite(timePenalty) ? timePenalty : 0,
     timePenaltyOverride: timePenaltyEdited || baseRow.timePenaltyOverride === true,
     extraPenalty: Number.isFinite(extraPenalty) ? extraPenalty : 0,
@@ -308,9 +323,15 @@ function updateDraft(rowEl) {
   try {
     const patch = collectPatch(rowEl, draftBaseFor(sn, baseRow));
     const totalCell = rowEl.querySelector('[data-role="total"]');
+    const draftCalc = calculateSecretariatPrecisionDraft(baseRow, patch);
     if (totalCell) {
-      const totalPenalty = calculateSecretariatPrecisionDraft(baseRow, patch).totalPenalty ?? 0;
+      const totalPenalty = draftCalc.totalPenalty ?? 0;
       totalCell.textContent = totalPenalty.toFixed(2).replace(/\.00$/, '');
+    }
+    const obstacleCell = rowEl.querySelector('[data-role="obstacle"]');
+    if (obstacleCell) {
+      const unit = baseRow.scoring === 'time' || baseRow.round === 'driveOff' ? 's' : 'p';
+      obstacleCell.textContent = patch.knocks.length ? `${patch.knocks.length} rivn. = ${draftCalc.obstaclePenalty ?? 0} ${unit}` : '0 p';
     }
 
     // The row as it was when editing began: kept with the draft, so a reload
@@ -318,7 +339,7 @@ function updateDraft(rowEl) {
     const draftBase = drafts.get(sn)?.__base || baseRow;
     const hasChanges = JSON.stringify({
       timeMs: patch.timeMs,
-      obstaclePenalty: patch.obstaclePenalty,
+      knocks: formatKnockList(patch.knocks),
       timePenalty: patch.timePenalty,
       extraPenalty: patch.extraPenalty,
       rebuildCount: patch.rebuildCount,
@@ -326,7 +347,7 @@ function updateDraft(rowEl) {
       comment: patch.comment,
     }) !== JSON.stringify({
       timeMs: draftBase.timeMs || 0,
-      obstaclePenalty: draftBase.obstaclePenalty || 0,
+      knocks: formatKnockList(draftBase.knocks),
       timePenalty: draftBase.timePenalty || 0,
       extraPenalty: draftBase.extraPenalty || 0,
       rebuildCount: draftBase.rebuildCount || 0,
@@ -562,6 +583,9 @@ function ensureStickyTableStyles() {
       }
       .secretariat-precision-time-input {
         min-width: 6.25rem;
+      }
+      .secretariat-precision-knocks-input {
+        min-width: 5.5rem;
       }
       .secretariat-precision-comment {
         min-width: 10rem;

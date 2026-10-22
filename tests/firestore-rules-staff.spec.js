@@ -97,6 +97,38 @@ test('incidents: TD and discipline officials write, the vet adds its own decisio
   await assertFails(deleteDoc(ref));
 });
 
+test('incidents: vet decisions (type vet, vetStrike) only by the vet, the TD and admins', { skip: !HAS_EMULATOR }, async () => {
+  const vetEntry = (uid, extra = {}) => incident(uid, {
+    number: 7, type: 'vet', discipline: 'general', vetStrike: { phase: 'initial', outcome: 'pending' }, ...extra
+  });
+  // Discipline officials may not fake a vet decision (it reaches the driver)
+  await assertFails(setDoc(doc(dbOf('mar-1'), privPath('incidents/f1')), vetEntry('mar-1')));
+  await assertFails(setDoc(doc(dbOf('pre-1'), privPath('incidents/f2')), vetEntry('pre-1', { startNumber: '99' })));
+  await assertFails(setDoc(doc(dbOf('mar-1'), privPath('incidents/f3')), incident('mar-1', { vetStrike: { outcome: 'confirmed' } })));
+  // The TD and the owner may
+  await assertSucceeds(setDoc(doc(dbOf('td-1'), privPath('incidents/t1')), vetEntry('td-1')));
+  await assertSucceeds(setDoc(doc(dbOf('owner-1'), privPath('incidents/o1')), vetEntry('owner-1', { number: 8 })));
+  // The vet's own open report
+  const vetRef = doc(dbOf('vet-1'), privPath('incidents/v1'));
+  await assertSucceeds(setDoc(vetRef, vetEntry('vet-1', { number: 9, source: 'vet' })));
+
+  const upd = (uid, extra) => ({ updatedBy: uid, updatedAt: serverTimestamp(), ...extra });
+  // Officials may not flip the outcome, edit a vet entry or turn an entry into one
+  await assertFails(updateDoc(doc(dbOf('mar-1'), privPath('incidents/v1')), upd('mar-1', { vetStrike: { phase: 'initial', outcome: 'confirmed' } })));
+  await assertFails(updateDoc(doc(dbOf('mar-1'), privPath('incidents/v1')), upd('mar-1', { status: 'closed' })));
+  await assertSucceeds(setDoc(doc(dbOf('mar-1'), privPath('incidents/p1')), incident('mar-1', { number: 10 })));
+  await assertFails(updateDoc(doc(dbOf('mar-1'), privPath('incidents/p1')), upd('mar-1', { type: 'vet' })));
+  await assertFails(updateDoc(doc(dbOf('mar-1'), privPath('incidents/p1')), upd('mar-1', { vetStrike: { outcome: 'confirmed' } })));
+  await assertSucceeds(updateDoc(doc(dbOf('mar-1'), privPath('incidents/p1')), upd('mar-1', { status: 'closed' })));
+  // The TD and the owner decide
+  await assertSucceeds(updateDoc(doc(dbOf('td-1'), privPath('incidents/v1')), upd('td-1', {
+    status: 'decided', vetStrike: { phase: 'initial', outcome: 'confirmed' }
+  })));
+  await assertSucceeds(updateDoc(doc(dbOf('owner-1'), privPath('incidents/v1')), upd('owner-1', {
+    vetStrike: { phase: 'initial', outcome: 'overturned' }
+  })));
+});
+
 test('staff notifications: staff read and acknowledge; clients add only vet notices', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     await setDoc(doc(context.firestore(), privPath('staffNotifications/n1')), {
@@ -193,6 +225,12 @@ test('td: reads corrections, finalizes marathon results, decides vet strikes; no
   // ...but no results
   await assertFails(setDoc(doc(td, compPath('maraton/6')), { obstacleResults: { 1: { penalty: 5 } } }, { merge: true }));
   await assertFails(setDoc(doc(td, compPath('precision/6')), { timeMs: 1000 }, { merge: true }));
+  // Precision finalize: in rounds only the drive-off's finalized flag
+  await assertSucceeds(setDoc(doc(td, compPath('precision/6')), { prioritized: true, finalized: true, finalizedAt: Date.now(), finalizedBy: 'td-1' }, { merge: true }));
+  await assertFails(setDoc(doc(td, compPath('precision/6')), { finalized: true, rounds: { phase2: { timeMs: 1 } } }, { merge: true }));
+  await assertFails(setDoc(doc(td, compPath('precision/6')), { finalized: true, rounds: { driveOff: { timeMs: 1 } } }, { merge: true }));
+  await assertFails(setDoc(doc(td, compPath('precision/6')), { rounds: { driveOff: { finalized: true, knocks: ['1'] } } }, { merge: true }));
+  await assertSucceeds(setDoc(doc(td, compPath('precision/6')), { rounds: { driveOff: { finalized: true, updatedAt: Date.now() } } }, { merge: true }));
 
   // The vet marks the strike: no 'struken' status, the pending flag instead
   const vet = dbOf('vet-1');

@@ -274,15 +274,49 @@ service cloud.firestore {
     // while the result is locked, a write touching only rounds.driveOff (and
     // activeRound) is allowed until the lock's driveOffFinalized is set; the
     // batch that sets or clears it is allowed too (as above)
-    function isPrecisionDriveOffOnlyWrite(compId, startNo) {
+    function isPrecisionDriveOffOnlyWrite(appId, compId, startNo) {
       let finPath = /databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo);
       let d = request.resource.data;
       return resource != null
-        && d.diff(resource.data).affectedKeys().hasOnly(['rounds', 'activeRound', 'updatedAt'])
+        && isDriveOffOnlyTopLevel(appId, compId, startNo, d, d.diff(resource.data).affectedKeys())
         && d.get('rounds', {}) is map
         && d.get('rounds', {}).diff(resource.data.get('rounds', {})).affectedKeys().hasOnly(['driveOff'])
         && (get(finPath).data.get('driveOffFinalized', false) != true
           || (existsAfter(finPath) && getAfter(finPath).data.get('driveOffFinalized', false) != true));
+    }
+
+    // A round write resends startNumber and className (precisionRounds
+    // nestPrecisionRoundPayload): a changed value is allowed only when it is
+    // the doc id / the equipage's current class (after a class rename)
+    function isDriveOffOnlyTopLevel(appId, compId, startNo, d, changed) {
+      return changed.hasOnly(['rounds', 'activeRound', 'updatedAt', 'startNumber', 'className'])
+        && (!changed.hasAny(['startNumber']) || d.startNumber == startNo)
+        && (!changed.hasAny(['className'])
+          || d.className == get(/databases/$(database)/documents/artifacts/$(appId)/public/data/competitions/$(compId)/equipages/$(startNo)).data.get('className', null));
+    }
+
+    // The drive-off's own lock holds whatever the initial round's lock:
+    // rounds.driveOff is not written while driveOffFinalized is true (unless
+    // the same batch clears it, as above)
+    function isPrecisionDriveOffUnlocked(compId, startNo) {
+      let finPath = /databases/$(database)/documents/competitions/$(compId)/precisionFinalization/$(startNo);
+      let before = resource == null ? {} : resource.data.get('rounds', {});
+      return request.resource.data.get('rounds', {}).get('driveOff', null) == before.get('driveOff', null)
+        || !exists(finPath)
+        || get(finPath).data.get('driveOffFinalized', false) != true
+        || (existsAfter(finPath) && getAfter(finPath).data.get('driveOffFinalized', false) != true);
+    }
+
+    // The TD's finalize writes touch rounds only for the drive-off's
+    // finalized flag (finalizationService.finalizePrecisionDriveOff)
+    function isTdPrecisionRoundsFinalizeOnly() {
+      let after = request.resource.data.get('rounds', {});
+      let before = resource == null ? {} : resource.data.get('rounds', {});
+      return after is map && before is map
+        && (after.diff(before).affectedKeys().size() == 0
+          || (after.diff(before).affectedKeys().hasOnly(['driveOff'])
+            && after.get('driveOff', null) is map
+            && after.driveOff.diff(before.get('driveOff', {})).affectedKeys().hasOnly(['finalized', 'updatedAt'])));
     }
 
     function isMarathonResultUnlocked(compId, startNo) {
@@ -568,6 +602,13 @@ service cloud.firestore {
           && (!changed.hasAny(['rounds', 'activeRound']) || isPrecisionRoundStartWrite(d)));
     }
 
+    function isUnusedPrecisionRound(p) {
+      return p.get('running', false) != true
+        && p.get('inProgress', false) != true
+        && (p.get('timeMs', null) == null || p.get('timeMs', 0) == 0)
+        && p.get('knocks', []).size() == 0;
+    }
+
     // The phase-1 finish line of two phases (precisionInputUtils
     // buildPhase1FinishWrite): the phase-1 save and phase 2's clock started
     function isPrecisionRoundStartWrite(d) {
@@ -577,6 +618,10 @@ service cloud.firestore {
         && (!rounds.diff(before).affectedKeys().hasAny(['phase2', 'driveOff'])
           || (rounds.diff(before).affectedKeys().hasOnly(['phase2'])
             && rounds.phase2 is map
+            // Only an unused phase 2 is started: a finish queued offline that
+            // lands after phase 2 was driven must not restart it (a re-run
+            // clears phase 2 first, a rounds-only write)
+            && isUnusedPrecisionRound(before.get('phase2', {}))
             && rounds.phase2.diff(before.get('phase2', {})).affectedKeys()
               .hasOnly(['running', 'inProgress', 'liveStartEpoch', 'livePausedMs', 'liveTimeMs', 'status', 'updatedAt'])))
         && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff']);
@@ -963,16 +1008,22 @@ service cloud.firestore {
       allow delete: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
       allow create, update: if request.auth != null
         && isPrecisionResultWrite()
+        // As canWriteResultsAs, with the official's role looked up first and
+        // once (the cheaper tests first, within the expression limit)
+        && isCompetitionOpen(appId, compId)
         && (
-          canWriteResultsAs(appId, compId, 'precision')
+          hasAnyRoleInComp(appId, compId, ['precision'])
           // The TD finalizes/unlocks (finalizationService), nothing else
-          || isTdFinalizeWrite(appId, compId, ['prioritized', 'finalized', 'finalizedAt', 'finalizedBy',
-            'unfinalizedAt', 'unfinalizedBy', 'rounds'])
+          || (writesOnlyKeys(['prioritized', 'finalized', 'finalizedAt', 'finalizedBy', 'unfinalizedAt', 'unfinalizedBy', 'rounds'])
+            && isTdPrecisionRoundsFinalizeOnly()
+            && isTdInComp(appId, compId))
+          || canAdminThisArtifactsComp(appId, compId)
         )
         && (
           isPrecisionResultUnlocked(compId, docId)
-          || isPrecisionDriveOffOnlyWrite(compId, docId)
-        );
+          || isPrecisionDriveOffOnlyWrite(appId, compId, docId)
+        )
+        && isPrecisionDriveOffUnlocked(compId, docId);
     }
 
     // ---- Dressyrprotokoll (NY STRUKTUR)
@@ -1420,6 +1471,33 @@ service cloud.firestore {
         );
     }
 
+    // A pause start/end pressed offline (stability: globalPauseService): the
+    // server applies the events to config/globalStatus.pauseLog in order
+    // (onPauseEventCreated, src/pauseEvents.js) and marks them processed.
+    // Writers as for globalStatus; never changed or removed by clients.
+    function isPauseEvent(d) {
+      return d.keys().hasOnly(['type', 'at', 'atServer', 'by', 'reason', 'note', 'where', 'processed'])
+        && d.keys().hasAll(['type', 'at', 'by', 'processed'])
+        && d.type in ['start', 'end']
+        && d.at is string && d.at.size() <= 40
+        && d.processed == false
+        && (d.get('atServer', null) == null || d.atServer == request.time)
+        && (d.get('reason', null) == null || d.reason in ['accident', 'vet', 'course', 'weather', 'other'])
+        && (d.get('note', null) == null || (d.note is string && d.note.size() <= 200))
+        && (d.get('where', null) == null || (d.where is string && d.where.size() <= 60))
+        && isPauseActor(d.by) && d.by.uid == request.auth.uid;
+    }
+
+    match /artifacts/{appId}/private/data/competitions/{compId}/pauseEvents/{eventId} {
+      allow read: if request.auth != null && canAdminThisArtifactsComp(appId, compId);
+      // (one role lookup for marathon and td, within the expression limit)
+      allow create: if request.auth != null
+        && isPauseEvent(request.resource.data)
+        && isCompetitionOpen(appId, compId)
+        && (hasAnyRoleInComp(appId, compId, ['marathon', 'td']) || canAdminThisArtifactsComp(appId, compId));
+      allow update, delete: if false;
+    }
+
     // Hemliga konfigurationer (t.ex. PIN-kod)
     // Role codes (accessCode_<role>): 10-12 symbols without look-alikes (no
     // 0/O/1/I), as the settings page and revokeOfficialAccess make them. The
@@ -1620,6 +1698,20 @@ service cloud.firestore {
         && optMap(data, 'vetStrike', 10);
     }
 
+    // A vet decision (type 'vet', vetStrike) reaches the driver by message,
+    // e-mail and push (onIncidentWritten): only the vet (its own report, see
+    // create), the TD / ground jury and the competition's admins write one.
+    function canWriteVetDecision(appId, compId) {
+      return hasAnyRoleInComp(appId, compId, ['td']) || canAdminThisArtifactsComp(appId, compId);
+    }
+
+    function touchesVetDecision(before, after) {
+      return after.get('type', '') == 'vet'
+        || after.keys().hasAny(['vetStrike'])
+        || (before != null
+          && (before.get('type', '') == 'vet' || before.get('vetStrike', null) != after.get('vetStrike', null)));
+    }
+
     match /artifacts/{appId}/private/data/competitions/{compId}/incidents/{incidentId} {
       allow read: if request.auth != null
         && (hasAnyRoleInComp(appId, compId, incidentReaderRoles()) || canAdminThisArtifactsComp(appId, compId));
@@ -1628,8 +1720,9 @@ service cloud.firestore {
         && request.resource.data.createdBy == request.auth.uid
         && request.resource.data.createdAt == request.time
         && (
-          hasAnyRoleInComp(appId, compId, incidentWriterRoles())
-          || canAdminThisArtifactsComp(appId, compId)
+          (!touchesVetDecision(null, request.resource.data)
+            && (hasAnyRoleInComp(appId, compId, incidentWriterRoles()) || canAdminThisArtifactsComp(appId, compId)))
+          || canWriteVetDecision(appId, compId)
           // The vet's own decision, open for the ground jury
           || (request.resource.data.type == 'vet'
             && request.resource.data.get('source', '') == 'vet'
@@ -1644,7 +1737,11 @@ service cloud.firestore {
         && request.resource.data.number == resource.data.number
         && request.resource.data.get('updatedBy', '') == request.auth.uid
         && request.resource.data.get('updatedAt', null) == request.time
-        && (hasAnyRoleInComp(appId, compId, incidentWriterRoles()) || canAdminThisArtifactsComp(appId, compId));
+        && (
+          (!touchesVetDecision(resource.data, request.resource.data)
+            && hasAnyRoleInComp(appId, compId, incidentWriterRoles()))
+          || canWriteVetDecision(appId, compId)
+        );
       allow delete: if false;
     }
 

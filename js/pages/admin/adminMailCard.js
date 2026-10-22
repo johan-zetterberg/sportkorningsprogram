@@ -16,6 +16,7 @@ import { t } from '../../utils/i18n.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { fillTemplate } from '../../utils/officialTaskUtils.js';
 import {
+    MAIL_REASON_MAX,
     SENDER_NAME_MAX,
     SIGNATURE_MAX,
     isPlausibleEmail,
@@ -60,6 +61,7 @@ export function renderMailLog(items) {
                 ${renderMailStatusBadge(item.status)}
             </div>
             <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t(mailKindKey(item.kind)))}${ms ? ` · ${escapeHtml(new Date(ms).toLocaleString('sv-SE'))}` : ''}${parts.length ? ` · ${escapeHtml(parts.join(', '))}` : ''}</div>
+            ${item.reason ? `<div class="mt-1 text-xs text-gray-600 dark:text-gray-300 break-words">${escapeHtml(fillTemplate(t('mail_log_reason'), { reason: String(item.reason), role: String(item.createdByRole || '') }))}</div>` : ''}
             ${item.error ? `<div class="mt-1 text-xs text-red-700 dark:text-red-300 break-words">${escapeHtml(String(item.error))}</div>` : ''}
         </li>`;
     }).join('')}</ul>`;
@@ -283,6 +285,10 @@ export function getMessageMailOptionsHtml() {
         <label class="flex items-center gap-3 min-h-[44px] text-sm font-medium text-gray-800 dark:text-gray-100"><input type="checkbox" id="msgSendMail" class="h-5 w-5"> ${escapeHtml(t('mail_msg_send_too'))}</label>
         <div id="msgMailDetails" class="hidden space-y-1 pl-1">
             <label class="flex items-center gap-3 min-h-[44px] text-sm text-gray-700 dark:text-gray-200"><input type="checkbox" id="msgMailEssential" class="h-5 w-5"> ${escapeHtml(t('mail_msg_essential'))}</label>
+            <div id="msgMailReasonBox" class="hidden">
+                <label for="msgMailReason" class="block text-xs font-medium text-gray-700 dark:text-gray-200">${escapeHtml(t('mail_msg_reason'))}</label>
+                <input type="text" id="msgMailReason" maxlength="${MAIL_REASON_MAX}" class="mt-1 block w-full rounded-md border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 dark:text-white p-2 text-sm min-h-[44px]" placeholder="${escapeHtml(t('mail_msg_reason_ph'))}">
+            </div>
             <p id="msgMailPreview" class="text-xs text-gray-700 dark:text-gray-200" aria-live="polite"></p>
             <p id="msgMailNotConfigured" class="hidden text-xs text-amber-800 dark:text-amber-200">${escapeHtml(t('mail_msg_waits_note'))}</p>
         </div>
@@ -300,6 +306,8 @@ export function setupMessageMailOptions(competitionId, getAudience) {
     const sendBox = document.getElementById('msgSendMail');
     const details = document.getElementById('msgMailDetails');
     const essentialBox = document.getElementById('msgMailEssential');
+    const reasonBox = document.getElementById('msgMailReasonBox');
+    const reasonInput = document.getElementById('msgMailReason');
     const previewEl = document.getElementById('msgMailPreview');
     const waitNote = document.getElementById('msgMailNotConfigured');
     let timer = null;
@@ -340,6 +348,7 @@ export function setupMessageMailOptions(competitionId, getAudience) {
 
     function refresh() {
         details.classList.toggle('hidden', !sendBox.checked);
+        reasonBox?.classList.toggle('hidden', !essentialBox.checked);
         waitNote?.classList.toggle('hidden', !(sendBox.checked && configured === false));
         clearTimeout(timer);
         if (sendBox.checked) timer = setTimeout(updatePreview, 350);
@@ -355,10 +364,13 @@ export function setupMessageMailOptions(competitionId, getAudience) {
     return {
         requested: () => sendBox.checked,
         essential: () => sendBox.checked && essentialBox.checked,
+        // Why the message is essential (required by the server, shown in the log)
+        reason: () => String(reasonInput?.value || '').trim(),
         refresh,
         reset: () => {
             sendBox.checked = false;
             essentialBox.checked = false;
+            if (reasonInput) reasonInput.value = '';
             previewEl.textContent = '';
             refresh();
         },

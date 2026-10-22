@@ -10,7 +10,7 @@ import { logger } from "firebase-functions";
 import { initializeApp } from "firebase-admin/app";
 import { FieldValue, getFirestore } from "firebase-admin/firestore";
 import { appendDeclarationChange, buildDeclarationChangeEntry, buildDeclarationNotice, buildDeclarationUpdate, inspectedHorseKeys } from "./src/declarationUtils.js";
-import { buildVetDecisionDriverMessage } from "./src/vetDecisionNotify.js";
+import { buildVetDecisionDriverMessage, canSendVetNotice, vetDecisionNoticeKey } from "./src/vetDecisionNotify.js";
 import { declarationLockReason } from "./src/declarationLock.js";
 import { isDocumentForDriver, isMessageForDriver, toPlainTimestamps } from "./src/driverInbox.js";
 import { buildDriverContacts } from "./src/driverContacts.js";
@@ -89,12 +89,15 @@ import {
     effectiveReplyTo,
     filterOptOuts,
     isValidEmail as isValidMailAddress,
+    mailQuotaLimits,
     normalizeAudience,
+    normalizeEssentialReason,
     normalizePersonalTexts,
     normalizeProviderSettings,
     providerStatus,
     readEmailSettings,
     signMailToken,
+    stripLinks,
     validateMailContent,
     verifyMailToken
 } from "./src/mail/mailCore.js";
@@ -108,6 +111,7 @@ import {
     getSigningKey,
     listWaitingMail,
     loadProviderSettings,
+    mailQueuePath,
     markReplyToVerified,
     newMailRef,
     processDueMailRetries,
@@ -147,6 +151,8 @@ import {
     sendPushToUser,
     unregisterPushToken as unregisterPushTokenIn
 } from "./src/push/pushService.js";
+import { applyPauseEvents } from "./src/pauseEvents.js";
+import { numberIncident } from "./src/incidentNumbers.js";
 
 // A cap on instances for every function (a runaway client or loop cannot
 // scale up the bill); the public callables have lower caps of their own
@@ -460,6 +466,33 @@ export const onResultConfigWrite = onDocumentWritten(
     }
 );
 
+// 0b. A pause or resume pressed without connection (js/services/
+// globalPauseService.js): the device wrote an event, folded here into
+// config/globalStatus.pauseLog in event order, append-only (src/pauseEvents.js).
+// The write of the log triggers onResultConfigWrite (recalculatePauseAffected)
+// and the pause push as an online press does. Idempotent (events are marked
+// processed in the same transaction), so retried.
+export const onPauseEventCreated = onDocumentCreated(
+    { document: "artifacts/{appId}/private/data/competitions/{compId}/pauseEvents/{eventId}", ...RESULT_TRIGGER_OPTIONS },
+    async (event) => {
+        const { appId, compId } = event.params;
+        const result = await applyPauseEvents(db, FieldValue, { appId, compId });
+        if (result.processed) logger.info('Pausehändelser inlagda', { competitionId: compId, ...result });
+    }
+);
+
+// 0c. A new incident log entry gets its final number from the competition's
+// counter (two devices, or one offline, may have picked the same number:
+// src/incidentNumbers.js). Idempotent per entry, so retried.
+export const onIncidentNumbered = onDocumentCreated(
+    { document: "artifacts/{appId}/private/data/competitions/{compId}/incidents/{incidentId}", ...RESULT_TRIGGER_OPTIONS },
+    async (event) => {
+        const { appId, compId, incidentId } = event.params;
+        const result = await numberIncident(db, { appId, compId, incidentId });
+        if (result?.changed) logger.info('Händelselogg: nytt nummer', { competitionId: compId, incidentId, number: result.number });
+    }
+);
+
 export const onCompetitionRuleSettingsWrite = onDocumentWritten(
     { document: "artifacts/{appId}/public/data/competitions/{compId}", timeoutSeconds: 540, memory: '512MiB', ...RESULT_TRIGGER_OPTIONS },
     async (event) => {
@@ -550,22 +583,73 @@ export const onEquipageUpdate = onDocumentWritten(
 // A vet decision in the incident log reaches the driver's inbox: when the vet
 // reports it to the ground jury and when the ground jury decides it. The rules
 // let only admins write messages, so the server writes them (a message
-// addressed to the equipage, see driverInbox.js).
+// addressed to the equipage, see driverInbox.js). The writer's role is checked
+// again (vet report: vet, TD, admin; decision: TD, admin), and each notice
+// (incident + 'reported'/outcome) is sent once: its message and mail have
+// fixed document ids, the push a dedupe key.
+const isAlreadyExists = (error) => error?.code === 6 || error?.code === 'already-exists' || /already exists/i.test(String(error?.message || ''));
+
+// The writer's roles in the competition: 'admin' (owners, competition and
+// global admins, as assertCanMaintainResults) and the roles of its
+// admins/{uid} doc and verified roleEmails entry
+async function competitionRolesOfUid(appId, compId, uid) {
+    if (!uid || typeof uid !== 'string') return [];
+    const ref = db.doc(`artifacts/${appId}/public/data/competitions/${compId}`);
+    const [compSnap, user] = await Promise.all([
+        ref.get(),
+        adminAuth.getUser(uid).catch(() => null)
+    ]);
+    if (!compSnap.exists || !user) return [];
+    const email = String(user.email || '').trim().toLowerCase();
+    const verified = user.emailVerified === true;
+    const request = { auth: { uid, token: { ...(user.customClaims || {}), email, email_verified: verified } } };
+    const roles = [];
+    try {
+        await assertCanMaintainResults(request, { ref, data: compSnap.data() });
+        roles.push('admin');
+    } catch (error) {
+        if (!(error instanceof HttpsError) || error.code !== 'permission-denied') throw error;
+    }
+    const [adminSnap, roleEmailSnap] = await Promise.all([
+        ref.collection('admins').doc(uid).get(),
+        verified && email ? ref.collection('roleEmails').doc(email).get() : Promise.resolve(null)
+    ]);
+    [adminSnap, roleEmailSnap].forEach((snap) => {
+        const data = snap?.exists ? snap.data() : {};
+        [data.role, ...(Array.isArray(data.roles) ? data.roles : [])].filter(Boolean).forEach((role) => roles.push(role));
+    });
+    return roles;
+}
+
 export const onIncidentWritten = onDocumentWritten(
     "artifacts/{appId}/private/data/competitions/{compId}/incidents/{incidentId}",
     async (event) => {
-        const message = buildVetDecisionDriverMessage(beforeData(event), afterData(event));
+        const before = beforeData(event);
+        const after = afterData(event);
+        const message = buildVetDecisionDriverMessage(before, after);
         if (!message) return;
         const { appId, compId, incidentId } = event.params;
-        await db.collection(`artifacts/${appId}/public/data/competitions/${compId}/messages`).add({
-            ...message,
-            incidentId,
-            timestamp: FieldValue.serverTimestamp()
-        });
+        const noticeKey = vetDecisionNoticeKey(before, after);
+        const writer = before ? after.updatedBy : after.createdBy;
+        const roles = await competitionRolesOfUid(appId, compId, writer);
+        if (!canSendVetNotice(noticeKey, roles)) {
+            logger.warn('Veterinärbeslut: skrivaren saknar roll, ingen notis', { competitionId: compId, incidentId, noticeKey, writer: writer || null });
+            return;
+        }
+        const noticeId = `vet_${incidentId}_${noticeKey}`.slice(0, 200);
+        try {
+            await db.doc(`artifacts/${appId}/public/data/competitions/${compId}/messages/${noticeId}`).create({
+                ...message,
+                incidentId,
+                timestamp: FieldValue.serverTimestamp()
+            });
+        } catch (error) {
+            if (!isAlreadyExists(error)) throw error;
+        }
         // The same notice by e-mail to the equipage's addresses (unless the
         // competition switched it off); the inbox message above stands anyway
         try {
-            await queueVetDecisionMail(appId, compId, message, incidentId);
+            await queueVetDecisionMail(appId, compId, message, incidentId, noticeId);
         } catch (error) {
             logger.error('Veterinärbeslut: e-post kunde inte köas', { competitionId: compId, incidentId, error: String(error?.message || error) });
         }
@@ -582,27 +666,30 @@ export const onIncidentWritten = onDocumentWritten(
             content: (_target, lang) => buildVetDecisionContent(message, lang),
             tag: `vet-${incidentId}`.slice(0, 64),
             source: 'incident',
-            dedupeKey: `vet-${event.id}`,
+            dedupeKey: noticeId,
             logger
         }), { competitionId: compId, incidentId });
     }
 );
 
-async function queueVetDecisionMail(appId, compId, message, incidentId) {
+async function queueVetDecisionMail(appId, compId, message, incidentId, noticeId) {
     const settingsSnap = await db.doc(emailSettingsPath(appId, compId)).get();
     if (!readEmailSettings(settingsSnap.exists ? settingsSnap.data() : {}).autoVetDecisionMail) return;
     const content = validateMailContent({ subject: message.title, text: message.body });
-    await enqueueMail({
-        db, FieldValue, appId, compId,
-        mail: {
-            kind: 'vetDecision',
-            category: 'essential',
-            ...content,
-            audience: { drivers: { classes: [], startNumbers: message.targetStartNumbers, includeWithdrawn: true } },
-            createdBy: 'system',
-            source: { type: 'incident', incidentId }
-        }
-    });
+    const mail = {
+        kind: 'vetDecision',
+        category: 'essential',
+        ...content,
+        audience: { drivers: { classes: [], startNumbers: message.targetStartNumbers, includeWithdrawn: true } },
+        createdBy: 'system',
+        source: { type: 'incident', incidentId }
+    };
+    try {
+        // A fixed id: the same notice is never queued twice
+        await db.doc(`${mailQueuePath(appId, compId)}/${noticeId}`).create(buildQueueDoc(mail, { FieldValue }));
+    } catch (error) {
+        if (!isAlreadyExists(error)) throw error;
+    }
 }
 
 // Deletes a competition completely: its public and private Firestore data, the
@@ -1071,6 +1158,12 @@ export const joinCompetitionAsOfficial = onCall({ maxInstances: 5 }, async (requ
     if (!matchedRole) {
         throw new HttpsError('permission-denied', 'Fel kod. Kontrollera koden och försök igen.');
     }
+    // The TD can send essential mail and push to the drivers: a code is
+    // enough (owner's decision), but not on an account with an unconfirmed
+    // address (stops throwaway accounts)
+    if (matchedRole === 'td' && !emailVerified) {
+        throw new HttpsError('failed-precondition', 'Bekräfta din e-postadress innan du ansluter som TD. Öppna länken i bekräftelsemejlet och försök igen.');
+    }
 
     const adminRef = competition.ref.collection('admins').doc(request.auth.uid);
     const adminSnap = await adminRef.get();
@@ -1474,8 +1567,9 @@ export const submitVolunteerSignup = onCall({ maxInstances: 2 }, async (request)
         ? {
             kind: 'volunteerConfirmation',
             category: 'essential',
-            ...buildVolunteerConfirmationMail({ name: payload.name, competitionName: competition.data?.name, role: payload.role }),
-            to: [{ email: payload.email, name: payload.name }],
+            // Of what the person wrote only the name, as plain text
+            ...buildVolunteerConfirmationMail({ name: payload.name, competitionName: competition.data?.name }),
+            to: [{ email: payload.email, name: stripLinks(payload.name).slice(0, 60) }],
             createdBy: 'system',
             source: { type: 'volunteerSignup' }
         }
@@ -1567,6 +1661,60 @@ export const clearEquipageFinalizationLocks = onCall(async (request) => {
 // removes the contact details from the user's driver entries in archived
 // competitions. Results are never touched.
 const ACCOUNT_DELETION_MAX_AUTH_AGE_MS = 10 * 60 * 1000;
+const DELETED_USER_NAME = 'Raderad användare';
+const SELF_MAIL_KINDS = ['test', 'volunteerConfirmation', 'replyToVerification'];
+
+// The account's traces in the competitions' private staff data (deleteMyAccount):
+// its field devices are removed, its name in staff notifications and the
+// incident log is replaced, and queued mail to the account's address alone
+// (test mails, its sign-up confirmation) is removed. email: '' when unverified.
+async function removeStaffTraces(competitions, { uid, email, writer }) {
+    const counts = { devicesRemoved: 0, namesReplaced: 0, mailsRemoved: 0 };
+    for (const competition of competitions) {
+        const priv = (name) => db.collection(`artifacts/${competition.appId}/private/data/competitions/${competition.id}/${name}`);
+        const [devices, noticesBy, noticesAck, incidentsBy, incidentsUpd, selfMail, pauseEvents] = await Promise.all([
+            priv('devices').where('uid', '==', uid).get(),
+            priv('staffNotifications').where('createdBy', '==', uid).get(),
+            priv('staffNotifications').where('ackBy', '==', uid).get(),
+            priv('incidents').where('createdBy', '==', uid).get(),
+            priv('incidents').where('updatedBy', '==', uid).get(),
+            priv('mailQueue').where('kind', 'in', SELF_MAIL_KINDS).get(),
+            priv('pauseEvents').where('by.uid', '==', uid).get()
+        ]);
+        devices.docs.forEach((d) => { writer.delete(d.ref); counts.devicesRemoved++; });
+        // One update per document (created and updated by the same account)
+        const updates = new Map();
+        const rename = (snap, field) => snap.docs.forEach((d) => {
+            if (d.data()?.[field] === undefined || d.data()?.[field] === DELETED_USER_NAME) return;
+            const entry = updates.get(d.ref.path) || { ref: d.ref, fields: {} };
+            entry.fields[field] = DELETED_USER_NAME;
+            updates.set(d.ref.path, entry);
+            counts.namesReplaced++;
+        });
+        rename(noticesBy, 'createdByName');
+        rename(noticesAck, 'ackByName');
+        rename(incidentsBy, 'createdByName');
+        rename(incidentsUpd, 'updatedByName');
+        // Pause events: who pressed (by.name), as a field path
+        pauseEvents.docs.forEach((d) => {
+            if (d.data()?.by?.name === undefined || d.data()?.by?.name === DELETED_USER_NAME) return;
+            updates.set(d.ref.path, { ref: d.ref, fields: { 'by.name': DELETED_USER_NAME } });
+            counts.namesReplaced++;
+        });
+        updates.forEach(({ ref, fields }) => writer.update(ref, fields));
+        selfMail.docs.forEach((d) => {
+            const mail = d.data() || {};
+            const to = Array.isArray(mail.to) ? mail.to : [];
+            const onlyMe = email && to.length > 0 && to.every((r) => String(r?.email || '').toLowerCase() === email);
+            if (onlyMe || (mail.kind === 'test' && mail.createdBy === uid)) {
+                writer.delete(d.ref);
+                counts.mailsRemoved++;
+            }
+        });
+    }
+    return counts;
+}
+
 export const deleteMyAccount = onCall({ timeoutSeconds: 300, maxInstances: 2 }, async (request) => {
     if (!request.auth?.uid) throw new HttpsError('unauthenticated', 'Inloggning krävs.');
     const uid = request.auth.uid;
@@ -1630,6 +1778,7 @@ export const deleteMyAccount = onCall({ timeoutSeconds: 300, maxInstances: 2 }, 
         ...Object.fromEntries(fields.map((field) => [field, FieldValue.delete()])),
         contactRemovedAt: Date.now()
     }));
+    const staffTraces = await removeStaffTraces(competitions, { uid, email: emailVerified ? email : '', writer });
     await writer.close();
     // users/{uid} with its subcollections (driverCompetitions/*: the Storage
     // access pointers getDriverInbox writes)
@@ -1647,7 +1796,8 @@ export const deleteMyAccount = onCall({ timeoutSeconds: 300, maxInstances: 2 }, 
         rolesRemoved: plan.deletePaths.length,
         competitionsUnlisted: plan.arrayRemovals.length,
         entriesAnonymized: plan.anonymize.length,
-        activeEntriesKept: plan.keptActiveEntries.length
+        activeEntriesKept: plan.keptActiveEntries.length,
+        ...staffTraces
     };
     await db.collection('accountDeletions').add({
         uidHash: createHash('sha256').update(uid).digest('hex').slice(0, 16),
@@ -1826,9 +1976,12 @@ async function consumeMailRateLimits(appId, competitionId, checks, now) {
     });
 }
 
+// Bulk sends per user and per competition (whoever sends: a role code shared
+// by several accounts does not multiply them)
 async function assertMailQueueRate(appId, competitionId, uid, now) {
     const allowed = await consumeMailRateLimits(appId, competitionId, [
         { id: `mail_user_${uid}`, limit: MAIL_LIMITS.perUserHour, windowMs: HOUR_MS },
+        { id: 'mail_queue_hour', limit: MAIL_LIMITS.perCompetitionHour, windowMs: HOUR_MS },
         { id: 'mail_queue_day', limit: MAIL_LIMITS.perCompetitionDay, windowMs: DAY_MS }
     ], now);
     if (!allowed) throw new HttpsError('resource-exhausted', 'För många utskick just nu. Försök igen senare.');
@@ -1849,8 +2002,13 @@ export const queueCompetitionMail = onCall({ maxInstances: 5 }, async (request) 
     let content;
     let audience = null;
     let to = null;
+    const essential = kind === 'test' || request.data?.category === 'essential';
+    let reason = null;
     try {
-        content = validateMailContent(request.data || {});
+        // The competition's own message: its addresses may be links
+        content = validateMailContent(request.data || {}, { linkify: kind === 'message' });
+        // An essential message reaches those who opted out: who and why is logged
+        if (kind === 'message' && essential) reason = normalizeEssentialReason(request.data?.reason);
         if (kind === 'test') {
             const email = String(request.auth.token?.email || '').trim().toLowerCase();
             if (!email || request.auth.token?.email_verified !== true) {
@@ -1869,15 +2027,16 @@ export const queueCompetitionMail = onCall({ maxInstances: 5 }, async (request) 
         db, FieldValue, appId: competition.appId, compId: competitionId, now,
         mail: {
             kind,
-            category: kind === 'test' || request.data?.category === 'essential' ? 'essential' : 'info',
+            category: essential ? 'essential' : 'info',
             ...content,
             audience,
             to,
+            reason,
             createdBy: request.auth.uid,
             createdByRole: role
         }
     });
-    logger.info('E-post köad', { competitionId, mailId: ref.id, kind, by: request.auth.uid });
+    logger.info('E-post köad', { competitionId, mailId: ref.id, kind, essential, reason, by: request.auth.uid, role });
     return { mailId: ref.id, status: 'queued' };
 });
 
@@ -1920,10 +2079,11 @@ export const queueStartTimeChangeMail = onCall({ maxInstances: 5 }, async (reque
     let personalTexts;
     try {
         personalTexts = normalizePersonalTexts(request.data?.changes);
-        const competitionName = String(competition.data?.name || '').trim();
+        // Essential mail to every driver named: no web addresses, nothing linked
+        const competitionName = stripLinks(String(competition.data?.name || '').trim());
         content = validateMailContent({
-            subject: request.data?.subject || `Ändrad starttid${competitionName ? ` – ${competitionName}` : ''}`,
-            text: request.data?.text || 'Din starttid har ändrats. Nya tider:'
+            subject: stripLinks(request.data?.subject) || `Ändrad starttid${competitionName ? ` – ${competitionName}` : ''}`,
+            text: stripLinks(request.data?.text) || 'Din starttid har ändrats. Nya tider:'
         });
     } catch (error) {
         throw mailHttpsError(error);
@@ -1938,6 +2098,7 @@ export const queueStartTimeChangeMail = onCall({ maxInstances: 5 }, async (reque
             ...content,
             audience: { drivers: { classes: [], startNumbers: Object.keys(personalTexts), includeWithdrawn: true } },
             personalTexts,
+            reason: 'Ändrade starttider',
             createdBy: request.auth.uid,
             createdByRole: role
         }
@@ -2008,7 +2169,8 @@ export const getCompetitionMailStatus = onCall({ maxInstances: 5 }, async (reque
         replyToVerified: !!effectiveReplyTo(settings),
         dayKey: usage.dayKey,
         sentToday: usage.competition || 0,
-        dailyLimit: status.competitionDailyLimit
+        // The cap that applies (at most a share of the global one)
+        dailyLimit: mailQuotaLimits({ kind: 'message' }, providerSettings || {}).competition
     };
 });
 
@@ -2340,10 +2502,13 @@ export const registerPushToken = onCall({ maxInstances: 5 }, async (request) => 
         uid: request.auth.uid,
         email: verified ? String(request.auth.token?.email || '').trim().toLowerCase() : '',
         token,
+        // The browser renewed the token: the old one's topics and competitions carry over
+        previousToken: isValidPushToken(String(request.data?.previousToken || '')) ? String(request.data.previousToken) : null,
         topics,
         platform: request.data?.platform,
         lang: request.data?.lang,
-        competition
+        competition,
+        logger
     });
 });
 
@@ -2396,17 +2561,35 @@ export const sendTestPush = onCall({ maxInstances: 2 }, async (request) => {
  * { competitionId, changes: [{ startNumber, text, textEn? }] }
  * -> { status, targeted, sent, failed }
  */
-export const notifyStartTimeChange = onCall({ maxInstances: 5 }, async (request) => {
+export const notifyStartTimeChange = onCall({ maxInstances: 5, timeoutSeconds: 300 }, async (request) => {
     const { competitionId, competition } = await loadMailCompetition(request);
-    await assertMailRole(request, competition);
+    const role = await assertMailRole(request, competition);
     let texts;
     try {
-        texts = normalizeStartTimeChanges(request.data?.changes);
+        // The lines without web addresses (an essential notice to drivers)
+        const changes = Array.isArray(request.data?.changes)
+            ? request.data.changes.map((change) => (change && typeof change === 'object'
+                ? {
+                    ...change,
+                    text: stripLinks(change.text),
+                    ...(change.textEn !== undefined && change.textEn !== null ? { textEn: stripLinks(change.textEn) } : {})
+                }
+                : change))
+            : request.data?.changes;
+        texts = normalizeStartTimeChanges(changes);
     } catch (error) {
         throw pushHttpsError(error);
     }
     if (!(await consumeUserRateLimit(`push_notify_${request.auth.uid}`, PUSH_LIMITS.notifyPerUserHour, HOUR_MS))) {
         throw new HttpsError('resource-exhausted', 'För många utskick just nu. Försök igen senare.');
+    }
+    // Per competition too, whoever sends (as the start time mail)
+    const competitionAllowed = await consumeMailRateLimits(competition.appId, competitionId, [
+        { id: 'push_notify_hour', limit: MAIL_LIMITS.perCompetitionHour, windowMs: HOUR_MS },
+        { id: 'push_notify_day', limit: MAIL_LIMITS.perCompetitionDay, windowMs: DAY_MS }
+    ], Date.now());
+    if (!competitionAllowed) {
+        throw new HttpsError('resource-exhausted', 'För många utskick från tävlingen just nu. Försök igen senare.');
     }
     const startNumbers = Object.keys(texts);
     const result = await safePush('startTimes', () => sendPushToAudience(db, pushMessaging(), {
@@ -2421,7 +2604,7 @@ export const notifyStartTimeChange = onCall({ maxInstances: 5 }, async (request)
         source: 'startTimeChange',
         createdBy: request.auth.uid,
         logger
-    }), { competitionId });
+    }), { competitionId, by: request.auth.uid, role, reason: 'Ändrade starttider' });
     return {
         status: result.status,
         targeted: result.targeted || 0,

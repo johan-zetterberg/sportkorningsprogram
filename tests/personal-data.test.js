@@ -9,6 +9,7 @@ import {
   counterLastActivityMs,
   driverContactFieldsToRemove,
   isStaleCounter,
+  lastActivityMs,
   matchesPerson,
   normalizeRetentionMonths,
   personalLogFieldsPresent,
@@ -55,10 +56,29 @@ test('retention selects archived competitions past their months, once', () => {
   const rearchived = { ...comp, finalizedAt: archived + 500 * DAY, personalDataPurgedAt: archived + 371 * DAY };
   assert.equal(retentionDecision(rearchived, archived + 600 * DAY).due, false);
   assert.equal(retentionDecision(rearchived, archived + 900 * DAY).due, true);
-  // Not archived, being deleted, or without a date: never
-  assert.equal(retentionDecision({ status: 'active', dates: '2020-01-01' }, Date.now()).due, false);
+  // Being deleted, or archived without a date: never
   assert.equal(retentionDecision({ ...comp, deleting: true }, archived + 900 * DAY).due, false);
   assert.equal(retentionDecision({ locked: true }, Date.now()).due, false);
+});
+
+test('retention also purges competitions never archived: months after the last date, else creation', () => {
+  const lastDay = Date.parse('2025-05-17T23:59:59Z');
+  const open = { status: 'active', dates: '2025-05-15 - 2025-05-17' };
+  assert.equal(lastActivityMs(open), lastDay);
+  assert.equal(retentionDecision(open, lastDay + 300 * DAY).due, false);
+  const due = retentionDecision(open, lastDay + 370 * DAY);
+  assert.equal(due.due, true);
+  assert.equal(due.reason, 'expired-not-archived');
+  assert.equal(due.archivedAt, lastDay);
+  assert.equal(retentionDecision({ ...open, retentionMonths: 24 }, lastDay + 370 * DAY).due, false);
+  // A draft without dates: from its creation (Timestamp-like or millis)
+  const created = Date.parse('2024-01-01T00:00:00Z');
+  assert.equal(retentionDecision({ status: 'draft', createdAt: { toMillis: () => created } }, created + 370 * DAY).due, true);
+  assert.equal(retentionDecision({ status: 'draft', createdAt: created }, created + 300 * DAY).due, false);
+  // Neither dates nor creation: nothing to go by
+  assert.equal(retentionDecision({ status: 'active' }, Date.now()).reason, 'no-date');
+  // Purged once: not again
+  assert.equal(retentionDecision({ ...open, personalDataPurgedAt: lastDay + 371 * DAY }, lastDay + 900 * DAY).reason, 'already-purged');
 });
 
 test('selectCompetitionsForPurge keeps only due competitions with the decision', () => {
@@ -66,9 +86,10 @@ test('selectCompetitionsForPurge keeps only due competitions with the decision',
   const selected = selectCompetitionsForPurge([
     { id: 'old', appId: 'a', data: { locked: true, dates: '2025-05-01 - 2025-05-03' } },
     { id: 'recent', appId: 'a', data: { locked: true, dates: '2026-05-01' } },
-    { id: 'open', appId: 'a', data: { status: 'active', dates: '2020-05-01' } }
+    { id: 'open', appId: 'a', data: { status: 'active', dates: '2020-05-01' } },
+    { id: 'openRecent', appId: 'a', data: { status: 'active', dates: '2026-09-01' } }
   ], now);
-  assert.deepEqual(selected.map((c) => c.id), ['old']);
+  assert.deepEqual(selected.map((c) => c.id), ['old', 'open']);
   assert.equal(selected[0].decision.months, 12);
 });
 

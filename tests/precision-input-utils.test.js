@@ -5,12 +5,17 @@ import {
   buildPrecisionSavePayload,
   checkPrecisionClock,
   clockFaultMessage,
+  formatKnockList,
+  parseKnockListInput,
   penaltyCorrection,
+  phase2HasData,
   plausibleRunLimitMs,
   rebuildLabel,
+  shouldPushStop,
   sortKnocks,
   storedKnocks,
-  storedRebuildCount
+  storedRebuildCount,
+  storedRoundTimeMs
 } from '../js/pages/precision/precisionInputUtils.js';
 import { buildPrecisionFinalizePayload } from '../js/pages/precision/precisionResultFinalize.js';
 
@@ -48,7 +53,9 @@ test('save payload never carries the knock list and counts the stored knocks', (
   assert.equal('knocks' in payload, false);
   assert.equal('knockDownTimes' in payload, false);
   assert.deepEqual(knocks, ['1', '4']);
-  assert.equal(payload.obstaclePenalty, 10);
+  // No stored obstacle penalty: the engine counts the knock list itself
+  assert.equal('obstaclePenalty' in payload, false);
+  assert.equal(payload.liveObstaclePenalty, 10);
   assert.equal(payload.totalPenalty, 10);
   assert.equal(payload.timeMs, 123456);
   assert.equal(payload.status, 'Klar');
@@ -61,7 +68,8 @@ test('save payload: eliminated has no total, empty round keeps the not-started l
   assert.equal(elim.status, 'Utesluten');
   const empty = buildPrecisionSavePayload({ stored: null, calculate, startNumber: 1, notStartedLabel: 'Ej startat' }).payload;
   assert.equal(empty.status, 'Ej startat');
-  assert.equal(empty.obstaclePenalty, 0);
+  assert.equal('obstaclePenalty' in empty, false);
+  assert.equal(empty.liveObstaclePenalty, 0);
 });
 
 test('penaltyCorrection: none when the stored knocks are the counted ones', () => {
@@ -73,7 +81,8 @@ test('penaltyCorrection: a knock that reached the server meanwhile is counted', 
   const { payload, knocks } = buildPrecisionSavePayload({ stored: { knocks: ['2'] }, timeMs: 1000, calculate, startNumber: 3 });
   const after = { ...payload, knocks: ['2', '5'] };
   const patch = penaltyCorrection(payload, knocks, after, calculate);
-  assert.equal(patch.obstaclePenalty, 10);
+  assert.equal('obstaclePenalty' in patch, false);
+  assert.equal(patch.liveObstaclePenalty, 10);
   assert.equal(patch.totalPenalty, 10);
   assert.equal('knocks' in patch, false);
 });
@@ -133,6 +142,44 @@ test('rebuild helpers', () => {
   assert.equal(storedRebuildCount(null), 0);
   assert.equal(rebuildLabel(0), '');
   assert.equal(rebuildLabel(2), '+10 s × 2');
+});
+
+test('a Stop is not pushed over a round already saved (here or on another device)', () => {
+  assert.equal(shouldPushStop({ running: false, inProgress: false, timeMs: 150000 }), false);
+  assert.equal(shouldPushStop({ running: true, inProgress: true }), true);
+  // Stopped but not saved: the stopped time is pushed again
+  assert.equal(shouldPushStop({ running: false, inProgress: true, liveTimeMs: 61000 }), true);
+  // Nothing stored yet (first snapshot not in): the Stop goes out
+  assert.equal(shouldPushStop({}), true);
+  assert.equal(shouldPushStop(null), true);
+});
+
+test('a saved round shows its saved time even when a late Stop rewrote liveTimeMs', () => {
+  // Saved at 150.00 s, then a queued Stop from another device wrote 152.30 s
+  assert.equal(storedRoundTimeMs({ inProgress: false, running: false, timeMs: 150000, liveTimeMs: 152300 }), 150000);
+  // Unsaved: the clock's time
+  assert.equal(storedRoundTimeMs({ inProgress: true, running: false, timeMs: 150000, liveTimeMs: 152300 }), 152300);
+  // A reset clears timeMs: no old saved time comes back
+  assert.equal(storedRoundTimeMs({ inProgress: false, running: false, timeMs: null, liveTimeMs: 0 }), 0);
+  assert.equal(storedRoundTimeMs({ finalized: true, timeMs: 140000, liveTimeMs: 1 }), 140000);
+  assert.equal(storedRoundTimeMs(null), 0);
+});
+
+test('phase2HasData: a started, driven or saved phase 2', () => {
+  assert.equal(phase2HasData({}), false);
+  assert.equal(phase2HasData({ rounds: { phase2: { status: 'Ej startat', inProgress: false, liveTimeMs: 0 } } }), false);
+  assert.equal(phase2HasData({ rounds: { phase2: { running: true } } }), true);
+  assert.equal(phase2HasData({ rounds: { phase2: { timeMs: 70000, inProgress: false } } }), true);
+  assert.equal(phase2HasData({ rounds: { phase2: { knocks: ['A'] } } }), true);
+  assert.equal(phase2HasData({ rounds: { phase2: { status: 'Klar' } } }), true);
+});
+
+test('secretariat knock field: typed list to sorted unique labels and back', () => {
+  assert.deepEqual(parseKnockListInput(' 5, 3A ;3A  10 '), ['3A', '5', '10']);
+  assert.deepEqual(parseKnockListInput(''), []);
+  assert.deepEqual(parseKnockListInput(null), []);
+  assert.equal(formatKnockList(['5', '3A']), '3A, 5');
+  assert.equal(formatKnockList(undefined), '');
 });
 
 test('finalize payload drops the knock list', () => {

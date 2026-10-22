@@ -18,8 +18,9 @@ export const PUSH_LIMITS = {
     tokenMax: 4096,
     // A device follows this many competitions at most (the oldest go)
     maxCompetitionsPerToken: 20,
-    // Devices per account (the least recently seen go)
-    maxTokensPerUser: 10,
+    // Devices per account (the least recently seen go, logged): shared
+    // official accounts are signed in on many field devices
+    maxTokensPerUser: 30,
     // sendEachForMulticast takes 500 tokens at most
     multicastMax: 500,
     // Notifications per competition and day (Swedish calendar day)
@@ -32,7 +33,7 @@ export const PUSH_LIMITS = {
     ttlDefaultSec: 24 * 60 * 60,
     ttlPauseSec: 60 * 60,
     // registerPushToken / notifyStartTimeChange / sendTestPush per user and hour
-    registerPerUserHour: 60,
+    registerPerUserHour: 200,
     notifyPerUserHour: 20,
     testPerUserHour: 5,
     personalTextMax: 300
@@ -114,6 +115,26 @@ export function buildTokenDoc({ existing = null, uid, email = '', token, topics,
         createdAtMs: sameOwner ? (Number(existing.createdAtMs) || now) : now,
         lastSeenMs: now,
         updatedAtMs: now
+    };
+}
+
+/**
+ * The registration a renewed token starts from: the browser replaced the
+ * device's token (previous: the old token's doc), so its topics and
+ * competitions carry over when the old doc is the same account's. existing:
+ * the new token's doc (if any). -> the `existing` for buildTokenDoc
+ */
+export function inheritRenewedToken({ existing = null, previous = null, uid }) {
+    const own = existing && existing.uid === uid ? existing : null;
+    if (!previous || previous.uid !== uid) return existing;
+    const competitions = [...new Set([...list(own?.competitions), ...list(previous.competitions)].filter((c) => typeof c === 'string'))];
+    return {
+        ...previous,
+        ...(own || {}),
+        uid,
+        topics: list(own?.topics).length ? list(own.topics) : list(previous.topics),
+        competitions,
+        createdAtMs: Math.min(...[own?.createdAtMs, previous.createdAtMs].map(Number).filter((n) => Number.isFinite(n) && n > 0), Date.now())
     };
 }
 

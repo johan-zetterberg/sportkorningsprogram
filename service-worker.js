@@ -912,7 +912,12 @@ self.addEventListener('notificationclick', (event) => {
   const target = new URL(route, self.registration.scope).href;
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
+    const own = windows.filter((client) => new URL(client.url).origin === self.location.origin);
+    // A tab already on the route first, then a visible one, then any; the page
+    // decides what to do (it may hold unsaved work), so no client.navigate()
+    const open = own.find((client) => new URL(client.url).hash === route)
+      || own.find((client) => client.visibilityState === 'visible')
+      || own[0];
     if (open) {
       try {
         await open.focus();

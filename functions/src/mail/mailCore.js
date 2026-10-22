@@ -9,6 +9,9 @@ export const MAIL_KINDS = ['message', 'startTimeChange', 'vetDecision', 'volunte
 // sign-up and address checks a person asked for). 'message' is essential only
 // with category 'essential'.
 export const ESSENTIAL_KINDS = ['startTimeChange', 'vetDecision', 'volunteerConfirmation', 'replyToVerification', 'test'];
+// Mails the system sends on a person's request (anyone can trigger a
+// volunteer confirmation): their own small daily caps, never the reserve
+export const SYSTEM_KINDS = ['volunteerConfirmation', 'replyToVerification', 'test'];
 export const MAIL_CATEGORIES = ['info', 'essential'];
 export const MAIL_STATUSES = ['queued', 'sending', 'sent', 'partial', 'failed', 'not_configured', 'blocked'];
 export const MAIL_PROVIDERS = ['brevo'];
@@ -29,9 +32,23 @@ export const MAIL_LIMITS = {
     globalDailyDefault: 300,
     competitionDailyDefault: 500,
     dailyLimitMax: 100000,
-    // queueCompetitionMail per user and competition, and per competition and day
+    // One competition uses at most this share of the global daily cap
+    competitionShareOfGlobal: 0.5,
+    // This share of the global cap is kept for essential competition mail
+    // (start times, vet decisions, essential messages): other mail stops before
+    essentialReserveShare: 0.2,
+    // System mails (volunteer confirmations, reply-to checks, test mails): a
+    // small cap of their own per competition and, as a share, globally
+    systemPerCompetitionDay: 20,
+    systemShareOfGlobal: 0.1,
+    systemGlobalMin: 10,
+    // queueCompetitionMail and queueStartTimeChangeMail per user and
+    // competition, and per competition and hour / day
     perUserHour: 10,
+    perCompetitionHour: 10,
     perCompetitionDay: 40,
+    // The reason an essential message is sent (shown in the mail log)
+    reasonMax: 200,
     replyToChecksPerDay: 5,
     // Attempts in all (the first and the retries), with the delays between
     maxAttempts: 4,
@@ -243,6 +260,58 @@ export function reserveDailyQuota(current, dayKey, requested, limit, nowMs = Dat
     return { allowed: true, remaining: max - count - requested, next: { dayKey, count: count + requested, updatedAt: nowMs } };
 }
 
+/** A counter after `released` messages were not delivered (never below 0, today's only) */
+export function releaseDailyQuota(current, dayKey, released, nowMs = Date.now()) {
+    if (current?.dayKey !== dayKey) return null;
+    const count = Math.max(0, (Number(current.count) || 0) - Math.max(0, Number(released) || 0));
+    return { dayKey, count, updatedAt: nowMs };
+}
+
+/** Whether a mail is essential competition mail that may use the global reserve */
+export function isPriorityMail(mail = {}) {
+    return isEssentialMail(mail) && !SYSTEM_KINDS.includes(mail.kind);
+}
+
+/**
+ * The daily caps a mail counts against. settings: serverSettings/email.
+ * competition: min(competitionDailyLimit, global share); global: the whole
+ * cap for essential competition mail, less the reserve for other mail;
+ * system kinds also count against their own caps (systemCompetition,
+ * systemGlobal; null for other mail).
+ */
+export function mailQuotaLimits(mail = {}, settings = {}) {
+    const globalLimit = Number(settings?.dailyLimit) || MAIL_LIMITS.globalDailyDefault;
+    const compSetting = Number(settings?.competitionDailyLimit) || MAIL_LIMITS.competitionDailyDefault;
+    const competition = Math.max(1, Math.min(compSetting, Math.floor(globalLimit * MAIL_LIMITS.competitionShareOfGlobal)));
+    const priority = isPriorityMail(mail);
+    const global = priority ? globalLimit : Math.max(1, Math.floor(globalLimit * (1 - MAIL_LIMITS.essentialReserveShare)));
+    const system = SYSTEM_KINDS.includes(mail.kind);
+    return {
+        competition,
+        global,
+        systemCompetition: system ? MAIL_LIMITS.systemPerCompetitionDay : null,
+        systemGlobal: system ? Math.max(MAIL_LIMITS.systemGlobalMin, Math.floor(globalLimit * MAIL_LIMITS.systemShareOfGlobal)) : null
+    };
+}
+
+const BARE_DOMAIN = /\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:se|nu|com|net|org|info|biz|eu|io|co|me|ly|app|dev|xyz|top|site|online|shop|link|click|live|ru|cn|uk|de|dk|no|fi|is|pl|fr|nl|be|es|it|us|tk|ml|ga|cf|gq|ws|cc|tv|to|in)\b(?:\/\S*)?/gi;
+
+/**
+ * Text from a person (names, competition names, start time lines) for
+ * system mail and push: web addresses removed, so neither our HTML nor a
+ * mail client turns them into links.
+ */
+export function stripLinks(value) {
+    return String(value ?? '')
+        .replace(/\b(?:https?|ftp|mailto|javascript|data):\S*/gi, '')
+        .replace(/\bwww\.\S*/gi, '')
+        // Bare domains with a common top-level domain ("evil.se/x"), as mail
+        // clients link them; "t.ex." and times stay
+        .replace(BARE_DOMAIN, '')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+}
+
 // --- Signed link tokens (unsubscribe, reply-to check) ---
 
 const b64url = (buffer) => Buffer.from(buffer).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -286,19 +355,23 @@ export function escapeHtml(value) {
         .replace(/'/g, '&#39;');
 }
 
-/** Plain text as HTML: escaped, links clickable, blank lines as paragraphs */
-export function textToHtml(text) {
-    const linkify = (escaped) => escaped.replace(/https?:\/\/[^\s<]+/g, (url) => {
+/**
+ * Plain text as HTML: escaped, blank lines as paragraphs. Addresses become
+ * links only with { linkify: true } (a message the competition's admins
+ * wrote); system mail and other people's text are never linked.
+ */
+export function textToHtml(text, { linkify = false } = {}) {
+    const link = (escaped) => (!linkify ? escaped : escaped.replace(/https?:\/\/[^\s<]+/g, (url) => {
         const trimmed = url.replace(/[.,;:!?)\]]+$/, '');
         const rest = url.slice(trimmed.length);
         return `<a href="${trimmed}" target="_blank" rel="noopener noreferrer">${trimmed}</a>${rest}`;
-    });
+    }));
     return String(text ?? '')
         .replace(/\r\n?/g, '\n')
         .split(/\n{2,}/)
         .map((para) => para.trim())
         .filter(Boolean)
-        .map((para) => `<p>${linkify(escapeHtml(para)).replace(/\n/g, '<br>')}</p>`)
+        .map((para) => `<p>${link(escapeHtml(para)).replace(/\n/g, '<br>')}</p>`)
         .join('\n');
 }
 
@@ -374,9 +447,10 @@ export function effectiveReplyTo(emailSettings = {}) {
 
 /**
  * Subject, text and optional HTML from a client, checked. Text is required;
- * HTML is sanitized (without HTML the text is converted). Throws MailError.
+ * HTML is sanitized (without HTML the text is converted; addresses linked
+ * only with options.linkify). Throws MailError.
  */
-export function validateMailContent({ subject, text, html } = {}) {
+export function validateMailContent({ subject, text, html } = {}, { linkify = false } = {}) {
     const cleanSubject = cleanLine(subject, MAIL_LIMITS.subjectMax + 1);
     const cleanText = String(text ?? '').replace(/\r\n?/g, '\n').trim();
     if (!cleanSubject) throw new MailError('Ämnesrad saknas.');
@@ -386,7 +460,15 @@ export function validateMailContent({ subject, text, html } = {}) {
     if (html !== undefined && html !== null && html !== '' && typeof html !== 'string') throw new MailError('Ogiltig HTML.');
     if (typeof html === 'string' && html.length > MAIL_LIMITS.htmlMax) throw new MailError('HTML-texten är för lång.');
     const cleanHtml = html ? sanitizeMailHtml(html) : '';
-    return { subject: cleanSubject, text: cleanText, html: cleanHtml || textToHtml(cleanText) };
+    return { subject: cleanSubject, text: cleanText, html: cleanHtml || textToHtml(cleanText, { linkify }) };
+}
+
+/** The reason for an essential message (required, one line, ≤ reasonMax) */
+export function normalizeEssentialReason(value) {
+    const reason = cleanLine(value, MAIL_LIMITS.reasonMax + 1);
+    if (!reason) throw new MailError('Ange varför meddelandet är viktigt (skälet visas i e-postloggen).');
+    if (reason.length > MAIL_LIMITS.reasonMax) throw new MailError(`Skälet får vara högst ${MAIL_LIMITS.reasonMax} tecken.`);
+    return reason;
 }
 
 /** Per start number texts for a start time change: { [startNumber]: text } */
@@ -398,7 +480,8 @@ export function normalizePersonalTexts(changes) {
     list.forEach((item) => {
         const startNumber = String(item?.startNumber ?? '').trim();
         if (!/^[\w-]{1,20}$/.test(startNumber)) throw new MailError('Ogiltigt startnummer.');
-        const text = String(item?.text ?? '').replace(/\r\n?/g, '\n').trim().slice(0, MAIL_LIMITS.personalTextMax);
+        // Start time lines: no web addresses (never linked in the mail)
+        const text = String(item?.text ?? '').replace(/\r\n?/g, '\n').split('\n').map(stripLinks).join('\n').trim().slice(0, MAIL_LIMITS.personalTextMax);
         if (!text) throw new MailError(`Text saknas för startnummer ${startNumber}.`);
         texts[startNumber] = texts[startNumber] ? `${texts[startNumber]}\n${text}` : text;
     });
@@ -415,7 +498,7 @@ export function buildRecipientMessage(mail, recipient, { competitionName = '', s
         ? (recipient.startNumbers || []).map((s) => mail.personalTexts[s]).filter(Boolean).join('\n')
         : '';
     const sig = String(signature ?? '').trim().slice(0, MAIL_LIMITS.signatureMax);
-    const competition = cleanLine(competitionName, 200);
+    const competition = stripLinks(cleanLine(competitionName, 200));
     const footerLines = [`Skickat med DriveLive${competition ? ` för ${competition}` : ''}.`];
     if (!replyTo) footerLines.push('Det går inte att svara på det här mejlet. Kontakta arrangören vid frågor.');
     if (unsubscribeUrl) footerLines.push(`Vill du inte få fler informationsutskick från den här tävlingen? Avsluta här: ${unsubscribeUrl}`);
@@ -440,27 +523,42 @@ export function buildRecipientMessage(mail, recipient, { competitionName = '', s
     };
 }
 
-/** The volunteer's confirmation after a sign-up (submitVolunteerSignup) */
-export function buildVolunteerConfirmationMail({ name = '', competitionName = '', role = '' } = {}) {
-    const competition = cleanLine(competitionName, 200) || 'tävlingen';
+/**
+ * The volunteer's confirmation after a sign-up (submitVolunteerSignup). Anyone
+ * can sign up with any address, so the text is fixed: of what the person
+ * wrote only the name (plain text, no web addresses), never the role or notes.
+ */
+export function buildVolunteerConfirmationMail({ name = '', competitionName = '' } = {}) {
+    const competition = stripLinks(cleanLine(competitionName, 200)) || 'tävlingen';
+    const person = stripLinks(cleanLine(name, 120)).slice(0, 60);
     const lines = [
-        `Hej${name ? ` ${cleanLine(name, 120)}` : ''}!`,
-        `Tack för din anmälan som funktionär till ${competition}.${role ? ` Önskad uppgift: ${cleanLine(role, 80)}.` : ''} Arrangören går igenom anmälningarna och hör av sig.`,
+        `Hej${person ? ` ${person}` : ''}!`,
+        `Tack för din anmälan som funktionär till ${competition}. Arrangören går igenom anmälningarna och hör av sig.`,
         'Har du inte anmält dig? Då kan du bortse från det här mejlet; kontakta gärna arrangören.'
     ];
     return { subject: `Tack för din anmälan – ${competition}`.slice(0, MAIL_LIMITS.subjectMax), text: lines.join('\n\n') };
 }
 
-/** The check of the club's reply-to address (requestReplyToVerification) */
+/**
+ * The check of the club's reply-to address (requestReplyToVerification). The
+ * HTML has one link, the check link; nothing else is linked.
+ */
 export function buildReplyToVerificationMail({ competitionName = '', verifyUrl } = {}) {
-    const competition = cleanLine(competitionName, 200) || 'tävlingen';
+    const competition = stripLinks(cleanLine(competitionName, 200)) || 'tävlingen';
+    const intro = `Den här adressen har angetts som svarsadress (Reply-To) för e-post från ${competition} i DriveLive.`;
+    const outro = 'Länken gäller i 7 dagar. Har ni inte bett om detta kan ni bortse från mejlet.';
     return {
         subject: `Bekräfta svarsadress för ${competition}`.slice(0, MAIL_LIMITS.subjectMax),
         text: [
-            `Den här adressen har angetts som svarsadress (Reply-To) för e-post från ${competition} i DriveLive.`,
+            intro,
             `Bekräfta att adressen är er genom att öppna länken och trycka på knappen: ${verifyUrl}`,
-            'Länken gäller i 7 dagar. Har ni inte bett om detta kan ni bortse från mejlet.'
-        ].join('\n\n')
+            outro
+        ].join('\n\n'),
+        html: [
+            `<p>${escapeHtml(intro)}</p>`,
+            `<p>Bekräfta att adressen är er genom att öppna länken och trycka på knappen: <a href="${escapeHtml(verifyUrl)}" target="_blank" rel="noopener noreferrer">Bekräfta svarsadressen</a></p>`,
+            `<p>${escapeHtml(outro)}</p>`
+        ].join('\n')
     };
 }
 
@@ -565,7 +663,8 @@ export function readEmailSettings(data = {}) {
         signature: String(data?.signature ?? '').trim().slice(0, MAIL_LIMITS.signatureMax),
         replyToVerified: data?.replyToVerified === true,
         replyToVerifiedAddress: normalizeEmail(data?.replyToVerifiedAddress),
-        autoVolunteerConfirmation: data?.autoVolunteerConfirmation !== false,
+        // Off unless switched on (as the admin form shows it)
+        autoVolunteerConfirmation: data?.autoVolunteerConfirmation === true,
         autoVetDecisionMail: data?.autoVetDecisionMail !== false
     };
 }

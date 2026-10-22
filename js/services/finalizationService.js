@@ -4,7 +4,8 @@ import { db, appId } from '../config/firebase-config.js';
 import { getGlobalState } from '../main.js';
 import { isStillRunning } from './secretariatPatchUtils.js';
 import { normalizeMarathonDoc } from '../core-engine/stateSelector.js';
-import { finalizeConfirmMessage, findDressageGaps, findMarathonGaps, findPrecisionGaps } from './finalizeCompletenessUtils.js';
+import { finalizeConfirmMessage, findDressageGaps, findMarathonGaps, findPrecisionGaps, precisionFinalizeBlockers } from './finalizeCompletenessUtils.js';
+import { calculatePrecisionResult } from '../utils/precisionCalculation.js';
 
 // =========================================================================
 // FINALIZATION SERVICE
@@ -70,6 +71,32 @@ async function readDocsFresh(ref, notes) {
 
 const dataOf = (snap) => (snap?.exists() ? snap.data() : null);
 
+// The result engine's view of a precision doc (rounds, qualification), with
+// the class's course config and rule profile
+async function precisionEngineView(competitionId, equipage, result, notes = { offline: false }) {
+  const [precisionSnap, marathonSnap] = await Promise.all([
+    readDocFresh(getCompDocRef(competitionId, 'config', 'precisionConfig'), notes),
+    readDocFresh(getCompDocRef(competitionId, 'config', 'marathonConfig'), notes).catch(() => null),
+  ]);
+  return calculatePrecisionResult(result || {}, equipage || {}, dataOf(precisionSnap) || {}, {
+    marathonConfig: dataOf(marathonSnap),
+    currentCompetition: getGlobalState('currentCompetition') || null,
+  });
+}
+
+// Phase 2 (or the drive-off) stopped but not saved, driven without a decided
+// result or without a max time: finalizing would lock (or place) it as it is
+async function assertPrecisionRoundsDecided(ref, competitionId, startNumber, round = 'phase1') {
+  const snap = await getDoc(ref);
+  if (!snap.exists()) return;
+  const sn = String(startNumber);
+  const equipageSnap = await getDoc(getCompDocRef(competitionId, 'equipages', sn)).catch(() => null);
+  const equipage = dataOf(equipageSnap) || { startNumber: sn, className: snap.data()?.className || '' };
+  const calc = await precisionEngineView(competitionId, equipage, snap.data());
+  const blockers = precisionFinalizeBlockers(calc, { round });
+  if (blockers.length) throw new Error(`#${startNumber}: ${blockers.join(' ')}`);
+}
+
 /**
  * What is missing for one result before it is finalized: expected data
  * (obstacles of the class's course, stage times, observer log; a precision
@@ -97,7 +124,9 @@ export async function findFinalizeGaps(competitionId, discipline, startNumber) {
       marathonConfig: dataOf(configSnap) || {},
     });
   } else if (discipline === 'precision') {
-    gaps = findPrecisionGaps({ equipage, result: dataOf(await readDocFresh(getCompDocRef(competitionId, 'precision', sn), notes)) });
+    const result = dataOf(await readDocFresh(getCompDocRef(competitionId, 'precision', sn), notes));
+    const calc = result ? await precisionEngineView(competitionId, equipage, result, notes) : null;
+    gaps = findPrecisionGaps({ equipage, result, calc });
   } else if (discipline === 'dressage') {
     const [protocolsSnap, mappingSnap] = await Promise.all([
       readDocsFresh(getCompCollectionRef(competitionId, `dressage/${sn}/protocols`), notes),
@@ -209,6 +238,8 @@ export async function finalizePrecision(competitionId, startNumber) {
     // Precision sets finalized on the precision document
     const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
     await assertNotRunning(ref, startNumber);
+    // Phase 2 is closed with the whole result: it must be decided first
+    await assertPrecisionRoundsDecided(ref, competitionId, startNumber, 'phase1');
 
     // Result and lock document in one batch (see finalizeMarathon).
     // prioritized: true forces sorting if needed
@@ -249,6 +280,7 @@ export async function finalizePrecisionDriveOff(competitionId, startNumber) {
   return trackWrite(`Finaliserar omkörning precision #${startNumber}`, (async () => {
     const ref = getCompDocRef(competitionId, 'precision', String(startNumber));
     await assertNotRunning(ref, startNumber);
+    await assertPrecisionRoundsDecided(ref, competitionId, startNumber, 'driveOff');
     // Result (rounds.driveOff only) and lock in one batch
     const batch = writeBatch(db);
     batch.set(ref, { rounds: { driveOff: { finalized: true, updatedAt: Date.now() } } }, { merge: true });

@@ -97,6 +97,21 @@ export function validateIncidentEntry(raw = {}) {
     return { ok: errors.length === 0, errors, entry };
 }
 
+/**
+ * The fields of a checked entry (validateIncidentEntry) that differ from the
+ * stored copy `before`: what an update writes, so a concurrent change of
+ * another field is not overwritten with the old value. A field missing in
+ * `before` counts as '' (the form's empty value).
+ */
+export function changedIncidentFields(before = {}, entry = {}) {
+    const out = {};
+    Object.entries(entry).forEach(([key, value]) => {
+        const old = before?.[key] ?? '';
+        if (String(old) !== String(value ?? '')) out[key] = value;
+    });
+    return out;
+}
+
 /** The next entry number (1, 2, ...): one above the highest so far */
 export function nextIncidentNumber(incidents = []) {
     const max = (Array.isArray(incidents) ? incidents : [])
