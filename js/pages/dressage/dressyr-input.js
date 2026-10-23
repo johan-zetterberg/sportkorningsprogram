@@ -21,6 +21,7 @@ import {
 } from './dressageAdminProgramOptions.js';
 import { getCompetitionHeader, renderCompetitionModeBanner, createSearchableDropdown, showAlert, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
+import { mayEnterErrorPoints } from './dressageErrorPoints.js';
 import { registerUnsavedWork } from '../../utils/unsavedWork.js';
 
 import { downloadJson, escapeHtml } from '../../utils/sharedUtils.js';
@@ -383,6 +384,8 @@ function handleSelectionChange() {
     }
   }
 
+  applyErrorPointsAccess();
+
   // FIX: Läs om judgeId eftersom den kan ha satts automatiskt ovan
   const finalJudgeId = judgeSelector.value;
 
@@ -627,6 +630,27 @@ function restoreSelection(select, value) {
   const option = Array.from(select.options).find(o => o.value === value);
   if (option) option.disabled = false;
   select.value = value;
+}
+
+// Errors of course are entered by the judge at C (dressageErrorPoints.js);
+// the other judges see the value but cannot change it
+function applyErrorPointsAccess() {
+  const startNumber = equipageSearchDropdown?.getValue?.();
+  const equipage = sortedEquipages.find(e => String(e.startNumber) === String(startNumber));
+  const assigned = equipage && window.dressageJudgeMapping?.[equipage.className];
+  const classPositions = assigned && Object.keys(assigned).length
+    ? Object.keys(assigned)
+    : allJudges.map(j => j._pos).filter(Boolean);
+  const allowed = !activeDressageJudge || mayEnterErrorPoints({
+    judgePosition: activeDressageJudge._pos,
+    classPositions
+  });
+  ['errorPointsInput', 'errorCommentInput', 'btnErr1', 'btnErr2', 'btnErr3'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = !allowed;
+  });
+  const hint = document.getElementById('errorPointsJudgeCHint');
+  if (hint) hint.classList.toggle('hidden', allowed);
 }
 
 function clearForm() {
@@ -1091,6 +1115,7 @@ function setupEventListeners() {
 
   judgeSelector.addEventListener('change', (e) => {
     activeDressageJudge = allJudges.find(j => j.id === e.target.value) || null;
+    applyErrorPointsAccess();
     const startNumber = equipageSearchDropdown.getValue();
     if (startNumber && activeDressageJudge) {
       loadExistingProtocol(startNumber, activeDressageJudge.id, { allowTestChange: false });
@@ -1766,6 +1791,7 @@ export function load() {
                <button type="button" id="btnErr2" class="dr-touch dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_2')}</button>
                <button type="button" id="btnErr3" class="dr-touch dressage-error-btn text-xs bg-gray-200 hover:bg-red-100 text-gray-800 py-2 px-2 rounded dark:bg-gray-700 dark:hover:bg-red-900/20 dark:text-gray-200">${t('input_error_3')}</button>
             </div>
+            <p id="errorPointsJudgeCHint" class="hidden mt-1 text-xs text-gray-600 dark:text-gray-300">${t('input_error_points_judge_c')}</p>
           </div>
           
           <div class="md:col-span-4">

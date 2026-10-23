@@ -158,6 +158,7 @@ const urlsToCache = [
   abs('/js/pages/admin/startTimeChangeUtils.js'),
   abs('/js/pages/dressage/dressageAdminProgramOptions.js'),
   abs('/js/pages/dressage/dressageDraft.js'),
+  abs('/js/pages/dressage/dressageErrorPoints.js'),
   abs('/js/pages/dressage/dressageMonitorFormatUtils.js'),
   abs('/js/pages/dressage/dressageResultBridge.js'),
   abs('/js/pages/dressage/dressageResultBuilder.js'),

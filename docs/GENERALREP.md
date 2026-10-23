@@ -56,9 +56,9 @@ släckt skärm blir gul efter 2 minuter och röd efter 10 (det är avsiktligt).
 - Alla enheter visar rätt tävling och roll. Monitorerna visar startlistan.
 
 ### 2. Dressyr (0:15-0:40)
-Två dressyrdomare dömer samma ekipage. Ett protokoll får **Felkörning 1**
-och ett annat felkörning 1 + 2 (5 resp. 15 straffpoäng); ett ekipage
-**Eliminerad**. Spara protokoll. Sekretariatet finaliserar på resultatsidan.
+Två dressyrdomare dömer samma ekipage. Domaren vid **C** ger ett ekipage
+**Felkörning 1** och ett annat felkörning 1 + 2 (5 resp. 15 straffpoäng); ett
+ekipage **Eliminerad**. Domaren vid E ser felpoängen men kan inte ändra dem. Spara protokoll. Sekretariatet finaliserar på resultatsidan.
 - Resultatet är identiskt på resultatsidan, monitorn, speakern, Totalt och i
   PDF. Felpoängen läggs på dressyrens straffpoäng (procenten visas före
   felpoängen). Livepoäng syns

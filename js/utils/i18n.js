@@ -760,6 +760,7 @@ export const DICTIONARY = {
     'input_program_details': { sv: 'Programinformation', en: 'Test details' },
     'input_score_label': { sv: 'Poäng moment {no}', en: 'Mark movement {no}' },
     'input_missing_confirm': { sv: 'Moment {list} saknar poäng. Spara ändå? Protokollet räknas som pågående tills alla moment har poäng.', en: 'Movement(s) {list} have no mark. Save anyway? The protocol stays ongoing until every movement has a mark.' },
+    'input_error_points_judge_c': { sv: 'Felkörning registreras av domaren vid C.', en: 'Errors of course are entered by the judge at C.' },
     'input_error_points': { sv: 'Felkörning (Straff)', en: 'Error of Course (Pen)' },
     'input_error_1': { sv: '1:a fel (+5)', en: '1st error (+5)' },
     'input_error_2': { sv: '2:a fel (+10)', en: '2nd error (+10)' },
