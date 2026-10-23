@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 
 const TEST_EMAIL = process.env.TEST_EMAIL || 'admin@demo.se';
 const TEST_PASSWORD = process.env.TEST_PASSWORD || 'admin123';
@@ -1694,6 +1694,16 @@ async function setPublicInfoIntro(page, competitionId, introHtml) {
   }, { competitionId, introHtml });
 }
 
+// Trademarked logos are kept outside the repository (.gitignore), so a clean
+// checkout (CI) lacks them; a missing one there is expected, not a broken path
+const LOCAL_ONLY_ASSET_DIRS = ['/assets/logos/', '/assets/dressage/', '/assets/dressyrprogram/', '/assets/fei/'];
+
+function isMissingLocalOnlyAsset(url) {
+  const pathname = decodeURIComponent(new URL(url).pathname);
+  return LOCAL_ONLY_ASSET_DIRS.some(dir => pathname.startsWith(dir))
+    && !existsSync(new URL(`..${pathname}`, import.meta.url));
+}
+
 function collectBrowserErrors(page, browserErrors) {
   page.on('console', msg => {
     if (msg.type() === 'error') {
@@ -1716,7 +1726,8 @@ function collectBrowserErrors(page, browserErrors) {
       || url.startsWith('http://localhost:5500/');
     const checkedTypes = ['document', 'script', 'stylesheet', 'image', 'font'];
 
-    if (localAsset && status >= 400 && checkedTypes.includes(request.resourceType())) {
+    if (localAsset && status >= 400 && checkedTypes.includes(request.resourceType())
+      && !(status === 404 && isMissingLocalOnlyAsset(url))) {
       browserErrors.push(`${status} ${request.resourceType()}: ${url}`);
     }
   });
