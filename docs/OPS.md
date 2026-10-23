@@ -82,7 +82,9 @@ on for event days only.
   Google Cloud SDK and run `gcloud auth application-default login` (or set
   `GOOGLE_APPLICATION_CREDENTIALS` to a service-account key, kept out of the
   repository). Try a `--dry-run` against a copy before you need it.
-- [ ] **TTL for field device status**: Firebase Console → Firestore Database →
+- [x] **TTL for field device status** (2026-10-23, created through the
+  Firestore Admin API; state CREATING → ACTIVE within minutes to hours, see
+  Firestore → Time-to-live): Firebase Console → Firestore Database →
   Time-to-live → Create policy: collection group `devices`, timestamp field
   `expireAt` (or `gcloud firestore fields ttls update expireAt
   --collection-group=devices --enable-ttl`). Each field device overwrites one
