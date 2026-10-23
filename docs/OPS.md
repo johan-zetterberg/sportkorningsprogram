@@ -102,7 +102,7 @@ on for event days only.
   (plus any custom domain); API restrictions: only the APIs the app uses
   (Identity Toolkit, Token Service, Cloud Firestore, Cloud Storage for
   Firebase, Cloud Functions, Firebase Installations). Test login afterwards.
-- [ ] **Password policy**: Firebase Console → Authentication → Settings →
+- [x] **Password policy** (2026-10-23, verified: ENFORCE, min 10): Firebase Console → Authentication → Settings →
   Password policy → Enforcement mode **Require**, minimum length 10, no other
   boxes (leave "Force upgrade on sign-in" off so existing shorter passwords
   still sign in). Deploy the app first: it shows "minst 10 tecken" for the
