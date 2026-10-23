@@ -8,6 +8,9 @@ export default defineConfig({
   testDir: './tests',
   testMatch: 'browser-smoke.spec.js',
   timeout: 120000,
+  // On GitHub Actions each failure also becomes an annotation on the run, which
+  // can be read without signing in
+  reporter: process.env.CI ? [['list'], ['github']] : 'list',
   // Videos and traces (recorded for every test) outside the project folder: a
   // synced folder (OneDrive) uploads every file and slows the run down
   outputDir: process.env.PLAYWRIGHT_OUTPUT_DIR || path.join(os.tmpdir(), 'drivelive-test-results'),
