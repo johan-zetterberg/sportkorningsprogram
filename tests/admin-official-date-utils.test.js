@@ -26,6 +26,9 @@ test('normalizeOfficialTimestamp rejects invalid values', () => {
 });
 
 test('formatOfficialCheckInTime formats valid timestamps and hides invalid values', () => {
-  assert.equal(formatOfficialCheckInTime(new Date('2026-06-02T09:30:00.000Z'), 'sv-SE'), '11:30');
+  // Local time of the device (CI runs in UTC, the app in Sweden)
+  const at = new Date('2026-06-02T09:30:00.000Z');
+  const expected = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+  assert.equal(formatOfficialCheckInTime(at, 'sv-SE'), expected);
   assert.equal(formatOfficialCheckInTime('not a date', 'sv-SE'), '');
 });
