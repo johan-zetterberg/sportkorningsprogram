@@ -349,9 +349,13 @@ function listenForGlobalCompetitionPause_Obstacles() {
   let lastPauseState = false;
   return onSnapshot(statusRef, (docSnap) => {
     const data = docSnap.exists() ? (docSnap.data() || {}) : {};
-    const isPaused = data.isPaused === true;
     const pauseLog = Array.isArray(data.pauseLog) ? data.pauseLog : [];
     const openPause = pauseLog.find(p => p && p.end == null);
+    // Paused only once the log holds the open pause: a press saved offline
+    // sets isPaused ahead of the server's fold (functions src/pauseEvents.js),
+    // so the clock would stop when this snapshot arrived instead of at the
+    // press, and a press the fold refuses (too late) would stop and restart it
+    const isPaused = data.isPaused === true && !!openPause;
 
     setPauseWindows(pauseLog);
     lastPauseLog = pauseLog;

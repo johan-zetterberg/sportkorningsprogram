@@ -289,6 +289,15 @@ export function sortTotalRows(rows = [], sortConfig = { key: 'plac', direction: 
   });
 }
 
+// "Per klass": the rows class by class (merged classes as one), classes in
+// the order the table shows them, each in its own sorted order
+export function groupTotalRowsByClass(rows = []) {
+  const labelOf = (row) => row.displayGroupLabel || '—';
+  const labels = Array.from(new Set(rows.map(labelOf)))
+    .sort((a, b) => a.localeCompare(b, 'sv', { numeric: true, sensitivity: 'base' }));
+  return labels.flatMap((label) => rows.filter((row) => labelOf(row) === label));
+}
+
 export function buildDisplayedTotalRows(rows = [], options = {}) {
   return sortTotalRows(filterTotalRows(rows, options), options.sortConfig);
 }

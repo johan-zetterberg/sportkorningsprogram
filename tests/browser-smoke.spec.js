@@ -878,6 +878,57 @@ test('the status dropdown on the equipage page colours itself and saves the new 
   expect(browserErrors).toEqual([]);
 });
 
+// The rules let only a verified address read its roleEmails entry: that
+// refusal must not cost an official who joined by code their role
+test('an official with an unconfirmed e-mail gets the role the join code gave', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const email = `unverified-${Date.now()}@example.com`;
+  const password = 'Smoke-official-1234';
+  const signUp = await page.request.post('http://127.0.0.1:9099/identitytoolkit.googleapis.com/v1/accounts:signUp?key=demo-key', {
+    data: { email, password, returnSecureToken: true }
+  });
+  expect(signUp.ok()).toBe(true);
+
+  await page.goto('/index.html#hub');
+  await expect(page.locator('#logoutButton')).toBeVisible({ timeout: 20000 });
+  const code = 'MARATHN234';
+  // As the competition's admin: a role code for the marathon judges
+  await page.evaluate(async ({ competitionId, code }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, setDoc } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/config/secrets`), { accessCode_marathon: code, accessCodesExpireAt: null }, { merge: true });
+  }, { competitionId, code });
+
+  // The new account joins with the code (the server writes admins/{uid})
+  const roles = await page.evaluate(async ({ competitionId, email, password, code }) => {
+    const { auth } = await import('../js/config/firebase-config.js');
+    const { signInWithEmailAndPassword } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js');
+    const { getGlobalState } = await import('../js/main.js');
+    const { joinCompetitionAsAdmin } = await import('../js/services/adminService.js');
+    await signInWithEmailAndPassword(auth, email, password);
+    for (let i = 0; i < 100 && getGlobalState('currentUser')?.uid !== auth.currentUser.uid; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    return joinCompetitionAsAdmin(competitionId, code, auth.currentUser, 'marathon');
+  }, { competitionId, email, password, code });
+  expect(roles).toBe('marathon');
+
+  // The app reloads after a join; the roles are then read afresh
+  await page.reload();
+  const after = await page.evaluate(async ({ competitionId, email }) => {
+    const { auth } = await import('../js/config/firebase-config.js');
+    const { getGlobalState, setGlobalState, refreshUserCompRole } = await import('../js/main.js');
+    const { getCompetitionById } = await import('../js/services/competitionService.js');
+    for (let i = 0; i < 100 && getGlobalState('currentUser')?.email !== email; i++) {
+      await new Promise(resolve => setTimeout(resolve, 100));
+    }
+    setGlobalState({ key: 'currentCompetition', value: await getCompetitionById(competitionId) });
+    return { verified: auth.currentUser.emailVerified, roles: await refreshUserCompRole() };
+  }, { competitionId, email });
+  expect(after).toEqual({ verified: false, roles: ['marathon'] });
+});
+
 test('secretariat precision shows each equipage as a stacked card on a phone @mobile-only', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

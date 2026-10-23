@@ -69,6 +69,11 @@ export function buildTotalResultRow({
     paraGrade: equipage.paraGrade || '',
     displayGroupKey: group.key,
     displayGroupLabel: group.label,
+    // The team calculation (teamCalculationService) tells a withdrawn member
+    // by these fields, as on the report pages
+    status: equipage.status || '',
+    struken: equipage.struken === true,
+    withdrawn: equipage.withdrawn === true,
 
     dressage: {
       penalty: dressage.judgePenalty,

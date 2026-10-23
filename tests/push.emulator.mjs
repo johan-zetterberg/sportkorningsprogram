@@ -194,7 +194,8 @@ test('push: officials by system role, pause urgent; vet decision to the driver a
     const titles = vetCalls.calls.map((c) => [c.webpush.notification.title, c.tokens]).sort();
     assert.deepEqual(titles, [['driver:en', [TOKEN('anna')]], ['official:sv', [TOKEN('vet')]]]);
 
-    // A draft: a public message reaches drivers (their audience) but not followers
+    // A draft: a public message reaches drivers (their audience) and the
+    // officials, but not followers
     await db.doc(pub).update({ published: false });
     await register('fan2', { topics: ['messages'] });
     const draftCalls = fakeMessaging();
@@ -203,6 +204,7 @@ test('push: officials by system role, pause urgent; vet decision to the driver a
     });
     const draftTokens = draftCalls.calls.flatMap((c) => c.tokens);
     assert.ok(draftTokens.includes(TOKEN('anna')));
+    assert.ok(draftTokens.includes(TOKEN('vet')));
     assert.ok(!draftTokens.includes(TOKEN('fan2')));
     await db.doc(pub).update({ published: true });
 });

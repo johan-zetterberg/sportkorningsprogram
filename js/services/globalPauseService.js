@@ -158,6 +158,7 @@ export async function setGlobalPause(competitionId, isPaused, details = {}) {
 
     let queued = false;
     let slowSignal = false;
+    let notFolded = false;
     if (navigator.onLine === false) {
       queued = (await writeFromDeviceCopy()) === 'queued';
     } else {
@@ -165,14 +166,17 @@ export async function setGlobalPause(competitionId, isPaused, details = {}) {
         const docSnap = await tx.get(statusRef);
         const before = docSnap.exists() ? docSnap.data()?.pauseLog : [];
         const pauseLog = nextPauseLog(before, isPaused, nowIso, details);
-        if (!pauseLog) return;
+        // Nothing to change: already so in the log. A resume pressed while
+        // isPaused is set but the log has no open pause yet (a press saved
+        // offline the server has not folded in) must not report success
+        if (!pauseLog) return docSnap.exists() && docSnap.data()?.isPaused === true && !isPaused ? 'not-folded' : 'unchanged';
         tx.set(statusRef, statusDoc(pauseLog), { merge: true });
         // Who and the note: private, with the public entry or not at all
         const priv = pauseDetailsWrite(competitionId, before, isPaused, nowIso, details);
         if (priv) tx.set(priv.ref, priv.data, { merge: true });
       });
       try {
-        await withTimeout(transactionDone, PAUSE_TRANSACTION_TIMEOUT_MS);
+        notFolded = (await withTimeout(transactionDone, PAUSE_TRANSACTION_TIMEOUT_MS)) === 'not-folded';
       } catch (e) {
         if (!isConnectionError(e)) throw e;
         if (e?.message === 'timeout') {
@@ -201,6 +205,10 @@ export async function setGlobalPause(competitionId, isPaused, details = {}) {
       }
     }
 
+    if (notFolded) {
+      showAlert(t('pause_resume_not_folded'), false);
+      return;
+    }
     if (slowSignal) {
       // Not on the device yet (a transaction is applied only when it commits)
       showAlert(`${doneText} ${t('pause_slow_signal')}`, 'offline');

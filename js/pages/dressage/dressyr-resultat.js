@@ -1285,9 +1285,9 @@ function renderLiveHeader() {
         activeCandidates.sort((a, b) => {
             const stA = dressageStatusMap.get(String(a.startNumber));
             const stB = dressageStatusMap.get(String(b.startNumber));
-            const timeA = stA && stA.updatedAt ? new Date(stA.updatedAt).getTime() : 0;
-            const timeB = stB && stB.updatedAt ? new Date(stB.updatedAt).getTime() : 0;
-            return timeB - timeA;
+            // updatedAt is a Firestore Timestamp (an ISO string in older data)
+            const msOf = (v) => (typeof v?.toMillis === 'function' ? v.toMillis() : (new Date(v).getTime() || 0));
+            return msOf(stB?.updatedAt) - msOf(stA?.updatedAt);
         });
         activeRes = activeCandidates[0];
     }

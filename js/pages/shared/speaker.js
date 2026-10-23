@@ -691,7 +691,7 @@ function renderLeaderboardSidebar() {
                 <div class="text-xs text-gray-600 dark:text-gray-300 truncate">${escapeHtml(club)}</div>
             </div>
             <div class="col-span-2 text-right">
-                <div class="tabular-nums tracking-wide font-bold text-sm ${scoreClass}">${r.isWithdrawn ? escapeHtml(t('withdrawn')) : (r.total === Infinity ? escapeHtml(t('speaker_eliminated')) : (Number.isFinite(r.total) ? r.total.toFixed(1) : '—'))}</div>
+                <div class="tabular-nums tracking-wide font-bold text-sm ${scoreClass}">${r.isWithdrawn ? escapeHtml(t('withdrawn')) : (r.total === Infinity ? escapeHtml(t('speaker_eliminated')) : (Number.isFinite(r.total) ? r.total.toFixed(2) : '—'))}</div>
                 ${diffHtml}
             </div>
         </div>`;

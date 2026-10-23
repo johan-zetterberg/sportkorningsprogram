@@ -1614,7 +1614,8 @@ async function offerStartTimeChangeMessage(changes, { queued = false } = {}) {
     const chosen = new Set(choice.channels);
     if (chosen.has('message')) {
         try {
-            const saveState = await awaitWriteOrQueue(saveCompetitionMessage(competitionId, {
+            // Resolves 'saved' or 'queued' itself (offline: queued on the device)
+            const saveState = await saveCompetitionMessage(competitionId, {
                 title: message.title,
                 body: message.body,
                 titleEn: message.titleEn,
@@ -1625,7 +1626,7 @@ async function offerStartTimeChangeMessage(changes, { queued = false } = {}) {
                 // message trigger must not notify again
                 source: 'startTimeChange',
                 ...buildMessageAudience('selected_drivers', { selectedDrivers: message.startNumbers })
-            }));
+            });
             if (saveState === 'queued') showAlert(t('msg_saved_queued'), 'offline');
             else showAlert(t('starttime_offer_msg_sent').replace('{n}', String(message.startNumbers.length)), 'success');
         } catch (err) {

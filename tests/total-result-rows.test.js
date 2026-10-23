@@ -85,6 +85,18 @@ test('applyTotalDisciplineStatuses mutates rows with current display statuses', 
   assert.equal(rows[0].precisionStatus, 'ok');
 });
 
+test('buildTotalResultRow keeps the withdrawal, so a team takes the member out', () => {
+  const row = buildTotalResultRow({
+    equipage: { id: 'eq-7', startNumber: 7, className: 'Lätt A', status: 'struken' },
+    rawProtocols: [],
+    resolveMergeGrouping: () => ({ key: 'CLASS:Lätt A', label: 'Lätt A' }),
+    calculateTotalResult: () => ({ dressage: { penalty: 40, judgePenalty: 40, percent: 70 }, marathon: {}, precision: {}, totalPenalty: 40 })
+  });
+  assert.equal(row.status, 'struken');
+  assert.equal(row.struken, false);
+  assert.equal(row.withdrawn, false);
+});
+
 test('buildTotalResultRow calls total calculation with merged timing and context object', () => {
   const calls = [];
   const allPrograms = { LA: { name: 'LA' } };

@@ -55,17 +55,26 @@ async function fetchCompetitionEmailRoles(compId, email) {
     const normalizedEmail = normalizeEmail(email);
     if (!compId || !normalizedEmail) return [];
 
-    const snap = await getDoc(doc(
-        db,
-        'artifacts',
-        appId,
-        'public',
-        'data',
-        'competitions',
-        compId,
-        'roleEmails',
-        normalizedEmail
-    ));
+    let snap;
+    try {
+        snap = await getDoc(doc(
+            db,
+            'artifacts',
+            appId,
+            'public',
+            'data',
+            'competitions',
+            compId,
+            'roleEmails',
+            normalizedEmail
+        ));
+    } catch (e) {
+        // The rules let only a verified address read its entry: an official
+        // who joined by code with an unconfirmed address is refused here, and
+        // must still get the roles of admins/{uid}
+        if (e?.code === 'permission-denied') return [];
+        throw e;
+    }
     if (!snap.exists()) return [];
 
     const data = snap.data() || {};

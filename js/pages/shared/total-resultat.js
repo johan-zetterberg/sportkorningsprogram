@@ -43,6 +43,7 @@ import {
   applyTotalResultDiffs,
   buildBestDressageByGroup,
   buildDisplayedTotalRows,
+  groupTotalRowsByClass,
   placeTotalRowsWithinClass,
   totalSortConfigForMode
 } from './totalResultRanking.js';
@@ -194,7 +195,10 @@ function render() {
   });
 
   // Spara den slutgiltiga listan globalt så BÅDA vyerna kan läsa den
-  __latestDisplayedRows = Array.isArray(viewData) ? viewData.slice() : [];
+  // "Per klass": grouped by class here, so the phone cards and the PDF show
+  // each class together, as the table does
+  const shownRows = Array.isArray(viewData) ? viewData.slice() : [];
+  __latestDisplayedRows = viewMode === 'byclass' ? groupTotalRowsByClass(shownRows) : shownRows;
 
   // === STEG 2: VÄLJ VY ===
   if (isMobile()) {
@@ -1228,10 +1232,11 @@ function renderMobile() {
       const eq = equipages.find(e => String(e.startNumber) === String(r.startNumber)) || {};
       const cls = r.className || 'Okänd Klass';
 
-      // Klassrubrik om vyn är grupperad per klass
-      if (viewMode === 'byclass' && r.className !== lastClass) {
-        html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${escapeHtml(cls)}</div>`;
-        lastClass = r.className;
+      // Klassrubrik om vyn är grupperad per klass (merged classes as one)
+      const groupLabel = r.displayGroupLabel || cls;
+      if (viewMode === 'byclass' && groupLabel !== lastClass) {
+        html += `<div class="px-2 py-1.5 mt-2 bg-blue-100 dark:bg-blue-900/50 text-blue-800 dark:text-blue-200 font-bold text-sm rounded-md shadow-sm">${escapeHtml(groupLabel)}</div>`;
+        lastClass = groupLabel;
       }
 
       const totalLabel = r.isEliminated ? `<span class="text-red-600 dark:text-red-400 font-bold">${escapeHtml(r.elimReason || 'ELIM')}</span>` : formatTotalResultPenalty(r.totalPenalty);

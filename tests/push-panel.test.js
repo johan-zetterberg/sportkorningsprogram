@@ -43,11 +43,14 @@ test('staff is admin, secretariat or TD; other officials are officials', () => {
     assert.equal(pushRoleForRoles(['vet', 'td']), 'staff');
 });
 
-test('first topics: what the device has, else the role defaults', () => {
+test('switching on: what the device has plus the role defaults', () => {
     assert.deepEqual(initialTopics('driver', []), ['startTimes', 'messages', 'vetDecision', 'pause']);
     assert.deepEqual(initialTopics('vet', []), ['vetDecision', 'declarationChanges', 'messages', 'pause']);
     assert.deepEqual(initialTopics('device', []), ['messages']);
-    assert.deepEqual(initialTopics('driver', ['pause']), ['pause']);
+    // First switched on on a public page (messages): the driver's topics come too
+    assert.deepEqual(initialTopics('driver', ['messages']).sort(), ['messages', 'pause', 'startTimes', 'vetDecision']);
+    // A topic the device has that the role does not offer stays
+    assert.ok(initialTopics('device', ['startTimes']).includes('startTimes'));
 });
 
 test('toggling a topic keeps the ones the role is not offered', () => {

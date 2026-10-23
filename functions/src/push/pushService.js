@@ -215,7 +215,7 @@ export async function sendPushToAudience(db, messaging, {
     if (!compSnap.exists || compSnap.data()?.deleting === true) return { status: 'no_competition' };
     // A draft is not public yet: its public messages reach its drivers and staff only
     if (audience.everyone && compSnap.data()?.published === false) {
-        audience = { ...audience, everyone: false };
+        audience = { ...audience, everyone: false, officials: audience.officials || { all: true } };
     }
     const tokens = await loadCompetitionTokens(db, appId, compId);
     if (!tokens.length) return { status: 'no_tokens' };

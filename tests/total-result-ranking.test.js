@@ -8,6 +8,7 @@ import {
   buildDisplayedTotalRows,
   compareTotalTiebreak,
   filterTotalRows,
+  groupTotalRowsByClass,
   placeTotalRowsWithinClass,
   rankTotalRowsWithinClass,
   sortTotalRows
@@ -206,4 +207,14 @@ test('buildDisplayedTotalRows combines filtering and sorting', () => {
   });
 
   assert.deepEqual(displayed.map((row) => row.startNumber), [2, 1]);
+});
+
+test('groupTotalRowsByClass keeps each class together in the order the table shows them', () => {
+  const rows = [
+    { startNumber: 1, plac: 1, displayGroupLabel: 'Lätt B' },
+    { startNumber: 2, plac: 1, displayGroupLabel: 'Lätt A + Lätt A Barn' },
+    { startNumber: 3, plac: 2, displayGroupLabel: 'Lätt B' },
+    { startNumber: 4, plac: 2, displayGroupLabel: 'Lätt A + Lätt A Barn' }
+  ];
+  assert.deepEqual(groupTotalRowsByClass(rows).map(r => r.startNumber), [2, 4, 1, 3]);
 });

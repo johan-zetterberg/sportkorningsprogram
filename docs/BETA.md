@@ -43,6 +43,15 @@ Konsolpunkter inför riktig tävling finns i `docs/OPS.md`; övningsplan i
 - Om en ändring av starttider sparats utan täckning kan notis/e-post inte
   skickas om därifrån. Skicka ett vanligt meddelande istället.
 - Observatörssidan visar inte vem som pausade (övriga sidor visar orsak, vem och var).
+- En paus som tryckts utan täckning och når servern mer än 2 minuter senare
+  läggs inte in i efterhand (den skulle ändra tider som redan körts) utan visas
+  för sekretariatet att granska.
+- Precision med två domare: ett slag som den andra domaren trycker inom någon
+  sekund efter "Fas 1 mål" kan hamna i fas 1. Kontrollera slagen efter fasbytet.
+- Meddelandet i appen om ändrade starttider listar alla berörda ekipage; bara
+  notisen och e-posten är personliga.
+- Ett publikt meddelande i en opublicerad tävling ger ingen notis till
+  funktionärerna (bara till kuskarna).
 - E-post kräver egen domän och Brevo (se `docs/OPS.md`).
 - Säkerhetskopior, PITR och raderingsskydd måste slås på i konsolen före
   riktig tävling (se `docs/OPS.md`). Idag är de avstängda.

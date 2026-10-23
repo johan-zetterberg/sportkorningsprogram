@@ -28,7 +28,9 @@ Knappnamn nedan följer appens texter. Se även `docs/BETA.md`.
    domarscheman och hinderfördelning (hinder per domare).
 3. Skapa rollkoder per roll under Admin > Inställningar > Funktionärskoder
    (delas per roll), där även anslutningslänk och QR-kod finns, och dela ut
-   dem. Administratörer bjuds in med e-post (Funktionärer > Bjud in
+   dem. Koderna gäller till dagen efter tävlingens datum: ge testtävlingen
+   dagens (eller morgondagens) datum, annars "har gått ut". Administratörer
+   bjuds in med e-post (Funktionärer > Bjud in
    administratör), inte med kod. TD måste ha en bekräftad e-postadress. Varje
    person går in via koden på sin egen telefon. Kuskarna kopplar sina
    ekipage i Min Portal.
@@ -47,7 +49,10 @@ Förväntat resultat står under varje steg. Avvikelser noteras direkt (se sist)
 
 ### 1. Start (0:00-0:15)
 Alla loggar in, öppnar sin sida. Admin kontrollerar fältenheterna
-(Händelselogg > Fältenheter): alla syns gröna.
+(Händelselogg > Fältenheter): alla enheter på **inmatningssidor** (domare,
+etapper, observatör, precision, veterinär) syns gröna. Speaker, sekretariat,
+monitorer och kuskar rapporterar inte och står inte i listan. En telefon med
+släckt skärm blir gul efter 2 minuter och röd efter 10 (det är avsiktligt).
 - Alla enheter visar rätt tävling och roll. Monitorerna visar startlistan.
 
 ### 2. Dressyr (0:15-0:40)
@@ -55,7 +60,8 @@ Två dressyrdomare dömer samma ekipage. Ett protokoll får **Felkörning 1**
 och ett annat felkörning 1 + 2 (5 resp. 15 straffpoäng); ett ekipage
 **Eliminerad**. Spara protokoll. Sekretariatet finaliserar på resultatsidan.
 - Resultatet är identiskt på resultatsidan, monitorn, speakern, Totalt och i
-  PDF. Felpoängen räknas in (dressyrprocent efter avdrag). Livepoäng syns
+  PDF. Felpoängen läggs på dressyrens straffpoäng (procenten visas före
+  felpoängen). Livepoäng syns
   på monitorn under tiden men är inget sparat protokoll.
 - Tredje felkörningen frågar innan eliminering.
 
@@ -69,8 +75,9 @@ samma ekipage; en med rivningar och hålltid). Efter spara: flygläge av.
 
 ### 4. Global paus och återupptag (ca 1:10)
 Observatören sätter sin telefon i **flygläge**, trycker **PAUSA TÄVLINGEN**
-(orsak, t.ex. Olycka) och slår på nätet igen. Sekretariatet trycker sedan
-**ÅTERUPPTA**.
+(orsak, t.ex. Olycka) och slår på nätet igen **inom 2 minuter** (en senare
+paus läggs inte in i efterhand utan visas för sekretariatet att granska).
+Sekretariatet trycker sedan **ÅTERUPPTA**.
 - Paus sparas när observatörens telefon får täckning; röd banner "TÄVLINGEN
   PAUSAD SEDAN ..." på övriga sidor, klockor står still, notis "Paus i
   tävlingen" kommer **en gång** per enhet. Pausens längd dras av rätt från
@@ -79,10 +86,13 @@ Observatören sätter sin telefon i **flygläge**, trycker **PAUSA TÄVLINGEN**
 
 ### 5. Etapp-omstart (ca 1:20)
 Etappfunktionär startar en etapp (**STARTA**) och därefter **MÅL**. Starta
-en etapp som redan går: appen vägrar och ber dig stoppa först. Stoppa, gör
-om starten (omstart) och registrera mål.
-- Starttid/måltid på Etapper, Maratontider och sekretariatet stämmer; den
-  nya starten ersätter den gamla; inga hängande klockor.
+en etapp som redan går: appen vägrar och ber dig stoppa först. Stoppa, tryck
+**STARTA** igen och svara ja på "Starta om och fortsätta tiden?", registrera
+mål. Gör sedan **Nollställ** på en annan etapp och starta den på nytt.
+- Starttid/måltid på Etapper, Maratontider och sekretariatet stämmer; inga
+  hängande klockor. Omstart **fortsätter** tiden: ursprunglig starttid står
+  kvar och tiden blir första delen plus andra delen. Nollställ ersätter
+  starten helt.
 
 ### 6. Veterinärstrykning (ca 1:30)
 Veterinären stryker ett ekipage. TD öppnar Händelselogg och trycker
@@ -140,7 +150,7 @@ placeringskoder (99/98/1/0). Hämta säkerhetskopian under Admin > Inställninga
 
 ### 12. Resultatjämförelse (2:45-3:00)
 Räkna för hand tre ekipage (ett vanligt, ett med felkörning/strykning, ett
-med paus/hålltid/ombyggnad): dressyrprocent efter avdrag, maratonstraff
+med paus/hålltid/ombyggnad): dressyrens straffpoäng inklusive felpoäng, maratonstraff
 (tid, hinder, rivningar), precisionsstraff, totalen. Jämför mot **Totalt**,
 resultat-PDF och arkivet.
 - Alla tre källor och handräkningen ger samma straffpoäng och placering.

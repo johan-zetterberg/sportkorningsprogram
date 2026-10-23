@@ -92,7 +92,8 @@ export async function generateTotalResultsPdf(rows, competition, options = {}) {
     let lastClass = null;
 
     rows.forEach(r => {
-        const displayClass = r._mergedLabel || r.className || t('pdf_unknown_class', isInt);
+        // Live rows carry the merged group as displayGroupLabel, archived ones as _mergedLabel
+        const displayClass = r._mergedLabel || r.displayGroupLabel || r.className || t('pdf_unknown_class', isInt);
         if (options.viewMode === 'byclass' && displayClass !== lastClass) {
             body.push([
                 { content: displayClass, colSpan: 9, styles: { fillColor: [243, 244, 246], fontStyle: 'bold', fontSize: 10 } }

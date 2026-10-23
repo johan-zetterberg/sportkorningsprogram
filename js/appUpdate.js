@@ -163,8 +163,14 @@ if ('serviceWorker' in navigator) {
   // With unsaved work the page does not leave it: the user picks new tab or "open anyway"
   sw.addEventListener('message', (event) => {
     const route = pushRouteFromMessage(event.data);
-    if (!route || location.hash === route) return;
-    if (unsavedWorkReasons().length === 0) { location.hash = route; return; }
+    if (!route) return;
+    if (unsavedWorkReasons().length === 0) {
+      // Already on that page (the driver's overview, read once): open it
+      // again so the news the notification is about shows
+      if (location.hash === route) window.dispatchEvent(new HashChangeEvent('hashchange'));
+      else location.hash = route;
+      return;
+    }
     showPushNavigatePrompt(route);
   });
 

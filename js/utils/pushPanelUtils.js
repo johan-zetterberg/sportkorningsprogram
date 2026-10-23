@@ -46,11 +46,15 @@ export function topicsForRole(role) {
     return [...(ROLE_TOPICS[role] || [])];
 }
 
-/** The device's topics when first switched on: what it has, else the role's defaults */
+/**
+ * The device's topics when switched on here: what it has plus this role's
+ * defaults. The topics are the device's, so a phone first switched on on a
+ * public page (messages only) gets a driver's start times when the driver
+ * switches it on in the portal
+ */
 export function initialTopics(role, existing = []) {
     const have = Array.isArray(existing) ? existing : [];
-    if (have.length) return [...have];
-    return [...(DEFAULT_TOPICS[role] || DEFAULT_TOPICS.device)];
+    return [...new Set([...have, ...(DEFAULT_TOPICS[role] || DEFAULT_TOPICS.device)])];
 }
 
 /** One topic on or off; topics the role is not offered stay as they are */
