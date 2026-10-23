@@ -101,7 +101,10 @@ on for event days only.
   `https://combined-driving.web.app/*`, `https://combined-driving.firebaseapp.com/*`
   (plus any custom domain); API restrictions: only the APIs the app uses
   (Identity Toolkit, Token Service, Cloud Firestore, Cloud Storage for
-  Firebase, Cloud Functions, Firebase Installations). Test login afterwards.
+  Firebase, Cloud Functions, Firebase Installations, **FCM Registration API**
+  — without the last two web push stops working). Test login, a page with
+  results, an image upload and "Skicka testnotis" afterwards; to undo, set
+  the key back to "Don't restrict key".
 - [x] **Password policy** (2026-10-23, verified: ENFORCE, min 10): Firebase Console → Authentication → Settings →
   Password policy → Enforcement mode **Require**, minimum length 10, no other
   boxes (leave "Force upgrade on sign-in" off so existing shorter passwords
