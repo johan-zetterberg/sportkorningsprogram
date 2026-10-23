@@ -1,5 +1,5 @@
 // service-worker.js — modul-säker och loggande
-const CACHE_NAME = 'driving-app-v88'; // Bump version to force cache clear
+const CACHE_NAME = 'driving-app-v89'; // Bump version to force cache clear
 
 // Scope-aware absolut-URL-hjälpare
 const SCOPE_PATH = new URL(self.registration.scope).pathname.replace(/\/+$/, '');
