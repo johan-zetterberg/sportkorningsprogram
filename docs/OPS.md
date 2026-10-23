@@ -35,20 +35,24 @@ and note the date.
 
 ## Data protection and backups
 
-- [ ] **Confirm locations are in the EU**: Firebase Console → Project settings
-  → General → "Default GCP resource location", and Firestore → Database
-  details, and Storage → bucket location. The repository does not record
-  them (functions run in europe-west1). Write the confirmed location into
-  `DATA_LOCATION` in `js/content/privacyNotice.js` (the privacy notice states
-  it; until then it says the location is to be confirmed).
+- [ ] **Confirm locations are in the EU**: Firestore is in **europe-north2
+  (Stockholm)** — verified 2026-10-23 with `firebase firestore:databases:get
+  "(default)"`; functions run in europe-west1. Still to check: Storage →
+  bucket `combined-driving.firebasestorage.app` → location, then update the
+  Storage part of `DATA_LOCATION` in `js/content/privacyNotice.js`.
+  Status 2026-10-23: delete protection **disabled**, PITR **disabled**, no
+  backup schedules (see the three items below).
 - [ ] **Firestore point-in-time recovery (7 days)**: Cloud Console →
   Firestore → (default) database → Disaster recovery → enable PITR.
 - [ ] **Delete protection**: same page → Delete protection → enable.
 - [ ] **Daily scheduled backups**: Firestore → Disaster recovery → Backups →
   Create schedule: daily, retention e.g. 14 days. Or a managed export to an
   EU bucket (`gcloud firestore export gs://<eu-bucket>` via Cloud Scheduler),
-  bucket in europe-north1/europe-west1 with a lifecycle rule deleting objects
-  after 30 days.
+  bucket in europe-north2 (same region as the database) with a lifecycle rule
+  deleting objects after 30 days. CLI alternative (read the result with
+  `firebase firestore:backups:schedules:list --project combined-driving`):
+  `firebase firestore:backups:schedules:create --project combined-driving
+  --recurrence DAILY --retention 14d`.
 - [ ] **Retention function runs**: after deploying, check Cloud Console →
   Cloud Scheduler that the job for `purgeExpiredPersonalData`
   (europe-west1, daily) exists (the Cloud Scheduler API is enabled on first

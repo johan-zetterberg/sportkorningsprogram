@@ -10,9 +10,14 @@ export const OPERATOR = {
     email: '' // e.g. the operator's support address; empty shows "contact the organiser"
 };
 
-// Where Firestore and Storage keep the data (Firebase console > Project
-// settings > General > Default GCP resource location). Null until confirmed.
-export const DATA_LOCATION = null;
+// Where Firestore and Storage keep the data. Firestore read from the project
+// (firebase firestore:databases:get, 2026-10-23): europe-north2. The Storage
+// bucket's location is checked in the console (Storage > bucket settings);
+// update `storage` when confirmed.
+export const DATA_LOCATION = {
+    sv: 'Google Cloud-regionen europe-north2 (Stockholm, Sverige) för databasen; regionen för uppladdade filer (Firebase Storage) anges när den är bekräftad',
+    en: 'the Google Cloud region europe-north2 (Stockholm, Sweden) for the database; the region for uploaded files (Firebase Storage) is stated once confirmed'
+};
 
 // Retention defaults (functions/src/personalData.js)
 export const DEFAULT_RETENTION_MONTHS = 12;
@@ -47,7 +52,7 @@ export function buildPrivacyNotice(lang = 'sv', organiser = null) {
     const operatorContact = OPERATOR.email
         ? `${OPERATOR.name}, ${OPERATOR.email}`
         : OPERATOR.name;
-    const location = DATA_LOCATION
+    const location = (DATA_LOCATION && (typeof DATA_LOCATION === 'string' ? DATA_LOCATION : DATA_LOCATION[en ? 'en' : 'sv']))
         || (en ? 'a Google Cloud region chosen by the operator (stated here once confirmed)' : 'en Google Cloud-region som operatören valt (anges här när den är bekräftad)');
 
     const controller = organiser?.name
