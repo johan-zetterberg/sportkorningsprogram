@@ -32,8 +32,10 @@ on for event days only.
 - [ ] **Alert on client errors**: same, with the query
   `textPayload:"[klientfel" OR jsonPayload.message:"[klientfel"`
   (logged by `reportClientError` in `functions/index.js`).
-- [ ] **Error Reporting notifications**: Cloud Console → Error Reporting →
-  Configure notifications → enable for the project (new error groups).
+- [x] **Error Reporting notifications** (2026-10-23): Cloud Console → Error
+  Reporting → Configure notifications → enable for the project (new error
+  groups). Mark a fixed error group Resolved after deploying the fix, so a
+  recurrence notifies again.
 - [ ] **Uptime check during event days**: Cloud Console → Monitoring → Uptime
   checks → Create: HTTPS, `combined-driving.web.app`, path `/`, every 5 min,
   alert to the on-site phone. Pause it between events.
