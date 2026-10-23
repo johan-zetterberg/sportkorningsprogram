@@ -67,7 +67,7 @@ export const DICTIONARY = {
     'details': { sv: 'Detaljer', en: 'Details' },
     'registration_failed': { sv: 'Registrering misslyckades.', en: 'Registration failed.' },
     'email_already_in_use': { sv: 'E-postadressen används redan. Logga in istället.', en: 'This email address is already in use. Log in instead.' },
-    'weak_password': { sv: 'Lösenordet är för svagt (minst 6 tecken).', en: 'The password is too weak (at least 6 characters).' },
+    'weak_password': { sv: 'Lösenordet är för svagt (minst 10 tecken).', en: 'The password is too weak (at least 10 characters).' },
     'invalid_email': { sv: 'Ogiltig e-postadress.', en: 'Invalid email address.' },
     'prompt_reset_password_email': { sv: 'Ange din e-postadress för att återställa lösenordet:', en: 'Enter your email address to reset the password:' },
     'reset_password_sent': { sv: 'Återställningslänk har skickats till din e-post.', en: 'A reset link has been sent to your email.' },

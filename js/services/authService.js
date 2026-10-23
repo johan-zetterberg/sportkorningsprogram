@@ -329,7 +329,9 @@ export async function registerUser(email, password) {
         console.error("Registration failed:", error.code);
         let msg = t('registration_failed');
         if (error.code === 'auth/email-already-in-use') msg = t('email_already_in_use');
-        else if (error.code === 'auth/weak-password') msg = t('weak_password');
+        // weak-password is Firebase's own minimum, the other the project's
+        // password policy (Authentication > Settings, docs/OPS.md)
+        else if (error.code === 'auth/weak-password' || error.code === 'auth/password-does-not-meet-requirements') msg = t('weak_password');
         else if (error.code === 'auth/invalid-email') msg = t('invalid_email');
         throw new Error(msg);
     }

@@ -103,9 +103,12 @@ on for event days only.
   (Identity Toolkit, Token Service, Cloud Firestore, Cloud Storage for
   Firebase, Cloud Functions, Firebase Installations). Test login afterwards.
 - [ ] **Password policy**: Firebase Console → Authentication → Settings →
-  Password policy → require at least 10 characters (enforce).
-- [ ] **Email enumeration protection**: Authentication → Settings → User
-  actions → enable "Email enumeration protection".
+  Password policy → Enforcement mode **Require**, minimum length 10, no other
+  boxes (leave "Force upgrade on sign-in" off so existing shorter passwords
+  still sign in). Deploy the app first: it shows "minst 10 tecken" for the
+  policy's error code `auth/password-does-not-meet-requirements`.
+- [x] **Email enumeration protection**: on (checked 2026-10-23 in the
+  Identity Toolkit config, `enableImprovedEmailPrivacy: true`).
 - [ ] **TOTP MFA for admin accounts**: Authentication → Sign-in method →
   Multi-factor authentication → enable TOTP (requires Identity Platform
   upgrade, free at this volume); the owner and global admins enrol.
