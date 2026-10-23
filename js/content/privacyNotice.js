@@ -7,7 +7,8 @@ export const PRIVACY_NOTICE_UPDATED = '2026-10-21';
 // The app operator (runs DriveLive for the organising clubs)
 export const OPERATOR = {
     name: 'DriveLive',
-    email: '' // e.g. the operator's support address; empty shows "contact the organiser"
+    // Provisional contact (owner, 2026-10-23); may change to a support address
+    email: 'johan.zetterberg@gmail.com'
 };
 
 // Where Firestore and Storage keep the data. Firestore read from the project
