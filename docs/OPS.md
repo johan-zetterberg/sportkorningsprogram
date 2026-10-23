@@ -95,7 +95,9 @@ on for event days only.
 
 ## Access and authentication
 
-- [ ] **Browser API key restrictions**: Cloud Console → APIs & Services →
+- [x] **Browser API key restrictions** (2026-10-23; the key had been used
+  for eight Google Maps APIs, which DriveLive never calls — likely a third
+  party; consider disabling the Maps APIs in the project): Cloud Console → APIs & Services →
   Credentials → the "Browser key (auto created by Firebase)" →
   Application restrictions: HTTP referrers
   `https://combined-driving.web.app/*`, `https://combined-driving.firebaseapp.com/*`
