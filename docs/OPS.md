@@ -35,11 +35,12 @@ and note the date.
 
 ## Data protection and backups
 
-- [ ] **Confirm locations are in the EU**: Firestore is in **europe-north2
-  (Stockholm)** — verified 2026-10-23 with `firebase firestore:databases:get
-  "(default)"`; functions run in europe-west1. Still to check: Storage →
-  bucket `combined-driving.firebasestorage.app` → location, then update the
-  Storage part of `DATA_LOCATION` in `js/content/privacyNotice.js`.
+- [x] **Confirm locations are in the EU** (2026-10-23): Firestore is in
+  **europe-north2 (Stockholm)** (`firebase firestore:databases:get
+  "(default)"`); functions run in europe-west1; Storage bucket
+  `combined-driving.firebasestorage.app` is in the dual-region **EUR4**
+  (europe-north1 Finland + europe-west4 Netherlands), read from the Storage
+  JSON API. `DATA_LOCATION` in `js/content/privacyNotice.js` states both.
   Status 2026-10-23: delete protection **disabled**, PITR **disabled**, no
   backup schedules (see the three items below).
 - [ ] **Firestore point-in-time recovery (7 days)**: Cloud Console →

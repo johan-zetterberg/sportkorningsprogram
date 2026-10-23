@@ -16,8 +16,8 @@ export const OPERATOR = {
 // bucket's location is checked in the console (Storage > bucket settings);
 // update `storage` when confirmed.
 export const DATA_LOCATION = {
-    sv: 'Google Cloud-regionen europe-north2 (Stockholm, Sverige) för databasen; regionen för uppladdade filer (Firebase Storage) anges när den är bekräftad',
-    en: 'the Google Cloud region europe-north2 (Stockholm, Sweden) for the database; the region for uploaded files (Firebase Storage) is stated once confirmed'
+    sv: 'Google Cloud-regionen europe-north2 (Stockholm, Sverige) för databasen och EU-dubbelregionen EUR4 (Finland och Nederländerna) för uppladdade filer (Firebase Storage)',
+    en: 'the Google Cloud region europe-north2 (Stockholm, Sweden) for the database and the EU dual-region EUR4 (Finland and the Netherlands) for uploaded files (Firebase Storage)'
 };
 
 // Retention defaults (functions/src/personalData.js)
