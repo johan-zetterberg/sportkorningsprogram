@@ -859,6 +859,25 @@ test('a pending vet strike shows a chip next to the equipage for staff and for t
   await expect.poll(() => page.locator('[data-vet-strike-pending]').count(), { timeout: 60000 }).toBeGreaterThan(0);
 });
 
+test('the status dropdown on the equipage page colours itself and saves the new status', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+
+  await page.goto('/index.html#ekipage');
+  const select = page.locator('.status-select').first();
+  await expect(select).toBeVisible({ timeout: 60000 });
+  const sn = await select.getAttribute('data-start-number');
+  await select.selectOption('incheckad');
+  await expect(select).toHaveClass(/(^|\s)text-blue-600(\s|$)/);
+  await expect.poll(() => page.evaluate(async ({ competitionId, sn }) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    return (await getEquipages(competitionId)).find(e => String(e.startNumber) === sn)?.status;
+  }, { competitionId, sn }), { timeout: 30000 }).toBe('incheckad');
+  expect(browserErrors).toEqual([]);
+});
+
 test('secretariat precision shows each equipage as a stacked card on a phone @mobile-only', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

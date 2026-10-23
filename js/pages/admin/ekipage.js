@@ -518,9 +518,12 @@ function renderList() {
     // Lägg till lyssnare på alla dropdown-menyer efter att de har skapats
     listContainer.querySelectorAll('.status-select').forEach(select => {
         // Behåll den visuella färg-feedbacken från optionen
+        // The option's class holds several classes (light and dark text): add
+        // them one by one, classList.add throws on a string with spaces
         const updateColor = () => {
-            select.className = select.className.replace(/text-(gray|blue|green|red)-(\d{3})/g, '');
-            select.classList.add(select.options[select.selectedIndex].className);
+            const colorClass = /^(dark:)?text-(gray|blue|green|yellow|red)-\d{3}$/;
+            select.classList.remove(...[...select.classList].filter(c => colorClass.test(c)));
+            select.classList.add(...select.options[select.selectedIndex].className.split(/\s+/).filter(Boolean));
         };
         updateColor(); // Kör direkt vid laddning
         let previousStatus = select.value;
