@@ -6,14 +6,16 @@ and note the date.
 
 ## Costs
 
-- [ ] **Budget alert**: Cloud Console → Billing → Budgets & alerts → Create
-  budget. Scope: project `combined-driving`, amount 200 SEK/month, thresholds
-  50 %, 90 %, 100 % (actual spend), email to the billing admins.
-- [ ] **Artifact Registry cleanup**: Cloud Console → Artifact Registry →
-  repository `gcf-artifacts` (europe-west1) → Edit → Cleanup policies: delete
-  images older than e.g. 30 days, keep the 2 most recent versions. (Or
-  `firebase functions:artifacts:setpolicy`.) Old function images otherwise
-  accumulate storage costs.
+- [x] **Budget alert**: Cloud Console → Billing → Budgets & alerts → Create
+  budget. Scope: project `combined-driving`, thresholds 50 %, 90 %, 100 %
+  (actual spend), email to the billing admins. Exists (checked 2026-10-23):
+  25 SEK/month; raise it (e.g. 200 SEK) before events with real traffic.
+- [x] **Artifact Registry cleanup** (2026-10-23): repository `gcf-artifacts`
+  (europe-west1) has the policy `firebase-functions-cleanup` deleting images
+  older than 1 day (`firebase functions:artifacts:setpolicy --project
+  combined-driving --location europe-west1 --days 1 --force`). Running
+  functions are not affected; old function images otherwise accumulate
+  storage costs.
 
 ## Monitoring
 
