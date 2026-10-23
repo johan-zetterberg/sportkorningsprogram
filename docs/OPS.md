@@ -19,6 +19,12 @@ and note the date.
 
 ## Monitoring
 
+During the beta only **Error Reporting notifications** is needed: it catches
+failing background work nobody sees (retention run, mail retries, push,
+incident closure) with one mail per new kind of error. The other items are
+optional until events have real traffic; the uptime check is worth switching
+on for event days only.
+
 - [ ] **Log-based alert on function errors**: Cloud Console → Logging → Logs
   Explorer, query
   `resource.type="cloud_run_revision" severity>=ERROR` → Create alert →
