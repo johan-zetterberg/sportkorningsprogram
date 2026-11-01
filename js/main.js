@@ -12,6 +12,7 @@ import { initGlobalPauseBanner } from './ui/globalPauseBanner.js';
 import { initTabOverflowHints } from './ui/tabOverflowHint.js';
 import { getCurrentPhase, initBottomNav, refreshBottomNav } from './ui/bottomNav.js';
 import { initDisciplineSwitcher } from './ui/disciplineSwitcher.js';
+import { initScrollChrome } from './ui/scrollChrome.js';
 
 // window.klassProgramMapping, window.dressageJudgeMapping, ... read and write the
 // active competition's settings (see competitionSettingsStore.js)
@@ -298,6 +299,7 @@ function initialize() {
     // the discipline row above the results / live / secretariat pages
     initBottomNav();
     initDisciplineSwitcher();
+    initScrollChrome();
     updateNavigationTranslations();
 
     // Sätt upp globala lyssnare för modaler

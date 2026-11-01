@@ -18,7 +18,7 @@ export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObsta
       ? getObstaclePlacement(obstaclePlacementMap, eq, n)
       : null;
     const placeMarkup = Number.isFinite(place)
-      ? `<div class="text-xs lg:text-xs leading-tight text-gray-600 dark:text-gray-300">(${place})</div>`
+      ? ` <span class="text-xs leading-tight text-gray-600 dark:text-gray-300">(${place})</span>`
       : '';
     const holdSec = (obsItem && Number.isFinite(Number(obsItem.holdTimeSec)) && Number(obsItem.holdTimeSec) > 0) ? Number(obsItem.holdTimeSec) : 0;
     const title = [
@@ -33,7 +33,7 @@ export function rowObstacleCells(res, eq, maxObs, obstaclePlacementMap, getObsta
       ? ` <span class="text-xs text-amber-600 dark:text-amber-400 font-semibold" title="${escapeHtml(t('hold_time_deduction'))}: -${holdSec.toFixed(1)}s">(-${Math.round(holdSec)}s)</span>`
       : '';
 
-    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-xs lg:text-sm font-normal tabular-nums" data-sn="${escapeHtml(res.startNumber)}" data-obs="${n}" title="${escapeHtml(title)}">
+    return `<td class="px-2 py-1.5 lg:px-3 lg:py-2 text-center text-xs lg:text-sm font-normal tabular-nums whitespace-nowrap" data-sn="${escapeHtml(res.startNumber)}" data-obs="${n}" title="${escapeHtml(title)}">
                     <span data-cell="obsVal">${label}</span>${holdMarkup}
                     ${placeMarkup}
                 </td>`;

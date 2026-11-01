@@ -80,7 +80,8 @@ function getStickyTopOffset() {
     const navStyle = nav ? getComputedStyle(nav) : null;
     const bannerStyle = offlineBanner ? getComputedStyle(offlineBanner) : null;
     const navHeight = nav && navStyle && (navStyle.position === 'sticky' || navStyle.position === 'fixed')
-        ? nav.getBoundingClientRect().height
+        // The part of the header in view: on a phone it slides away while scrolling
+        ? Math.max(0, nav.getBoundingClientRect().bottom)
         : 0;
     const bannerHeight = offlineBanner && bannerStyle && bannerStyle.display !== 'none'
         && (bannerStyle.position === 'sticky' || bannerStyle.position === 'fixed')

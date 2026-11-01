@@ -10,6 +10,8 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
+import { getResultDensity, densityToggleHtml, bindDensityToggle, compactResultListHtml, bindCompactRows } from '../../ui/compactResultList.js';
+import { phoneCollapsibleFilters, refreshPhoneFilterCount } from '../../ui/phoneFilters.js';
 import { formatClockTime } from '../../utils/timeValueUtils.js';
 import { attachScrollHint } from '../shared/scrollHint.js';
 import { incompleteResultReasonHtml, marathonSettingsIssues, renderResultSettingsNotice } from '../../ui/resultSettingsNotice.js';
@@ -188,6 +190,15 @@ function render() {
   // Kortvy endast i portrait. I landscape (även på mobil) kör vi tabellen (användaren kan scrolla i sidled).
   const useCards = isMobile();
 
+  // Phone: the controls fold behind a Filter button (with the Kompakt | Kort toggle)
+  const filterBar = phoneCollapsibleFilters(document.querySelector('#page-maraton-results #modeToggle'), {
+    id: 'marathon',
+    extraHtml: useCards ? densityToggleHtml() : '',
+    activeCount: activeFilterCount
+  });
+  bindDensityToggle(filterBar, () => render());
+  refreshPhoneFilterCount(filterBar, activeFilterCount);
+
   const tableWrapper = document.getElementById('marathonTableWrapper');
   const cardWrapper = document.getElementById('marathonCards');
 
@@ -231,6 +242,14 @@ function render() {
   renderMaratonClassChips();
 }
 
+
+// Filters that are set (shown on the phone Filter button)
+function activeFilterCount() {
+  return (maraton_searchQuery && maraton_searchQuery.trim() ? 1 : 0)
+    + (maraton_activeClassFilters.size > 0 ? 1 : 0)
+    + (maraton_showOnlyFinalized ? 1 : 0)
+    + (maraton_showOnlyOnB ? 1 : 0);
+}
 
 function isMarathonFinalized(sn) {
   const d = maraton_marathonMap.get(String(sn));
@@ -436,6 +455,7 @@ function renderTable() {
   // --- 3. DYNAMIC CONTENT ---
   const tableHead = document.getElementById('marathonTableHead');
   const tableBody = document.getElementById('marathonBody');
+  document.getElementById('marathonTable')?.classList.add('results-dense-landscape');
   const xWrap = document.getElementById('marathon-x-wrap');
 
   stageCols = STAGE_KEYS.filter(stageEnabled);
@@ -653,9 +673,72 @@ function buildPlacementsByClass() {
   }
   return map;
 }
+// Portrait phone, compact density: one table row per equipage inside #marathonCards.
+// Lås/Ångra stay in the card view only. The cards' click handler (controls) looks for
+// [data-sn]; compact rows use data-start, so a tap opens the equipage once.
+function renderCompactMobile(cards) {
+  const list = filteredSortedEquipages();
+  const placeMap = buildPlacementsByClass();
+  const dash = '<span class="cr-muted">—</span>';
+  const activeStages = STAGE_KEYS.filter(stageEnabled);
+  const items = [];
+  let lastClass = null;
+  list.forEach((eq) => {
+    const sn = String(eq.startNumber);
+    const cls = eq.className || t('unknown_class');
+    if (maraton_viewMode === 'byclass' && cls !== lastClass) {
+      items.push({ type: 'group', label: cls });
+      lastClass = cls;
+    }
+    const res = marathonResultFor(eq, maraton_marathonMap.get(sn) || {}, timingDocFor(sn));
+    const totalPen = res.totalPenalty;
+    const eliminated = !!res.eliminated || totalPen === Infinity;
+    const isActive = !!(res.status && res.status.includes('Påg'));
+    const isStruken = eq.status === 'struken';
+    const place = placeMap.get(sn);
+    const totalLabel = res.isClearRound && !res.eliminated && totalPen != null
+      ? t(res.clearRoundApproved ? 'clear_round_ok' : 'clear_round_not_ok')
+      : (eliminated ? 'ELIM' : (isNum(totalPen) ? totalPen.toFixed(2) : null));
+    const obstacleSum = res.obstacles?.sum;
+    // Stage (time) penalties of the active stages, summed
+    const stagePens = activeStages.map(st => res.stages?.[st]?.timePenalty).filter(isNum);
+    const stageSum = stagePens.length ? stagePens.reduce((a, b) => a + b, 0) : null;
+    items.push({
+      startNumber: sn,
+      place: eliminated ? 'ELIM' : (isNum(place) ? place : ''),
+      name: eq.driverName || '-',
+      sub: [maraton_viewMode === 'byclass' ? '' : cls, isActive ? (t('running_status') || 'Pågår') : ''].filter(Boolean).join(' · '),
+      cells: {
+        obstacles: isNum(obstacleSum) ? escapeHtml(obstacleSum.toFixed(2)) : dash,
+        stages: stageSum !== null ? escapeHtml(stageSum.toFixed(2)) : dash,
+        total: totalLabel !== null ? `<span class="cr-total" data-total-pen="${escapeHtml(sn)}">${escapeHtml(totalLabel)}</span>` : dash
+      },
+      state: (eliminated || isStruken) ? 'elim' : (isActive ? 'live' : (Number(place) === 1 ? 'leader' : ''))
+    });
+  });
+  cards.innerHTML = compactResultListHtml({
+    columns: [
+      { key: 'obstacles', label: t('compact_col_obstacles') },
+      { key: 'stages', label: t('compact_col_stages') },
+      { key: 'total', label: t('compact_col_total') }
+    ],
+    items,
+    emptyText: t('dressage_no_results') || t('no_results') || 'Inga resultat.'
+  });
+  bindCompactRows(cards, (sn) => {
+    showDetailsModal(sn, maraton_equipages, maraton_marathonMap, { placeMap: buildPlacementsByClass() });
+  });
+  // Live total updates in place (data-total-pen); other cells follow the re-render
+  try { list.forEach(eq => startOrUpdateLiveTicker(eq.startNumber)); } catch (err) { console.error('LiveTicker error:', err); }
+}
+
 function renderMobile() {
   const cards = document.getElementById('marathonCards');
   if (!cards) return;
+  if (getResultDensity() === 'compact') {
+    renderCompactMobile(cards);
+    return;
+  }
 
   renderMarathonMobileCards({
     cards,

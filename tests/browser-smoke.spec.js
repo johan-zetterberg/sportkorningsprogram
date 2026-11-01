@@ -990,6 +990,58 @@ test('the bottom bar and the discipline row follow the current discipline @mobil
   await expect(page.locator('#nav-links .dropdown-container[data-discipline="marathon"] .dropdown-menu')).toBeVisible();
 });
 
+test('result pages show a compact list with folded filters on a phone, and a dense table on its side @mobile-only', async ({ page }) => {
+  test.setTimeout(300000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const browserErrors = [];
+  collectBrowserErrors(page, browserErrors);
+  await page.evaluate(() => { try { localStorage.removeItem('resultDensity'); } catch { } });
+
+  // Every result page: one row per equipage by default
+  for (const pageKey of ['dressyr-results', 'maraton-results', 'precision-results', 'total-resultat']) {
+    await page.goto(`/index.html#${pageKey}`);
+    await expect(page.locator(`#page-${pageKey} .compact-results tr.cr-row`).first()).toBeVisible({ timeout: 60000 });
+    // The filters fold behind one button
+    await expect(page.locator(`#page-${pageKey} .phone-filter-toggle`)).toBeVisible();
+  }
+
+  // Total: rows are slim, the filters open, Kort brings the cards back
+  const rows = page.locator('#page-total-resultat .compact-results tr.cr-row');
+  expect(await rows.count()).toBeGreaterThanOrEqual(5);
+  // Measured in the page: a live update can redraw the list between two calls
+  await expect.poll(() => page.evaluate(() => document.querySelector('#page-total-resultat .compact-results tr.cr-row')?.getBoundingClientRect().height || 999)).toBeLessThan(48);
+  const search = page.locator('#page-total-resultat input[type="search"], #page-total-resultat input[type="text"]').first();
+  await expect(search).toBeHidden();
+  await page.locator('#page-total-resultat .phone-filter-toggle').click();
+  await expect(search).toBeVisible();
+  await page.locator('#page-total-resultat [data-result-density="cards"]').click();
+  await expect(page.locator('#page-total-resultat .compact-results')).toHaveCount(0);
+  await page.locator('#page-total-resultat [data-result-density="compact"]').click();
+  await expect(rows.first()).toBeVisible();
+
+  // A tap opens the equipage, once
+  await rows.first().click();
+  await expect(page.locator('.tr-modal-backdrop.visible')).toHaveCount(1);
+  await page.locator('.tr-modal-backdrop.visible .tr-close').click();
+  await expect(page.locator('.tr-modal-backdrop.visible')).toHaveCount(0);
+
+  // Scrolling down slides the header and the bar away, scrolling up brings them back
+  await page.evaluate(() => { document.body.style.minHeight = '3000px'; });
+  await page.mouse.wheel(0, 300);
+  await page.mouse.wheel(0, 300);
+  await expect(page.locator('body')).toHaveClass(/chrome-hidden/);
+  await page.mouse.wheel(0, -200);
+  await expect(page.locator('body')).not.toHaveClass(/chrome-hidden/);
+
+  // On its side: the table, one line per equipage
+  await page.setViewportSize({ width: 860, height: 390 });
+  await page.goto('/index.html#total-resultat');
+  const tableRow = page.locator('.total-results-table tbody tr[data-start]').first();
+  await expect(tableRow).toBeVisible({ timeout: 60000 });
+  await expect.poll(() => page.evaluate(() => document.querySelector('.total-results-table tbody tr[data-start]')?.getBoundingClientRect().height || 999)).toBeLessThan(40);
+  expect(browserErrors).toEqual([]);
+});
+
 test('secretariat precision shows each equipage as a stacked card on a phone @mobile-only', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
@@ -1384,8 +1436,8 @@ test('critical ui interactions open and close without browser errors @mobile', a
 
   await page.goto('/index.html#maraton-results');
   await expect(page.locator('#page-maraton-results')).toContainText(/Seeder Kusk|Kusk/);
-  // A table row on a computer, a card on a phone
-  await page.locator('#page-maraton-results [data-sn]:visible').first().click();
+  // A table row on a computer, a row of the compact list on a phone
+  await page.locator('#page-maraton-results [data-sn]:visible, #page-maraton-results .compact-results tr[data-start]').first().click();
   await expect(page.locator('#marathonDetailsModal.visible')).toBeVisible();
   await page.locator('#toggleTimeCardBtn').click();
   await page.locator('#closeMarathonModalBtn').click();
@@ -1393,7 +1445,7 @@ test('critical ui interactions open and close without browser errors @mobile', a
 
   await page.goto('/index.html#precision-results');
   await expect(page.locator('#page-precision-results')).toContainText(/Seeder Kusk|Kusk/);
-  await page.locator('#page-precision-results [data-sn]:visible').first().click();
+  await page.locator('#page-precision-results [data-sn]:visible, #page-precision-results .compact-results tr[data-start]').first().click();
   await expect(page.locator('#precisionDetailsModal.visible')).toBeVisible();
   await page.locator('#closePrecModalBtn').click();
   await expect(page.locator('#precisionDetailsModal.visible')).toHaveCount(0);

@@ -61,6 +61,8 @@ import {
 } from '../../services/competitionStatusService.js';
 
 import { t } from '../../utils/i18n.js';
+import { getResultDensity, densityToggleHtml, bindDensityToggle, compactResultListHtml, bindCompactRows } from '../../ui/compactResultList.js';
+import { phoneCollapsibleFilters, refreshPhoneFilterCount } from '../../ui/phoneFilters.js';
 
 import {
     escapeHtml,
@@ -95,6 +97,7 @@ let viewMode = 'byclass';
 let masterEquipageList = []; // FIX: En stabil lista över alla ekipage
 let liveJudgeData = new Map();
 let __tickerCurrentStart = null;
+let phoneFilterBar = null; // the Filter bar of the phone layout
 
 // --- Performance Optimization State ---
 let lastStructuralHash = null;
@@ -563,7 +566,8 @@ function judgeChip(jr, startNumber) {
 }
 
 
-function statusBadgeForDressage(sn) {
+// 'not-started' | 'running' | 'done' | 'eliminated' (the status badge and the compact list)
+function dressageProgressState(sn) {
     const startNumberStr = String(sn);
     const equipageResult = processedResults.find(r => String(r.startNumber) === startNumberStr);
     const statusInfo = dressageStatusMap.get(startNumberStr);
@@ -592,6 +596,11 @@ function statusBadgeForDressage(sn) {
         }
     }
 
+    return state;
+}
+
+function statusBadgeForDressage(sn) {
+    const state = dressageProgressState(sn);
     const base = 'inline-flex items-center px-2 py-1 rounded text-xs font-medium';
     if (state === 'done') return `<span class="${base} bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100">${t('status_done')}</span>`;
     if (state === 'running') return `<span class="${base} bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-100">${t('status_running')}</span>`;
@@ -1040,8 +1049,11 @@ function renderMobile(judgesPresent) {
     });
 
     // Structural Hashing for Mobile
+    const density = getResultDensity();
     const structuralHash = [
         'mobile',
+        density,
+        density === 'compact' ? rows.map(r => `${r.avgPercent}:${r.finalPenalty}:${r.eliminated}:${dressageProgressState(r.startNumber)}`).join('|') : '',
         rows.length,
         searchQuery,
         Array.from(dressage_activeClassFilters).join('|'),
@@ -1055,6 +1067,10 @@ function renderMobile(judgesPresent) {
 
     if (rows.length === 0) {
         container.innerHTML = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">Inga ekipage att visa ännu.</div>`;
+        return;
+    }
+    if (density === 'compact') {
+        renderCompactDressage(container, rows);
         return;
     }
     let html = '';
@@ -1196,41 +1212,78 @@ function renderMobile(judgesPresent) {
         const sn = el.getAttribute('data-start-number');
         el.addEventListener('click', (e) => {
             if (e.target.closest('button, a, [onclick]')) return;
-            const safeJudges = (allCompetitionJudges || []).map(j => ({
-                ...j,
-                position: (expandDressagePosition(j) || j.position || '').toUpperCase()
-            }));
-            const rawList = rawByStart.get(sn) || [];
-            const cleanList = deduplicateAndFilterProtocols(rawList, safeJudges);
-            const tempMap = new Map([[String(sn), cleanList]]);
-            openDetailsModal(sn, {
-                savedProtocolsMap: tempMap,
-                processedResults,
-                equipages: masterEquipageList,
-                statusMap: dressageStatusMap,
-                currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null
-            });
+            openEquipageDetails(sn);
         });
         el.addEventListener('keydown', (e) => {
             if (e.key === 'Enter' || e.key === ' ') {
                 if (e.target.closest('button, a, [onclick]')) return;
-                const safeJudges = (allCompetitionJudges || []).map(j => ({
-                    ...j,
-                    position: (expandDressagePosition(j) || j.position || '').toUpperCase()
-                }));
-                const rawList = rawByStart.get(sn) || [];
-                const cleanList = deduplicateAndFilterProtocols(rawList, safeJudges);
-                const tempMap = new Map([[String(sn), cleanList]]);
-                openDetailsModal(sn, {
-                    savedProtocolsMap: tempMap,
-                    processedResults,
-                    equipages: masterEquipageList,
-                    statusMap: dressageStatusMap,
-                    currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null
-                });
+                openEquipageDetails(sn);
             }
         });
     });
+}
+
+// What a tap on a card or a compact row opens
+function openEquipageDetails(sn) {
+    sn = String(sn);
+    const safeJudges = (allCompetitionJudges || []).map(j => ({
+        ...j,
+        position: (expandDressagePosition(j) || j.position || '').toUpperCase()
+    }));
+    const rawList = rawByStart.get(sn) || [];
+    const cleanList = deduplicateAndFilterProtocols(rawList, safeJudges);
+    const tempMap = new Map([[sn, cleanList]]);
+    openDetailsModal(sn, {
+        savedProtocolsMap: tempMap,
+        processedResults,
+        equipages: masterEquipageList,
+        statusMap: dressageStatusMap,
+        currentJudges: (currentJudgesPresent && currentJudgesPresent.length) ? currentJudgesPresent : null
+    });
+}
+
+// Portrait phone, compact density: one table row per equipage (no Lås/Ångra here, they stay in the cards)
+function renderCompactDressage(container, rows) {
+    const dash = '<span class="cr-muted">—</span>';
+    const items = [];
+    let lastClass = null;
+    rows.forEach((r) => {
+        const eq = masterEquipageList.find(e => String(e.startNumber) === String(r.startNumber)) || r;
+        const label = eq._mergedLabel || eq.className || 'Okänd Klass';
+        if (viewMode === 'byclass' && label !== lastClass) {
+            items.push({ type: 'group', label });
+            lastClass = label;
+        }
+        const progress = dressageProgressState(r.startNumber);
+        const pct = r.avgPercent == null ? NaN : Number(r.avgPercent);
+        const pen = r.finalPenalty == null ? NaN : Number(r.finalPenalty);
+        let place = r.plac ?? '';
+        if (r.isClearRound) place = r.crApproved ? '✓' : '';
+        if (r.eliminated) place = 'ELIM';
+        const running = progress === 'running';
+        items.push({
+            startNumber: r.startNumber,
+            place,
+            name: r.driverName || '',
+            // Per class the heading names the class already
+            sub: [viewMode === 'byclass' ? '' : label, running ? t('status_running') : ''].filter(Boolean).join(' · '),
+            cells: {
+                percent: Number.isFinite(pct) ? pct.toFixed(2) : dash,
+                penalty: r.eliminated ? 'ELIM' : (Number.isFinite(pen) ? `<span class="cr-total">${escapeHtml(pen.toFixed(2))}</span>` : dash)
+            },
+            state: r.eliminated ? 'elim' : (running ? 'live' : (Number(r.plac) === 1 && !r.isClearRound ? 'leader' : ''))
+        });
+    });
+    container.innerHTML = compactResultListHtml({
+        columns: [
+            { key: 'percent', label: t('compact_col_percent') },
+            { key: 'penalty', label: t('compact_col_penalty') }
+        ],
+        items,
+        emptyText: 'Inga ekipage att visa ännu.'
+    });
+    // One handler on the container (cards bind per card, so no double open)
+    bindCompactRows(container, openEquipageDetails);
 }
 
 function renderClassChips() {
@@ -1590,11 +1643,11 @@ function renderDesktop(judgesPresent) {
     const headerHash = [uniquePositions.join(','), sortState.key, sortState.dir].join(':');
 
     // Preliminary shell if needed
-    if (!container.querySelector('table')) {
+    if (!container.querySelector('#dressageTable')) {
         container.innerHTML = `
             <div id="liveBannerSlot"></div>
             <div id="dressage-x-wrap" class="x-scroll-wrap bg-white dark:bg-gray-900">
-                <table id="dressageTable" class="w-max min-w-max divide-y divide-gray-200 dark:divide-gray-700 text-sm pr-table">
+                <table id="dressageTable" class="w-max min-w-max divide-y divide-gray-200 dark:divide-gray-700 text-sm pr-table results-dense-landscape">
                     <thead class="bg-gray-50 dark:bg-gray-700" id="dressageThead"></thead>
                     <tbody class="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700" id="dressageBody"></tbody>
                 </table>
@@ -2021,6 +2074,12 @@ function render() {
     // Gör state synligt för modalmodulen (PDF/monitor-brygga)
     window.__dressageProcessedResultsRef = processedResults;
     window.__dressageCurrentJudgesPresentRef = currentJudgesPresent;
+    refreshPhoneFilterCount(phoneFilterBar, activeFilterCount);
+}
+
+// Search, class and finalized filters that are set (shown on the phone Filter button)
+function activeFilterCount() {
+    return (searchQuery && searchQuery.trim() ? 1 : 0) + (dressage_activeClassFilters.size > 0 ? 1 : 0) + (showOnlyFinalized ? 1 : 0);
 }
 
 let __recomputeTimer = null;
@@ -2450,6 +2509,14 @@ export async function load() {
         ensureModeToggle(); //
         ensureSearchBox(); //
 
+        // Phone: fold the controls behind a Filter button, with the Kompakt | Kort toggle
+        phoneFilterBar = phoneCollapsibleFilters(document.getElementById('drModeToggle'), {
+            id: 'dressage',
+            extraHtml: isMobile() ? densityToggleHtml() : '',
+            activeCount: activeFilterCount
+        });
+        bindDensityToggle(phoneFilterBar, () => { lastStructuralHash = null; render(); });
+
         setupDressageResultExportButtons({
             getVisibleSortedResults,
             getCurrentClassLabel: () => dressage_activeClassFilters.size > 0
@@ -2469,6 +2536,12 @@ export async function load() {
             const now = isMobile() ? '1' : '0'; //
             if (document.body.dataset.wasMobile !== now) {
                 document.body.dataset.wasMobile = now;
+                lastStructuralHash = null;
+                phoneFilterBar = phoneCollapsibleFilters(document.getElementById('drModeToggle'), {
+                    id: 'dressage',
+                    extraHtml: isMobile() ? densityToggleHtml() : '',
+                    activeCount: activeFilterCount
+                });
                 render(); //
             }
         };
@@ -2533,6 +2606,7 @@ export function __unload() {
     dressageStatusMap.clear(); //
     liveJudgeData.clear(); //
     searchQuery = ''; //
+    phoneFilterBar = null;
     showOnlyFinalized = false; //
     viewMode = 'byclass'; //
     sortState = { key: 'plac', dir: 'asc' }; //

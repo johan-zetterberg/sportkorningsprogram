@@ -88,6 +88,8 @@ import {
   renderPrecisionFinalizeButtons
 } from './precisionResultFinalize.js';
 import { renderPrecisionResultCard } from './precisionResultMobileCard.js';
+import { bindCompactRows, bindDensityToggle, compactResultListHtml, densityToggleHtml, getResultDensity } from '../../ui/compactResultList.js';
+import { phoneCollapsibleFilters } from '../../ui/phoneFilters.js';
 import { renderPrecisionResultDesktopRow } from './precisionResultDesktopRow.js';
 import {
   renderPrecisionGroupHeader,
@@ -133,7 +135,24 @@ function formatPrecisionTimeTooltip(label, elapsedMs) {
     : label;
 }
 
+// Phones: the controls fold behind a "Filter" bar (idempotent, also refreshes the count)
+function precisionActiveFilterCount() {
+  return (precision_searchText ? 1 : 0) + (precision_activeClassFilters.size > 0 ? 1 : 0) + (precision_showOnlyFinalized ? 1 : 0);
+}
+function syncPhoneFilters() {
+  // The marathon result page has a #modeToggle too: this page's own
+  const panel = document.querySelector('#page-precision-results #modeToggle');
+  if (!panel) return;
+  const bar = phoneCollapsibleFilters(panel, {
+    id: 'precision',
+    extraHtml: isMobile() ? densityToggleHtml() : '',
+    activeCount: precisionActiveFilterCount
+  });
+  if (bar) bindDensityToggle(bar, () => render());
+}
+
 function render() {
+  syncPhoneFilters();
   if (isMobile()) {
     window.__teardownXbarSync?.();
     renderMobile();
@@ -920,6 +939,15 @@ function renderMobile() {
     classStarters.set(cls, (classStarters.get(cls) || 0) + 1);
   });
 
+  if (getResultDensity() === 'compact') {
+    container.innerHTML = renderCompactPrecisionList(visibleEquipages, placeMap);
+    // The card handlers below only bind [data-sn]; compact rows use data-start, so a tap opens once
+    bindCompactRows(container, (sn) => openDetails(String(sn)));
+    const xbarCompact = document.querySelector('.fixed-xbar');
+    if (xbarCompact) xbarCompact.style.display = 'none';
+    return;
+  }
+
   let html = '';
   if (visibleEquipages.length === 0) {
     html = `<div class="p-6 text-center text-gray-500">${t('search_no_match')}</div>`;
@@ -954,6 +982,52 @@ function renderMobile() {
 
   const xbar = document.querySelector('.fixed-xbar');
   if (xbar) xbar.style.display = 'none';
+}
+
+// Phone list, compact: same rows, order and grouping as the cards
+function renderCompactPrecisionList(visibleEquipages, placeMap) {
+  const cell = (text) => (text === '—' || text == null || text === '' ? '<span class="cr-muted">—</span>' : escapeHtml(String(text)));
+  const rowItem = (eq) => {
+    const data = precisionRowData(String(eq.startNumber), placeMap);
+    const eliminated = data.d?.eliminated === true;
+    const isActive = data.d?.running === true || (data.status && data.status.includes('Påg'))
+      || Boolean(data.liveRound && data.liveRound !== 'phase1');
+    const isStruken = data.status === 'Struken' || data.eq.status === 'struken';
+    const placeText = eliminated ? 'E' : (placeLabelOf(data) || data.place || '');
+    return {
+      startNumber: eq.startNumber,
+      place: placeText,
+      name: eq.driverName || '',
+      sub: [precision_viewMode === 'byclass' ? '' : (eq._mergedLabel || eq.className || ''), isActive ? t('running_status') : ''].filter(Boolean).join(' · '),
+      state: (eliminated || isStruken) ? 'elim' : (isActive ? 'live' : (Number(data.place) === 1 ? 'leader' : '')),
+      cells: {
+        time: cell(isActive ? '••:••,••' : data.display.timeLabel),
+        obstacles: cell(fmt2(data.obstaclePenalty)),
+        total: `<span class="cr-total">${cell(eliminated ? 'ELIM' : fmt2(data.totalPenalty))}</span>`
+      }
+    };
+  };
+  const items = [];
+  if (precision_viewMode === 'byclass') {
+    for (const group of prec_groupEquipagesForDisplay(visibleEquipages)) {
+      items.push({ type: 'group', label: group.label });
+      withTierSeparators(group.items, placeMap).forEach(({ item: eq, separatorKey }) => {
+        if (separatorKey) items.push({ type: 'group', label: t(separatorKey) });
+        else items.push(rowItem(eq));
+      });
+    }
+  } else {
+    visibleEquipages.forEach((eq) => items.push(rowItem(eq)));
+  }
+  return compactResultListHtml({
+    columns: [
+      { key: 'time', label: t('compact_col_time'), title: t('time') },
+      { key: 'obstacles', label: t('compact_col_obstacles'), title: t('obs_penalty') },
+      { key: 'total', label: t('compact_col_total'), title: t('total') }
+    ],
+    items,
+    emptyText: t('search_no_match')
+  });
 }
 
 function renderCard(eq, placeMap, classStarters = new Map()) {
@@ -1104,6 +1178,8 @@ function renderDesktop() {
   }
 
   container.innerHTML = renderPrecisionTable({ headHtml: headHTML, bodyHtml: bodyHTML });
+
+  container.querySelector('table.pr-table')?.classList.add('results-dense-landscape');
 
   const xbar = document.querySelector('.fixed-xbar');
   if (xbar) xbar.style.display = 'block';

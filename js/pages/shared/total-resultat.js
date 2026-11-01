@@ -15,6 +15,8 @@ import { listenForMaratonCollection, listenForMarathonTimingUpdates, loadPauseWi
 import { listenForTeams } from '../../services/teamService.js';
 import { t } from '../../utils/i18n.js';
 import { attachScrollHint, scrollHintTextHtml } from './scrollHint.js';
+import { bindCompactRows, bindDensityToggle, compactResultListHtml, densityToggleHtml, getResultDensity } from '../../ui/compactResultList.js';
+import { phoneCollapsibleFilters } from '../../ui/phoneFilters.js';
 
 import { calculateTotalResult } from '../../services/calculationService.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
@@ -200,6 +202,8 @@ function render() {
   const shownRows = Array.isArray(viewData) ? viewData.slice() : [];
   __latestDisplayedRows = viewMode === 'byclass' ? groupTotalRowsByClass(shownRows) : shownRows;
 
+  syncPhoneFilters();
+
   // === STEG 2: VÄLJ VY ===
   if (isMobile()) {
     window.__teardownXbarSync?.(); // Städa undan X-baren i mobilvy
@@ -208,6 +212,21 @@ function render() {
   } else {
     renderDesktop(); // Denna läser nu den uppdaterade __latestDisplayedRows
   }
+}
+
+// Phones: the controls fold behind a "Filter" bar (idempotent, also refreshes the count)
+function totalActiveFilterCount() {
+  return (searchQuery ? 1 : 0) + (activeClassFilters.size > 0 ? 1 : 0) + (showOnlyOngoing ? 1 : 0) + (showOnlyCompleted ? 1 : 0);
+}
+function syncPhoneFilters() {
+  const panel = document.getElementById('controlsContainer');
+  if (!panel) return;
+  const bar = phoneCollapsibleFilters(panel, {
+    id: 'total',
+    extraHtml: isMobile() ? densityToggleHtml() : '',
+    activeCount: totalActiveFilterCount
+  });
+  if (bar) bindDensityToggle(bar, () => render());
 }
 
 // --- STATUSIKONER ---
@@ -504,6 +523,10 @@ function injectTotalResultsStyles() {
     /* Standardiserade typsnittsstorlekar för resultat */
     .res-val { font-variant-numeric: tabular-nums; font-size: inherit; }
     .res-pos { font-size: 0.85em; color: #6b7280; }
+    /* Landscape phone: one line per result cell, no mini sub-lines */
+    @media (orientation: landscape) and (max-height: 500px) {
+      .total-results-table .res-mini { display: none; }
+    }
 
     /* Legend / Symbolförklaring */
     .results-legend {
@@ -652,18 +675,18 @@ function renderDesktop() {
     const isBestDressage = bestDressageByClass.get(bestKey) != null &&
       r.dressage?.percentAvg != null &&
       r.dressage.percentAvg === bestDressageByClass.get(bestKey);
-    const dPlacHtml = Number.isFinite(r?.posDress) ? `<div class="text-xs leading-3 text-gray-500">(${r.posDress})</div>` : '';
-    const mPlacHtml = Number.isFinite(r?.posMar) ? `<div class="text-xs leading-3 text-gray-500">(${r.posMar})</div>` : '';
-    const pPlacHtml = Number.isFinite(r?.posPrec) ? `<div class="text-xs leading-3 text-gray-500">(${r.posPrec})</div>` : '';
+    const dPlacHtml = Number.isFinite(r?.posDress) ? ` <span class="res-pos">(${r.posDress})</span>` : '';
+    const mPlacHtml = Number.isFinite(r?.posMar) ? ` <span class="res-pos">(${r.posMar})</span>` : '';
+    const pPlacHtml = Number.isFinite(r?.posPrec) ? ` <span class="res-pos">(${r.posPrec})</span>` : '';
     const dIco = statusIcon(r.dressageStatus || 'missing');
     const isDressRunning = r.dressageStatus === 'ongoing' || r.dressageStatus === 'pågår';
     const dLive = isDressRunning ? '<span class="live-dot"></span>' : '';
     const dTextRaw = formatTotalResultPenalty(r.dressage?.penalty, { eliminated: isTotalDisciplineEliminated(r, 'dressage') });
-    const dText = `<div class="res-val">${isBestDressage ? `<span class="font-bold text-green-700 dark:text-green-400">${dTextRaw}</span>` : dTextRaw}</div>${dLive}${dPlacHtml}`;
+    const dText = `<span class="res-val">${isBestDressage ? `<span class="font-bold text-green-700 dark:text-green-400">${dTextRaw}</span>` : dTextRaw}</span>${dPlacHtml}${dLive}`;
 
     const isMarRunning = r.marathonStatus === 'ongoing' || r.marathonStatus === 'pågår';
     const mLive = isMarRunning ? '<span class="live-dot"></span>' : '';
-    const mText = `<div class="res-val">${formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') })}</div>${mLive}${mPlacHtml}`;
+    const mText = `<span class="res-val">${formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') })}</span>${mPlacHtml}${mLive}`;
     const mIco = statusIcon(r.marathonStatus || 'missing');
 
     const breakdown = getMarathonPenaltyBreakdown(r.marathon);
@@ -691,22 +714,22 @@ function renderDesktop() {
       : '';
 
     const pMini = (!isPrintExport && (Number.isFinite(pOb) || Number.isFinite(pTm)))
-      ? `<div class="text-xs leading-3 text-gray-500">
+      ? `<div class="res-mini text-xs leading-3 text-gray-500">
            ${Number.isFinite(pOb) ? `R ${pOb.toFixed(2)}` : 'R —'} /
            ${Number.isFinite(pTm) ? `T ${pTm.toFixed(2)}` : 'T —'}
          </div>`
       : '';
 
     const pMain = formatTotalResultPenalty(pPen, { eliminated: isTotalDisciplineEliminated(r, 'precision') });
-    const pText = `<div class="res-val">${pMain}</div>${pLive}${pPlacHtml}${pMini}`;
+    const pText = `<span class="res-val">${pMain}</span>${pPlacHtml}${pLive}${pMini}`;
 
     const diff = (!isPrintExport && r.diffFromLeader != null && r.diffFromLeader > 0)
       ? `<span class="text-xs text-gray-500" title="${t('legend_diff_leader')}">(+${r.diffFromLeader.toFixed(2)})</span>` : '';
 
     const nextMini = (!isPrintExport && r.diffFromNext != null && r.diffFromNext > 0)
-      ? `<div class="text-xs leading-3 text-gray-500" title="${t('legend_diff_next')}">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
+      ? `<div class="res-mini text-xs leading-3 text-gray-500" title="${t('legend_diff_next')}">↗︎ ${r.diffFromNext.toFixed(2)}</div>` : '';
 
-    const tot = `<div class="res-val font-bold text-blue-900 dark:text-blue-300">${formatTotalResultPenalty(r.totalPenalty, { eliminated: r.isEliminated })}</div>`;
+    const tot = `<span class="res-val font-bold text-blue-900 dark:text-blue-300">${formatTotalResultPenalty(r.totalPenalty, { eliminated: r.isEliminated })}</span>`;
 
     const dPct = formatTotalResultPercent(r.dressage?.percent);
 
@@ -747,7 +770,7 @@ function renderDesktop() {
     </td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm"><div class="truncate max-w-[100px] lg:max-w-[160px]" title="${escapeHtml(r.className || '')}">${escapeHtml(r.className || '')}</div></td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2"><div class="truncate max-w-[100px] lg:max-w-[160px] text-xs lg:text-sm" title="${escapeHtml(eq.clubName || '')}">${clubCell}</div></td>
-          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm">${dIco}${dText}</td>
+          <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm whitespace-nowrap">${dIco}${dText}</td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm whitespace-nowrap" title="${escapeHtml(tt)}">${mIco}${mText}</td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm whitespace-nowrap">${pIco}${pText}</td>
           <td class="px-2 py-1.5 lg:px-3 lg:py-2 text-xs lg:text-sm font-semibold whitespace-nowrap">${tot} ${diff}${nextMini}</td>
@@ -874,6 +897,7 @@ function renderDesktop() {
   // Öppna modal på rad-klick
   container.onclick = (e) => {
     // Support both TR (desktop) and DIV/Card (mobile/teams)
+    if (e.target.closest('.compact-results')) return; // handled by bindCompactRows
     const el = e.target.closest('tbody tr, [data-start]');
     if (!el) return;
     if (e.target.closest('a,button,input,select,textarea,[data-no-rowclick]')) return;
@@ -1217,7 +1241,11 @@ function renderMobile() {
   const rows = __latestDisplayedRows || []; // Använd den globalt sparade listan
 
   let html = '';
-  if (rows.length === 0) {
+  const compact = getResultDensity() === 'compact';
+  if (compact) {
+    container.innerHTML = renderCompactTotalList(rows);
+    bindCompactRows(container, (sn) => openEquipageModal(String(sn), getEquipageModalCtx()));
+  } else if (rows.length === 0) {
     html = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">${t('search_no_match')}</div>`;
   } else {
     // 1. Calculate starters per class for dynamic placement counts
@@ -1317,11 +1345,12 @@ function renderMobile() {
     });
   }
 
-  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${html}</div>`;
+  if (!compact) container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1">${html}</div>`;
 
   // One delegated handler on the container (as the desktop view sets it): a
   // listener per card as well opened the modal twice per tap
   container.onclick = (e) => {
+    if (e.target.closest('.compact-results')) return; // compact rows: bindCompactRows
     const card = e.target.closest('[data-start]');
     if (!card) return;
     if (e.target.closest('a,button,input,select,textarea,[data-no-rowclick]')) return;
@@ -1340,6 +1369,47 @@ function renderMobile() {
     });
     head.dataset.wired = '1';
   }
+}
+
+// Phone list, compact: one row per equipage, same rows/order/grouping as the cards
+function renderCompactTotalList(rows) {
+  const cell = (text) => (text === '—' || text == null ? '<span class="cr-muted">—</span>' : escapeHtml(String(text)));
+  const isLive = (r) => ['dressageStatus', 'marathonStatus', 'precisionStatus']
+    .some((k) => r[k] === 'ongoing' || r[k] === 'pågår');
+  const items = [];
+  let lastGroup = null;
+  rows.forEach((r) => {
+    const cls = r.className || 'Okänd Klass';
+    const groupLabel = r.displayGroupLabel || cls;
+    if (viewMode === 'byclass' && groupLabel !== lastGroup) {
+      items.push({ type: 'group', label: groupLabel });
+      lastGroup = groupLabel;
+    }
+    const live = !r.isEliminated && isLive(r);
+    items.push({
+      startNumber: r.startNumber,
+      place: r.isEliminated ? (r.elimReason || 'ELIM') : (r.plac ?? ''),
+      name: r.driverName || '',
+      sub: viewMode === 'byclass' ? '' : cls,
+      state: r.isEliminated ? 'elim' : (live ? 'live' : (Number(r.plac) === 1 ? 'leader' : '')),
+      cells: {
+        dressage: cell(formatTotalResultPenalty(r.dressage?.penalty, { eliminated: isTotalDisciplineEliminated(r, 'dressage') })),
+        marathon: cell(formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') })),
+        precision: cell(formatTotalResultPenalty(r.precision?.pen, { eliminated: isTotalDisciplineEliminated(r, 'precision') })),
+        total: `<span class="cr-total">${cell(r.isEliminated ? (r.elimReason || 'ELIM') : formatTotalResultPenalty(r.totalPenalty))}</span>`
+      }
+    });
+  });
+  return compactResultListHtml({
+    columns: [
+      { key: 'dressage', label: t('compact_col_dressage'), title: t('dressage') },
+      { key: 'marathon', label: t('compact_col_marathon'), title: t('marathon') },
+      { key: 'precision', label: t('compact_col_precision'), title: t('precision') },
+      { key: 'total', label: t('compact_col_total'), title: t('total') }
+    ],
+    items,
+    emptyText: t('search_no_match')
+  });
 }
 
 function setSort(key) {
