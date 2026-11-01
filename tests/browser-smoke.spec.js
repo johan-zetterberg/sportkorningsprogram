@@ -363,14 +363,19 @@ test('app shell: login modal, toasts, error dialog and the phone menu @mobile', 
   // the menu with its groups folded, one open at a time, and closes it again
   const bottomNav = page.locator('#bottomNav');
   if (await bottomNav.isVisible()) {
-    await expect(bottomNav.locator('.app-bottom-nav-tab')).toHaveCount(5);
-    await bottomNav.locator('[data-bottom-nav-tab="hub"]').click();
-    await expect(page.locator('#page-hub')).toHaveClass(/active/);
-    await expect(bottomNav.locator('[data-bottom-nav-tab="hub"]')).toHaveAttribute('aria-current', 'page');
+    // The tabs follow the role and the competition (if one is chosen): the
+    // first tab opens its page and is marked
+    const firstTab = bottomNav.locator('[data-bottom-nav-tab]').first();
+    const firstHref = await firstTab.getAttribute('href');
+    await firstTab.click();
+    await expect(page.locator(`#page-${firstHref.slice(1)}`)).toHaveClass(/active/);
+    await expect(firstTab).toHaveAttribute('aria-current', 'page');
+    await expect(bottomNav.locator('[data-bottom-nav-menu]')).toBeVisible();
     await bottomNav.locator('[data-bottom-nav-menu]').click();
     await expect(page.locator('#nav-links')).toBeVisible();
-    await expect(page.locator('#nav-links .dropdown-menu:not(.hidden)')).toHaveCount(0);
-    await page.locator('#nav-links .dropdown-toggle:visible').first().click();
+    // Folded groups: at most one open (the current discipline's)
+    expect(await page.locator('#nav-links .dropdown-menu:not(.hidden)').count()).toBeLessThanOrEqual(1);
+    await page.locator('#nav-links .dropdown-container:has(.dropdown-menu.hidden) .dropdown-toggle:visible').first().click();
     await expect(page.locator('#nav-links .dropdown-menu:not(.hidden)')).toHaveCount(1);
     await bottomNav.locator('[data-bottom-nav-menu]').click();
     await expect(page.locator('#nav-links')).toBeHidden();
@@ -951,6 +956,38 @@ test('an official with an unconfirmed e-mail gets the role the join code gave', 
     return { verified: auth.currentUser.emailVerified, roles: await refreshUserCompRole() };
   }, { competitionId, email });
   expect(after).toEqual({ verified: false, roles: ['marathon'] });
+});
+
+test('the bottom bar and the discipline row follow the current discipline @mobile-only', async ({ page }) => {
+  test.setTimeout(300000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  // The admin's choice of the current discipline (Inställningar)
+  await page.evaluate(async (competitionId) => {
+    const { updateCompetition } = await import('../js/services/competitionService.js');
+    await updateCompetition(competitionId, { currentPhase: 'marathon' });
+  }, competitionId);
+
+  await page.goto('/index.html#maraton-results');
+  await expect(page.locator('#page-maraton-results')).toHaveClass(/active/, { timeout: 30000 });
+  const bottomNav = page.locator('#bottomNav');
+  // An admin: Sekretariat, Starttider, Live, Admin, Meny, for the marathon
+  await expect(bottomNav.locator('[data-bottom-nav-tab="secretariat"]')).toHaveAttribute('href', '#sekretariat-maraton', { timeout: 30000 });
+  await expect(bottomNav.locator('[data-bottom-nav-tab="live"]')).toHaveAttribute('href', '#maraton-monitor');
+  // The discipline row: the page shown marked, the marathon flagged as today's
+  const row = page.locator('#disciplineSwitcherHost .discipline-switcher');
+  await expect(row.locator('a')).toHaveCount(4);
+  await expect(row.locator('a[aria-current="page"]')).toHaveAttribute('href', '#maraton-results');
+  await expect(row.locator('a[href="#maraton-results"] .discipline-chip-today')).toBeVisible();
+  await row.locator('a[href="#dressyr-results"]').click();
+  await expect(page.locator('#page-dressyr-results')).toHaveClass(/active/);
+  await expect(row.locator('a[aria-current="page"]')).toHaveAttribute('href', '#dressyr-results');
+  // No row on a page that is not results, live or secretariat
+  await page.goto('/index.html#starttider');
+  await expect(page.locator('#page-starttider')).toHaveClass(/active/);
+  await expect(page.locator('#disciplineSwitcherHost .discipline-switcher')).toHaveCount(0);
+  // The menu opens with the current discipline's group unfolded
+  await bottomNav.locator('[data-bottom-nav-menu]').click();
+  await expect(page.locator('#nav-links .dropdown-container[data-discipline="marathon"] .dropdown-menu')).toBeVisible();
 });
 
 test('secretariat precision shows each equipage as a stacked card on a phone @mobile-only', async ({ page }) => {

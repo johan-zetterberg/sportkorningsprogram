@@ -1,4 +1,5 @@
 import { getConfig } from '../../services/competitionService.js';
+import { PHASES } from '../../utils/currentDiscipline.js';
 import { saveConfig } from '../../services/competitionService.js';
 import { getCompetitionById, deleteCompetition, downloadCompetitionExport, updateCompetition } from '../../services/competitionService.js';
 import { seedDemoCompetition } from '../../services/demoCompetitionService.js';
@@ -789,6 +790,15 @@ export function getSettingsHtml() {
                 ${t('competition_mode_intro_hint')}
             </p>
             <div id="settingsCompetitionModeStatus"></div>
+            <label for="currentPhaseSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-5 mb-2">${t('current_phase_label')}</label>
+            <select id="currentPhaseSelect" class="block w-full p-3 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                <option value="">${t('current_phase_auto')}</option>
+                <option value="dressage">${t('menu_dressage')}</option>
+                <option value="marathon">${t('menu_marathon')}</option>
+                <option value="precision">${t('menu_precision')}</option>
+                <option value="total">${t('bottom_nav_total')}</option>
+            </select>
+            <p class="mt-2 text-sm text-gray-600 dark:text-gray-400">${t('current_phase_hint')}</p>
         </div>
 
         <!-- PUBLICERING START -->
@@ -1071,6 +1081,7 @@ const HORSE_TEMPERATURE_FIELDS = ['enabled', 'daysBefore', 'checksPerDay', 'warn
 const META_FIELDS = ['isInternational', 'lockdownMinutes', 'manualLockdown'];
 const SETTINGS_FIELD_LABELS = {
     competitionMode: 'tävlingsläget',
+    currentPhase: 'dagens gren',
     isInternational: 'nationell/internationell profil',
     lockdownMinutes: 'låsningstiden',
     manualLockdown: 'manuell låsning',
@@ -1095,6 +1106,7 @@ function settingsFieldLabels(fields = []) {
 function readSettingsForm() {
     const values = {
         competitionMode: document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live',
+        currentPhase: PHASES.includes(document.getElementById('currentPhaseSelect')?.value) ? document.getElementById('currentPhaseSelect').value : null,
         isInternational: !!document.getElementById('isInternationalToggle')?.checked,
         // Empty = not set = the default (Number('') was 0: the lock went off)
         lockdownMinutes: parseLockdownMinutesInput(document.getElementById('lockdownMinutesInput')?.value).value,
@@ -1128,6 +1140,7 @@ function readSettingsForm() {
 function settingsFromStored({ compDoc, meta, horseTemperature, classSettings, mapConfig } = {}) {
     const values = {
         competitionMode: compDoc?.competitionMode === 'field' ? 'field' : 'live',
+        currentPhase: PHASES.includes(compDoc?.currentPhase) ? compDoc.currentPhase : null,
         isInternational: !!meta?.isInternational,
         lockdownMinutes: effectiveLockdownMinutes(meta?.lockdownMinutes),
         manualLockdown: !!meta?.manualLockdown,
@@ -1257,6 +1270,9 @@ export async function setupSettingsLogic(competitionId) {
                 ? t('competition_mode_field_hint')
                 : t('competition_mode_live_hint');
         };
+
+        const currentPhaseSelect = document.getElementById('currentPhaseSelect');
+        if (currentPhaseSelect) currentPhaseSelect.value = PHASES.includes(compDoc?.currentPhase) ? compDoc.currentPhase : '';
 
         if (competitionModeSelect) {
             competitionModeSelect.value = competitionMode;
@@ -1397,6 +1413,7 @@ export async function setupSettingsLogic(competitionId) {
                     // button on "Sparar..." without signal
                     const writes = [];
                     if ('competitionMode' in changes) writes.push(updateCompetition(competitionId, { competitionMode: changes.competitionMode }));
+                    if ('currentPhase' in changes) writes.push(updateCompetition(competitionId, { currentPhase: changes.currentPhase }));
                     if (hasKeys(metaChanges)) writes.push(saveConfig(competitionId, 'competitionMeta', metaChanges));
                     if (hasKeys(horseTemperatureChanges)) {
                         writes.push(saveConfig(competitionId, 'horseTemperature', { ...horseTemperatureChanges, updatedAt: new Date() }));
@@ -1414,12 +1431,13 @@ export async function setupSettingsLogic(competitionId) {
 
                     const newCompetitionMode = formNow.competitionMode;
                     const currentComp = getGlobalState('currentCompetition');
-                    if (currentComp?.id === competitionId && 'competitionMode' in changes) {
+                    if (currentComp?.id === competitionId && ('competitionMode' in changes || 'currentPhase' in changes)) {
                         setGlobalState({
                             key: 'currentCompetition',
                             value: {
                                 ...currentComp,
-                                competitionMode: newCompetitionMode
+                                competitionMode: newCompetitionMode,
+                                currentPhase: formNow.currentPhase
                             }
                         });
                     }

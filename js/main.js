@@ -10,7 +10,8 @@ import { activateCompetitionSettings, installWindowSettingAccessors } from './se
 import { initFieldMessages } from './ui/fieldMessages.js';
 import { initGlobalPauseBanner } from './ui/globalPauseBanner.js';
 import { initTabOverflowHints } from './ui/tabOverflowHint.js';
-import { initBottomNav, refreshBottomNav } from './ui/bottomNav.js';
+import { getCurrentPhase, initBottomNav, refreshBottomNav } from './ui/bottomNav.js';
+import { initDisciplineSwitcher } from './ui/disciplineSwitcher.js';
 
 // window.klassProgramMapping, window.dressageJudgeMapping, ... read and write the
 // active competition's settings (see competitionSettingsStore.js)
@@ -200,6 +201,8 @@ export function setGlobalState({ key, value }) {
             if (infoBtn) infoBtn.style.display = 'none'; // Hide button
         }
         updateCompactPageContext();
+        // The phone's bottom bar follows the competition and its current discipline
+        try { document.dispatchEvent(new CustomEvent('app-competition-change', { detail: { competition: value || null } })); } catch (_) { }
     }
 
     // --- NYTT: Hämta tävlingsspecifik roll om tävling eller användare ändras ---
@@ -291,8 +294,10 @@ function updateCompactPageContext() {
 function initialize() {
     initLanguageToggle();
     initTheme();
-    // The phone's bottom bar, before the translations fill its labels
+    // The phone's bottom bar, before the translations fill its labels, and
+    // the discipline row above the results / live / secretariat pages
     initBottomNav();
+    initDisciplineSwitcher();
     updateNavigationTranslations();
 
     // Sätt upp globala lyssnare för modaler
@@ -467,10 +472,15 @@ function initialize() {
         const navEl = document.querySelector('.app-main-nav');
         const bottom = Math.max(0, Math.round(navEl?.getBoundingClientRect().bottom || 64));
         document.documentElement.style.setProperty('--app-nav-bottom', `${bottom}px`);
-        // The groups fold: the one with the page shown opens, the others stay shut
+        // The groups fold: the one with the page shown opens, else the one of
+        // the competition's current discipline; the others stay shut
         const activeLink = navLinksContainer.querySelector('.dropdown-menu .nav-link.active');
+        const phaseGroup = getGlobalState('currentCompetition')
+            ? navLinksContainer.querySelector(`.dropdown-container[data-discipline="${getCurrentPhase()}"] .dropdown-menu`)
+            : null;
+        const openGroup = activeLink ? activeLink.closest('.dropdown-menu') : phaseGroup;
         navLinksContainer.querySelectorAll('.dropdown-menu').forEach(menu => {
-            menu.classList.toggle('hidden', !activeLink || !menu.contains(activeLink));
+            menu.classList.toggle('hidden', menu !== openGroup);
         });
         dropdownToggles.forEach(toggle => {
             toggle.setAttribute('aria-expanded', String(!toggle.nextElementSibling?.classList.contains('hidden')));
