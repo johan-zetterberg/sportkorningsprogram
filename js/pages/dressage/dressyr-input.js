@@ -1729,12 +1729,12 @@ export function load() {
       <div class="dressage-top-grid grid grid-cols-1 md:grid-cols-5 gap-4 mb-4 pb-4 border-b dark:border-gray-700">
         <div class="md:col-span-2">
           <label for="testSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_program')}</label>
-          <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
+          <select id="testSelector" class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
           <div id="programMeta" class="text-xs text-gray-600 mt-1 leading-snug whitespace-normal break-words dark:text-gray-400"></div>
         </div>
         <div class="md:col-span-1">
           <label for="judgeSelector" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_judge')}</label>
-          <select id="judgeSelector" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
+          <select id="judgeSelector" required class="mt-1 block w-full pl-3 pr-10 py-2 text-base border border-gray-300 rounded-md bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white"></select>
         </div>
         <div class="md:col-span-2">
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('input_equipage')}</label>

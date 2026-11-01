@@ -205,6 +205,9 @@ export function updateUIVisibility() {
         container.style.display = toggle && isShown(toggle) ? '' : 'none';
     });
 
+    // The phone's bottom bar offers the pages these roles may open (js/ui/bottomNav.js)
+    try { document.dispatchEvent(new CustomEvent('app-roles-change', { detail: { roles: rolesToCheck, signedIn: !!currentUser } })); } catch (_) { }
+
     if (menuToggle) {
         const visibleLinks = Array.from(navLinks).some(link => link.style.display !== 'none');
         menuToggle.style.display = visibleLinks ? '' : 'none';

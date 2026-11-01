@@ -870,7 +870,7 @@ function renderGates() {
     const labels = getLabelsForClass(currentEquipage?.className);
 
     if (labels.length === 0) {
-        host.innerHTML = `<p class="text-sm text-gray-500">${t('precision_no_obstacles_defined')}</p>`;
+        host.innerHTML = `<p class="col-span-full text-sm text-gray-500">${t('precision_no_obstacles_defined')}</p>`;
         return;
     }
 

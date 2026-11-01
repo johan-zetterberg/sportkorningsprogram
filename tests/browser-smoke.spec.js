@@ -358,6 +358,30 @@ test('app shell: login modal, toasts, error dialog and the phone menu @mobile', 
     await page.keyboard.press('Escape');
     await expect(page.locator('#nav-links')).toBeHidden();
   }
+
+  // The bottom bar (phones): a tab opens its page and is marked; Meny opens
+  // the menu with its groups folded, one open at a time, and closes it again
+  const bottomNav = page.locator('#bottomNav');
+  if (await bottomNav.isVisible()) {
+    await expect(bottomNav.locator('.app-bottom-nav-tab')).toHaveCount(5);
+    await bottomNav.locator('[data-bottom-nav-tab="hub"]').click();
+    await expect(page.locator('#page-hub')).toHaveClass(/active/);
+    await expect(bottomNav.locator('[data-bottom-nav-tab="hub"]')).toHaveAttribute('aria-current', 'page');
+    await bottomNav.locator('[data-bottom-nav-menu]').click();
+    await expect(page.locator('#nav-links')).toBeVisible();
+    await expect(page.locator('#nav-links .dropdown-menu:not(.hidden)')).toHaveCount(0);
+    await page.locator('#nav-links .dropdown-toggle:visible').first().click();
+    await expect(page.locator('#nav-links .dropdown-menu:not(.hidden)')).toHaveCount(1);
+    await bottomNav.locator('[data-bottom-nav-menu]').click();
+    await expect(page.locator('#nav-links')).toBeHidden();
+    // On a page inside a group the menu opens with that group unfolded
+    await page.evaluate(() => { window.location.hash = '#deltagare'; });
+    await expect(page.locator('#page-deltagare')).toHaveClass(/active/);
+    await bottomNav.locator('[data-bottom-nav-menu]').click();
+    await expect(page.locator('#nav-links .dropdown-menu:not(.hidden) a[href="#deltagare"]')).toBeVisible();
+    await bottomNav.locator('[data-bottom-nav-menu]').click();
+    await expect(page.locator('#nav-links')).toBeHidden();
+  }
 });
 
 test('logout leaves no competition data on a shared device', async ({ page }) => {

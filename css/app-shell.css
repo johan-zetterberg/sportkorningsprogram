@@ -230,36 +230,57 @@ html.dark .app-menu-logout {
 
     html.dark .app-nav-sheet-close { color: #d1d5db; }
 
-    /* Groups are always open in the sheet; their toggles read as headings */
-    .app-main-nav #nav-links .dropdown-menu,
-    .app-main-nav #nav-links .dropdown-menu.hidden {
+    /* Groups fold in the sheet: one open at a time, and the group of the page
+       shown opens with the menu (js/main.js), so the list stays short */
+    .app-main-nav #nav-links .dropdown-menu {
         display: block;
         box-shadow: none;
         border: 0;
         background: transparent;
     }
 
+    .app-main-nav #nav-links .dropdown-menu.hidden {
+        display: none;
+    }
+
+    /* !important: updateUIVisibility sets display on every .nav-link */
+    .app-main-nav #nav-links .dropdown-toggle:not([style*="display: none"]) {
+        display: flex !important;
+    }
+
     .app-main-nav #nav-links .dropdown-toggle {
-        pointer-events: none;
-        margin-top: 0.5rem;
-        padding-top: 0.75rem !important;
-        padding-bottom: 0.25rem !important;
+        align-items: center;
+        justify-content: space-between;
+        width: 100%;
+        min-height: 44px;
+        padding-top: 0.6rem !important;
+        padding-bottom: 0.6rem !important;
         border-top: 1px solid #e5e7eb;
         border-radius: 0;
-        font-size: 0.7rem;
-        font-weight: 800;
-        letter-spacing: 0.12em;
-        text-transform: uppercase;
-        color: #6b7280 !important;
+        font-weight: 700;
+        color: #111827 !important;
         background: transparent !important;
     }
 
     html.dark .app-main-nav #nav-links .dropdown-toggle {
         border-top-color: #374151;
-        color: #9ca3af !important;
+        color: #f3f4f6 !important;
     }
 
-    .app-main-nav #nav-links .nav-caret { display: none; }
+    .app-main-nav #nav-links .nav-caret {
+        display: inline-block;
+        font-size: 0.7rem;
+        color: #6b7280;
+        transition: transform 0.15s ease;
+    }
+
+    .app-main-nav #nav-links .dropdown-toggle[aria-expanded="true"] .nav-caret {
+        transform: rotate(180deg);
+    }
+
+    .app-main-nav #nav-links .dropdown-menu .nav-link {
+        padding-left: 1.75rem !important;
+    }
 
     .app-main-nav #nav-links .nav-link:not(.dropdown-toggle) {
         min-height: 44px;
@@ -315,6 +336,111 @@ body.judge-page .app-header-logout { display: none !important; }
     .app-nav-bar { gap: 0.5rem; }
     .app-nav-actions { gap: 0.25rem !important; }
     .app-nav-shell { padding-left: 0.5rem !important; padding-right: 0.5rem !important; }
+}
+
+/* --- Bottom navigation bar (phones, js/ui/bottomNav.js) --- */
+.app-bottom-nav {
+    display: none;
+}
+
+@media (max-width: 767px) {
+    body.has-bottom-nav {
+        padding-bottom: calc(3.75rem + env(safe-area-inset-bottom, 0px));
+    }
+
+    .app-bottom-nav {
+        display: flex;
+        position: fixed;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 2147483050;
+        padding-bottom: env(safe-area-inset-bottom, 0px);
+        background: #ffffff;
+        border-top: 1px solid #e5e7eb;
+        box-shadow: 0 -4px 14px rgba(15, 23, 42, 0.07);
+    }
+
+    html.dark .app-bottom-nav {
+        background: #1f2937;
+        border-top-color: #374151;
+    }
+
+    .app-bottom-nav-tab {
+        flex: 1 1 0;
+        min-width: 0;
+        min-height: 3.5rem;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.15rem;
+        border: 0;
+        background: transparent;
+        color: #6b7280;
+        font-size: 0.7rem;
+        font-weight: 600;
+        text-decoration: none;
+        cursor: pointer;
+    }
+
+    .app-bottom-nav-tab span {
+        max-width: 100%;
+        padding: 0 0.15rem;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }
+
+    .app-bottom-nav-icon {
+        width: 1.5rem;
+        height: 1.5rem;
+    }
+
+    .app-bottom-nav-tab[aria-current="page"],
+    .app-bottom-nav-tab[aria-expanded="true"] {
+        color: #1d4ed8;
+    }
+
+    .app-bottom-nav-tab[aria-current="page"] .app-bottom-nav-icon {
+        stroke-width: 2.4;
+    }
+
+    html.dark .app-bottom-nav-tab { color: #9ca3af; }
+    html.dark .app-bottom-nav-tab[aria-current="page"],
+    html.dark .app-bottom-nav-tab[aria-expanded="true"] { color: #93c5fd; }
+
+    /* One menu button on phones: Meny in the bar (it works the header's) */
+    body.has-bottom-nav .app-menu-toggle {
+        display: none !important;
+    }
+
+    /* While typing the phone keyboard would lift the bar over the form */
+    body.bottom-nav-typing .app-bottom-nav {
+        display: none;
+    }
+
+    /* Toasts and the menu sheet end above the bar (Meny closes the sheet again) */
+    body.has-bottom-nav .app-toast-region {
+        bottom: calc(env(safe-area-inset-bottom, 0px) + 4.5rem);
+    }
+
+    body.has-bottom-nav .app-main-nav #nav-links:not(.hidden),
+    body.has-bottom-nav .app-nav-backdrop:not(.hidden) {
+        bottom: calc(3.5rem + env(safe-area-inset-bottom, 0px));
+    }
+}
+
+html.tv-mode .app-bottom-nav {
+    display: none !important;
+}
+
+html.tv-mode body.has-bottom-nav {
+    padding-bottom: 0;
+}
+
+@media print {
+    .app-bottom-nav { display: none !important; }
 }
 
 /* Route banners (pause, messages) sit directly under the header; the pause

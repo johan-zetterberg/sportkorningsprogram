@@ -520,6 +520,41 @@ html.dark :is(a, button, summary, [role="button"], [role="tab"], input[type="che
         line-height: 1.1;
     }
 
+    /* A slim page header: the competition and page on one line each, no
+       logo (the app bar has it) and no place/date, so the page itself starts
+       high up on the screen */
+    .competition-page-header {
+        padding: 0.5rem 0.75rem !important;
+        gap: 0.5rem !important;
+        margin-bottom: 0.5rem !important;
+        border-bottom-width: 3px !important;
+    }
+
+    .competition-page-header > img {
+        display: none !important;
+    }
+
+    .competition-page-header h1 {
+        font-size: 1rem !important;
+        line-height: 1.3rem !important;
+        -webkit-line-clamp: 1 !important;
+    }
+
+    .competition-page-header p {
+        font-size: 0.8rem !important;
+        line-height: 1.1rem !important;
+        -webkit-line-clamp: 1 !important;
+    }
+
+    .competition-page-header .flex-grow > div.mt-1 {
+        display: none !important;
+    }
+
+    .competition-page-header .quick-guide-btn {
+        padding: 0.3rem 0.6rem !important;
+        font-size: 0.75rem !important;
+    }
+
     .app-nav-actions {
         gap: 0.35rem;
     }

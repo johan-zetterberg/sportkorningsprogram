@@ -353,6 +353,8 @@ const urlsToCache = [
   abs('/js/services/vetDecisionUtils.js'),
   abs('/js/services/vetInspectionService.js'),
   abs('/js/ui/accountSettings.js'),
+  abs('/js/ui/bottomNav.js'),
+  abs('/js/ui/bottomNavUtils.js'),
   abs('/js/ui/components.js'),
   abs('/js/ui/dialogA11y.js'),
   abs('/js/ui/dressageModal.js'),

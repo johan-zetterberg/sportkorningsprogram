@@ -296,6 +296,16 @@ export const DICTIONARY = {
 
     // Main Menu
     'menu_hub': { sv: 'Hub', en: 'Hub' },
+    'bottom_nav_label': { sv: 'Snabbnavigering', en: 'Quick navigation' },
+    'bottom_nav_home': { sv: 'Hem', en: 'Home' },
+    'bottom_nav_start_times': { sv: 'Starttider', en: 'Start times' },
+    'bottom_nav_results': { sv: 'Resultat', en: 'Results' },
+    'bottom_nav_admin': { sv: 'Admin', en: 'Admin' },
+    'bottom_nav_my_task': { sv: 'Min uppgift', en: 'My task' },
+    'bottom_nav_vet': { sv: 'Veterinär', en: 'Vet' },
+    'bottom_nav_portal': { sv: 'Min portal', en: 'My portal' },
+    'bottom_nav_info': { sv: 'Info', en: 'Info' },
+    'bottom_nav_menu': { sv: 'Meny', en: 'Menu' },
     'menu_portal': { sv: 'Min Portal', en: 'My Portal' },
     'menu_participants': { sv: 'Deltagare', en: 'Participants' },
     'menu_participants_list': { sv: 'Deltagarlista', en: 'Participant List' },

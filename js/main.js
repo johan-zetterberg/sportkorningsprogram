@@ -10,6 +10,7 @@ import { activateCompetitionSettings, installWindowSettingAccessors } from './se
 import { initFieldMessages } from './ui/fieldMessages.js';
 import { initGlobalPauseBanner } from './ui/globalPauseBanner.js';
 import { initTabOverflowHints } from './ui/tabOverflowHint.js';
+import { initBottomNav, refreshBottomNav } from './ui/bottomNav.js';
 
 // window.klassProgramMapping, window.dressageJudgeMapping, ... read and write the
 // active competition's settings (see competitionSettingsStore.js)
@@ -245,6 +246,7 @@ export function updateNavigationTranslations() {
             el.textContent = translated + (hasArrow ? ' ▼' : '');
         }
     });
+    refreshBottomNav();
 }
 window.updateNavigationTranslations = updateNavigationTranslations;
 
@@ -289,6 +291,8 @@ function updateCompactPageContext() {
 function initialize() {
     initLanguageToggle();
     initTheme();
+    // The phone's bottom bar, before the translations fill its labels
+    initBottomNav();
     updateNavigationTranslations();
 
     // Sätt upp globala lyssnare för modaler
@@ -431,7 +435,11 @@ function initialize() {
 
     // Stäng alla dropdowns om man klickar någon annanstans på sidan
     window.addEventListener('click', (event) => {
-        if (!event.target.closest('.dropdown-container')) closeDropdowns();
+        if (event.target.closest('.dropdown-container')) return;
+        // The phone menu keeps its open group while it is used (opened from
+        // the header or the bottom bar)
+        if (isSheetMode() && event.target.closest('#nav-links, #menu-toggle, #bottomNav')) return;
+        closeDropdowns();
     });
     // Desktop: Escape closes an open dropdown
     document.addEventListener('keydown', (event) => {
@@ -459,6 +467,14 @@ function initialize() {
         const navEl = document.querySelector('.app-main-nav');
         const bottom = Math.max(0, Math.round(navEl?.getBoundingClientRect().bottom || 64));
         document.documentElement.style.setProperty('--app-nav-bottom', `${bottom}px`);
+        // The groups fold: the one with the page shown opens, the others stay shut
+        const activeLink = navLinksContainer.querySelector('.dropdown-menu .nav-link.active');
+        navLinksContainer.querySelectorAll('.dropdown-menu').forEach(menu => {
+            menu.classList.toggle('hidden', !activeLink || !menu.contains(activeLink));
+        });
+        dropdownToggles.forEach(toggle => {
+            toggle.setAttribute('aria-expanded', String(!toggle.nextElementSibling?.classList.contains('hidden')));
+        });
         navLinksContainer.classList.remove('hidden');
         navBackdrop?.classList.remove('hidden');
         menuToggle?.setAttribute('aria-expanded', 'true');
