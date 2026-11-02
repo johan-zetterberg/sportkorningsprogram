@@ -15,7 +15,7 @@ import { listenForMaratonCollection, listenForMarathonTimingUpdates, loadPauseWi
 import { listenForTeams } from '../../services/teamService.js';
 import { t } from '../../utils/i18n.js';
 import { attachScrollHint, scrollHintTextHtml } from './scrollHint.js';
-import { bindCompactRows, bindDensityToggle, compactResultListHtml, densityToggleHtml, getResultDensity } from '../../ui/compactResultList.js';
+import { bindCompactRows, bindDensityToggle, compactResultListHtml, densityToggleHtml, getResultDensity, restoreCompactScroll } from '../../ui/compactResultList.js';
 import { phoneCollapsibleFilters } from '../../ui/phoneFilters.js';
 
 import { calculateTotalResult } from '../../services/calculationService.js';
@@ -1244,6 +1244,7 @@ function renderMobile() {
   const compact = getResultDensity() === 'compact';
   if (compact) {
     container.innerHTML = renderCompactTotalList(rows);
+    restoreCompactScroll(container);
     bindCompactRows(container, (sn) => openEquipageModal(String(sn), getEquipageModalCtx()));
   } else if (rows.length === 0) {
     html = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">${t('search_no_match')}</div>`;
@@ -1396,7 +1397,15 @@ function renderCompactTotalList(rows) {
         dressage: cell(formatTotalResultPenalty(r.dressage?.penalty, { eliminated: isTotalDisciplineEliminated(r, 'dressage') })),
         marathon: cell(formatTotalResultPenalty(r.marathon?.totalPenalty, { eliminated: isTotalDisciplineEliminated(r, 'marathon') })),
         precision: cell(formatTotalResultPenalty(r.precision?.pen, { eliminated: isTotalDisciplineEliminated(r, 'precision') })),
-        total: `<span class="cr-total">${cell(r.isEliminated ? (r.elimReason || 'ELIM') : formatTotalResultPenalty(r.totalPenalty))}</span>`
+        total: `<span class="cr-total">${cell(r.isEliminated ? (r.elimReason || 'ELIM') : formatTotalResultPenalty(r.totalPenalty))}</span>`,
+        // Part results the table shows next to the main ones: placings, precision knockdowns/time, gaps
+        posDress: cell(Number.isFinite(r.posDress) ? r.posDress : null),
+        posMar: cell(Number.isFinite(r.posMar) ? r.posMar : null),
+        posPrec: cell(Number.isFinite(r.posPrec) ? r.posPrec : null),
+        precKnock: cell(Number.isFinite(r.precision?.obstPen) ? r.precision.obstPen.toFixed(2) : null),
+        precTime: cell(Number.isFinite(r.precision?.timePen) ? r.precision.timePen.toFixed(2) : null),
+        diffLeader: cell(!r.isEliminated && r.diffFromLeader > 0 ? `+${r.diffFromLeader.toFixed(2)}` : null),
+        diffNext: cell(!r.isEliminated && r.diffFromNext > 0 ? r.diffFromNext.toFixed(2) : null)
       }
     });
   });
@@ -1405,10 +1414,18 @@ function renderCompactTotalList(rows) {
       { key: 'dressage', label: t('compact_col_dressage'), title: t('dressage') },
       { key: 'marathon', label: t('compact_col_marathon'), title: t('marathon') },
       { key: 'precision', label: t('compact_col_precision'), title: t('precision') },
-      { key: 'total', label: t('compact_col_total'), title: t('total') }
+      { key: 'total', label: t('compact_col_total'), title: t('total') },
+      { key: 'posDress', label: t('compact_col_pos_dressage'), title: t('compact_title_pos_dressage'), extra: true },
+      { key: 'posMar', label: t('compact_col_pos_marathon'), title: t('compact_title_pos_marathon'), extra: true },
+      { key: 'posPrec', label: t('compact_col_pos_precision'), title: t('compact_title_pos_precision'), extra: true },
+      { key: 'precKnock', label: t('compact_col_prec_knock'), title: t('compact_title_prec_knock'), extra: true },
+      { key: 'precTime', label: t('compact_col_prec_time'), title: t('compact_title_prec_time'), extra: true },
+      { key: 'diffLeader', label: t('compact_col_diff_leader'), title: t('legend_diff_leader'), extra: true },
+      { key: 'diffNext', label: t('compact_col_diff_next'), title: t('legend_diff_next'), extra: true }
     ],
     items,
-    emptyText: t('search_no_match')
+    emptyText: t('search_no_match'),
+    scrollKey: 'total-resultat'
   });
 }
 

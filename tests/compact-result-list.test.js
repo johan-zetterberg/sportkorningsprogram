@@ -17,7 +17,9 @@ test('compact result list: one row per equipage, class headings across all colum
             { startNumber: 8, place: null, name: 'Bo', sub: '', cells: { dressage: '50.00' }, state: 'elim' }
         ]
     });
-    assert.match(html, /<th scope="colgroup" colspan="5">Lätt A<\/th>/);
+    assert.match(html, /<th scope="colgroup" colspan="5"><span>Lätt A<\/span><\/th>/);
+    // No part-result columns: the plain list, no sideways scrolling
+    assert.doesNotMatch(html, /cr-scroll/);
     assert.equal((html.match(/<tr class="cr-row/g) || []).length, 2);
     assert.match(html, /class="cr-row cr-leader" data-start="7" tabindex="0"/);
     assert.match(html, /class="cr-row cr-elim" data-start="8"/);
@@ -51,4 +53,16 @@ test('compact result list: the density choice defaults to compact and survives n
     } finally {
         globalThis.localStorage = saved;
     }
+});
+
+test('compact result list: part results scroll sideways next to fixed driver columns', () => {
+    const html = compactResultListHtml({
+        columns: [...columns, { key: 'o1', label: 'H1', extra: true }, { key: 'o2', label: 'H2', extra: true }],
+        items: [{ startNumber: 3, place: 2, name: 'Cia', cells: { dressage: '1', total: '2', o1: '0.00' } }],
+        scrollKey: 'maraton'
+    });
+    assert.match(html, /<div class="cr-scroll cr-main-2" data-cr-key="maraton"><table class="compact-results cr-wide">/);
+    assert.match(html, /class="cr-scroll-hint"/);
+    assert.equal((html.match(/<th scope="col" class="cr-num cr-extra"/g) || []).length, 2);
+    assert.match(html, /<td class="cr-num cr-extra">0.00<\/td><td class="cr-num cr-extra">—<\/td>|<td class="cr-num cr-extra">0.00<\/td>\s*<td class="cr-num cr-extra">—<\/td>/);
 });

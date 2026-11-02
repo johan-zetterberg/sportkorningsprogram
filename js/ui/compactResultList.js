@@ -48,25 +48,33 @@ export function bindDensityToggle(root, onChange) {
 }
 
 /**
- * columns: [{ key, label, title? }] the result columns after place, number and
- *   driver (up to four fit a phone held upright)
+ * columns: [{ key, label, title?, extra? }] the result columns after place,
+ *   number and driver. Up to four main columns fit a phone held upright; the
+ *   columns marked extra (the part results) come after them, off the screen to
+ *   the right: the table then scrolls sideways while place, number and driver
+ *   stay put, and the first view still shows the main columns.
+ * scrollKey: names the list (e.g. the page) so a live redraw keeps the
+ *   sideways position; see restoreCompactScroll
  * items: rows in display order, each either
  *   { type: 'group', label }                              a class heading
  *   { startNumber, place, name, sub, cells: { [key]: html }, state }
  *   cells are HTML the caller has escaped; place, name and sub are text.
  *   state: '' | 'live' | 'leader' | 'elim' (row tint)
  */
-export function compactResultListHtml({ columns = [], items = [], emptyText = '' } = {}) {
+export function compactResultListHtml({ columns = [], items = [], emptyText = '', scrollKey = '' } = {}) {
+    const wide = columns.some((c) => c.extra);
+    const mainCount = Math.min(4, Math.max(1, columns.filter((c) => !c.extra).length));
+    const numClass = (c) => (c.extra ? 'cr-num cr-extra' : 'cr-num');
     const head = `<thead><tr>
         <th scope="col" class="cr-place">${escapeHtml(t('compact_place'))}</th>
         <th scope="col" class="cr-sn">#</th>
         <th scope="col" class="cr-name">${escapeHtml(t('compact_driver'))}</th>
-        ${columns.map((c) => `<th scope="col" class="cr-num"${c.title ? ` title="${escapeHtml(c.title)}"` : ''}>${escapeHtml(c.label)}</th>`).join('')}
+        ${columns.map((c) => `<th scope="col" class="${numClass(c)}"${c.title ? ` title="${escapeHtml(c.title)}"` : ''}>${escapeHtml(c.label)}</th>`).join('')}
     </tr></thead>`;
     const span = 3 + columns.length;
     const rows = items.map((item) => {
         if (item?.type === 'group') {
-            return `<tr class="cr-group"><th scope="colgroup" colspan="${span}">${escapeHtml(item.label ?? '')}</th></tr>`;
+            return `<tr class="cr-group"><th scope="colgroup" colspan="${span}"><span>${escapeHtml(item.label ?? '')}</span></th></tr>`;
         }
         const sn = String(item.startNumber ?? '');
         const state = ['live', 'leader', 'elim'].includes(item.state) ? ` cr-${item.state}` : '';
@@ -75,11 +83,40 @@ export function compactResultListHtml({ columns = [], items = [], emptyText = ''
             <td class="cr-place">${escapeHtml(place)}</td>
             <td class="cr-sn">${escapeHtml(sn)}</td>
             <td class="cr-name"><span class="cr-driver">${escapeHtml(item.name ?? '')}</span>${item.sub ? `<span class="cr-sub">${escapeHtml(item.sub)}</span>` : ''}</td>
-            ${columns.map((c) => `<td class="cr-num">${item.cells?.[c.key] ?? '—'}</td>`).join('')}
+            ${columns.map((c) => `<td class="${numClass(c)}">${item.cells?.[c.key] ?? '—'}</td>`).join('')}
         </tr>`;
     }).join('');
     const body = rows || `<tr><td class="cr-empty" colspan="${span}">${escapeHtml(emptyText)}</td></tr>`;
-    return `<table class="compact-results">${head}<tbody>${body}</tbody></table>`;
+    if (!wide) return `<table class="compact-results">${head}<tbody>${body}</tbody></table>`;
+    trackCompactScroll();
+    return `<p class="cr-scroll-hint">${escapeHtml(t('compact_scroll_hint'))}</p>`
+        + `<div class="cr-scroll cr-main-${mainCount}"${scrollKey ? ` data-cr-key="${escapeHtml(scrollKey)}"` : ''}>`
+        + `<table class="compact-results cr-wide">${head}<tbody>${body}</tbody></table></div>`;
+}
+
+// The sideways position of each wide list (by scrollKey), so a redraw from a
+// live update does not throw the viewer back to the first columns
+const scrollPositions = new Map();
+let tracking = false;
+
+function trackCompactScroll() {
+    if (tracking || typeof document === 'undefined') return;
+    tracking = true;
+    // Scroll events do not bubble: listen in the capture phase
+    document.addEventListener('scroll', (event) => {
+        const el = event.target;
+        const key = el?.dataset?.crKey;
+        if (key && el.classList?.contains('cr-scroll')) scrollPositions.set(key, el.scrollLeft);
+    }, { capture: true, passive: true });
+}
+
+/** After a wide list is drawn into root: put it back where the viewer had scrolled it */
+export function restoreCompactScroll(root) {
+    if (!root?.querySelectorAll) return;
+    root.querySelectorAll('.cr-scroll[data-cr-key]').forEach((el) => {
+        const left = scrollPositions.get(el.dataset.crKey);
+        if (left) el.scrollLeft = left;
+    });
 }
 
 /** Tap, Enter or Space on a row of a compact list inside container: onOpen(startNumber) */

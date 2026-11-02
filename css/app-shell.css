@@ -707,6 +707,110 @@ html.dark .compact-results tr.cr-group th {
 html.dark .compact-results .cr-total { color: #93c5fd; }
 .compact-results .cr-muted { color: #9ca3af; }
 
+/* The wide list: the part results come after the main columns, off the screen
+   to the right. Place, number and driver stay put while the table scrolls
+   sideways; the driver column is as wide as leaves room for the main columns,
+   so the first view looks like the narrow list */
+.cr-scroll-hint {
+    margin: 0 0 0.25rem;
+    font-size: 0.6875rem;
+    color: #6b7280;
+    text-align: right;
+}
+
+html.dark .cr-scroll-hint { color: #9ca3af; }
+
+.cr-scroll {
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    container-type: inline-size;
+    /* Whole pixels: a seam at a fraction of a pixel lets the scrolled cells show through */
+    --cr-fixed: 4rem;
+    --cr-col: 3.6rem;
+    --cr-main: 3;
+}
+
+.cr-scroll.cr-main-1 { --cr-main: 1; }
+.cr-scroll.cr-main-2 { --cr-main: 2; }
+.cr-scroll.cr-main-4 { --cr-main: 4; }
+
+.compact-results.cr-wide {
+    width: max-content;
+    min-width: 100%;
+    table-layout: auto;
+    /* Collapsed borders leave seams beside the fixed columns that the scrolled
+       cells show through */
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.cr-wide tr { --cr-bg: #ffffff; }
+.cr-wide thead tr { --cr-bg: #f3f4f6; }
+.cr-wide tr.cr-live { --cr-bg: #fefce8; }
+.cr-wide tr.cr-elim { --cr-bg: #fef2f2; }
+html.dark .cr-wide tr { --cr-bg: #1f2937; }
+html.dark .cr-wide thead tr { --cr-bg: #374151; }
+/* The row tints made opaque, so the scrolled columns do not show through */
+html.dark .cr-wide tr.cr-live { --cr-bg: #3c312a; }
+html.dark .cr-wide tr.cr-elim { --cr-bg: #41252e; }
+
+.cr-wide .cr-place,
+.cr-wide .cr-sn,
+.cr-wide .cr-name {
+    position: sticky;
+    z-index: 1;
+    background: var(--cr-bg);
+}
+
+/* Each fixed cell reaches one pixel into the next: on screens with a
+   fractional pixel ratio the seams between them otherwise let the scrolled
+   cells show through */
+.cr-wide .cr-place,
+.cr-wide .cr-sn { box-shadow: 1px 0 0 var(--cr-bg); }
+
+.cr-wide .cr-place { left: 0; width: 2rem; min-width: 2rem; max-width: 2rem; box-sizing: border-box; }
+.cr-wide .cr-sn { left: 2rem; width: 2rem; min-width: 2rem; max-width: 2rem; box-sizing: border-box; }
+.cr-wide .cr-name {
+    left: var(--cr-fixed);
+    width: 8rem;
+    min-width: 8rem;
+    max-width: 8rem;
+    box-shadow: inset -1px 0 0 #d1d5db;
+}
+
+@supports (width: 1cqw) {
+    .cr-wide .cr-name {
+        width: max(7rem, calc(100cqw - var(--cr-fixed) - var(--cr-main) * var(--cr-col)));
+        min-width: max(7rem, calc(100cqw - var(--cr-fixed) - var(--cr-main) * var(--cr-col)));
+        max-width: max(7rem, calc(100cqw - var(--cr-fixed) - var(--cr-main) * var(--cr-col)));
+    }
+}
+
+.cr-wide thead .cr-place,
+.cr-wide thead .cr-sn,
+.cr-wide thead .cr-name { z-index: 3; }
+
+.cr-wide .cr-num { min-width: var(--cr-col); }
+.cr-wide .cr-num:last-child { padding-right: 0.25rem; }
+.cr-wide .cr-extra {
+    width: auto;
+    min-width: 3.2rem;
+    overflow: visible;
+    padding-left: 0.6rem;
+    color: #374151;
+}
+
+.cr-wide th.cr-extra:first-of-type,
+.cr-wide .cr-num:not(.cr-extra) + .cr-extra { border-left: 1px solid #e5e7eb; }
+
+.cr-wide tr.cr-live > td,
+.cr-wide tr.cr-elim > td { background: var(--cr-bg); }
+.cr-wide tr.cr-group th > span { position: sticky; left: 0.5rem; }
+
+html.dark .cr-wide .cr-name { box-shadow: inset -1px 0 0 #4b5563; }
+html.dark .cr-wide .cr-extra { color: #d1d5db; }
+html.dark .cr-wide .cr-num:not(.cr-extra) + .cr-extra { border-left-color: #374151; }
+
 /* Kompakt | Kort */
 .result-density-toggle {
     display: inline-flex;

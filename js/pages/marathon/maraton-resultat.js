@@ -10,7 +10,7 @@ import { db, appId } from '../../config/firebase-config.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { t } from '../../utils/i18n.js';
-import { getResultDensity, densityToggleHtml, bindDensityToggle, compactResultListHtml, bindCompactRows } from '../../ui/compactResultList.js';
+import { getResultDensity, densityToggleHtml, bindDensityToggle, compactResultListHtml, bindCompactRows, restoreCompactScroll } from '../../ui/compactResultList.js';
 import { phoneCollapsibleFilters, refreshPhoneFilterCount } from '../../ui/phoneFilters.js';
 import { formatClockTime } from '../../utils/timeValueUtils.js';
 import { attachScrollHint } from '../shared/scrollHint.js';
@@ -36,11 +36,13 @@ import {
   clubLabel,
   formatStartTimeLabel,
   getMomentHorseLabelStacked,
-  statusClass
+  statusClass,
+  formatObstacleSeconds
 } from './marathonResultFormatters.js';
 import {
   renderTableHead,
-  rowObstacleCells
+  rowObstacleCells,
+  stageLabel
 } from './marathonResultTable.js';
 import { renderMarathonMobileCards } from './marathonResultMobile.js';
 import {
@@ -681,6 +683,13 @@ function renderCompactMobile(cards) {
   const placeMap = buildPlacementsByClass();
   const dash = '<span class="cr-muted">—</span>';
   const activeStages = STAGE_KEYS.filter(stageEnabled);
+  const maxObs = getMaxObstacleNo();
+  const obstaclePlaceMap = buildObstaclePlacementsByClass({
+    equipages: maraton_equipages,
+    marathonMap: maraton_marathonMap,
+    calculateResult: marathonResultFor,
+    timingDocFor
+  });
   const items = [];
   let lastClass = null;
   list.forEach((eq) => {
@@ -703,6 +712,23 @@ function renderCompactMobile(cards) {
     // Stage (time) penalties of the active stages, summed
     const stagePens = activeStages.map(st => res.stages?.[st]?.timePenalty).filter(isNum);
     const stageSum = stagePens.length ? stagePens.reduce((a, b) => a + b, 0) : null;
+    // Part results, as in the landscape table: stage penalties, obstacle times (with place), other penalty
+    const extraCells = {};
+    activeStages.forEach((st) => {
+      const pen = res.stages?.[st]?.timePenalty;
+      extraCells['stage-' + st] = isNum(pen) ? escapeHtml(pen.toFixed(2)) : dash;
+    });
+    for (let n = 1; n <= maxObs; n++) {
+      const obsItem = (res.obstacles?.items || []).find(o => Number(o.number) === n);
+      const timeSec = (obsItem && Number.isFinite(Number(obsItem.timeSec))) ? Number(obsItem.timeSec) : null;
+      if (timeSec === null) { extraCells['obs-' + n] = dash; continue; }
+      const obsPlace = getObstaclePlacement(obstaclePlaceMap, eq, n);
+      extraCells['obs-' + n] = escapeHtml(formatObstacleSeconds(timeSec))
+        + (Number.isFinite(obsPlace) ? ` <span class="cr-muted">(${escapeHtml(String(obsPlace))})</span>` : '');
+    }
+    let otherPen = (res.otherPenalty || 0) + (res.wgPenalty || 0);
+    (res.obstacles?.items || []).forEach(o => { otherPen += Number(o.otherPenalty) || 0; });
+    extraCells.other = otherPen !== 0 ? escapeHtml(otherPen.toFixed(2)) : dash;
     items.push({
       startNumber: sn,
       place: eliminated ? 'ELIM' : (isNum(place) ? place : ''),
@@ -711,7 +737,8 @@ function renderCompactMobile(cards) {
       cells: {
         obstacles: isNum(obstacleSum) ? escapeHtml(obstacleSum.toFixed(2)) : dash,
         stages: stageSum !== null ? escapeHtml(stageSum.toFixed(2)) : dash,
-        total: totalLabel !== null ? `<span class="cr-total" data-total-pen="${escapeHtml(sn)}">${escapeHtml(totalLabel)}</span>` : dash
+        total: totalLabel !== null ? `<span class="cr-total" data-total-pen="${escapeHtml(sn)}">${escapeHtml(totalLabel)}</span>` : dash,
+        ...extraCells
       },
       state: (eliminated || isStruken) ? 'elim' : (isActive ? 'live' : (Number(place) === 1 ? 'leader' : ''))
     });
@@ -720,11 +747,16 @@ function renderCompactMobile(cards) {
     columns: [
       { key: 'obstacles', label: t('compact_col_obstacles') },
       { key: 'stages', label: t('compact_col_stages') },
-      { key: 'total', label: t('compact_col_total') }
+      { key: 'total', label: t('compact_col_total') },
+      ...activeStages.map(st => ({ key: 'stage-' + st, label: stageLabel(st), title: `${t('compact_col_stages')}: ${st === 'transport' ? t('transport') : st}`, extra: true })),
+      ...Array.from({ length: maxObs }, (_, i) => ({ key: 'obs-' + (i + 1), label: 'H' + (i + 1), title: `${t('obstacle_lbl')} ${i + 1} (${t('obstacle_time_seconds')})`, extra: true })),
+      { key: 'other', label: t('compact_col_other'), title: t('penalty_other_short'), extra: true }
     ],
     items,
-    emptyText: t('dressage_no_results') || t('no_results') || 'Inga resultat.'
+    emptyText: t('dressage_no_results') || t('no_results') || 'Inga resultat.',
+    scrollKey: 'maraton-results'
   });
+  restoreCompactScroll(cards);
   bindCompactRows(cards, (sn) => {
     showDetailsModal(sn, maraton_equipages, maraton_marathonMap, { placeMap: buildPlacementsByClass() });
   });

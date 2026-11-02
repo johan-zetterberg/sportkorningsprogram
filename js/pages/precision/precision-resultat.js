@@ -88,7 +88,7 @@ import {
   renderPrecisionFinalizeButtons
 } from './precisionResultFinalize.js';
 import { renderPrecisionResultCard } from './precisionResultMobileCard.js';
-import { bindCompactRows, bindDensityToggle, compactResultListHtml, densityToggleHtml, getResultDensity } from '../../ui/compactResultList.js';
+import { bindCompactRows, bindDensityToggle, compactResultListHtml, densityToggleHtml, getResultDensity, restoreCompactScroll } from '../../ui/compactResultList.js';
 import { phoneCollapsibleFilters } from '../../ui/phoneFilters.js';
 import { renderPrecisionResultDesktopRow } from './precisionResultDesktopRow.js';
 import {
@@ -941,6 +941,7 @@ function renderMobile() {
 
   if (getResultDensity() === 'compact') {
     container.innerHTML = renderCompactPrecisionList(visibleEquipages, placeMap);
+    restoreCompactScroll(container);
     // The card handlers below only bind [data-sn]; compact rows use data-start, so a tap opens once
     bindCompactRows(container, (sn) => openDetails(String(sn)));
     const xbarCompact = document.querySelector('.fixed-xbar');
@@ -984,9 +985,18 @@ function renderMobile() {
   if (xbar) xbar.style.display = 'none';
 }
 
+// The overall standing as the table shows it ("12,00 (3)"), null while not known
+function overallLabelOf(result) {
+  if (!result || result.total == null) return null;
+  if (result.total === Infinity) return 'ELIM';
+  return `${fmt2(result.total)}${result.rank != null ? ` (${result.rank})` : ''}`;
+}
+
 // Phone list, compact: same rows, order and grouping as the cards
 function renderCompactPrecisionList(visibleEquipages, placeMap) {
   const cell = (text) => (text === '—' || text == null || text === '' ? '<span class="cr-muted">—</span>' : escapeHtml(String(text)));
+  const { heads: roundHeads } = precisionRoundHeads();
+  const standings = fieldOverallStandings();
   const rowItem = (eq) => {
     const data = precisionRowData(String(eq.startNumber), placeMap);
     const eliminated = data.d?.eliminated === true;
@@ -1003,7 +1013,17 @@ function renderCompactPrecisionList(visibleEquipages, placeMap) {
       cells: {
         time: cell(isActive ? '••:••,••' : data.display.timeLabel),
         obstacles: cell(fmt2(data.obstaclePenalty)),
-        total: `<span class="cr-total">${cell(eliminated ? 'ELIM' : fmt2(data.totalPenalty))}</span>`
+        total: `<span class="cr-total">${cell(eliminated ? 'ELIM' : fmt2(data.totalPenalty))}</span>`,
+        // The part results the table shows after the main ones, same order
+        knocks: cell(eliminated ? null : data.display.knocksSimple),
+        timePenalty: cell(eliminated ? null : fmt2(data.timePenalty)),
+        otherPenalty: cell(eliminated ? null : fmt2(data.extraPenalty)),
+        ...Object.fromEntries(roundHeads.map(({ round }) => {
+          const rc = formatPrecisionRoundCell(data.rounds?.[round] ?? null);
+          const text = (eliminated || rc.text === '–') ? null : rc.text;
+          return [round, text ? `${escapeHtml(text)}${rc.sub ? `<span class="cr-sub">${escapeHtml(rc.sub)}</span>` : ''}` : undefined];
+        })),
+        overall: cell(eliminated ? null : overallLabelOf(standings.get(String(eq.startNumber))))
       }
     };
   };
@@ -1023,10 +1043,16 @@ function renderCompactPrecisionList(visibleEquipages, placeMap) {
     columns: [
       { key: 'time', label: t('compact_col_time'), title: t('time') },
       { key: 'obstacles', label: t('compact_col_obstacles'), title: t('obs_penalty') },
-      { key: 'total', label: t('compact_col_total'), title: t('total') }
+      { key: 'total', label: t('compact_col_total'), title: t('total') },
+      { key: 'knocks', label: t('compact_col_knockdowns'), title: t('knockdowns'), extra: true },
+      { key: 'timePenalty', label: t('compact_col_time_penalty'), title: t('time_penalty'), extra: true },
+      { key: 'otherPenalty', label: t('compact_col_other_penalty'), title: t('other_penalty_short'), extra: true },
+      ...roundHeads.map(({ round, label }) => ({ key: round, label, title: label, extra: true })),
+      { key: 'overall', label: t('compact_col_overall'), title: t('compact_title_overall'), extra: true }
     ],
     items,
-    emptyText: t('search_no_match')
+    emptyText: t('search_no_match'),
+    scrollKey: 'precision-results'
   });
 }
 

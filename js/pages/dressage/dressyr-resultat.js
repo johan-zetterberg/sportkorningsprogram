@@ -61,7 +61,7 @@ import {
 } from '../../services/competitionStatusService.js';
 
 import { t } from '../../utils/i18n.js';
-import { getResultDensity, densityToggleHtml, bindDensityToggle, compactResultListHtml, bindCompactRows } from '../../ui/compactResultList.js';
+import { getResultDensity, densityToggleHtml, bindDensityToggle, compactResultListHtml, bindCompactRows, restoreCompactScroll } from '../../ui/compactResultList.js';
 import { phoneCollapsibleFilters, refreshPhoneFilterCount } from '../../ui/phoneFilters.js';
 
 import {
@@ -1053,7 +1053,7 @@ function renderMobile(judgesPresent) {
     const structuralHash = [
         'mobile',
         density,
-        density === 'compact' ? rows.map(r => `${r.avgPercent}:${r.finalPenalty}:${r.eliminated}:${dressageProgressState(r.startNumber)}`).join('|') : '',
+        density === 'compact' ? rows.map(r => `${r.startNumber}:${r.avgPercent}:${r.finalPenalty}:${r.eliminated}:${r.errorPoints}:${dressageProgressState(r.startNumber)}:${Object.values(r.judges || {}).map(j => `${j.position}=${j.totalPoints}/${j.eliminated ? 1 : 0}/${j.isLive ? 1 : 0}`).join(',')}`).join('|') + '#' + compactJudgePositions(judgesPresent).join(',') : '',
         rows.length,
         searchQuery,
         Array.from(dressage_activeClassFilters).join('|'),
@@ -1070,7 +1070,7 @@ function renderMobile(judgesPresent) {
         return;
     }
     if (density === 'compact') {
-        renderCompactDressage(container, rows);
+        renderCompactDressage(container, rows, judgesPresent);
         return;
     }
     let html = '';
@@ -1243,8 +1243,16 @@ function openEquipageDetails(sn) {
 }
 
 // Portrait phone, compact density: one table row per equipage (no Lås/Ångra here, they stay in the cards)
-function renderCompactDressage(container, rows) {
+function compactJudgePositions(judgesPresent) {
+    const order = { 'H': 1, 'C': 2, 'M': 3, 'E': 4, 'B': 5 };
+    return [...new Set(
+        (judgesPresent || []).map(j => (j.position || '').toUpperCase()).filter(p => /^[CEBHM]$/.test(p))
+    )].sort((a, b) => (order[a] ?? 99) - (order[b] ?? 99));
+}
+
+function renderCompactDressage(container, rows, judgesPresent) {
     const dash = '<span class="cr-muted">—</span>';
+    const positions = compactJudgePositions(judgesPresent);
     const items = [];
     let lastClass = null;
     rows.forEach((r) => {
@@ -1261,6 +1269,16 @@ function renderCompactDressage(container, rows) {
         if (r.isClearRound) place = r.crApproved ? '✓' : '';
         if (r.eliminated) place = 'ELIM';
         const running = progress === 'running';
+        // Part results as in the landscape table: points per judge position, then errors
+        const extraCells = {};
+        positions.forEach((pos) => {
+            const expected = getDisplayedJudgesForClass(r.className);
+            const match = (expected && !expected.includes(pos)) ? null
+                : Object.values(r.judges || {}).find(j => j.position === pos || expandDressagePosition(j) === pos);
+            const tp = match && !match.eliminated ? Number(match.totalPoints) : NaN;
+            extraCells['judge-' + pos] = !r.eliminated && Number.isFinite(tp) ? escapeHtml(tp.toFixed(1)) : dash;
+        });
+        extraCells.errors = !r.eliminated && r.errorPoints > 0 ? escapeHtml(String(r.errorPoints)) : dash;
         items.push({
             startNumber: r.startNumber,
             place,
@@ -1269,7 +1287,8 @@ function renderCompactDressage(container, rows) {
             sub: [viewMode === 'byclass' ? '' : label, running ? t('status_running') : ''].filter(Boolean).join(' · '),
             cells: {
                 percent: Number.isFinite(pct) ? pct.toFixed(2) : dash,
-                penalty: r.eliminated ? 'ELIM' : (Number.isFinite(pen) ? `<span class="cr-total">${escapeHtml(pen.toFixed(2))}</span>` : dash)
+                penalty: r.eliminated ? 'ELIM' : (Number.isFinite(pen) ? `<span class="cr-total">${escapeHtml(pen.toFixed(2))}</span>` : dash),
+                ...extraCells
             },
             state: r.eliminated ? 'elim' : (running ? 'live' : (Number(r.plac) === 1 && !r.isClearRound ? 'leader' : ''))
         });
@@ -1277,11 +1296,15 @@ function renderCompactDressage(container, rows) {
     container.innerHTML = compactResultListHtml({
         columns: [
             { key: 'percent', label: t('compact_col_percent') },
-            { key: 'penalty', label: t('compact_col_penalty') }
+            { key: 'penalty', label: t('compact_col_penalty') },
+            ...positions.map(pos => ({ key: 'judge-' + pos, label: pos, title: `${t('judge')} ${pos}`, extra: true })),
+            { key: 'errors', label: t('compact_col_errors'), title: t('error_points'), extra: true }
         ],
         items,
-        emptyText: 'Inga ekipage att visa ännu.'
+        emptyText: 'Inga ekipage att visa ännu.',
+        scrollKey: 'dressyr-results'
     });
+    restoreCompactScroll(container);
     // One handler on the container (cards bind per card, so no double open)
     bindCompactRows(container, openEquipageDetails);
 }
