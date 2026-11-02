@@ -1053,7 +1053,7 @@ function renderMobile(judgesPresent) {
     const structuralHash = [
         'mobile',
         density,
-        density === 'compact' ? rows.map(r => `${r.startNumber}:${r.avgPercent}:${r.finalPenalty}:${r.eliminated}:${r.errorPoints}:${dressageProgressState(r.startNumber)}:${Object.values(r.judges || {}).map(j => `${j.position}=${j.totalPoints}/${j.eliminated ? 1 : 0}/${j.isLive ? 1 : 0}`).join(',')}`).join('|') + '#' + compactJudgePositions(judgesPresent).join(',') : '',
+        density !== 'cards' ? rows.map(r => `${r.startNumber}:${r.avgPercent}:${r.finalPenalty}:${r.eliminated}:${r.errorPoints}:${dressageProgressState(r.startNumber)}:${Object.values(r.judges || {}).map(j => `${j.position}=${j.totalPoints}/${j.eliminated ? 1 : 0}/${j.isLive ? 1 : 0}`).join(',')}`).join('|') + '#' + compactJudgePositions(judgesPresent).join(',') : '',
         rows.length,
         searchQuery,
         Array.from(dressage_activeClassFilters).join('|'),
@@ -1069,7 +1069,7 @@ function renderMobile(judgesPresent) {
         container.innerHTML = `<div class="p-6 text-center text-gray-600 dark:text-gray-300">Inga ekipage att visa ännu.</div>`;
         return;
     }
-    if (density === 'compact') {
+    if (density !== 'cards') {
         renderCompactDressage(container, rows, judgesPresent);
         return;
     }

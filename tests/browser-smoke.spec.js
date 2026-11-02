@@ -1021,8 +1021,10 @@ test('result pages show a compact list with folded filters on a phone, and a den
     await expect(page.locator(`#page-${pageKey} .compact-results tr.cr-row`).first()).toBeVisible({ timeout: 60000 });
     // The filters fold behind one button
     await expect(page.locator(`#page-${pageKey} .phone-filter-toggle`)).toBeVisible();
-    // The part results sit to the right: the table scrolls sideways while the
-    // driver column stays put
+    // Compact fits the screen; Full adds the part results to the right: the
+    // table scrolls sideways while the driver column stays put
+    await expect(page.locator(`#page-${pageKey} .cr-scroll`)).toHaveCount(0);
+    await page.locator(`#page-${pageKey} [data-result-density="full"]`).click();
     await expect(page.locator(`#page-${pageKey} .cr-scroll`)).toBeVisible();
     // Measured in one go in the page: a live redraw can replace the table
     // between two calls
@@ -1039,6 +1041,8 @@ test('result pages show a compact list with folded filters on a phone, and a den
     }, pageKey), { message: pageKey }).toBe('ok');
     // The page itself does not get wider than the phone
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), pageKey).toBeLessThanOrEqual(0);
+    await page.locator(`#page-${pageKey} [data-result-density="compact"]`).click();
+    await expect(page.locator(`#page-${pageKey} .cr-scroll`)).toHaveCount(0);
   }
 
   // Total: rows are slim, the filters open, Kort brings the cards back

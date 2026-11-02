@@ -939,7 +939,7 @@ function renderMobile() {
     classStarters.set(cls, (classStarters.get(cls) || 0) + 1);
   });
 
-  if (getResultDensity() === 'compact') {
+  if (getResultDensity() !== 'cards') {
     container.innerHTML = renderCompactPrecisionList(visibleEquipages, placeMap);
     restoreCompactScroll(container);
     // The card handlers below only bind [data-sn]; compact rows use data-start, so a tap opens once

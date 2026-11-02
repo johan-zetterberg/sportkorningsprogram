@@ -767,7 +767,7 @@ function renderCompactMobile(cards) {
 function renderMobile() {
   const cards = document.getElementById('marathonCards');
   if (!cards) return;
-  if (getResultDensity() === 'compact') {
+  if (getResultDensity() !== 'cards') {
     renderCompactMobile(cards);
     return;
   }

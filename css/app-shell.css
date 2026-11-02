@@ -707,10 +707,10 @@ html.dark .compact-results tr.cr-group th {
 html.dark .compact-results .cr-total { color: #93c5fd; }
 .compact-results .cr-muted { color: #9ca3af; }
 
-/* The wide list: the part results come after the main columns, off the screen
-   to the right. Place, number and driver stay put while the table scrolls
-   sideways; the driver column is as wide as leaves room for the main columns,
-   so the first view looks like the narrow list */
+/* The full view: the part results come after the main columns, off the
+   screen to the right. Place, number and the shortened driver name stay put
+   while the table scrolls sideways; the driver column is narrow so most of
+   the screen shows results */
 .cr-scroll-hint {
     margin: 0 0 0.25rem;
     font-size: 0.6875rem;
@@ -723,16 +723,10 @@ html.dark .cr-scroll-hint { color: #9ca3af; }
 .cr-scroll {
     overflow-x: auto;
     overscroll-behavior-x: contain;
-    container-type: inline-size;
     /* Whole pixels: a seam at a fraction of a pixel lets the scrolled cells show through */
     --cr-fixed: 4rem;
     --cr-col: 3.6rem;
-    --cr-main: 3;
 }
-
-.cr-scroll.cr-main-1 { --cr-main: 1; }
-.cr-scroll.cr-main-2 { --cr-main: 2; }
-.cr-scroll.cr-main-4 { --cr-main: 4; }
 
 .compact-results.cr-wide {
     width: max-content;
@@ -772,18 +766,10 @@ html.dark .cr-wide tr.cr-elim { --cr-bg: #41252e; }
 .cr-wide .cr-sn { left: 2rem; width: 2rem; min-width: 2rem; max-width: 2rem; box-sizing: border-box; }
 .cr-wide .cr-name {
     left: var(--cr-fixed);
-    width: 8rem;
-    min-width: 8rem;
-    max-width: 8rem;
+    width: 6.5rem;
+    min-width: 6.5rem;
+    max-width: 6.5rem;
     box-shadow: inset -1px 0 0 #d1d5db;
-}
-
-@supports (width: 1cqw) {
-    .cr-wide .cr-name {
-        width: max(7rem, calc(100cqw - var(--cr-fixed) - var(--cr-main) * var(--cr-col)));
-        min-width: max(7rem, calc(100cqw - var(--cr-fixed) - var(--cr-main) * var(--cr-col)));
-        max-width: max(7rem, calc(100cqw - var(--cr-fixed) - var(--cr-main) * var(--cr-col)));
-    }
 }
 
 .cr-wide thead .cr-place,

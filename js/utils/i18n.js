@@ -349,6 +349,7 @@ export const DICTIONARY = {
     'compact_title_prec_knock': { sv: 'Precision: rivningar', en: 'Cones: knockdowns' },
     'compact_title_prec_time': { sv: 'Precision: tidsstraff', en: 'Cones: time penalty' },
     'compact_title_overall': { sv: 'Totalställning', en: 'Overall standing' },
+    'result_density_full': { sv: 'Full', en: 'Full' },
     'compact_scroll_hint': { sv: 'Dra åt vänster för alla delresultat →', en: 'Swipe left for all part results →' },
     'phone_filters_toggle': { sv: 'Filter', en: 'Filters' },
     'phone_filters_active': { sv: '{n} aktiva', en: '{n} active' },

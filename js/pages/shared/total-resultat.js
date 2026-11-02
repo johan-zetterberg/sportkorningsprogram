@@ -1241,7 +1241,7 @@ function renderMobile() {
   const rows = __latestDisplayedRows || []; // Använd den globalt sparade listan
 
   let html = '';
-  const compact = getResultDensity() === 'compact';
+  const compact = getResultDensity() !== 'cards';
   if (compact) {
     container.innerHTML = renderCompactTotalList(rows);
     restoreCompactScroll(container);

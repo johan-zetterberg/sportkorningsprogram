@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { compactResultListHtml, getResultDensity, setResultDensity } from '../js/ui/compactResultList.js';
+import { compactResultListHtml, getResultDensity, setResultDensity, shortDriverName } from '../js/ui/compactResultList.js';
 
 const columns = [
     { key: 'dressage', label: 'Dr' },
@@ -45,6 +45,8 @@ test('compact result list: the density choice defaults to compact and survives n
         assert.equal(getResultDensity(), 'compact');
         setResultDensity('cards');
         assert.equal(getResultDensity(), 'cards');
+        setResultDensity('full');
+        assert.equal(getResultDensity(), 'full');
         setResultDensity('anything');
         assert.equal(getResultDensity(), 'compact');
         globalThis.localStorage = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
@@ -55,13 +57,34 @@ test('compact result list: the density choice defaults to compact and survives n
     }
 });
 
-test('compact result list: part results scroll sideways next to fixed driver columns', () => {
+test('compact result list: the compact view leaves the part results out', () => {
+    const html = compactResultListHtml({
+        columns: [...columns, { key: 'o1', label: 'H1', extra: true }],
+        items: [{ startNumber: 3, place: 2, name: 'Cia Berg', cells: { dressage: '1', total: '2', o1: '0.00' } }],
+        density: 'compact'
+    });
+    assert.doesNotMatch(html, /cr-scroll|cr-extra|H1/);
+    assert.match(html, />Cia Berg</);
+});
+
+test('compact result list: a driver name shortens to initials and the last name', () => {
+    assert.equal(shortDriverName('Anna Maria Svensson'), 'A. M. Svensson');
+    assert.equal(shortDriverName('  Bo   Ek '), 'B. Ek');
+    assert.equal(shortDriverName('Cher'), 'Cher');
+    assert.equal(shortDriverName('Seeder Kusk 10'), 'S. Kusk 10');
+    assert.equal(shortDriverName('Łukasz Řehoř Őrsi'), 'Ł. Ř. Őrsi');
+    assert.equal(shortDriverName(null), '');
+});
+
+test('compact result list: the full view scrolls the part results sideways next to fixed driver columns', () => {
     const html = compactResultListHtml({
         columns: [...columns, { key: 'o1', label: 'H1', extra: true }, { key: 'o2', label: 'H2', extra: true }],
-        items: [{ startNumber: 3, place: 2, name: 'Cia', cells: { dressage: '1', total: '2', o1: '0.00' } }],
-        scrollKey: 'maraton'
+        items: [{ startNumber: 3, place: 2, name: 'Cia Berg', cells: { dressage: '1', total: '2', o1: '0.00' } }],
+        scrollKey: 'maraton',
+        density: 'full'
     });
-    assert.match(html, /<div class="cr-scroll cr-main-2" data-cr-key="maraton"><table class="compact-results cr-wide">/);
+    assert.match(html, /<div class="cr-scroll" data-cr-key="maraton"><table class="compact-results cr-wide">/);
+    assert.match(html, /<span class="cr-driver" title="Cia Berg">C. Berg<\/span>/);
     assert.match(html, /class="cr-scroll-hint"/);
     assert.equal((html.match(/<th scope="col" class="cr-num cr-extra"/g) || []).length, 2);
     assert.match(html, /<td class="cr-num cr-extra">0.00<\/td><td class="cr-num cr-extra">—<\/td>|<td class="cr-num cr-extra">0.00<\/td>\s*<td class="cr-num cr-extra">—<\/td>/);
