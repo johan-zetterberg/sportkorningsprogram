@@ -990,6 +990,24 @@ test('the bottom bar and the discipline row follow the current discipline @mobil
   await expect(page.locator('#nav-links .dropdown-container[data-discipline="marathon"] .dropdown-menu')).toBeVisible();
 });
 
+test('the new-version notice sits above the bottom bar, so "Ladda om" can be tapped @mobile-only', async ({ page }) => {
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#total-resultat');
+  await expect(page.locator('.app-bottom-nav')).toBeVisible({ timeout: 30000 });
+  // The module is already loaded: importing it again gives the same instance
+  await page.evaluate(async () => {
+    const { noticeBar, fillNotice } = await import('./js/appUpdate.js');
+    fillNotice(noticeBar('appUpdateNotice'), 'Test', () => { window.__noticeTapped = true; });
+  });
+  const button = page.locator('#appUpdateNotice button');
+  await expect(button).toBeVisible();
+  const navTop = await page.locator('.app-bottom-nav').evaluate((el) => el.getBoundingClientRect().top);
+  const box = await button.boundingBox();
+  expect(box.y + box.height).toBeLessThanOrEqual(navTop);
+  await button.tap();
+  expect(await page.evaluate(() => window.__noticeTapped === true)).toBe(true);
+});
+
 test('result pages show a compact list with folded filters on a phone, and a dense table on its side @mobile-only', async ({ page }) => {
   test.setTimeout(300000);
   await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

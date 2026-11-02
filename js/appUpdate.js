@@ -58,18 +58,32 @@ export function busyReasons() {
   return reasons;
 }
 
-function noticeBar(id) {
+// Above the phone's bottom bar (css/app-shell.css .app-bottom-nav, itself
+// above almost everything): under it the buttons could not be tapped
+const NOTICE_Z_INDEX = 2147483200;
+
+/** CSS bottom for a notice: gapPx above the bottom bar when it shows, else above the screen edge */
+function noticeBottom(gapPx) {
+  const nav = document.querySelector('.app-bottom-nav');
+  const rect = nav && getComputedStyle(nav).display !== 'none' ? nav.getBoundingClientRect() : null;
+  const navHeight = rect && rect.height > 0 ? Math.round(rect.height) : 0;
+  return navHeight
+    ? `${navHeight + gapPx}px`
+    : `calc(${gapPx}px + env(safe-area-inset-bottom, 0px))`;
+}
+
+export function noticeBar(id) {
   let bar = document.getElementById(id);
   if (bar) return bar;
   bar = document.createElement('div');
   bar.id = id;
   bar.setAttribute('role', 'status');
-  bar.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);bottom:calc(12px + env(safe-area-inset-bottom, 0px));z-index:10000;max-width:calc(100% - 24px);display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;background:#1e3a5f;color:#fff;font:14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3)';
+  bar.style.cssText = `position:fixed;left:50%;transform:translateX(-50%);bottom:${noticeBottom(12)};z-index:${NOTICE_Z_INDEX};max-width:calc(100% - 24px);display:flex;gap:10px;align-items:center;padding:10px 14px;border-radius:10px;background:#1e3a5f;color:#fff;font:14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3)`;
   document.body.appendChild(bar);
   return bar;
 }
 
-function fillNotice(bar, text, onClick) {
+export function fillNotice(bar, text, onClick) {
   bar.innerHTML = '<span></span>'
     + '<button type="button" style="flex-shrink:0;padding:6px 12px;border-radius:8px;background:#f5c542;color:#1e3a5f;font-weight:700;border:0">Ladda om</button>';
   bar.querySelector('span').textContent = text;
@@ -82,7 +96,7 @@ const PUSH_NOTICE_ID = 'pushNavigateNotice';
 function showPushNavigatePrompt(route) {
   const bar = noticeBar(PUSH_NOTICE_ID);
   bar.setAttribute('role', 'alert');
-  bar.style.bottom = 'calc(70px + env(safe-area-inset-bottom, 0px))';
+  bar.style.bottom = noticeBottom(70);
   const btn = 'flex-shrink:0;padding:6px 12px;border-radius:8px;font-weight:700;border:0;';
   bar.innerHTML = '<span></span>'
     + `<button type="button" data-push="tab" style="${btn}background:#f5c542;color:#1e3a5f">Öppna i ny flik</button>`
