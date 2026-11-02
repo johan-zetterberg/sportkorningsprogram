@@ -129,6 +129,9 @@ function keyFromPlacing(placing) {
  * the qualifiers' keys while the drive-off is pending (owner Q13).
  */
 export function precisionRankKey(result, { requireFinished = false, groupCtx = null, startNumber = null } = {}) {
+    if (result?.precisionFormat === 'arena') {
+        return arenaRankKey(result, { requireFinished, groupCtx, startNumber, competition: groupCtx?.competition ?? 1 });
+    }
     if (!result || result.eliminated || result.isClearRound === true || !isNum(result.totalPenalty)) return null;
     // A precision format the engine does not calculate (time competition,
     // winning round, FEI Young Horse): no placing rather than a wrong one
@@ -157,6 +160,105 @@ export function precisionRankKey(result, { requireFinished = false, groupCtx = n
     }
     if (!groupCtx.driveOffComplete) out = { ...out, provisional: true };
     return out;
+}
+
+// --- Arena driving (precision format 'arena', utils/arenaRules.js) ---
+//
+// A time competition: the score in seconds (time + penalty seconds) decides.
+// FEI World Cup: equal scores share the place (WC 5.13). TR 510.7 is a
+// "tidstävling", where TR 510.4 ranks equal end times by the fastest driven
+// time, so the TR set breaks a tie on the driven time.
+// Drive-off (WC 5.2, 5.3, 8.9): the qualifiers who finish it are placed by
+// it (from zero, or added to the first round), then the qualifiers eliminated
+// or retired in it by their first round, then the rest by their first round.
+
+/** The competition's rounds of an arena result: { first, driveOff, open, timing } */
+function arenaCompetition(result, competition) {
+    const s = result?.arena?.settings || {};
+    const rounds = result?.rounds || {};
+    return competition === 2
+        ? { first: rounds.phase2, driveOff: rounds.driveOff2, open: s.driveOff2 || 'none', timing: s.driveOff2Timing || 'added', tr: s.rules === 'TR' }
+        : { first: rounds.phase1, driveOff: rounds.driveOff, open: s.driveOff1 || 'none', timing: s.driveOff1Timing || 'fromZero', tr: s.rules === 'TR' };
+}
+
+// The first round's key alone, null when it cannot be placed
+function arenaBaseKey(result, competition, requireFinished) {
+    if (!result || result.isClearRound === true) return null;
+    const { first, tr } = arenaCompetition(result, competition);
+    if (!first || first.eliminated || first.out || !isNum(first.score)) return null;
+    if (requireFinished && !first.finished) return null;
+    if (!first.finished && !first.live) return null;
+    const key = { tier: 4, penalty: first.score, timeMs: tr ? rankTimeMs(first.drivenTimeMs) : null };
+    if (!first.finished) key.provisional = true;
+    return key;
+}
+
+/**
+ * Rank key of an arena result in competition 1 or 2. groupCtx (from
+ * precisionGroupContext with the same competition) gives the drive-off
+ * qualifiers; without it, the first round alone.
+ */
+export function arenaRankKey(result, { competition = 1, requireFinished = false, groupCtx = null, startNumber = null } = {}) {
+    const base = arenaBaseKey(result, competition, requireFinished);
+    if (!base) return null;
+    const sn = startNumber ?? result.startNumber;
+    if (!groupCtx || !groupCtx.driveOffNeeded || sn == null || !groupCtx.driveOffQualifiers?.has(String(sn))) return base;
+    const { first, driveOff, timing, tr } = arenaCompetition(result, competition);
+    let out = base;
+    if (driveOff?.finished && isNum(driveOff.score)) {
+        const added = timing === 'added';
+        out = {
+            tier: 0,
+            penalty: added ? first.score + driveOff.score : driveOff.score,
+            timeMs: tr ? rankTimeMs(added ? (first.drivenTimeMs || 0) + (driveOff.drivenTimeMs || 0) : driveOff.drivenTimeMs) : null
+        };
+    } else if (driveOff?.out) {
+        out = { tier: 1, penalty: base.penalty, timeMs: base.timeMs };
+    }
+    if (!groupCtx.driveOffComplete) out = { ...out, provisional: true };
+    return out;
+}
+
+// One placing group's arena context (see precisionGroupContext)
+function arenaGroupCtx(g, entries, competition) {
+    const open = entries.map((e) => arenaCompetition(e.result, competition).open).find((o) => o && o !== 'none') || 'none';
+    const placeable = entries
+        .map((e) => ({ ...e, key: arenaBaseKey(e.result, competition, true) }))
+        .filter((e) => e.key && e.sn);
+    let qualifiers = [];
+    if (open === 'all') {
+        qualifiers = placeable;
+    } else if (open === 'top3') {
+        // The best three; a tie for third place drives too (WC 5.2, 6.3)
+        qualifiers = placeable.filter((e) => placeable.filter((o) => comparePrecisionRank(o.key, e.key) < 0).length < 3);
+    }
+    const qualifierSet = new Set(qualifiers.map((e) => e.sn));
+    const decided = (e) => arenaCompetition(e.result, competition).driveOff?.decided === true;
+    const driveOffNeeded = open !== 'none' && qualifiers.length > 0;
+    const driveOffComplete = driveOffNeeded && qualifiers.every(decided);
+    const warnings = [];
+    for (const e of entries) {
+        if (!qualifierSet.has(e.sn) && arenaCompetition(e.result, competition).driveOff?.hasData) {
+            warnings.push({ startNumber: e.sn, code: 'driveOffIgnored' });
+        }
+    }
+    // Drive-off start order: reverse order of merit, the leader last (WC 6.3)
+    // (an equal score by start number)
+    const reverseMerit = qualifiers.slice().sort((a, b) => comparePrecisionRank(b.key, a.key)
+        || (Number(a.sn) || 0) - (Number(b.sn) || 0));
+    return {
+        key: g,
+        competition,
+        arena: true,
+        driveOffScheduled: open !== 'none',
+        driveOffOpen: open,
+        driveOffQualifiers: qualifierSet,
+        qualifierStartNumbers: reverseMerit.map((e) => e.sn),
+        driveOffNeeded,
+        driveOffComplete,
+        driveOffPending: driveOffNeeded && !driveOffComplete,
+        warnings
+    };
 }
 
 // Drive-off qualifiers compare on tier and penalty only (FEI 971.1.2
@@ -191,7 +293,9 @@ function compareTierPenalty(a, b) {
  */
 export function precisionGroupContext(rows = [], resultOf = (row) => row, groupOf = () => '', {
     requireFinished = false,
-    startNumberOf = (row) => row?.startNumber
+    startNumberOf = (row) => row?.startNumber,
+    // Arena classes: which competition (1 | 2) to place; others ignore it
+    competition = 1
 } = {}) {
     const results = new Map();
     const groups = new Map();
@@ -212,6 +316,12 @@ export function precisionGroupContext(rows = [], resultOf = (row) => row, groupO
             const sn = String(startNumberOf(row) ?? result?.startNumber ?? '');
             return { row, sn, result, key: precisionRankKey(result, { requireFinished }) };
         });
+        if (entries.some((e) => e.result?.precisionFormat === 'arena')) {
+            const ctx = arenaGroupCtx(g, entries, competition === 2 ? 2 : 1);
+            contexts.set(g, ctx);
+            allWarnings.push(...ctx.warnings.map((w) => ({ ...w, group: g })));
+            continue;
+        }
         const scheduled = entries.some((e) => e.result?.driveOffScheduled === true);
         const placeable = entries.filter((e) => e.key && e.sn);
         let qualifiers = [];
@@ -325,4 +435,35 @@ export function assignPlaces(rows = [], { key, compare, group = () => '', outFie
         for (const row of rows) row[outField] = placeOf.get(row);
     }
     return { ranked, placeOf };
+}
+
+/**
+ * Arena driving with two competitions: the start order of competition 2 per
+ * placing group, "the reverse order of merits from Competition 1" (FEI WC
+ * 5.14), and those without a place in competition 1 (eliminated, retired,
+ * not started) "in the first positions" (5.15), by start number.
+ *
+ * @returns {Map<string, string[]>} group key -> start numbers in order
+ */
+export function arenaCompetition2StartOrder(rows = [], resultOf = (row) => row, groupOf = () => '', {
+    startNumberOf: snOf = (row) => row?.startNumber
+} = {}) {
+    const ctx = precisionGroupContext(rows, resultOf, groupOf, { requireFinished: true, startNumberOf: snOf, competition: 1 });
+    const keyOf = (row) => ctx.rankKey(row);
+    const { placeOf } = assignPlaces(rows, { key: keyOf, compare: comparePrecisionRank, group: groupOf, outField: null });
+    const order = new Map();
+    const bySn = (a, b) => (Number(snOf(a)) || 0) - (Number(snOf(b)) || 0) || String(snOf(a)).localeCompare(String(snOf(b)));
+    const groups = new Map();
+    for (const row of rows) {
+        const g = String(groupOf(row) ?? '');
+        if (!groups.has(g)) groups.set(g, []);
+        groups.get(g).push(row);
+    }
+    for (const [g, groupRows] of groups) {
+        const unplaced = groupRows.filter((r) => placeOf.get(r) == null).sort(bySn);
+        const placed = groupRows.filter((r) => placeOf.get(r) != null)
+            .sort((a, b) => placeOf.get(b) - placeOf.get(a) || bySn(a, b));
+        order.set(g, [...unplaced, ...placed].map((r) => String(snOf(r))));
+    }
+    return order;
 }

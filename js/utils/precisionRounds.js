@@ -8,6 +8,7 @@
 // keep importing them from the Firebase SDK and tests can pass fakes.
 
 import { PRECISION_ROUNDS } from './precisionCalculation.js';
+import { arenaRoundsOf, normalizeArenaSettings } from './arenaRules.js';
 
 export { PRECISION_ROUNDS };
 
@@ -17,7 +18,7 @@ export const PRECISION_ROUND_FIELDS = Object.freeze([
     'knocks', 'knocksVersion', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired',
     'timePenalty', 'timePenaltyOverride', 'obstaclePenalty', 'totalPenalty',
     'liveObstaclePenalty', 'liveTimePenalty', 'liveTotalPenalty', 'status', 'comment',
-    'finalized', 'updatedAt'
+    'finalized', 'updatedAt', 'arenaIncidents'
 ]);
 
 /** A known round key, else 'phase1' */
@@ -26,7 +27,9 @@ export function normalizePrecisionRound(round) {
 }
 
 /** The rounds a class drives: ['phase1'], plus 'phase2' (two phases) and/or 'driveOff' (scheduled) */
-export function precisionRoundsForFormat(format, { driveOffScheduled = false } = {}) {
+export function precisionRoundsForFormat(format, { driveOffScheduled = false, arenaSettings = null } = {}) {
+    // Arena driving: Competition 1, Drive-Off 1, Competition 2, Drive-Off 2 as set
+    if (format === 'arena') return arenaRoundsOf(arenaSettings || normalizeArenaSettings());
     const list = ['phase1'];
     if (format === 'twoPhase') list.push('phase2');
     if (format === 'driveOff' || driveOffScheduled) list.push('driveOff');
@@ -52,7 +55,8 @@ export function isAnyPrecisionRoundRunning(doc) {
     if (!doc) return false;
     return doc.running === true
         || doc.rounds?.phase2?.running === true
-        || doc.rounds?.driveOff?.running === true;
+        || doc.rounds?.driveOff?.running === true
+        || doc.rounds?.driveOff2?.running === true;
 }
 
 /**

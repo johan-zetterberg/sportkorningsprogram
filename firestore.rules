@@ -634,7 +634,7 @@ service cloud.firestore {
       let rounds = d.get('rounds', {});
       let before = resource == null ? {} : resource.data.get('rounds', {});
       return rounds is map && before is map
-        && (!rounds.diff(before).affectedKeys().hasAny(['phase2', 'driveOff'])
+        && (!rounds.diff(before).affectedKeys().hasAny(['phase2', 'driveOff', 'driveOff2'])
           || (rounds.diff(before).affectedKeys().hasOnly(['phase2'])
             && rounds.phase2 is map
             // Only an unused phase 2 is started: a finish queued offline that
@@ -643,7 +643,7 @@ service cloud.firestore {
             && isUnusedPrecisionRound(before.get('phase2', {}))
             && rounds.phase2.diff(before.get('phase2', {})).affectedKeys()
               .hasOnly(['running', 'inProgress', 'liveStartEpoch', 'livePausedMs', 'liveTimeMs', 'status', 'updatedAt'])))
-        && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff']);
+        && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff', 'driveOff2']);
     }
 
     function isPrecisionTopLevelWrite(d) {
@@ -654,13 +654,14 @@ service cloud.firestore {
           'eliminated', 'disqualified', 'running', 'inProgress', 'finalized', 'status', 'comment',
           'knocks', 'knocksVersion', 'knockDownTimes', 'timePenaltyOverride', 'rebuildCount', 'gateSplits',
           'prioritized', 'finalizedAt', 'finalizedBy', 'unfinalizedAt', 'unfinalizedBy', 'updatedAt',
-          'rounds', 'activeRound'])
+          'rounds', 'activeRound', 'arenaIncidents'])
         && optNumber(d, 'timeMs') && optNumber(d, 'liveTimeMs') && optNumber(d, 'livePausedMs')
         && optNumber(d, 'obstaclePenalty') && optNumber(d, 'timePenalty') && optNumber(d, 'extraPenalty')
         && optNumber(d, 'totalPenalty') && optNumber(d, 'liveTotalPenalty') && optNumber(d, 'rebuildCount')
         && optString(d, 'comment', 1000) && optString(d, 'status', 100)
         && optString(d, 'className', 200) && optString(d, 'driverName', 200)
-        && optList(d, 'knocks', 100) && optMap(d, 'knockDownTimes', 100) && optMap(d, 'gateSplits', 120);
+        && optList(d, 'knocks', 100) && optMap(d, 'knockDownTimes', 100) && optMap(d, 'gateSplits', 120)
+        && optMap(d, 'arenaIncidents', 10);
     }
 
     // rounds.phase2 and rounds.driveOff, the same fields as the top level
@@ -668,12 +669,13 @@ service cloud.firestore {
     function isPrecisionRoundsWrite(d) {
       let rounds = d.get('rounds', {});
       let before = resource == null ? {} : resource.data.get('rounds', {});
-      let changed = rounds is map && before is map ? rounds.diff(before).affectedKeys() : ['phase2', 'driveOff'];
+      let changed = rounds is map && before is map ? rounds.diff(before).affectedKeys() : ['phase2', 'driveOff', 'driveOff2'];
       return rounds is map
-        && rounds.keys().hasOnly(['phase2', 'driveOff'])
+        && rounds.keys().hasOnly(['phase2', 'driveOff', 'driveOff2'])
         && (!changed.hasAny(['phase2']) || optPrecisionRound(rounds, 'phase2'))
         && (!changed.hasAny(['driveOff']) || optPrecisionRound(rounds, 'driveOff'))
-        && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff']);
+        && (!changed.hasAny(['driveOff2']) || optPrecisionRound(rounds, 'driveOff2'))
+        && (d.get('activeRound', null) == null || d.activeRound in ['phase1', 'phase2', 'driveOff', 'driveOff2']);
     }
 
     function optPrecisionRound(rounds, key) {
@@ -682,10 +684,11 @@ service cloud.firestore {
         && r.keys().hasOnly(['timeMs', 'liveTimeMs', 'liveStartEpoch', 'livePausedMs', 'running', 'inProgress',
             'knocks', 'knocksVersion', 'knockDownTimes', 'rebuildCount', 'extraPenalty', 'eliminated', 'retired', 'timePenalty',
             'timePenaltyOverride', 'obstaclePenalty', 'totalPenalty', 'liveObstaclePenalty', 'liveTimePenalty',
-            'liveTotalPenalty', 'status', 'comment', 'finalized', 'updatedAt'])
+            'liveTotalPenalty', 'status', 'comment', 'finalized', 'updatedAt', 'arenaIncidents'])
         && optNumber(r, 'timeMs') && optNumber(r, 'liveTimeMs') && optNumber(r, 'extraPenalty')
         && optList(r, 'knocks', 100) && optMap(r, 'knockDownTimes', 100)
-        && optString(r, 'comment', 1000) && optString(r, 'status', 100));
+        && optString(r, 'comment', 1000) && optString(r, 'status', 100)
+        && optMap(r, 'arenaIncidents', 10));
     }
 
     // dressage/{startNo}/protocols/{judge_<id> | general} (dressageService)

@@ -12,7 +12,8 @@ export const syncTargets = [
     ['js/core-engine', 'functions/src/core-engine'],
     ['js/data/dressagePrograms.js', 'functions/src/data/dressagePrograms.js'],
     ['js/data/competitionData.js', 'functions/src/data/competitionData.js'],
-    ['js/utils/precisionCalculation.js', 'functions/src/utils/precisionCalculation.js']
+    ['js/utils/precisionCalculation.js', 'functions/src/utils/precisionCalculation.js'],
+    ['js/utils/arenaRules.js', 'functions/src/utils/arenaRules.js']
 ];
 
 function copyFolderSync(from, to) {
