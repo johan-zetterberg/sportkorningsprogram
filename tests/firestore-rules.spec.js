@@ -1777,6 +1777,25 @@ test('precision results take the fields the app writes, nothing else and nothing
   await assertFails(setDoc(doc(db, compPath('precision/102')), { startNumber: 102, html: '<img src=x onerror=alert(1)>' }));
 });
 
+test('arena driving: incidents per round and Drive-Off 2 are allowed, with limits', { skip: !HAS_EMULATOR }, async () => {
+  await seedCompetitionRole('prec-arena-1', 'precision');
+  const db = officialDb('prec-arena-1');
+  const ref = doc(db, compPath(`precision/${START_NO}`));
+  // Competition 1: repeated knocks on one obstacle ("5", "5#2") and incidents
+  await assertSucceeds(setDoc(ref, { startNumber: 101, className: 'Fyrspann', knocks: arrayUnion('5'), updatedAt: Date.now() }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { knocks: arrayUnion('5#2'), arenaIncidents: { groomDismount: 1, wrongCourse: 0 } }, { merge: true }));
+  // Competition 2 and Drive-Off 2 (rounds-only writes)
+  await assertSucceeds(setDoc(ref, { activeRound: 'driveOff2', rounds: { driveOff2: { running: true, inProgress: true, liveStartEpoch: Date.now(), livePausedMs: 0 } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { rounds: { driveOff2: { knocks: arrayUnion('H1'), arenaIncidents: { whipChange: 1 }, running: false, timeMs: 45000, status: 'Klar' } } }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { rounds: { phase2: { arenaIncidents: { groomReins: 1 } } } }, { merge: true }));
+
+  await assertFails(setDoc(ref, { arenaIncidents: 'x' }, { merge: true }));
+  await assertFails(setDoc(ref, { arenaIncidents: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, 1])) }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { driveOff2: { arenaIncidents: 'x' } } }, { merge: true }));
+  await assertFails(setDoc(ref, { rounds: { driveOff3: { timeMs: 1 } } }, { merge: true }));
+  await assertFails(setDoc(ref, { activeRound: 'driveOff3' }, { merge: true }));
+});
+
 test('precision rounds (two phases, drive-off) take the round fields only', { skip: !HAS_EMULATOR }, async () => {
   await seedCompetitionRole('prec-rounds-1', 'precision');
   const db = officialDb('prec-rounds-1');
