@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { calculatePrecisionRoundResult, getArenaSettings } from '../js/utils/precisionCalculation.js';
 import {
+  arenaGroomEliminates,
+  arenaIncidentRows,
+  arenaObstacleList,
+  arenaPenaltyView,
   buildPrecisionSavePayload,
   checkPrecisionClock,
   clockFaultMessage,
@@ -185,4 +190,70 @@ test('secretariat knock field: typed list to sorted unique labels and back', () 
 test('finalize payload drops the knock list', () => {
   const payload = buildPrecisionFinalizePayload({ totalPenalty: 5, knocks: ['1'], knockDownTimes: { 1: 3 } });
   assert.deepEqual(payload, { prioritized: true, totalPenalty: 5, finalized: true });
+});
+
+// ---------- Arena driving ----------
+
+const ARENA_CLASS = 'Fyrspann Arena';
+const arenaConfig = { courses: { [ARENA_CLASS]: { format: 'arena', arena: { rules: 'FEI', competitions: 2, obstacles: [{ label: '1', type: 'cone' }, { label: 'M1', type: 'marathon' }] } } } };
+const arenaEq = { startNumber: 7, className: ARENA_CLASS };
+const arenaCalc = (round) => (data) => calculatePrecisionRoundResult(data, arenaEq, arenaConfig, round);
+
+test('arena: obstacle buttons come from the class, else the course labels as cones', () => {
+  const settings = getArenaSettings(ARENA_CLASS, arenaConfig);
+  assert.deepEqual(arenaObstacleList(settings, ['9']), [{ label: '1', type: 'cone' }, { label: 'M1', type: 'marathon' }]);
+  assert.deepEqual(arenaObstacleList({ obstacles: [] }, ['3', 4]), [{ label: '3', type: 'cone' }, { label: '4', type: 'cone' }]);
+  assert.deepEqual(arenaObstacleList(null, undefined), []);
+});
+
+test('arena: the incident rows carry the class seconds and the groom elimination', () => {
+  const settings = getArenaSettings(ARENA_CLASS, arenaConfig);
+  const rows = arenaIncidentRows(settings, { groomDismount: 2, wrongCourse: 1 });
+  assert.deepEqual(rows.map((r) => r.key), ['groomDismount', 'groomReins', 'wrongCourse', 'wrongGateCones', 'whipChange', 'beforeBell']);
+  assert.deepEqual(rows.find((r) => r.key === 'wrongCourse'), { key: 'wrongCourse', sec: 20, count: 1 });
+  assert.equal(rows.find((r) => r.key === 'groomReins').count, 0);
+  assert.equal(arenaGroomEliminates({ groomDismount: 2 }), false);
+  assert.equal(arenaGroomEliminates({ groomDismount: 3 }), true);
+});
+
+test('arena: the live view shows driven time, penalty seconds (knocks, incidents, rebuilds) and the score', () => {
+  const calc = calculatePrecisionRoundResult({
+    running: true, liveTimeMs: 60000, knocks: ['1', '1#2'], rebuildCount: 1, extraPenalty: 3, arenaIncidents: { groomReins: 1 }
+  }, arenaEq, arenaConfig, 'phase1');
+  const view = arenaPenaltyView(calc);
+  // 2 knocks x 4 s + reins 20 s + rebuild 10 s = 38 s, + 3 s extra
+  assert.deepEqual(view, { drivenSec: 60, penaltySec: 38, extraSec: 3, totalPenaltySec: 41, score: 101 });
+  assert.equal(arenaPenaltyView(null).score, null);
+});
+
+test('arena: a save writes the score in seconds for every round, nothing without a time', () => {
+  for (const round of ['phase1', 'driveOff', 'phase2', 'driveOff2']) {
+    const stored = round === 'phase1'
+      ? { knocks: ['1', '1#2'], rebuildCount: 1, arenaIncidents: { wrongCourse: 1 } }
+      : { rounds: { [round]: { knocks: ['1', '1#2'], rebuildCount: 1, arenaIncidents: { wrongCourse: 1 } } } };
+    const { payload } = buildPrecisionSavePayload({ round, stored, timeMs: 50000, startNumber: 7, className: ARENA_CLASS, calculate: arenaCalc(round) });
+    const fields = round === 'phase1' ? payload : payload.rounds[round];
+    // 50 s + 10 s rebuild + 2 x 4 s + 20 s
+    assert.equal(fields.totalPenalty, 88, round);
+    assert.equal(fields.status, 'Klar', round);
+    assert.equal(fields.timePenalty, 0, round);
+  }
+  const noTime = buildPrecisionSavePayload({ round: 'driveOff', stored: {}, timeMs: 0, startNumber: 7, className: ARENA_CLASS, calculate: arenaCalc('driveOff') });
+  assert.equal(noTime.payload.rounds.driveOff.totalPenalty, null);
+  assert.equal(noTime.payload.rounds.driveOff.status, 'Ej startat');
+});
+
+test('arena: the third groom dismount saves the round as eliminated', () => {
+  for (const round of ['phase1', 'phase2']) {
+    const incidents = { groomDismount: 3 };
+    const stored = round === 'phase1' ? { arenaIncidents: incidents } : { rounds: { [round]: { arenaIncidents: incidents } } };
+    const { payload } = buildPrecisionSavePayload({ round, stored, timeMs: 50000, startNumber: 7, className: ARENA_CLASS, calculate: arenaCalc(round) });
+    const fields = round === 'phase1' ? payload : payload.rounds[round];
+    assert.equal(fields.status, 'Utesluten', round);
+    assert.equal(fields.totalPenalty, null, round);
+  }
+  // Two dismounts cost 5 s each, not an elimination
+  const two = buildPrecisionSavePayload({ stored: { arenaIncidents: { groomDismount: 2 } }, timeMs: 50000, startNumber: 7, className: ARENA_CLASS, calculate: arenaCalc('phase1') });
+  assert.equal(two.payload.status, 'Klar');
+  assert.equal(two.payload.totalPenalty, 60);
 });

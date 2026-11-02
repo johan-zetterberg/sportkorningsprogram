@@ -6,7 +6,15 @@ import { PRECISION_ROUNDS, readPrecisionRound } from '../../utils/precisionRound
 import { buildPrecisionMergeState, resolvePrecisionMergeGrouping } from './precisionResultMerge.js';
 
 /** i18n key of a round's tab label ("Fas 1" / "GrundomgÃ¥ng" for the first round of a drive-off class) */
-export function precisionRoundLabelKey(round, format) {
+export function precisionRoundLabelKey(round, format, { competitions = 1 } = {}) {
+    // Arena driving: Competition 1 / Drive-Off 1 / Competition 2 / Drive-Off 2 (one competition: Initial round / Drive-off)
+    if (format === 'arena') {
+        const two = competitions === 2;
+        if (round === 'phase2') return 'arena_input_round_c2';
+        if (round === 'driveOff2') return 'arena_input_round_do2';
+        if (round === 'driveOff') return two ? 'arena_input_round_do1' : 'arena_input_round_do';
+        return two ? 'arena_input_round_c1' : 'arena_input_round_base';
+    }
     if (round === 'phase2') return 'precision_round_phase2';
     if (round === 'driveOff') return 'precision_round_driveoff';
     return format === 'driveOff' ? 'precision_round_initial' : 'precision_round_phase1';
@@ -19,14 +27,17 @@ export function precisionRoundLabelKey(round, format) {
  * it is a later round (a reload mid-round must not open phase 1), else the current one when the
  * class has it, else phase 1.
  */
-export function pickPrecisionRound(doc, rounds = ['phase1'], current = 'phase1') {
+export function pickPrecisionRound(doc, rounds = ['phase1'], current = 'phase1', { keepCurrent = false } = {}) {
     const list = rounds.filter((r) => PRECISION_ROUNDS.includes(r));
-    for (const r of ['driveOff', 'phase2', 'phase1']) {
+    for (const r of ['driveOff2', 'driveOff', 'phase2', 'phase1']) {
         if (list.includes(r) && readPrecisionRound(doc, r).running === true) return r;
     }
-    for (const r of ['driveOff', 'phase2', 'phase1']) {
+    for (const r of ['driveOff2', 'driveOff', 'phase2', 'phase1']) {
         if (list.includes(r) && readPrecisionRound(doc, r).inProgress === true) return r;
     }
+    // Arena: every round is its own competition round, so the judge's round stays
+    // (the doc's activeRound only says what was driven last)
+    if (keepCurrent && list.includes(current)) return current;
     // activeRound 'phase1' (or none) keeps the current round: a drive-off
     // qualifier not yet started stays in the drive-off the judge works in
     if (doc?.activeRound !== 'phase1' && list.includes(doc?.activeRound)) return doc.activeRound;
@@ -40,7 +51,9 @@ export function pickPrecisionRound(doc, rounds = ['phase1'], current = 'phase1')
  * judge goes through the qualifiers). pickPrecisionRound then follows the
  * doc (running / unsaved round, activeRound).
  */
-export function roundOnSelect(current, rounds = ['phase1'], { isDriveOffQualifier = false } = {}) {
+export function roundOnSelect(current, rounds = ['phase1'], { isDriveOffQualifier = false, keepRound = false } = {}) {
+    // Arena: the judge goes through the equipages in the round shown
+    if (keepRound && rounds.includes(current)) return current;
     if (current === 'driveOff' && rounds.includes('driveOff') && isDriveOffQualifier) return 'driveOff';
     return 'phase1';
 }

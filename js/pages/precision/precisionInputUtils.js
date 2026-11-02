@@ -3,6 +3,7 @@
 
 import { nestPrecisionRoundPayload, normalizePrecisionRound, readPrecisionRound } from '../../utils/precisionRounds.js';
 import { precisionRoundHasData } from '../../utils/precisionCalculation.js';
+import { ARENA_INCIDENTS, ARENA_INCIDENT_KEYS, ARENA_GROOM_DISMOUNT_ELIMINATES_AT } from '../../utils/arenaRules.js';
 
 // Clock skew allowed between devices before a start "in the future" is refused
 export const CLOCK_FUTURE_TOLERANCE_MS = 10000;
@@ -83,8 +84,14 @@ export function buildPrecisionSavePayload({
         knocks,
         rebuildCount: storedRebuildCount(roundStored),
         extraPenalty,
-        eliminated
+        eliminated,
+        // Arena: the stored incidents are part of the score (and the 3rd groom dismount eliminates)
+        ...(roundStored?.arenaIncidents ? { arenaIncidents: roundStored.arenaIncidents } : {})
     }) || {};
+    // Arena rounds score in seconds: the total is the score (none without a time),
+    // and a round eliminated by its incidents is saved as eliminated
+    const arena = calc.arenaIncidents !== undefined;
+    const isEliminated = eliminated || (arena && calc.eliminated === true);
     // Shown live, never stored as obstaclePenalty: the result engine counts the
     // stored knock list, which another device may still add to (a queued save
     // could not correct a stored count afterwards)
@@ -93,8 +100,11 @@ export function buildPrecisionSavePayload({
     // penalty and no total: saved empty, not as 0, and never as 'Klar'
     const timePenalty = calc.configMissing ? null : (calc.timePenalty ?? 0);
     // Eliminated: no total (a 0 would be read back as a result once finalized)
-    const totalPenalty = (calc.configMissing || eliminated) ? null : (calc.totalPenalty ?? 0);
+    const totalPenalty = (calc.configMissing || isEliminated) ? null
+        : (arena ? (Number.isFinite(calc.totalPenalty) ? calc.totalPenalty : null) : (calc.totalPenalty ?? 0));
     const hasAnyData = eliminated || safeTime > 0 || knocks.length > 0 || extraPenalty > 0 || String(comment).length > 0;
+    // Arena: knocks or incidents without a time are no result (as the engine: not started)
+    const hasResult = arena ? (isEliminated || safeTime > 0) : hasAnyData;
 
     const payload = {
         startNumber,
@@ -113,7 +123,7 @@ export function buildPrecisionSavePayload({
         liveTotalPenalty: totalPenalty,
         eliminated,
         comment,
-        status: eliminated ? 'Utesluten' : (calc.configMissing ? 'Pågår' : (hasAnyData ? 'Klar' : notStartedLabel)),
+        status: isEliminated ? 'Utesluten' : (calc.configMissing ? 'Pågår' : (hasResult ? 'Klar' : notStartedLabel)),
         updatedAt: now
     };
     if (r === 'phase1') return { payload, calc, knocks };
@@ -304,6 +314,53 @@ export function clockFaultMessage(reason) {
         case 'too-long': return 'Klockan har gått orimligt länge – stoppa och ange tiden manuellt.';
         default: return '';
     }
+}
+
+// ---------- Arena driving (arenaRules.js) ----------
+
+/** The obstacle buttons of an arena class: the class's arena obstacles, else the course's labels as cones */
+export function arenaObstacleList(settings, fallbackLabels = []) {
+    const own = Array.isArray(settings?.obstacles) ? settings.obstacles : [];
+    if (own.length > 0) return own.map((o) => ({ label: String(o.label), type: o.type || 'cone' }));
+    return (Array.isArray(fallbackLabels) ? fallbackLabels : []).map((label) => ({ label: String(label), type: 'cone' }));
+}
+
+/**
+ * The seconds an arena round shows (calc from calculatePrecisionRoundResult):
+ * drivenSec the driven time, penaltySec knocks + incidents + rebuilds (+10 s
+ * each), extraSec the typed extra seconds, totalPenaltySec all three penalty
+ * parts, score the result (driven time + penalties; null without a time).
+ */
+export function arenaPenaltyView(calc) {
+    const num = (v) => (Number.isFinite(v) ? v : 0);
+    const round2 = (v) => Math.round(v * 100) / 100;
+    const extra = num(calc?.extraPenalty);
+    const rebuildSec = num(calc?.addedTimeMs) / 1000;
+    const base = num(calc?.penaltySec);
+    return {
+        drivenSec: round2(num(calc?.drivenTimeMs) / 1000),
+        penaltySec: round2(base - extra + rebuildSec),
+        extraSec: round2(extra),
+        totalPenaltySec: round2(base + rebuildSec),
+        score: Number.isFinite(calc?.score) ? calc.score : null
+    };
+}
+
+/** One row per incident: { key, sec, count } with the class's seconds (settings.incidentSec) */
+export function arenaIncidentRows(settings, counts) {
+    return ARENA_INCIDENT_KEYS.map((key) => {
+        const sec = Number(settings?.incidentSec?.[key]);
+        return {
+            key,
+            sec: Number.isFinite(sec) ? sec : ARENA_INCIDENTS[key].sec,
+            count: Math.max(0, Math.floor(Number(counts?.[key]) || 0))
+        };
+    });
+}
+
+/** Whether the groom dismounts have reached the number that eliminates (FEI WC 8.2) */
+export function arenaGroomEliminates(counts) {
+    return Number(counts?.groomDismount) >= ARENA_GROOM_DISMOUNT_ELIMINATES_AT;
 }
 
 /**

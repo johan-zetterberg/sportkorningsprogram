@@ -133,3 +133,26 @@ test('drive-off qualifiers are drawn across a merged placing group', () => {
   assert.deepEqual(driveOffStartList(rows, merged.groups).map((e) => e.startNumber), [21, 22]);
   assert.equal(merged.pending, true);
 });
+
+test('arena rounds: labels follow the number of competitions, the round of the judge stays', () => {
+  assert.equal(precisionRoundLabelKey('phase1', 'arena'), 'arena_input_round_base');
+  assert.equal(precisionRoundLabelKey('driveOff', 'arena'), 'arena_input_round_do');
+  assert.equal(precisionRoundLabelKey('phase1', 'arena', { competitions: 2 }), 'arena_input_round_c1');
+  assert.equal(precisionRoundLabelKey('driveOff', 'arena', { competitions: 2 }), 'arena_input_round_do1');
+  assert.equal(precisionRoundLabelKey('phase2', 'arena', { competitions: 2 }), 'arena_input_round_c2');
+  assert.equal(precisionRoundLabelKey('driveOff2', 'arena', { competitions: 2 }), 'arena_input_round_do2');
+
+  const rounds = ['phase1', 'driveOff', 'phase2', 'driveOff2'];
+  // A running round wins, the latest first
+  assert.equal(pickPrecisionRound({ rounds: { driveOff2: { running: true } } }, rounds, 'phase1', { keepCurrent: true }), 'driveOff2');
+  assert.equal(pickPrecisionRound({ rounds: { driveOff2: { inProgress: true } } }, rounds, 'phase1', { keepCurrent: true }), 'driveOff2');
+  // Otherwise the round the judge is in (activeRound only says what was driven last)
+  assert.equal(pickPrecisionRound({ activeRound: 'driveOff' }, rounds, 'phase2', { keepCurrent: true }), 'phase2');
+  assert.equal(pickPrecisionRound({ activeRound: 'driveOff' }, rounds, 'phase2'), 'driveOff');
+  // A round the class does not drive is never picked
+  assert.equal(pickPrecisionRound({ rounds: { driveOff2: { running: true } } }, ['phase1', 'driveOff'], 'phase1', { keepCurrent: true }), 'phase1');
+
+  assert.equal(roundOnSelect('phase2', rounds, { keepRound: true }), 'phase2');
+  assert.equal(roundOnSelect('driveOff2', ['phase1', 'driveOff'], { keepRound: true }), 'phase1');
+  assert.equal(roundOnSelect('phase2', rounds), 'phase1');
+});

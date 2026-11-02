@@ -6,7 +6,7 @@
 // the notices and per-row reasons.
 
 import { getClassCourse, getClassSettings, limitsFor } from '../core-engine/marathon.js';
-import { computeMaxSecondsForClass } from '../utils/precisionCalculation.js';
+import { computeMaxSecondsForClass, getPrecisionFormat } from '../utils/precisionCalculation.js';
 import { escapeHtml } from '../utils/sharedUtils.js';
 import { precisionRoundSettingsIssues } from '../pages/precision/precisionRoundsDisplay.js';
 
@@ -75,6 +75,8 @@ export function precisionSettingsIssues(equipages = [], precisionConfig = null, 
     (equipages || []).filter(isActive).forEach((eq) => {
         const className = classOf(eq);
         if (!className) return;
+        // Arena driving has no max time (no length or tempo needed)
+        if (getPrecisionFormat(eq, precisionConfig) === 'arena') return;
         const maxSec = computeMaxSecondsForClass(eq, precisionConfig);
         if (!(Number(maxSec) > 0)) addIssue(issues, className, 'maxtid saknas (banlängd och tempo)');
     });

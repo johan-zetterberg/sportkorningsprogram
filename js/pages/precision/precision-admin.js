@@ -13,6 +13,7 @@ import { precisionCourseWarnings, precisionRoundSettingsIssues } from './precisi
 import { PRECISION_TIME_PENALTY_RATE } from '../../core-engine/rules-ledger.js';
 import { generatePrecisionCourseSetupPdf } from '../../pdf/precisionPdf.js';
 import { precisionSettingsIssues } from '../../ui/resultSettingsNotice.js';
+import { handleArenaClick, readArenaForm, renderArenaSection, updateArenaSection } from './precisionArenaAdmin.js';
 import {
     hasPrecisionValidationErrors,
     parsePrecisionObstacleLabels,
@@ -486,6 +487,7 @@ function precisionFormatNoteText(formatKey) {
     }
     if (formatKey === 'twoPhase') return t('precision_format_note_twophase');
     if (formatKey === 'driveOff') return t('precision_format_note_driveoff');
+    if (formatKey === 'arena') return t('arena_admin_format_note');
     return 'Straff, sedan tid (TR 530.1.1–530.1.2, FEI 976). Clear round ställs in i maratonadmin och gäller hela klassen.';
 }
 
@@ -584,6 +586,12 @@ function updatePrecisionRoundSections(card) {
     const profile = ruleProfileOf(className);
     const twoPhase = format === 'twoPhase';
     const hasDriveOff = twoPhase || format === 'driveOff';
+
+    // Arena driving: no track length / tempo / label list (the obstacle editor replaces them)
+    const arena = format === 'arena';
+    card.querySelectorAll('.precision-nonarena').forEach(el => el.classList.toggle('hidden', arena));
+    card.querySelector('.precision-arena-section')?.classList.toggle('hidden', !arena);
+    if (arena) updateArenaSection(card);
 
     card.querySelector('[data-round-section="phase2"]')?.classList.toggle('hidden', !twoPhase);
     card.querySelector('[data-round-section="driveOff"]')?.classList.toggle('hidden', !hasDriveOff);
@@ -702,11 +710,11 @@ function renderClassCards() {
                             <input type="number" value="${escapeHtml(manualAllowance ?? '')}" class="allowance-override-input w-full sm:w-24 p-1 border-gray-300 border rounded-md text-center dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="Manuell">
                         </div>
                     </div>
-                    <div>
+                    <div class="precision-nonarena">
                         <label for="len_${classId}" class="block text-sm font-medium dark:text-gray-300">Banlängd (m)</label>
                         <input type="number" id="len_${classId}" value="${escapeHtml(trackLength)}" class="track-length-input mt-1 w-full p-2 border rounded-md dark:bg-gray-600 dark:border-gray-500 dark:text-white">
                     </div>
-                    <div>
+                    <div class="precision-nonarena">
                         <label class="block text-sm font-medium dark:text-gray-300">Tempo & Maxtid</label>
                         <div class="precision-admin-inline-panel flex flex-col sm:flex-row sm:items-center gap-2 mt-1 p-2 bg-gray-100 border rounded-md dark:bg-gray-700 dark:border-gray-600">
                            <div class="flex items-center gap-1">
@@ -720,12 +728,13 @@ function renderClassCards() {
                     </div>
                 </div>
                 ${renderPrecisionFormatField(className, classId, courseData)}
-                <div class="precision-field-wrap mt-4">
+                ${renderArenaSection(courseData.arena, getPrecisionFormat(className, precisionConfig) !== 'arena')}
+                <div class="precision-nonarena precision-field-wrap mt-4">
                     <label for="labels_${classId}" class="block text-sm font-medium dark:text-gray-300">Hinderetiketter</label>
                     <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${escapeHtml(labels.join(', '))}</textarea>
                 </div>
                 ${renderPrecisionRoundSections(className, classId, courseData, group)}
-                <div class="mt-4">
+                <div class="precision-nonarena mt-4">
                     <label class="block text-sm font-medium dark:text-gray-300">Särskilda portar per hinder</label>
                     <details class="mt-1 special-port-section">
                         <summary class="cursor-pointer text-sm text-blue-600 hover:underline dark:text-blue-400">
@@ -788,12 +797,16 @@ function renderClassCards() {
     // Phase 2 / drive-off sections: max times and course warnings follow every
     // related input (property handlers, so a re-render does not stack listeners)
     container.oninput = (e) => {
-        if (e.target.closest('[data-round-section]') || e.target.matches('.track-length-input, .tempo-override-input, .obstacle-labels-input')) {
+        if (e.target.closest('[data-round-section]') || e.target.closest('.precision-arena-section') || e.target.matches('.track-length-input, .tempo-override-input, .obstacle-labels-input')) {
             updatePrecisionRoundSections(e.target.closest('[data-class-name]'));
         }
     };
     container.onchange = (e) => {
-        if (e.target.matches('.driveoff-scheduled-input')) updatePrecisionRoundSections(e.target.closest('[data-class-name]'));
+        if (e.target.matches('.driveoff-scheduled-input') || e.target.closest('.precision-arena-section')) updatePrecisionRoundSections(e.target.closest('[data-class-name]'));
+    };
+    // Obstacle list buttons of the arena block
+    container.onclick = (e) => {
+        if (handleArenaClick(e)) renderPrecisionAdminReadiness();
     };
     container.querySelectorAll('.precision-admin-card').forEach(updatePrecisionRoundSections);
 
@@ -939,6 +952,25 @@ function applyPrecisionRoundsToCourse(courseConfig, card, className) {
     }
 }
 
+// Arena driving: the class's arena settings and the obstacle labels from the
+// obstacle editor (existing code paths read obstacleLabels). Returns the
+// validation row fields. Another format keeps the stored arena settings
+function applyPrecisionArenaToCourse(courseConfig, card, className) {
+    const format = card.querySelector('.precision-format-select')?.value || 'normal';
+    const stored = precisionConfig.courses?.[className]?.arena;
+    if (format === 'arena') {
+        const form = readArenaForm(card);
+        if (form) {
+            courseConfig.arena = form.settings;
+            courseConfig.obstacleLabels = form.settings.obstacles.map(o => o.label);
+            return { format, arena: form.validation };
+        }
+    } else if (stored) {
+        courseConfig.arena = stored;
+    }
+    return { format };
+}
+
 function buildPrecisionConfigFromForm() {
     const comp = getGlobalState('currentCompetition');
     const defRate = comp?.ruleSettings?.precisionTimePenaltyRate ?? PRECISION_TIME_PENALTY_RATE;
@@ -987,6 +1019,7 @@ function buildPrecisionConfigFromForm() {
         if (Object.keys(specialPortAllowance).length > 0) courseConfig.specialPortAllowance = specialPortAllowance;
         applyPrecisionFormatToCourse(courseConfig, card, className);
         applyPrecisionRoundsToCourse(courseConfig, card, className);
+        const arenaRow = applyPrecisionArenaToCourse(courseConfig, card, className);
 
         const group = activeClassGroups.find(item => item.label === className);
         newConfig.courses[className] = courseConfig;
@@ -998,6 +1031,7 @@ function buildPrecisionConfigFromForm() {
         });
 
         validationClassRows[className] = {
+            ...arenaRow,
             trackLengthMeters: trackLengthRaw,
             tempo: tempoRaw,
             obstacleLabelsText: labelsText,
@@ -1109,6 +1143,7 @@ async function saveData() {
             }
             applyPrecisionFormatToCourse(courseConfig, card, className);
             applyPrecisionRoundsToCourse(courseConfig, card, className);
+            const arenaRow = applyPrecisionArenaToCourse(courseConfig, card, className);
 
             const group = activeClassGroups.find(item => item.label === className);
             newConfig.courses[className] = courseConfig;
@@ -1124,6 +1159,7 @@ async function saveData() {
                 }
             });
             validationClassRows[className] = {
+                ...arenaRow,
                 trackLengthMeters: trackLengthRaw,
                 tempo: tempoRaw,
                 obstacleLabelsText: labelsText,
@@ -1438,6 +1474,8 @@ function fieldSelectorForPrecisionError(field) {
         trackLengthMeters: '.track-length-input',
         tempo: '.tempo-override-input',
         obstacleLabels: '.obstacle-labels-input',
+        arenaObstacles: '.arena-obstacle-list',
+        arenaSeconds: '.arena-seconds-grid',
         allowanceOverride: '.allowance-override-input'
     }[field];
 }

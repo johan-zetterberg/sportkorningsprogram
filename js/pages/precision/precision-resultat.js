@@ -18,7 +18,7 @@ import { getCompetitionHeader } from '../../ui/components.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded, getClubLogoHtml } from '../../services/logosService.js';
 import { t } from '../../utils/i18n.js';
-import { getPrecisionFormat, isPrecisionDriveOffScheduled } from '../../utils/precisionCalculation.js';
+import { getArenaSettings, getPrecisionFormat, isPrecisionDriveOffScheduled } from '../../utils/precisionCalculation.js';
 import { isAnyPrecisionRoundRunning, readPrecisionRound } from '../../utils/precisionRounds.js';
 import {
   buildPrecisionBannerItems,
@@ -33,6 +33,8 @@ import {
 } from './precisionRoundsDisplay.js';
 import { renderPrecisionBanners } from './precisionResultBanners.js';
 import { mountDriveOffCallUp } from './precisionDriveOffNotice.js';
+import { precisionRoundLabelKey } from './precisionRoundInput.js';
+import { arenaDesktopHtml, arenaMobileHtml, buildArenaSections, isArenaEquipage, splitArenaEquipages } from './precisionArenaResults.js';
 
 import { initializeScrollSync, injectScrollStyles, setupViewportStickyTableHeader, teardownViewportStickyTableHeader } from '../../ui/scrollHelper.js';
 import {
@@ -196,6 +198,35 @@ function precisionRoundHeads() {
   if (formats.includes('twoPhase')) heads.push({ round: 'phase2', label: t('precision_round_phase2') });
   if (field.some((eq) => isPrecisionDriveOffScheduled(eq, config))) heads.push({ round: 'driveOff', label: t('precision_round_driveoff') });
   return { heads, anyMultiRound: formats.some(isMultiRoundPrecisionFormat) };
+}
+
+// Arena classes get their own lists (precisionArenaResults.js), per class and
+// competition; the places are over the whole competing field, the rows shown
+// follow the search and filters
+function arenaSectionsFor(visibleEquipages) {
+  const config = precision_precisionConfig || {};
+  const { arena } = splitArenaEquipages(competingPrecisionEquipages(precision_equipages), config);
+  if (arena.length === 0) return [];
+  const visible = new Set((visibleEquipages || []).map((eq) => String(eq.startNumber)));
+  return buildArenaSections(
+    arena,
+    (eq) => calculatePrecisionResult(precision_precisionMap.get(String(eq.startNumber)) || {}, eq, config),
+    { visible }
+  );
+}
+
+// A click or Enter on an arena row opens the equipage
+function bindArenaRows(root) {
+  const host = root?.querySelector('.arena-results');
+  if (!host) return;
+  const open = (event) => {
+    const row = event.target.closest?.('tr[data-sn]');
+    if (row && host.contains(row)) openDetails(row.getAttribute('data-sn'));
+  };
+  host.addEventListener('click', open);
+  host.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); open(event); }
+  });
 }
 
 // A row's place as shown: "(1)" while the drive-off is pending
@@ -540,6 +571,9 @@ function stopTicker() {
 function tickPrecisionTimers() {
   let anyRunning = false;
   precision_precisionMap.forEach((data, sn) => {
+    // Arena lists have no ticking cells (no max time): they follow the snapshots
+    const tickEq = precision_equipages.find((e) => String(e.startNumber) === sn);
+    if (tickEq && isArenaEquipage(tickEq, precision_precisionConfig)) return;
     const runningRound = runningPrecisionRound(data);
     if (data && runningRound && readPrecisionRound(data, runningRound).liveStartEpoch) {
       anyRunning = true;
@@ -666,15 +700,20 @@ function renderLiveStatusPanel() {
   const liveRound = data.liveRound || 'phase1';
   const multiRound = isMultiRoundPrecisionFormat(format);
   const liveRoundResult = data.rounds?.[liveRound];
-  const roundPenaltyLabel = liveRound !== 'phase1' && Number.isFinite(liveRoundResult?.totalPenalty)
+  // Arena: every round is scored in seconds (time + penalty seconds), also the first
+  const arena = format === 'arena';
+  const roundPenaltyLabel = (liveRound !== 'phase1' || arena) && Number.isFinite(liveRoundResult?.totalPenalty)
     ? (liveRoundResult.scoring === 'time' ? formatPrecisionSeconds(liveRoundResult.totalPenalty) : `${liveRoundResult.totalPenalty.toFixed(2)} p`)
     : null;
+  const arenaRoundLabel = arena
+    ? t(precisionRoundLabelKey(liveRound, 'arena', { competitions: getArenaSettings(activeEq, precision_precisionConfig || {}).competitions }))
+    : '';
 
   container.classList.remove('hidden');
   container.innerHTML = renderPrecisionLiveStatusPanel({
     equipage: activeEq,
     totalPenalty: data.totalPenalty,
-    roundLabel: multiRound ? precisionRoundLabel(liveRound, format) : '',
+    roundLabel: arena ? arenaRoundLabel : (multiRound ? precisionRoundLabel(liveRound, format) : ''),
     penaltyLabel: roundPenaltyLabel,
     overallRank: myOverall?.rank,
     toBeat,
@@ -929,7 +968,11 @@ function renderMobile() {
   const container = document.getElementById('prWrap');
   if (!container) return;
 
-  const visibleEquipages = filteredSortedEquipages();
+  const allVisible = filteredSortedEquipages();
+  // Arena classes have their own lists, below; the rest as before
+  const { other: visibleEquipages } = splitArenaEquipages(allVisible, precision_precisionConfig || {});
+  const arenaSections = arenaSectionsFor(allVisible);
+  const arenaHtml = arenaMobileHtml(arenaSections, compactResultListHtml);
   const placeMap = fieldPlaceMap();
 
   // 1. Calculate starters per class for dynamic placement counts (whole field)
@@ -940,7 +983,10 @@ function renderMobile() {
   });
 
   if (getResultDensity() !== 'cards') {
-    container.innerHTML = renderCompactPrecisionList(visibleEquipages, placeMap);
+    const ordinaryList = visibleEquipages.length > 0 || arenaSections.length === 0
+      ? renderCompactPrecisionList(visibleEquipages, placeMap)
+      : '';
+    container.innerHTML = ordinaryList + arenaHtml;
     restoreCompactScroll(container);
     // The card handlers below only bind [data-sn]; compact rows use data-start, so a tap opens once
     bindCompactRows(container, (sn) => openDetails(String(sn)));
@@ -950,9 +996,9 @@ function renderMobile() {
   }
 
   let html = '';
-  if (visibleEquipages.length === 0) {
+  if (visibleEquipages.length === 0 && arenaSections.length === 0) {
     html = `<div class="p-6 text-center text-gray-500">${t('search_no_match')}</div>`;
-  } else {
+  } else if (visibleEquipages.length > 0) {
     if (precision_viewMode === 'byclass') {
       const groups = prec_groupEquipagesForDisplay(visibleEquipages);
       for (const group of groups) {
@@ -966,7 +1012,9 @@ function renderMobile() {
     }
   }
 
-  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1 space-y-0">${html}</div>`;
+  container.innerHTML = `<div class="bg-gray-50 dark:bg-gray-900 py-1 space-y-0">${html}</div>${arenaHtml}`;
+  // Arena rows (compact lists, also in the card view) open on tap
+  if (arenaSections.length > 0) bindCompactRows(container, (sn) => openDetails(String(sn)));
 
   visibleEquipages.forEach(eq => {
     const sn = String(eq.startNumber);
@@ -1138,7 +1186,10 @@ function renderDesktop() {
     }
   })();
 
-  const visible = filteredSortedEquipages();
+  const allVisible = filteredSortedEquipages();
+  // Arena classes have their own lists, below the table
+  const { other: visible } = splitArenaEquipages(allVisible, precision_precisionConfig || {});
+  const arenaSections = arenaSectionsFor(allVisible);
   const placeMap = fieldPlaceMap();
 
   // Beräkna totalställning EN GÅNG per render (whole field, per class)
@@ -1203,7 +1254,12 @@ function renderDesktop() {
     }
   }
 
-  container.innerHTML = renderPrecisionTable({ headHtml: headHTML, bodyHtml: bodyHTML });
+  const ordinaryTable = visible.length > 0 || arenaSections.length === 0
+    ? renderPrecisionTable({ headHtml: headHTML, bodyHtml: bodyHTML })
+    : '';
+  container.innerHTML = ordinaryTable
+    + (arenaSections.length > 0 ? `<section class="arena-results">${arenaDesktopHtml(arenaSections)}</section>` : '');
+  bindArenaRows(container);
 
   container.querySelector('table.pr-table')?.classList.add('results-dense-landscape');
 

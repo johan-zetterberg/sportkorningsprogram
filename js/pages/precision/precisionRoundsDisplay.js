@@ -58,6 +58,7 @@ export function runningPrecisionRound(doc) {
   if (doc.running === true) return 'phase1';
   if (doc.rounds?.phase2?.running === true) return 'phase2';
   if (doc.rounds?.driveOff?.running === true) return 'driveOff';
+  if (doc.rounds?.driveOff2?.running === true) return 'driveOff2';
   return null;
 }
 

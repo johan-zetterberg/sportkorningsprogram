@@ -689,6 +689,100 @@ test('two phases: a clear phase 1 continues into phase 2, which is saved under r
 
 // Results of a class driven in two phases: the list shows the phase-2 column
 // with the equipage's phase-2 result, the PDF prints "Fas 2"
+// Arena driving (indoor, FEI World Cup / TR 510.7): knocks on one obstacle
+// count each, incidents add seconds, the score is time + penalty seconds; the
+// results page shows the class in its own arena list. SHOT_DIR=<dir> also
+// saves screenshots of the admin block, the input page and the results.
+test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
+  test.setTimeout(300000);
+  const shot = async (name) => {
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/${test.info().project.name}-${name}.png`, fullPage: true });
+  };
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const picked = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getPrecisionResults } = await import('../js/services/precisionService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const equipages = (await getEquipages(competitionId)).filter(e => e.status !== 'struken');
+    const used = new Set((await getPrecisionResults(competitionId)).map(r => String(r.id)));
+    const eq = equipages.find(e => !used.has(String(e.startNumber))) || equipages[0];
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    const obstacles = [
+      { label: '1', type: 'cone' }, { label: '2', type: 'cone' }, { label: 'H1', type: 'marathon' },
+      { label: '3', type: 'cone' }, { label: 'B', type: 'bridge' }, { label: 'H2', type: 'marathon' }
+    ];
+    courses[eq.className] = {
+      ...(courses[eq.className] || {}),
+      format: 'arena',
+      obstacleLabels: obstacles.map(o => o.label),
+      arena: { rules: 'FEI', competitions: 2, driveOff1: 'top3', obstacles }
+    };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    return { startNumber: String(eq.startNumber), className: eq.className };
+  }, competitionId);
+
+  // The admin page shows the arena block for the class
+  await page.goto('/index.html#precision-admin');
+  await expect(page.locator('.precision-arena-section:not(.hidden)').first()).toBeVisible({ timeout: 30000 });
+  await shot('arena-admin');
+
+  await page.goto('/index.html#precision-input');
+  const search = page.locator('#pr-precisionEquipageSearchContainer .search-input');
+  await expect(search).toBeVisible();
+  await page.waitForTimeout(2000);
+  await search.fill(picked.startNumber);
+  await page.locator(`#pr-precisionEquipageSearchContainer .searchable-dropdown-list [data-value="${picked.startNumber}"]`).click();
+
+  // Four rounds (two competitions with a drive-off each), obstacle buttons, incidents
+  for (const round of ['phase1', 'driveOff', 'phase2', 'driveOff2']) {
+    await expect(page.locator(`#pr-roundTabs [data-round="${round}"]`)).toBeVisible();
+  }
+  await expect(page.locator('[data-arena-knock="H1"]')).toBeVisible();
+  await expect(page.locator('#pr-arenaIncidents [data-arena-incident="groomDismount"][data-delta="1"]')).toBeVisible();
+  await page.waitForTimeout(1000);
+
+  await page.locator('#pr-btnStart').click();
+  await page.waitForTimeout(1200);
+  // H1 twice, cone 3 once and taken back, one groom dismount
+  await page.locator('[data-arena-knock="H1"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-arena-knock="H1"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-arena-knock="3"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-arena-undo="3"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('#pr-arenaIncidents [data-arena-incident="groomDismount"][data-delta="1"]').click();
+  await page.waitForTimeout(300);
+  await shot('arena-input');
+  await page.locator('#pr-btnStop').click();
+  await page.waitForTimeout(500);
+  await page.locator('#pr-btnSave').click();
+
+  const saved = await expect.poll(async () => page.evaluate(async ({ competitionId, startNumber }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDocFromServer } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    try {
+      const snap = await getDocFromServer(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${startNumber}`));
+      const d = snap.exists() ? snap.data() : {};
+      // Score = driven time + 2 × 4 s + 5 s
+      const scoreOk = d.timeMs > 0 && Math.abs(d.totalPenalty - (Math.floor(d.timeMs / 10) / 100 + 13)) < 0.011;
+      return { knocks: [...(d.knocks || [])].sort(), groomDismount: d.arenaIncidents?.groomDismount ?? null, status: d.status, running: d.running, scoreOk };
+    } catch { return null; }
+  }, { competitionId, startNumber: picked.startNumber }), { timeout: 60000 }).toEqual({
+    knocks: ['H1', 'H1#2'], groomDismount: 1, status: 'Klar', running: false, scoreOk: true
+  });
+  void saved;
+
+  // The results page: the class in its own arena section, the equipage in it
+  await page.goto('/index.html#precision-results');
+  const section = page.locator('#page-precision-results .arena-section').first();
+  await expect(section).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#page-precision-results .arena-section').filter({ hasText: picked.className }).first()).toBeVisible();
+  await shot('arena-results');
+});
+
 test('precision results and PDF show phase 2 of a two-phase class', async ({ page }) => {
   test.setTimeout(300000);
   const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });

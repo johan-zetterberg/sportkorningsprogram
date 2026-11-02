@@ -391,7 +391,13 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.timeMs ?? row.d?.timeMs)}`,
       formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
       formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
-      { content: formatPdfPenalty(row.totalPenalty, { eliminated: isElim }), styles: { fontStyle: 'bold' } },
+      {
+        // Arena driving: the result in seconds (time + penalty seconds), as in the round cell
+        content: getPrecisionFormat(eq, config) === 'arena' && !isElim
+          ? precisionRoundCellPlain(formatPrecisionRoundCell(row.rounds?.phase1 ?? null, { tr }), { sep: '\n' })
+          : formatPdfPenalty(row.totalPenalty, { eliminated: isElim }),
+        styles: { fontStyle: 'bold' }
+      },
       ...roundHeads.map(h => ({
         content: precisionRoundCellPlain(formatPrecisionRoundCell(row.rounds?.[h.round] ?? null, { tr }), { sep: '\n' }),
         styles: { halign: 'center' }

@@ -45,6 +45,10 @@ import {
     clockFaultMessage,
     gateGridColumns,
     buildPhase1FinishWrite,
+    arenaGroomEliminates,
+    arenaIncidentRows,
+    arenaObstacleList,
+    arenaPenaltyView,
     penaltyCorrection,
     phase2HasData,
     rebuildLabel,
@@ -57,6 +61,7 @@ import {
     calculatePrecisionRoundResult,
     computePrecisionRoundMaxSec,
     formatPrecisionAddedTime,
+    getArenaSettings,
     getPrecisionFormat,
     getPrecisionRoundObstacleLabels,
     isPrecisionDriveOffScheduled,
@@ -75,7 +80,14 @@ import {
     precisionRoundsForFormat,
     readPrecisionRound
 } from '../../utils/precisionRounds.js';
-import { precisionGroupContext } from '../../core-engine/ranking.js';
+import {
+    arenaIncidentCounts,
+    arenaKnockCounts,
+    arenaKnockToAdd,
+    arenaKnockToRemove,
+    nextArenaIncidents
+} from '../../utils/arenaRules.js';
+import { precisionGroupContext, arenaCompetition2StartOrder } from '../../core-engine/ranking.js';
 import { getClassRuleProfile } from '../../core-engine/marathon.js';
 import {
     buildQualifiedSummary,
@@ -115,6 +127,7 @@ let knockDownTimes = {}; // NY: { "3A": 12345, ... }
 let extraPenalty = 0;
 let comment = '';
 let rebuildCount = 0; // obstacle rebuilds, +10 s each (stored doc's rebuildCount)
+let arenaIncidents = arenaIncidentCounts(null); // arena: the incident counts of the round shown
 
 let timerInterval = null;
 let keydownHandler = null;
@@ -167,6 +180,7 @@ const ruleProfileOf = (eq) => getClassRuleProfile(eq?.className, marathonConfig)
 // The current round's max time / Time Allowed in seconds (null without course data)
 function roundMaxSec(eq = currentEquipage, round = currentRound) {
     if (!eq) return null;
+    if (isArena(eq)) return null; // arena driving has no Time Allowed
     return computePrecisionRoundMaxSec(eq, precisionConfig, round, { ruleProfile: ruleProfileOf(eq) });
 }
 
@@ -174,10 +188,19 @@ function equipageFormat(eq = currentEquipage) {
     return eq ? getPrecisionFormat(eq, precisionConfig) : 'normal';
 }
 
+// Arena driving (indoor, a time competition in seconds; arenaRules.js)
+function isArena(eq = currentEquipage) {
+    return !!eq && equipageFormat(eq) === 'arena';
+}
+const arenaSettingsOf = (eq = currentEquipage) => getArenaSettings(eq, precisionConfig);
+
 // The rounds the equipage's class drives, in order
 function roundsFor(eq = currentEquipage) {
     if (!eq) return ['phase1'];
-    return precisionRoundsForFormat(equipageFormat(eq), { driveOffScheduled: isPrecisionDriveOffScheduled(eq, precisionConfig) });
+    return precisionRoundsForFormat(equipageFormat(eq), {
+        driveOffScheduled: isPrecisionDriveOffScheduled(eq, precisionConfig),
+        arenaSettings: isArena(eq) ? arenaSettingsOf(eq) : null
+    });
 }
 
 // The result engine's view of the stored doc (qualification, warnings)
@@ -306,9 +329,11 @@ function livePenalties(elapsedMs, knockList = Array.from(knocks)) {
         liveTimeMs: elapsedMs,
         knocks: knockList,
         rebuildCount,
-        extraPenalty
+        extraPenalty,
+        ...(isArena() ? { arenaIncidents } : {})
     }, currentEquipage, precisionConfig, currentRound, calcOptions());
     return {
+        arena: isArena() ? arenaPenaltyView(calc) : null,
         timePenalty: calc.timePenalty ?? 0,
         obstaclePenalty: calc.obstaclePenalty ?? 0,
         extraPenalty,
@@ -347,12 +372,17 @@ function storedRoundOfCurrent() {
     return roundFields(storedDocFor(currentEquipage?.startNumber) || {});
 }
 
+// "3 st (12 p)", in seconds for an arena class
+function obstacleSummaryText(count, penalty) {
+    return count > 0 ? `${count} st (${penalty} ${isArena() ? 's' : 'p'})` : '';
+}
+
 function updateObstaclePenaltySummary() {
     const summaryEl = document.getElementById('pr-uiObstaclePenaltySummary');
     if (!summaryEl) return;
 
     const totalP = obstaclePenalty();
-    summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
+    summaryEl.textContent = obstacleSummaryText(knocks.size, totalP);
 }
 
 // One knock (or its removal) for `equipage`, already applied to the local
@@ -686,7 +716,7 @@ function renderLayout() {
                     <div class="flex-grow min-w-0">
                         <div id="pr-liveTimer" role="button" tabindex="0" data-kbd-click class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
                         <div class="text-xs md:text-sm mt-1 flex items-center gap-1">
-                            <span class="text-gray-500 dark:text-gray-400">${t('precision_time_error')}</span>
+                            <span id="pr-lblTimeTop" class="text-gray-500 dark:text-gray-400">${t('precision_time_error')}</span>
                             <span id="pr-uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
                         </div>
                         <div id="pr-clockWarning" role="alert" class="hidden mt-1 text-xs md:text-sm font-semibold text-amber-800 dark:text-amber-200"></div>
@@ -737,9 +767,9 @@ function renderLayout() {
                             <div id="pr-infoCarriageWarning" class="inline-flex"></div>
                         </div>
                         <div class="info-meta text-xs md:text-sm text-gray-600 dark:text-gray-400 mt-1 uppercase tracking-wider font-medium">
-                            Hinder: <span id="pr-infoPortWidth" class="text-blue-700 dark:text-blue-400 font-bold">–</span> | 
-                            Vagn: <span id="pr-infoTrackWidth" class="text-gray-700 dark:text-gray-300 font-semibold">–</span> | 
-                            Max: <span id="pr-infoMaxTime" class="text-blue-700 dark:text-blue-400">–</span>
+                            <span class="pr-arena-hide">Hinder: <span id="pr-infoPortWidth" class="text-blue-700 dark:text-blue-400 font-bold">–</span> | </span>
+                            Vagn: <span id="pr-infoTrackWidth" class="text-gray-700 dark:text-gray-300 font-semibold">–</span>
+                            <span class="pr-arena-hide"> | Max: <span id="pr-infoMaxTime" class="text-blue-700 dark:text-blue-400">–</span></span>
                         </div>
                     </div>
                 </div>
@@ -754,11 +784,14 @@ function renderLayout() {
                     </div>
                 </div>
 
+                <!-- ARENA: incidenter (sekunder) -->
+                <div id="pr-arenaIncidents" class="hidden"></div>
+
                 <!-- EXTRA / KOMMENTAR -->
                 <div class="pt-4 border-t dark:border-gray-700">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label for="pr-extraPenaltyInput" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
+                            <label id="pr-lblExtraInput" for="pr-extraPenaltyInput" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
                             <input type="number" id="pr-extraPenaltyInput" value="0" min="0" inputmode="decimal" class="w-full min-h-[44px] p-2 text-base border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                         </div>
                         <div class="flex items-end">
@@ -777,16 +810,16 @@ function renderLayout() {
                 <!-- SAMMANFATTNING -->
                 <div id="pr-penaltySummary" class="flex flex-wrap gap-2 text-[10px] uppercase font-bold">
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
-                        <span>${t('precision_time_label')}</span><span id="pr-uiTimePenalty" class="tabular-nums dark:text-gray-200">0.00</span>
+                        <span id="pr-lblTime">${t('precision_time_label')}</span><span id="pr-uiTimePenalty" class="tabular-nums dark:text-gray-200">0.00</span>
                     </div>
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
-                        <span>${t('precision_obstacles_label').replace(':','')}</span><span id="pr-uiObstaclePenalty" class="tabular-nums dark:text-gray-200">0</span>
+                        <span id="pr-lblObstacle">${t('precision_obstacles_label').replace(':','')}</span><span id="pr-uiObstaclePenalty" class="tabular-nums dark:text-gray-200">0</span>
                     </div>
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
-                        <span>${t('precision_extra_penalty').split(' ')[0]}</span><span id="pr-uiExtraPenalty" class="tabular-nums dark:text-gray-200">0</span>
+                        <span id="pr-lblExtra">${t('precision_extra_penalty').split(' ')[0]}</span><span id="pr-uiExtraPenalty" class="tabular-nums dark:text-gray-200">0</span>
                     </div>
                     <div class="w-full text-center rounded bg-blue-600 text-white px-3 py-2 text-sm">
-                        TOTALT: <span id="pr-uiTotalPenalty" class="tabular-nums">0.00</span><span id="pr-uiTotalUnit"></span>
+                        <span id="pr-lblTotal">TOTALT:</span> <span id="pr-uiTotalPenalty" class="tabular-nums">0.00</span><span id="pr-uiTotalUnit"></span>
                     </div>
                 </div>
 
@@ -807,7 +840,26 @@ function renderLayout() {
     `;
 }
 
+// Arena classes count seconds: other labels, no max time or obstacle width
+function applyFormatLayout() {
+    const arena = isArena();
+    const setLabel = (id, arenaKey) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        if (el.dataset.base === undefined) el.dataset.base = el.textContent;
+        el.textContent = arena ? t(arenaKey) : el.dataset.base;
+    };
+    setLabel('pr-lblTimeTop', 'arena_input_penalty_top');
+    setLabel('pr-lblTime', 'arena_input_driven_time');
+    setLabel('pr-lblObstacle', 'arena_input_penalty');
+    setLabel('pr-lblExtra', 'arena_input_other');
+    setLabel('pr-lblExtraInput', 'arena_input_other');
+    setLabel('pr-lblTotal', 'arena_input_result');
+    document.querySelectorAll('#page-precision-input .pr-arena-hide').forEach((el) => el.classList.toggle('hidden', arena));
+}
+
 function updateHeaderInfo() {
+    applyFormatLayout();
     const eq = currentEquipage;
     const equipageEl = document.getElementById('pr-infoEquipageLine');
     const portEl = document.getElementById('pr-infoPortWidth');
@@ -867,6 +919,7 @@ const GATE_COLUMN_CLASS = { 3: 'grid-cols-3', 4: 'grid-cols-4' };
 function renderGates() {
     const host = document.getElementById('pr-gatesGrid');
     if (!host) return;
+    if (isArena()) { renderArenaGates(host); return; }
     const labels = getLabelsForClass(currentEquipage?.className);
 
     if (labels.length === 0) {
@@ -927,6 +980,139 @@ function renderGates() {
     });
 }
 
+// ---------- Arena driving: obstacle buttons and incidents ----------
+
+// Short marker of a non-cone obstacle (marathon, bridge, speed box)
+const arenaTypeShort = (type) => (type && type !== 'cone' ? t(`arena_input_type_${type}_short`) : '');
+
+// One button per obstacle: tap = one more knock (badge = knocks), the "−" under
+// it takes the latest one back. An obstacle can be knocked several times.
+function renderArenaGates(host) {
+    const obstacles = arenaObstacleList(
+        arenaSettingsOf(),
+        getPrecisionRoundObstacleLabels(currentEquipage, precisionConfig, 'phase1')
+    );
+    if (obstacles.length === 0) {
+        host.className = 'grid grid-cols-1 gap-2';
+        host.innerHTML = `<p class="text-sm text-gray-500">${escapeHtml(t('arena_input_no_obstacles'))}</p>`;
+        return;
+    }
+    const counts = arenaKnockCounts(Array.from(knocks));
+    host.className = `grid ${GATE_COLUMN_CLASS[gateGridColumns(obstacles.length)]} sm:grid-cols-6 md:grid-cols-8 gap-2`;
+    host.innerHTML = obstacles.map(({ label, type }) => {
+        const n = counts.get(label) || 0;
+        const safe = escapeHtml(label);
+        const short = arenaTypeShort(type);
+        const typeTitle = type !== 'cone' ? escapeHtml(t(`arena_input_type_${type}`)) : '';
+        const marker = short ? `<span class="pointer-events-none absolute left-1 top-0.5 text-[10px] font-black leading-none text-amber-600 dark:text-amber-300" title="${typeTitle}">${escapeHtml(short)}</span>` : '';
+        const badge = n > 0 ? `<span class="pointer-events-none absolute right-1 top-0.5 min-w-[1.25rem] rounded-full bg-white px-1 text-center text-xs font-black leading-5 text-red-700">${n}</span>` : '';
+        const knockAria = escapeHtml(t('arena_input_knock_aria').replace('{label}', label));
+        const undoAria = escapeHtml(t('arena_input_undo_aria').replace('{label}', label));
+        return `<div class="flex flex-col gap-1">
+            <div class="relative"><button type="button" data-arena-knock="${safe}" aria-label="${knockAria}" class="gateBtn w-full p-1 aspect-square flex items-center justify-center rounded border text-lg font-bold ${n > 0 ? 'bg-red-600 text-white' : 'bg-white dark:bg-gray-700 dark:border-gray-600 dark:text-white'}">${safe}</button>${marker}${badge}</div>
+            <button type="button" data-arena-undo="${safe}" aria-label="${undoAria}" title="${undoAria}" ${n > 0 ? '' : 'disabled'} class="min-h-[32px] w-full rounded border text-base font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-30 disabled:cursor-not-allowed dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">−</button>
+        </div>`;
+    }).join('');
+}
+
+// One more knock (add) or the latest one taken back (!add) on an arena obstacle
+async function arenaKnock(label, add) {
+    const equipage = currentEquipage;
+    if (!equipage || !isArena(equipage)) return;
+    const list = Array.from(knocks);
+    const entry = add ? arenaKnockToAdd(list, label) : arenaKnockToRemove(list, label);
+    if (!entry) return;
+    const elapsedMs = getElapsedMs();
+    const round = currentRound;
+    if (add) {
+        knocks.add(entry);
+        knockDownTimes[entry] = elapsedMs;
+    } else {
+        knocks.delete(entry);
+        delete knockDownTimes[entry];
+    }
+    renderGates();
+    updateObstaclePenaltySummary();
+    updateTimerView();
+    try {
+        await saveKnockToggle(equipage, entry, add, elapsedMs);
+    } catch (err) {
+        console.error('Kunde inte spara rivning:', err);
+        // Undo only on the equipage and round it was made for
+        if (currentEquipage !== equipage || currentRound !== round) return;
+        if (add) {
+            knocks.delete(entry);
+            delete knockDownTimes[entry];
+        } else {
+            knocks.add(entry);
+            knockDownTimes[entry] = elapsedMs;
+        }
+        renderGates();
+        updateObstaclePenaltySummary();
+        updateTimerView();
+        showAlert(t('precision_save_error'), false);
+    }
+}
+
+// The incident panel: seconds per incident, count with − and +, a warning at the
+// third groom dismount (elimination)
+function renderArenaIncidents() {
+    const host = document.getElementById('pr-arenaIncidents');
+    if (!host) return;
+    if (!isArena()) {
+        host.classList.add('hidden');
+        host.innerHTML = '';
+        return;
+    }
+    const rows = arenaIncidentRows(arenaSettingsOf(), arenaIncidents);
+    const btn = 'min-h-[44px] min-w-[44px] rounded-lg border text-xl font-bold disabled:opacity-30 disabled:cursor-not-allowed';
+    host.innerHTML = `<h3 class="mb-2 text-xs font-bold uppercase tracking-widest text-gray-500 dark:text-gray-400">${escapeHtml(t('arena_input_incidents_title'))}</h3>
+        <ul class="space-y-2">${rows.map((r) => {
+            const label = escapeHtml(t(`arena_admin_inc_${r.key}`));
+            return `<li class="flex items-center gap-2">
+                <span class="min-w-0 flex-1 text-sm dark:text-gray-100">${label} <span class="whitespace-nowrap text-xs text-gray-500 dark:text-gray-400">(${escapeHtml(String(r.sec))} s)</span></span>
+                <button type="button" data-arena-incident="${r.key}" data-delta="-1" ${r.count > 0 ? '' : 'disabled'} aria-label="${label} −" class="${btn} bg-gray-50 text-gray-700 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">−</button>
+                <span class="w-6 text-center text-lg font-black tabular-nums dark:text-white">${r.count}</span>
+                <button type="button" data-arena-incident="${r.key}" data-delta="1" aria-label="${label} +" class="${btn} border-amber-400 bg-amber-50 text-amber-900 hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-100">+</button>
+            </li>`;
+        }).join('')}</ul>
+        ${arenaGroomEliminates(arenaIncidents) ? `<div role="alert" class="mt-2 rounded-lg border border-red-300 bg-red-50 px-3 py-2 text-sm font-bold text-red-800 dark:border-red-700 dark:bg-red-900/30 dark:text-red-100">⚠️ ${escapeHtml(t('arena_input_groom_elim_warning'))}</div>` : ''}`;
+    host.classList.remove('hidden');
+}
+
+// +1 / −1 on an incident of the round shown: the counts map is merge-written
+// (rounds.<round>.arenaIncidents, or the top level for phase 1)
+async function changeArenaIncident(key, delta) {
+    const equipage = currentEquipage;
+    if (!equipage || !isArena(equipage)) return;
+    const next = nextArenaIncidents(arenaIncidents, key, delta);
+    if (next[key] === arenaIncidents[key]) return;
+    const round = currentRound;
+    const previous = arenaIncidents;
+    arenaIncidents = next;
+    renderArenaIncidents();
+    updateTimerView();
+    const now = Date.now();
+    mirrorRound(equipage.startNumber, round, { arenaIncidents: next, updatedAt: now });
+    try {
+        await awaitWriteOrQueue(
+            setDoc(precisionDocRef(equipage.startNumber), nestPrecisionRoundPayload(round, { arenaIncidents: next, updatedAt: now }, {
+                startNumber: equipage.startNumber,
+                className: equipage.className,
+                updatedAt: now
+            }), { merge: true }),
+            { onLateError: lateRejection(equipage.startNumber, { arenaIncidents: next, round }, 'precision-input:arena-incident') }
+        );
+    } catch (error) {
+        reportWriteError(equipage.startNumber, error);
+        if (currentEquipage === equipage && currentRound === round) {
+            arenaIncidents = previous;
+            renderArenaIncidents();
+            updateTimerView();
+        }
+    }
+}
+
 // ---------- Timer Controls & Event Handlers ----------
 
 /**
@@ -975,7 +1161,10 @@ function renderTimerUI(t, clock = clockCheck()) {
 
     // --- 2) "Tidsfel" i topp-panelen ---
     const topTP = document.getElementById('pr-uiTimePenaltyTop');
-    if (topTP) {
+    if (topTP && live.arena) {
+        // Arena: the penalty seconds (knocks, incidents, rebuilds, extra)
+        topTP.textContent = live.arena.totalPenaltySec.toFixed(2);
+    } else if (topTP) {
         const maxSec = live.maxSec;
         if (maxSec > 0) {
             const overLimitNow = (t / 1000) > maxSec;
@@ -1018,6 +1207,13 @@ function renderTimerUI(t, clock = clockCheck()) {
         }
         if (epEl) epEl.textContent = Number.isFinite(extraPenaltyVal) ? extraPenaltyVal.toFixed(2) : '0.00';
         if (ttEl) ttEl.textContent = Number.isFinite(total) ? total.toFixed(2) : '—';
+        if (live.arena) {
+            // Driven time, penalty seconds, extra seconds and the result in seconds
+            if (tpEl) tpEl.textContent = live.arena.drivenSec.toFixed(2);
+            if (opEl) opEl.textContent = live.arena.penaltySec.toFixed(2);
+            if (epEl) epEl.textContent = live.arena.extraSec.toFixed(2);
+            if (ttEl) ttEl.textContent = live.arena.score !== null ? live.arena.score.toFixed(2) : '—';
+        }
         // Time rounds (FEI phase 2, drive-off) count seconds, fault rounds penalty points
         const unitEl = document.getElementById('pr-uiTotalUnit');
         if (unitEl) unitEl.textContent = live.scoring === 'time' ? ' s' : '';
@@ -1027,7 +1223,7 @@ function renderTimerUI(t, clock = clockCheck()) {
     const summaryEl = document.getElementById('pr-uiObstaclePenaltySummary');
     if (summaryEl) {
         const totalP = live.obstaclePenalty;
-        summaryEl.textContent = knocks.size > 0 ? `${knocks.size} st (${totalP} p)` : '';
+        summaryEl.textContent = obstacleSummaryText(knocks.size, totalP);
     }
 }
 
@@ -1045,7 +1241,8 @@ function updateTimerView() {
 // Whether the equipage may start the round shown (phase 2 only after a clear
 // phase 1, the drive-off only for a qualifier); { ok, reason }
 function roundStartCheck() {
-    if (!currentEquipage || currentRound === 'phase1') return { ok: true, reason: null };
+    // Arena: every round is its own competition round, nobody is held back
+    if (!currentEquipage || currentRound === 'phase1' || isArena()) return { ok: true, reason: null };
     const sn = String(currentEquipage.startNumber);
     return canStartPrecisionRound(storedResult(), currentRound, { groupCtx: groupContextOf(currentEquipage), startNumber: sn });
 }
@@ -1167,7 +1364,9 @@ function resetTimer() {
     knocks.clear();
     knockDownTimes = {};
     rebuildCount = 0;
+    arenaIncidents = arenaIncidentCounts(null);
     renderRebuildInfo();
+    renderArenaIncidents();
 
     // 2. Nollställ UI-ingångar (om de finns)
     const epInput = document.getElementById('pr-extraPenaltyInput');
@@ -1197,6 +1396,7 @@ function resetTimer() {
         knocksVersion: PRECISION_KNOCKS_VERSION,
         knockDownTimes: {},
         rebuildCount: 0,
+        ...(isArena() ? { arenaIncidents: arenaIncidentCounts(null) } : {}),
         finalized: false,
         ...(currentRound !== 'phase1' ? { retired: false } : {}),
         // The saved time and comment of the round being reset go too
@@ -1228,6 +1428,7 @@ function applyLiveDocToState(data = null) {
     extraPenalty = Number(payload.extraPenalty || 0);
     comment = String(payload.comment || '');
     rebuildCount = precisionRebuildCount(payload);
+    arenaIncidents = arenaIncidentCounts(payload);
     renderRebuildInfo();
     inProgress = payload.inProgress === true || payload.running === true || storedTimeMs > 0;
     // Running without a usable start (missing, in the future, far too long
@@ -1265,6 +1466,7 @@ function applyLiveDocToState(data = null) {
     renderGates();
     updateObstaclePenaltySummary();
     renderTimerUI(getElapsedMs());
+    renderArenaIncidents();
     renderRoundUi();
     renderRoundBanner();
     updateRoundControls();
@@ -1276,7 +1478,8 @@ let roundAdoptedFor = null; // the start number whose round the judge picked by 
 let groupCtx = null; // precisionGroupContext of the class(es) with round formats
 let dropdownList = []; // what the equipage dropdown lists now
 
-const roundFormatsInUse = () => equipages.some((e) => e.status !== 'struken' && roundsFor(e).length > 1);
+// Arena classes have their own rounds (no phase-2 / drive-off qualification here)
+const roundFormatsInUse = () => equipages.some((e) => e.status !== 'struken' && !isArena(e) && roundsFor(e).length > 1);
 
 function groupContextOf(eq) {
     if (!groupCtx || !eq) return null;
@@ -1286,7 +1489,7 @@ function groupContextOf(eq) {
 
 function recomputeGroupContext() {
     if (!roundFormatsInUse()) { groupCtx = null; return; }
-    const rows = equipages.filter((e) => e.status !== 'struken');
+    const rows = equipages.filter((e) => e.status !== 'struken' && !isArena(e));
     groupCtx = precisionGroupContext(
         rows,
         (r) => calculatePrecisionResult(precisionResultsMap.get(String(r.startNumber)) || {}, r, precisionConfig, calcOptions()),
@@ -1298,16 +1501,42 @@ function recomputeGroupContext() {
 // The dropdown lists everyone in the initial round, only the qualifiers in the drive-off
 function refreshDropdownList() {
     if (!searchableDropdown) return;
-    dropdownList = currentRound === 'driveOff' && groupCtx
+    const arenaList = isArena() ? arenaRoundStartList() : null;
+    dropdownList = arenaList || (currentRound === 'driveOff' && groupCtx && !isArena()
         ? driveOffStartList(fullEquipageList, groupCtx.groups, startTimesMap)
-        : fullEquipageList;
+        : fullEquipageList);
     searchableDropdown.updateData(dropdownList);
+}
+
+// Arena: the drive-off lists its qualifiers in their start order (reverse
+// order of merit, ranking.js arenaGroupCtx), competition 2 everyone in its
+// start order (WC 5.14, 5.15); null to keep the full list (round 1, or no
+// result to order by yet)
+function arenaRoundStartList() {
+    if (!currentEquipage || currentRound === 'phase1') return null;
+    const group = groupKeyOf(currentEquipage);
+    const rows = equipages.filter((e) => e.status !== 'struken' && isArena(e) && groupKeyOf(e) === group);
+    const resultOf = (r) => calculatePrecisionResult(precisionResultsMap.get(String(r.startNumber)) || {}, r, precisionConfig, calcOptions());
+    let order = [];
+    if (currentRound === 'phase2') {
+        order = arenaCompetition2StartOrder(rows, resultOf, (r) => groupKeyOf(r)).get(group) || [];
+    } else {
+        const ctx = precisionGroupContext(rows, resultOf, (r) => groupKeyOf(r), {
+            requireFinished: true,
+            competition: currentRound === 'driveOff2' ? 2 : 1
+        });
+        order = ctx.groups.get(group)?.qualifierStartNumbers || [];
+    }
+    if (!order.length) return null;
+    const bySn = new Map(fullEquipageList.map((e) => [String(e.startNumber), e]));
+    const list = order.map((sn) => bySn.get(String(sn))).filter(Boolean);
+    return list.length ? list : null;
 }
 
 // On every snapshot: a round whose clock runs wins, unless the judge picked a round by hand
 function adoptRoundOnce(sn, data) {
     if (roundAdoptedFor === String(sn)) return;
-    const next = pickPrecisionRound(data, roundsFor(), currentRound);
+    const next = pickPrecisionRound(data, roundsFor(), currentRound, { keepCurrent: isArena() });
     if (next !== currentRound) {
         currentRound = next;
         refreshDropdownList();
@@ -1327,9 +1556,10 @@ function renderRoundUi() {
         return;
     }
     const format = equipageFormat();
-    host.innerHTML = `<div class="grid gap-2 ${rounds.length > 2 ? 'grid-cols-3' : 'grid-cols-2'}">${rounds.map((r) => {
+    const competitions = isArena() ? arenaSettingsOf().competitions : 1;
+    host.innerHTML = `<div class="grid gap-2 ${rounds.length > 3 ? 'grid-cols-2 sm:grid-cols-4' : (rounds.length > 2 ? 'grid-cols-3' : 'grid-cols-2')}">${rounds.map((r) => {
         const active = r === currentRound;
-        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format)))}</button>`;
+        return `<button type="button" role="tab" aria-selected="${active}" data-round="${escapeHtml(r)}" class="min-h-[44px] px-3 rounded-lg border text-base font-bold ${active ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white text-gray-800 border-gray-300 hover:bg-gray-50 dark:bg-gray-700 dark:text-gray-100 dark:border-gray-600'}">${escapeHtml(t(precisionRoundLabelKey(r, format, { competitions })))}</button>`;
     }).join('')}</div>`;
     host.classList.remove('hidden');
 }
@@ -1359,7 +1589,7 @@ function renderQualifiedPanel() {
     const host = document.getElementById('pr-qualPanel');
     if (!host) return;
     if (!groupCtx) { host.classList.add('hidden'); host.innerHTML = ''; return; }
-    const rows = equipages.filter((e) => e.status !== 'struken');
+    const rows = equipages.filter((e) => e.status !== 'struken' && !isArena(e));
     const summary = buildQualifiedSummary(
         rows,
         (r) => calculatePrecisionResult(precisionResultsMap.get(String(r.startNumber)) || {}, r, precisionConfig, calcOptions()),
@@ -1395,7 +1625,7 @@ function updateRoundControls() {
     document.getElementById('pr-btnStart')?.setAttribute('aria-disabled', isRunning ? 'true' : 'false');
     document.getElementById('pr-btnStop')?.setAttribute('aria-disabled', isRunning ? 'false' : 'true');
     const retireBtn = document.getElementById('pr-btnRetire');
-    if (retireBtn) retireBtn.classList.toggle('hidden', !(currentEquipage && currentRound === 'driveOff' && !isRunning));
+    if (retireBtn) retireBtn.classList.toggle('hidden', !(currentEquipage && (currentRound === 'driveOff' || currentRound === 'driveOff2') && !isRunning));
 }
 
 function switchRound(round) {
@@ -1506,15 +1736,16 @@ async function finishPhase1() {
 // after the drive-off finishers (owner Q3)
 async function retireDriveOff() {
     const equipage = currentEquipage;
-    if (!equipage || currentRound !== 'driveOff') return;
+    if (!equipage || (currentRound !== 'driveOff' && currentRound !== 'driveOff2')) return;
+    const round = currentRound;
     if (isRunning) { showAlert(t('precision_driveoff_retire_running'), 'warning'); return; }
     if (!window.confirm(t('precision_driveoff_retire_confirm'))) return;
-    const payload = buildPrecisionRoundRetireWrite({ round: 'driveOff', retired: true, startNumber: equipage.startNumber, className: equipage.className });
-    mirrorRound(equipage.startNumber, 'driveOff', payload.rounds.driveOff);
+    const payload = buildPrecisionRoundRetireWrite({ round, retired: true, startNumber: equipage.startNumber, className: equipage.className });
+    mirrorRound(equipage.startNumber, round, payload.rounds[round]);
     try {
         const result = await awaitWriteOrQueue(
             setDoc(precisionDocRef(equipage.startNumber), payload, { merge: true }),
-            { onLateError: lateRejection(equipage.startNumber, { retired: true, round: 'driveOff' }, 'precision-input:retire') }
+            { onLateError: lateRejection(equipage.startNumber, { retired: true, round }, 'precision-input:retire') }
         );
         showAlert(`${t('precision_driveoff_retired')}${queuedNotice(result)}`, result === 'queued' ? 'offline' : true);
     } catch (error) {
@@ -1542,6 +1773,7 @@ function resetSelectionUi() {
     extraPenalty = 0;
     comment = '';
     rebuildCount = 0;
+    arenaIncidents = arenaIncidentCounts(null);
     renderRebuildInfo();
     clearFormDirty();
     wireFormDirtyTracking();
@@ -1559,6 +1791,7 @@ function resetSelectionUi() {
     renderGates();
     updateObstaclePenaltySummary();
     renderTimerUI(0);
+    renderArenaIncidents();
     renderRoundUi();
     renderRoundBanner();
     updateRoundControls();
@@ -1660,7 +1893,7 @@ async function autoSelectRunningDriver() {
         // The top-level running stays false in phase 2 / drive-off: those clocks
         // are rounds.<round>.running
         const snaps = await Promise.all(
-            ['running', 'rounds.phase2.running', 'rounds.driveOff.running']
+            ['running', 'rounds.phase2.running', 'rounds.driveOff.running', 'rounds.driveOff2.running']
                 .map((field) => getDocs(query(colRef, where(field, '==', true))))
         );
         const running = snaps.find((snap) => !snap.empty);
@@ -1700,8 +1933,8 @@ async function saveFinal() {
     // on another device stay. Without any copy: the knocks shown here.
     const stored = storedDocFor(equipage.startNumber)
         || (round === 'phase1'
-            ? { knocks: Array.from(knocks), rebuildCount }
-            : { rounds: { [round]: { knocks: Array.from(knocks), rebuildCount } } });
+            ? { knocks: Array.from(knocks), rebuildCount, arenaIncidents }
+            : { rounds: { [round]: { knocks: Array.from(knocks), rebuildCount, arenaIncidents } } });
     const { payload, calc, knocks: countedKnocks } = buildPrecisionSavePayload({
         round,
         stored,
@@ -1927,6 +2160,17 @@ export async function load() {
         });
         document.getElementById('pr-btnPhase1Finish')?.addEventListener('click', finishPhase1);
         document.getElementById('pr-btnRetire')?.addEventListener('click', retireDriveOff);
+        // Arena: knock / undo buttons and incident buttons (re-rendered, so delegated)
+        document.getElementById('pr-gatesGrid')?.addEventListener('click', (e) => {
+            const knock = e.target.closest('[data-arena-knock]');
+            if (knock) { arenaKnock(knock.dataset.arenaKnock, true); return; }
+            const undo = e.target.closest('[data-arena-undo]');
+            if (undo) arenaKnock(undo.dataset.arenaUndo, false);
+        });
+        document.getElementById('pr-arenaIncidents')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-arena-incident]');
+            if (btn) changeArenaIncident(btn.dataset.arenaIncident, Number(btn.dataset.delta) || 0);
+        });
 
         // The list shown: everyone, or the drive-off qualifiers in the drive-off
         const goNext = () => {
