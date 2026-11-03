@@ -3,7 +3,7 @@ import { doc, getDoc, setDoc, updateDoc, collection, getDocs, query, where, arra
 import { httpsCallable } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-functions.js";
 import { auth, db, appId, functions } from '../config/firebase-config.js';
 import { findClaimableEquipagesByEmail } from './equipageService.js';
-import { setGlobalState, getGlobalState, getCompetitionMode } from '../main.js'; // <-- NYTT: Importera setGlobalState
+import { setGlobalState, getGlobalState, getCompetitionMode, getCompetitionKind } from '../main.js'; // <-- NYTT: Importera setGlobalState
 import { t } from '../utils/i18n.js';
 import { hasRoleAccess, mergeUserRoles } from '../utils/roleAccess.js';
 import { activateDialog } from '../ui/dialogA11y.js';
@@ -144,6 +144,7 @@ export function roleLabel(role) {
 
 export function updateUIVisibility() {
     const competitionMode = getCompetitionMode();
+    const competitionKind = getCompetitionKind();
     const currentUser = getGlobalState('currentUser');
     const userCompRoles = Array.isArray(currentUser?.compRoles) ? currentUser.compRoles : [];
     const globalRole = currentUser?.role || 'publik';
@@ -183,9 +184,12 @@ export function updateUIVisibility() {
         const requiredRoles = (link.dataset.roleRequired || 'publik,funktionar,domare,admin').split(',');
         const requiredMode = (link.dataset.competitionMode || '').trim();
         const requiredFeature = (link.dataset.requiresFeature || '').trim();
+        // data-competition-kind="combined": not in an arena competition
+        const requiredKind = (link.dataset.competitionKind || '').trim();
 
         let hasAccess = hasRoleAccess(rolesToCheck, requiredRoles);
         if (hasAccess && requiredMode && requiredMode !== competitionMode) hasAccess = false;
+        if (hasAccess && requiredKind && requiredKind !== competitionKind) hasAccess = false;
         // A feature the competition has turned off (false; unknown keeps the link)
         if (hasAccess && requiredFeature && features[requiredFeature] === false) hasAccess = false;
 

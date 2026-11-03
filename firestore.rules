@@ -964,7 +964,9 @@ service cloud.firestore {
       return (data.get('retentionMonths', null) == null
           || (data.retentionMonths is int && data.retentionMonths >= 1 && data.retentionMonths <= 120))
         && (data.get('privacyContact', null) == null
-          || (data.privacyContact is string && data.privacyContact.size() <= 200));
+          || (data.privacyContact is string && data.privacyContact.size() <= 200))
+        // Competition type: combined driving (absent) or arena driving (indoor)
+        && data.get('competitionKind', 'combined') in ['combined', 'arena'];
     }
 
     match /artifacts/{appId}/public/data/competitions/{compId} {

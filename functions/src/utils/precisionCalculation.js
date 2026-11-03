@@ -139,6 +139,9 @@ export function getPrecisionFormat(cls, config = {}) {
         const f = courses[key]?.format;
         if (f && PRECISION_FORMATS[f]) return f;
     }
+    // A competition created as arena driving: every class without its own
+    // format is an arena class (precisionConfig.defaultFormat)
+    if (config?.defaultFormat === 'arena') return 'arena';
     return isYoungHorseClass(cls) ? 'youngHorse' : 'normal';
 }
 
@@ -896,9 +899,11 @@ export function calculatePrecisionResult(data, equipage, config = {}, options = 
 export function getArenaSettings(cls, config = {}) {
     const courses = config?.courses || {};
     for (const key of getCourseCandidates(cls)) {
-        if (courses[key]) return normalizeArenaSettings(courses[key].arena);
+        if (courses[key]?.arena) return normalizeArenaSettings(courses[key].arena);
     }
-    return normalizeArenaSettings();
+    // The competition-wide arena settings chosen when the competition was
+    // created (precisionConfig.arenaDefaults), else the FEI World Cup defaults
+    return normalizeArenaSettings(config?.arenaDefaults);
 }
 
 /**

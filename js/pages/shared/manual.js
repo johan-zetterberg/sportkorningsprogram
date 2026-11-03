@@ -1228,6 +1228,19 @@ function getTabContentSV(tab) {
             </div>
           </section>
 
+          <!-- ARENAKÖRNING -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">Arenakörning (inomhus)</h3>
+            <div class="bg-purple-50 p-4 rounded-lg space-y-3 text-sm text-gray-700">
+              <p><strong>Skapa tävlingen:</strong> Hubb → <em>Skapa tävling</em> → startmallen <strong>Arenakörning (inomhus)</strong>. Välj regelverk (FEI World Cup med fasta sekunder, eller TR Arenakörning 510.7 där arrangören anger sekunderna enligt propositionen), antal tävlingar (1, eller 2 som en World Cup-deltävling) och omkörning i tävling 1 (de tre bästa – delad tredjeplats kör också – alla, eller ingen (bara TR)). Valet gäller alla klasser. Menyerna visar då bara det som gäller arenakörning. Tävlingstypen kan ändras under <em>Admin → Inställningar</em>.</p>
+              <p><strong>Ekipage och starttider</strong> hanteras som vanligt. Klasserna skapas från ekipagens klassnamn.</p>
+              <p><strong>Admin Precision:</strong> För varje klass lägger du in banan: hindren i körordning med namn och typ (kon, maratonhinder, bro, speed box). <em>Lägg till koner</em> lägger in flera på en gång. Upplägget kan ändras per klass. Spara.</p>
+              <p><strong>Inmatning Precision:</strong> Välj omgång (Tävling 1, Omkörning 1, Tävling 2, Omkörning 2) och ekipage, mata in körtid, tryck på hindret för varje rivning (det finns en ångra-knapp) och registrera incidenter med +/− (t.ex. groom stiger av; tredje gången = uteslutning). Resultat = körtid + straffsekunder. +10 s per uppbyggnad av hinder ingår i tiden.</p>
+              <p><strong>Startordning:</strong> I omkörningen startar bara de kvalificerade, med ledaren sist. I tävling 2 är ordningen omvänd mot tävling 1, med uteslutna först.</p>
+              <p><strong>Resultat Precision</strong> visar egna listor per tävling. Lika resultat: FEI delar placeringen, TR avgörs på körtiden (TR 510.4). Arenaresultat ingår inte i något totalresultat.</p>
+            </div>
+          </section>
+
           <!-- SPECIALKLASSER MARATON -->
           <section>
             <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">4. Maraton: Specialklasser & Undantag</h3>
@@ -1440,6 +1453,17 @@ function getTabContentSV(tab) {
                 <li>Tryck på <strong>${btn('precision_save_results', 'sv')}</strong> för att spara.</li>
               </ol>
             </div>
+          </section>
+
+          <!-- ARENAKÖRNING -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">Arenakörning (inomhus): Inmatning</h3>
+            <ul class="list-disc list-inside text-gray-700 text-sm bg-white p-4 border rounded shadow-sm">
+              <li>Gå till <strong>Inmatning Precision</strong> och välj omgång (Tävling 1, Omkörning 1, Tävling 2, Omkörning 2) och ekipage.</li>
+              <li>Mata in körtiden och tryck på hindret för varje rivning (ångra-knapp finns).</li>
+              <li>Registrera incidenter med +/− (t.ex. groom stiger av; tredje gången = uteslutning).</li>
+              <li>Resultat = körtid + straffsekunder. +10 s per uppbyggnad av hinder ingår i tiden.</li>
+            </ul>
           </section>
 
           <!-- SPECIAL: BESIKTNING -->
@@ -2436,6 +2460,19 @@ function getTabContentEN(tab) {
             </div>
           </section>
 
+          <!-- ARENA DRIVING -->
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">Arena Driving (indoor)</h3>
+            <div class="bg-purple-50 p-4 rounded-lg space-y-3 text-sm text-gray-700">
+              <p><strong>Create the competition:</strong> Hub → <em>Create competition</em> → the start template <strong>Arena driving (indoor)</strong>. Choose the rules (FEI World Cup with fixed seconds, or TR Arena driving 510.7 where the organiser sets the seconds according to the schedule), the number of competitions (1, or 2 as a World Cup leg) and the drive-off in competition 1 (the three best – a shared third place also drives – everyone, or none (TR only)). The choice applies to all classes. The menus then show only what applies to arena driving. The competition type can be changed under <em>Admin → Settings</em>.</p>
+              <p><strong>Equipages and start times</strong> work as usual. The classes are created from the equipages' class names.</p>
+              <p><strong>Admin Precision:</strong> For each class, enter the course: the obstacles in driving order with name and type (cone, marathon obstacle, bridge, speed box). <em>Add cones</em> adds several at once. The layout can be changed per class. Save.</p>
+              <p><strong>Precision Input:</strong> Select the round (Competition 1, Drive-Off 1, Competition 2, Drive-Off 2) and the equipage, enter the driving time, tap the obstacle for each knock-down (there is an undo button) and record incidents with +/− (e.g. the groom dismounts; third time = elimination). Result = driving time + penalty seconds. +10 s for each rebuilt obstacle is included in the time.</p>
+              <p><strong>Start order:</strong> In the drive-off only the qualified equipages start, with the leader last. In competition 2 the order is the reverse of competition 1, with eliminated equipages first.</p>
+              <p><strong>Precision results</strong> shows a separate list per competition. Ties: FEI shares the placing, TR is decided on driving time (TR 510.4). Arena results are not part of any total result.</p>
+            </div>
+          </section>
+
           <!-- SPECIAL MARATHON CLASSES -->
           <section>
             <h3 class="font-bold text-lg mb-2 text-indigo-700 border-l-4 border-indigo-500 pl-2">4. Marathon: Division Templates & Exceptions</h3>
@@ -2559,6 +2596,16 @@ function getTabContentEN(tab) {
                 <li><strong>Rebuild:</strong> If an obstacle has to be rebuilt during the round, tap <strong>+10 s (ombyggnad)</strong> under the clock (10 seconds per rebuild, −1 undoes one).</li>
                 <li><strong>Save:</strong> Click "${btn('precision_save_results', 'en')}" to save the result.</li>
              </ul>
+          </section>
+
+          <section>
+            <h3 class="font-bold text-lg mb-2 text-purple-700 border-l-4 border-purple-500 pl-2">Arena Driving (indoor): Input</h3>
+            <ul class="list-disc list-inside text-gray-700 text-sm bg-white p-4 border rounded shadow-sm">
+              <li>Go to <strong>Precision Input</strong> and select the round (Competition 1, Drive-Off 1, Competition 2, Drive-Off 2) and the equipage.</li>
+              <li>Enter the driving time and tap the obstacle for each knock-down (there is an undo button).</li>
+              <li>Record incidents with +/− (e.g. the groom dismounts; third time = elimination).</li>
+              <li>Result = driving time + penalty seconds. +10 s for each rebuilt obstacle is included in the time.</li>
+            </ul>
           </section>
 
           <section>

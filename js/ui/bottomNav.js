@@ -36,6 +36,7 @@ function readLastTask(compId) {
 
 /** The competition's current phase (dressage / marathon / precision / total) */
 export function getCurrentPhase() {
+    if (state.competition?.competitionKind === 'arena') return 'precision';
     return currentDiscipline({ times: state.times, override: state.competition?.currentPhase || null });
 }
 
@@ -61,6 +62,7 @@ function render() {
         hasCompetition: !!comp?.id,
         phase: getCurrentPhase(),
         fieldMode: comp?.competitionMode === 'field',
+        arena: comp?.competitionKind === 'arena',
         lastTask: readLastTask(comp?.id)
     });
     const active = activeBottomNavTab(tabs, state.pageKey);

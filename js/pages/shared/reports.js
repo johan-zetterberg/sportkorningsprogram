@@ -9,7 +9,7 @@ import { getPrecisionResults } from '../../services/precisionService.js';
 import { getTeams } from '../../services/teamService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
 import { classesWithoutJudgeMapping, judgeMappingNoticeHtml } from '../../ui/judgeMappingNotice.js';
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, isArenaCompetition } from '../../main.js';
 import {
     downloadCsv,
     escapeHtml,
@@ -731,6 +731,17 @@ function render() {
         </div>
     </div>
     `;
+
+    // Arena driving: no dressage, marathon, total or team reports; start list for precision only
+    if (isArenaCompetition(competition)) {
+        const combinedTitles = ['Dressyr', 'Maraton', 'Totalresultat', 'Lagresultat'];
+        page.querySelectorAll('h3').forEach((h3) => {
+            if (combinedTitles.includes(h3.textContent.trim())) h3.parentElement?.remove();
+        });
+        page.querySelectorAll('button').forEach((btn) => {
+            if (/Startlista (Dressyr|Maraton)/.test(btn.textContent)) btn.remove();
+        });
+    }
 }
 
 // --- EXPORT HANDLERS ---

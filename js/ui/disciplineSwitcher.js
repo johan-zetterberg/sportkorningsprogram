@@ -8,19 +8,20 @@ import { escapeHtml } from '../utils/sharedUtils.js';
 import { canOpenPage } from '../utils/roleAccess.js';
 import { ensureRouteBannerHost } from './fieldMessages.js';
 import { getCurrentPhase } from './bottomNav.js';
-import { PHASE_PAGES, phaseFamily } from './bottomNavUtils.js';
+import { availablePhases, phaseFamily } from './bottomNavUtils.js';
 
 const PHASE_LABELS = { dressage: 'menu_dressage', marathon: 'menu_marathon', precision: 'menu_precision', total: 'bottom_nav_total' };
 
 let roles = ['publik'];
 let pageKey = '';
+let arena = false;
 
 function render() {
     const host = ensureRouteBannerHost('disciplineSwitcherHost');
     if (!host) return;
     const family = phaseFamily(pageKey);
     const links = family
-        ? Object.entries(PHASE_PAGES)
+        ? availablePhases(arena)
             .map(([phase, pages]) => ({ phase, page: pages[family] }))
             // Secretariat "total" is the precision page again: not twice
             .filter(({ phase, page }) => page && !(family === 'secretariat' && phase === 'total'))
@@ -51,4 +52,8 @@ export function initDisciplineSwitcher() {
     });
     // The current discipline comes with the competition's start times
     document.addEventListener('app-phase-change', render);
+    document.addEventListener('app-competition-change', (event) => {
+        arena = event.detail?.competition?.competitionKind === 'arena';
+        render();
+    });
 }

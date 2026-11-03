@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { activeBottomNavTab, bottomNavTabs, officialTaskPage, phaseFamily } from '../js/ui/bottomNavUtils.js';
+import { activeBottomNavTab, availablePhases, bottomNavTabs, officialTaskPage, phaseFamily } from '../js/ui/bottomNavUtils.js';
 import { canOpenPage } from '../js/utils/roleAccess.js';
 
 const keys = (tabs) => tabs.map(t => t.key);
@@ -65,4 +65,15 @@ test('bottom nav: the active tab and the discipline row', () => {
     assert.equal(phaseFamily('maraton-monitor'), 'live');
     assert.equal(phaseFamily('sekretariat-precision'), 'secretariat');
     assert.equal(phaseFamily('maraton-tider'), null);
+});
+
+test('bottom nav: an arena competition only offers precision pages', () => {
+    const base = { hasCompetition: true, arena: true, phase: 'dressage' };
+    assert.deepEqual(pages(bottomNavTabs({ ...base, roles: ['admin'], signedIn: true })).slice(0, 3), ['sekretariat-precision', 'starttider', 'precision-monitor']);
+    assert.equal(bottomNavTabs({ ...base }).find(t => t.key === 'results').page, 'precision-results');
+    assert.equal(officialTaskPage({ roles: ['dressage', 'precision'], phase: 'dressage', arena: true }), 'precision-input');
+    assert.equal(officialTaskPage({ roles: ['dressage'], arena: true }), 'official');
+    assert.equal(officialTaskPage({ roles: ['precision'], arena: true, lastTask: 'maraton-stages' }), 'precision-input');
+    assert.deepEqual(availablePhases(true).map(([p]) => p), ['precision']);
+    assert.equal(availablePhases(false).length, 4);
 });

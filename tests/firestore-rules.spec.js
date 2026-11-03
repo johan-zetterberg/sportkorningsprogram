@@ -2105,6 +2105,15 @@ test('competition privacy settings: retentionMonths 1-120 whole months, short pr
   await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { retentionMonths: deleteField(), privacyContact: deleteField() }));
 });
 
+test('competition type: combined or arena only', { skip: !HAS_EMULATOR }, async () => {
+  const ownerDb = testEnv.authenticatedContext('owner-1', { email_verified: true, email: 'owner@example.com' }).firestore();
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { competitionKind: 'arena' }));
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { competitionKind: 'combined' }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { competitionKind: 'indoor' }));
+  await assertFails(updateDoc(doc(ownerDb, compPath()), { competitionKind: 1 }));
+  await assertSucceeds(updateDoc(doc(ownerDb, compPath()), { competitionKind: deleteField() }));
+});
+
 test('retention and account deletion records are server only', { skip: !HAS_EMULATOR }, async () => {
   await testEnv.withSecurityRulesDisabled(async (context) => {
     const db = context.firestore();

@@ -14,7 +14,7 @@ import { uploadCompetitionLogo } from '../../services/storageService.js';
 import { getPrivacySettingsHtml, setupPrivacySettings } from './adminPrivacySettings.js';
 import { getEmailProviderCardHtml, setupEmailProviderCard, isSuperadminUser } from './adminEmailProviderCard.js';
 import { getPushCardHtml, setupPushCard } from './adminPushCard.js';
-import { getGlobalState, setGlobalState } from '../../main.js';
+import { getGlobalState, setGlobalState, getCompetitionKind } from '../../main.js';
 import { showAlert } from '../../ui/components.js';
 import { escapeHtml } from '../../utils/sharedUtils.js';
 import { getCompetitionLogoUrl, getCompetitionLogoName } from '../../utils/competitionLogo.js';
@@ -411,6 +411,7 @@ function buildCompetitionChecklistItems(context = {}) {
     const coords = mapConfig.coordinates || compDoc.coordinates || null;
     const classes = getUniqueChecklistClasses(equipages);
     const mode = compDoc?.competitionMode === 'field' ? 'Fältläge' : 'Live-läge';
+    const isArena = getCompetitionKind(compDoc) === 'arena';
     const hasClassSettings = classes.length > 0 && classes.every((className) => {
         const placedCount = Number(classConfig?.[className]?.placedCount);
         return Number.isFinite(placedCount) && placedCount >= 1;
@@ -427,7 +428,7 @@ function buildCompetitionChecklistItems(context = {}) {
         {
             label: 'Tävlingsläge',
             done: Boolean(compDoc?.competitionMode === 'live' || compDoc?.competitionMode === 'field'),
-            detail: mode
+            detail: isArena ? `${mode} • ${t('arena_kind_arena')}` : mode
         },
         {
             label: 'Karta',
@@ -790,6 +791,12 @@ export function getSettingsHtml() {
                 ${t('competition_mode_intro_hint')}
             </p>
             <div id="settingsCompetitionModeStatus"></div>
+            <label for="competitionKindSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-5 mb-2">${t('arena_kind_label')}</label>
+            <select id="competitionKindSelect" class="block w-full p-3 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                <option value="combined">${t('arena_kind_combined')}</option>
+                <option value="arena">${t('arena_kind_arena')}</option>
+            </select>
+            <p id="competitionKindHint" class="mt-3 text-sm text-gray-600 dark:text-gray-400">${t('arena_kind_combined_hint')}</p>
             <label for="currentPhaseSelect" class="block text-sm font-medium text-gray-700 dark:text-gray-300 mt-5 mb-2">${t('current_phase_label')}</label>
             <select id="currentPhaseSelect" class="block w-full p-3 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
                 <option value="">${t('current_phase_auto')}</option>
@@ -1081,6 +1088,7 @@ const HORSE_TEMPERATURE_FIELDS = ['enabled', 'daysBefore', 'checksPerDay', 'warn
 const META_FIELDS = ['isInternational', 'lockdownMinutes', 'manualLockdown'];
 const SETTINGS_FIELD_LABELS = {
     competitionMode: 'tävlingsläget',
+    competitionKind: 'tävlingstypen',
     currentPhase: 'dagens gren',
     isInternational: 'nationell/internationell profil',
     lockdownMinutes: 'låsningstiden',
@@ -1106,6 +1114,7 @@ function settingsFieldLabels(fields = []) {
 function readSettingsForm() {
     const values = {
         competitionMode: document.getElementById('competitionModeSelect')?.value === 'field' ? 'field' : 'live',
+        competitionKind: document.getElementById('competitionKindSelect')?.value === 'arena' ? 'arena' : 'combined',
         currentPhase: PHASES.includes(document.getElementById('currentPhaseSelect')?.value) ? document.getElementById('currentPhaseSelect').value : null,
         isInternational: !!document.getElementById('isInternationalToggle')?.checked,
         // Empty = not set = the default (Number('') was 0: the lock went off)
@@ -1140,6 +1149,7 @@ function readSettingsForm() {
 function settingsFromStored({ compDoc, meta, horseTemperature, classSettings, mapConfig } = {}) {
     const values = {
         competitionMode: compDoc?.competitionMode === 'field' ? 'field' : 'live',
+        competitionKind: getCompetitionKind(compDoc),
         currentPhase: PHASES.includes(compDoc?.currentPhase) ? compDoc.currentPhase : null,
         isInternational: !!meta?.isInternational,
         lockdownMinutes: effectiveLockdownMinutes(meta?.lockdownMinutes),
@@ -1270,6 +1280,20 @@ export async function setupSettingsLogic(competitionId) {
                 ? t('competition_mode_field_hint')
                 : t('competition_mode_live_hint');
         };
+
+        const competitionKindSelect = document.getElementById('competitionKindSelect');
+        const competitionKindHint = document.getElementById('competitionKindHint');
+        const updateCompetitionKindHint = (kind) => {
+            if (competitionKindHint) {
+                competitionKindHint.textContent = kind === 'arena' ? t('arena_kind_arena_hint') : t('arena_kind_combined_hint');
+            }
+        };
+        if (competitionKindSelect) {
+            const kind = getCompetitionKind(compDoc);
+            competitionKindSelect.value = kind;
+            updateCompetitionKindHint(kind);
+            competitionKindSelect.addEventListener('change', () => updateCompetitionKindHint(competitionKindSelect.value));
+        }
 
         const currentPhaseSelect = document.getElementById('currentPhaseSelect');
         if (currentPhaseSelect) currentPhaseSelect.value = PHASES.includes(compDoc?.currentPhase) ? compDoc.currentPhase : '';
@@ -1414,6 +1438,10 @@ export async function setupSettingsLogic(competitionId) {
                     const writes = [];
                     if ('competitionMode' in changes) writes.push(updateCompetition(competitionId, { competitionMode: changes.competitionMode }));
                     if ('currentPhase' in changes) writes.push(updateCompetition(competitionId, { currentPhase: changes.currentPhase }));
+                    if ('competitionKind' in changes) {
+                        writes.push(updateCompetition(competitionId, { competitionKind: changes.competitionKind }));
+                        writes.push(saveConfig(competitionId, 'precisionConfig', { defaultFormat: changes.competitionKind === 'arena' ? 'arena' : null }));
+                    }
                     if (hasKeys(metaChanges)) writes.push(saveConfig(competitionId, 'competitionMeta', metaChanges));
                     if (hasKeys(horseTemperatureChanges)) {
                         writes.push(saveConfig(competitionId, 'horseTemperature', { ...horseTemperatureChanges, updatedAt: new Date() }));
@@ -1431,12 +1459,13 @@ export async function setupSettingsLogic(competitionId) {
 
                     const newCompetitionMode = formNow.competitionMode;
                     const currentComp = getGlobalState('currentCompetition');
-                    if (currentComp?.id === competitionId && ('competitionMode' in changes || 'currentPhase' in changes)) {
+                    if (currentComp?.id === competitionId && ('competitionMode' in changes || 'currentPhase' in changes || 'competitionKind' in changes)) {
                         setGlobalState({
                             key: 'currentCompetition',
                             value: {
                                 ...currentComp,
                                 competitionMode: newCompetitionMode,
+                                competitionKind: formNow.competitionKind,
                                 currentPhase: formNow.currentPhase
                             }
                         });
@@ -1444,7 +1473,8 @@ export async function setupSettingsLogic(competitionId) {
 
                     checklistContext.compDoc = {
                         ...checklistContext.compDoc,
-                        competitionMode: newCompetitionMode
+                        competitionMode: newCompetitionMode,
+                        competitionKind: formNow.competitionKind
                     };
                     checklistContext.meta = {
                         ...checklistContext.meta,

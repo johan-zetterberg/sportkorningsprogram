@@ -693,6 +693,48 @@ test('two phases: a clear phase 1 continues into phase 2, which is saved under r
 // count each, incidents add seconds, the score is time + penalty seconds; the
 // results page shows the class in its own arena list. SHOT_DIR=<dir> also
 // saves screenshots of the admin block, the input page and the results.
+test('arena competition: created from the hub template, with arena settings and only the arena menus', async ({ page }) => {
+  test.setTimeout(180000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#hub');
+  await page.locator('#btnToggleCreateCompetition').click();
+  await page.locator('.hub-template-card[data-template-id="arena"]').click();
+  await expect(page.locator('#arenaCreateBox')).toBeVisible();
+  // FEI always holds Drive-Off 1: "none" only with TR
+  await expect(page.locator('#arenaDriveOff1 option[value="none"]')).toBeDisabled();
+  await page.locator('#arenaRules').selectOption('TR');
+  await page.locator('#arenaCompetitions').selectOption('2');
+  await page.locator('#arenaDriveOff1').selectOption('none');
+  await page.locator('#compName').fill('Arena Smoke');
+  await page.locator('#compStartDate').fill('2026-12-05');
+  await page.locator('#compEndDate').fill('2026-12-05');
+  await page.locator('#compClub').fill('Testklubben');
+  await page.locator('#compPlace').fill('Ridhuset');
+  await page.locator('#createCompetitionForm button[type="submit"]').click();
+  await page.waitForURL(/#admin/, { timeout: 30000 });
+
+  const stored = await page.evaluate(async () => {
+    const { getGlobalState } = await import('../js/main.js');
+    const { getConfig } = await import('../js/services/competitionService.js');
+    const comp = getGlobalState('currentCompetition');
+    const config = await getConfig(comp.id, 'precisionConfig');
+    return { name: comp.name, kind: comp.competitionKind, defaultFormat: config?.defaultFormat, arenaDefaults: config?.arenaDefaults };
+  });
+  expect(stored).toEqual({
+    name: 'Arena Smoke',
+    kind: 'arena',
+    defaultFormat: 'arena',
+    arenaDefaults: { rules: 'TR', competitions: 2, driveOff1: 'none', driveOff2: 'top3', driveOff2Timing: 'added' }
+  });
+
+  // Only the arena pages in the menu: precision stays, dressage, marathon and the total go
+  await expect(page.locator('#nav-links a.nav-link[href="#precision-input"]')).not.toHaveCSS('display', 'none');
+  for (const href of ['#dressyr-input', '#maraton-input', '#total-resultat', '#dressyr-admin', '#maraton-admin']) {
+    await expect(page.locator(`#nav-links a.nav-link[href="${href}"]`)).toHaveCSS('display', 'none');
+  }
+  await expect(page.locator('#competitionKindSelect')).toHaveValue('arena');
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

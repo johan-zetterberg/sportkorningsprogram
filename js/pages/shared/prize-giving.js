@@ -1,5 +1,5 @@
 // js/pages/prize-giving.js
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, isArenaCompetition } from '../../main.js';
 import { t } from '../../utils/i18n.js';
 import { listenMergeSource, loadMergeSource } from '../../services/mergeConfigService.js';
 import { getCompetitionHeader } from '../../ui/components.js';
@@ -65,6 +65,8 @@ export async function load(container) {
 
     const comp = getGlobalState('currentCompetition');
     competitionId = comp?.id;
+    // Arena driving has no total, dressage or marathon
+    if (isArenaCompetition(comp)) activeDiscipline = 'precision';
     if (!competitionId) {
         container.innerHTML = `<p class="p-8 text-center text-gray-600 dark:text-gray-300">${escapeHtml(t('no_competition_selected'))}</p>`;
         return;
@@ -155,7 +157,7 @@ function renderTabs() {
         <div class="flex flex-col gap-3 w-full">
             <!-- Disciplines -->
             <div class="flex gap-1.5 overflow-x-auto pb-1 scrollbar-hide no-scrollbar">
-                ${['total', 'dressage', 'marathon', 'precision'].map(d => {
+                ${(isArenaCompetition() ? ['precision'] : ['total', 'dressage', 'marathon', 'precision']).map(d => {
                     const label = { total: `${t('total')} 🏆`, dressage: t('dressage'), marathon: t('marathon'), precision: t('precision') }[d];
                     const active = activeDiscipline === d;
                     return `

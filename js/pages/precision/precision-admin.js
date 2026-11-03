@@ -728,7 +728,7 @@ function renderClassCards() {
                     </div>
                 </div>
                 ${renderPrecisionFormatField(className, classId, courseData)}
-                ${renderArenaSection(courseData.arena, getPrecisionFormat(className, precisionConfig) !== 'arena')}
+                ${renderArenaSection(courseData.arena || precisionConfig.arenaDefaults, getPrecisionFormat(className, precisionConfig) !== 'arena')}
                 <div class="precision-nonarena precision-field-wrap mt-4">
                     <label for="labels_${classId}" class="block text-sm font-medium dark:text-gray-300">Hinderetiketter</label>
                     <textarea id="labels_${classId}" class="obstacle-labels-input mt-1 w-full min-h-[80px] p-2 border rounded-md font text-sm dark:bg-gray-600 dark:border-gray-500 dark:text-white" placeholder="En per rad eller kommaseparerat, ex: 1, 2, 3, 5A, 5B ...">${escapeHtml(labels.join(', '))}</textarea>

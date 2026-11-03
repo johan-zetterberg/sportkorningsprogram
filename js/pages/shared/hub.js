@@ -134,6 +134,14 @@ const HUB_COMPETITION_TEMPLATES = [
     durationDays: 3
   },
   {
+    id: 'arena',
+    title: 'Arenakörning (inomhus)',
+    subtitle: 'Tidstävling med maratonhinder och koner (TR 510.7 / FEI World Cup)',
+    mode: 'live',
+    durationDays: 1,
+    kind: 'arena'
+  },
+  {
     id: 'demo_complete',
     title: 'Demotävling (med testdata)',
     subtitle: 'Dressyr, maraton, precision, besiktning & lag förkonfigurerat',
@@ -331,6 +339,35 @@ function renderLayout() {
                   <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Live-läge använder timers och liveflöden. Field mode light är för mer manuell drift.</p>
                 </div>
               </div>
+
+              <div id="arenaCreateBox" class="hidden rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/60 dark:bg-blue-900/10 p-3 space-y-3">
+                <div class="text-sm font-semibold text-gray-800 dark:text-gray-100">${t('arena_create_box_title')}</div>
+                <div class="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label for="arenaRules" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('arena_admin_rules')}</label>
+                    <select id="arenaRules" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                      <option value="FEI">${t('arena_admin_rules_fei')}</option>
+                      <option value="TR">${t('arena_admin_rules_tr')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="arenaCompetitions" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('arena_create_competitions')}</label>
+                    <select id="arenaCompetitions" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                      <option value="1">${t('arena_create_competitions_1')}</option>
+                      <option value="2">${t('arena_create_competitions_2')}</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label for="arenaDriveOff1" class="block text-sm font-medium text-gray-700 dark:text-gray-300">${t('arena_create_drive_off1')}</label>
+                    <select id="arenaDriveOff1" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-white">
+                      <option value="top3">${t('arena_create_drive_off1_top3')}</option>
+                      <option value="all">${t('arena_create_drive_off1_all')}</option>
+                      <option value="none">${t('arena_create_drive_off1_none')}</option>
+                    </select>
+                  </div>
+                </div>
+                <p class="text-xs text-gray-500 dark:text-gray-400">${t('arena_create_hint')}</p>
+              </div>
             </div>
 
             <div class="rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50/80 dark:bg-gray-900/20 p-4 space-y-4">
@@ -396,6 +433,7 @@ function formatHubTemplateDuration(template) {
   if (template.isDemo) {
     return 'Komplett 3-dagarstävling med förberedd testdata för dressyr, maraton, precision, besiktning och lag.';
   }
+  if (template.kind === 'arena') return t('arena_template_duration');
   if (template.mode === 'field') {
     return 'Fältläge med manuell registrering som standard.';
   }
@@ -414,6 +452,8 @@ function getTemplateDisciplines(template) {
       return ['dressage', 'marathon', 'precision'];
     case 'field_light':
       return ['dressage', 'marathon', 'precision'];
+    case 'arena':
+      return ['precision'];
     default:
       return [];
   }
@@ -466,6 +506,20 @@ function syncTemplateEndDate(force = false) {
   if (nextEndDate) endInput.value = nextEndDate;
 }
 
+// Only TR may run without a Drive-Off 1; FEI falls back to the best three
+function syncArenaCreateBox() {
+  const isArena = getHubTemplate()?.kind === 'arena';
+  document.getElementById('arenaCreateBox')?.classList.toggle('hidden', !isArena);
+  const rules = document.getElementById('arenaRules')?.value;
+  const driveOff = document.getElementById('arenaDriveOff1');
+  const noneOption = driveOff?.querySelector('option[value="none"]');
+  if (!driveOff || !noneOption) return;
+  const feiRules = rules === 'FEI';
+  noneOption.disabled = feiRules;
+  noneOption.hidden = feiRules;
+  if (feiRules && driveOff.value === 'none') driveOff.value = 'top3';
+}
+
 function updateCompetitionTemplateUi() {
   const template = getHubTemplate();
   const modeSelect = document.getElementById('compMode');
@@ -492,6 +546,7 @@ function updateCompetitionTemplateUi() {
     hint.textContent = `${template.title}: ${formatHubTemplateDuration(template)}`;
   }
 
+  syncArenaCreateBox();
   syncTemplateEndDate();
 }
 
@@ -823,6 +878,8 @@ function setupEventListeners() {
       templateEndDateDirty = true;
     });
 
+    document.getElementById('arenaRules')?.addEventListener('change', syncArenaCreateBox);
+
     document.getElementById('compMode')?.addEventListener('change', () => {
       const nextMode = document.getElementById('compMode')?.value === 'field' ? 'field' : 'live';
       const matchingTemplate = HUB_COMPETITION_TEMPLATES.find((template) => template.mode === nextMode && template.id === selectedTemplateId)
@@ -881,11 +938,21 @@ function setupEventListeners() {
         dates: dateStr,
         club: document.getElementById('compClub').value,
         competitionMode: document.getElementById('compMode')?.value || 'live',
+        competitionKind: selectedTemplate?.kind === 'arena' ? 'arena' : 'combined',
         createdBy: user?.uid || null,
         admins: user?.uid ? [user.uid] : [],
         coordinates: (lat && lng) ? { lat: parseFloat(lat), lng: parseFloat(lng) } : null,
         importFrom: document.getElementById('importFromComp')?.value || null // <-- Add source ID
       };
+      if (compData.competitionKind === 'arena') {
+        const rules = document.getElementById('arenaRules')?.value === 'TR' ? 'TR' : 'FEI';
+        const driveOff = document.getElementById('arenaDriveOff1')?.value;
+        compData.arenaDefaults = {
+          rules,
+          competitions: Number(document.getElementById('arenaCompetitions')?.value) === 2 ? 2 : 1,
+          driveOff1: ['top3', 'all', 'none'].includes(driveOff) && !(rules === 'FEI' && driveOff === 'none') ? driveOff : 'top3'
+        };
+      }
 
       try {
         const result = await createCompetition(compData); // This returns the ref or ID

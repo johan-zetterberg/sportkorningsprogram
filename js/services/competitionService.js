@@ -6,6 +6,7 @@ import { auth } from '../config/firebase-config.js';
 import { getExpectedDressageJudgePositions, isDressageReadyToFinalize } from './competitionStatusService.js';
 import { buildSnapshotErrorHandler } from './listenerErrorUtils.js';
 import { mergeMarathonObstacles } from '../core-engine/stateSelector.js';
+import { arenaPrecisionConfigPatch } from '../utils/arenaRules.js';
 
 const CONFIG_CACHE_PREFIX = 'configCache:';
 const CACHE_TTL_MS = 60 * 60 * 1000; // 1 timme
@@ -13,6 +14,7 @@ const CACHE_TTL_MS = 60 * 60 * 1000; // 1 timme
 export async function createCompetition(data) {
   const user = auth?.currentUser || null;
   const competitionMode = data.competitionMode === 'field' ? 'field' : 'live';
+  const competitionKind = data.competitionKind === 'arena' ? 'arena' : 'combined';
 
   const comp = {
     name: data.name?.trim() || '',
@@ -20,6 +22,7 @@ export async function createCompetition(data) {
     dates: data.dates?.trim() || '',
     club: data.club?.trim() || '',
     competitionMode,
+    competitionKind,
     createdAt: serverTimestamp(),
     createdBy: user ? user.uid : null,
     admins: [],
@@ -105,6 +108,13 @@ export async function createCompetition(data) {
       } catch (importErr) {
         console.error('[createCompetition] Generic import error:', importErr);
       }
+    }
+
+    // Arena driving: every class is an arena class with the chosen settings
+    // (after the import, so a copied precisionConfig keeps these)
+    if (competitionKind === 'arena') {
+      await setDoc(doc(db, `artifacts/${appId}/public/data/competitions/${newId}/config`, 'precisionConfig'),
+        arenaPrecisionConfigPatch(data.arenaDefaults), { merge: true });
     }
 
     return docRef;

@@ -1,4 +1,4 @@
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, isArenaCompetition } from '../../main.js';
 import { getCompetitionHeader, renderNoCompetitionState } from '../../ui/components.js';
 import { t } from '../../utils/i18n.js';
 import { getOfficials, getJudges } from '../../services/adminService.js';
@@ -78,6 +78,7 @@ export async function load() {
     }
 
     const name = user.displayName || user.email || '';
+    const arena = isArenaCompetition(competition);
     container.innerHTML = `
         <div class="container mx-auto p-3 sm:p-4 md:p-8">
             ${getCompetitionHeader(competition, t('official_title'))}
@@ -114,9 +115,9 @@ export async function load() {
                 <section class="bg-white dark:bg-gray-800 rounded-xl shadow p-4 md:p-6 lg:col-span-2">
                     <h3 class="text-lg font-bold text-gray-800 dark:text-gray-100 mb-3">${escapeHtml(t('official_tools_title'))}</h3>
                     <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                        ${toolButton('#dressyr-input', TASK_ICONS.dressage, t('menu_dressage'))}
-                        ${toolButton('#maraton-input', TASK_ICONS.obstacle, t('official_tool_obstacles'))}
-                        ${toolButton('#maraton-stages', TASK_ICONS.stages, t('menu_stages'))}
+                        ${arena ? '' : toolButton('#dressyr-input', TASK_ICONS.dressage, t('menu_dressage'))}
+                        ${arena ? '' : toolButton('#maraton-input', TASK_ICONS.obstacle, t('official_tool_obstacles'))}
+                        ${arena ? '' : toolButton('#maraton-stages', TASK_ICONS.stages, t('menu_stages'))}
                         ${toolButton('#precision-input', TASK_ICONS.precision, t('menu_precision'))}
                     </div>
                 </section>
@@ -129,8 +130,8 @@ export async function load() {
                     ${tile('#incidents', '⚖️', t('menu_incidents'), t('official_tile_incidents_desc'))}
                     ${tile('#speaker', TASK_ICONS.speaker, t('menu_speaker'), t('official_tile_speaker_desc'))}
                     ${tile('#vet-check', TASK_ICONS.vet, t('menu_vet'), t('official_tile_vet_desc'))}
-                    ${tile('#dressyr-monitor', TASK_ICONS.dressage, `${t('menu_dressage')} – ${t('menu_monitor')}`, t('official_tile_monitor_desc'))}
-                    ${tile('#maraton-monitor', TASK_ICONS.obstacle, `${t('menu_marathon')} – ${t('menu_monitor')}`, t('official_tile_monitor_desc'))}
+                    ${arena ? '' : tile('#dressyr-monitor', TASK_ICONS.dressage, `${t('menu_dressage')} – ${t('menu_monitor')}`, t('official_tile_monitor_desc'))}
+                    ${arena ? '' : tile('#maraton-monitor', TASK_ICONS.obstacle, `${t('menu_marathon')} – ${t('menu_monitor')}`, t('official_tile_monitor_desc'))}
                     ${tile('#precision-monitor', TASK_ICONS.precision, `${t('menu_precision')} – ${t('menu_monitor')}`, t('official_tile_monitor_desc'))}
                 </div>
             </section>
@@ -258,8 +259,10 @@ async function loadDashboard(competitionId, user, token) {
                 const date = new Date(timeStr);
                 if (!isNaN(date.getTime()) && date > now) allUpcoming.push({ eq, date, type, label });
             };
-            addIfFuture(tEntry.dressage || tEntry.dressyr, 'dressage', t('menu_dressage'));
-            addIfFuture(tEntry.marathon || tEntry.maraton, 'obstacle', t('menu_marathon'));
+            if (!isArenaCompetition()) {
+                addIfFuture(tEntry.dressage || tEntry.dressyr, 'dressage', t('menu_dressage'));
+                addIfFuture(tEntry.marathon || tEntry.maraton, 'obstacle', t('menu_marathon'));
+            }
             addIfFuture(tEntry.precision, 'precision', t('menu_precision'));
         });
 
@@ -290,10 +293,11 @@ async function loadDashboard(competitionId, user, token) {
 
         const stats = await getCompetitionStatistics(competitionId);
         if (token !== loadToken) return;
-        const total = (stats.dressage || 0) + (stats.marathon || 0) + (stats.precision || 0);
+        const arenaComp = isArenaCompetition();
+        const total = (arenaComp ? 0 : (stats.dressage || 0) + (stats.marathon || 0)) + (stats.precision || 0);
         const links = [];
-        if (stats.dressage > 0) links.push(`<a href="#dressyr-results" class="underline">${Number(stats.dressage)} ${escapeHtml(t('menu_dressage'))}</a>`);
-        if (stats.marathon > 0) links.push(`<a href="#maraton-results" class="underline">${Number(stats.marathon)} ${escapeHtml(t('menu_marathon'))}</a>`);
+        if (!arenaComp && stats.dressage > 0) links.push(`<a href="#dressyr-results" class="underline">${Number(stats.dressage)} ${escapeHtml(t('menu_dressage'))}</a>`);
+        if (!arenaComp && stats.marathon > 0) links.push(`<a href="#maraton-results" class="underline">${Number(stats.marathon)} ${escapeHtml(t('menu_marathon'))}</a>`);
         if (stats.precision > 0) links.push(`<a href="#precision-results" class="underline">${Number(stats.precision)} ${escapeHtml(t('menu_precision'))}</a>`);
 
         if (total > 0) {

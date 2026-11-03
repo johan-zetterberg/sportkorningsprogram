@@ -9,9 +9,10 @@ import {
     arenaKnockCounts,
     formatArenaKnocks,
     arenaIncidentPenalty,
-    nextArenaIncidents
+    nextArenaIncidents,
+    arenaPrecisionConfigPatch
 } from '../js/utils/arenaRules.js';
-import { calculatePrecisionResult, PRECISION_FORMATS } from '../js/utils/precisionCalculation.js';
+import { calculatePrecisionResult, PRECISION_FORMATS, getPrecisionFormat, getArenaSettings } from '../js/utils/precisionCalculation.js';
 import { precisionRoundsForFormat } from '../js/utils/precisionRounds.js';
 import {
     precisionGroupContext,
@@ -169,4 +170,25 @@ test('arena with two competitions: competition 2 in reverse order of merit, then
     // Top three of competition 2 qualify for Drive-Off 2: 2 (61), 3 (66), 4 (69)
     assert.deepEqual([...ctx.groups.get(CLASS).driveOffQualifiers].sort(), ['2', '3', '4']);
     assert.deepEqual(places, { 1: 4, 2: 1, 3: 2, 4: 3 });
+});
+
+test('arena competition: classes without their own format are arena classes with the competition defaults', () => {
+    const patch = arenaPrecisionConfigPatch({ rules: 'TR', competitions: 2, driveOff1: 'none' });
+    assert.deepEqual(patch, {
+        defaultFormat: 'arena',
+        arenaDefaults: { rules: 'TR', competitions: 2, driveOff1: 'none', driveOff2: 'top3', driveOff2Timing: 'added' }
+    });
+    // FEI: Drive-Off 1 is always held (WC 5.2), no timing stored (derived)
+    assert.deepEqual(arenaPrecisionConfigPatch({ rules: 'FEI', driveOff1: 'none' }).arenaDefaults,
+        { rules: 'FEI', competitions: 1, driveOff1: 'top3' });
+
+    const config = { ...patch, courses: { 'Lätt A': { format: 'normal' }, [CLASS]: { arena: { rules: 'FEI', obstacles: [{ label: '1' }] } } } };
+    assert.equal(getPrecisionFormat('Ny klass', config), 'arena');
+    assert.equal(getPrecisionFormat('Lätt A', config), 'normal', 'a class with its own format keeps it');
+    assert.equal(getArenaSettings('Ny klass', config).rules, 'TR', 'competition defaults');
+    assert.equal(getArenaSettings('Ny klass', config).competitions, 2);
+    assert.equal(getArenaSettings(CLASS, config).rules, 'FEI', 'the class settings win');
+    // A combined competition is unchanged
+    assert.equal(getPrecisionFormat('Ny klass', {}), 'normal');
+    assert.equal(getArenaSettings('Ny klass', {}).rules, 'FEI');
 });

@@ -204,6 +204,8 @@ export function setGlobalState({ key, value }) {
         updateCompactPageContext();
         // The phone's bottom bar follows the competition and its current discipline
         try { document.dispatchEvent(new CustomEvent('app-competition-change', { detail: { competition: value || null } })); } catch (_) { }
+        // The menus follow the competition type (data-competition-kind) at once
+        try { updateUIVisibility(); } catch (_) { }
     }
 
     // --- NYTT: Hämta tävlingsspecifik roll om tävling eller användare ändras ---
@@ -221,6 +223,16 @@ export function getGlobalState(key) {
 
 export function getCompetitionMode(comp = globalState.currentCompetition) {
     return comp?.competitionMode === 'field' ? 'field' : 'live';
+}
+
+// Competition type: 'combined' (dressage, marathon, cones) or 'arena'
+// (arena driving indoors, TR 510.7 / FEI World Cup: only the precision pages)
+export function getCompetitionKind(comp = globalState.currentCompetition) {
+    return comp?.competitionKind === 'arena' ? 'arena' : 'combined';
+}
+
+export function isArenaCompetition(comp = globalState.currentCompetition) {
+    return getCompetitionKind(comp) === 'arena';
 }
 
 export function isFieldMode(comp = globalState.currentCompetition) {

@@ -20,6 +20,15 @@ const INPUT_PAGES = ['dressyr-input', 'maraton-input', 'maraton-stages', 'observ
     'precision-input', 'precision-split-input', 'vagnbredd', 'speaker'];
 const ADMIN_PAGES = ['admin', 'ekipage', 'dressyr-admin', 'maraton-admin', 'precision-admin', 'reports'];
 
+// Arena driving (indoor) has no dressage, marathon or total pages
+const ARENA_PHASE = 'precision';
+const ARENA_HIDDEN_ROLES = ['dressage', 'marathon'];
+
+/** The phases offered: only precision for an arena competition */
+export function availablePhases(arena = false) {
+    return Object.entries(PHASE_PAGES).filter(([phase]) => !arena || phase === ARENA_PHASE);
+}
+
 // An official's own page per role, the first one their roles open
 const ROLE_INPUT = [['dressage', 'dressyr-input'], ['marathon', 'maraton-input'], ['precision', 'precision-input'], ['speaker', 'speaker']];
 
@@ -34,7 +43,12 @@ export function isTaskPage(pageKey) {
  * page, the current discipline's first when the roles hold several; else
  * the official portal.
  */
-export function officialTaskPage({ roles = [], phase = 'dressage', lastTask = null } = {}) {
+export function officialTaskPage({ roles = [], phase = 'dressage', lastTask = null, arena = false } = {}) {
+    if (arena) {
+        phase = ARENA_PHASE;
+        roles = roles.filter(r => !ARENA_HIDDEN_ROLES.includes(r));
+        if (lastTask && !/^(precision|speaker|vagnbredd)/.test(lastTask)) lastTask = null;
+    }
     if (lastTask && isTaskPage(lastTask) && canOpenPage(lastTask, roles)) return lastTask;
     const own = ROLE_INPUT.filter(([role, page]) => roles.includes(role) && canOpenPage(page, roles)).map(([, page]) => page);
     const current = PHASE_PAGES[phase]?.input;
@@ -51,7 +65,8 @@ const menuTab = () => ({ key: 'menu', href: null, page: null, labelKey: 'bottom_
  * phase: its current discipline; fieldMode: no live monitors;
  * lastTask: the input page this device last opened.
  */
-export function bottomNavTabs({ roles = ['publik'], signedIn = false, hasCompetition = false, phase = 'dressage', fieldMode = false, lastTask = null } = {}) {
+export function bottomNavTabs({ roles = ['publik'], signedIn = false, hasCompetition = false, phase = 'dressage', fieldMode = false, lastTask = null, arena = false } = {}) {
+    if (arena) phase = ARENA_PHASE;
     const can = (page) => canOpenPage(page, signedIn ? roles : ['publik']);
     if (!hasCompetition) {
         return [
@@ -77,7 +92,7 @@ export function bottomNavTabs({ roles = ['publik'], signedIn = false, hasCompeti
         return list(incidents, secretariat, live, results);
     }
     if (signedIn && can('official')) {
-        const task = officialTaskPage({ roles, phase, lastTask });
+        const task = officialTaskPage({ roles, phase, lastTask, arena });
         const taskTab = task === 'official'
             ? tab('task', 'official', 'bottom_nav_my_task', 'task', ['official'])
             : tab('task', task, 'bottom_nav_my_task', 'task', INPUT_PAGES);

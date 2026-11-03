@@ -1,4 +1,4 @@
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, isArenaCompetition } from '../../main.js';
 import { getPublicCompetitionViewModel } from '../../services/publicCompetitionService.js';
 import { getCompetitionHeader, showAlert } from '../../ui/components.js';
 import { escapeHtml, safeLinkUrl } from '../../utils/sharedUtils.js';
@@ -147,7 +147,8 @@ function renderAudienceActions(competition, mapLink, showDocumentsSection) {
     {
       label: t('cc_action_results'),
       description: t('cc_action_results_desc'),
-      href: getCompetitionPageLink('total-resultat', competition)
+      // Arena driving has no combined total
+      href: getCompetitionPageLink(isArenaCompetition(competition) ? 'precision-results' : 'total-resultat', competition)
     },
     safeMapLink ? {
       label: t('cc_directions'),
@@ -204,10 +205,10 @@ function renderAudienceActions(competition, mapLink, showDocumentsSection) {
 function renderSecondaryLinks(competition) {
   const links = [
     { label: t('cc_link_participants'), href: getCompetitionPageLink('deltagare', competition) },
-    { label: t('dressage'), href: getCompetitionPageLink('dressyr-results', competition) },
-    { label: t('marathon'), href: getCompetitionPageLink('maraton-results', competition) },
+    { label: t('dressage'), href: getCompetitionPageLink('dressyr-results', competition), combinedOnly: true },
+    { label: t('marathon'), href: getCompetitionPageLink('maraton-results', competition), combinedOnly: true },
     { label: t('precision'), href: getCompetitionPageLink('precision-results', competition) }
-  ];
+  ].filter(link => !(link.combinedOnly && isArenaCompetition(competition)));
 
   return `
     <div class="rounded-xl border dark:border-gray-700 bg-white/70 dark:bg-gray-900/25 p-3">
@@ -279,6 +280,7 @@ function renderVisitInfo(publicInfo) {
 }
 
 function renderClassDetails(row) {
+  const arena = isArenaCompetition();
   const marathon = row.marathonDetails || {};
   const precision = row.precisionDetails || {};
   const obstacleText = (marathon.drivenObstacles || []).length
@@ -291,15 +293,15 @@ function renderClassDetails(row) {
     : t('cc_no_gate_labels');
 
   return `
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-      <div class="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5">
+    <div class="grid grid-cols-1 ${arena ? '' : 'lg:grid-cols-2 '}gap-3">
+      ${arena ? '' : `<div class="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5">
         <h3 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">${t('marathon')}</h3>
         <div class="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
           <div><strong>${t('cc_driven_obstacles')}:</strong> ${obstacleText}</div>
           ${marathon.gateCount ? `<div><strong>${t('cc_gates_per_obstacle')}:</strong> ${escapeHtml(marathon.gateCount)}</div>` : ''}
           ${(marathon.distanceA || marathon.distanceB || marathon.distanceT) ? `<div><strong>${t('cc_distances')}:</strong> A ${escapeHtml(displayOrDash(marathon.distanceA))} m, T ${escapeHtml(displayOrDash(marathon.distanceT))} m, B ${escapeHtml(displayOrDash(marathon.distanceB))} m</div>` : ''}
         </div>
-      </div>
+      </div>`}
       <div class="rounded-lg border dark:border-gray-700 bg-white dark:bg-gray-800 p-2.5">
         <h3 class="font-semibold text-gray-900 dark:text-white mb-2 text-sm">${t('precision')}</h3>
         <div class="space-y-1.5 text-xs text-gray-600 dark:text-gray-300">
@@ -318,6 +320,7 @@ function windowLabel(value) {
 }
 
 function renderClassSummary(rows) {
+  const arena = isArenaCompetition();
   if (!rows.length) {
     return `<p class="text-sm text-gray-600 dark:text-gray-300">${t('cc_no_classes')}</p>`;
   }
@@ -340,15 +343,15 @@ function renderClassSummary(rows) {
                   ${isOpen ? t('cc_hide') : t('cc_show')}
                 </span>
               </div>
-              <div class="grid grid-cols-3 gap-1.5 mt-2">
-                <div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
+              <div class="grid ${arena ? 'grid-cols-1' : 'grid-cols-3'} gap-1.5 mt-2">
+                ${arena ? '' : `<div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
                   <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('dressage')}</div>
                   <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(windowLabel(row.dressageWindow))}</div>
                 </div>
                 <div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
                   <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('marathon')}</div>
                   <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(windowLabel(row.marathonWindow))}</div>
-                </div>
+                </div>`}
                 <div class="rounded-lg bg-white dark:bg-gray-800 p-2 border dark:border-gray-700 min-w-0">
                   <div class="text-xs uppercase tracking-wide text-gray-600 dark:text-gray-300">${t('precision')}</div>
                   <div class="mt-0.5 text-xs font-medium text-gray-700 dark:text-gray-300 truncate">${escapeHtml(windowLabel(row.precisionWindow))}</div>

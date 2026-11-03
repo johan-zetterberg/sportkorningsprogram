@@ -1,7 +1,7 @@
 // js/pages/speaker.js
 // En specialanpassad vy för speaker med fokus på talarstöd (noteringar, kommande, resultat).
 
-import { getGlobalState } from '../../main.js';
+import { getGlobalState, isArenaCompetition } from '../../main.js';
 import { loadArchiveSnapshot } from './archivedResults.js';
 import { openDetails as showDressageDetailsModal } from '../../ui/dressageModal.js';
 import { showDetailsModal as showPrecisionDetailsModal } from '../../ui/precisionModal.js';
@@ -706,15 +706,16 @@ window.setComparisonRider = (val) => {
 };
 
 function updateDisciplineUI() {
+    const arena = isArenaCompetition();
     const nav = document.getElementById('discipline-switcher');
     if (nav) {
         // Compact segmented control
         nav.className = "flex flex-wrap bg-gray-200 dark:bg-gray-700 rounded-lg p-1 gap-1 text-sm font-bold items-center mt-4 mb-4";
         nav.innerHTML = `
-            <button data-action="switchDiscipline" data-action-args='["dressyr"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'dressyr' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Dressyr</button>
-            <button data-action="switchDiscipline" data-action-args='["maraton"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'maraton' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Maraton</button>
+            ${arena ? '' : `<button data-action="switchDiscipline" data-action-args='["dressyr"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'dressyr' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Dressyr</button>`}
+            ${arena ? '' : `<button data-action="switchDiscipline" data-action-args='["maraton"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'maraton' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Maraton</button>`}
             <button data-action="switchDiscipline" data-action-args='["precision"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'precision' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Precision</button>
-            <button data-action="switchDiscipline" data-action-args='["totalt"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'totalt' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Totalt</button>
+            ${arena ? '' : `<button data-action="switchDiscipline" data-action-args='["totalt"]' class="flex-1 px-3 py-1.5 rounded-md transition-all ${currentDiscipline === 'totalt' ? 'bg-white dark:bg-gray-900 text-gray-900 dark:text-white shadow-sm' : 'text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white'}">Totalt</button>`}
             
             <button data-action="startStressTest" data-action-confirm="Starta Stress-test?" class="text-xs px-2 py-1 text-red-300 hover:text-red-500 hover:bg-red-50 rounded hidden" title="Simulera">⚡</button>
             
@@ -2041,6 +2042,8 @@ function setupAllListeners() {
 export async function load() {
     const comp = getGlobalState('currentCompetition');
     competitionId = comp?.id;
+    // Arena driving only has precision
+    if (isArenaCompetition(comp)) currentDiscipline = 'precision';
 
     if (!competitionId) {
         const root = document.getElementById('page-speaker');

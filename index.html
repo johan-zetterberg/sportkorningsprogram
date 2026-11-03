@@ -172,12 +172,12 @@
                 data-role-required="publik,funktionar,domare,admin"><span data-i18n="menu_dressage">Dressyr</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute xl:min-w-[30rem] bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
-                <a href="#dressyr-monitor" class="nav-link block px-4 py-2"
+                <a href="#dressyr-monitor" data-competition-kind="combined" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
-                <a href="#dressyr-input" class="nav-link block px-4 py-2" data-role-required="dressage,domare,admin"
+                <a href="#dressyr-input" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="dressage,domare,admin"
                   data-i18n="menu_input">Inmatning
                   Dressyr</a>
-                <a href="#dressyr-results" class="nav-link block px-4 py-2"
+                <a href="#dressyr-results" data-competition-kind="combined" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Dressyr</a>
               </div>
             </div>
@@ -187,17 +187,17 @@
                 data-role-required="publik,funktionar,domare,admin"><span data-i18n="menu_marathon">Maraton</span><span class="nav-caret" aria-hidden="true"> ▼</span></button>
               <div
                 class="dropdown-menu hidden xl:absolute bg-white dark:bg-gray-800 dark:border dark:border-gray-700 xl:shadow-lg rounded-md xl:mt-2 z-30">
-                <a href="#maraton-monitor" class="nav-link block px-4 py-2"
+                <a href="#maraton-monitor" data-competition-kind="combined" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-competition-mode="live" data-i18n="menu_monitor">Live Monitor</a>
-                <a href="#maraton-input" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
+                <a href="#maraton-input" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
                   data-i18n="menu_input_obstacles">Inmatning Hinder</a>
-                <a href="#maraton-tider" class="nav-link block px-4 py-2"
+                <a href="#maraton-tider" data-competition-kind="combined" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_marathon_times">Maratontider</a>
-                <a href="#maraton-stages" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
+                <a href="#maraton-stages" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="marathon,domare,admin"
                   data-i18n="menu_stages">Maraton – Etapper</a>
-                <a href="#observator-input" class="nav-link block px-4 py-2"
+                <a href="#observator-input" data-competition-kind="combined" class="nav-link block px-4 py-2"
                   data-role-required="marathon,domare,admin" data-competition-mode="live" data-i18n="menu_observer">Observatör</a>
-                <a href="#maraton-results" class="nav-link block px-4 py-2"
+                <a href="#maraton-results" data-competition-kind="combined" class="nav-link block px-4 py-2"
                   data-role-required="publik,funktionar,domare,admin" data-i18n="menu_results">Resultat Maraton</a>
               </div>
             </div>
@@ -244,15 +244,15 @@
                   </div>
                   <div class="nav-group">
                     <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_discipline_admin">Grenadmin</div>
-                <a href="#dressyr-admin" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_dressage">Admin Dressyr</a>
-                <a href="#maraton-admin" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_marathon">Admin Maraton</a>
+                <a href="#dressyr-admin" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_dressage">Admin Dressyr</a>
+                <a href="#maraton-admin" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_marathon">Admin Maraton</a>
                 <a href="#precision-admin" class="nav-link block px-4 py-2" data-role-required="admin" data-i18n="menu_admin_precision">Admin Precision</a>
                   </div>
                   <div class="nav-group">
                     <div class="nav-group-heading px-2 pb-1 text-[11px] font-bold uppercase tracking-[0.12em] text-gray-400 dark:text-gray-500" data-i18n="menu_group_secretariat">Sekretariat</div>
                 <a href="#sekretariat-precision" class="nav-link block px-4 py-2" data-role-required="admin,precision,td" data-i18n="menu_secretariat_precision">Sekretariat Precision</a>
-                <a href="#sekretariat-maraton" class="nav-link block px-4 py-2" data-role-required="admin,marathon,td" data-i18n="menu_secretariat_marathon">Sekretariat Maraton</a>
-                <a href="#sekretariat-dressyr" class="nav-link block px-4 py-2" data-role-required="admin,dressage,td" data-i18n="menu_secretariat_dressage">Sekretariat Dressyr</a>
+                <a href="#sekretariat-maraton" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="admin,marathon,td" data-i18n="menu_secretariat_marathon">Sekretariat Maraton</a>
+                <a href="#sekretariat-dressyr" data-competition-kind="combined" class="nav-link block px-4 py-2" data-role-required="admin,dressage,td" data-i18n="menu_secretariat_dressage">Sekretariat Dressyr</a>
                 <a href="#incidents" class="nav-link block px-4 py-2" data-role-required="admin,td,dressage,marathon,precision,vet" data-i18n="menu_incidents">Händelselogg &amp; protester</a>
                   </div>
                   <div class="nav-group">
@@ -265,7 +265,7 @@
               </div>
             </div>
 
-            <a href="#total-resultat" class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
+            <a href="#total-resultat" data-competition-kind="combined" class="nav-link px-4 py-3 xl:px-2 xl:py-2 rounded-md font-medium"
               data-role-required="publik,funktionar,domare,admin" data-i18n="menu_total">Totalt</a>
 
             <a href="#manual"

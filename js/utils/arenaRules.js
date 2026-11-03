@@ -122,6 +122,24 @@ export function normalizeArenaSettings(raw = {}) {
     };
 }
 
+/**
+ * The precisionConfig fields of a competition created as arena driving: every
+ * class without its own format is an arena class (defaultFormat), with these
+ * settings until the class is saved with its own (arenaDefaults: the choices
+ * only, no seconds for FEI, no course). raw = { rules, competitions,
+ * driveOff1, driveOff1Timing, driveOff2, driveOff2Timing }.
+ */
+export function arenaPrecisionConfigPatch(raw = {}) {
+    const s = normalizeArenaSettings(raw);
+    const arenaDefaults = { rules: s.rules, competitions: s.competitions, driveOff1: s.driveOff1 };
+    if (s.rules === 'TR' && s.driveOff1 !== 'none') arenaDefaults.driveOff1Timing = s.driveOff1Timing;
+    if (s.competitions === 2) {
+        arenaDefaults.driveOff2 = s.driveOff2;
+        if (s.rules === 'TR' && s.driveOff2 !== 'none') arenaDefaults.driveOff2Timing = s.driveOff2Timing;
+    }
+    return { defaultFormat: 'arena', arenaDefaults };
+}
+
 /** The rounds the settings drive, in order */
 export function arenaRoundsOf(settings) {
     const s = settings || normalizeArenaSettings();
