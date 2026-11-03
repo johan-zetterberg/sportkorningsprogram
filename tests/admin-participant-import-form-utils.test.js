@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import {
   buildClassMappingHtml,
   buildXmlClassItems,
+  defaultClassMapping,
   escapeAdminImportHtml
 } from '../js/pages/admin/adminParticipantImportFormUtils.js';
 
@@ -50,4 +51,14 @@ test('buildClassMappingHtml renders readable Swedish import labels', () => {
   assert.match(html, /Tempo, klassinställningar och beräkning fortsätter använda den faktiska klass/);
   assert.match(html, /Slutför import/);
   assert.doesNotMatch(html, /Ã|Â|Ãƒ|Ã‚/);
+});
+
+test('arena classes keep the class name from the file', () => {
+  const item = { key: 'NUM:1', display: 'Arenakörning Fyrspann (TDB #1)', className: 'Arenakörning Fyrspann Häst ' };
+  assert.equal(defaultClassMapping(item, { arena: true, bestMatch: 'MSV Fyrspann Häst' }), 'Arenakörning Fyrspann Häst');
+  assert.equal(defaultClassMapping(item, { arena: false, bestMatch: 'MSV Fyrspann Häst' }), 'MSV Fyrspann Häst');
+  const html = buildClassMappingHtml([item], ['MSV Fyrspann Häst']);
+  assert.match(html, /<option value="Arenakörning Fyrspann Häst">Behåll namnet från filen: Arenakörning Fyrspann Häst<\/option>/);
+  // A name already in the class list is not offered twice
+  assert.doesNotMatch(buildClassMappingHtml([{ key: 'NUM:2', display: 'x', className: 'MSV Fyrspann Häst' }], ['MSV Fyrspann Häst']), /Behåll namnet/);
 });

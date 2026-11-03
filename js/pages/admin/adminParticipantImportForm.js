@@ -15,13 +15,15 @@ import {
 } from './adminParticipantClassUtils.js';
 import { parseEqEntriesXml } from './adminParticipantXmlImport.js';
 import { importOfficialsFromXml } from './adminOfficialsXmlImport.js';
-import { buildClassMappingHtml, buildXmlClassItems, escapeAdminImportHtml } from './adminParticipantImportFormUtils.js';
+import { buildClassMappingHtml, buildXmlClassItems, defaultClassMapping, escapeAdminImportHtml } from './adminParticipantImportFormUtils.js';
+import { isArenaCompetition } from '../../main.js';
 
 function renderClassMappingUi(progress, uniqueXmlClasses, appClassList) {
     progress.innerHTML = buildClassMappingHtml(uniqueXmlClasses, appClassList);
 
+    const arena = isArenaCompetition();
     uniqueXmlClasses.forEach((item, index) => {
-        const bestMatch = findBestClassMatch(item.className, appClassList);
+        const bestMatch = defaultClassMapping(item, { arena, bestMatch: findBestClassMatch(item.className, appClassList) });
         if (bestMatch) {
             setTimeout(() => {
                 const selectEl = document.getElementById(`mapping_${index}`);
@@ -203,6 +205,10 @@ export function setupParticipantImportForm({ competitionId, getJudges, getOffici
 
                 try {
                     progress.innerHTML = 'Jämför med befintliga ekipage...';
+                    if (!userClassMapping.size) {
+                        showAlert('Välj en klass för minst en rad. Ekipage utan vald klass importeras inte.', false);
+                        return;
+                    }
                     const plan = await planImportedEquipages(competitionId, equipagesFromFile, userClassMapping, { mergePerTest });
                     const summary = summarizeImportPlan(plan);
 

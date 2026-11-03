@@ -28,6 +28,21 @@ export function buildXmlClassItems(equipagesFromFile = []) {
         ).values());
 }
 
+/** The class name of a file row, trimmed (the parser leaves a trailing space) */
+export function fileClassName(item) {
+    return String(item?.className ?? '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * The class a file row is mapped to at first: in an arena competition the
+ * name from the file (the dressage class list has no arena classes), else
+ * the best match in the class list.
+ */
+export function defaultClassMapping(item, { arena = false, bestMatch = null } = {}) {
+    if (arena) return fileClassName(item) || bestMatch || '';
+    return bestMatch || '';
+}
+
 export function buildClassMappingHtml(uniqueXmlClasses = [], appClassList = []) {
     const appClassOptions = appClassList
         .map(className => {
@@ -36,7 +51,14 @@ export function buildClassMappingHtml(uniqueXmlClasses = [], appClassList = []) 
         })
         .join('');
 
-    const classRows = uniqueXmlClasses.map((item, index) => `
+    const classRows = uniqueXmlClasses.map((item, index) => {
+        // The class name from the file as it is (arena driving and other
+        // classes outside the dressage class list)
+        const fileName = fileClassName(item);
+        const keepOption = fileName && !appClassList.includes(fileName)
+            ? `<option value="${escapeAdminImportHtml(fileName)}">Behåll namnet från filen: ${escapeAdminImportHtml(fileName)}</option>`
+            : '';
+        return `
         <div class="grid grid-cols-2 gap-4 items-center mb-2 p-2 bg-gray-50 dark:bg-gray-800 rounded">
       <div class="text-sm">
         <span class="font-semibold dark:text-gray-200">Från fil:</span>
@@ -45,10 +67,11 @@ export function buildClassMappingHtml(uniqueXmlClasses = [], appClassList = []) 
       <div>
         <label for="mapping_${index}" class="text-sm font-semibold dark:text-gray-200">Mappa till:</label>
         <select id="mapping_${index}" data-key="${escapeAdminImportHtml(item.key)}" class="mt-1 block w-full p-2 border rounded-md dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">
-          <option value="">-- Välj klass --</option>${appClassOptions}
+          <option value="">-- Välj klass --</option>${keepOption}${appClassOptions}
         </select>
       </div>
-    </div>`).join('');
+    </div>`;
+    }).join('');
 
     return `<h3 class="font-semibold mb-2 dark:text-gray-200">Steg 2: Mappa tävlingsklasser</h3>
         <p class="text-sm text-gray-600 dark:text-gray-400 mb-4">Kontrollera och justera de automatiskt matchade klasserna.</p>

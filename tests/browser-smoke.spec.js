@@ -735,6 +735,43 @@ test('arena competition: created from the hub template, with arena settings and 
   await expect(page.locator('#competitionKindSelect')).toHaveValue('arena');
 });
 
+test('xml import: entries from a TDB file are saved in an arena competition', async ({ page }) => {
+  test.setTimeout(180000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.evaluate(async (competitionId) => {
+    const { updateCompetition } = await import('../js/services/competitionService.js');
+    await updateCompetition(competitionId, { competitionKind: 'arena' });
+  }, competitionId);
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<TInternetEntrys>
+  <MeetingSettings><name>Arena Cup</name><location>Ridhuset</location></MeetingSettings>
+  <Organization><name>Testklubben</name></Organization>
+  <Propositions><o><clabbNumber>1</clabbNumber><AclassName>Arenakörning Fyrspann</AclassName><horse>H</horse></o></Propositions>
+  <Riders>
+    <o><firstName>Xml</firstName><lastName>Importsson</lastName><orgName>Testklubben</orgName><paid>0</paid>
+      <Horses><o><horseName>Arenahäst</horseName><regNo>XML-1</regNo><category>H</category>
+        <Classes><o><clabbNumber>1</clabbNumber><status>ENTERED</status></o></Classes>
+      </o></Horses>
+    </o>
+  </Riders>
+</TInternetEntrys>`;
+  await page.goto('/index.html#admin?tab=registration');
+  await page.locator('#eqXmlFile').setInputFiles({ name: 'arena.eqentries.xml', mimeType: 'text/xml', buffer: Buffer.from(xml) });
+  await page.locator('#eqXmlImportForm button[type="submit"]').click();
+  await expect(page.locator('#eqXmlDoFinalImport')).toBeVisible({ timeout: 30000 });
+  await page.locator('#eqXmlDoFinalImport').click();
+  await expect(page.locator('#eqXmlConfirmImport')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#eqXmlImportProgress')).toContainText('1 nya');
+  await page.locator('#eqXmlConfirmImport').click();
+  await expect(page.locator('#eqXmlImportProgress')).toContainText('Importen är sparad', { timeout: 30000 });
+  const imported = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    return (await getEquipages(competitionId)).filter(e => /Importsson/.test(e.driverName || '')).map(e => e.className);
+  }, competitionId);
+  // An arena competition keeps the class name from the file
+  expect(imported).toEqual(['Arenakörning Fyrspann Häst']);
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {
