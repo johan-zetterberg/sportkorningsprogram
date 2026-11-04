@@ -58,6 +58,11 @@ test('extractTrackWidthsFromTexts extracts trackWidth and marathonTrackWidth fro
   // Case 4: Delat i flera fält (ryttarkommentar + hästkommentar)
   assert.deepEqual(extractTrackWidthsFromTexts(['Delar groom med Bengt', 'Vagn: 142cm, maratonvagn 128cm']), { trackWidth: 142, marathonTrackWidth: 128 });
 
+  // Case 4b: the number first, or a word between (from a TDB file)
+  assert.deepEqual(extractTrackWidthsFromTexts(['125 cm vagnsbredd  Delar Groom (endast maraton) med Eva Hed LA.']), { trackWidth: 125, marathonTrackWidth: null });
+  assert.deepEqual(extractTrackWidthsFromTexts(['Vagnsbredd Är 125 cm. Jag måste tyvärr dra tillbaka min anmälan']), { trackWidth: 125, marathonTrackWidth: null });
+  assert.deepEqual(extractTrackWidthsFromTexts(['Vagnsbredd; 138']), { trackWidth: 138, marathonTrackWidth: null });
+
   // Case 5: Inget mått
   assert.deepEqual(extractTrackWidthsFromTexts(['Ingen info']), { trackWidth: null, marathonTrackWidth: null });
 });

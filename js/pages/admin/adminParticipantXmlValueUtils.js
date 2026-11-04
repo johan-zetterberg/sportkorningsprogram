@@ -58,7 +58,10 @@ export function extractTrackWidthsFromTexts(texts = []) {
     }
 
     // 2. Dressyr / Precision / Allmän vagnbredd / spårvidd
-    const dressPrecisionMatch = combined.match(/(?:dressyr(?:bredd|spårvidd)?|precision(?:sbredd|spårvidd)?|vagns?bredd|spårvidd|vagn(?:en)?(?:bredd)?)[\s:cm\-=]*(\d{2,3})/i);
+    // Also "Vagnsbredd är 125 cm" (a short word between) and "125 cm vagnsbredd"
+    // (the number first)
+    const dressPrecisionMatch = combined.match(/(?:dressyr(?:bredd|spårvidd)?|precision(?:sbredd|spårvidd)?|vagns?bredd|spårvidd|vagn(?:en)?(?:bredd)?)(?:\s+(?:är|på|ca|cirka))?[\s:;cm\-=]*(\d{2,3})/i)
+        || combined.match(/(\d{3})\s*cm\.?\s+(?:i\s+)?(?:vagns?bredd|spårvidd)/i);
     if (dressPrecisionMatch) {
         const w = parseInt(dressPrecisionMatch[1], 10);
         if (w >= 100 && w <= 200) {

@@ -772,6 +772,50 @@ test('xml import: entries from a TDB file are saved in an arena competition', as
   expect(imported).toEqual(['Arenakörning Fyrspann Häst']);
 });
 
+test('xml import: a new competition from the hub saves the entries and officials', async ({ page }) => {
+  test.setTimeout(240000);
+  await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  await page.goto('/index.html#hub');
+  await page.locator('#btnToggleCreateCompetition').click();
+  await page.locator('.hub-template-card[data-template-id="arena"]').click();
+  await page.locator('#compName').fill('Sommarrace');
+  await page.locator('#compStartDate').fill('2026-12-05');
+  await page.locator('#compEndDate').fill('2026-12-05');
+  await page.locator('#compClub').fill('Testklubben');
+  await page.locator('#compPlace').fill('Ridhuset');
+  await page.locator('#createCompetitionForm button[type="submit"]').click();
+  await page.waitForURL(/#admin/, { timeout: 30000 });
+  const competitionId = await page.evaluate(async () => (await import('../js/main.js')).getGlobalState('currentCompetition').id);
+  const classes = [[1, 'LB'], [2, 'LA'], [9, 'MSV 4 Enbet ponny'], [10, 'MSV 4 Par ponny']];
+  const riders = classes.map(([no, name], i) => `<o><foreignId>R${i}</foreignId><licens>L${i}</licens><firstName>Kusk${i}</firstName><lastName>Xmlsson</lastName><orgName>Testklubben</orgName><paid>0</paid>
+      <Horses><o><horseName>Häst${i}</horseName><regNo>REG-${i}</regNo><category>P</category>
+        <Classes><o><clabbNumber>${no}</clabbNumber><status>ENTERED</status></o></Classes>
+      </o></Horses></o>`).join('');
+  const props = classes.map(([no, name]) => `<o><clabbNumber>${no}</clabbNumber><AclassName>${name}</AclassName><horse>P</horse></o>`).join('');
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<TInternetEntrys>
+  <MeetingSettings><name>Sommarrace</name><location>Ridhuset</location></MeetingSettings>
+  <Organization><name>Testklubben</name></Organization>
+  <Propositions>${props}</Propositions>
+  <Riders>${riders}</Riders>
+  <Officials><o><foreignId>R0</foreignId><fullName>Domar Domarsson</fullName><kind>judge</kind></o><o><fullName>Leda Ledarsson</fullName><kind>event_director</kind></o></Officials>
+</TInternetEntrys>`;
+  await page.goto('/index.html#admin?tab=registration');
+  await page.locator('#eqXmlFile').setInputFiles({ name: 'sommarrace.eqentries.xml', mimeType: 'text/xml', buffer: Buffer.from(xml) });
+  await page.locator('#eqXmlImportForm button[type="submit"]').click();
+  await expect(page.locator('#eqXmlDoFinalImport')).toBeVisible({ timeout: 30000 });
+  await page.locator('#eqXmlDoFinalImport').click();
+  await expect(page.locator('#eqXmlConfirmImport')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#eqXmlImportProgress')).toContainText('4 nya');
+  await page.locator('#eqXmlConfirmImport').click();
+  await expect(page.locator('#eqXmlImportProgress')).toContainText('Importen är sparad', { timeout: 30000 });
+  const imported = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    return (await getEquipages(competitionId)).length;
+  }, competitionId);
+  expect(imported).toBe(4);
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

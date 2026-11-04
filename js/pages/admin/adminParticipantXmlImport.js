@@ -85,7 +85,8 @@ export async function parseEqEntriesXml(file) {
         _all(riderNode, 'Horses').flatMap(h => _all(h, 'o')).forEach(horseNode => {
             const notes = _text(horseNode, 'PM').replace(/(\r\n|\n|\r)/gm, " ").trim();
             const groomMatch = notes.match(/(?:groomar? åt|delar groom med)\s+([A-ZÅÄÖ][a-zåäö]+(?:\s+[A-ZÅÄÖ][a-zåäö]+)?)/i);
-            const groomName = groomMatch ? groomMatch[1].trim() : '';
+            // "groomar åt varandra" names no one
+            const groomName = groomMatch && !/^varandra/i.test(groomMatch[1]) ? groomMatch[1].trim() : '';
             const horseCategory = _text(horseNode, 'category');
 
             const horse = {
