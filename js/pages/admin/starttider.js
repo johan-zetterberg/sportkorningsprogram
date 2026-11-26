@@ -63,7 +63,7 @@ import { calculateTotalCompetitionPenalties } from '../../utils/sharedUtils.js';
 import { setCompetitionSetting } from '../../services/competitionSettingsStore.js';
 import { loadDressageProgramSettings } from '../../services/dressageProgramsService.js';
 import { pickMergeSource } from '../../services/mergeConfigService.js';
-import { t, translateTo, precisionLabel } from '../../utils/i18n.js';
+import { t, translateTo, precisionLabel, isArenaLabelContext } from '../../utils/i18n.js';
 import { awaitWriteOrQueue, queuedNotice } from '../../utils/offlineWrite.js';
 import {
     addPauseAfterStartNumber,
@@ -256,7 +256,7 @@ function generateCsvWrapper() {
     const filename = `starttider_${sanitizeForFilename(comp?.name || 'tavling')}_${date}.csv`;
 
     const list = getSortedEquipages();
-    const headers = ['Nr', 'Kusk', 'Häst', 'Klass', 'Klubb', 'Start Dressyr', 'Start Maraton', 'Start Precision'];
+    const headers = ['Nr', 'Kusk', 'Häst', 'Klass', 'Klubb', 'Start Dressyr', 'Start Maraton', `Start ${precisionLabel()}`];
     const rows = list.map(e => {
         const sn = String(e.startNumber);
         const st = startTimes[sn] || {};
@@ -1156,7 +1156,7 @@ function renderFeiStartOrderAssistant() {
           </label>
           <button id="generateFeiDressageOrder" type="button" class="rounded bg-sky-700 px-3 py-2 text-sm font-semibold text-white hover:bg-sky-800">Skapa dressyrblock</button>
           <button id="generateFeiMarathonOrder" type="button" class="rounded bg-emerald-700 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-800">Skapa maratonordning</button>
-          <button id="generateFeiPrecisionOrder" type="button" class="rounded bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">Skapa precisionsordning</button>
+          <button id="generateFeiPrecisionOrder" type="button" class="rounded bg-indigo-700 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-800">${isArenaLabelContext() ? 'Skapa startordning för arenakörning' : 'Skapa precisionsordning'}</button>
         </div>
       </div>
     `;

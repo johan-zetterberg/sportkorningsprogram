@@ -457,7 +457,7 @@ async function printParticipantPdf(equipage) {
   y += 14;
 
   const body = [
-    ['Vagnbredd (Precision)', String(twPrec)],
+    [`Vagnbredd (${precisionLabel()})`, String(twPrec)],
     ['Vagnbredd (Maraton)', String(twMar)],
     ['Telefon', phone],
     ['E-post', email],
@@ -749,9 +749,9 @@ function renderAndShowDetailsModal(equipage) {
             ${kv('Klubb', clubName)}
             ${kv('Startnummer', startNo)}
             ${kv('Klass', className)}
-            ${kv('Vagnsbredd (Precision)', twPrec)}
+            ${kv(`Vagnsbredd (${precisionLabel()})`, twPrec)}
             ${kv('Vagnsbredd (Maraton)', twMar)}
-            ${kv('Hinderbredd (Precision)',
+            ${kv(`Hinderbredd (${precisionLabel()})`,
     Number.isFinite(portW) ? `${equipage.trackWidth} + ${portAllowance} = ${portW} cm` : '—')}
             </div>
         </section>

@@ -331,9 +331,9 @@ function generateDefaultLocations() {
     });
 
     // --- PRECISION ---
-    locs.push({ id: 'PRECISION_COURSE', label: 'Bana (Precision)', type: 'course_p' });
-    locs.push({ id: 'PRECISION_WARMUP', label: 'Uppvärmning (Precision)', type: 'warmup_p' });
-    locs.push({ id: 'PRECISION_IN', label: 'Insläpp (Precision)', type: 'course_p' });
+    locs.push({ id: 'PRECISION_COURSE', label: `Bana (${precisionLabel()})`, type: 'course_p' });
+    locs.push({ id: 'PRECISION_WARMUP', label: `Uppvärmning (${precisionLabel()})`, type: 'warmup_p' });
+    locs.push({ id: 'PRECISION_IN', label: `Insläpp (${precisionLabel()})`, type: 'course_p' });
 
     return locs;
 }
