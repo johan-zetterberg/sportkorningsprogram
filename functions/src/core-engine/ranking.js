@@ -176,6 +176,13 @@ export function precisionRankKey(result, { requireFinished = false, groupCtx = n
 function arenaCompetition(result, competition) {
     const s = result?.arena?.settings || {};
     const rounds = result?.rounds || {};
+    // A class judged without timing (arenaRules.js ARENA_JUDGING): competition
+    // 1 alone, no drive-off, no tie-break on a time (equal = shared place);
+    // participation and approval classes are never placed
+    if (s.judging && s.judging !== 'timed') {
+        const placed = s.judging === 'faults' && competition !== 2;
+        return { first: placed ? rounds.phase1 : null, driveOff: null, open: 'none', timing: 'fromZero', tr: false };
+    }
     return competition === 2
         ? { first: rounds.phase2, driveOff: rounds.driveOff2, open: s.driveOff2 || 'none', timing: s.driveOff2Timing || 'added', tr: s.rules === 'TR' }
         : { first: rounds.phase1, driveOff: rounds.driveOff, open: s.driveOff1 || 'none', timing: s.driveOff1Timing || 'fromZero', tr: s.rules === 'TR' };

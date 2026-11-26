@@ -452,6 +452,10 @@ export function getCalculatedRowData(sn, placeMap, equipages, precisionMap, conf
         // A precision format the engine does not calculate: no placing
         formatUnsupported: calc.formatUnsupported === true,
         precisionFormat: calc.precisionFormat || 'normal',
+        // Arena class without timing (faults / approval / participation): arenaJudgingView.js reads these
+        arenaJudging: calc.arenaJudging || null,
+        approval: calc.approval ?? null,
+        score: isNum(calc.score) ? calc.score : null,
         // Two phases / drive-off (precisionRankKey reads placing and rounds)
         placing: calc.placing || null,
         rounds: calc.rounds || null,

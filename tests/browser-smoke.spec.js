@@ -893,6 +893,77 @@ test('arena admin: the course is copied from another class', async ({ page }) =>
   await expect(target.locator('.arena-obstacle-label').first()).toHaveValue('X');
 });
 
+test('arena judging: a class without timing is judged on faults, another on approval', async ({ page }) => {
+  test.setTimeout(240000);
+  const competitionId = await seedCompetition(page, { includeEdgeCases: false, includeStress: false });
+  const picked = await page.evaluate(async (competitionId) => {
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getPrecisionResults } = await import('../js/services/precisionService.js');
+    const { getConfig, saveConfig } = await import('../js/services/competitionService.js');
+    const used = new Set((await getPrecisionResults(competitionId)).map(r => String(r.id)));
+    const free = (await getEquipages(competitionId)).filter(e => e.status !== 'struken' && !used.has(String(e.startNumber)));
+    const faultsEq = free[0];
+    const approvalEq = free.find(e => e.className !== faultsEq.className);
+    const config = (await getConfig(competitionId, 'precisionConfig')) || {};
+    const courses = { ...(config.courses || {}) };
+    const obstacles = [{ label: '1', type: 'cone' }, { label: 'H1', type: 'marathon' }];
+    courses[faultsEq.className] = { ...(courses[faultsEq.className] || {}), format: 'arena', obstacleLabels: ['1', 'H1'], arena: { rules: 'FEI', judging: 'faults', competitions: 1, driveOff1: 'none', obstacles } };
+    courses[approvalEq.className] = { ...(courses[approvalEq.className] || {}), format: 'arena', obstacleLabels: [], arena: { rules: 'FEI', judging: 'approval', competitions: 1, driveOff1: 'none', obstacles: [] } };
+    await saveConfig(competitionId, 'precisionConfig', { ...config, courses });
+    return { faults: String(faultsEq.startNumber), approval: String(approvalEq.startNumber) };
+  }, competitionId);
+
+  const readDoc = (startNumber) => page.evaluate(async ({ competitionId, startNumber }) => {
+    const { db, appId } = await import('../js/config/firebase-config.js');
+    const { doc, getDocFromServer } = await import('https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js');
+    try {
+      const snap = await getDocFromServer(doc(db, `artifacts/${appId}/public/data/competitions/${competitionId}/precision/${startNumber}`));
+      const d = snap.exists() ? snap.data() : {};
+      return { knocks: [...(d.knocks || [])].sort(), judged: d.judged ?? null, approved: d.approved ?? null, timeMs: d.timeMs ?? null };
+    } catch { return null; }
+  }, { competitionId, startNumber });
+
+  const choose = async (startNumber) => {
+    const search = page.locator('#pr-precisionEquipageSearchContainer .search-input');
+    await expect(search).toBeVisible();
+    await search.fill(startNumber);
+    await page.locator(`#pr-precisionEquipageSearchContainer .searchable-dropdown-list [data-value="${startNumber}"]`).click();
+  };
+
+  await page.goto('/index.html#precision-input');
+  await page.waitForTimeout(2000);
+
+  // Faults: no clock; knocks, then Done
+  await choose(picked.faults);
+  await expect(page.locator('[data-arena-knock="H1"]')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#pr-btnStart')).toBeHidden();
+  await page.locator('[data-arena-knock="H1"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-arena-knock="1"]').click();
+  await page.waitForTimeout(300);
+  await page.locator('[data-judging-action="judge"]').click();
+  await expect.poll(() => readDoc(picked.faults), { timeout: 60000 }).toEqual({ knocks: ['1', 'H1'], judged: true, approved: null, timeMs: null });
+  const faultsResult = await page.evaluate(async ({ competitionId, startNumber }) => {
+    const { getConfig } = await import('../js/services/competitionService.js');
+    const { getEquipages } = await import('../js/services/equipageService.js');
+    const { getPrecisionResults } = await import('../js/services/precisionService.js');
+    const { calculatePrecisionResult } = await import('../js/utils/precisionCalculation.js');
+    const config = await getConfig(competitionId, 'precisionConfig');
+    const eq = (await getEquipages(competitionId)).find(e => String(e.startNumber) === startNumber);
+    const docData = (await getPrecisionResults(competitionId)).find(r => String(r.id) === startNumber);
+    const r = calculatePrecisionResult(docData, eq, config);
+    return { score: r.score, status: r.status, judging: r.arenaJudging };
+  }, { competitionId, startNumber: picked.faults });
+  expect(faultsResult).toEqual({ score: 8, status: 'Klar', judging: 'faults' });
+
+  // Approval: no clock, no knock buttons; Godkänd
+  await choose(picked.approval);
+  await expect(page.locator('[data-judging-action="approve"]')).toBeVisible({ timeout: 30000 });
+  await expect(page.locator('#pr-btnStart')).toBeHidden();
+  await page.locator('[data-judging-action="approve"]').click();
+  await expect.poll(async () => (await readDoc(picked.approval))?.approved, { timeout: 60000 }).toBe(true);
+});
+
 test('arena driving: knocks and incidents are saved and the class gets its own result list', async ({ page }) => {
   test.setTimeout(300000);
   const shot = async (name) => {

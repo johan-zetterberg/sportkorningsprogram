@@ -9,6 +9,7 @@
 import { t } from '../../utils/i18n.js';
 import { escapeHtml, msToLabel } from '../../utils/sharedUtils.js';
 import { formatArenaKnocks } from '../../utils/arenaRules.js';
+import { arenaJudgingCell, arenaJudgingNoteKey, arenaJudgingOf } from '../../utils/arenaJudgingView.js';
 import { getPrecisionFormat } from '../../utils/precisionCalculation.js';
 import {
   arenaCompetition2StartOrder,
@@ -96,6 +97,9 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
   for (const [key, groupRows] of groups) {
     const label = labelOf(groupRows[0]);
     const settings = result(groupRows[0]).arena?.settings || {};
+    // How the class is judged: faults / approval / participation have no time and no drive-off
+    const judging = arenaJudgingOf(result(groupRows[0]));
+    const untimed = judging !== 'timed';
     const competitions = settings.competitions === 2 ? 2 : 1;
     const bySn = new Map(groupRows.map((r) => [String(r.startNumber), r]));
     const startOrderSns = competitions === 2
@@ -143,6 +147,9 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
           knocks: knocksText(first),
           penaltySec: first?.hasData && isNum(first?.penaltySec) ? first.penaltySec : null,
           score: isNum(first?.score) && (first?.finished || first?.live) ? first.score : null,
+          // Untimed classes: the faults, approval status or "took part"
+          judging,
+          judgingText: untimed ? arenaJudgingCell(res) : '',
           outText: state === 'out' ? (first.retired ? t('precision_round_retired') : t('eliminated')) : '',
           driveOff: open !== 'none' ? driveOffCell(row, groupCtx, driveOff) : null
         };
@@ -178,7 +185,8 @@ export function buildArenaSections(rows = [], resultOf = (row) => row, opts = {}
         competitions,
         open,
         timing,
-        noteKey: driveOffNoteKey(open, timing),
+        judging,
+        noteKey: untimed ? arenaJudgingNoteKey(judging) : driveOffNoteKey(open, timing),
         entries: shownEntries,
         outEntries: shownOut,
         // Competition 2 not driven by anyone yet: only the start order
@@ -230,6 +238,9 @@ function cellHtml(text, tone = '') {
 
 // The result cell of an entry: score, "Pågår" while running, "—" before
 function resultOf(entry) {
+  if (entry.state === 'out') return { text: entry.outText, sub: '', tone: 'elim' };
+  // approval / participation: the status ('–' before it is set); faults: the score as usual
+  if (entry.judging === 'approval' || entry.judging === 'participation') return { text: entry.judgingText, sub: '', tone: '' };
   if (entry.state === 'live') return { text: t('precision_round_live'), sub: isNum(entry.score) ? formatArenaSeconds(entry.score) : '', tone: 'live' };
   if (entry.state === 'out') return { text: entry.outText, sub: '', tone: 'elim' };
   if (isNum(entry.score)) return { text: formatArenaSeconds(entry.score), sub: '', tone: '' };
@@ -240,31 +251,35 @@ function resultOf(entry) {
 export function arenaDesktopHtml(sections = []) {
   return sections.map((section) => {
     const hasDriveOff = section.open !== 'none';
+    const judging = section.judging || 'timed';
+    const faults = judging === 'faults';
+    const noPlace = judging === 'approval' || judging === 'participation';
+    const timed = judging === 'timed';
     const head = `<thead><tr>
-        <th class="arena-c">${escapeHtml(t('arena_result_col_place'))}</th>
+        ${noPlace ? '' : `<th class="arena-c">${escapeHtml(t('arena_result_col_place'))}</th>`}
         <th class="arena-c">${escapeHtml(t('arena_result_col_no'))}</th>
         <th>${escapeHtml(t('arena_result_col_driver'))}</th>
-        <th class="arena-n">${escapeHtml(t('arena_result_col_time'))}</th>
-        <th class="arena-n">${escapeHtml(t('arena_result_col_knocks'))}</th>
-        <th class="arena-n">${escapeHtml(t('arena_result_col_penalty'))}</th>
-        <th class="arena-n">${escapeHtml(t('arena_result_col_result'))}</th>
+        ${timed ? `<th class="arena-n">${escapeHtml(t('arena_result_col_time'))}</th>` : ''}
+        ${timed || faults ? `<th class="arena-n">${escapeHtml(t('arena_result_col_knocks'))}</th>` : ''}
+        ${timed ? `<th class="arena-n">${escapeHtml(t('arena_result_col_penalty'))}</th>` : ''}
+        <th class="arena-n">${escapeHtml(t(faults ? 'arena_result_faults' : (noPlace ? 'status' : 'arena_result_col_result')))}</th>
         ${hasDriveOff ? `<th class="arena-n">${escapeHtml(driveOffHead(section))}</th>` : ''}
       </tr></thead>`;
     const rowHtml = (e, out = false) => {
       const res = resultOf(e);
       const rowClass = e.state === 'live' ? 'arena-live' : (out ? 'arena-out' : '');
       return `<tr class="${rowClass}" data-sn="${escapeHtml(e.sn)}" tabindex="0">
-        <td class="arena-c arena-place">${out ? '—' : cellHtml(e.placeLabel)}</td>
+        ${noPlace ? '' : `<td class="arena-c arena-place">${out ? '—' : cellHtml(e.placeLabel)}</td>`}
         <td class="arena-c arena-muted-text">${escapeHtml(e.sn)}</td>
         <td class="arena-driver">${escapeHtml(e.name)}${e.row.clubName ? `<span class="arena-sub">${escapeHtml(e.row.clubName)}</span>` : ''}</td>
-        <td class="arena-n">${out ? cellHtml('') : cellHtml(e.timeLabel)}</td>
-        <td class="arena-n">${out ? cellHtml('') : cellHtml(e.knocks)}</td>
-        <td class="arena-n">${out || e.penaltySec == null ? cellHtml('') : cellHtml(formatArenaSeconds(e.penaltySec))}</td>
+        ${timed ? `<td class="arena-n">${out ? cellHtml('') : cellHtml(e.timeLabel)}</td>` : ''}
+        ${timed || faults ? `<td class="arena-n">${out ? cellHtml('') : cellHtml(e.knocks)}</td>` : ''}
+        ${timed ? `<td class="arena-n">${out || e.penaltySec == null ? cellHtml('') : cellHtml(formatArenaSeconds(e.penaltySec))}</td>` : ''}
         <td class="arena-n arena-total">${cellHtml(res.text, res.tone)}${res.sub ? `<span class="arena-sub">${escapeHtml(res.sub)}</span>` : ''}</td>
         ${hasDriveOff ? `<td class="arena-n">${e.driveOff ? cellHtml(e.driveOff.text, e.driveOff.tone) : ''}</td>` : ''}
       </tr>`;
     };
-    const span = hasDriveOff ? 8 : 7;
+    const span = 2 + (noPlace ? 0 : 1) + (timed ? 3 : (faults ? 1 : 0)) + 1 + (hasDriveOff ? 1 : 0);
     let body = section.entries.map((e) => rowHtml(e)).join('');
     if (section.outEntries.length) {
       body += `<tr class="arena-group"><td colspan="${span}">${escapeHtml(t('arena_result_eliminated'))}</td></tr>`;
@@ -285,13 +300,14 @@ export function arenaDesktopHtml(sections = []) {
 export function arenaMobileHtml(sections = [], compactList, { density } = {}) {
   return sections.map((section) => {
     const hasDriveOff = section.open !== 'none';
+    const judging = section.judging || 'timed';
     const item = (e, out = false) => {
       const res = resultOf(e);
       const cell = (text, tone) => (text === '' || text == null ? '<span class="cr-muted">—</span>'
         : (tone ? `<span class="arena-tone-${tone}">${escapeHtml(String(text))}</span>` : escapeHtml(String(text))));
       return {
         startNumber: e.sn,
-        place: out ? 'E' : e.placeLabel,
+        place: out ? 'E' : (judging === 'approval' || judging === 'participation' ? '' : e.placeLabel),
         name: e.name,
         sub: e.row.clubName || '',
         state: e.state === 'live' ? 'live' : (out ? 'elim' : (e.place === 1 && !e.provisional ? 'leader' : '')),
@@ -309,13 +325,23 @@ export function arenaMobileHtml(sections = [], compactList, { density } = {}) {
       items.push({ type: 'group', label: t('arena_result_eliminated') });
       section.outEntries.forEach((e) => items.push(item(e, true)));
     }
-    const columns = [
-      { key: 'result', label: t('arena_result_short_result'), title: t('arena_result_col_result') },
-      ...(hasDriveOff ? [{ key: 'driveOff', label: t('arena_result_short_driveoff'), title: driveOffHead(section) }] : []),
-      { key: 'time', label: t('arena_result_short_time'), title: t('arena_result_col_time'), extra: true },
-      { key: 'knocks', label: t('arena_result_short_knocks'), title: t('arena_result_col_knocks'), extra: true },
-      { key: 'penalty', label: t('arena_result_short_penalty'), title: t('arena_result_col_penalty'), extra: true }
-    ];
+    const resultColumn = judging === 'faults'
+      ? { key: 'result', label: t('arena_result_faults'), title: t('arena_result_faults') }
+      : (judging === 'timed'
+        ? { key: 'result', label: t('arena_result_short_result'), title: t('arena_result_col_result') }
+        : { key: 'result', label: t('status'), title: t('status') });
+    const columns = judging === 'timed'
+      ? [
+        resultColumn,
+        ...(hasDriveOff ? [{ key: 'driveOff', label: t('arena_result_short_driveoff'), title: driveOffHead(section) }] : []),
+        { key: 'time', label: t('arena_result_short_time'), title: t('arena_result_col_time'), extra: true },
+        { key: 'knocks', label: t('arena_result_short_knocks'), title: t('arena_result_col_knocks'), extra: true },
+        { key: 'penalty', label: t('arena_result_short_penalty'), title: t('arena_result_col_penalty'), extra: true }
+      ]
+      : [
+        resultColumn,
+        ...(judging === 'faults' ? [{ key: 'knocks', label: t('arena_result_short_knocks'), title: t('arena_result_col_knocks'), extra: true }] : [])
+      ];
     const list = section.empty
       ? ''
       : compactList({

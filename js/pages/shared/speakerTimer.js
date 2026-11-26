@@ -44,7 +44,7 @@ export function updateLiveClocks(context) {
                         pTotEl.textContent = formatSpeakerPenalty(r.totalPenalty ?? 0, { eliminated: r.eliminated });
                     } else {
                         pTotEl.textContent = r.eliminated ? 'ELIM'
-                            : (r.scoring === 'time' ? formatPrecisionSeconds(r.totalPenalty ?? 0) : formatSpeakerPenalty(r.totalPenalty ?? 0));
+                            : (r.scoring === 'time' || r.scoring === 'faults' ? formatPrecisionSeconds(r.totalPenalty ?? 0) : formatSpeakerPenalty(r.totalPenalty ?? 0));
                     }
                 }
             }

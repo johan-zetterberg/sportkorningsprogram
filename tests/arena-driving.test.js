@@ -210,3 +210,57 @@ test('arena competition: the precision discipline is called Arenakörning', asyn
     setCompetitionLanguageContext(null);
   }
 });
+
+test('arena judging: an untimed class has one competition and no drive-off', () => {
+    const s = normalizeArenaSettings({ rules: 'FEI', judging: 'faults', competitions: 2, driveOff1: 'top3' });
+    assert.equal(s.judging, 'faults');
+    assert.equal(s.competitions, 1);
+    assert.equal(s.driveOff1, 'none');
+    assert.equal(s.driveOff2, 'none');
+    assert.equal(normalizeArenaSettings({ judging: 'nonsense' }).judging, 'timed');
+    assert.equal(normalizeArenaSettings({}).judging, 'timed');
+});
+
+test('arena judging "faults": placed on knock and incident seconds without a time, equal shares the place', () => {
+    const config = configOf({ rules: 'FEI', judging: 'faults' });
+    const rows = [
+        { startNumber: 1, doc: { knocks: ['1', '2'], knocksVersion: 2, judged: true } },          // 8 s
+        { startNumber: 2, doc: { knocks: [], judged: true } },                                     // 0 s
+        { startNumber: 3, doc: { knocks: ['4'], knocksVersion: 2, judged: true } },                // 4 s
+        { startNumber: 4, doc: { knocks: ['2'], knocksVersion: 2, judged: true } },                // 4 s
+        { startNumber: 5, doc: { knocks: ['1'], knocksVersion: 2 } },                              // not judged yet
+        { startNumber: 6, doc: { judged: true, eliminated: true } }
+    ];
+    const r1 = calculatePrecisionResult(rows[0].doc, eq(1), config);
+    assert.equal(r1.score, 8);
+    assert.equal(r1.status, 'Klar');
+    assert.equal(r1.timeMs, null);
+    assert.equal(r1.driveOffScheduled, false);
+    assert.equal(calculatePrecisionResult(rows[4].doc, eq(5), config).status, 'Pågår');
+    const { ctx, places } = place(rows, config);
+    assert.deepEqual(places, { 1: 4, 2: 1, 3: 2, 4: 2, 5: null, 6: null });
+    assert.equal(ctx.groups.get(CLASS).driveOffNeeded, false);
+    // TR seconds per knock count too
+    const tr = calculatePrecisionResult({ knocks: ['1'], knocksVersion: 2, judged: true }, eq(1), configOf({ rules: 'TR', knockSec: 5, judging: 'faults' }));
+    assert.equal(tr.score, 5);
+});
+
+test('arena judging "approval" and "participation": never placed', () => {
+    const approval = configOf({ judging: 'approval' });
+    const ok = calculatePrecisionResult({ approved: true }, eq(1), approval);
+    const notOk = calculatePrecisionResult({ approved: false }, eq(2), approval);
+    const none = calculatePrecisionResult({}, eq(3), approval);
+    assert.equal(ok.approval, true);
+    assert.equal(ok.status, 'Klar');
+    assert.equal(notOk.approval, false);
+    assert.equal(none.approval, null);
+    assert.equal(none.status, 'Ej startat');
+    let { places } = place([{ startNumber: 1, doc: { approved: true } }, { startNumber: 2, doc: { approved: false } }], approval);
+    assert.deepEqual(places, { 1: null, 2: null });
+
+    const participation = configOf({ judging: 'participation' });
+    const p = calculatePrecisionResult({}, eq(1), participation);
+    assert.equal(p.arenaJudging, 'participation');
+    ({ places } = place([{ startNumber: 1, doc: {} }, { startNumber: 2, doc: {} }], participation));
+    assert.deepEqual(places, { 1: null, 2: null });
+});

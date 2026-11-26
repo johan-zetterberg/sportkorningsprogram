@@ -388,6 +388,7 @@ const urlsToCache = [
   abs('/js/ui/toastQueue.js'),
   abs('/js/ui/vetStrikeChip.js'),
   abs('/js/utils/appUpdateLogic.js'),
+  abs('/js/utils/arenaJudgingView.js'),
   abs('/js/utils/arenaRules.js'),
   abs('/js/utils/competitionLogo.js'),
   abs('/js/utils/contactLists.js'),

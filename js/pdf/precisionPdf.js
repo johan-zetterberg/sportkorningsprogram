@@ -11,6 +11,7 @@ import { resolvePdfCompetition, resolvePdfLanguage } from './pdfCompetitionUtils
 import { t } from '../utils/i18n.js';
 import { formatPdfPenalty, isWithdrawnStatus } from './resultPdfFormatUtils.js';
 import { getCompetitionLogoUrl } from '../utils/competitionLogo.js';
+import { arenaJudgingCell, isUnplacedArena, isUntimedArena } from '../utils/arenaJudgingView.js';
 import {
   computePrecisionRoundMaxSec,
   getPrecisionFormat,
@@ -379,6 +380,9 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
     const row = getCalculatedRowData(sn, placeMap, equipages, precisionMap, config, startTimes);
     const isElim = row.eliminated || row.d?.eliminated;
     const provisionalPlace = placeInfo.provisional?.has(sn) === true;
+    // Arena class without timing: no time; approval / participation show their status instead of a total
+    const untimedArena = isUntimedArena(row);
+    const statusOnly = isUnplacedArena(row) && !isElim;
 
     return [
       row.place ? formatPrecisionPlace(row.place, provisionalPlace) : '–',
@@ -388,12 +392,13 @@ export async function generatePrecisionListPdf(equipages, precisionMap, config, 
       eq.clubName || '',
       row.startT || '–', // Start time column
       // The engine's time: hundredths, with +10 s per obstacle rebuild
-      `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.timeMs ?? row.d?.timeMs)}`,
+      untimedArena ? '–' : `${row.display?.timeLabel ?? '—'}\n${formatPrecisionPdfTimeSeconds(row.timeMs ?? row.d?.timeMs)}`,
       formatPdfPenalty(row.obstaclePenalty, { eliminated: isElim }),
       formatPdfPenalty(row.timePenalty, { eliminated: isElim }),
       {
         // Arena driving: the result in seconds (time + penalty seconds), as in the round cell
-        content: getPrecisionFormat(eq, config) === 'arena' && !isElim
+        content: statusOnly ? arenaJudgingCell(row)
+          : getPrecisionFormat(eq, config) === 'arena' && !isElim
           ? precisionRoundCellPlain(formatPrecisionRoundCell(row.rounds?.phase1 ?? null, { tr }), { sep: '\n' })
           : formatPdfPenalty(row.totalPenalty, { eliminated: isElim }),
         styles: { fontStyle: 'bold' }

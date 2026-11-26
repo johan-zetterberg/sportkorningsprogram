@@ -8,6 +8,7 @@ import {
     ARENA_FEI_KNOCK_SEC,
     ARENA_INCIDENTS,
     ARENA_INCIDENT_KEYS,
+    ARENA_JUDGING,
     ARENA_OBSTACLE_TYPES,
     normalizeArenaSettings
 } from '../../utils/arenaRules.js';
@@ -68,8 +69,14 @@ export function renderArenaSection(raw, hidden = true) {
                     ${selectHtml('arena-rules', [['FEI', t('arena_admin_rules_fei')], ['TR', t('arena_admin_rules_tr')]], s.rules)}
                 </label>
             </div>
+            <div class="mt-2 max-w-md">
+                <label class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('arena_admin_judging'))}
+                    ${selectHtml('arena-judging', ARENA_JUDGING.map(value => [value, t(`arena_judging_${value}`)]), s.judging)}
+                </label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t('arena_admin_judging_hint'))}</p>
+            </div>
 
-            <div class="${box} precision-field-wrap">
+            <div class="arena-seconds-box ${box} precision-field-wrap">
                 <div class="text-sm font-semibold text-gray-800 dark:text-white">${escapeHtml(t('arena_admin_seconds_title'))}</div>
                 <p class="arena-hint-fei mt-1 text-xs text-gray-500 dark:text-gray-400">${escapeHtml(t('arena_admin_seconds_fei_hint'))}</p>
                 <p class="arena-hint-tr mt-1 text-xs font-semibold text-amber-700 dark:text-amber-300">${escapeHtml(t('arena_admin_seconds_tr_hint'))}</p>
@@ -79,7 +86,7 @@ export function renderArenaSection(raw, hidden = true) {
                 </div>
             </div>
 
-            <div class="${box}">
+            <div class="arena-format-box ${box}">
                 <div class="text-sm font-semibold text-gray-800 dark:text-white">${escapeHtml(t('arena_admin_format_title'))}</div>
                 <div class="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <label class="block text-sm font-medium dark:text-gray-300">${escapeHtml(t('arena_admin_competitions'))}
@@ -132,6 +139,11 @@ export function updateArenaSection(card) {
     if (!section) return;
     const get = (selector) => section.querySelector(selector);
     const fei = get('.arena-rules').value === 'FEI';
+
+    // Judging: only a timed class has competitions / drive-offs; participation and approval have no seconds
+    const judging = get('.arena-judging')?.value || 'timed';
+    get('.arena-format-box').classList.toggle('hidden', judging !== 'timed');
+    get('.arena-seconds-box').classList.toggle('hidden', judging === 'participation' || judging === 'approval');
 
     // FEI: the fixed seconds, read-only; back to TR: the organiser's values return
     section.querySelectorAll('.arena-sec-input').forEach((input) => {
@@ -269,13 +281,17 @@ export function readArenaForm(card) {
     if (!section) return null;
     const get = (selector) => section.querySelector(selector);
     const rules = get('.arena-rules').value === 'TR' ? 'TR' : 'FEI';
-    const competitions = get('.arena-competitions').value === '2' ? 2 : 1;
-    const driveOff1 = get('.arena-driveoff1').value;
+    const judgingValue = get('.arena-judging')?.value;
+    const judging = ARENA_JUDGING.includes(judgingValue) ? judgingValue : 'timed';
+    const timed = judging === 'timed';
+    const competitions = timed && get('.arena-competitions').value === '2' ? 2 : 1;
+    const driveOff1 = timed ? get('.arena-driveoff1').value : 'none';
     const driveOff2 = competitions === 2 ? get('.arena-driveoff2').value : 'none';
 
     const obstacles = obstaclesInSection(section);
 
     const settings = { rules, competitions, driveOff1 };
+    if (!timed) settings.judging = judging;
     if (driveOff1 !== 'none') settings.driveOff1Timing = get('.arena-timing1').value;
     if (competitions === 2) {
         settings.driveOff2 = driveOff2;
@@ -288,6 +304,7 @@ export function readArenaForm(card) {
     section.querySelectorAll('.arena-sec-input').forEach((input) => { rawSeconds[input.dataset.key] = input.value; });
     const validation = {
         rules,
+        judging,
         knockSec: rawSeconds.knock,
         incidentSec: Object.fromEntries(ARENA_INCIDENT_KEYS.map(key => [key, rawSeconds[key]])),
         obstacles

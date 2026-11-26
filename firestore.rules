@@ -654,14 +654,20 @@ service cloud.firestore {
           'eliminated', 'disqualified', 'running', 'inProgress', 'finalized', 'status', 'comment',
           'knocks', 'knocksVersion', 'knockDownTimes', 'timePenaltyOverride', 'rebuildCount', 'gateSplits',
           'prioritized', 'finalizedAt', 'finalizedBy', 'unfinalizedAt', 'unfinalizedBy', 'updatedAt',
-          'rounds', 'activeRound', 'arenaIncidents'])
+          'rounds', 'activeRound', 'arenaIncidents', 'judged', 'approved'])
         && optNumber(d, 'timeMs') && optNumber(d, 'liveTimeMs') && optNumber(d, 'livePausedMs')
         && optNumber(d, 'obstaclePenalty') && optNumber(d, 'timePenalty') && optNumber(d, 'extraPenalty')
         && optNumber(d, 'totalPenalty') && optNumber(d, 'liveTotalPenalty') && optNumber(d, 'rebuildCount')
         && optString(d, 'comment', 1000) && optString(d, 'status', 100)
         && optString(d, 'className', 200) && optString(d, 'driverName', 200)
         && optList(d, 'knocks', 100) && optMap(d, 'knockDownTimes', 100) && optMap(d, 'gateSplits', 120)
-        && optMap(d, 'arenaIncidents', 10);
+        && optMap(d, 'arenaIncidents', 10)
+        // Arena classes judged without timing (arenaRules.js ARENA_JUDGING)
+        && optBool(d, 'judged') && optBool(d, 'approved');
+    }
+
+    function optBool(data, key) {
+      return data.get(key, null) == null || data.get(key, null) is bool;
     }
 
     // rounds.phase2 and rounds.driveOff, the same fields as the top level

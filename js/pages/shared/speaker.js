@@ -81,6 +81,7 @@ import {
     speakerLeaderboardRanks
 } from './speakerFormatUtils.js';
 import { getCurrentLanguage, t, precisionLabel, isArenaLabelContext } from '../../utils/i18n.js';
+import { arenaJudgingCell, isUnplacedArena } from '../../utils/arenaJudgingView.js';
 import { isVetStrikePending, vetStrikeChipHtml } from '../../ui/vetStrikeChip.js';
 import { mergeUserRoles } from '../../utils/roleAccess.js';
 import { publishedStartTimes } from '../../utils/publishedStartTimes.js';
@@ -1454,7 +1455,11 @@ function renderCurrentRiderCard() {
             : '';
         // The shown round's figures (phase 1: the top-level result)
         const shown = round === 'phase1' ? calcData : (roundCalc || {});
-        const shownScoreText = round === 'phase1'
+        // Arena approval / participation: the status instead of a score, no place
+        const noPlaceArena = round === 'phase1' && isUnplacedArena(calcData);
+        const shownScoreText = noPlaceArena
+            ? arenaJudgingCell(calcData)
+            : round === 'phase1'
             ? formatSpeakerPenalty(calcData.totalPenalty, { eliminated: calcData.eliminated })
             : (shown.eliminated ? 'ELIM'
                 : (shown.scoring === 'time' ? formatPrecisionSeconds(shown.totalPenalty ?? 0) : formatSpeakerPenalty(shown.totalPenalty ?? 0)));
@@ -1563,7 +1568,7 @@ function renderCurrentRiderCard() {
                 <div class="bg-blue-50 dark:bg-blue-900/30 p-2 rounded-lg text-center shadow-sm border border-blue-100 dark:border-blue-800 col-span-2 relative overflow-hidden">
                     <div class="text-xs uppercase tracking-wide text-blue-800 dark:text-blue-300 font-bold">${round === 'phase1' ? 'Totalt Straff' : escapeHtml(precisionRoundLabel(round, eqFormat))}${roundBadgeHtml && round === 'phase1' ? roundBadgeHtml : ''}</div>
                     <div id="precision-live-total" class="text-3xl font-black text-brand-darkblue dark:text-blue-200 leading-none py-1">${escapeHtml(shownScoreText)}</div>
-                    ${!calcData.eliminated ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-xs font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Plac: ${myRank}</div>` : ''}
+                    ${!calcData.eliminated && !noPlaceArena ? `<div class="absolute top-1 right-1 bg-white/80 dark:bg-gray-800/80 backdrop-blur px-2 py-0.5 rounded text-xs font-bold text-gray-600 dark:text-gray-300 shadow-sm border border-gray-200 dark:border-gray-700">Plac: ${myRank}</div>` : ''}
                     ${gapHtml}
                 </div>
 

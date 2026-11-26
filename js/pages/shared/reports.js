@@ -47,6 +47,7 @@ import { getVetInspections, getVetNotes } from '../../services/vetInspectionServ
 
 import { calculateMarathonResult, setMarathonConfig, buildMergeMap, ensureMergeDecorations, prepareMarathonResults } from '../../utils/marathonUtils.js';
 import { getCalculatedRowData, buildPlaceMap } from '../../utils/precisionUtils.js';
+import { arenaJudgingCell, isUnplacedArena } from '../../utils/arenaJudgingView.js';
 import { calculateTeamResults } from '../../services/teamCalculationService.js';
 import { calculateDressageResult, calculateTotalResult } from '../../services/calculationService.js';
 import { assignPlaces, compareTotalRank, totalRankKey } from '../../core-engine/ranking.js';
@@ -1007,7 +1008,8 @@ window.reports_generatePrecisionCsv = function () {
             p.timeMs ? (p.timeMs / 1000).toFixed(2).replace('.', ',') : '',
             formatReportCsvPenalty(p.timePenalty, { eliminated: p.eliminated }),
             p.knocksCount !== undefined ? p.knocksCount : '',
-            formatReportCsvPenalty(p.totalPenalty, { eliminated: p.eliminated })
+            // Arena approval / participation: the status instead of a total
+            isUnplacedArena(p) && !p.eliminated ? arenaJudgingCell(p) : formatReportCsvPenalty(p.totalPenalty, { eliminated: p.eliminated })
         ];
     });
     downloadCsv(`precision_resultat_${competitionId}.csv`, headers, rows);

@@ -53,6 +53,15 @@ export const ARENA_DRIVE_OFF_TIMING = ['fromZero', 'added'];
 /** Obstacle types on an arena course (FEI WC 4.1, 4.5) */
 export const ARENA_OBSTACLE_TYPES = ['cone', 'marathon', 'bridge', 'speedBox'];
 
+// How a class is judged (the organiser's choice per class, e.g. an open
+// class without timing):
+//   timed          time + penalty seconds, placings, drive-offs (default)
+//   faults         knocks and incidents in seconds without a time; placed on
+//                  them, equal = shared place; no drive-off
+//   participation  nothing entered; listed as taken part, no placing
+//   approval       the judge marks approved / not approved; no placing
+export const ARENA_JUDGING = ['timed', 'faults', 'participation', 'approval'];
+
 /** The rounds of an arena class in driving order */
 export const ARENA_ROUNDS = ['phase1', 'driveOff', 'phase2', 'driveOff2'];
 
@@ -76,12 +85,15 @@ const oneOf = (value, allowed, fallback) => (allowed.includes(value) ? value : f
  *   driveOff2Timing 'added' | 'fromZero' (FEI: added unless the schedule says
  *                 from zero, 5.3.2/5.3.3)
  *   obstacles     [{ label, type }] the course (labels for the knock buttons)
+ *   judging       ARENA_JUDGING; other than 'timed': one competition, no drive-off
  */
 export function normalizeArenaSettings(raw = {}) {
     const r = raw && typeof raw === 'object' ? raw : {};
     const rules = oneOf(r.rules, ARENA_RULE_SETS, 'FEI');
     const fei = rules === 'FEI';
-    const competitions = Number(r.competitions) === 2 ? 2 : 1;
+    const judging = oneOf(r.judging, ARENA_JUDGING, 'timed');
+    const untimed = judging !== 'timed';
+    const competitions = !untimed && Number(r.competitions) === 2 ? 2 : 1;
 
     const incidentSec = {};
     for (const key of ARENA_INCIDENT_KEYS) {
@@ -93,6 +105,7 @@ export function normalizeArenaSettings(raw = {}) {
     // FEI WC 5.2: a Leg's Competition 1 has a Drive-Off 1; from zero for the
     // best three, added to the first round when open to all (5.2.2)
     if (fei && driveOff1 === 'none') driveOff1 = 'top3';
+    if (untimed) driveOff1 = 'none';
     if (fei) driveOff1Timing = driveOff1 === 'all' ? 'added' : 'fromZero';
 
     let driveOff2 = competitions === 2 ? oneOf(r.driveOff2, ['none', 'top3'], 'top3') : 'none';
@@ -118,7 +131,8 @@ export function normalizeArenaSettings(raw = {}) {
         driveOff1Timing,
         driveOff2,
         driveOff2Timing: driveOff2 === 'none' ? 'added' : driveOff2Timing,
-        obstacles
+        obstacles,
+        judging
     };
 }
 

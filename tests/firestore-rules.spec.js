@@ -1789,6 +1789,13 @@ test('arena driving: incidents per round and Drive-Off 2 are allowed, with limit
   await assertSucceeds(setDoc(ref, { rounds: { driveOff2: { knocks: arrayUnion('H1'), arenaIncidents: { whipChange: 1 }, running: false, timeMs: 45000, status: 'Klar' } } }, { merge: true }));
   await assertSucceeds(setDoc(ref, { rounds: { phase2: { arenaIncidents: { groomReins: 1 } } } }, { merge: true }));
 
+  // Classes judged without timing: judged (faults) and approved (approval)
+  await assertSucceeds(setDoc(ref, { judged: true, inProgress: false, updatedAt: Date.now() }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { approved: false, judged: false }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { approved: null }, { merge: true }));
+  await assertFails(setDoc(ref, { judged: 'yes' }, { merge: true }));
+  await assertFails(setDoc(ref, { approved: 1 }, { merge: true }));
+
   await assertFails(setDoc(ref, { arenaIncidents: 'x' }, { merge: true }));
   await assertFails(setDoc(ref, { arenaIncidents: Object.fromEntries(Array.from({ length: 11 }, (_, i) => [`k${i}`, 1])) }, { merge: true }));
   await assertFails(setDoc(ref, { rounds: { driveOff2: { arenaIncidents: 'x' } } }, { merge: true }));

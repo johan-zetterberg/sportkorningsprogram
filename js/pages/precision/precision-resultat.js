@@ -703,7 +703,7 @@ function renderLiveStatusPanel() {
   // Arena: every round is scored in seconds (time + penalty seconds), also the first
   const arena = format === 'arena';
   const roundPenaltyLabel = (liveRound !== 'phase1' || arena) && Number.isFinite(liveRoundResult?.totalPenalty)
-    ? (liveRoundResult.scoring === 'time' ? formatPrecisionSeconds(liveRoundResult.totalPenalty) : `${liveRoundResult.totalPenalty.toFixed(2)} p`)
+    ? (liveRoundResult.scoring === 'time' || liveRoundResult.scoring === 'faults' ? formatPrecisionSeconds(liveRoundResult.totalPenalty) : `${liveRoundResult.totalPenalty.toFixed(2)} p`)
     : null;
   const arenaRoundLabel = arena
     ? t(precisionRoundLabelKey(liveRound, 'arena', { competitions: getArenaSettings(activeEq, precision_precisionConfig || {}).competitions }))

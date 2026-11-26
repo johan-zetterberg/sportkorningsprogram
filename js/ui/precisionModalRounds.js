@@ -29,6 +29,7 @@ export function buildPrecisionModalRoundRows(result, format, { tr = t } = {}) {
     const driven = !!r && (r.hasData || r.live) && !(r.configMissing && !r.live);
     let penalty = '–';
     if (driven && r.scoring === 'time' && isNum(r.penaltySec)) penalty = formatPrecisionSeconds(r.penaltySec);
+    else if (driven && isNum(r.totalPenalty) && r.scoring === 'faults') penalty = formatPrecisionSeconds(r.totalPenalty);
     else if (driven && isNum(r.totalPenalty) && r.scoring !== 'time') penalty = formatPrecisionPoints(r.totalPenalty);
     return {
       round,

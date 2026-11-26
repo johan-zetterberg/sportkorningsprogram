@@ -29,11 +29,15 @@ export function parsePrecisionObstacleLabels(value) {
 // obstacle list. row.arena = { rules, knockSec, incidentSec: { key: raw }, obstacles: [{ label, type }] }
 export function validatePrecisionArenaSettings(arena = {}) {
   const errors = [];
+  // Participation / approval classes have no obstacles and no penalty seconds
+  const noCourse = arena.judging === 'participation' || arena.judging === 'approval';
   const labels = (Array.isArray(arena.obstacles) ? arena.obstacles : [])
     .map(o => String(o?.label ?? '').trim())
     .filter(Boolean);
 
-  if (!labels.length) {
+  if (noCourse) {
+    // nothing to check
+  } else if (!labels.length) {
     addError(errors, 'arenaObstacles', 'Banan saknar hinder. Lägg till minst ett hinder med namn.');
   } else {
     if (labels.some(label => label.includes('#'))) {
@@ -55,7 +59,7 @@ export function validatePrecisionArenaSettings(arena = {}) {
   }
 
   // The FEI seconds are fixed; TR's are the organiser's
-  if (arena.rules === 'TR') {
+  if (arena.rules === 'TR' && !noCourse) {
     const values = [arena.knockSec, ...Object.values(arena.incidentSec || {})];
     const invalid = values.some((value) => {
       const number = parseNumber(value);

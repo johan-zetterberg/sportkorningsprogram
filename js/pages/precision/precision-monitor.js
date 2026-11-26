@@ -254,7 +254,7 @@ function roundViewOf(eq, data, live, round) {
 // The total as written for a round: penalty points, or seconds for a time round
 function roundScoreText(view, total, eliminated) {
     if (eliminated || total === Infinity) return 'ELIM';
-    if (view.scoring === 'time') return formatPrecisionSeconds(Number.isFinite(total) ? total : 0);
+    if (view.scoring === 'time' || view.scoring === 'faults') return formatPrecisionSeconds(Number.isFinite(total) ? total : 0);
     return formatPrecisionMonitorPenalty(total, { eliminated: false });
 }
 

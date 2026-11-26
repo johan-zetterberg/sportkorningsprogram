@@ -25,6 +25,8 @@ import {
 } from '../../core-engine/ranking.js';
 import { getPrograms } from '../../utils/dressageUtils.js';
 import { calculateTotalResult } from '../../services/calculationService.js';
+import { calculatePrecisionResult } from '../../utils/precisionCalculation.js';
+import { arenaJudgingCell, arenaJudgingOf } from '../../utils/arenaJudgingView.js';
 import { setMarathonConfig, buildMergeMap, ensureMergeDecorations } from '../../utils/marathonUtils.js';
 import { getFlagHtml } from '../../services/flagsService.js';
 import { ensureClubLogosLoaded } from '../../services/logosService.js';
@@ -332,7 +334,14 @@ function recalcAndRender() {
         const pCalc = precisionResults.has(sn) ? res.precision : null;
         const dPen = res.dressageComplete ? dRes.penalty : null;
         const mPen = res.marathonComplete ? mRes.totalPenalty : null;
-        const pPen = res.precisionComplete ? pCalc.totalPenalty : null;
+        // Arena without timing: faults are placed once judged (the total never counts them);
+        // approval / participation are listed with their status instead of a place
+        const arenaRes = activeDiscipline === 'precision' ? calculatePrecisionResult(pData, eq, precisionConfig) : null;
+        const arenaJudging = arenaJudgingOf(arenaRes);
+        const judgingText = arenaJudging === 'approval' || arenaJudging === 'participation' ? arenaJudgingCell(arenaRes) : '';
+        const pPen = arenaJudging === 'faults'
+            ? (arenaRes.status === 'Klar' && Number.isFinite(arenaRes.totalPenalty) ? arenaRes.totalPenalty : null)
+            : (res.precisionComplete ? pCalc.totalPenalty : null);
 
         let displayScore = null;
         let isEliminated = false;
@@ -365,6 +374,7 @@ function recalcAndRender() {
             ...eq,
             dPen, mPen, pPen,
             mRes, pCalc,
+            judgingText,
             isClearRound: res.isClearRound === true,
             score: displayScore,
             isEliminated,
@@ -518,7 +528,7 @@ function renderPodiumList(rows, container) {
 
     if (others.length > 0) {
         others.forEach(row => {
-            const status = getPrizeGivingStatus(row);
+            const status = row.judgingText || getPrizeGivingStatus(row);
             html += `
              <div class="flex justify-between items-center text-sm p-2 px-3 rounded-lg bg-white dark:bg-gray-800 border border-gray-100 dark:border-gray-700">
                 <div class="flex gap-2 items-center min-w-0">

@@ -951,6 +951,7 @@ function arenaRoundResult(roundDoc, round, equipage, config, settings, { topFina
  */
 function calculateArenaResult(d, equipage, config, options = {}) {
     const settings = getArenaSettings(equipage, config);
+    if (settings.judging !== 'timed') return calculateUntimedArenaResult(d, equipage, settings, options);
     const driven = new Set(arenaRoundsOf(settings));
     const p1 = arenaRoundResult(d, 'phase1', equipage, config, settings);
     const roundOf = (key) => {
@@ -1008,6 +1009,110 @@ function calculateArenaResult(d, equipage, config, options = {}) {
         // Competition 1's first round; the drive-off tiers come from arenaGroupContext
         placing: placeable
             ? { tier: 4, stage: 'phase1', penalty: p1.score, timeMs: null, provisional: p1.running === true, unfinished: p1.running === true }
+            : { tier: null, stage: 'none', penalty: null, timeMs: null, provisional: false, unfinished: false }
+    };
+}
+
+/**
+ * An arena class judged without timing (settings.judging, arenaRules.js):
+ *   faults         score = the penalty seconds of knocks and incidents (and
+ *                  an extra penalty); decided when the round is marked judged
+ *                  (doc.judged), placed on the score, equal = shared place
+ *   approval       doc.approved true / false; no placing
+ *   participation  nothing entered; no placing
+ * One competition, no drive-off. Shaped as calculateArenaResult so the
+ * ranking (core-engine/ranking.js) and the pages read it the same way.
+ */
+function calculateUntimedArenaResult(d, equipage, settings, options = {}) {
+    const judging = settings.judging;
+    const incidents = arenaIncidentPenalty(d, settings);
+    const knocks = Array.isArray(d.knocks) ? d.knocks.slice() : [];
+    const obstaclePenalty = round2(knocks.length * settings.knockSec);
+    const extraPenalty = isNum(d.extraPenalty) ? round2(d.extraPenalty) : null;
+    const incidentSec = isNum(incidents.sec) ? incidents.sec : 0;
+    const eliminated = d.eliminated === true || incidents.eliminated === true;
+    const retired = d.retired === true;
+    const isClearRound = options.isClearRound === true;
+    const faults = judging === 'faults';
+
+    const approval = judging === 'approval' && typeof d.approved === 'boolean' ? d.approved : null;
+    const judged = faults ? d.judged === true : approval !== null;
+    const out = eliminated || retired;
+    const penaltySec = round2((obstaclePenalty || 0) + incidentSec + (extraPenalty || 0));
+    // The faults so far count while the judge enters them; the round is
+    // decided when marked judged
+    const score = faults && !out && (judged || knocks.length > 0 || incidentSec > 0) ? penaltySec : null;
+    const hasData = judged || knocks.length > 0 || incidentSec > 0 || out;
+    const finished = faults ? judged && !out && isNum(score) : judged;
+
+    let status = 'Ej startat';
+    if (equipage?.status === 'struken') status = 'Struken';
+    else if (eliminated) status = 'Utesluten';
+    else if (retired) status = 'Utgått';
+    else if (finished) status = 'Klar';
+    else if (hasData) status = 'Pågår';
+
+    const common = {
+        finalized: d.finalized === true,
+        eliminated,
+        autoEliminated: false,
+        running: false,
+        status,
+        timeMs: null,
+        drivenTimeMs: null,
+        rebuildCount: 0,
+        addedTimeMs: 0,
+        liveMs: null,
+        finalMs: null,
+        knocks,
+        knockDownTimes: d.knockDownTimes || {},
+        knocksCount: knocks.length,
+        obstaclePenalty,
+        timePenalty: null,
+        extraPenalty,
+        incidentPenalty: round2(incidentSec),
+        arenaIncidents: incidents.counts,
+        score,
+        penaltySec,
+        totalPenalty: score
+    };
+    const phase1 = {
+        ...common,
+        round: 'phase1',
+        scoring: 'faults',
+        retired,
+        hasData: true,
+        live: false,
+        out: hasData && out,
+        finished,
+        decided: finished || (hasData && out),
+        approval
+    };
+    const placeable = faults && !isClearRound && finished;
+    return {
+        ...common,
+        ruleProfile: settings.rules,
+        precisionFormat: 'arena',
+        arenaJudging: judging,
+        approval,
+        judged,
+        formatUnsupported: false,
+        formatExcludesTotal: true,
+        timeDiffFromAllowed: Infinity,
+        maxTimeSec: null,
+        timePenaltyRate: null,
+        timePenaltyOverride: false,
+        configMissing: false,
+        isClearRound,
+        activeRound: 'phase1',
+        rounds: { phase1, driveOff: null, phase2: null, driveOff2: null },
+        arena: { settings, rounds: ['phase1'] },
+        phase2Qualified: false,
+        phase2Ignored: false,
+        driveOffScheduled: false,
+        formatWarnings: [],
+        placing: placeable
+            ? { tier: 4, stage: 'phase1', penalty: score, timeMs: null, provisional: false, unfinished: false }
             : { tier: null, stage: 'none', penalty: null, timeMs: null, provisional: false, unfinished: false }
     };
 }

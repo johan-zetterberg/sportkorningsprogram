@@ -127,6 +127,8 @@ let knockDownTimes = {}; // NY: { "3A": 12345, ... }
 let extraPenalty = 0;
 let comment = '';
 let rebuildCount = 0; // obstacle rebuilds, +10 s each (stored doc's rebuildCount)
+let judgedState = false; // arena 'faults': the judge pressed Done
+let approvedState = null; // arena 'approval': true / false / null (not yet)
 let arenaIncidents = arenaIncidentCounts(null); // arena: the incident counts of the round shown
 
 let timerInterval = null;
@@ -193,6 +195,8 @@ function isArena(eq = currentEquipage) {
     return !!eq && equipageFormat(eq) === 'arena';
 }
 const arenaSettingsOf = (eq = currentEquipage) => getArenaSettings(eq, precisionConfig);
+// 'timed' | 'faults' | 'participation' | 'approval' ('timed' for every other class)
+const judgingOf = (eq = currentEquipage) => (isArena(eq) ? (arenaSettingsOf(eq).judging || 'timed') : 'timed');
 
 // The rounds the equipage's class drives, in order
 function roundsFor(eq = currentEquipage) {
@@ -711,16 +715,16 @@ function renderLayout() {
             })}
 
             <!-- STICKY KONTROLLPANEL -->
-            <div class="sticky-precision-controls rounded-b-xl shadow-lg mb-4">
+            <div class="sticky-precision-controls pr-nofaults-hide rounded-b-xl shadow-lg mb-4">
                 <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                     <div class="flex-grow min-w-0">
-                        <div id="pr-liveTimer" role="button" tabindex="0" data-kbd-click class="text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
+                        <div id="pr-liveTimer" role="button" tabindex="0" data-kbd-click class="pr-untimed-hide text-3xl md:text-5xl font-black tabular-nums cursor-pointer dark:text-white leading-none" title="${t('precision_click_to_change_time')}">00:00,00</div>
                         <div class="text-xs md:text-sm mt-1 flex items-center gap-1">
                             <span id="pr-lblTimeTop" class="text-gray-500 dark:text-gray-400">${t('precision_time_error')}</span>
                             <span id="pr-uiTimePenaltyTop" class="tabular-nums font-bold dark:text-gray-200">0.00</span>
                         </div>
                         <div id="pr-clockWarning" role="alert" class="hidden mt-1 text-xs md:text-sm font-semibold text-amber-800 dark:text-amber-200"></div>
-                        <div class="mt-2 flex items-center gap-2">
+                        <div class="pr-untimed-hide mt-2 flex items-center gap-2">
                             <button id="pr-btnRebuildAdd" type="button" class="min-h-[44px] px-3 rounded-lg border border-amber-400 bg-amber-50 text-amber-900 text-sm font-bold active:scale-95 hover:bg-amber-100 dark:bg-amber-900/30 dark:border-amber-700 dark:text-amber-100" aria-label="${escapeHtml(t('precision_rebuild_add_aria'))}" title="${escapeHtml(t('precision_rebuild_add_aria'))}">${escapeHtml(t('precision_rebuild_add'))}</button>
                             <button id="pr-btnRebuildUndo" type="button" class="hidden min-h-[44px] min-w-[44px] px-3 rounded-lg border text-sm font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200" aria-label="${escapeHtml(t('precision_rebuild_undo_aria'))}" title="${escapeHtml(t('precision_rebuild_undo_aria'))}">−1</button>
                             <span id="pr-rebuildInfo" class="text-sm font-bold tabular-nums text-amber-700 dark:text-amber-300"></span>
@@ -728,7 +732,7 @@ function renderLayout() {
                         <button id="pr-btnPhase1Finish" type="button" disabled class="hidden mt-2 w-full sm:w-auto min-h-[44px] px-4 rounded-lg bg-blue-600 text-white text-base font-bold shadow-sm active:scale-95 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed disabled:active:scale-100">${t('precision_phase1_finish')}</button>
                     </div>
                     <div class="precision-control-strip ${isFieldMode ? 'is-field' : 'is-live'} flex gap-2 sm:shrink-0">
-                        <div class="precision-primary-controls flex gap-2">
+                        <div class="precision-primary-controls pr-untimed-hide flex gap-2">
                         ${isFieldMode
                             ? `<button id="pr-btnManualOpen" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-32 md:w-36 py-3 text-base md:text-lg font-bold rounded-lg bg-brand-darkblue text-white shadow-sm active:scale-95 transition-all hover:bg-brand-gold hover:text-brand-darkblue">Ange tid</button>`
                             : `<button id="pr-btnStart" class="precision-action-btn precision-main-btn flex-1 sm:flex-none w-full sm:w-20 md:w-28 py-3 text-base md:text-lg font-bold rounded-lg bg-emerald-600 text-white shadow-sm active:scale-95 transition-all hover:bg-emerald-700 aria-disabled:opacity-40">${t('precision_start')}</button>
@@ -775,7 +779,7 @@ function renderLayout() {
                 </div>
 
                 <!-- HINDERGRUPP -->
-                <div>
+                <div class="pr-nofaults-hide">
                     <div class="flex items-center justify-between mb-2">
                         <h3 class="font-bold uppercase text-xs tracking-widest text-gray-500 dark:text-gray-400">${t('precision_obstacles_gates')}</h3>
                         <span id="pr-uiObstaclePenaltySummary" class="text-xs font-bold text-red-600 dark:text-red-400"></span>
@@ -787,8 +791,11 @@ function renderLayout() {
                 <!-- ARENA: incidenter (sekunder) -->
                 <div id="pr-arenaIncidents" class="hidden"></div>
 
+                <!-- ARENA: bedömning utan tid (fel / godkänd / deltagande) -->
+                <div id="pr-judgingPanel" class="hidden"></div>
+
                 <!-- EXTRA / KOMMENTAR -->
-                <div class="pt-4 border-t dark:border-gray-700">
+                <div class="pr-nofaults-hide pt-4 border-t dark:border-gray-700">
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label id="pr-lblExtraInput" for="pr-extraPenaltyInput" class="block text-[10px] uppercase font-bold text-gray-500 dark:text-gray-400 mb-1">${t('precision_extra_penalty')}</label>
@@ -808,8 +815,8 @@ function renderLayout() {
                 </div>
         
                 <!-- SAMMANFATTNING -->
-                <div id="pr-penaltySummary" class="flex flex-wrap gap-2 text-[10px] uppercase font-bold">
-                    <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
+                <div id="pr-penaltySummary" class="pr-nofaults-hide flex flex-wrap gap-2 text-[10px] uppercase font-bold">
+                    <div class="pr-untimed-hide flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
                         <span id="pr-lblTime">${t('precision_time_label')}</span><span id="pr-uiTimePenalty" class="tabular-nums dark:text-gray-200">0.00</span>
                     </div>
                     <div class="flex-grow rounded bg-gray-100 px-2 py-1 dark:bg-gray-700/50 text-gray-600 dark:text-gray-400 flex justify-between">
@@ -828,7 +835,7 @@ function renderLayout() {
 
                 <!-- ÅTGÄRDER -->
                 <div class="flex flex-col gap-3 pt-2">
-                    <button id="pr-btnSave" class="w-full text-lg py-4 bg-emerald-600 text-white font-bold rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all">${t('precision_save_results')}</button>
+                    <button id="pr-btnSave" class="pr-untimed-hide w-full text-lg py-4 bg-emerald-600 text-white font-bold rounded-xl shadow-lg hover:bg-emerald-700 active:scale-[0.98] transition-all">${t('precision_save_results')}</button>
                     <button id="pr-btnRetire" type="button" class="hidden w-full min-h-[44px] py-3 border-2 border-amber-500 text-amber-800 dark:text-amber-200 font-bold rounded-xl hover:bg-amber-50 dark:hover:bg-amber-900/20">${t('precision_driveoff_retire')}</button>
                     <button id="pr-btnBackupPreJson" type="button" class="min-h-[44px] text-[10px] text-gray-500 hover:text-blue-500 flex items-center justify-center gap-1">
                         <i class="fas fa-file-download"></i> EXPORTERA JSON (BACKUP)
@@ -856,6 +863,76 @@ function applyFormatLayout() {
     setLabel('pr-lblExtraInput', 'arena_input_other');
     setLabel('pr-lblTotal', 'arena_input_result');
     document.querySelectorAll('#page-precision-input .pr-arena-hide').forEach((el) => el.classList.toggle('hidden', arena));
+    // Untimed arena judging: no clock / time; approval and participation show no penalty parts either
+    const judging = judgingOf();
+    document.querySelectorAll('#page-precision-input .pr-untimed-hide').forEach((el) => el.classList.toggle('hidden', judging !== 'timed'));
+    const noFaults = judging === 'approval' || judging === 'participation';
+    document.querySelectorAll('#page-precision-input .pr-nofaults-hide').forEach((el) => el.classList.toggle('hidden', noFaults));
+    renderJudgingPanel();
+}
+
+// ---------- Arena without a clock: faults / approval / participation ----------
+
+function renderJudgingPanel() {
+    const host = document.getElementById('pr-judgingPanel');
+    if (!host) return;
+    const judging = judgingOf();
+    if (!currentEquipage || judging === 'timed') {
+        host.classList.add('hidden');
+        host.innerHTML = '';
+        return;
+    }
+    const big = 'w-full min-h-[56px] rounded-xl border-2 text-lg font-bold active:scale-[0.98] transition-all';
+    const hint = (key) => `<p class="text-sm text-gray-600 dark:text-gray-300">${escapeHtml(t(key))}</p>`;
+    let html = '';
+    if (judging === 'faults') {
+        html = judgedState
+            ? `${hint('arena_input_faults_hint')}
+               <div role="status" class="rounded-xl border-2 border-emerald-500 bg-emerald-50 px-3 py-3 text-center text-lg font-bold text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-100">${escapeHtml(t('arena_input_judged_done'))}</div>
+               <button type="button" data-judging-action="unjudge" class="min-h-[44px] w-full rounded-lg border text-sm font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">${escapeHtml(t('arena_input_judged_undo'))}</button>`
+            : `${hint('arena_input_faults_hint')}
+               <button type="button" data-judging-action="judge" class="${big} border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700">${escapeHtml(t('arena_input_judged_btn'))}</button>`;
+    } else if (judging === 'approval') {
+        const on = 'border-transparent text-white';
+        const off = 'bg-white dark:bg-gray-700 dark:text-white';
+        html = `${hint('arena_input_approval_hint')}
+            <div class="grid grid-cols-2 gap-3">
+                <button type="button" data-judging-action="approve" aria-pressed="${approvedState === true}" class="${big} ${approvedState === true ? `${on} bg-emerald-600` : `${off} border-emerald-600 text-emerald-700`}">${escapeHtml(t('arena_input_approved'))}</button>
+                <button type="button" data-judging-action="reject" aria-pressed="${approvedState === false}" class="${big} ${approvedState === false ? `${on} bg-red-600` : `${off} border-red-600 text-red-700`}">${escapeHtml(t('arena_input_not_approved'))}</button>
+            </div>
+            <button type="button" data-judging-action="clear-approval" ${approvedState === null ? 'disabled' : ''} class="min-h-[44px] w-full rounded-lg border text-sm font-bold text-gray-700 bg-gray-50 hover:bg-gray-100 disabled:opacity-30 dark:bg-gray-700 dark:border-gray-600 dark:text-gray-200">${escapeHtml(t('arena_input_approval_clear'))}</button>`;
+    } else {
+        html = hint('arena_input_participation_hint');
+    }
+    host.innerHTML = `<div class="space-y-3">${html}</div>`;
+    host.classList.remove('hidden');
+}
+
+// Done / undo / approved / not approved: merge-written on the doc's top level
+// (phase 1; a non-timed class has one competition) through pushLiveSafe
+async function setJudgingState(action) {
+    const equipage = currentEquipage;
+    const judging = judgingOf(equipage);
+    if (!equipage || judging === 'timed') return;
+    let update;
+    if (judging === 'faults' && (action === 'judge' || action === 'unjudge')) {
+        if (action === 'judge') {
+            const commentValue = document.getElementById('pr-commentInput')?.value?.trim() || '';
+            update = { judged: true, inProgress: false, running: false, status: 'Klar', ...(commentValue ? { comment: commentValue } : {}) };
+            inProgress = false;
+        } else {
+            update = { judged: false, status: 'Pågår' };
+        }
+        judgedState = update.judged;
+    } else if (judging === 'approval' && ['approve', 'reject', 'clear-approval'].includes(action)) {
+        update = { approved: action === 'approve' ? true : (action === 'reject' ? false : null) };
+        approvedState = update.approved;
+    } else {
+        return;
+    }
+    renderJudgingPanel();
+    const result = await pushLiveSafe(update);
+    if (result === 'queued') showAlert(`${t('precision_save_success')}${queuedNotice(result)}`, 'offline');
 }
 
 function updateHeaderInfo() {
@@ -1059,7 +1136,7 @@ async function arenaKnock(label, add) {
 function renderArenaIncidents() {
     const host = document.getElementById('pr-arenaIncidents');
     if (!host) return;
-    if (!isArena()) {
+    if (!isArena() || judgingOf() === 'approval' || judgingOf() === 'participation') {
         host.classList.add('hidden');
         host.innerHTML = '';
         return;
@@ -1259,6 +1336,7 @@ function refusalText(reason) {
 let clockStartedHereFor = null;
 
 function startTimer() {
+    if (judgingOf() !== 'timed') return; // no clock in an untimed arena class
     // Städa upp ev. gammalt interval
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     if (isRunning) return;
@@ -1365,6 +1443,13 @@ function resetTimer() {
     knockDownTimes = {};
     rebuildCount = 0;
     arenaIncidents = arenaIncidentCounts(null);
+    // An arena class judged without timing: Done and approval go too
+    const untimedPhase1 = isArena() && judgingOf() !== 'timed' && currentRound === 'phase1';
+    if (untimedPhase1) {
+        judgedState = false;
+        approvedState = null;
+        renderJudgingPanel();
+    }
     renderRebuildInfo();
     renderArenaIncidents();
 
@@ -1397,6 +1482,7 @@ function resetTimer() {
         knockDownTimes: {},
         rebuildCount: 0,
         ...(isArena() ? { arenaIncidents: arenaIncidentCounts(null) } : {}),
+        ...(untimedPhase1 ? { judged: false, approved: null } : {}),
         finalized: false,
         ...(currentRound !== 'phase1' ? { retired: false } : {}),
         // The saved time and comment of the round being reset go too
@@ -1429,6 +1515,8 @@ function applyLiveDocToState(data = null) {
     comment = String(payload.comment || '');
     rebuildCount = precisionRebuildCount(payload);
     arenaIncidents = arenaIncidentCounts(payload);
+    judgedState = payload.judged === true;
+    approvedState = typeof payload.approved === 'boolean' ? payload.approved : null;
     renderRebuildInfo();
     inProgress = payload.inProgress === true || payload.running === true || storedTimeMs > 0;
     // Running without a usable start (missing, in the future, far too long
@@ -1774,6 +1862,8 @@ function resetSelectionUi() {
     comment = '';
     rebuildCount = 0;
     arenaIncidents = arenaIncidentCounts(null);
+    judgedState = false;
+    approvedState = null;
     renderRebuildInfo();
     clearFormDirty();
     wireFormDirtyTracking();
@@ -1906,6 +1996,7 @@ async function autoSelectRunningDriver() {
 }
 
 async function saveFinal() {
+    if (judgingOf() !== 'timed') return; // an untimed arena class is judged with Done / approval
     if (!currentEquipage) {
         showAlert(t('precision_select_equipage_first') || 'Välj ekipage först.', false);
         return;
@@ -2166,6 +2257,10 @@ export async function load() {
             if (knock) { arenaKnock(knock.dataset.arenaKnock, true); return; }
             const undo = e.target.closest('[data-arena-undo]');
             if (undo) arenaKnock(undo.dataset.arenaUndo, false);
+        });
+        document.getElementById('pr-judgingPanel')?.addEventListener('click', (e) => {
+            const btn = e.target.closest('[data-judging-action]');
+            if (btn) setJudgingState(btn.dataset.judgingAction);
         });
         document.getElementById('pr-arenaIncidents')?.addEventListener('click', (e) => {
             const btn = e.target.closest('[data-arena-incident]');

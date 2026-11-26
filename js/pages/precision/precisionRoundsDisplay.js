@@ -96,7 +96,7 @@ export function formatPrecisionRoundCell(r, { tr = t } = {}) {
   }
   if (r.live) {
     const score = isNum(r.totalPenalty)
-      ? (r.scoring === 'time' ? formatPrecisionSeconds(r.totalPenalty) : formatPrecisionPoints(r.totalPenalty))
+      ? (r.scoring === 'time' || r.scoring === 'faults' ? formatPrecisionSeconds(r.totalPenalty) : formatPrecisionPoints(r.totalPenalty))
       : '';
     return { text: tr('precision_round_live'), sub: score, tone: 'live', title: '' };
   }
@@ -104,6 +104,8 @@ export function formatPrecisionRoundCell(r, { tr = t } = {}) {
     return { text: r.eliminated ? 'ELIM' : tr('precision_round_retired'), sub: '', tone: 'elim', title: '' };
   }
   if (r.hasData && isNum(r.totalPenalty)) {
+    // Arena without timing: the faults in seconds (the score is the penalty itself)
+    if (r.scoring === 'faults') return { text: formatPrecisionSeconds(r.totalPenalty), sub: '', tone: 'ok', title: '' };
     if (r.scoring === 'time') {
       const sub = isNum(r.penaltySec) && r.penaltySec > 0
         ? `${formatPrecisionSeconds(r.penaltySec)} ${tr('precision_round_penalty_word')}`
